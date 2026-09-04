@@ -137,7 +137,17 @@ fn golden_ir_for_transfer() {
         .collect();
     assert_eq!(
         kinds,
-        vec!["IntentResolve", "Lock", "Release", "AtomicBegin", "Swap", "AtomicEnd"]
+        vec![
+            "IntentResolve",
+            "Lock",
+            "Release",
+            "AtomicBegin",
+            "Swap",
+            "AtomicEnd",
+            "Other",
+            "Release",
+            "Other"
+        ]
     );
 }
 

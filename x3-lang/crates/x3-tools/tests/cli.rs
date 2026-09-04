@@ -47,6 +47,8 @@ const GOOD_SOURCE: &str = r#"intent arb_solana_eth {
     route {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777
     }
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
 }
 "#;
 

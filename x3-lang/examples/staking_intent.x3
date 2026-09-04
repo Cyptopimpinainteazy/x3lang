@@ -1,0 +1,15 @@
+intent cross_vm_stake {
+    from ethereum.ETH amount 10
+    to solana.stakedSOL receiver vault
+
+    route {
+        bridge X3 ethereum.ETH -> solana.stakedSOL receiver vault
+    }
+
+    require finality.ethereum >= 32
+    require finality.solana >= 32
+    require route_score >= 85
+
+    timeout 300s
+    on_fail rollback
+}

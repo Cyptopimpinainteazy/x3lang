@@ -1,0 +1,19 @@
+intent proven_swap {
+    from ethereum.USDC amount 1000 sender 0xsender
+    to solana.SOL receiver 0xreceiver
+
+    route {
+        bridge x3 ethereum.USDC -> solana.SOL amount 1000
+    }
+
+    proofs required {
+        source_lock_proof
+        source_finality_proof
+        destination_fill_proof
+        destination_finality_proof
+        solver_signature
+    }
+
+    timeout 3600s
+    on_fail refund sender 0xsender
+}

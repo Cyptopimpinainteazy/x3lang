@@ -247,6 +247,18 @@ impl<'a> Parser<'a> {
             Tok::KwScheduled => self.parse_scheduled_item(),
             Tok::KwIntent => self.parse_intent_item(),
             Tok::KwSubscription => self.parse_subscription_item(),
+            // B-52 feature lock items
+            Tok::Ident(ref s) if s == "solver_market" => self.parse_solver_market_item(),
+            Tok::Ident(ref s) if s == "relayers" => self.parse_relayer_swarm_item(),
+            Tok::Ident(ref s) if s == "rpc_quorum" => self.parse_rpc_quorum_item(),
+            Tok::Ident(ref s) if s == "risk_policy" => self.parse_risk_policy_item(),
+            Tok::Ident(ref s) if s == "privacy" => self.parse_privacy_block_item(),
+            Tok::Ident(ref s) if s == "invariant" => self.parse_invariant_decl_item(),
+            Tok::Ident(ref s) if s == "proofs" => self.parse_proofs_required_item(),
+            Tok::Ident(ref s) if s == "vm" => self.parse_vm_decl_item(),
+            Tok::Ident(ref s) if s == "target" => self.parse_vm_target_item(),
+            Tok::Ident(ref s) if s == "finality_policy" => self.parse_finality_policy_item(),
+            Tok::Ident(ref s) if s == "error" => self.parse_error_decl_item(),
             _ => Err(parse_err("expected top-level item".into(), self.peek())),
         }
     }
@@ -900,6 +912,8 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "timeout" => self.parse_intent_timeout(),
             Tok::Ident(ref s) if s == "on_fail" => self.parse_intent_onfail(),
             Tok::KwOnFail => self.parse_intent_onfail(),
+            Tok::Ident(ref s) if s == "use" => self.parse_intent_use(),
+            Tok::Ident(ref s) if s == "on" => self.parse_intent_on_event(),
             _ => {
                 // Fallback: treat as an expression statement so the typechecker
                 // gets a real diagnostic instead of a hard panic.
@@ -1012,10 +1026,6 @@ impl<'a> Parser<'a> {
             // dance.
             Tok::Ident(ref s) if s == "swap" => self.parse_swap_step(),
             Tok::Ident(ref s) if s == "bridge" => self.parse_bridge_step(),
-            Tok::Ident(ref s) if s == "lock" || s == "mint" || s == "burn" || s == "release" => {
-                let kw = s.clone();
-                self.parse_lmbr_step(&kw)
-            }
             Tok::Ident(ref s) if s == "lock" || s == "mint" || s == "burn" || s == "release" => {
                 let kw = s.clone();
                 self.advance();
@@ -1139,11 +1149,16 @@ impl<'a> Parser<'a> {
         } else {
             AssetRef::new(from.chain.clone(), from.name.clone())
         };
+        let mut amount: Option<Expression> = None;
         let mut receiver: Option<Expression> = None;
         let mut source_finality_proof: Option<Expression> = None;
         let mut transfer_proof: Option<Expression> = None;
         loop {
             match self.peek() {
+                Tok::Ident(ref s) if s == "amount" => {
+                    self.advance();
+                    amount = Some(self.parse_expr()?);
+                }
                 Tok::Ident(ref s) if s == "receiver" => {
                     self.advance();
                     if !matches!(self.peek(), Tok::RBrace | Tok::Eof) {
@@ -1170,10 +1185,12 @@ impl<'a> Parser<'a> {
             via: Symbol::new(&via),
             from,
             to,
-            amount: Expression::Literal(LiteralExpr::Int {
-                value: 0,
-                base: IntBase::Decimal,
-                suffix: None,
+            amount: amount.unwrap_or_else(|| {
+                Expression::Literal(LiteralExpr::Int {
+                    value: 0,
+                    base: IntBase::Decimal,
+                    suffix: None,
+                })
             }),
             receiver: receiver.unwrap_or_else(|| Expression::Ident(Symbol::new("receiver"))),
             source_finality_proof,
@@ -1244,14 +1261,67 @@ impl<'a> Parser<'a> {
                 self.advance();
                 FailureAction::Quarantine
             }
+            Tok::Ident(ref s) if s == "refund" => {
+                self.advance();
+                let refund_asset = self.parse_asset_ref().ok();
+                let mut receiver = None;
+                if let Tok::Ident(ref s) = self.peek() {
+                    if s == "to" {
+                        self.advance();
+                        receiver = self.parse_expr().ok();
+                    }
+                }
+                if let Some(asset) = refund_asset {
+                    let receiver = receiver
+                        .map(|expr| expression_debug_string(&expr))
+                        .unwrap_or_else(|| "sender".to_string());
+                    FailureAction::Refund(Expression::Literal(LiteralExpr::String(Symbol::new(&format!(
+                        "{}.{}:{}",
+                        asset.chain.as_str(),
+                        asset.name.as_str(),
+                        receiver
+                    )))))
+                } else {
+                    FailureAction::Rollback
+                }
+            }
             _ => {
-                // Best-effort: skip a refund clause and emit Rollback.
-                let _ = self.parse_asset_ref();
-                FailureAction::Rollback
+                return Err(parse_err(
+                    "expected rollback | halt | quarantine | refund".into(),
+                    self.peek(),
+                ));
             }
         };
         self.opt_semi();
         Ok(Statement::OnFail(action))
+    }
+
+    /// `use solver_market best_price | use relayer_quorum N_of_M | use rpc_quorum N_of_M`
+    fn parse_intent_use(&mut self) -> Result<Statement, X3Error> {
+        self.advance(); // `use`
+        let target = self.expect_ident("use target")?;
+        let config = self.parse_expr()?;
+        self.opt_semi();
+        Ok(Statement::Expr(Expression::Call {
+            callee: Box::new(Expression::Ident(Symbol::new("use"))),
+            args: vec![Expression::Ident(Symbol::new(&target)), config],
+        }))
+    }
+
+    /// `on bad_proof slash | on chain_halt pause_and_refund | on solver_fail refund_and_slash
+    ///  on relayer_fail use_backup_relayer | on proof_conflict dispute`
+    fn parse_intent_on_event(&mut self) -> Result<Statement, X3Error> {
+        self.advance(); // `on`
+        let event = self.expect_ident("event name")?;
+        let action = self.expect_ident("action")?;
+        self.opt_semi();
+        Ok(Statement::Expr(Expression::Call {
+            callee: Box::new(Expression::Ident(Symbol::new("on"))),
+            args: vec![
+                Expression::Ident(Symbol::new(&event)),
+                Expression::Ident(Symbol::new(&action)),
+            ],
+        }))
     }
 
     fn parse_subscription_item(&mut self) -> Result<Item, X3Error> {
@@ -1274,6 +1344,359 @@ impl<'a> Parser<'a> {
             period_blocks,
             body,
         }))
+    }
+
+    // ------------------------------------------------------------------
+    // B-52 Feature Lock item parsers
+    // ------------------------------------------------------------------
+
+    /// `solver_market { mode <symbol>, min_reputation <int> }`
+    fn parse_solver_market_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        self.expect(Tok::LBrace, "expected '{' after solver_market")?;
+        let mut mode = Symbol::new("competitive");
+        let mut min_reputation: u64 = 0;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "mode" => {
+                    self.advance();
+                    mode = Symbol::new(&self.expect_ident("solver market mode")?);
+                }
+                Tok::Ident(ref s) if s == "min_reputation" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    min_reputation = expr_to_u64(&expr);
+                }
+                _ => break,
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after solver_market body")?;
+        Ok(Item::SolverMarket(SolverMarket { mode, min_reputation }))
+    }
+
+    /// `relayers { quorum <n>_of_<m> ... }`
+    fn parse_relayer_swarm_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        self.expect(Tok::LBrace, "expected '{' after relayers")?;
+        let mut quorum_numerator: u32 = 1;
+        let mut quorum_denominator: u32 = 1;
+        let mut relayers = Vec::new();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "quorum" => {
+                    self.advance();
+                    let (n, m) = self.parse_n_of_m()?;
+                    quorum_numerator = n;
+                    quorum_denominator = m;
+                }
+                Tok::Ident(ref s) if s == "quorum_numerator" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    quorum_numerator = expr_to_u32(&expr)?;
+                }
+                Tok::Ident(ref s) if s == "quorum_denominator" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    quorum_denominator = expr_to_u32(&expr)?;
+                }
+                Tok::Ident(ref s) if s == "relayers" => {
+                    self.advance();
+                    self.expect(Tok::LBracket, "expected '[' for relayers list")?;
+                    while self.peek() != Tok::RBracket && self.peek() != Tok::Eof {
+                        let name = self.expect_ident("relayer name")?;
+                        relayers.push(Symbol::new(&name));
+                        if self.peek() == Tok::Comma {
+                            self.advance();
+                        }
+                    }
+                    self.expect(Tok::RBracket, "expected ']' after relayers list")?;
+                }
+                _ => {
+                    // Skip unknown config entries
+                    self.advance();
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after relayers body")?;
+        Ok(Item::RelayerSwarm(RelayerSwarm {
+            quorum_numerator,
+            quorum_denominator,
+            relayers,
+        }))
+    }
+
+    /// `rpc_quorum { source require <n>_of_<m> destination require <n>_of_<m> reject if <reason> }`
+    fn parse_rpc_quorum_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        self.expect(Tok::LBrace, "expected '{' after rpc_quorum")?;
+        let mut source = Symbol::new("unknown");
+        let mut require_numerator: u32 = 1;
+        let mut require_denominator: u32 = 1;
+        let mut reject_on = Vec::new();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "source" => {
+                    self.advance();
+                    // source can be followed by chain name OR directly by require
+                    if matches!(self.peek(), Tok::Ident(ref s2) if s2 == "require") {
+                        // inline: source require N_of_M
+                        source = Symbol::new("source");
+                    } else {
+                        source = Symbol::new(&self.expect_ident("rpc_quorum source chain")?);
+                    }
+                }
+                Tok::Ident(ref s) if s == "destination" => {
+                    self.advance();
+                    // skip, we only store the source
+                }
+                Tok::Ident(ref s) if s == "require" => {
+                    self.advance();
+                    let (n, m) = self.parse_n_of_m()?;
+                    require_numerator = n;
+                    require_denominator = m;
+                }
+                Tok::Ident(ref s) if s == "require_numerator" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    require_numerator = expr_to_u32(&expr)?;
+                }
+                Tok::Ident(ref s) if s == "require_denominator" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    require_denominator = expr_to_u32(&expr)?;
+                }
+                Tok::Ident(ref s) if s == "reject" || s == "reject_on" => {
+                    self.advance();
+                    if matches!(self.peek(), Tok::KwIf) {
+                        self.advance(); // `if`
+                    }
+                    if self.peek() == Tok::LBracket {
+                        self.advance();
+                        while self.peek() != Tok::RBracket && self.peek() != Tok::Eof {
+                            let reason = self.expect_ident("reject reason")?;
+                            reject_on.push(Symbol::new(&reason));
+                            if self.peek() == Tok::Comma {
+                                self.advance();
+                            }
+                        }
+                        self.expect(Tok::RBracket, "expected ']' after reject_on list")?;
+                    } else {
+                        let reason = self.expect_ident("reject reason")?;
+                        reject_on.push(Symbol::new(&reason));
+                    }
+                }
+                _ => {
+                    // Skip unknown entries
+                    self.advance();
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after rpc_quorum body")?;
+        Ok(Item::RpcQuorum(RpcQuorum {
+            source,
+            require_numerator,
+            require_denominator,
+            reject_on,
+        }))
+    }
+
+    /// `risk_policy { max_slippage <pct> max_fee <pct> max_route_risk <level> min_liquidity <int> ... }`
+    fn parse_risk_policy_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        self.expect(Tok::LBrace, "expected '{' after risk_policy")?;
+        let mut max_slippage: u64 = 0;
+        let mut max_position: Option<u128> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "max_slippage" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    max_slippage = expr_to_u64(&expr);
+                }
+                Tok::Ident(ref s) if s == "max_position" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    max_position = expr_to_u128(&expr).ok();
+                }
+                _ => {
+                    // Skip unknown config fields
+                    self.advance();
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after risk_policy body")?;
+        Ok(Item::RiskPolicy(RiskPolicy {
+            max_slippage,
+            max_position,
+        }))
+    }
+
+    /// `privacy { hide_route_until_commit <bool>, reveal_on <symbol>, encrypted <bool> }`
+    fn parse_privacy_block_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        self.expect(Tok::LBrace, "expected '{' after privacy")?;
+        let mut hide_route_until_commit = false;
+        let mut reveal_on = Symbol::new("claim");
+        let mut encrypted = false;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "hide_route_until_commit" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    hide_route_until_commit = expr_to_bool(&expr);
+                }
+                Tok::Ident(ref s) if s == "reveal_on" => {
+                    self.advance();
+                    reveal_on = Symbol::new(&self.expect_ident("reveal_on trigger")?);
+                }
+                Tok::Ident(ref s) if s == "encrypted" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    encrypted = expr_to_bool(&expr);
+                }
+                _ => break,
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after privacy body")?;
+        Ok(Item::PrivacyBlock(PrivacyBlock {
+            hide_route_until_commit,
+            reveal_on,
+            encrypted,
+        }))
+    }
+
+    /// `invariant <name> { assert <expr> }`
+    fn parse_invariant_decl_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let name = Symbol::new(&self.expect_ident("invariant name")?);
+        let assert_expr = if self.peek() == Tok::LBrace {
+            self.advance();
+            let _assert_kw = self.expect_ident("expected 'assert' in invariant body")?;
+            let expr = self.parse_expr()?;
+            self.expect(Tok::RBrace, "expected '}' after invariant body")?;
+            Symbol::new(&format!("{:?}", expr))
+        } else {
+            name.clone()
+        };
+        Ok(Item::InvariantDecl(InvariantDecl { name, assert_expr }))
+    }
+
+    /// `proofs required { <proof_name> ... }`
+    fn parse_proofs_required_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let required = self.expect_ident("expected 'required' after 'proofs'")?;
+        if required != "required" {
+            return Err(parse_err(
+                "expected 'required' after 'proofs'".into(),
+                Tok::Ident(required),
+            ));
+        }
+        self.expect(Tok::LBrace, "expected '{' for proofs list")?;
+        let mut proofs = Vec::new();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let name = self.expect_ident("proof name")?;
+            proofs.push(Symbol::new(&name));
+        }
+        self.expect(Tok::RBrace, "expected '}' after proofs list")?;
+        Ok(Item::ProofsRequired(ProofsRequired { proofs }))
+    }
+
+    /// `vm { chain <symbol>, adapter <symbol>, finality <symbol> }`
+    fn parse_vm_decl_item(&mut self) -> Result<Item, X3Error> {
+        self.advance(); // `vm`
+        self.expect(Tok::LBrace, "expected '{' after vm")?;
+        let mut chain = Symbol::new("unknown");
+        let mut adapter = Symbol::new("unknown");
+        let mut finality: Option<Symbol> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "chain" => {
+                    self.advance();
+                    chain = Symbol::new(&self.expect_ident("vm chain name")?);
+                }
+                Tok::Ident(ref s) if s == "adapter" => {
+                    self.advance();
+                    adapter = Symbol::new(&self.expect_ident("vm adapter name")?);
+                }
+                Tok::Ident(ref s) if s == "finality" => {
+                    self.advance();
+                    finality = Some(Symbol::new(&self.expect_ident("vm finality requirement")?));
+                }
+                _ => break,
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after vm body")?;
+        Ok(Item::VmDecl(VmDecl {
+            chain,
+            adapter,
+            finality,
+        }))
+    }
+
+    /// `target <vm> { adapter <symbol>, contract <symbol> }`
+    fn parse_vm_target_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let vm = Symbol::new(&self.expect_ident("target vm name")?);
+        self.expect(Tok::LBrace, "expected '{' after target")?;
+        let mut adapter = Symbol::new("unknown");
+        let mut contract: Option<Symbol> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "adapter" => {
+                    self.advance();
+                    adapter = Symbol::new(&self.expect_ident("target adapter name")?);
+                }
+                Tok::Ident(ref s) if s == "contract" => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    contract = Some(match &expr {
+                        Expression::Ident(sym) => sym.clone(),
+                        Expression::Literal(LiteralExpr::Address(sym)) => sym.clone(),
+                        Expression::Literal(LiteralExpr::String(sym)) => sym.clone(),
+                        _ => Symbol::new(&expr_to_string(&expr)),
+                    });
+                }
+                _ => break,
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after target body")?;
+        Ok(Item::VmTarget(VmTarget { vm, adapter, contract }))
+    }
+
+    /// `finality_policy <name> { <vm> require <mode> ... }`
+    fn parse_finality_policy_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let mode = Symbol::new(&self.expect_ident("finality_policy mode")?);
+        self.expect(Tok::LBrace, "expected '{' after finality_policy")?;
+        let mut chain = Symbol::new("unknown");
+        let mut requirement = Symbol::new("finalized");
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                // Parse: <chain_name> require <mode>
+                Tok::Ident(ref s) if s != "require" => {
+                    chain = Symbol::new(&self.expect_ident("finality chain name")?);
+                    // Expect `require`
+                    if matches!(self.peek(), Tok::Ident(ref r) if r == "require") {
+                        self.advance();
+                    }
+                    requirement = Symbol::new(&self.expect_ident("finality requirement")?);
+                }
+                _ => break,
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after finality_policy body")?;
+        Ok(Item::FinalityPolicy(FinalityPolicy {
+            mode,
+            chain,
+            requirement,
+        }))
+    }
+
+    /// `error <name>`
+    fn parse_error_decl_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let name = Symbol::new(&self.expect_ident("error name")?);
+        Ok(Item::ErrorDecl(ErrorDecl { name }))
     }
 
     // ------------------------------------------------------------------
@@ -1768,11 +2191,30 @@ impl<'a> Parser<'a> {
 
     fn parse_primary_expr(&mut self) -> Result<Expression, X3Error> {
         let mut expr = match self.advance() {
-            Tok::Int(v) => Expression::Literal(LiteralExpr::Int {
-                value: v,
-                base: IntBase::Decimal,
-                suffix: None,
-            }),
+            Tok::Int(v) => {
+                // Check for percentage literal: Int.Dot.Int.Percent or Int.Percent
+                if matches!(self.peek(), Tok::Dot)
+                    && matches!(self.peek_n(1), Tok::Int(_))
+                    && matches!(self.peek_n(2), Tok::Percent)
+                {
+                    let frac_val = match self.peek_n(1) {
+                        Tok::Int(n) => n,
+                        _ => unreachable!(),
+                    };
+                    self.advance(); // Dot
+                    self.advance(); // Int(frac)
+                    self.advance(); // Percent
+                    Expression::Literal(LiteralExpr::Percentage {
+                        value: Symbol::new(&format!("{}.{}%", v, frac_val)),
+                    })
+                } else {
+                    Expression::Literal(LiteralExpr::Int {
+                        value: v,
+                        base: IntBase::Decimal,
+                        suffix: None,
+                    })
+                }
+            }
             Tok::String_(s) => Expression::Literal(LiteralExpr::String(Symbol::new(&s))),
             Tok::KwTrue => Expression::Literal(LiteralExpr::Bool(true)),
             Tok::KwFalse => Expression::Literal(LiteralExpr::Bool(false)),
@@ -2004,15 +2446,23 @@ impl<'a> Parser<'a> {
 
     fn parse_require_guard(&mut self) -> Result<RequireGuard, X3Error> {
         self.advance(); // 'require'
-        let kind = self.parse_require_kind()?;
-        // Check for dot-separated subject: `finality.eth`
-        let subject = if self.peek() == Tok::Dot {
-            self.advance(); // '.'
-            Some(Symbol::new(&self.expect_ident("require subject after '.'")?))
-        } else if matches!(self.peek(), Tok::Ident(_)) {
-            Some(Symbol::new(&self.expect_ident("require subject")?))
-        } else {
-            None
+        let ident = self.expect_ident("require kind")?;
+        // Special-case source_finality and dest_finality: kind=Finality, subject=ident
+        let (kind, subject) = match ident.as_str() {
+            "source_finality" => (RequireKind::Finality, Some(Symbol::new("source_finality"))),
+            "dest_finality" => (RequireKind::Finality, Some(Symbol::new("dest_finality"))),
+            _ => {
+                let kind = require_kind_from_str(&ident)?;
+                let subject = if self.peek() == Tok::Dot {
+                    self.advance(); // '.'
+                    Some(Symbol::new(&self.expect_ident("require subject after '.'")?))
+                } else if matches!(self.peek(), Tok::Ident(_)) {
+                    Some(Symbol::new(&self.expect_ident("require subject")?))
+                } else {
+                    None
+                };
+                (kind, subject)
+            }
         };
         // Skip optional comparison operator (>=, ==, <=, >, <, !=)
         match self.peek() {
@@ -2029,23 +2479,6 @@ impl<'a> Parser<'a> {
     fn parse_require_stmt(&mut self) -> Result<Statement, X3Error> {
         let guard = self.parse_require_guard()?;
         Ok(Statement::Require(guard))
-    }
-
-    fn parse_require_kind(&mut self) -> Result<RequireKind, X3Error> {
-        let name = self.expect_ident("require kind")?;
-        match name.as_str() {
-            "finality" => Ok(RequireKind::Finality),
-            "slippage" => Ok(RequireKind::Slippage),
-            "profit" => Ok(RequireKind::Profit),
-            "invariant" => Ok(RequireKind::InvariantCheck),
-            "risk" => Ok(RequireKind::RiskScore),
-            "nonce" => Ok(RequireKind::Nonce),
-            "audit_gate" => Ok(RequireKind::AuditGate),
-            "bridge_liquidity" => Ok(RequireKind::BridgeLiquidity),
-            "canonical_supply" => Ok(RequireKind::CanonicalSupply),
-            "relayer_quorum" => Ok(RequireKind::RelayerQuorum),
-            other => Ok(RequireKind::Custom(Symbol::new(other))),
-        }
     }
 
     fn parse_failure_action(&mut self) -> Result<FailureAction, X3Error> {
@@ -2095,6 +2528,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse N_of_M syntax (e.g. 3_of_5) -> (3, 5)
+    fn parse_n_of_m(&mut self) -> Result<(u32, u32), X3Error> {
+        let s = self.expect_ident("N_of_M")?;
+        let parts: Vec<&str> = s.split("_of_").collect();
+        if parts.len() != 2 {
+            return Err(parse_err(
+                format!("expected N_of_M syntax (e.g. 3_of_5), got '{s}'"),
+                Tok::Eof,
+            ));
+        }
+        let n = parts[0]
+            .parse::<u32>()
+            .map_err(|_| parse_err(format!("invalid N_of_M numerator '{0}'", parts[0]), Tok::Eof))?;
+        let m = parts[1]
+            .parse::<u32>()
+            .map_err(|_| parse_err(format!("invalid N_of_M denominator '{0}'", parts[1]), Tok::Eof))?;
+        Ok((n, m))
+    }
+
     fn opt_semi(&mut self) {
         if self.peek() == Tok::Semicolon {
             self.advance();
@@ -2122,7 +2574,43 @@ impl<'a> Parser<'a> {
 }
 
 // ===========================================================================
-// Helpers
+// Standalone helpers
+
+fn require_kind_from_str(name: &str) -> Result<RequireKind, X3Error> {
+    Ok(match name {
+        "finality" => RequireKind::Finality,
+        "slippage" => RequireKind::Slippage,
+        "profit" => RequireKind::Profit,
+        "invariant" => RequireKind::InvariantCheck,
+        "risk" => RequireKind::RiskScore,
+        "nonce" => RequireKind::Nonce,
+        "audit_gate" => RequireKind::AuditGate,
+        "bridge_liquidity" => RequireKind::BridgeLiquidity,
+        "canonical_supply" => RequireKind::CanonicalSupply,
+        "relayer_quorum" => RequireKind::RelayerQuorum,
+        "route_score" => RequireKind::RouteScore,
+        "solver_bond" => RequireKind::SolverBond,
+        "proof_complete" => RequireKind::ProofComplete,
+        "refund_path" => RequireKind::RefundPath,
+        "refund_to" => RequireKind::RefundPath,
+        "finality_explicit" => RequireKind::FinalityExplicit,
+        "vm_supported" => RequireKind::VmSupported,
+        "mainnet_safe" => RequireKind::MainnetSafe,
+        other => RequireKind::Custom(Symbol::new(other)),
+    })
+}
+
+fn parse_err(message: String, found: Tok) -> X3Error {
+    X3Error::ParseError {
+        message,
+        span: Span::DUMMY,
+        expected: vec![],
+        found: format!("{:?}", found),
+    }
+}
+
+// ===========================================================================
+// Annotation, capability, expression helpers
 // ===========================================================================
 
 fn annotation_from_name_args(name: &str, args: &[Expression]) -> Result<Annotation, X3Error> {
@@ -2369,6 +2857,13 @@ fn expression_debug_string(expr: &Expression) -> String {
     }
 }
 
+fn expr_to_bool(e: &Expression) -> bool {
+    match e {
+        Expression::Literal(LiteralExpr::Bool(b)) => *b,
+        _ => false,
+    }
+}
+
 fn expr_to_u128(e: &Expression) -> Result<u128, X3Error> {
     match e {
         Expression::Literal(LiteralExpr::Int { value, .. }) => Ok(*value),
@@ -2523,15 +3018,6 @@ fn keyword_to_tok(kw: Keyword) -> Option<Tok> {
         Keyword::Await => Tok::KwAwait,
         _ => return None,
     })
-}
-
-fn parse_err(message: String, found: Tok) -> X3Error {
-    X3Error::ParseError {
-        message,
-        span: Span::DUMMY,
-        expected: vec![],
-        found: format!("{:?}", found),
-    }
 }
 
 /// Re-export the `BinOp` and `UnOp` types the parser uses so callers can

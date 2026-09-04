@@ -65,6 +65,7 @@ pub struct VMState {
     pub asset_ops: Vec<AssetOpPayload>,
     pub bridge_ops: Vec<BridgePayload>,
     pub bridge_receipts: Vec<Vec<u8>>,
+    pub sub_exec_ops: Vec<SubExecInfo>,
     pub paused: bool,
     /// Atomic scope rollback snapshot (set by ATOMIC_BEGIN, consumed by ATOMIC_ROLLBACK).
     pub atomic_snapshot: Option<VmSnapshot>,
@@ -91,6 +92,7 @@ impl VMState {
             asset_ops: Vec::new(),
             bridge_ops: Vec::new(),
             bridge_receipts: Vec::new(),
+            sub_exec_ops: Vec::new(),
             paused: false,
             atomic_snapshot: None,
             failure_handlers: Vec::new(),
@@ -100,11 +102,29 @@ impl VMState {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct SubExecInfo {
+    pub bytecode_hash: String,
+    pub args: Vec<String>,
+    pub gas_limit: u64,
+}
+
 pub struct VM {
     pub config: VMConfig,
     pub state: VMState,
     pub code: InstructionStream,
     pub bridge: Box<dyn crate::bridge::BridgeAdapter>,
+}
+
+impl std::fmt::Debug for VM {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VM")
+            .field("config", &self.config)
+            .field("state", &self.state)
+            .field("code", &self.code)
+            .field("bridge", &"..")
+            .finish()
+    }
 }
 
 impl VM {

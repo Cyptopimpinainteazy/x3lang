@@ -303,3 +303,34 @@ fn e2e_bridge_adapter_methods_dispatch_through_vm() {
         "bridge ops must be recorded after execution"
     );
 }
+
+#[test]
+fn b52_mainnet_safe_swap_compiles_and_verifies() {
+    let src = example_source("mainnet_safe_swap.x3");
+    let bytecode = compile_source(&src).expect("mainnet_safe_swap.x3 should compile");
+    assert_eq!(bytecode[0], 0x01, "bytecode version");
+    assert_eq!(bytecode.len() % 4, 0, "bytecode must be 4-byte aligned");
+    let result = verify(&InstructionStream::new(bytecode));
+    assert!(result.is_ok(), "verifier must accept mainnet_safe_swap bytecode");
+}
+
+#[test]
+fn b52_flagship_parses_and_lowers() {
+    let src = example_source("flagship_b52.x3");
+    let program = x3_lang_compiler::parser::parse_source(&src).expect("flagship_b52.x3 should parse");
+    let ir = x3_lang_compiler::compile_to_ir(&program).expect("flagship_b52.x3 should lower to IR");
+    assert!(!ir.operations.is_empty(), "IR should contain operations");
+    let has_vm_adapter = ir
+        .operations
+        .iter()
+        .any(|op| matches!(op, Operation::VmAdapterCall { .. }));
+    assert!(has_vm_adapter, "IR should contain VmAdapterCall from vm declaration");
+}
+
+#[test]
+fn b52_simple_executes_through_vm() {
+    let src = example_source("simple_swap.x3");
+    let bytecode = compile_source(&src).expect("simple_swap.x3 should compile");
+    let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000u128);
+    vm.execute().expect("simple_swap VM execution should succeed");
+}

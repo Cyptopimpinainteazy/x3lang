@@ -1,11 +1,28 @@
+//! X3 compiler library.
+//!
+//! The reconcilIED pipeline layers three complementary verifiers so no
+//! single check is duplicated:
+//!
+//! 1. [`numeric::verify_numeric_policy`] — X3Lang 1.0 integer literal and
+//!    direct-call coercion policy, checked over the parsed AST.
+//! 2. [`verify::verify_ir`] — structural IR invariants (atomic scoping,
+//!    non-zero amounts/iterations, empty-field safety) that must hold
+//!    before bytecode emission.
+//! 3. [`semantic`] — whole-program semantic safety (chain/adapter/asset
+//!    allow-lists, refund paths, explicit finality/proofs, route scores,
+//!    invariant rules, compile-mode gating, and risk scoring).
+
 pub mod diagnostic;
 pub mod emitter;
+pub mod formatter;
 pub mod intent_emit;
 pub mod ir;
+pub mod linter;
 pub mod lowering;
 pub mod numeric;
 pub mod parser;
 pub mod regalloc;
+pub mod risk;
 pub mod semantic;
 pub mod verify;
 pub mod spec {
@@ -17,17 +34,20 @@ pub mod spec {
 use emitter::emit_x3ir;
 use lowering::{lower_program, LowerCtx};
 use parser::parse_source;
-use semantic::{verify_atomic_swap_decls, verify_with_defaults as verify_semantics};
-use verify::verify_ir;
+use semantic::verify_atomic_swap_decls;
+use semantic::verify_with_config as verify_semantics;
 use x3_lang_ast::ast::Program;
-use x3_lang_common::{ErrorAccumulator, X3Error};
+use x3_lang_common::{ErrorAccumulator, Span, X3Error};
 
 // Re-export IR types
 pub use ir::{Condition, FailureAction, Operation, ProgramMetadata, RequireKind, X3IR};
 
+// Re-export semantic types
+pub use semantic::{CompilationMode, InvariantRule, RiskScore};
+
 /// Compile an X3 AST program to bytecode
 ///
-/// Pipeline: AST → X3IR → IR verification → Bytecode
+/// Pipeline: AST → X3IR → Bytecode
 pub fn compile_program(program: &Program) -> Result<Vec<u8>, X3Error> {
     compile_program_with_context(program, LowerCtx::new())
 }
@@ -55,7 +75,40 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
     }
 
     let ir = compile_to_ir(&program)?;
-    match verify_semantics(&ir) {
+    match verify_semantics(&ir, 8, 4, None) {
+        Ok(()) => Ok((program, ir, Vec::new())),
+        Err(errs) => Ok((program, ir, errs)),
+    }
+}
+
+/// Compile with an explicit compilation mode for mode-gated safety checks.
+pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>, X3Error> {
+    let program = parse_source(source)?;
+    let ir = lower_program(&program, LowerCtx::new())?;
+    verify_semantics(&ir, 8, 4, Some(mode)).map_err(|errs| X3Error::SemanticError {
+        message: format!("compilation failed with {} semantic error(s)", errs.len()),
+        span: Span::DUMMY,
+    })?;
+    emit_x3ir(&ir)
+}
+
+/// Check source with an explicit compilation mode. Returns the program, IR,
+/// and list of semantic errors. When mode is Mainnet, mainnet-specific safety
+/// checks are also run.
+pub fn check_source_with_mode(
+    source: &str,
+    mode: CompilationMode,
+) -> Result<(Program, crate::ir::X3IR, Vec<X3Error>), X3Error> {
+    let program = parse_source(source)?;
+
+    let mut ast_errors = ErrorAccumulator::new();
+    verify_atomic_swap_decls(&program, &mut ast_errors);
+    if ast_errors.has_errors() {
+        return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
+    }
+
+    let ir = compile_to_ir(&program)?;
+    match verify_semantics(&ir, 8, 4, Some(mode)) {
         Ok(()) => Ok((program, ir, Vec::new())),
         Err(errs) => Ok((program, ir, errs)),
     }
@@ -63,14 +116,18 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
 
 /// Run the semantic verifier against an X3IR program.
 pub fn check_ir(ir: &crate::ir::X3IR) -> Result<(), Vec<X3Error>> {
-    verify_semantics(ir)
+    verify_semantics(
+        ir,
+        semantic::DEFAULT_MAX_ATOMIC_OPS,
+        semantic::DEFAULT_MAX_ROUTE_HOPS,
+        None,
+    )
 }
 
 /// Compile with explicit lowering context (for replay protection, chain_id, etc.)
 pub fn compile_program_with_context(program: &Program, ctx: LowerCtx) -> Result<Vec<u8>, X3Error> {
     // AST → X3IR
     let ir = lower_program(program, ctx)?;
-    verify_lowered_ir(&ir)?;
 
     // X3IR → Bytecode
     let bytecode = emit_x3ir(&ir)?;
@@ -81,25 +138,9 @@ pub fn compile_program_with_context(program: &Program, ctx: LowerCtx) -> Result<
     Ok(bytecode)
 }
 
-/// Get verified IR without emitting to bytecode (useful for analysis/optimization).
+/// Get the IR without emitting to bytecode (useful for analysis/optimization)
 pub fn compile_to_ir(program: &Program) -> Result<X3IR, X3Error> {
-    let ir = lower_program(program, LowerCtx::new())?;
-    verify_lowered_ir(&ir)?;
-    Ok(ir)
-}
-
-fn verify_lowered_ir(ir: &X3IR) -> Result<(), X3Error> {
-    if let Err(diagnostics) = verify_ir(ir) {
-        let first = diagnostics
-            .into_iter()
-            .next()
-            .expect("IR verifier returned Err with no diagnostics");
-        return Err(X3Error::CodegenError {
-            message: format!("{}: {}", first.code.as_str(), first.message),
-            span: Some(first.primary_span),
-        });
-    }
-    Ok(())
+    lower_program(program, LowerCtx::new())
 }
 
 /// Re-export the cross-chain intent adapter boundary.

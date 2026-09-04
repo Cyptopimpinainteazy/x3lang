@@ -1,0 +1,47 @@
+vm {
+    chain ethereum
+    adapter evm
+    finality safe
+}
+
+solver_market {
+    mode competitive
+    min_reputation 95
+}
+
+relayers {
+    quorum_numerator 3
+    quorum_denominator 5
+    relayers [relayer_a, relayer_b, relayer_c]
+}
+
+rpc_quorum {
+    source ethereum
+    require_numerator 2
+    require_denominator 3
+    reject_on [receipt_disagree]
+}
+
+risk_policy {
+    max_slippage 1
+    max_position 500000
+}
+
+intent mainnet_swap {
+    from ethereum.USDC amount 1000 sender 0x1234
+    to solana.SOL receiver 0x5678
+
+    route {
+        bridge x3 ethereum.USDC -> solana.SOL amount 1000
+    }
+
+    require slippage <= 1
+    require finality.ethereum >= 12
+    require finality.solana >= 32
+    require solver_bond >= 10000
+    require relayer_quorum >= 3
+    require route_score >= 80
+
+    timeout 3600s
+    on_fail refund sender 0x1234
+}

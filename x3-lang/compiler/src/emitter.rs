@@ -167,6 +167,19 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
         Operation::DocEmbed { .. } => emit_payload_op(DOC_EMBED, op, bytecode)?,
         Operation::GasAdaptive { .. } => emit_payload_op(GAS_ADAPTIVE, op, bytecode)?,
         Operation::Bounty { .. } => emit_payload_op(BOUNTY, op, bytecode)?,
+        // B-52 feature lock operations
+        Operation::RouteScore { .. } => emit_payload_op(ROUTE_SCORE, op, bytecode)?,
+        Operation::SolverBid { .. } => emit_payload_op(SOLVER_BID, op, bytecode)?,
+        Operation::RelayerAttest { .. } => emit_payload_op(RELAYER_ATTEST, op, bytecode)?,
+        Operation::RpcConsensus { .. } => emit_payload_op(RPC_CONSENSUS, op, bytecode)?,
+        Operation::RiskScore { .. } => emit_payload_op(RISK_SCORE, op, bytecode)?,
+        Operation::InvariantCheck { .. } => emit_payload_op(INVARIANT_CHECK, op, bytecode)?,
+        Operation::PrivacyCommit { .. } => emit_payload_op(PRIVACY_COMMIT, op, bytecode)?,
+        Operation::ProofRequired { .. } => emit_payload_op(PROOF_REQUIRED, op, bytecode)?,
+        Operation::VmAdapterCall { .. } => emit_payload_op(VM_ADAPTER_CALL, op, bytecode)?,
+        Operation::ModeCheck { .. } => emit_payload_op(MODE_CHECK, op, bytecode)?,
+        Operation::PackageImport { .. } => emit_payload_op(PACKAGE_IMPORT, op, bytecode)?,
+        Operation::RefundPolicy { .. } => emit_payload_op(REFUND_POLICY, op, bytecode)?,
         Operation::Nop => {
             bytecode.write_all(&[NOP])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
@@ -443,6 +456,82 @@ fn operation_to_payload(op: &Operation) -> Result<CapabilityPayload, X3Error> {
             amount: *amount,
             condition: condition.clone(),
         },
+        // B-52 feature lock payloads
+        Operation::RouteScore { strategy, weights } => CapabilityPayload::RouteScore {
+            strategy: strategy.clone(),
+            weights: weights.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+        },
+        Operation::SolverBid {
+            solver,
+            receive_asset,
+            deliver_asset,
+            fee,
+            bond,
+        } => CapabilityPayload::SolverBid {
+            solver: solver.clone(),
+            receive_asset: receive_asset.clone(),
+            deliver_asset: deliver_asset.clone(),
+            fee: fee.clone(),
+            bond: *bond,
+        },
+        Operation::RelayerAttest {
+            relayers,
+            quorum,
+            signatures,
+        } => CapabilityPayload::RelayerAttest {
+            relayers: relayers.clone(),
+            quorum_numerator: quorum.0,
+            quorum_denominator: quorum.1,
+            signatures: signatures.clone(),
+        },
+        Operation::RpcConsensus {
+            chain,
+            require,
+            reject_on,
+        } => CapabilityPayload::RpcConsensus {
+            chain: chain.clone(),
+            require_numerator: require.0,
+            require_denominator: require.1,
+            reject_on: reject_on.clone(),
+        },
+        Operation::RiskScore { score, category } => CapabilityPayload::RiskScore {
+            score: *score,
+            category: category.clone(),
+        },
+        Operation::InvariantCheck { name, assert_expr } => CapabilityPayload::InvariantCheck {
+            name: name.clone(),
+            assert_expr: assert_expr.clone(),
+        },
+        Operation::PrivacyCommit { reveal_on, encrypted } => CapabilityPayload::PrivacyCommit {
+            reveal_on: reveal_on.clone(),
+            encrypted: *encrypted,
+        },
+        Operation::ProofRequired { proof_type, source } => CapabilityPayload::ProofRequired {
+            proof_type: proof_type.clone(),
+            source: source.clone(),
+        },
+        Operation::VmAdapterCall { vm, adapter, calldata } => CapabilityPayload::VmAdapterCall {
+            vm: vm.clone(),
+            adapter: adapter.clone(),
+            calldata: calldata.clone(),
+        },
+        Operation::ModeCheck { mode, restriction } => CapabilityPayload::ModeCheck {
+            mode: mode.clone(),
+            restriction: restriction.clone(),
+        },
+        Operation::PackageImport { path, alias } => CapabilityPayload::PackageImport {
+            path: path.clone(),
+            alias: alias.clone(),
+        },
+        Operation::RefundPolicy {
+            action,
+            target,
+            after_blocks,
+        } => CapabilityPayload::RefundPolicy {
+            action: action.clone(),
+            target: target.clone(),
+            after_blocks: *after_blocks,
+        },
         _ => {
             return Err(X3Error::CodegenError {
                 message: "operation is not a capability payload".to_string(),
@@ -593,7 +682,7 @@ fn is_payload_opcode(opcode: u8) -> bool {
             | 0x66
             | 0x70..=0x7F
             | 0x80..=0x9B
-            | 0xA0..=0xA5
+            | 0xA0..=0xAB
     )
 }
 
@@ -632,7 +721,18 @@ fn disassemble_op(opcode: u8, payload: &[u8]) -> String {
         0x70..=0x7F => format!("VECTOR   {payload_str}"),
         0x80..=0x9A => format!("CAP      {payload_str}"),
         0x9B => "SUB_EXEC".into(),
-        0xA0..=0xA5 => format!("META     {payload_str}"),
+        0xA0 => format!("ROUTE_SCORE  {payload_str}"),
+        0xA1 => format!("SOLVER_BID   {payload_str}"),
+        0xA2 => format!("RELAYER_ATTEST {payload_str}"),
+        0xA3 => format!("RPC_CONSENSUS {payload_str}"),
+        0xA4 => format!("RISK_SCORE   {payload_str}"),
+        0xA5 => format!("INVARIANT_CHECK {payload_str}"),
+        0xA6 => format!("PRIVACY_COMMIT {payload_str}"),
+        0xA7 => format!("PROOF_REQUIRED {payload_str}"),
+        0xA8 => format!("VM_ADAPTER_CALL {payload_str}"),
+        0xA9 => format!("MODE_CHECK   {payload_str}"),
+        0xAA => format!("PACKAGE_IMPORT {payload_str}"),
+        0xAB => format!("REFUND_POLICY {payload_str}"),
         0xFF => "HALT".into(),
         other => format!("OP(0x{other:02x})"),
     }
@@ -654,7 +754,7 @@ fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
         })?;
         return Ok(format!("{p:?}"));
     }
-    if (0x80..=0x9A).contains(&opcode) {
+    if (0x80..=0x9B).contains(&opcode) || (0xA0..=0xAB).contains(&opcode) {
         let p = decode_capability_payload(opcode, payload).map_err(|_| X3Error::CodegenError {
             message: "bad capability payload".into(),
             span: None,

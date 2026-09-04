@@ -219,7 +219,7 @@ fn op_referenced_temps(_op: &Operation) -> Vec<u32> {
 
 /// Rewrite operation list, replacing temporary references with assigned physical
 /// registers or spill slot operands.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "v0.2 register allocator placeholder")]
 fn rewrite_operations(
     instrs: &mut [Operation],
     temp_to_reg: &HashMap<u32, usize>,
@@ -234,7 +234,6 @@ fn rewrite_operations(
 }
 
 /// Patch a single operation's temporary references to physical registers.
-#[allow(dead_code)]
 fn patch_operation(_op: &mut Operation, _temp_to_reg: &HashMap<u32, usize>, _temp_to_spill: &HashMap<u32, StackSlot>) {
     // In the full compiler, each Operation variant carries explicit operand
     // slots (defs and uses). The v0.1 pipeline uses Display/Debug for temp

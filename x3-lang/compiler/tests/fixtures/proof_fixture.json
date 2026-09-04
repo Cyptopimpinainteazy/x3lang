@@ -1,0 +1,12 @@
+{
+    "intent": "test_intent",
+    "proofs": {
+        "source_lock_proof": "0xabcd",
+        "source_finality_proof": "0xef01",
+        "destination_fill_proof": "0x2301",
+        "destination_finality_proof": "0x4502",
+        "solver_signature": "0x6703",
+        "relayer_quorum": "0x8904",
+        "rpc_quorum": "0xab05"
+    }
+}

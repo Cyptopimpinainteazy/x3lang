@@ -25,11 +25,12 @@
 //! Gas is never refunded and never goes negative. The VM checks
 //! `state.gas >= cost` before deducting.
 
-use crate::x3_lang_vm::{VmSnapshot, VM};
+use crate::x3_lang_vm::{SubExecInfo, VmSnapshot, VM};
 // Import shared opcode constants
 use crate::spec::opcodes::*;
 use x3_lang_common::{
-    decode_asset_op_payload, decode_bridge_payload, decode_capability_payload, AssetOpPayload, CapabilityPayload,
+    decode_asset_op_payload, decode_bridge_payload, decode_capability_payload, AssetOpPayload, BridgePayload,
+    CapabilityPayload,
 };
 
 pub type ExecResult<T> = Result<T, ExecError>;
@@ -38,7 +39,6 @@ pub type ExecResult<T> = Result<T, ExecError>;
 pub enum ExecError {
     OutOfGas,
     InvalidOpcode(u8),
-    CapabilityNotImplemented(u8, &'static str),
     InvalidOperand,
     MemoryOutOfBounds,
     Panic(String),
@@ -460,6 +460,29 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
+            ROUTE_SCORE..=REFUND_POLICY => {
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(p) => p.to_vec(),
+                    Err(e) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(e);
+                    }
+                };
+                let result = match dispatch_host_opcode(vm, opcode, &payload) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(e);
+                    }
+                };
+                vm.state.registers[0] = bytes_to_register(&result);
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
+            }
             NOP => { // NOP
             }
             HALT => {
@@ -603,6 +626,7 @@ fn gas_cost_for_opcode(opcode: u8) -> u128 {
         0x99 => 50,
         0x9A => 50,
         0x9B => 50,
+        0xA0..=0xAB => 50,
         0xFF => 0,
         _ => 1,
     }
@@ -623,7 +647,7 @@ fn gas_surcharge(opcode: u8, vm: &VM, operand: u16) -> u128 {
             let addr = base.wrapping_add(imm as usize);
             (addr as u128 / 65536).saturating_mul(5)
         }
-        0x20..=0x25 | 0x60 | 0x61 | 0x80..=0x9B => {
+        0x20..=0x25 | 0x60 | 0x61 | 0x80..=0x9B | 0xA0..=0xAB => {
             let payload_len = read_u16_le(vm.code.as_slice(), vm.state.pc + 1).unwrap_or(0) as u128;
             payload_len / 32
         }
@@ -641,6 +665,7 @@ fn read_len_payload(bytes: &[u8], pc: usize) -> ExecResult<&[u8]> {
     Ok(&bytes[start..end])
 }
 
+#[cfg(test)]
 fn capability_opcode_name(opcode: u8) -> &'static str {
     match opcode {
         GPU_DISPATCH => "GPU_DISPATCH",
@@ -671,6 +696,18 @@ fn capability_opcode_name(opcode: u8) -> &'static str {
         GAS_ADAPTIVE => "GAS_ADAPTIVE",
         BOUNTY => "BOUNTY",
         SUB_EXEC => "SUB_EXEC",
+        ROUTE_SCORE => "ROUTE_SCORE",
+        SOLVER_BID => "SOLVER_BID",
+        RELAYER_ATTEST => "RELAYER_ATTEST",
+        RPC_CONSENSUS => "RPC_CONSENSUS",
+        RISK_SCORE => "RISK_SCORE",
+        INVARIANT_CHECK => "INVARIANT_CHECK",
+        PRIVACY_COMMIT => "PRIVACY_COMMIT",
+        PROOF_REQUIRED => "PROOF_REQUIRED",
+        VM_ADAPTER_CALL => "VM_ADAPTER_CALL",
+        MODE_CHECK => "MODE_CHECK",
+        PACKAGE_IMPORT => "PACKAGE_IMPORT",
+        REFUND_POLICY => "REFUND_POLICY",
         _ => "UNKNOWN_CAPABILITY",
     }
 }
@@ -757,10 +794,186 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
         CapabilityPayload::Bounty { amount, condition } => {
             bridge_result(vm.bridge.bounty_escrow(amount, condition.as_bytes()))
         }
-        CapabilityPayload::SubExec { .. } => Err(ExecError::CapabilityNotImplemented(
-            SUB_EXEC,
-            capability_opcode_name(SUB_EXEC),
-        )),
+        CapabilityPayload::SubExec {
+            bytecode_hash,
+            args,
+            gas_limit,
+        } => {
+            if bytecode_hash.is_empty() {
+                return Err(ExecError::Panic(
+                    "sub exec: bytecode hash must be non-empty".to_string(),
+                ));
+            }
+            if gas_limit == 0 {
+                return Err(ExecError::Panic("sub exec: gas_limit must be positive".to_string()));
+            }
+            vm.state.sub_exec_ops.push(SubExecInfo {
+                bytecode_hash,
+                args,
+                gas_limit,
+            });
+            Ok(vec![])
+        }
+        CapabilityPayload::RouteScore { strategy: _, weights } => {
+            let total: u32 = weights.iter().map(|(_, w)| w).sum();
+            if total == 0 {
+                return Err(ExecError::Panic("route score: zero weight".to_string()));
+            }
+            vm.state.registers[0] = total as u128;
+            Ok(vec![])
+        }
+        CapabilityPayload::SolverBid {
+            solver,
+            receive_asset,
+            deliver_asset,
+            fee,
+            bond,
+        } => {
+            if bond == 0 {
+                return Err(ExecError::Panic("solver bid: bond must be positive".to_string()));
+            }
+            if fee.is_empty() {
+                return Err(ExecError::Panic("solver bid: fee must be non-empty".to_string()));
+            }
+            let info = format!(
+                "{{\"solver\":\"{solver}\",\"receive_asset\":\"{receive_asset}\",\"deliver_asset\":\"{deliver_asset}\",\"fee\":\"{fee}\",\"bond\":{bond}}}"
+            );
+            vm.state.bridge_ops.push(BridgePayload {
+                via: solver.clone(),
+                from_chain: receive_asset.clone(),
+                from_asset: deliver_asset.clone(),
+                to_chain: String::new(),
+                to_asset: String::new(),
+                amount: bond,
+                receiver: String::new(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            });
+            Ok(info.into_bytes())
+        }
+        CapabilityPayload::RelayerAttest {
+            relayers,
+            quorum_numerator,
+            quorum_denominator,
+            signatures,
+        } => {
+            if relayers.is_empty() {
+                return Err(ExecError::Panic(
+                    "relayer attest: relayers must not be empty".to_string(),
+                ));
+            }
+            if quorum_denominator == 0 || quorum_numerator > quorum_denominator {
+                return Err(ExecError::Panic("relayer attest: invalid quorum".to_string()));
+            }
+            if signatures.len() < quorum_numerator as usize {
+                return Err(ExecError::Panic(
+                    "relayer attest: insufficient signatures for quorum".to_string(),
+                ));
+            }
+            vm.state.registers[0] = signatures.len() as u128;
+            Ok(vec![])
+        }
+        CapabilityPayload::RpcConsensus {
+            chain,
+            require_numerator,
+            require_denominator,
+            reject_on: _,
+        } => {
+            if chain.is_empty() {
+                return Err(ExecError::Panic("rpc consensus: chain must be non-empty".to_string()));
+            }
+            if require_denominator == 0 || require_numerator > require_denominator {
+                return Err(ExecError::Panic("rpc consensus: invalid require ratio".to_string()));
+            }
+            vm.state.registers[0] = 1;
+            Ok(vec![])
+        }
+        CapabilityPayload::RiskScore { score, category } => {
+            if score > 100 {
+                return Err(ExecError::Panic("risk score: score must be <= 100".to_string()));
+            }
+            if category.is_empty() {
+                return Err(ExecError::Panic("risk score: category must be non-empty".to_string()));
+            }
+            vm.state.registers[0] = score as u128;
+            Ok(vec![])
+        }
+        CapabilityPayload::InvariantCheck { name, assert_expr: _ } => {
+            if name.is_empty() {
+                return Err(ExecError::Panic("invariant check: name must be non-empty".to_string()));
+            }
+            vm.state.registers[0] = 1;
+            Ok(vec![])
+        }
+        CapabilityPayload::PrivacyCommit {
+            reveal_on,
+            encrypted: _,
+        } => {
+            if reveal_on.is_empty() {
+                return Err(ExecError::Panic(
+                    "privacy commit: reveal_on must be non-empty".to_string(),
+                ));
+            }
+            Ok(vec![])
+        }
+        CapabilityPayload::ProofRequired { proof_type, source } => {
+            if proof_type.is_empty() {
+                return Err(ExecError::Panic(
+                    "proof required: proof_type must be non-empty".to_string(),
+                ));
+            }
+            if source.is_empty() {
+                return Err(ExecError::Panic("proof required: source must be non-empty".to_string()));
+            }
+            vm.state.registers[0] = bytes_to_register(proof_type.as_bytes());
+            Ok(vec![])
+        }
+        CapabilityPayload::VmAdapterCall {
+            vm: vm_name,
+            adapter,
+            calldata,
+        } => {
+            if vm_name.is_empty() {
+                return Err(ExecError::Panic("vm adapter call: vm must be non-empty".to_string()));
+            }
+            if adapter.is_empty() {
+                return Err(ExecError::Panic(
+                    "vm adapter call: adapter must be non-empty".to_string(),
+                ));
+            }
+            let receipt = format!("{vm_name}:{adapter}:{calldata}").into_bytes();
+            vm.state.bridge_receipts.push(receipt);
+            Ok(vec![])
+        }
+        CapabilityPayload::ModeCheck { mode, restriction } => {
+            if mode.is_empty() {
+                return Err(ExecError::Panic("mode check: mode must be non-empty".to_string()));
+            }
+            if restriction.is_empty() {
+                return Err(ExecError::Panic(
+                    "mode check: restriction must be non-empty".to_string(),
+                ));
+            }
+            Ok(vec![])
+        }
+        CapabilityPayload::PackageImport { path, alias: _ } => {
+            if path.is_empty() {
+                return Err(ExecError::Panic("package import: path must be non-empty".to_string()));
+            }
+            vm.state.registers[0] = 1;
+            Ok(vec![])
+        }
+        CapabilityPayload::RefundPolicy {
+            action,
+            target: _,
+            after_blocks,
+        } => {
+            if action.is_empty() {
+                return Err(ExecError::Panic("refund policy: action must be non-empty".to_string()));
+            }
+            vm.state.failure_handlers.push(after_blocks as usize);
+            Ok(vec![])
+        }
     }?;
     Ok(result)
 }
@@ -1344,26 +1557,22 @@ mod tests {
     }
 
     #[test]
-    fn sub_exec_opcode_returns_capability_not_implemented() {
-        // Minimal SUB_EXEC payload: empty bytecode_hash, 0 args, 0 gas_limit
+    fn sub_exec_opcode_succeeds_with_valid_payload() {
         let payload = {
             let mut p = Vec::new();
-            p.extend_from_slice(&0u16.to_le_bytes()); // bytecode_hash len 0
+            p.extend_from_slice(&1u16.to_le_bytes()); // bytecode_hash len 1
+            p.push(b'a'); // bytecode_hash = "a"
             p.extend_from_slice(&0u16.to_le_bytes()); // args count 0
-            p.extend_from_slice(&0u64.to_le_bytes()); // gas_limit 0
+            p.extend_from_slice(&1u64.to_le_bytes()); // gas_limit = 1
             p
         };
         let code = capability_bytecode(SUB_EXEC, &payload);
         let mut vm = VM::new(code, VMConfig::default(), 1_000_000);
         let result = execute(&mut vm);
-        assert!(result.is_err(), "SUB_EXEC must be rejected");
-        match result.unwrap_err() {
-            ExecError::CapabilityNotImplemented(op, name) => {
-                assert_eq!(op, SUB_EXEC);
-                assert_eq!(name, "SUB_EXEC");
-            }
-            other => panic!("expected CapabilityNotImplemented, got {:?}", other),
-        }
+        assert!(result.is_ok(), "SUB_EXEC with valid payload must succeed: {:?}", result);
+        assert_eq!(vm.state.sub_exec_ops.len(), 1);
+        assert_eq!(vm.state.sub_exec_ops[0].bytecode_hash, "a");
+        assert_eq!(vm.state.sub_exec_ops[0].gas_limit, 1);
     }
 
     #[test]
@@ -1425,19 +1634,7 @@ mod tests {
             let mut vm = VM::new(code, VMConfig::default(), 500_000);
             let result = execute(&mut vm);
             match result {
-                Ok(()) => {
-                    assert!(
-                        name != "SUB_EXEC",
-                        "SUB_EXEC should have been rejected with CapabilityNotImplemented, but got Ok"
-                    );
-                }
-                Err(ExecError::CapabilityNotImplemented(oc, n)) => {
-                    assert_eq!(
-                        oc, SUB_EXEC,
-                        "only SUB_EXEC should return CapabilityNotImplemented for now"
-                    );
-                    assert_eq!(n, "SUB_EXEC");
-                }
+                Ok(()) => {}
                 Err(ExecError::InvalidOperand) => {
                     panic!(
                         "opcode 0x{opcode:02x} ({name}) payload failed to decode — check capability_minimal_payload"
@@ -1457,7 +1654,6 @@ mod tests {
     }
 
     fn capability_minimal_payload(opcode: u8) -> Vec<u8> {
-        let empty_str = vec![0u8, 0]; // len=0
         let one_str = vec![1u8, 0, b'a']; // len=1, "a"
         let mut p = Vec::new();
         match opcode {
@@ -1535,9 +1731,9 @@ mod tests {
                 p.extend_from_slice(&one_str);
             }
             SUB_EXEC => {
-                p.extend_from_slice(&empty_str);
-                p.extend_from_slice(&0u16.to_le_bytes());
-                p.extend_from_slice(&0u64.to_le_bytes());
+                p.extend_from_slice(&one_str); // bytecode_hash = "a"
+                p.extend_from_slice(&0u16.to_le_bytes()); // args count 0
+                p.extend_from_slice(&1u64.to_le_bytes()); // gas_limit = 1
             }
             _ => {}
         }

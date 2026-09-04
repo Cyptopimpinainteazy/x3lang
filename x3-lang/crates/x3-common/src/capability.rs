@@ -121,6 +121,65 @@ pub enum CapabilityPayload {
         /// Maximum gas allowed for this sub-execution.
         gas_limit: u64,
     },
+
+    // ===== B-52 Feature Lock Payloads =====
+    RouteScore {
+        strategy: String,
+        weights: Vec<(String, u32)>,
+    },
+    SolverBid {
+        solver: String,
+        receive_asset: String,
+        deliver_asset: String,
+        fee: String,
+        bond: u128,
+    },
+    RelayerAttest {
+        relayers: Vec<String>,
+        quorum_numerator: u32,
+        quorum_denominator: u32,
+        signatures: Vec<String>,
+    },
+    RpcConsensus {
+        chain: String,
+        require_numerator: u32,
+        require_denominator: u32,
+        reject_on: Vec<String>,
+    },
+    RiskScore {
+        score: u32,
+        category: String,
+    },
+    InvariantCheck {
+        name: String,
+        assert_expr: String,
+    },
+    PrivacyCommit {
+        reveal_on: String,
+        encrypted: bool,
+    },
+    ProofRequired {
+        proof_type: String,
+        source: String,
+    },
+    VmAdapterCall {
+        vm: String,
+        adapter: String,
+        calldata: String,
+    },
+    ModeCheck {
+        mode: String,
+        restriction: String,
+    },
+    PackageImport {
+        path: Vec<String>,
+        alias: Option<String>,
+    },
+    RefundPolicy {
+        action: String,
+        target: String,
+        after_blocks: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -307,6 +366,89 @@ pub fn encode_capability_payload(payload: &CapabilityPayload) -> Result<Vec<u8>,
             write_string(&mut out, bytecode_hash)?;
             write_string_vec(&mut out, args)?;
             write_u64(&mut out, *gas_limit);
+        }
+
+        // ===== B-52 Feature Lock encode =====
+        CapabilityPayload::RouteScore { strategy, weights } => {
+            write_string(&mut out, strategy)?;
+            write_u16(&mut out, weights.len() as u16);
+            for (w_key, w_val) in weights {
+                write_string(&mut out, w_key)?;
+                write_u32(&mut out, *w_val);
+            }
+        }
+        CapabilityPayload::SolverBid {
+            solver,
+            receive_asset,
+            deliver_asset,
+            fee,
+            bond,
+        } => {
+            write_string(&mut out, solver)?;
+            write_string(&mut out, receive_asset)?;
+            write_string(&mut out, deliver_asset)?;
+            write_string(&mut out, fee)?;
+            write_u128(&mut out, *bond);
+        }
+        CapabilityPayload::RelayerAttest {
+            relayers,
+            quorum_numerator,
+            quorum_denominator,
+            signatures,
+        } => {
+            write_string_vec(&mut out, relayers)?;
+            write_u32(&mut out, *quorum_numerator);
+            write_u32(&mut out, *quorum_denominator);
+            write_string_vec(&mut out, signatures)?;
+        }
+        CapabilityPayload::RpcConsensus {
+            chain,
+            require_numerator,
+            require_denominator,
+            reject_on,
+        } => {
+            write_string(&mut out, chain)?;
+            write_u32(&mut out, *require_numerator);
+            write_u32(&mut out, *require_denominator);
+            write_string_vec(&mut out, reject_on)?;
+        }
+        CapabilityPayload::RiskScore { score, category } => {
+            write_u32(&mut out, *score);
+            write_string(&mut out, category)?;
+        }
+        CapabilityPayload::InvariantCheck { name, assert_expr } => {
+            write_string(&mut out, name)?;
+            write_string(&mut out, assert_expr)?;
+        }
+        CapabilityPayload::PrivacyCommit { reveal_on, encrypted } => {
+            write_string(&mut out, reveal_on)?;
+            write_bool(&mut out, *encrypted);
+        }
+        CapabilityPayload::ProofRequired { proof_type, source } => {
+            write_string(&mut out, proof_type)?;
+            write_string(&mut out, source)?;
+        }
+        CapabilityPayload::VmAdapterCall { vm, adapter, calldata } => {
+            write_string(&mut out, vm)?;
+            write_string(&mut out, adapter)?;
+            write_string(&mut out, calldata)?;
+        }
+        CapabilityPayload::ModeCheck { mode, restriction } => {
+            write_string(&mut out, mode)?;
+            write_string(&mut out, restriction)?;
+        }
+        CapabilityPayload::PackageImport { path, alias } => {
+            write_string_vec(&mut out, path)?;
+            write_optional_string(&mut out, alias.as_deref())?;
+        }
+        CapabilityPayload::RefundPolicy {
+            action,
+            target,
+            after_blocks,
+        } => {
+            write_string(&mut out, action)?;
+            write_string(&mut out, target)?;
+            write_u32(&mut out, *after_blocks);
         }
     }
     Ok(out)
@@ -566,6 +708,73 @@ pub fn decode_capability_payload(opcode: u8, bytes: &[u8]) -> Result<CapabilityP
             args: reader.read_string_vec()?,
             gas_limit: reader.read_u64()?,
         },
+        // ===== B-52 Feature Lock decode =====
+        0xA0 => CapabilityPayload::RouteScore {
+            strategy: reader.read_string()?,
+            weights: {
+                let wlen = reader.read_u16()? as usize;
+                let mut w = Vec::with_capacity(wlen);
+                for _ in 0..wlen {
+                    let k = reader.read_string()?;
+                    let v = reader.read_u32()?;
+                    w.push((k, v));
+                }
+                w
+            },
+        },
+        0xA1 => CapabilityPayload::SolverBid {
+            solver: reader.read_string()?,
+            receive_asset: reader.read_string()?,
+            deliver_asset: reader.read_string()?,
+            fee: reader.read_string()?,
+            bond: reader.read_u128()?,
+        },
+        0xA2 => CapabilityPayload::RelayerAttest {
+            relayers: reader.read_string_vec()?,
+            quorum_numerator: reader.read_u32()?,
+            quorum_denominator: reader.read_u32()?,
+            signatures: reader.read_string_vec()?,
+        },
+        0xA3 => CapabilityPayload::RpcConsensus {
+            chain: reader.read_string()?,
+            require_numerator: reader.read_u32()?,
+            require_denominator: reader.read_u32()?,
+            reject_on: reader.read_string_vec()?,
+        },
+        0xA4 => CapabilityPayload::RiskScore {
+            score: reader.read_u32()?,
+            category: reader.read_string()?,
+        },
+        0xA5 => CapabilityPayload::InvariantCheck {
+            name: reader.read_string()?,
+            assert_expr: reader.read_string()?,
+        },
+        0xA6 => CapabilityPayload::PrivacyCommit {
+            reveal_on: reader.read_string()?,
+            encrypted: reader.read_bool()?,
+        },
+        0xA7 => CapabilityPayload::ProofRequired {
+            proof_type: reader.read_string()?,
+            source: reader.read_string()?,
+        },
+        0xA8 => CapabilityPayload::VmAdapterCall {
+            vm: reader.read_string()?,
+            adapter: reader.read_string()?,
+            calldata: reader.read_string()?,
+        },
+        0xA9 => CapabilityPayload::ModeCheck {
+            mode: reader.read_string()?,
+            restriction: reader.read_string()?,
+        },
+        0xAA => CapabilityPayload::PackageImport {
+            path: reader.read_string_vec()?,
+            alias: reader.read_optional_string()?,
+        },
+        0xAB => CapabilityPayload::RefundPolicy {
+            action: reader.read_string()?,
+            target: reader.read_string()?,
+            after_blocks: reader.read_u32()?,
+        },
         _ => return Err(CapabilityCodecError::InvalidOpcode(opcode)),
     };
     if reader.pos != bytes.len() {
@@ -580,6 +789,10 @@ fn write_u8(out: &mut Vec<u8>, value: u8) {
 
 fn write_bool(out: &mut Vec<u8>, value: bool) {
     out.push(u8::from(value));
+}
+
+fn write_u16(out: &mut Vec<u8>, value: u16) {
+    out.extend_from_slice(&value.to_le_bytes());
 }
 
 fn write_u32(out: &mut Vec<u8>, value: u32) {
@@ -653,6 +866,12 @@ impl<'a> Reader<'a> {
 
     fn read_bool(&mut self) -> Result<bool, CapabilityCodecError> {
         Ok(self.read_u8()? != 0)
+    }
+
+    fn read_u16(&mut self) -> Result<u16, CapabilityCodecError> {
+        let mut bytes = [0u8; 2];
+        bytes.copy_from_slice(self.read_exact(2)?);
+        Ok(u16::from_le_bytes(bytes))
     }
 
     fn read_u32(&mut self) -> Result<u32, CapabilityCodecError> {

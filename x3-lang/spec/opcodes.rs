@@ -54,6 +54,19 @@ pub const GAS_ADAPTIVE: u8 = 0x99;
 pub const BOUNTY: u8 = 0x9A;
 pub const SUB_EXEC: u8 = 0x9B;
 
+pub const ROUTE_SCORE: u8 = 0xA0;
+pub const SOLVER_BID: u8 = 0xA1;
+pub const RELAYER_ATTEST: u8 = 0xA2;
+pub const RPC_CONSENSUS: u8 = 0xA3;
+pub const RISK_SCORE: u8 = 0xA4;
+pub const INVARIANT_CHECK: u8 = 0xA5;
+pub const PRIVACY_COMMIT: u8 = 0xA6;
+pub const PROOF_REQUIRED: u8 = 0xA7;
+pub const VM_ADAPTER_CALL: u8 = 0xA8;
+pub const MODE_CHECK: u8 = 0xA9;
+pub const PACKAGE_IMPORT: u8 = 0xAA;
+pub const REFUND_POLICY: u8 = 0xAB;
+
 pub const NOP: u8 = 0x00;
 pub const BYTECODE_VERSION_1: u8 = 0x01;
 pub const META_NONCE: u8 = 0x10;

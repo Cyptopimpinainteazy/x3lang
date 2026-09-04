@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // E2E test fixtures (target H — "Finish Examples").
 //
 // These cover the documented production-shape intent surface that the
@@ -17,6 +19,8 @@ pub const TRANSFER: &str = r#"intent internal_transfer {
     route {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777
     }
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
 }
 "#;
 
@@ -102,3 +106,15 @@ pub const UNKNOWN_CHAIN: &str = r#"intent unknown_chain {
 /// Malformed input: an obviously broken intent that the parser must
 /// reject with a useful diagnostic.
 pub const MALFORMED: &str = r#"this is not a valid program @#$%"#;
+
+/// Refund swap: a simple intent with timeout and refund path.
+#[allow(dead_code)]
+pub const REFUND_SWAP_SOURCE: &str = include_str!("refund_swap.x3");
+
+/// Mainnet safe swap: full production intent with vm/solver/relayer/rpc config.
+#[allow(dead_code)]
+pub const MAINNET_SAFE_SWAP_SOURCE: &str = include_str!("mainnet_safe_swap.x3");
+
+/// Intent with proofs: intent that requires multiple proof types.
+#[allow(dead_code)]
+pub const INTENT_WITH_PROOFS_SOURCE: &str = include_str!("intent_with_proofs.x3");

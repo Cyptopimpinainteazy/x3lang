@@ -1,0 +1,172 @@
+use x3_lang_compiler::parser::parse_source;
+
+fn try_parse(label: &str, src: &str) {
+    match parse_source(src) {
+        Ok(p) => println!("OK [{}]: {} items", label, p.items.len()),
+        Err(e) => println!("FAIL [{}]: {:?}", label, e),
+    }
+}
+
+#[test]
+fn bisect() {
+    // Add timeout
+    try_parse(
+        "with timeout",
+        r#"
+vm {
+    chain arbitrum
+    adapter evm
+    finality safe
+}
+
+solver_market {
+    mode competitive
+    min_reputation 95
+}
+
+relayers {
+    quorum_numerator 3
+    quorum_denominator 5
+    relayers [relayer_a, relayer_b, relayer_c, relayer_d, relayer_e]
+}
+
+rpc_quorum {
+    source arbitrum
+    require_numerator 2
+    require_denominator 3
+    reject_on [receipt_disagree, finality_disagree]
+}
+
+risk_policy {
+    max_slippage 5
+    max_position 500000
+}
+
+privacy {
+    hide_route_until_commit true
+    reveal_on claim
+    encrypted true
+}
+
+invariant no_double_claim
+
+proofs required {
+    source_lock_proof
+    source_finality_proof
+    destination_fill_proof
+}
+
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+}
+
+error SlippageExceeded
+
+target evm {
+    adapter evm_adapter
+    contract 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18
+}
+
+intent safe_cross_vm_swap {
+    from arbitrum.USDC amount 500
+    to solana.SOL receiver wallet
+
+    route {
+        bridge X3 arbitrum.USDC -> solana.SOL receiver wallet
+    }
+
+    require nonce unused safe_swap_001
+    require slippage <= 5
+    require route_score >= 90
+    require finality.arbitrum >= 32
+    require finality.solana >= 32
+    require relayer_quorum >= 3
+    require solver_bond >= 10000
+
+    timeout 3600s
+}
+"#,
+    );
+
+    // Add on_fail
+    try_parse(
+        "full intent",
+        r#"
+vm {
+    chain arbitrum
+    adapter evm
+    finality safe
+}
+
+solver_market {
+    mode competitive
+    min_reputation 95
+}
+
+relayers {
+    quorum_numerator 3
+    quorum_denominator 5
+    relayers [relayer_a, relayer_b, relayer_c, relayer_d, relayer_e]
+}
+
+rpc_quorum {
+    source arbitrum
+    require_numerator 2
+    require_denominator 3
+    reject_on [receipt_disagree, finality_disagree]
+}
+
+risk_policy {
+    max_slippage 5
+    max_position 500000
+}
+
+privacy {
+    hide_route_until_commit true
+    reveal_on claim
+    encrypted true
+}
+
+invariant no_double_claim
+
+proofs required {
+    source_lock_proof
+    source_finality_proof
+    destination_fill_proof
+}
+
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+}
+
+error SlippageExceeded
+
+target evm {
+    adapter evm_adapter
+    contract 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18
+}
+
+intent safe_cross_vm_swap {
+    from arbitrum.USDC amount 500
+    to solana.SOL receiver wallet
+
+    route {
+        bridge X3 arbitrum.USDC -> solana.SOL receiver wallet
+    }
+
+    require nonce unused safe_swap_001
+    require slippage <= 5
+    require route_score >= 90
+    require finality.arbitrum >= 32
+    require finality.solana >= 32
+    require relayer_quorum >= 3
+    require solver_bond >= 10000
+
+    timeout 3600s
+    on_fail refund arbitrum.USDC to sender
+}
+"#,
+    );
+}

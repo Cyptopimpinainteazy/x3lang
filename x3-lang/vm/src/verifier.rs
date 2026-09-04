@@ -122,6 +122,7 @@ fn has_compiler_header(bytes: &[u8]) -> bool {
 fn is_payload_opcode(op: u8, compiler_stream: bool) -> bool {
     (compiler_stream && matches!(op, LOCK | MINT | BURN | RELEASE | SWAP | BRIDGE))
         || (GPU_DISPATCH..=SUB_EXEC).contains(&op)
+        || (ROUTE_SCORE..=REFUND_POLICY).contains(&op)
 }
 
 fn align4(value: usize) -> usize {
@@ -246,9 +247,9 @@ fn valid_opcode(op: u8) -> bool {
     // asset ops (0x20-0x24), control (0x30-0x33), guards
     // (0x40-0x44), atomic (0x50-0x52), emit/call (0x60-0x66),
     // vector (0x70-0x73), capability payloads (0x80-0x9B),
-    // and extras (0xA0-0xA5). Halt (0xFF) and reserved (0x00-0x18)
+    // and extras (0xA0-0xAB). Halt (0xFF) and reserved (0x00-0x18)
     // are also valid. Anything outside 0x00-0xFF is impossible.
-    op <= 0xA5 || op == HALT
+    op <= 0xAB || op == HALT
 }
 
 #[cfg(test)]

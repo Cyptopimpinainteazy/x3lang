@@ -310,7 +310,115 @@ pub fn lower_program(program: &Program, ctx: LowerCtx) -> Result<X3IR, x3_lang_c
 
                 ir.push(Operation::AtomicEnd);
             }
-            _ => {} // Other items (types, imports, etc.) don't generate operations
+            Item::VmDecl(vm) => {
+                ir.push(Operation::VmAdapterCall {
+                    vm: vm.chain.as_str().to_string(),
+                    adapter: vm.adapter.as_str().to_string(),
+                    calldata: String::new(),
+                });
+                if let Some(finality) = &vm.finality {
+                    ir.push(Operation::ModeCheck {
+                        mode: "finality".to_string(),
+                        restriction: finality.as_str().to_string(),
+                    });
+                }
+            }
+            Item::SolverMarket(market) => {
+                ir.push(Operation::SolverBid {
+                    solver: market.mode.as_str().to_string(),
+                    receive_asset: String::new(),
+                    deliver_asset: String::new(),
+                    fee: String::new(),
+                    bond: market.min_reputation as u128,
+                });
+            }
+            Item::RelayerSwarm(swarm) => {
+                ir.push(Operation::RelayerAttest {
+                    relayers: swarm.relayers.iter().map(|r| r.as_str().to_string()).collect(),
+                    quorum: (swarm.quorum_numerator, swarm.quorum_denominator),
+                    signatures: Vec::new(),
+                });
+            }
+            Item::RpcQuorum(quorum) => {
+                ir.push(Operation::RpcConsensus {
+                    chain: quorum.source.as_str().to_string(),
+                    require: (quorum.require_numerator, quorum.require_denominator),
+                    reject_on: quorum.reject_on.iter().map(|r| r.as_str().to_string()).collect(),
+                });
+            }
+            Item::RiskPolicy(policy) => {
+                ir.push(Operation::RiskScore {
+                    score: policy.max_slippage as u32,
+                    category: "slippage".to_string(),
+                });
+            }
+            Item::PrivacyBlock(privacy) => {
+                ir.push(Operation::PrivacyCommit {
+                    reveal_on: privacy.reveal_on.as_str().to_string(),
+                    encrypted: privacy.encrypted,
+                });
+            }
+            Item::InvariantDecl(inv) => {
+                ir.push(Operation::InvariantCheck {
+                    name: inv.name.as_str().to_string(),
+                    assert_expr: inv.assert_expr.as_str().to_string(),
+                });
+            }
+            Item::FinalityPolicy(fp) => {
+                ir.push(Operation::Require {
+                    kind: ir::RequireKind::FinalityExplicit,
+                    subject: Some(fp.chain.as_str().to_string()),
+                    condition: ir::Condition::Expression {
+                        expr: format!("{} {}", fp.mode.as_str(), fp.requirement.as_str()),
+                    },
+                    error_msg: None,
+                });
+            }
+            Item::ProofsRequired(proofs) => {
+                for proof in &proofs.proofs {
+                    ir.push(Operation::ProofRequired {
+                        proof_type: proof.as_str().to_string(),
+                        source: "intent".to_string(),
+                    });
+                }
+            }
+            Item::VmTarget(target) => {
+                ir.push(Operation::VmAdapterCall {
+                    vm: target.vm.as_str().to_string(),
+                    adapter: target.adapter.as_str().to_string(),
+                    calldata: target
+                        .contract
+                        .as_ref()
+                        .map(|c| c.as_str().to_string())
+                        .unwrap_or_default(),
+                });
+            }
+            Item::Proposal(proposal) => {
+                ir.push(Operation::AtomicBegin);
+                for stmt in &proposal.body {
+                    lower_statement(stmt, &mut ir)?;
+                }
+                for req in &proposal.requires {
+                    ir.push(Operation::Require {
+                        kind: require_kind_to_ir(&req.kind),
+                        subject: req.subject.as_ref().map(|s| s.as_str().to_string()),
+                        condition: expression_to_condition(&req.value)?,
+                        error_msg: None,
+                    });
+                }
+                ir.push(Operation::AtomicEnd);
+            }
+            Item::Agent(agent) => {
+                for method in &agent.methods {
+                    lower_annotations_prefix(&method.node.annotations, &mut ir)?;
+                    lower_function_body(&method.node.body, &mut ir)?;
+                    lower_annotations_suffix(&method.node.annotations, &mut ir)?;
+                }
+                for strategy in &agent.strategies {
+                    lower_function_body(&strategy.node.body, &mut ir)?;
+                }
+            }
+            _ => {} // Other items (types, imports, ErrorDecl, etc.) don't generate operations
         }
     }
 
@@ -878,7 +986,14 @@ fn require_kind_to_ir(kind: &ast::RequireKind) -> ir::RequireKind {
         ast::RequireKind::InvariantCheck => ir::RequireKind::Custom("invariant".to_string()),
         ast::RequireKind::RiskScore => ir::RequireKind::Custom("risk_score".to_string()),
         ast::RequireKind::AuditGate => ir::RequireKind::Custom("audit_gate".to_string()),
-        ast::RequireKind::RelayerQuorum => ir::RequireKind::Custom("relayer_quorum".to_string()),
+        ast::RequireKind::RelayerQuorum => ir::RequireKind::RelayerQuorum,
+        ast::RequireKind::RouteScore => ir::RequireKind::RouteScore,
+        ast::RequireKind::SolverBond => ir::RequireKind::SolverBond,
+        ast::RequireKind::ProofComplete => ir::RequireKind::ProofComplete,
+        ast::RequireKind::RefundPath => ir::RequireKind::RefundPath,
+        ast::RequireKind::FinalityExplicit => ir::RequireKind::FinalityExplicit,
+        ast::RequireKind::VmSupported => ir::RequireKind::VmSupported,
+        ast::RequireKind::MainnetSafe => ir::RequireKind::MainnetSafe,
     }
 }
 

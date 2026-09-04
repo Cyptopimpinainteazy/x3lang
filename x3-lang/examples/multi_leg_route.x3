@@ -1,0 +1,15 @@
+intent multi_leg_portfolio {
+    from polygon.USDC amount 1000
+
+    route {
+        bridge X3 polygon.USDC -> arbitrum.USDC amount 400
+        swap Uniswap polygon.USDC -> solana.SOL amount 300
+        bridge X3 polygon.USDC -> sui.SUI amount 200
+        bridge X3 polygon.USDC -> bitcoin.BTC amount 100
+    }
+
+    require slippage <= 120
+    require route_score >= 90
+
+    on_fail rollback
+}

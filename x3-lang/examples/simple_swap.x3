@@ -1,0 +1,14 @@
+intent simple_swap {
+    from arbitrum.USDC amount 500
+    to solana.SOL receiver wallet
+
+    route {
+        bridge X3 arbitrum.USDC -> solana.SOL receiver wallet
+    }
+
+    require slippage <= 50
+    require route_score >= 90
+
+    timeout 180s
+    on_fail rollback
+}

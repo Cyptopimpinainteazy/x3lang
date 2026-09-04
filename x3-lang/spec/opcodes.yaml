@@ -3,39 +3,378 @@
 # verifier, and executor. All three components should reference this file
 # to ensure a single source of truth.
 
-# Asset operations
-LOCK: 0x20
-MINT: 0x21
-BURN: 0x22
-RELEASE: 0x23
-SWAP: 0x24
+opcodes:
+  - code: 0x00
+    name: NOP
+    category: Misc
+    description: "No operation"
 
-# Control flow
-IF: 0x30
-LOOP: 0x31
-JUMP: 0x30   # alias for IF jump handling
-CALL: 0x32
-RET: 0x33
+  - code: 0x01
+    name: BYTECODE_VERSION_1
+    category: Header
+    description: "Bytecode version marker"
 
-# Guards
-REQUIRE: 0x40
-ON_FAIL: 0x41
-ON_TIMEOUT: 0x42
+  - code: 0x10
+    name: META_NONCE
+    category: Metadata
+    description: "Transaction nonce metadata"
 
-# Atomic sections
-ATOMIC_BEGIN: 0x50
-ATOMIC_END: 0x51
-ATOMIC_ROLLBACK: 0x52
+  - code: 0x11
+    name: META_CHAIN_ID
+    category: Metadata
+    description: "Chain identifier metadata"
 
-# Host calls
-EMIT: 0x60
-CALL_HOST: 0x61
+  - code: 0x20
+    name: LOCK
+    category: Asset ops
+    description: "Lock assets on source chain"
 
-# Capability payloads (example range)
-SCHEDULED_DISPATCH: 0x82
-PROOF_VERIFY: 0x85
-MULTISIG_CHECK: 0x94
+  - code: 0x21
+    name: MINT
+    category: Asset ops
+    description: "Mint assets on destination chain"
 
-# Reserved / special
-NOP: 0x00
-HALT: 0xFF
+  - code: 0x22
+    name: BURN
+    category: Asset ops
+    description: "Burn assets on source chain"
+
+  - code: 0x23
+    name: RELEASE
+    category: Asset ops
+    description: "Release locked assets"
+
+  - code: 0x24
+    name: SWAP
+    category: Asset ops
+    description: "Atomic swap between assets"
+
+  - code: 0x25
+    name: BRIDGE
+    category: Bridge
+    description: "Cross-chain bridge operation"
+
+  - code: 0x30
+    name: IF
+    category: Control flow
+    description: "Conditional branch"
+
+  - code: 0x31
+    name: LOOP
+    category: Control flow
+    description: "Loop construct"
+
+  - code: 0x32
+    name: CALL
+    category: Control flow
+    description: "Call subroutine"
+
+  - code: 0x33
+    name: RET
+    category: Control flow
+    description: "Return from subroutine"
+
+  - code: 0x40
+    name: REQUIRE
+    category: Guards
+    description: "Assert precondition"
+
+  - code: 0x41
+    name: ON_FAIL
+    category: Guards
+    description: "Failure handler"
+
+  - code: 0x42
+    name: ON_TIMEOUT
+    category: Guards
+    description: "Timeout handler"
+
+  - code: 0x50
+    name: ATOMIC_BEGIN
+    category: Atomic
+    description: "Begin atomic section"
+
+  - code: 0x51
+    name: ATOMIC_END
+    category: Atomic
+    description: "End atomic section"
+
+  - code: 0x52
+    name: ATOMIC_ROLLBACK
+    category: Atomic
+    description: "Rollback atomic section"
+
+  - code: 0x60
+    name: EMIT
+    category: External calls
+    description: "Emit event"
+
+  - code: 0x61
+    name: CALL_HOST
+    category: External calls
+    description: "Call host function"
+
+  - code: 0x70
+    name: RESERVED_70
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x71
+    name: RESERVED_71
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x72
+    name: RESERVED_72
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x73
+    name: RESERVED_73
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x74
+    name: RESERVED_74
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x75
+    name: RESERVED_75
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x76
+    name: RESERVED_76
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x77
+    name: RESERVED_77
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x78
+    name: RESERVED_78
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x79
+    name: RESERVED_79
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x7A
+    name: RESERVED_7A
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x7B
+    name: RESERVED_7B
+    category: Reserved
+    description: "Reserved opcode"
+
+  - code: 0x80
+    name: GPU_DISPATCH
+    category: Capability payloads
+    description: "Dispatch GPU compute kernel"
+
+  - code: 0x81
+    name: SIMULATE
+    category: Capability payloads
+    description: "Simulate execution"
+
+  - code: 0x82
+    name: SCHEDULED_DISPATCH
+    category: Capability payloads
+    description: "Scheduled dispatch operation"
+
+  - code: 0x83
+    name: INTENT_RESOLVE
+    category: Capability payloads
+    description: "Resolve user intent"
+
+  - code: 0x84
+    name: CRDT_OP
+    category: Capability payloads
+    description: "CRDT operation"
+
+  - code: 0x85
+    name: PROOF_VERIFY
+    category: Capability payloads
+    description: "Verify cryptographic proof"
+
+  - code: 0x86
+    name: STORAGE_OP
+    category: Capability payloads
+    description: "Storage operation"
+
+  - code: 0x87
+    name: PATHFIND
+    category: Capability payloads
+    description: "Pathfinding operation"
+
+  - code: 0x88
+    name: MEMPOOL_SCAN
+    category: Capability payloads
+    description: "Mempool scan operation"
+
+  - code: 0x89
+    name: ORACLE_REQUEST
+    category: Capability payloads
+    description: "Oracle data request"
+
+  - code: 0x8A
+    name: EMERGENCY_CONTROL
+    category: Capability payloads
+    description: "Emergency control operation"
+
+  - code: 0x8B
+    name: LIFECYCLE
+    category: Capability payloads
+    description: "Lifecycle management"
+
+  - code: 0x8C
+    name: SERIALIZE
+    category: Capability payloads
+    description: "Serialize data"
+
+  - code: 0x8D
+    name: DESERIALIZE
+    category: Capability payloads
+    description: "Deserialize data"
+
+  - code: 0x8E
+    name: GAS_ESTIMATE
+    category: Capability payloads
+    description: "Estimate gas cost"
+
+  - code: 0x8F
+    name: CHAIN_METRIC
+    category: Capability payloads
+    description: "Read chain metric"
+
+  - code: 0x90
+    name: EVENT_PROVENANCE
+    category: Capability payloads
+    description: "Event provenance tracking"
+
+  - code: 0x91
+    name: MULTI_HOP_SWAP
+    category: Capability payloads
+    description: "Multi-hop token swap"
+
+  - code: 0x92
+    name: VECTOR_MATH
+    category: Capability payloads
+    description: "Vector math operation"
+
+  - code: 0x93
+    name: ROLE_CHECK
+    category: Capability payloads
+    description: "Check role permission"
+
+  - code: 0x94
+    name: MULTISIG_CHECK
+    category: Capability payloads
+    description: "Multisignature verification"
+
+  - code: 0x95
+    name: VERSION_META
+    category: Capability payloads
+    description: "Version metadata"
+
+  - code: 0x96
+    name: STORAGE_NAMESPACE
+    category: Capability payloads
+    description: "Storage namespace operation"
+
+  - code: 0x97
+    name: ABI_EXPORT
+    category: Capability payloads
+    description: "Export ABI interface"
+
+  - code: 0x98
+    name: DOC_EMBED
+    category: Capability payloads
+    description: "Embed documentation"
+
+  - code: 0x99
+    name: GAS_ADAPTIVE
+    category: Capability payloads
+    description: "Adaptive gas pricing"
+
+  - code: 0x9A
+    name: BOUNTY
+    category: Capability payloads
+    description: "Bounty operation"
+
+  - code: 0x9B
+    name: SUB_EXEC
+    category: Capability payloads
+    description: "Sub-execution context"
+
+  - code: 0xA0
+    name: ROUTE_SCORE
+    category: B-52 feature lock
+    description: "Route scoring operation"
+
+  - code: 0xA1
+    name: SOLVER_BID
+    category: B-52 feature lock
+    description: "Solver bid submission"
+
+  - code: 0xA2
+    name: RELAYER_ATTEST
+    category: B-52 feature lock
+    description: "Relayer attestation"
+
+  - code: 0xA3
+    name: RPC_CONSENSUS
+    category: B-52 feature lock
+    description: "RPC consensus check"
+
+  - code: 0xA4
+    name: RISK_SCORE
+    category: B-52 feature lock
+    description: "Risk score evaluation"
+
+  - code: 0xA5
+    name: INVARIANT_CHECK
+    category: B-52 feature lock
+    description: "Invariant check"
+
+  - code: 0xA6
+    name: PRIVACY_COMMIT
+    category: B-52 feature lock
+    description: "Privacy commitment"
+
+  - code: 0xA7
+    name: PROOF_REQUIRED
+    category: B-52 feature lock
+    description: "Proof required check"
+
+  - code: 0xA8
+    name: VM_ADAPTER_CALL
+    category: B-52 feature lock
+    description: "VM adapter call"
+
+  - code: 0xA9
+    name: MODE_CHECK
+    category: B-52 feature lock
+    description: "Mode check"
+
+  - code: 0xAA
+    name: PACKAGE_IMPORT
+    category: B-52 feature lock
+    description: "Package import"
+
+  - code: 0xAB
+    name: REFUND_POLICY
+    category: B-52 feature lock
+    description: "Refund policy check"
+
+  - code: 0xFF
+    name: HALT
+    category: Misc
+    description: "Halt execution"

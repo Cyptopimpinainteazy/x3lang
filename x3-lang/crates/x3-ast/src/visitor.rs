@@ -19,6 +19,18 @@ pub trait AstVisitor {
     fn visit_atomic_swap(&mut self, _a: &AtomicSwapDecl) {}
     fn visit_cross_chain_strategy(&mut self, _s: &CrossChainStrategy) {}
     fn visit_proposal(&mut self, _p: &ProposalDecl) {}
+    // B-52 feature lock visitors
+    fn visit_vm_decl(&mut self, _d: &VmDecl) {}
+    fn visit_solver_market(&mut self, _m: &SolverMarket) {}
+    fn visit_relayer_swarm(&mut self, _r: &RelayerSwarm) {}
+    fn visit_rpc_quorum(&mut self, _q: &RpcQuorum) {}
+    fn visit_risk_policy(&mut self, _p: &RiskPolicy) {}
+    fn visit_privacy_block(&mut self, _p: &PrivacyBlock) {}
+    fn visit_invariant_decl(&mut self, _i: &InvariantDecl) {}
+    fn visit_error_decl(&mut self, _e: &ErrorDecl) {}
+    fn visit_finality_policy(&mut self, _f: &FinalityPolicy) {}
+    fn visit_proofs_required(&mut self, _p: &ProofsRequired) {}
+    fn visit_vm_target(&mut self, _t: &VmTarget) {}
 }
 
 // Helper module alias for Spanned to avoid cyclic dependencies in imports

@@ -1,0 +1,1136 @@
+import json
+from pathlib import Path
+
+prompt_text = """You are now operating in X3 Cross-VM Atomic Engine Expansion Mode.
+
+MISSION:
+Expand X3 into a production-grade cross-VM atomic execution engine that supports the major blockchain execution families, not just EVM chains.
+
+This is not a documentation task.
+This is not a fake adapter task.
+This is not a README upgrade.
+
+Implement real interfaces, real adapter boundaries, real proof requirements, real tests, real scoreboard output, and honest blockers where full implementation is not yet possible.
+
+CORE X3 ATOMIC ENGINE STACK:
+- HTLC atomicity
+- cross-VM adapters
+- intent routing
+- solver marketplace
+- relayer swarm
+- finality oracle
+- RPC quorum
+- timeout/refund engine
+- proof ledger
+- scoreboard
+- slashing
+- chain health monitor
+- .x3 language compiler support
+- chaos tests
+- adapter readiness scoring
+- VM-family expansion roadmap
+
+VM EXPANSION TARGETS:
+Current mandatory base targets:
+1. EVM
+2. SVM / Solana
+3. Substrate runtime pallet
+4. Bitcoin Script / Taproot
+5. X3VM
+
+Expansion targets:
+6. MoveVM: Sui, Aptos
+7. CosmWasm: Cosmos SDK chains, IBC-aware routes
+8. CairoVM: Starknet
+9. Plutus / eUTXO: Cardano
+10. TON TVM: TON
+11. FuelVM: Fuel
+12. NEAR WASM: NEAR
+13. Soroban WASM: Stellar Soroban
+14. Polkadot PVM / ink!: Polkadot smart contracts, Substrate contract environments
+15. zkVM proof adapters: RISC Zero, SP1, zkWASM, future proof systems
+
+Do not build random chain-specific spaghetti. Build VM-family adapters.
+
+NON-NEGOTIABLE RULES:
+1. No fake success.
+2. No mocks in production paths.
+3. No fake VM adapters marked complete.
+4. No placeholder adapter claiming support.
+5. No docs-only completion.
+6. No silent TODOs.
+7. No "production ready" claim unless code compiles, tests pass, proof ledger works, and scoreboard reaches 100/100 for implemented scope.
+8. Unsupported VM targets must be marked as BLOCKED, PARTIAL, or INTERFACE_ONLY.
+9. Every adapter must expose the same X3 adapter interface.
+10. Every adapter must have tests or failing proof tests that honestly show the implementation gap.
+11. Every claimed feature must have proof: files changed, commands run, tests passed, tests failed, scoreboard score, missing proof list.
+
+REPOSITORY INSPECTION FIRST:
+Before writing code:
+1. Inspect the repo structure.
+2. Find existing X3 modules.
+3. Find existing atomic, bridge, relayer, VM, x3-lang, proof, and scoreboard code.
+4. Find existing EVM, Solana, Substrate, Bitcoin, relayer, or compiler logic.
+5. Identify broken builds or failing tests.
+6. Do not ignore pre-existing compile errors.
+7. Produce a short implementation map based on the actual repo layout.
+
+If the repo already has modules, extend them. Do not create disconnected toy code.
+
+SHARED VM ADAPTER INTERFACE:
+Create or update the shared adapter trait/interface.
+
+Required interface:
+pub trait X3VmAdapter {
+    fn vm_type(&self) -> VmType;
+    fn adapter_name(&self) -> &'static str;
+    fn supported_chains(&self) -> Vec<ChainId>;
+    fn supported_assets(&self) -> Vec<AssetId>;
+
+    fn lock(&self, intent: AtomicIntent) -> Result<LockProof>;
+    fn claim(&self, intent_id: IntentId, preimage: Preimage) -> Result<ClaimProof>;
+    fn refund(&self, intent_id: IntentId) -> Result<RefundProof>;
+
+    fn verify_lock(&self, proof: LockProof) -> Result<bool>;
+    fn verify_claim(&self, proof: ClaimProof) -> Result<bool>;
+    fn verify_refund(&self, proof: RefundProof) -> Result<bool>;
+
+    fn estimate_fee(&self, intent: AtomicIntent) -> Result<FeeEstimate>;
+    fn finality_status(&self, tx: TxId) -> Result<FinalityProof>;
+    fn chain_health(&self) -> Result<ChainHealth>;
+
+    fn readiness_score(&self) -> AdapterReadinessScore;
+}
+
+If the repo is not Rust, implement the same interface in the repo's native language.
+
+VM TYPE ENUM:
+enum VmType {
+    Evm,
+    Svm,
+    Substrate,
+    BitcoinScript,
+    X3Vm,
+    MoveVm,
+    CosmWasm,
+    CairoVm,
+    PlutusEutxo,
+    TonTvm,
+    FuelVm,
+    NearWasm,
+    SorobanWasm,
+    PolkadotPvm,
+    InkWasm,
+    ZkVm,
+}
+
+ADAPTER READINESS SCORE:
+Every VM adapter must report readiness.
+
+Required scoring:
+- 10 points: adapter interface implemented
+- 10 points: lock path implemented
+- 10 points: claim path implemented
+- 10 points: refund path implemented
+- 10 points: event/proof extraction implemented
+- 10 points: finality proof implemented
+- 10 points: RPC/indexer support implemented
+- 10 points: timeout safety implemented
+- 10 points: tests implemented
+- 10 points: proof ledger integration
+
+Score meaning:
+- 100/100 = complete for implemented scope
+- 80-99 = partial, not production ready
+- 50-79 = scaffolded but unsafe
+- 1-49 = interface only
+- 0 = missing
+
+Never print COMPLETE unless the adapter scores 100/100.
+
+ATOMIC INTENT MODEL:
+Create or update AtomicIntent.
+
+Required fields:
+- intent_id
+- user
+- source_chain
+- destination_chain
+- source_vm
+- destination_vm
+- source_asset
+- destination_asset
+- amount_in
+- min_amount_out
+- receiver
+- refund_address
+- route_mode
+- hashlock
+- hash_algorithm
+- source_timeout
+- destination_timeout
+- max_slippage_bps
+- deadline
+- finality_requirements
+- rpc_quorum_requirement
+- relayer_quorum_requirement
+- solver_id optional
+- status
+- created_at
+- updated_at
+
+Required route modes:
+- direct_htlc
+- solver_fill
+- multi_hop
+- ibc_route
+- xcm_route
+- proof_only
+- refund_only
+- disabled
+
+ATOMIC STATUS MACHINE:
+Create or update AtomicStatus.
+
+Required statuses:
+- Created
+- RouteQuoted
+- SolverAssigned
+- RelayersAssigned
+- SourceLocked
+- DestinationLocked
+- BothLocked
+- FinalityPending
+- Claimable
+- Claimed
+- RefundableSource
+- RefundableDestination
+- Refunded
+- ExpiredUnsafe
+- Disputed
+- Failed
+- Blocked
+
+Reject invalid transitions:
+- Created -> SourceLocked: valid
+- SourceLocked -> DestinationLocked: valid
+- BothLocked -> Claimable: valid only after finality proof
+- Claimable -> Claimed: valid with claim proof
+- SourceLocked -> Refunded: valid only after timeout
+- Claimed -> Refunded: invalid
+- Failed -> Claimed: invalid
+- Created -> Claimed: invalid
+
+HTLC ATOMICITY:
+Implement HTLC-style atomicity for every supported adapter scope.
+
+Required behavior:
+- lock funds with hashlock
+- claim only with correct preimage
+- refund only after timeout
+- reject wrong preimage
+- reject early refund
+- reject double claim
+- reject double refund
+- bind claim to intended receiver
+- expose lock/claim/refund proof
+- write proof to ledger
+- update scoreboard
+
+Required hash algorithms:
+- sha256
+- keccak256
+- blake2b_256
+
+Use sha256 where Bitcoin/eUTXO compatibility matters.
+Use keccak256 where EVM compatibility matters.
+Use canonical internal hash selection in AtomicIntent.
+
+BASE ADAPTERS:
+1. EVM Adapter: x3-adapter-evm
+Required:
+- Solidity HTLC contract or integration with existing EVM contract
+- lock()
+- claim(preimage)
+- refund()
+- receiver-bound transfer
+- events: Locked, Claimed, Refunded
+- event watcher
+- finality by confirmations
+- RPC quorum support
+- gas estimate
+- proof ledger writes
+- tests
+
+Tests:
+- successful lock
+- successful claim
+- wrong preimage rejected
+- early refund rejected
+- refund after timeout
+- double claim rejected
+- double refund rejected
+- receiver-bound claim enforced
+- missing finality cannot score 100
+
+2. SVM / Solana Adapter: x3-adapter-svm
+Required:
+- Solana lock account model
+- lock instruction
+- claim instruction
+- refund instruction
+- hashlock storage
+- receiver account
+- refund authority
+- timeout slot or unix timestamp
+- event/log output
+- finality through commitment level
+- RPC quorum where possible
+- proof ledger integration
+- tests or honest failing scaffold
+
+3. Substrate Adapter: x3-adapter-substrate
+Required:
+- pallet-based lock storage or integration with existing pallet
+- dispatch: lock
+- dispatch: claim
+- dispatch: refund
+- events
+- GRANDPA finality proof model or honest blocker
+- runtime test
+- proof ledger integration
+
+4. Bitcoin Script / Taproot Adapter: x3-adapter-bitcoin
+Required:
+- HTLC script or Taproot script design
+- claim path with preimage
+- refund path with timelock
+- UTXO proof model
+- transaction builder interface
+- watcher proof model
+- fee estimation
+- confirmation finality
+- proof ledger integration
+
+5. X3VM Adapter: x3-adapter-x3vm
+Required:
+- native X3 atomic lock object
+- native claim
+- native refund
+- direct proof ledger integration
+- native scoreboard integration
+- fastest path for X3-to-X3 routes
+- tests
+
+EXPANSION ADAPTERS:
+6. MoveVM Adapter: x3-adapter-move
+Chains: Sui, Aptos
+Required:
+- MoveHTLC module design
+- Move resource/object lock
+- claim(preimage)
+- refund_after_timeout
+- event emission
+- object/resource proof reader
+- checkpoint/finality verifier
+- Move transaction builder interface
+- proof ledger integration
+
+7. CosmWasm Adapter: x3-adapter-cosmwasm
+Chains: Cosmos SDK chains, IBC-capable routes
+Required:
+- CosmWasm HTLC contract model
+- CW20 support
+- native denom support
+- IBC-aware route metadata
+- Tendermint finality verifier
+- event watcher
+- proof ledger integration
+
+8. CairoVM Adapter: x3-adapter-cairo
+Chain: Starknet
+Required:
+- Cairo HTLC contract model
+- felt-compatible hashlock handling
+- account abstraction-aware signing model
+- event watcher
+- Starknet finality proof model
+- Ethereum settlement proof model where applicable
+- proof ledger integration
+
+9. Plutus / eUTXO Adapter: x3-adapter-plutus
+Chain: Cardano
+Required:
+- Plutus HTLC script model
+- datum/redeemer preimage validation
+- eUTXO lock proof
+- refund path
+- off-chain transaction builder interface
+- chain indexer interface
+- confirmation/finality model
+- proof ledger integration
+
+10. TON TVM Adapter: x3-adapter-ton-tvm
+Chain: TON
+Required:
+- TVM contract model
+- message-based lock flow
+- claim message
+- refund message
+- TON account/wallet handling
+- event/message watcher
+- finality model
+- proof ledger integration
+
+11. FuelVM Adapter: x3-adapter-fuelvm
+Chain: Fuel
+Required:
+- Fuel HTLC predicate or contract model
+- script-based claim path
+- UTXO proof model
+- refund condition
+- Fuel indexer interface
+- proof ledger integration
+
+12. NEAR WASM Adapter: x3-adapter-near-wasm
+Chain: NEAR
+Required:
+- NEAR HTLC contract model
+- account-based lock state
+- receiver account
+- refund account
+- promise/callback safety notes
+- event watcher
+- finality proof model
+- proof ledger integration
+
+13. Soroban WASM Adapter: x3-adapter-soroban
+Chain: Stellar Soroban
+Required:
+- Soroban HTLC contract model
+- Stellar asset support
+- WASM contract invocation model
+- claim/refund calls
+- ledger proof model
+- event watcher
+- proof ledger integration
+
+14. Polkadot PVM / ink! Adapter:
+Names:
+- x3-adapter-polkadot-pvm
+- x3-adapter-ink
+
+Required:
+- PVM contract model where applicable
+- ink! HTLC contract model
+- XCM route metadata
+- event watcher
+- finality proof model
+- proof ledger integration
+
+15. zkVM Proof Adapter: x3-adapter-zkvm
+Targets: RISC Zero, SP1, zkWASM, future proof systems
+
+Purpose:
+This adapter is not for holding funds directly. It verifies execution proofs, route proofs, state proofs, or agent proof claims.
+
+Required proof types:
+- route_correctness
+- finality_compression
+- relayer_execution
+- solver_quote_validity
+- state_transition_validity
+- agent_completion_proof
+
+FINALITY ORACLE:
+Create or update x3-finality.
+
+Required FinalityProof:
+- chain_id
+- vm_type
+- tx_hash
+- block_number
+- block_hash
+- confirmations
+- finalized
+- finality_source
+- observed_at
+- safe_to_reveal_secret
+
+Required support:
+- EVM confirmations
+- Solana finalized/confirmed commitment
+- Bitcoin confirmations
+- Substrate GRANDPA
+- Cosmos Tendermint
+- Sui checkpoint/finality
+- Aptos finality
+- Starknet finality
+- Cardano confirmation model
+- TON finality model
+- Fuel finality model
+- NEAR finality model
+- Stellar ledger finality
+- Polkadot PVM/ink finality
+- zkVM proof verification status
+
+If any finality model is not implemented, mark it as BLOCKED with exact missing dependency.
+
+RPC QUORUM:
+Create or update x3-rpc-quorum.
+
+Required RpcObservation:
+- provider
+- chain_id
+- vm_type
+- tx_hash
+- block_number
+- tx_status
+- block_hash
+- observed_at
+- error optional
+
+Required RpcQuorumProof:
+- chain_id
+- tx_hash
+- required_quorum
+- total_observations
+- agreeing_observations
+- disagreeing_observations
+- accepted
+- reason
+
+Rules:
+- production mode cannot accept single-RPC truth
+- quorum required for lock proof
+- quorum required for claim proof
+- quorum required for refund proof
+- disagreement must be recorded
+- missing quorum prevents scoreboard from reaching 100
+
+TIMEOUT / REFUND ENGINE:
+Create or update x3-timeout-refund.
+
+Required timeout rule:
+destination_timeout + finality_buffer + relayer_buffer + gas_buffer < source_timeout
+
+Reject route if this fails.
+
+Required:
+- timeout validation
+- chain-specific block/time conversion
+- near-expiry detection
+- refundable state detection
+- automatic refund task creation
+- unsafe expiry detection
+- proof ledger write
+
+SOLVER MARKETPLACE:
+Create or update x3-solvers.
+
+Required Solver:
+- solver_id
+- owner
+- stake
+- supported_chains
+- supported_vms
+- supported_assets
+- max_order_size
+- active_liquidity
+- success_count
+- failure_count
+- slash_count
+- reputation_score
+- active
+
+Required SolverQuote:
+- quote_id
+- solver_id
+- intent_id
+- amount_in
+- amount_out
+- fee
+- expires_at
+- route
+- risk_score
+- bond_required
+- signature/proof placeholder if not implemented
+
+RELAYER SWARM:
+Create or update x3-relayers.
+
+Required Relayer:
+- relayer_id
+- owner
+- stake
+- supported_chains
+- supported_vms
+- rpc_endpoints
+- success_count
+- failure_count
+- slash_count
+- avg_response_ms
+- last_seen
+- active
+
+Required:
+- register relayer
+- assign relayers
+- require quorum
+- watch lock events
+- verify hashlock match
+- wait for finality
+- extract preimage
+- submit claim
+- submit refund
+- write proof
+- mark success/failure
+
+CHAIN HEALTH MONITOR:
+Create or update x3-chain-health.
+
+Required ChainHealth:
+- chain_id
+- vm_type
+- latest_block
+- finalized_block
+- block_delay_ms
+- finality_delay_ms
+- rpc_quorum_status
+- gas_price
+- sequencer_status optional
+- halted
+- degraded
+- safe_for_new_intents
+- observed_at
+
+Required:
+- detect RPC disagreement
+- detect finality delay
+- detect halt
+- detect gas spike
+- detect sequencer outage where applicable
+- pause new intents on unsafe chains
+- allow refunds during pause
+- write health proof
+
+SLASHING:
+Create or update x3-slashing.
+
+Required SlashRecord:
+- slash_id
+- actor_id
+- actor_type
+- intent_id
+- reason
+- evidence
+- amount
+- status
+- created_at
+- resolved_at
+
+Slashable actors:
+- relayers
+- solvers
+- validators/provers
+- watchers
+
+Slash reasons:
+- false proof
+- missed assigned claim
+- missed assigned refund
+- stale quote fill failure
+- invalid finality claim
+- RPC manipulation
+- censorship/griefing
+- fake success report
+
+PROOF LEDGER:
+Create or update x3-proof-ledger.
+
+Required AtomicProofRecord:
+- intent_id
+- source_lock_tx
+- destination_lock_tx
+- source_claim_tx
+- destination_claim_tx
+- source_refund_tx
+- destination_refund_tx
+- secret_reveal_tx
+- hashlock_match_proof
+- timeout_order_proof
+- finality_proof
+- rpc_quorum_proof
+- solver_quote_proof
+- relayer_assignment_proof
+- chain_health_proof
+- adapter_readiness_proof
+- slashing_proof optional
+- final_status
+- scoreboard_score
+- missing_proofs
+- created_at
+- updated_at
+
+SCOREBOARD:
+Create or update x3-scoreboard.
+
+Required route scoring:
+- 10 points: valid AtomicIntent
+- 10 points: source adapter ready
+- 10 points: destination adapter ready
+- 10 points: source lock proof
+- 10 points: destination lock proof
+- 10 points: hashlock match proof
+- 10 points: timeout ordering proof
+- 10 points: finality proof
+- 10 points: RPC quorum proof
+- 10 points: claim or refund proof
+
+100/100 = COMPLETE.
+Anything below 100 = NOT COMPLETE.
+
+Required adapter scoring:
+- EVM: __/100
+- SVM: __/100
+- Substrate: __/100
+- Bitcoin: __/100
+- X3VM: __/100
+- MoveVM: __/100
+- CosmWasm: __/100
+- CairoVM: __/100
+- Plutus/eUTXO: __/100
+- TON TVM: __/100
+- FuelVM: __/100
+- NEAR WASM: __/100
+- Soroban WASM: __/100
+- Polkadot PVM: __/100
+- ink! WASM: __/100
+- zkVM: __/100
+
+.x3 LANGUAGE COMPILER SUPPORT:
+Add .x3 atomic syntax support for VM families.
+
+Required example:
+atomic swap eth.USDC -> sol.SOL {
+  amount 500
+  receiver sol.wallet.owner
+  refund_to eth.wallet.owner
+
+  mode direct_htlc
+  hashlock sha256(secret)
+
+  timeout source 40m
+  timeout destination 20m
+
+  require min_out >= 2.1 SOL
+  require finality.eth >= 12
+  require finality.sol == finalized
+  require rpc_quorum >= 3
+  require relayer_quorum >= 3
+  require chain_health.safe == true
+}
+
+Expanded examples:
+atomic swap sui.USDC -> aptos.APT {
+  amount 100
+  receiver aptos.wallet.owner
+  refund_to sui.wallet.owner
+  mode direct_htlc
+  hashlock sha256(secret)
+  timeout source 30m
+  timeout destination 15m
+  require finality.sui == checkpointed
+  require finality.aptos == finalized
+}
+
+atomic swap cosmos.ATOM -> eth.USDC {
+  amount 50
+  receiver eth.wallet.owner
+  refund_to cosmos.wallet.owner
+  mode ibc_route
+  hashlock sha256(secret)
+  timeout source 45m
+  timeout destination 25m
+  require finality.cosmos == tendermint_finalized
+  require finality.eth >= 12
+}
+
+atomic swap btc.BTC -> cardano.ADA {
+  amount 0.01
+  receiver cardano.wallet.owner
+  refund_to btc.wallet.owner
+  mode direct_htlc
+  hashlock sha256(secret)
+  timeout source 120m
+  timeout destination 60m
+  require finality.btc >= 6
+  require finality.cardano >= confirmed
+}
+
+Compiler/parser must output AtomicIntent.
+
+Required:
+- parse VM family
+- parse chain
+- parse asset
+- parse amount
+- parse receiver
+- parse refund_to
+- parse timeout
+- parse finality requirements
+- parse quorum requirements
+- validate adapter exists
+- validate timeout ordering
+- reject unsupported VM
+- reject missing refund path
+- output AtomicIntent
+
+CHAOS TESTS:
+Add chaos/failure tests.
+
+Required:
+- wrong preimage
+- relayer offline
+- solver disappears
+- RPC disagreement
+- finality delay
+- chain halted
+- gas spike
+- timeout mismatch
+- stale quote
+- missing destination lock
+- missing claim tx
+- refund path triggered
+- duplicate intent replay
+- wrong receiver
+- wrong asset
+- unsupported VM
+- adapter lies about readiness
+- scoreboard refuses fake success
+
+CLI / DASHBOARD OUTPUT:
+Add or update CLI/dashboard commands.
+
+Required commands:
+- x3 atomic status <intent_id>
+- x3 atomic scoreboard <intent_id>
+- x3 atomic proofs <intent_id>
+- x3 atomic health
+- x3 atomic relayers
+- x3 atomic solvers
+- x3 atomic adapters
+- x3 atomic vm-scoreboard
+
+IMPLEMENTATION ORDER:
+1. Inspect repo.
+2. Locate existing X3 modules.
+3. Locate existing VM, bridge, relayer, proof, and x3-lang code.
+4. Fix pre-existing compile blockers.
+5. Create shared VmType.
+6. Create shared X3VmAdapter interface.
+7. Create AdapterReadinessScore.
+8. Create/update AtomicIntent.
+9. Create/update AtomicStatus state machine.
+10. Create/update ProofLedger.
+11. Create/update Scoreboard.
+12. Complete EVM adapter.
+13. Complete SVM adapter or honest failing scaffold.
+14. Complete Substrate adapter or honest failing scaffold.
+15. Complete Bitcoin adapter or honest failing scaffold.
+16. Complete X3VM adapter.
+17. Add MoveVM adapter.
+18. Add CosmWasm adapter.
+19. Add CairoVM adapter.
+20. Add Plutus/eUTXO adapter.
+21. Add TON TVM adapter.
+22. Add FuelVM adapter.
+23. Add NEAR WASM adapter.
+24. Add Soroban WASM adapter.
+25. Add Polkadot PVM / ink! adapters.
+26. Add zkVM proof adapter.
+27. Add finality oracle support per VM family.
+28. Add RPC quorum.
+29. Add timeout/refund engine.
+30. Add solver marketplace.
+31. Add relayer swarm.
+32. Add chain health monitor.
+33. Add slashing.
+34. Add .x3 compiler/parser support.
+35. Add chaos tests.
+36. Add CLI/dashboard output.
+37. Run full compile/test pipeline.
+38. Fix failures.
+39. Print final report.
+
+FINAL REPORT FORMAT:
+X3 CROSS-VM EXPANSION REPORT
+
+1. Summary
+- What was implemented:
+- What was fixed:
+- What remains incomplete:
+
+2. Files Changed
+- path:
+  - change:
+
+3. Commands Run
+- command:
+  - result:
+
+4. Compile Status
+- crate/package:
+- status:
+
+5. Tests
+- passed:
+- failed:
+- skipped:
+- failing reason:
+
+6. VM Adapter Scoreboard
+EVM: __/100
+SVM / Solana: __/100
+Substrate: __/100
+Bitcoin Script / Taproot: __/100
+X3VM: __/100
+MoveVM: __/100
+CosmWasm: __/100
+CairoVM: __/100
+Plutus / eUTXO: __/100
+TON TVM: __/100
+FuelVM: __/100
+NEAR WASM: __/100
+Soroban WASM: __/100
+Polkadot PVM: __/100
+ink! WASM: __/100
+zkVM: __/100
+
+Overall Adapter Score: __/100
+
+7. Atomic Engine Scoreboard
+HTLC atomicity: __/100
+Cross-VM adapters: __/100
+Intent routing: __/100
+Solver marketplace: __/100
+Relayer swarm: __/100
+Finality oracle: __/100
+RPC quorum: __/100
+Timeout/refund engine: __/100
+Proof ledger: __/100
+Scoreboard: __/100
+Slashing: __/100
+Chain health monitor: __/100
+.x3 compiler support: __/100
+Chaos tests: __/100
+
+Overall Atomic Engine Score: __/100
+
+8. Missing Proofs
+- item:
+- why missing:
+- affected file/module:
+- exact next fix:
+
+9. Blocked Adapters
+- adapter:
+- blocker:
+- exact dependency needed:
+- next implementation step:
+
+10. Security Notes
+- timeout risks:
+- finality risks:
+- relayer risks:
+- solver risks:
+- VM-specific risks:
+
+11. Next 10 Tasks
+1.
+2.
+3.
+4.
+5.
+6.
+7.
+8.
+9.
+10.
+
+12. Honesty Statement
+State clearly whether the system is:
+- production ready
+- testnet ready
+- compile-only ready
+- partially implemented
+- interface-only
+- blocked
+
+You are not allowed to say production ready unless all production paths compile, tests pass, proof ledger works, scoreboard reaches 100/100 for implemented scope, and no fake/mocked production adapters are present.
+
+Begin now.
+"""
+
+release_gate_prompt = """Run the X3 Cross-VM Expansion Release Gate.
+
+Check all VM families:
+- EVM
+- SVM / Solana
+- Substrate
+- Bitcoin Script / Taproot
+- X3VM
+- MoveVM
+- CosmWasm
+- CairoVM
+- Plutus / eUTXO
+- TON TVM
+- FuelVM
+- NEAR WASM
+- Soroban WASM
+- Polkadot PVM
+- ink! WASM
+- zkVM
+
+Check all engine layers:
+- HTLC atomicity
+- cross-VM adapters
+- intent routing
+- solver marketplace
+- relayer swarm
+- finality oracle
+- RPC quorum
+- timeout/refund engine
+- proof ledger
+- scoreboard
+- slashing
+- chain health monitor
+- .x3 language compiler
+- chaos tests
+
+Rules:
+- Inspect the repo.
+- Do not ask what to do next.
+- Find the highest-impact missing or broken part.
+- Implement it.
+- Run compile/tests.
+- Fix failures.
+- Update proof ledger and scoreboard.
+- Print VM adapter scores.
+- Print atomic engine scores.
+- Print missing proofs.
+- Print blockers.
+- Print next 10 tasks.
+
+No docs-only completion.
+No fake adapters.
+No fake success.
+No mocks in production paths.
+No "done" below 100/100 for implemented scope.
+"""
+
+data = {
+    "name": "x3-cross-vm-expansion",
+    "version": "1.0.0",
+    "description": "Production Proof Mode prompt for expanding X3 into a cross-VM atomic execution engine.",
+    "primary_prompt": prompt_text,
+    "release_gate_prompt": release_gate_prompt,
+    "core_engine_stack": [
+        "HTLC atomicity",
+        "cross-VM adapters",
+        "intent routing",
+        "solver marketplace",
+        "relayer swarm",
+        "finality oracle",
+        "RPC quorum",
+        "timeout/refund engine",
+        "proof ledger",
+        "scoreboard",
+        "slashing",
+        "chain health monitor",
+        ".x3 language compiler support",
+        "chaos tests",
+        "adapter readiness scoring",
+        "VM-family expansion roadmap"
+    ],
+    "vm_targets": {
+        "mandatory_base": [
+            "EVM",
+            "SVM / Solana",
+            "Substrate runtime pallet",
+            "Bitcoin Script / Taproot",
+            "X3VM"
+        ],
+        "expansion": [
+            {"vm": "MoveVM", "chains": ["Sui", "Aptos"]},
+            {"vm": "CosmWasm", "chains": ["Cosmos SDK chains", "IBC-capable routes"]},
+            {"vm": "CairoVM", "chains": ["Starknet"]},
+            {"vm": "Plutus / eUTXO", "chains": ["Cardano"]},
+            {"vm": "TON TVM", "chains": ["TON"]},
+            {"vm": "FuelVM", "chains": ["Fuel"]},
+            {"vm": "NEAR WASM", "chains": ["NEAR"]},
+            {"vm": "Soroban WASM", "chains": ["Stellar Soroban"]},
+            {"vm": "Polkadot PVM / ink!", "chains": ["Polkadot", "Substrate contract environments"]},
+            {"vm": "zkVM proof adapters", "chains": ["RISC Zero", "SP1", "zkWASM", "future proof systems"]}
+        ]
+    },
+    "non_negotiable_rules": [
+        "No fake success.",
+        "No mocks in production paths.",
+        "No fake VM adapters marked complete.",
+        "No placeholder adapter claiming support.",
+        "No docs-only completion.",
+        "No silent TODOs.",
+        "No production-ready claim unless code compiles, tests pass, proof ledger works, and scoreboard reaches 100/100 for implemented scope.",
+        "Unsupported VM targets must be marked BLOCKED, PARTIAL, or INTERFACE_ONLY.",
+        "Every adapter must expose the same X3 adapter interface.",
+        "Every adapter must have tests or failing proof tests that honestly show the implementation gap.",
+        "Every claimed feature must include proof: files changed, commands run, tests passed, tests failed, scoreboard score, missing proof list."
+    ],
+    "implementation_order": [
+        "Inspect repo.",
+        "Locate existing X3 modules.",
+        "Locate existing VM, bridge, relayer, proof, and x3-lang code.",
+        "Fix pre-existing compile blockers.",
+        "Create shared VmType.",
+        "Create shared X3VmAdapter interface.",
+        "Create AdapterReadinessScore.",
+        "Create/update AtomicIntent.",
+        "Create/update AtomicStatus state machine.",
+        "Create/update ProofLedger.",
+        "Create/update Scoreboard.",
+        "Complete EVM adapter.",
+        "Complete SVM adapter or honest failing scaffold.",
+        "Complete Substrate adapter or honest failing scaffold.",
+        "Complete Bitcoin adapter or honest failing scaffold.",
+        "Complete X3VM adapter.",
+        "Add MoveVM adapter.",
+        "Add CosmWasm adapter.",
+        "Add CairoVM adapter.",
+        "Add Plutus/eUTXO adapter.",
+        "Add TON TVM adapter.",
+        "Add FuelVM adapter.",
+        "Add NEAR WASM adapter.",
+        "Add Soroban WASM adapter.",
+        "Add Polkadot PVM / ink! adapters.",
+        "Add zkVM proof adapter.",
+        "Add finality oracle support per VM family.",
+        "Add RPC quorum.",
+        "Add timeout/refund engine.",
+        "Add solver marketplace.",
+        "Add relayer swarm.",
+        "Add chain health monitor.",
+        "Add slashing.",
+        "Add .x3 compiler/parser support.",
+        "Add chaos tests.",
+        "Add CLI/dashboard output.",
+        "Run full compile/test pipeline.",
+        "Fix failures.",
+        "Print final report."
+    ]
+}
+
+output_path = Path("/mnt/data/x3_cross_vm_expansion_prompt.json")
+output_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+print(f"Created {output_path}")

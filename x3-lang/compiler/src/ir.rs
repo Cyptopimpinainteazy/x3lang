@@ -266,6 +266,75 @@ pub enum Operation {
         amount: u128,
         condition: String,
     },
+
+    // ===== B-52 Feature Lock Operations =====
+    /// Route scoring with strategy name and weight map
+    RouteScore {
+        strategy: String,
+        weights: HashMap<String, u32>,
+    },
+    /// Solver bid with fee, bond, and asset pair
+    SolverBid {
+        solver: String,
+        receive_asset: String,
+        deliver_asset: String,
+        fee: String,
+        bond: u128,
+    },
+    /// Relayer attestation with quorum and signatures
+    RelayerAttest {
+        relayers: Vec<String>,
+        quorum: (u32, u32),
+        signatures: Vec<String>,
+    },
+    /// RPC consensus requirement
+    RpcConsensus {
+        chain: String,
+        require: (u32, u32),
+        reject_on: Vec<String>,
+    },
+    /// Risk score evaluation
+    RiskScore {
+        score: u32,
+        category: String,
+    },
+    /// Named invariant check
+    InvariantCheck {
+        name: String,
+        assert_expr: String,
+    },
+    /// Privacy commitment configuration
+    PrivacyCommit {
+        reveal_on: String,
+        encrypted: bool,
+    },
+    /// Required proof declaration
+    ProofRequired {
+        proof_type: String,
+        source: String,
+    },
+    /// VM adapter call
+    VmAdapterCall {
+        vm: String,
+        adapter: String,
+        calldata: String,
+    },
+    /// Mode check restriction
+    ModeCheck {
+        mode: String,
+        restriction: String,
+    },
+    /// Package import with optional alias
+    PackageImport {
+        path: Vec<String>,
+        alias: Option<String>,
+    },
+    /// Refund policy configuration
+    RefundPolicy {
+        action: String,
+        target: String,
+        after_blocks: u32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,6 +431,22 @@ pub enum RequireKind {
     ProfitThreshold,
     /// Check finality (confirmations)
     Finality,
+    /// Check route score meets threshold
+    RouteScore,
+    /// Check solver bond is sufficient
+    SolverBond,
+    /// Check relayer quorum met
+    RelayerQuorum,
+    /// Check proof was completed
+    ProofComplete,
+    /// Check refund path exists
+    RefundPath,
+    /// Explicit finality check
+    FinalityExplicit,
+    /// Check VM is supported
+    VmSupported,
+    /// Mainnet safety check
+    MainnetSafe,
     /// Custom user-defined check
     Custom(String),
 }

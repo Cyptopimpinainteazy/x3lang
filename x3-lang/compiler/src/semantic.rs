@@ -25,11 +25,22 @@
 //! - **Route depth**: a single atomic block is bounded to a maximum
 //!   number of cross-VM operations (default: 8).
 //!
+//! B-52 feature lock additions:
+//! - **Compilation mode**: Dev / Testnet / Mainnet gating
+//! - **Refund path**: every cross-chain operation must have a refund path
+//! - **Finality explicit**: every cross-chain op must declare finality reqs
+//! - **Proof requirements**: lock/fill/claim proofs required
+//! - **Invariant analysis**: built-in invariant rules checked statically
+//! - **Route scoring**: weights must sum to 100
+//! - **Mainnet safety**: rejects single-RPC, single-relayer, unbounded
+//!   deadlines, unsafe slippage, unknown assets, etc.
+//! - **Risk scoring**: computes risk score 0-100 with component breakdown
+//!
 //! Diagnostics accumulate via [`ErrorAccumulator`] so a single `check`
 //! call reports every problem rather than failing on the first one.
 
 use crate::ir::{Condition, FailureAction, Operation, X3IR};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use x3_lang_ast::ast::{AtomicSwapDecl, Expression, Item, LiteralExpr, Program};
 use x3_lang_common::{ErrorAccumulator, Span, Spanned, X3Error};
 
@@ -64,12 +75,43 @@ pub const KNOWN_CHAINS: &[&str] = &[
 /// contract).
 pub const KNOWN_BRIDGE_ADAPTERS: &[&str] = &["x3", "wormhole", "layerzero", "axelar", "native", "btc-relay"];
 
+/// Compilation mode that gates which safety checks are enforced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilationMode {
+    Dev,
+    Testnet,
+    Mainnet,
+}
+
+/// A built-in or user-defined invariant rule with a static check function.
+pub struct InvariantRule {
+    pub name: String,
+    pub description: String,
+    pub check_fn: fn(&X3IR) -> Result<(), String>,
+}
+
+/// Structure capturing a risk score assessment (0-100, lower = safer).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RiskScore {
+    pub total: u32,
+    pub chain_risk: u32,
+    pub bridge_risk: u32,
+    pub solver_risk: u32,
+    pub relayer_risk: u32,
+    pub rpc_risk: u32,
+    pub liquidity_risk: u32,
+    pub finality_risk: u32,
+    pub mev_risk: u32,
+    pub timeout_risk: u32,
+    pub refund_risk: u32,
+}
+
 /// Run the semantic verifier on an X3IR program.
 ///
 /// `max_atomic_ops` and `max_route_hops` are knobs for tests; production
 /// callers should accept the defaults via [`verify_with_defaults`].
 pub fn verify(ir: &X3IR) -> Result<(), Vec<X3Error>> {
-    verify_with_config(ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS)
+    verify_with_config(ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS, None)
 }
 
 /// Verify with default safety budgets.
@@ -78,7 +120,14 @@ pub fn verify_with_defaults(ir: &X3IR) -> Result<(), Vec<X3Error>> {
 }
 
 /// Verify with explicit budgets.
-pub fn verify_with_config(ir: &X3IR, max_atomic_ops: u32, max_route_hops: u32) -> Result<(), Vec<X3Error>> {
+///
+/// `mode` optionally gates mainnet-specific safety checks.
+pub fn verify_with_config(
+    ir: &X3IR,
+    max_atomic_ops: u32,
+    max_route_hops: u32,
+    mode: Option<CompilationMode>,
+) -> Result<(), Vec<X3Error>> {
     let mut acc = ErrorAccumulator::new();
     verify_symbols(ir, &mut acc);
     verify_route_depths(ir, &mut acc, max_atomic_ops, max_route_hops);
@@ -88,6 +137,17 @@ pub fn verify_with_config(ir: &X3IR, max_atomic_ops: u32, max_route_hops: u32) -
     verify_bridge_adapter_allowlist(ir, &mut acc);
     verify_adapter_compatibility(ir, &mut acc);
     verify_asset_moves(ir, &mut acc);
+    verify_refund_path_exists(ir, &mut acc);
+    verify_finality_explicit(ir, &mut acc);
+    verify_proof_requirements(ir, &mut acc);
+    verify_route_score(ir, &mut acc);
+
+    let invariants = get_builtin_invariants();
+    verify_invariants_structured(ir, &invariants, &mut acc);
+
+    if mode == Some(CompilationMode::Mainnet) {
+        verify_mainnet_safe(ir, &mut acc);
+    }
 
     if acc.has_errors() {
         Err(acc.take_errors())
@@ -565,6 +625,617 @@ fn validate_atomic_swap_require(require: &x3_lang_ast::ast::RequireGuard, acc: &
     }
 }
 
+/// Verify that every cross-chain operation (Bridge, Swap, Lock) has a
+/// corresponding refund path via OnFail with a Refund action or OnTimeout.
+pub fn verify_refund_path_exists(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let mut has_bridge = false;
+    let mut has_refund = false;
+    for op in &ir.operations {
+        if matches!(
+            op,
+            Operation::Bridge { .. } | Operation::Swap { .. } | Operation::Lock { .. }
+        ) {
+            has_bridge = true;
+        }
+        if let Operation::OnFail { action } = op {
+            if matches!(action, FailureAction::Refund { .. }) {
+                has_refund = true;
+            }
+        }
+        if let Operation::OnTimeout { action, .. } = op {
+            if matches!(action, FailureAction::Refund { .. }) {
+                has_refund = true;
+            }
+        }
+    }
+    if has_bridge && !has_refund {
+        acc.add_error(err(
+            "cross-chain operation present without a refund path — add an OnFail or OnTimeout with Refund action",
+        ));
+    }
+}
+
+/// Verify that every cross-chain operation has explicit finality
+/// requirements declared via Require with Finality kind.
+pub fn verify_finality_explicit(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let bridge_chains: HashSet<String> = ir
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Bridge { from_chain, .. } => Some(from_chain.to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect();
+
+    if bridge_chains.is_empty() {
+        return;
+    }
+
+    let finality_chains: HashSet<String> = ir
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Require {
+                kind: crate::ir::RequireKind::Finality,
+                subject,
+                ..
+            } => subject.as_ref().map(|s| s.to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect();
+
+    for chain in &bridge_chains {
+        if !finality_chains.contains(chain) {
+            acc.add_warning(X3Error::SemanticError {
+                message: format!(
+                    "bridge from chain '{chain}' has no explicit finality requirement — add `require finality.{chain} >= <confirmations>`"
+                ),
+                span: span(),
+            });
+        }
+    }
+}
+
+/// Verify that state transitions have required proof declarations.
+/// - Lock operations need a lock_proof
+/// - Bridge operations need a fill_proof
+/// - Release operations need a claim_proof
+pub fn verify_proof_requirements(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let has_lock = ir.operations.iter().any(|op| matches!(op, Operation::Lock { .. }));
+    let has_bridge = ir.operations.iter().any(|op| matches!(op, Operation::Bridge { .. }));
+    let has_release = ir.operations.iter().any(|op| matches!(op, Operation::Release { .. }));
+
+    let required_proofs: HashSet<String> = ir
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::ProofRequired { proof_type, .. } => Some(proof_type.to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect();
+
+    if has_lock && !required_proofs.contains("lock_proof") {
+        acc.add_warning(X3Error::SemanticError {
+            message: "Lock operation present without `proofs required { lock_proof }` declaration".into(),
+            span: span(),
+        });
+    }
+    if has_bridge && !required_proofs.contains("fill_proof") {
+        acc.add_warning(X3Error::SemanticError {
+            message: "Bridge operation present without `proofs required { fill_proof }` declaration".into(),
+            span: span(),
+        });
+    }
+    if has_release && !required_proofs.contains("claim_proof") {
+        acc.add_warning(X3Error::SemanticError {
+            message: "Release operation present without `proofs required { claim_proof }` declaration".into(),
+            span: span(),
+        });
+    }
+}
+
+/// Verify that invariant rules are respected by the IR.
+pub fn verify_invariants_on_intent(ir: &X3IR, invariants: &[InvariantRule]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for rule in invariants {
+        match (rule.check_fn)(ir) {
+            Ok(()) => {}
+            Err(msg) => violations.push(format!("invariant '{}' violated: {}", rule.name, msg)),
+        }
+    }
+    violations
+}
+
+/// Verify invariants and emit structured warnings via the ErrorAccumulator.
+pub fn verify_invariants_structured(ir: &X3IR, invariants: &[InvariantRule], acc: &mut ErrorAccumulator) {
+    for rule in invariants {
+        match (rule.check_fn)(ir) {
+            Ok(()) => {}
+            Err(msg) => {
+                acc.add_warning(X3Error::SemanticError {
+                    message: format!("invariant '{}' violated: {}", rule.name, msg),
+                    span: Span::DUMMY,
+                });
+            }
+        }
+    }
+}
+
+/// Return the list of built-in invariant rules for static analysis.
+pub fn get_builtin_invariants() -> Vec<InvariantRule> {
+    vec![
+        InvariantRule {
+            name: "no_double_claim".into(),
+            description: "No claim operation may execute twice for the same lock".into(),
+            check_fn: |ir| {
+                let claims: Vec<&Operation> = ir
+                    .operations
+                    .iter()
+                    .filter(|op| matches!(op, Operation::Release { .. }))
+                    .collect();
+                if claims.len() > 1 {
+                    return Err("multiple Release (claim) operations found for the same intent".into());
+                }
+                Ok(())
+            },
+        },
+        InvariantRule {
+            name: "no_double_refund".into(),
+            description: "No refund operation may execute twice for the same lock".into(),
+            check_fn: |ir| {
+                let refunds: Vec<&Operation> = ir
+                    .operations
+                    .iter()
+                    .filter(|op| {
+                        matches!(op, Operation::OnTimeout { action, .. }
+                            if matches!(action, FailureAction::Refund { .. })
+                        )
+                    })
+                    .collect();
+                if refunds.len() > 1 {
+                    return Err("multiple refund operations found for the same lock".into());
+                }
+                Ok(())
+            },
+        },
+        InvariantRule {
+            name: "no_claim_after_refund".into(),
+            description: "Claim must not execute after refund".into(),
+            check_fn: |ir| {
+                let mut found_refund = false;
+                for op in &ir.operations {
+                    if matches!(op, Operation::OnTimeout { action, .. }
+                        if matches!(action, FailureAction::Refund { .. })
+                    ) {
+                        found_refund = true;
+                    }
+                    if found_refund && matches!(op, Operation::Release { .. }) {
+                        return Err("Release (claim) found after refund".into());
+                    }
+                }
+                Ok(())
+            },
+        },
+        InvariantRule {
+            name: "no_refund_after_claim".into(),
+            description: "Refund must not execute after claim".into(),
+            check_fn: |ir| {
+                let mut found_claim = false;
+                for op in &ir.operations {
+                    if matches!(op, Operation::Release { .. }) {
+                        found_claim = true;
+                    }
+                    if found_claim
+                        && matches!(op, Operation::OnTimeout { action, .. }
+                            if matches!(action, FailureAction::Refund { .. })
+                        )
+                    {
+                        return Err("Refund found after Release (claim)".into());
+                    }
+                }
+                Ok(())
+            },
+        },
+        InvariantRule {
+            name: "destination_fill_before_source_claim".into(),
+            description: "Destination must be filled before source claim".into(),
+            check_fn: |ir| {
+                let bridge_positions: Vec<usize> = ir
+                    .operations
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, op)| matches!(op, Operation::Bridge { .. }))
+                    .map(|(i, _)| i)
+                    .collect();
+                let release_positions: Vec<usize> = ir
+                    .operations
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, op)| matches!(op, Operation::Release { .. }))
+                    .map(|(i, _)| i)
+                    .collect();
+                for &ri in &release_positions {
+                    if !bridge_positions.iter().any(|&bi| bi < ri) {
+                        return Err(
+                            "Release (claim) found before any Bridge fill — destination must be filled first".into(),
+                        );
+                    }
+                }
+                Ok(())
+            },
+        },
+        InvariantRule {
+            name: "no_route_mutation_after_lock".into(),
+            description: "Route may not change after lock".into(),
+            check_fn: |ir| {
+                let mut found_lock = false;
+                for op in &ir.operations {
+                    if matches!(op, Operation::Lock { .. }) {
+                        found_lock = true;
+                    }
+                    if found_lock && matches!(op, Operation::RouteScore { .. }) {
+                        return Err("RouteScore found after Lock — route mutation not allowed after lock".into());
+                    }
+                    if found_lock && matches!(op, Operation::Pathfind { .. }) {
+                        return Err("Pathfind found after Lock — route mutation not allowed after lock".into());
+                    }
+                }
+                Ok(())
+            },
+        },
+    ]
+}
+
+/// Verify that route scoring weights sum to 100 and are reasonable.
+pub fn verify_route_score(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    for op in &ir.operations {
+        if let Operation::RouteScore { strategy, weights } = op {
+            let total: u32 = weights.values().sum();
+            if total != 100 {
+                acc.add_error(err(format!(
+                    "route score strategy '{strategy}' weights sum to {total}, expected 100"
+                )));
+            }
+            for (key, &val) in weights {
+                if val > 100 {
+                    acc.add_error(err(format!(
+                        "route score strategy '{strategy}' weight '{key}' is {val}, exceeds 100"
+                    )));
+                }
+            }
+        }
+    }
+}
+
+// ───── Mainnet safety checks ─────────────────────────────────────────────
+
+/// Run all mainnet-specific safety checks. Rejects the program if any
+/// production-safety rule is violated.
+pub fn verify_mainnet_safe(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    verify_single_rpc(ir, acc);
+    verify_single_relayer(ir, acc);
+    verify_refund_path_exists(ir, acc);
+    verify_finality_explicit(ir, acc);
+    verify_solver_bond(ir, acc);
+    verify_known_assets(ir, acc);
+    verify_slippage_safe(ir, acc);
+    verify_deadline_bounded(ir, acc);
+    verify_bridge_adapter_allowlist(ir, acc);
+    verify_manual_recovery(ir, acc);
+}
+
+fn verify_single_rpc(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let rpc_count = ir
+        .operations
+        .iter()
+        .filter(|op| matches!(op, Operation::RpcConsensus { .. }))
+        .count();
+    if rpc_count == 0 {
+        acc.add_error(err("mainnet: no RPC consensus declared — single-RPC is unsafe"));
+        return;
+    }
+    for op in &ir.operations {
+        if let Operation::RpcConsensus { chain, require, .. } = op {
+            if require.0 < 2 || require.1 < 2 {
+                acc.add_error(err(format!(
+                    "mainnet: chain '{chain}' RPC quorum {}/{} is unsafe — minimum 2_of_3 required",
+                    require.0, require.1
+                )));
+            }
+        }
+    }
+}
+
+fn verify_single_relayer(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let relayer_count = ir
+        .operations
+        .iter()
+        .filter(|op| matches!(op, Operation::RelayerAttest { .. }))
+        .count();
+    if relayer_count == 0 {
+        acc.add_error(err(
+            "mainnet: no relayer attestation declared — single-relayer is unsafe",
+        ));
+        return;
+    }
+    for op in &ir.operations {
+        if let Operation::RelayerAttest { relayers, quorum, .. } = op {
+            if quorum.0 < 2 || quorum.1 < 2 {
+                acc.add_error(err(format!(
+                    "mainnet: relayer quorum {}/{} is unsafe — minimum 2_of_3 required",
+                    quorum.0, quorum.1
+                )));
+            }
+            if relayers.len() < 3 {
+                acc.add_error(err(format!(
+                    "mainnet: only {} relayers declared — minimum 3 required for quorum safety",
+                    relayers.len()
+                )));
+            }
+        }
+    }
+}
+
+fn verify_solver_bond(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let has_solver = ir.operations.iter().any(|op| matches!(op, Operation::SolverBid { .. }));
+    if !has_solver {
+        acc.add_error(err("mainnet: missing solver bond declaration"));
+        return;
+    }
+    for op in &ir.operations {
+        if let Operation::SolverBid { solver, bond, .. } = op {
+            if *bond == 0 {
+                acc.add_error(err(format!(
+                    "mainnet: solver '{solver}' has zero bond — bond must be > 0"
+                )));
+            }
+        }
+    }
+}
+
+fn verify_known_assets(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let known: HashSet<&str> = ["USDC", "USDT", "WETH", "WBTC", "SOL", "ETH", "BTC", "X3"]
+        .iter()
+        .copied()
+        .collect();
+    for op in &ir.operations {
+        match op {
+            Operation::Lock { asset, .. } | Operation::Mint { asset, .. } | Operation::Burn { asset, .. } => {
+                if !known.contains(asset.to_uppercase().as_str()) {
+                    acc.add_error(err(format!(
+                        "mainnet: unknown asset '{asset}' — must be one of: USDC, USDT, WETH, WBTC, SOL, ETH, BTC, X3"
+                    )));
+                }
+            }
+            Operation::Bridge {
+                from_asset, to_asset, ..
+            } => {
+                if !known.contains(from_asset.to_uppercase().as_str()) {
+                    acc.add_error(err(format!("mainnet: unknown from_asset '{from_asset}' in bridge")));
+                }
+                if !known.contains(to_asset.to_uppercase().as_str()) {
+                    acc.add_error(err(format!("mainnet: unknown to_asset '{to_asset}' in bridge")));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn verify_slippage_safe(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    for op in &ir.operations {
+        if let Operation::Require {
+            kind: crate::ir::RequireKind::SlippageTolerance,
+            condition: Condition::Expression { ref expr },
+            ..
+        } = op
+        {
+            if let Some(pct) = extract_slippage_percent(expr).filter(|p| *p > 5.0) {
+                acc.add_error(err(format!("mainnet: slippage tolerance {pct}% exceeds maximum 5%")));
+            }
+        }
+    }
+}
+
+fn extract_slippage_percent(expr: &str) -> Option<f64> {
+    let cleaned: String = expr
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+' || *c == 'e' || *c == 'E')
+        .collect();
+    cleaned.parse::<f64>().ok()
+}
+
+fn verify_deadline_bounded(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let max_allowed_blocks: u32 = 14400; // 24h at 6s/block
+    for op in &ir.operations {
+        if let Operation::OnTimeout { duration_blocks, .. } = op {
+            if *duration_blocks > max_allowed_blocks {
+                acc.add_error(err(format!(
+                    "mainnet: timeout {duration_blocks} blocks exceeds maximum 14400 (24h)"
+                )));
+            }
+        }
+    }
+}
+
+fn verify_manual_recovery(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let has_auto_recovery = ir.operations.iter().any(|op| match op {
+        Operation::OnTimeout { action, .. } => matches!(action, FailureAction::Refund { .. }),
+        Operation::OnFail { action } => matches!(action, FailureAction::Refund { .. }),
+        _ => false,
+    });
+    let has_manual_only = ir.operations.iter().any(|op| match op {
+        Operation::OnFail { action } => matches!(action, FailureAction::Halt | FailureAction::Quarantine),
+        _ => false,
+    });
+    if has_manual_only && !has_auto_recovery {
+        acc.add_error(err(
+            "mainnet: manual-only recovery paths (Halt/Quarantine) without automatic refund — unsafe",
+        ));
+    }
+}
+
+// ───── Invariant analysis ────────────────────────────────────────────────
+
+/// Run static analysis on invariant declarations from the AST.
+/// Generates conditions that must be true at runtime.
+pub fn analyze_invariants(invariant_names: &[String]) -> Vec<String> {
+    let mut conditions = Vec::new();
+    for name in invariant_names {
+        match name.to_ascii_lowercase().as_str() {
+            "no_double_claim" => {
+                conditions.push("assert count(Release) <= 1".into());
+            }
+            "no_double_refund" => {
+                conditions.push("assert count(Refund) <= 1".into());
+            }
+            "no_claim_after_refund" => {
+                conditions.push("assert not (Refund before Release)".into());
+            }
+            "no_refund_after_claim" => {
+                conditions.push("assert not (Release before Refund)".into());
+            }
+            "destination_fill_before_source_claim" => {
+                conditions.push("assert exists(Bridge) before any(Release)".into());
+            }
+            "no_route_mutation_after_lock" => {
+                conditions.push("assert not (RouteScore after Lock)".into());
+            }
+            other => {
+                conditions.push(format!("assert invariant({other})"));
+            }
+        }
+    }
+    conditions
+}
+
+// ───── Risk scoring ──────────────────────────────────────────────────────
+
+/// Compute a risk score (0-100, lower = safer) for an X3IR program based
+/// on its operations, metadata, and configuration.
+pub fn compute_risk_score(ir: &X3IR) -> RiskScore {
+    let mut score = RiskScore::default();
+
+    // Chain risk: known chains are safer
+    let known: HashSet<&str> = KNOWN_CHAINS.iter().copied().collect();
+    let unknown_chains: usize = ir
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Bridge {
+                from_chain, to_chain, ..
+            } => {
+                if !known.contains(from_chain.to_ascii_lowercase().as_str())
+                    || !known.contains(to_chain.to_ascii_lowercase().as_str())
+                {
+                    Some(())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+        .count();
+    score.chain_risk = if unknown_chains > 0 { 15 } else { 0 };
+
+    // Bridge risk: unknown adapters
+    let known_adapters: HashSet<&str> = KNOWN_BRIDGE_ADAPTERS.iter().copied().collect();
+    let unknown_adapters: usize = ir
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Bridge { via, .. } if !known_adapters.contains(via.to_ascii_lowercase().as_str()) => Some(()),
+            _ => None,
+        })
+        .count();
+    score.bridge_risk = if unknown_adapters > 0 { 15 } else { 0 };
+
+    // Solver risk: no solver bond means risk
+    let has_solver_bond = ir
+        .operations
+        .iter()
+        .any(|op| matches!(op, Operation::SolverBid { bond, .. } if *bond > 0));
+    score.solver_risk = if has_solver_bond { 0 } else { 10 };
+
+    // Relayer risk: quorum check
+    let has_good_quorum = ir.operations.iter().any(|op| match op {
+        Operation::RelayerAttest { quorum, .. } => quorum.0 >= 2 && quorum.1 >= 3,
+        _ => false,
+    });
+    score.relayer_risk = if has_good_quorum { 0 } else { 10 };
+
+    // RPC risk: quorum check
+    let has_good_rpc = ir.operations.iter().any(|op| match op {
+        Operation::RpcConsensus { require, .. } => require.0 >= 2 && require.1 >= 3,
+        _ => false,
+    });
+    score.rpc_risk = if has_good_rpc { 0 } else { 10 };
+
+    // Liquidity risk: no bridge liquidity require increases risk
+    let has_liquidity_check = ir.operations.iter().any(|op| {
+        matches!(
+            op,
+            Operation::Require {
+                kind: crate::ir::RequireKind::BridgeLiquidity,
+                ..
+            }
+        )
+    });
+    score.liquidity_risk = if has_liquidity_check { 0 } else { 10 };
+
+    // Finality risk: explicit finality check
+    let has_finality_check = ir.operations.iter().any(|op| {
+        matches!(
+            op,
+            Operation::Require {
+                kind: crate::ir::RequireKind::Finality,
+                ..
+            }
+        )
+    });
+    score.finality_risk = if has_finality_check { 0 } else { 10 };
+
+    // MEV risk: no privacy or hashlock
+    let has_privacy = ir
+        .operations
+        .iter()
+        .any(|op| matches!(op, Operation::PrivacyCommit { .. }));
+    score.mev_risk = if has_privacy { 0 } else { 5 };
+
+    // Timeout risk: bounded timeout
+    let has_bounded_timeout = ir.operations.iter().any(|op| match op {
+        Operation::OnTimeout { duration_blocks, .. } => *duration_blocks <= 14400,
+        _ => false,
+    });
+    score.timeout_risk = if has_bounded_timeout { 0 } else { 5 };
+
+    // Refund risk: has refund path
+    let has_refund = ir.operations.iter().any(|op| match op {
+        Operation::OnTimeout { action, .. } | Operation::OnFail { action } => {
+            matches!(action, FailureAction::Refund { .. })
+        }
+        _ => false,
+    });
+    score.refund_risk = if has_refund { 0 } else { 10 };
+
+    score.total = score.chain_risk
+        + score.bridge_risk
+        + score.solver_risk
+        + score.relayer_risk
+        + score.rpc_risk
+        + score.liquidity_risk
+        + score.finality_risk
+        + score.mev_risk
+        + score.timeout_risk
+        + score.refund_risk;
+
+    if score.total > 100 {
+        score.total = 100;
+    }
+
+    score
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,7 +1275,11 @@ mod tests {
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
-                action: FailureAction::Rollback,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
             },
         ]);
         assert!(verify(&ir).is_ok());
@@ -1043,6 +1718,392 @@ mod tests {
             errs.iter()
                 .any(|e| e.to_string().contains("relayer_quorum must be positive")),
             "expected 'relayer_quorum must be positive', got: {errs:?}"
+        );
+    }
+
+    // ───── B-52 B-52 feature lock tests ─────────────────────────────────
+
+    #[test]
+    fn refund_path_missing_is_detected() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            // No OnFail or OnTimeout with Refund
+        ]);
+        let errs = verify_with_config(&ir, 8, 4, None).expect_err("must fail");
+        assert!(errs.iter().any(|e| e.to_string().contains("refund path")));
+    }
+
+    #[test]
+    fn refund_path_present_passes() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+        let result = verify_with_config(&ir, 8, 4, None);
+        assert!(result.is_ok(), "expected ok, got: {:?}", result.err());
+    }
+
+    #[test]
+    fn route_score_weights_sum_to_100() {
+        let mut ir = empty_ir();
+        let mut weights = std::collections::HashMap::new();
+        weights.insert("speed".to_string(), 50);
+        weights.insert("cost".to_string(), 50);
+        ir.operations = atomic(vec![
+            Operation::RouteScore {
+                strategy: "best".into(),
+                weights,
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Rollback,
+            },
+        ]);
+        let result = verify_with_config(&ir, 8, 4, None);
+        assert!(result.is_ok(), "expected ok, got: {:?}", result.err());
+    }
+
+    #[test]
+    fn route_score_weights_wrong_total_rejected() {
+        let mut ir = empty_ir();
+        let mut weights = std::collections::HashMap::new();
+        weights.insert("speed".to_string(), 30);
+        ir.operations = atomic(vec![
+            Operation::RouteScore {
+                strategy: "bad".into(),
+                weights,
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Rollback,
+            },
+        ]);
+        let errs = verify_with_config(&ir, 8, 4, None).expect_err("must fail");
+        assert!(errs.iter().any(|e| e.to_string().contains("sum to 30")));
+    }
+
+    // ───── Mainnet safety tests ──────────────────────────────────────────
+
+    #[test]
+    fn mainnet_rejects_single_rpc() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+            // No RpcConsensus
+        ]);
+        let errs = verify_with_config(&ir, 8, 4, Some(CompilationMode::Mainnet)).expect_err("must fail");
+        assert!(errs.iter().any(|e| e.to_string().contains("no RPC consensus")));
+    }
+
+    #[test]
+    fn mainnet_rejects_missing_refund_path() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::RpcConsensus {
+                chain: "solana".into(),
+                require: (2, 3),
+                reject_on: vec![],
+            },
+            // No OnFail/OnTimeout with Refund
+        ]);
+        let errs = verify_with_config(&ir, 8, 4, Some(CompilationMode::Mainnet)).expect_err("must fail");
+        assert!(errs.iter().any(|e| e.to_string().contains("refund path")));
+    }
+
+    #[test]
+    fn mainnet_rejects_unsafe_slippage() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::Require {
+                kind: RequireKind::SlippageTolerance,
+                subject: None,
+                condition: Condition::Expression { expr: "10.0".into() },
+                error_msg: Some("slippage".into()),
+            },
+            Operation::RpcConsensus {
+                chain: "solana".into(),
+                require: (2, 3),
+                reject_on: vec![],
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+        let errs = verify_with_config(&ir, 8, 4, Some(CompilationMode::Mainnet)).expect_err("must fail");
+        assert!(errs.iter().any(|e| e.to_string().contains("slippage")));
+    }
+
+    #[test]
+    fn mainnet_rejects_unbounded_deadline() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::RpcConsensus {
+                chain: "solana".into(),
+                require: (2, 3),
+                reject_on: vec![],
+            },
+            Operation::OnTimeout {
+                duration_blocks: 999999,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+        let errs = verify_with_config(&ir, 8, 4, Some(CompilationMode::Mainnet)).expect_err("must fail");
+        assert!(errs.iter().any(|e| e.to_string().contains("timeout")));
+    }
+
+    // ───── Invariant detection tests ─────────────────────────────────────
+
+    #[test]
+    fn invariant_no_double_claim_detects_violation() {
+        let invariants = get_builtin_invariants();
+        let mut ir = empty_ir();
+        ir.operations = vec![
+            Operation::AtomicBegin,
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                to: "alice".into(),
+            },
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                to: "bob".into(),
+            },
+            Operation::AtomicEnd,
+        ];
+        let violations = verify_invariants_on_intent(&ir, &invariants);
+        assert!(violations.iter().any(|v| v.contains("no_double_claim")));
+    }
+
+    #[test]
+    fn invariant_no_claim_after_refund_detects_violation() {
+        let invariants = get_builtin_invariants();
+        let mut ir = empty_ir();
+        ir.operations = vec![
+            Operation::AtomicBegin,
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                to: "alice".into(),
+            },
+            Operation::AtomicEnd,
+        ];
+        let violations = verify_invariants_on_intent(&ir, &invariants);
+        assert!(violations.iter().any(|v| v.contains("no_claim_after_refund")));
+    }
+
+    // ───── Risk score tests ──────────────────────────────────────────────
+
+    #[test]
+    fn risk_score_safe_intent_is_low() {
+        let mut ir = empty_ir();
+        let mut weights = std::collections::HashMap::new();
+        weights.insert("speed".to_string(), 50);
+        weights.insert("cost".to_string(), 50);
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::RouteScore {
+                strategy: "best".into(),
+                weights,
+            },
+            Operation::SolverBid {
+                solver: "solver1".into(),
+                receive_asset: "USDC".into(),
+                deliver_asset: "USDC".into(),
+                fee: "0.1%".into(),
+                bond: 1000,
+            },
+            Operation::RelayerAttest {
+                relayers: vec!["a".into(), "b".into(), "c".into()],
+                quorum: (2, 3),
+                signatures: vec![],
+            },
+            Operation::RpcConsensus {
+                chain: "solana".into(),
+                require: (2, 3),
+                reject_on: vec![],
+            },
+            Operation::Require {
+                kind: RequireKind::BridgeLiquidity,
+                subject: None,
+                condition: Condition::True,
+                error_msg: None,
+            },
+            Operation::Require {
+                kind: RequireKind::Finality,
+                subject: Some("solana".into()),
+                condition: Condition::True,
+                error_msg: None,
+            },
+            Operation::PrivacyCommit {
+                reveal_on: "fill".into(),
+                encrypted: true,
+            },
+            Operation::OnTimeout {
+                duration_blocks: 100,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+        let score = compute_risk_score(&ir);
+        assert!(
+            score.total <= 10,
+            "expected safe intent total <= 10, got {}",
+            score.total
+        );
+    }
+
+    #[test]
+    fn risk_score_risky_intent_is_high() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![Operation::Bridge {
+            via: "unknown-bridge".into(),
+            from_chain: "unknown-chain".into(),
+            from_asset: "SHITCOIN".into(),
+            to_chain: "ethereum".into(),
+            to_asset: "USDC".into(),
+            amount: 100,
+            receiver: "0xabc".into(),
+            source_finality_proof: vec![],
+            transfer_proof: vec![],
+        }]);
+        let score = compute_risk_score(&ir);
+        assert!(
+            score.total >= 50,
+            "expected risky intent total >= 50, got {}",
+            score.total
         );
     }
 }

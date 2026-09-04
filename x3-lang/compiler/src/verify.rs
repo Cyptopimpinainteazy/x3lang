@@ -318,7 +318,19 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
             | Operation::Serialize { .. }
             | Operation::Deserialize { .. }
             | Operation::ChainMetric { .. }
-            | Operation::DocEmbed { .. } => {}
+            | Operation::DocEmbed { .. }
+            | Operation::RouteScore { .. }
+            | Operation::SolverBid { .. }
+            | Operation::RelayerAttest { .. }
+            | Operation::RpcConsensus { .. }
+            | Operation::RiskScore { .. }
+            | Operation::InvariantCheck { .. }
+            | Operation::PrivacyCommit { .. }
+            | Operation::ProofRequired { .. }
+            | Operation::VmAdapterCall { .. }
+            | Operation::ModeCheck { .. }
+            | Operation::PackageImport { .. }
+            | Operation::RefundPolicy { .. } => {}
         }
     }
 
