@@ -1,0 +1,19 @@
+intent arb_solana_eth {
+    from Solana.USDC amount 10 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    to Ethereum.USDC receiver 0x1111111111111111111111111111111111111111
+
+    route {
+        swap Raydium Solana.USDC -> Solana.SOL amount 10 min_output 0.09
+        bridge X3 Solana.SOL -> Ethereum.WSOL receiver 0x1111111111111111111111111111111111111111
+        swap Uniswap Ethereum.WSOL -> Ethereum.USDC min_output 10.25
+    }
+
+    require finality Solana >= 32
+    require finality Ethereum >= 64
+    require slippage <= 0.5%
+    require nonce unused arb_solana_eth_2026_05_29
+    require proof verified
+    require canonical_supply USDC
+    timeout 30s refund Solana.USDC to sender
+    on_fail refund Solana.USDC to sender
+}

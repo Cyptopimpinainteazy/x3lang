@@ -1,0 +1,16 @@
+// X3 Atomic Swap — Example Source
+//
+// Full `atomic swap` block syntax for cross-VM swaps.
+// NOTE: This syntax is not yet supported by the x3-lang compiler.
+// See: x3-lang/compiler/tests/test_atomic_swap_syntax.rs
+
+atomic swap eth.USDC -> sol.SOL {
+  amount 500
+  receiver sol.wallet.owner
+  hashlock sha256(secret)
+  timeout source 40m
+  timeout destination 20m
+  require finality.eth >= 12
+  require finality.sol == finalized
+  require relayer_quorum >= 3
+}

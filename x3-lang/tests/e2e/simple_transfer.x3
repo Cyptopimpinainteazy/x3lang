@@ -1,0 +1,8 @@
+// Simple transfer test — sends 100 tokens from alice to bob
+fn main() -> i64 {
+    let sender = "alice";
+    let receiver = "bob";
+    let amount = 100;
+    transfer(sender, receiver, amount);
+    return balance(receiver);
+}

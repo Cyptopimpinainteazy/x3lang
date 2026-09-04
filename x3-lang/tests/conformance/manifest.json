@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {
+      "name": "valid_internal_swap",
+      "path": "valid/intents/internal_swap.x3",
+      "expect": "accept"
+    },
+    {
+      "name": "unclosed_block",
+      "path": "invalid/syntax/unclosed_block.x3",
+      "expect": "reject",
+      "code": "X3E0001"
+    },
+    {
+      "name": "same_chain_bridge",
+      "path": "invalid/routes/same_chain_bridge.x3",
+      "expect": "reject"
+    }
+  ]
+}

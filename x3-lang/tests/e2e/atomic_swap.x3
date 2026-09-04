@@ -1,0 +1,8 @@
+// Atomic swap — swaps with min_output guarantee
+fn main() -> i64 {
+    let pair = ("X3", "USDC");
+    let amount_in = 1000;
+    let min_out = 950;
+    let deadline = block_number() + 100;
+    return atomic_swap(pair, amount_in, min_out, deadline);
+}

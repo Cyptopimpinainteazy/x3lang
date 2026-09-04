@@ -1,0 +1,41 @@
+# Opcode Specification for X3 Language VM
+# This file defines the canonical opcode mapping used by the emitter,
+# verifier, and executor. All three components should reference this file
+# to ensure a single source of truth.
+
+# Asset operations
+LOCK: 0x20
+MINT: 0x21
+BURN: 0x22
+RELEASE: 0x23
+SWAP: 0x24
+
+# Control flow
+IF: 0x30
+LOOP: 0x31
+JUMP: 0x30   # alias for IF jump handling
+CALL: 0x32
+RET: 0x33
+
+# Guards
+REQUIRE: 0x40
+ON_FAIL: 0x41
+ON_TIMEOUT: 0x42
+
+# Atomic sections
+ATOMIC_BEGIN: 0x50
+ATOMIC_END: 0x51
+ATOMIC_ROLLBACK: 0x52
+
+# Host calls
+EMIT: 0x60
+CALL_HOST: 0x61
+
+# Capability payloads (example range)
+SCHEDULED_DISPATCH: 0x82
+PROOF_VERIFY: 0x85
+MULTISIG_CHECK: 0x94
+
+# Reserved / special
+NOP: 0x00
+HALT: 0xFF

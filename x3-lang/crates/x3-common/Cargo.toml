@@ -1,0 +1,25 @@
+[package]
+name = "x3-lang-common"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Common utilities for the X3 compiler"
+
+[features]
+# Enables the `internment` crate dependency. Disabled in the offline snapshot.
+default = []
+intern = ["dep:internment"]
+
+[dependencies]
+# Note: in this offline snapshot we move `internment` to an optional dep
+# (gated by the `intern` feature). The local fallback in x3_common::symbol
+# provides the same public API so the workspace can still compile.
+rustc-hash = { workspace = true }
+smallvec = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+internment = { workspace = true, optional = true }
+
+[lints]
+workspace = true

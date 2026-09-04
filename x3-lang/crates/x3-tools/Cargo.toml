@@ -1,0 +1,31 @@
+[package]
+name = "x3-tools"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+x3-lang-common = { path = "../x3-common" }
+x3-lang-ast = { path = "../x3-ast" }
+x3-lang-compiler = { path = "../../compiler" }
+x3-lang-vm = { path = "../../vm" }
+serde_json = { workspace = true }
+sha3 = { workspace = true }
+reqwest = { workspace = true, features = ["blocking", "json"] }
+clap = { workspace = true }
+
+[[bin]]
+name = "run_simple"
+path = "src/main.rs"
+
+[[bin]]
+name = "build_eth_receipt_archive"
+path = "src/bin/build_eth_receipt_archive.rs"
+
+[[bin]]
+name = "x3c"
+path = "src/bin/x3c.rs"
+
+[lints]
+workspace = true
