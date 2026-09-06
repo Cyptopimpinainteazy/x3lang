@@ -1,0 +1,9 @@
+# x3-lang Python track runtime dependencies.
+#
+# The EVM emitter encodes Uniswap calldata and needs a real Keccak-256. The
+# preferred provider is pycryptodome (audited). If neither pycryptodome nor
+# eth-hash[pycryptodome] is present, the emitter self-containedly falls back to
+# a pure-Python Keccak-256 (x3-lang/emitter/_keccak.py) that is validated
+# against the canonical vectors on import, so the pipeline never hard-fails or
+# silently uses NIST SHA3 in a bare environment.
+pycryptodome>=3.20

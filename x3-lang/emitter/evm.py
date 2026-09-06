@@ -12,10 +12,27 @@ except ImportError:
     try:
         from eth_hash.auto import keccak as _keccak_256
     except ImportError:
-        def _keccak_256(data: bytes) -> bytes:
-            raise RuntimeError(
-                "no keccak implementation available; install pycryptodome or eth-hash"
-            )
+        # Last-resort pure-Python Keccak (Ethereum domain padding). Audited
+        # backends (pycryptodome / eth-hash) are always preferred; this keeps
+        # calldata encoding working in bare environments. The fallback is
+        # self-verified against the canonical vectors on import; it never
+        # silently substitutes NIST SHA3, which would corrupt EVM selectors.
+        import importlib.util as _ilu
+        _path = os.path.join(os.path.dirname(__file__), '_keccak.py')
+        _spec = _ilu.spec_from_file_location('_keccak', _path)
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        # Fail-closed: refuse to latch a broken digest provider onto a
+        # security-sensitive encode path. The fallback must reproduce the two
+        # canonical Keccak-256 vectors exactly.
+        _expect = (
+            'c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470',
+            '4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45',
+        )
+        _got = (_mod.keccak_256(b'').hex(), _mod.keccak_256(b'abc').hex())
+        if _got != _expect:
+            raise RuntimeError('keccak-256 fallback failed self-verification')
+        _keccak_256 = _mod.keccak_256
 
 
 def _load_registry():
