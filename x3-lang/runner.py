@@ -163,7 +163,21 @@ def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle
     plan = simulator.simulate(plan)
 
     # Two-phase commit simulation: prepare (emit payloads), then simulate execution
-    emitted = emitter.emit(plan, dry_run=dry_run, proof_bundle=proof_bundle)
+    try:
+        emitted = emitter.emit(plan, dry_run=dry_run, proof_bundle=proof_bundle)
+    except emitter.ProofRequiredError as e:
+        # Production settlement without a backend-produced proof bundle fails
+        # closed: surface a structured rollback rather than crashing the CLI.
+        # If no proof bundle was supplied at all there is no backend wired in,
+        # so the accurate signal is X3_BACKEND_REQUIRED; classify accordingly.
+        code = 'X3_BACKEND_REQUIRED' if proof_bundle is None else 'X3_PROOF_REQUIRED'
+        plan['emitted'] = {'emitted': []}
+        plan['execution'] = [{'ok': False, 'reason': str(e), 'code': code,
+                              'mode': 'production', 'step': {'chain': 'x3', 'proof_required': True}}]
+        plan['rollback'] = []
+        plan['constraint_results'] = []
+        plan['status'] = 'rolled_back'
+        return plan
     plan['emitted'] = emitted
 
     # Simulate execution of emitted steps; if any simulated failure occurs, produce rollback payloads

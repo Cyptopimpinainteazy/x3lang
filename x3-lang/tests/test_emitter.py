@@ -27,7 +27,10 @@ def test_emitter_generates_chain_payloads():
     plan = simulator.simulate(plan)
 
     emitter = load_module(root / 'x3-lang' / 'emitter' / '__init__.py')
-    output = emitter.emit(plan)
+    # Encoding-level test: dry_run exercises the full emit path (swap + bridge
+    # payload construction) without pretending to settle. Production settlement
+    # still requires a backend proof bundle and stays fail-closed.
+    output = emitter.emit(plan, dry_run=True)
 
     assert 'emitted' in output
     assert isinstance(output['emitted'], list)
@@ -47,7 +50,7 @@ def test_svm_emitter_encodes_ray_dium_swap_with_base58_data():
     plan = simulator.simulate(plan)
 
     emitter = load_module(root / 'x3-lang' / 'emitter' / '__init__.py')
-    output = emitter.emit(plan)
+    output = emitter.emit(plan, dry_run=True)
     svm = next(item for item in output['emitted'] if item['chain'] == 'solana')
 
     assert svm['program'] == '4k3Dyjzvzp8e2y8bKE8xUrg8rXQZkmh8Y2xS1QZsbJt4'
@@ -69,7 +72,7 @@ def test_evm_emitter_uses_uniswap_selector_and_target_contract():
     plan = simulator.simulate(plan)
 
     emitter = load_module(root / 'x3-lang' / 'emitter' / '__init__.py')
-    output = emitter.emit(plan)
+    output = emitter.emit(plan, dry_run=True)
     evm = next(item for item in output['emitted'] if item['chain'] == 'ethereum')
 
     assert evm['calldata'].startswith('0x38ed1739')
@@ -89,7 +92,7 @@ def test_x3_emitter_builds_settlement_payload_and_proof_bundle():
     plan = simulator.simulate(plan)
 
     emitter = load_module(root / 'x3-lang' / 'emitter' / '__init__.py')
-    output = emitter.emit(plan)
+    output = emitter.emit(plan, dry_run=True)
     x3 = next(item for item in output['emitted'] if item['chain'] == 'x3')
 
     assert x3['type'] == 'bridge'

@@ -15,6 +15,9 @@ _emit_evm = _load_emitter('evm')
 _emit_svm = _load_emitter('svm')
 _emit_x3 = _load_emitter('x3')
 
+# Re-export so callers (e.g. runner.py) can catch the fail-closed signal.
+ProofRequiredError = _emit_x3.ProofRequiredError
+
 
 def emit(plan, *, dry_run=False, proof_bundle=None):
     emitted = []

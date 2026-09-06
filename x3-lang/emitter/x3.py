@@ -53,9 +53,21 @@ def emit(plan: Dict[str, Any], step: Dict[str, Any], *, proof_bundle: Dict[str, 
         'proof_required': True,
         'dry_run': dry_run,
     }
-    if dry_run:
-        raise ProofRequiredError('dry-run cannot produce a production proof bundle')
 
+    # Dry-run simulation is not a settlement attempt: emit the intended
+    # transaction marked proof_required so the caller can simulate the flow.
+    # The emitter never fabricates signature bytes or a verifier outcome.
+    if dry_run:
+        tx['proof_bundle'] = {
+            'bundle_version': '0.1',
+            'signatures': [],
+            'error_code': 'X3_PROOF_REQUIRED',
+            'note': 'dry-run: no backend proof bundle attached',
+        }
+        return tx
+
+    # Production settlement must carry a backend-produced proof bundle.
+    # Fail closed rather than fabricate proof or silently downgrade to dry-run.
     if not verify_proof_bundle(payload, proof_bundle or {}):
         raise ProofRequiredError('missing or invalid verifier proof/finality/settlement bundle')
 
