@@ -6,4 +6,4 @@
 # a pure-Python Keccak-256 (x3-lang/emitter/_keccak.py) that is validated
 # against the canonical vectors on import, so the pipeline never hard-fails or
 # silently uses NIST SHA3 in a bare environment.
-pycryptodome>=3.20
+pycryptodome>=3.23.0
