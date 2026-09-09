@@ -1,10 +1,18 @@
-// Test: cross vm - atomic operation stub
-agent TestDual {
-    context { chains: [evm, svm] }
-    strategy bridge_test() {
-        atomic fn commit_pair() {
-            evm::swap(...);
-            svm::swap(...);
-        }
-    }
+// Parser-valid gateway fixture for one atomic cross-VM bundle leg.
+//
+// This fixture proves source-to-runtime intent lowering for the X3 internal
+// EVM/SVM execution domains. It is not evidence of public-chain deployment.
+// The current parser accepts one flat leg; multi-leg array syntax remains open.
+fn main() {
+    submit_atomic_bundle(
+        "cross",
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        100,
+        90,
+        1800000000,
+        50,
+        1,
+        1
+    );
 }
