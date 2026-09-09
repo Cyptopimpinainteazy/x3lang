@@ -69,9 +69,7 @@ pub fn compile_program(program: &Program) -> Result<Vec<u8>, X3Error> {
 /// pipeline. Without it, the linear-scan allocator at
 /// `x3-lang/compiler/src/regalloc.rs` is dead code as far as the compiled
 /// binary is concerned.
-pub fn compile_program_with_regalloc(
-    program: &Program,
-) -> Result<(Vec<u8>, AllocationResult), X3Error> {
+pub fn compile_program_with_regalloc(program: &Program) -> Result<(Vec<u8>, AllocationResult), X3Error> {
     let mut ir = compile_to_ir(program)?;
     let _alloc = allocate(&ir.operations);
     // The v0.1 pipeline records allocation metadata without rewriting
@@ -218,9 +216,7 @@ fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
 #[cfg(test)]
 mod regalloc_wiring_tests {
     use super::*;
-    use x3_lang_ast::ast::{
-        AssetRef, AtomicSwapDecl, ChainRef, Expression, HashlockSpec, Item, LiteralExpr, Program,
-    };
+    use x3_lang_ast::ast::{AssetRef, AtomicSwapDecl, ChainRef, Expression, HashlockSpec, Item, LiteralExpr, Program};
     use x3_lang_common::Spanned;
 
     /// The new `compile_program_with_regalloc` entry point runs the full
@@ -244,9 +240,7 @@ mod regalloc_wiring_tests {
             receiver: None,
             hashlock: Some(HashlockSpec {
                 hash_fn: "sha256".into(),
-                secret: Box::new(Expression::Literal(LiteralExpr::String(
-                    "my_secret".into(),
-                ))),
+                secret: Box::new(Expression::Literal(LiteralExpr::String("my_secret".into()))),
             }),
             body: vec![],
             requires: vec![],

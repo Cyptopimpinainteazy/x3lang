@@ -4,6 +4,7 @@
 
 use std::fmt::Write;
 use x3_lang_ast::ast::*;
+use x3_lang_ast::{AssetDecl, AtomicTradeDecl, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::Spanned;
 
 pub struct X3Formatter {
@@ -83,7 +84,142 @@ impl X3Formatter {
             Item::FinalityPolicy(f) => self.format_finality_policy(f),
             Item::ProofsRequired(p) => self.format_proofs_required(p),
             Item::VmTarget(t) => self.format_vm_target(t),
+            Item::AssetDecl(decl) => self.format_asset_decl(decl),
+            Item::TradeRiskPolicy(policy) => self.format_trade_risk_policy(policy),
+            Item::AtomicTrade(decl) => self.format_atomic_trade(decl),
         }
+    }
+
+    fn format_asset_decl(&mut self, decl: &AssetDecl) {
+        self.write("asset ");
+        self.write(decl.name.as_str());
+        self.write(" = ");
+        self.write(decl.asset.vm_family.as_str());
+        self.write(".");
+        self.write(decl.asset.chain.as_str());
+        self.write(".");
+        self.write(decl.asset.canonical_id.as_str());
+        self.write(" {\n");
+        self.indent();
+        self.write_indent();
+        self.write("decimals: ");
+        self.write(&decl.asset.decimals.to_string());
+        self.write("\n");
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_atomic_trade(&mut self, decl: &AtomicTradeDecl) {
+        self.write("atomic trade ");
+        self.write(decl.name.as_str());
+        self.write(" using ");
+        self.write(decl.risk_policy.as_str());
+        self.write(" {\n");
+        self.indent();
+        for stmt in &decl.body {
+            self.format_trade_stmt(stmt);
+        }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_trade_risk_policy(&mut self, policy: &TradeRiskPolicy) {
+        self.write("risk policy ");
+        self.write(policy.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        self.write_indent();
+        self.write("max_slippage: ");
+        self.write(&policy.max_slippage_bps.to_string());
+        self.write(" bps\n");
+        self.write_indent();
+        self.write("max_gas: ");
+        self.format_expression(&policy.max_gas.value);
+        self.write(" ");
+        self.write(policy.max_gas.asset.as_str());
+        self.write("\n");
+        self.write_indent();
+        self.write("max_flash_fee: ");
+        self.write(&policy.max_flash_fee_bps.to_string());
+        self.write(" bps\n");
+        self.write_indent();
+        self.write("deadline: ");
+        self.format_expression(&policy.deadline);
+        self.write("\n");
+        self.write_indent();
+        self.write("require_private_submission: ");
+        self.write(if policy.require_private_submission {
+            "true"
+        } else {
+            "false"
+        });
+        self.write("\n");
+        if let Some(min_profit) = &policy.min_profit {
+            self.write_indent();
+            self.write("min_profit: ");
+            self.format_expression(&min_profit.value);
+            self.write(" ");
+            self.write(min_profit.asset.as_str());
+            self.write("\n");
+        }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_trade_stmt(&mut self, stmt: &TradeStmt) {
+        self.write_indent();
+        match stmt {
+            TradeStmt::Borrow { amount, provider, debt } => {
+                self.write("borrow ");
+                self.format_expression(&amount.value);
+                self.write(" ");
+                self.write(amount.asset.as_str());
+                self.write(" from ");
+                self.write(provider.as_str());
+                self.write(" as ");
+                self.write(debt.0.as_str());
+            }
+            TradeStmt::Swap {
+                binding,
+                input,
+                from_asset,
+                to_asset,
+                venue,
+                min_output,
+            } => {
+                self.write("let ");
+                self.write(binding.as_str());
+                self.write(" = swap ");
+                self.format_expression(&input.value);
+                self.write(" ");
+                self.write(from_asset.as_str());
+                self.write(" -> ");
+                self.write(to_asset.as_str());
+                self.write(" via ");
+                self.write(venue.as_str());
+                self.write(" min_out ");
+                self.format_expression(&min_output.value);
+                self.write(" ");
+                self.write(min_output.asset.as_str());
+            }
+            TradeStmt::Repay { debt } => {
+                self.write("repay ");
+                self.write(debt.0.as_str());
+            }
+            TradeStmt::RequireMinNetProfit { amount } => {
+                self.write("require net_profit >= ");
+                self.format_expression(&amount.value);
+                self.write(" ");
+                self.write(amount.asset.as_str());
+            }
+            TradeStmt::RequireAllDebtsRepaid => {
+                self.write("require all_debts_repaid");
+            }
+            TradeStmt::EmitReceipt => {
+                self.write("emit receipt");
+            }
+        }
+        self.write("\n");
     }
 
     fn format_use(&mut self, decl: &UseDecl) {

@@ -430,6 +430,19 @@ pub enum Keyword {
     GasAdaptive,
     Sponsor,
     Subscription,
+
+    // ===== Trading Core =====
+    Asset,
+    Trade,
+    Using,
+    From,
+    Via,
+    MinOut,
+    NetProfit,
+    AllDebtsRepaid,
+    Receipt,
+    Bps,
+    PrivateSubmission,
 }
 
 impl Keyword {
@@ -607,6 +620,19 @@ impl Keyword {
             "gas_adaptive" => Some(Keyword::GasAdaptive),
             "sponsor" => Some(Keyword::Sponsor),
             "subscription" => Some(Keyword::Subscription),
+
+            // Trading Core
+            "asset" => Some(Keyword::Asset),
+            "trade" => Some(Keyword::Trade),
+            "using" => Some(Keyword::Using),
+            "from" => Some(Keyword::From),
+            "via" => Some(Keyword::Via),
+            "min_out" => Some(Keyword::MinOut),
+            "net_profit" => Some(Keyword::NetProfit),
+            "all_debts_repaid" => Some(Keyword::AllDebtsRepaid),
+            "receipt" => Some(Keyword::Receipt),
+            "bps" => Some(Keyword::Bps),
+            "private_submission" => Some(Keyword::PrivateSubmission),
 
             // B-52
             "adapter" => Some(Keyword::Adapter),
@@ -860,6 +886,19 @@ impl Keyword {
             Keyword::Unstake => "unstake",
             Keyword::UseBackupRelayer => "use_backup_relayer",
             Keyword::Vm => "vm",
+
+            // Trading Core
+            Keyword::Asset => "asset",
+            Keyword::Trade => "trade",
+            Keyword::Using => "using",
+            Keyword::From => "from",
+            Keyword::Via => "via",
+            Keyword::MinOut => "min_out",
+            Keyword::NetProfit => "net_profit",
+            Keyword::AllDebtsRepaid => "all_debts_repaid",
+            Keyword::Receipt => "receipt",
+            Keyword::Bps => "bps",
+            Keyword::PrivateSubmission => "private_submission",
         }
     }
 }
