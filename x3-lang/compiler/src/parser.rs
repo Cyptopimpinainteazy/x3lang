@@ -12,6 +12,7 @@
 //! converts lexer `TokenKind` items into its internal `Tok` enum.
 
 use x3_lang_ast::ast::*;
+use x3_lang_ast::{AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, DebtId, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::{BinOp as CBinOp, IntBase, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
 use x3_lang_lexer::token::{Keyword, Token, TokenKind};
 
@@ -74,6 +75,7 @@ pub fn parse_source(source: &str) -> Result<Program, X3Error> {
 enum Tok {
     Ident(String),
     Int(u128),
+    Float(Symbol),
     String_(String),
     // Punctuation / delimiters
     LParen,
@@ -231,11 +233,13 @@ impl<'a> Parser<'a> {
                 self.advance(); // consume 'atomic'
                 if self.check(Tok::KwSwap) {
                     self.parse_atomic_swap_item_new()
+                } else if self.check(Tok::Ident("trade".to_string())) {
+                    self.parse_atomic_trade_decl().map(Item::AtomicTrade)
                 } else {
                     // Parser saw 'atomic' at top level without 'swap' —
                     // not a valid top-level item.
                     Err(parse_err(
-                        "expected 'swap' after 'atomic' at top level".into(),
+                        "expected 'swap' or 'trade' after 'atomic' at top level".into(),
                         self.peek(),
                     ))
                 }
@@ -247,6 +251,10 @@ impl<'a> Parser<'a> {
             Tok::KwScheduled => self.parse_scheduled_item(),
             Tok::KwIntent => self.parse_intent_item(),
             Tok::KwSubscription => self.parse_subscription_item(),
+            Tok::Ident(ref s) if s == "asset" => self.parse_asset_decl().map(Item::AssetDecl),
+            Tok::Ident(ref s) if s == "risk" && matches!(self.peek_n(1), Tok::Ident(ref n) if n == "policy") => {
+                self.parse_trade_risk_policy().map(Item::TradeRiskPolicy)
+            }
             // B-52 feature lock items
             Tok::Ident(ref s) if s == "solver_market" => self.parse_solver_market_item(),
             Tok::Ident(ref s) if s == "relayers" => self.parse_relayer_swarm_item(),
@@ -723,6 +731,336 @@ impl<'a> Parser<'a> {
             timeout_source,
             timeout_destination,
         }))
+    }
+
+    // ------------------------------------------------------------------
+    // Trading Core v1: asset declarations, risk policies, atomic trades
+    // ------------------------------------------------------------------
+
+    /// `asset NAME = VM_FAMILY.CHAIN.CANONICAL_ID { decimals: N }`
+    fn parse_asset_decl(&mut self) -> Result<AssetDecl, X3Error> {
+        self.advance(); // 'asset'
+        let name = self.expect_ident("asset declaration name")?;
+        self.expect(Tok::Eq, "expected '=' after asset declaration name")?;
+
+        let vm_family = self.expect_ident("asset vm family")?;
+        self.expect(Tok::Dot, "expected '.' after asset vm family")?;
+        let chain = self.expect_ident("asset chain")?;
+        self.expect(Tok::Dot, "expected '.' after asset chain")?;
+        let canonical_id = self.expect_ident("asset canonical id")?;
+        self.expect(Tok::LBrace, "expected '{' to open the asset declaration body")?;
+
+        let mut decimals = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "decimals" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after decimals")?;
+                    let value = self.parse_u8_literal("asset decimals")?;
+                    if decimals.replace(value).is_some() {
+                        return Err(parse_err(
+                            "duplicate 'decimals' field in asset declaration".into(),
+                            self.peek(),
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(parse_err(
+                        "expected 'decimals' field in asset declaration".into(),
+                        self.peek(),
+                    ));
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the asset declaration")?;
+        let decimals =
+            decimals.ok_or_else(|| parse_err("asset declaration is missing the 'decimals' field".into(), Tok::Eof))?;
+
+        Ok(AssetDecl {
+            name: Symbol::new(&name),
+            asset: AssetId {
+                vm_family: Symbol::new(&vm_family),
+                chain: ChainRef(Symbol::new(&chain)),
+                canonical_id: Symbol::new(&canonical_id),
+                symbol: Symbol::new(&name),
+                decimals,
+            },
+        })
+    }
+
+    /// `risk policy NAME { ... }` — Trading Core v1 policy (not the legacy
+    /// single-token `risk_policy { ... }` B-52 declaration).
+    fn parse_trade_risk_policy(&mut self) -> Result<TradeRiskPolicy, X3Error> {
+        self.advance(); // 'risk'
+        self.advance(); // 'policy'
+        let name = self.expect_ident("risk policy name")?;
+        self.expect(Tok::LBrace, "expected '{' after risk policy name")?;
+
+        let mut max_slippage_bps = None;
+        let mut max_gas = None;
+        let mut max_flash_fee_bps = None;
+        let mut deadline = None;
+        let mut require_private_submission = None;
+        let mut min_profit = None;
+
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "max_slippage" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after max_slippage")?;
+                    let value = self.parse_bps_value("max_slippage")?;
+                    if max_slippage_bps.replace(value).is_some() {
+                        return Err(parse_err("duplicate 'max_slippage' in risk policy".into(), self.peek()));
+                    }
+                }
+                Tok::Ident(ref s) if s == "max_gas" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after max_gas")?;
+                    let value = self.parse_amount_expr("max_gas")?;
+                    if max_gas.replace(value).is_some() {
+                        return Err(parse_err("duplicate 'max_gas' in risk policy".into(), self.peek()));
+                    }
+                }
+                Tok::Ident(ref s) if s == "max_flash_fee" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after max_flash_fee")?;
+                    let value = self.parse_bps_value("max_flash_fee")?;
+                    if max_flash_fee_bps.replace(value).is_some() {
+                        return Err(parse_err(
+                            "duplicate 'max_flash_fee' in risk policy".into(),
+                            self.peek(),
+                        ));
+                    }
+                }
+                Tok::Ident(ref s) if s == "deadline" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after deadline")?;
+                    let value = self.parse_deadline_expr()?;
+                    if deadline.replace(value).is_some() {
+                        return Err(parse_err("duplicate 'deadline' in risk policy".into(), self.peek()));
+                    }
+                }
+                Tok::Ident(ref s) if s == "require_private_submission" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after require_private_submission")?;
+                    let value = self.parse_bool_literal("require_private_submission")?;
+                    if require_private_submission.replace(value).is_some() {
+                        return Err(parse_err(
+                            "duplicate 'require_private_submission' in risk policy".into(),
+                            self.peek(),
+                        ));
+                    }
+                }
+                Tok::Ident(ref s) if s == "min_profit" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after min_profit")?;
+                    let value = self.parse_amount_expr("min_profit")?;
+                    if min_profit.replace(value).is_some() {
+                        return Err(parse_err("duplicate 'min_profit' in risk policy".into(), self.peek()));
+                    }
+                }
+                _ => {
+                    return Err(parse_err("unknown field in trading risk policy".into(), self.peek()));
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the risk policy")?;
+
+        Ok(TradeRiskPolicy {
+            name: Symbol::new(&name),
+            max_slippage_bps: max_slippage_bps
+                .ok_or_else(|| parse_err("risk policy missing 'max_slippage'".into(), Tok::RBrace))?,
+            max_gas: max_gas.ok_or_else(|| parse_err("risk policy missing 'max_gas'".into(), Tok::RBrace))?,
+            max_flash_fee_bps: max_flash_fee_bps
+                .ok_or_else(|| parse_err("risk policy missing 'max_flash_fee'".into(), Tok::RBrace))?,
+            deadline: deadline.ok_or_else(|| parse_err("risk policy missing 'deadline'".into(), Tok::RBrace))?,
+            require_private_submission: require_private_submission
+                .ok_or_else(|| parse_err("risk policy missing 'require_private_submission'".into(), Tok::RBrace))?,
+            min_profit,
+        })
+    }
+
+    /// `atomic trade NAME using POLICY { statements }` — caller has consumed
+    /// both `atomic` and `trade` (the latter through `check`).
+    fn parse_atomic_trade_decl(&mut self) -> Result<AtomicTradeDecl, X3Error> {
+        let name = self.expect_ident("atomic trade name")?;
+        self.expect(Tok::Ident("using".into()), "expected 'using' after trade name")?;
+        let risk_policy = self.expect_ident("atomic trade risk policy")?;
+        self.expect(Tok::LBrace, "expected '{' to open the atomic trade body")?;
+
+        let mut body = Vec::new();
+        let mut seen_debts = Vec::new();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let stmt = self.parse_trade_stmt()?;
+            if let TradeStmt::Borrow { debt, .. } = &stmt {
+                if seen_debts.contains(&debt.0) {
+                    return Err(parse_err(
+                        format!(
+                            "duplicate debt '{}' in atomic trade; each debt must be declared once",
+                            debt.0.as_str()
+                        ),
+                        self.peek(),
+                    ));
+                }
+                seen_debts.push(debt.0.clone());
+            }
+            body.push(stmt);
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the atomic trade")?;
+
+        Ok(AtomicTradeDecl {
+            name: Symbol::new(&name),
+            risk_policy: Symbol::new(&risk_policy),
+            body,
+        })
+    }
+
+    fn parse_trade_stmt(&mut self) -> Result<TradeStmt, X3Error> {
+        match self.peek() {
+            Tok::Ident(ref s) if s == "borrow" => {
+                self.advance();
+                let amount = self.parse_amount_expr("borrow amount")?;
+                self.expect(
+                    Tok::Ident("from".into()),
+                    "expected 'from <provider>' after borrow amount",
+                )?;
+                let provider = self.expect_ident("borrow provider")?;
+                self.expect(Tok::Ident("as".into()), "expected 'as <debt>' after provider")?;
+                let debt = self.expect_ident("borrow debt name")?;
+                Ok(TradeStmt::Borrow {
+                    amount,
+                    provider: Symbol::new(&provider),
+                    debt: DebtId(Symbol::new(&debt)),
+                })
+            }
+            Tok::KwLet => {
+                self.advance();
+                let binding = self.expect_ident("swap binding")?;
+                self.expect(Tok::Eq, "expected '=' after swap binding")?;
+                self.expect(Tok::KwSwap, "expected 'swap' after '='")?;
+                let input = self.parse_amount_expr("swap input")?;
+                self.expect(Tok::Arrow, "expected '->' after swap input")?;
+                let to_asset = self.expect_ident("swap destination asset")?;
+                self.expect(
+                    Tok::Ident("via".into()),
+                    "expected 'via <venue>' after destination asset",
+                )?;
+                let venue = self.expect_ident("swap venue")?;
+                self.expect(Tok::Ident("min_out".into()), "expected 'min_out <amount>' after venue")?;
+                let min_output = self.parse_amount_expr("min_out amount")?;
+                let from_asset = input.asset.clone();
+                Ok(TradeStmt::Swap {
+                    binding: Symbol::new(&binding),
+                    input,
+                    from_asset,
+                    to_asset: Symbol::new(&to_asset),
+                    venue: Symbol::new(&venue),
+                    min_output,
+                })
+            }
+            Tok::Ident(ref s) if s == "repay" => {
+                self.advance();
+                let debt = self.expect_ident("debt to repay")?;
+                Ok(TradeStmt::Repay {
+                    debt: DebtId(Symbol::new(&debt)),
+                })
+            }
+            Tok::KwRequire => {
+                self.advance();
+                match self.peek() {
+                    Tok::Ident(ref s) if s == "net_profit" => {
+                        self.advance();
+                        self.expect(Tok::Ge, "expected '>=' after net_profit requirement")?;
+                        let amount = self.parse_amount_expr("net_profit amount")?;
+                        Ok(TradeStmt::RequireMinNetProfit { amount })
+                    }
+                    Tok::Ident(ref s) if s == "all_debts_repaid" => {
+                        self.advance();
+                        Ok(TradeStmt::RequireAllDebtsRepaid)
+                    }
+                    _ => Err(parse_err(
+                        "expected 'net_profit >= <amount>' or 'all_debts_repaid' after require".into(),
+                        self.peek(),
+                    )),
+                }
+            }
+            Tok::KwEmit => {
+                self.advance();
+                self.expect(Tok::Ident("receipt".into()), "expected 'receipt' after emit")?;
+                Ok(TradeStmt::EmitReceipt)
+            }
+            _ => Err(parse_err(
+                "expected a trading statement (borrow, swap, repay, require, or emit receipt)".into(),
+                self.peek(),
+            )),
+        }
+    }
+
+    /// Parse `<expression> <ASSET>` into a typed amount. The asset identifier
+    /// terminates the expression, so `debt.amount USDC` stays a field access.
+    fn parse_amount_expr(&mut self, field: &str) -> Result<AmountExpr, X3Error> {
+        let value = self.parse_expr()?;
+        let asset = Symbol::new(&self.expect_ident(&format!("{field} asset"))?);
+        Ok(AmountExpr { value, asset })
+    }
+
+    fn parse_bps_value(&mut self, field: &str) -> Result<u16, X3Error> {
+        let found = self.advance();
+        let value = match found {
+            Tok::Int(value) => value,
+            other => {
+                return Err(parse_err(
+                    format!("{field}: basis points must be an unsigned integer"),
+                    other,
+                ));
+            }
+        };
+        if value > u16::MAX as u128 {
+            return Err(parse_err(
+                format!("{field}: basis points exceed u16::MAX"),
+                Tok::Int(value),
+            ));
+        }
+        self.expect(
+            Tok::Ident("bps".into()),
+            &format!("{field}: expected 'bps' after the integer value"),
+        )?;
+        Ok(value as u16)
+    }
+
+    fn parse_bool_literal(&mut self, field: &str) -> Result<bool, X3Error> {
+        match self.advance() {
+            Tok::KwTrue => Ok(true),
+            Tok::KwFalse => Ok(false),
+            other => Err(parse_err(format!("{field}: expected true or false"), other)),
+        }
+    }
+
+    fn parse_u8_literal(&mut self, field: &str) -> Result<u8, X3Error> {
+        match self.advance() {
+            Tok::Int(value) if value <= u8::MAX as u128 => Ok(value as u8),
+            Tok::Int(_) => Err(parse_err(format!("{field}: value exceeds u8"), self.peek())),
+            other => Err(parse_err(format!("{field}: expected an unsigned integer"), other)),
+        }
+    }
+
+    /// Parse a deadline expression. Trading Core v1 canonical syntax is
+    /// `deadline: N blocks`; the numeric expression is stored losslessly and
+    /// the explicit `blocks` unit is consumed. Other clock units are rejected
+    /// rather than silently dropping the unit.
+    fn parse_deadline_expr(&mut self) -> Result<Expression, X3Error> {
+        let expr = self.parse_expr()?;
+        match self.peek() {
+            Tok::Ident(ref unit) if unit == "blocks" => {
+                self.advance();
+                Ok(expr)
+            }
+            Tok::Ident(ref unit) if unit == "seconds" => Err(parse_err(
+                "Trading Core v1 deadline currently requires 'blocks'; 'seconds' is not supported".into(),
+                self.peek(),
+            )),
+            _ => Ok(expr),
+        }
     }
 
     fn parse_strategy_item(&mut self) -> Result<Item, X3Error> {
@@ -2215,6 +2553,16 @@ impl<'a> Parser<'a> {
                     })
                 }
             }
+            Tok::Float(raw) => {
+                if self.peek() == Tok::Percent {
+                    self.advance();
+                    Expression::Literal(LiteralExpr::Percentage {
+                        value: Symbol::new(&format!("{raw}%")),
+                    })
+                } else {
+                    Expression::Literal(LiteralExpr::Float { raw, suffix: None })
+                }
+            }
             Tok::String_(s) => Expression::Literal(LiteralExpr::String(Symbol::new(&s))),
             Tok::KwTrue => Expression::Literal(LiteralExpr::Bool(true)),
             Tok::KwFalse => Expression::Literal(LiteralExpr::Bool(false)),
@@ -2905,6 +3253,7 @@ fn lexer_token_to_tok(token: Token) -> Option<Tok> {
         TokenKind::Literal(lit) => match lit {
             x3_lang_lexer::token::Literal::Int { value, .. } => Tok::Int(value),
             x3_lang_lexer::token::Literal::String(sym) => Tok::String_(sym.as_str().to_string()),
+            x3_lang_lexer::token::Literal::Float { value, .. } => Tok::Float(value),
             _ => return None,
         },
 

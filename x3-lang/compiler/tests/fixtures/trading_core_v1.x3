@@ -1,0 +1,33 @@
+asset USDC = evm.ethereum.0xA0b8 {
+    decimals: 6
+}
+
+asset WETH = evm.ethereum.0xC02a {
+    decimals: 18
+}
+
+risk policy MainnetArb {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: true
+}
+
+atomic trade CrossDexArb using MainnetArb {
+    borrow 1_000_000 USDC from aave_v3 as debt
+
+    let weth = swap debt.amount USDC -> WETH
+        via uniswap_v3
+        min_out 410 WETH
+
+    let returned = swap weth WETH -> USDC
+        via sushiswap
+        min_out 1_002_000 USDC
+
+    repay debt
+
+    require net_profit >= 1_000 USDC
+    require all_debts_repaid
+    emit receipt
+}

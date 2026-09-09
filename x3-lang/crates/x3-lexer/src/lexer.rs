@@ -35,6 +35,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 c if c.is_ascii_alphabetic() || c == '_' || c.is_ascii_digit() => {
+                    let starts_with_digit = c.is_ascii_digit();
                     while i < bytes.len() {
                         let next = source[i..].chars().next().unwrap();
                         if next == '-' && source[i + next.len_utf8()..].starts_with('>') {
@@ -42,23 +43,48 @@ impl<'a> Lexer<'a> {
                         }
                         if next.is_ascii_alphanumeric() || next == '_' || next == '-' {
                             i += next.len_utf8();
+                        } else if starts_with_digit && next == '.' {
+                            // Decimal literals (0.02, 1_000.5) continue through
+                            // exactly one dot followed by at least one digit.
+                            let after_dot = source[i + next.len_utf8()..].chars().next();
+                            if after_dot.is_some_and(|ch| ch.is_ascii_digit()) {
+                                i += next.len_utf8();
+                            } else {
+                                break;
+                            }
                         } else {
                             break;
                         }
                     }
                     let text = &source[start..i];
-                    if text.chars().all(|ch| ch.is_ascii_digit()) {
-                        let value = text.parse::<u128>().unwrap_or(0);
-                        tokens.push(token(
-                            TokenKind::Literal(Literal::Int {
-                                value,
-                                suffix: None,
-                                base: IntBase::Decimal,
-                            }),
-                            start,
-                            i,
-                            file_id,
-                        ));
+                    if starts_with_digit {
+                        if let Some(value) = parse_decimal_integer(text) {
+                            tokens.push(token(
+                                TokenKind::Literal(Literal::Int {
+                                    value,
+                                    suffix: None,
+                                    base: IntBase::Decimal,
+                                }),
+                                start,
+                                i,
+                                file_id,
+                            ));
+                        } else if let Some(raw) = decimal_float_text(text) {
+                            tokens.push(token(
+                                TokenKind::Literal(Literal::Float {
+                                    value: Symbol::new(raw),
+                                    suffix: None,
+                                }),
+                                start,
+                                i,
+                                file_id,
+                            ));
+                        } else {
+                            let kind = Keyword::from_str(text)
+                                .map(TokenKind::Keyword)
+                                .unwrap_or_else(|| TokenKind::Ident(Symbol::new(text)));
+                            tokens.push(token(kind, start, i, file_id));
+                        }
                     } else {
                         let kind = Keyword::from_str(text)
                             .map(TokenKind::Keyword)
@@ -156,4 +182,59 @@ impl Iterator for Lexer<'_> {
 
 fn token(kind: TokenKind, start: usize, end: usize, file_id: u32) -> Token {
     Token::new(kind, Span::new(BytePos(start as u32), BytePos(end as u32), file_id))
+}
+
+/// Parse a decimal integer that may contain `_` separators
+/// (for example `1_000_000`). Non-decimal or overflowing text returns `None`
+/// so the lexer falls back to identifier classification.
+fn parse_decimal_integer(text: &str) -> Option<u128> {
+    if !well_formed_number_part(text) {
+        return None;
+    }
+    let digits: String = text.chars().filter(|ch| *ch != '_').collect();
+    digits.parse().ok()
+}
+
+/// Validate a decimal floating-point literal and return its source text.
+/// Accepts a single `.` with digits on both sides and `_` separators, while
+/// rejecting hex-like identifiers (`0xA0b8`) and suffixed words.
+fn decimal_float_text(text: &str) -> Option<&str> {
+    let mut parts = text.split('.');
+    let int_part = parts.next()?;
+    let frac_part = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let valid_side = |side: &str| well_formed_number_part(side) && side.chars().any(|ch| ch.is_ascii_digit());
+    if valid_side(int_part) && valid_side(frac_part) {
+        Some(text)
+    } else {
+        None
+    }
+}
+
+/// A decimal number part is well formed when it starts and ends with a digit
+/// and every `_` separator sits between two digits. This rejects `1_`, `_1`,
+/// `1__2`, and `1_a` instead of silently filtering separators out.
+fn well_formed_number_part(part: &str) -> bool {
+    let chars: Vec<char> = part.chars().collect();
+    if chars.is_empty() || !chars[0].is_ascii_digit() || !chars[chars.len() - 1].is_ascii_digit() {
+        return false;
+    }
+    for (index, ch) in chars.iter().enumerate() {
+        match ch {
+            c if c.is_ascii_digit() => {}
+            '_' => {
+                if index == 0
+                    || index + 1 >= chars.len()
+                    || !chars[index - 1].is_ascii_digit()
+                    || !chars[index + 1].is_ascii_digit()
+                {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
 }
