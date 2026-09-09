@@ -25,6 +25,7 @@ pub mod regalloc;
 pub mod risk;
 pub mod semantic;
 pub mod trading_semantic;
+pub mod trading_verify;
 pub mod verify;
 pub mod spec {
     pub mod opcodes {
@@ -48,6 +49,7 @@ pub use ir::{Condition, FailureAction, Operation, ProgramMetadata, RequireKind, 
 pub use semantic::{CompilationMode, InvariantRule, RiskScore};
 
 pub use trading_semantic::{amount_base_units, analyze_trading, decimal_to_base_units, TradingSymbols, TypedAmount};
+pub use trading_verify::{verify_atomic_trade, verify_trading_program, DebtFlowState};
 
 // Re-export register-allocation entry points so callers (and tests) can run
 // allocation as a standalone pass without going through the full pipeline.
@@ -107,7 +109,12 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
         return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
     }
 
-    if let Err(trading_errors) = analyze_trading(&program, CompilationMode::Dev) {
+    let trading_symbols = match analyze_trading(&program, CompilationMode::Dev) {
+        Ok(symbols) => symbols,
+        Err(trading_errors) => return Ok((program, crate::ir::X3IR::new(), trading_errors)),
+    };
+    let trading_errors = verify_trading_program(&program, &trading_symbols, CompilationMode::Dev);
+    if !trading_errors.is_empty() {
         return Ok((program, crate::ir::X3IR::new(), trading_errors));
     }
 
@@ -144,7 +151,12 @@ pub fn check_source_with_mode(
         return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
     }
 
-    if let Err(trading_errors) = analyze_trading(&program, mode) {
+    let trading_symbols = match analyze_trading(&program, mode) {
+        Ok(symbols) => symbols,
+        Err(trading_errors) => return Ok((program, crate::ir::X3IR::new(), trading_errors)),
+    };
+    let trading_errors = verify_trading_program(&program, &trading_symbols, mode);
+    if !trading_errors.is_empty() {
         return Ok((program, crate::ir::X3IR::new(), trading_errors));
     }
 

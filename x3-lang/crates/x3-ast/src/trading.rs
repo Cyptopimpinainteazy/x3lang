@@ -31,6 +31,18 @@ pub struct AssetId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DebtId(pub Symbol);
 
+impl PartialOrd for DebtId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DebtId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_str().cmp(other.0.as_str())
+    }
+}
+
 /// Explicit rounding direction for amount arithmetic that can lose precision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RoundingMode {
