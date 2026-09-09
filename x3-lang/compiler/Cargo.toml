@@ -10,6 +10,7 @@ description = "Compiler for X3: lowering, codegen, regalloc, and bytecode emitte
 x3-lang-common = { path = "../crates/x3-common" }
 x3-lang-ast = { path = "../crates/x3-ast" }
 x3-lang-lexer = { path = "../crates/x3-lexer", features = ["logos"] }
+indexmap = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]

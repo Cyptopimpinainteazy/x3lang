@@ -24,6 +24,7 @@ pub mod parser;
 pub mod regalloc;
 pub mod risk;
 pub mod semantic;
+pub mod trading_semantic;
 pub mod verify;
 pub mod spec {
     pub mod opcodes {
@@ -45,6 +46,8 @@ pub use ir::{Condition, FailureAction, Operation, ProgramMetadata, RequireKind, 
 
 // Re-export semantic types
 pub use semantic::{CompilationMode, InvariantRule, RiskScore};
+
+pub use trading_semantic::{amount_base_units, analyze_trading, decimal_to_base_units, TradingSymbols, TypedAmount};
 
 // Re-export register-allocation entry points so callers (and tests) can run
 // allocation as a standalone pass without going through the full pipeline.
@@ -104,6 +107,10 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
         return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
     }
 
+    if let Err(trading_errors) = analyze_trading(&program, CompilationMode::Dev) {
+        return Ok((program, crate::ir::X3IR::new(), trading_errors));
+    }
+
     let ir = compile_to_ir(&program)?;
     match verify_semantics(&ir, 8, 4, None) {
         Ok(()) => Ok((program, ir, Vec::new())),
@@ -135,6 +142,10 @@ pub fn check_source_with_mode(
     verify_atomic_swap_decls(&program, &mut ast_errors);
     if ast_errors.has_errors() {
         return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
+    }
+
+    if let Err(trading_errors) = analyze_trading(&program, mode) {
+        return Ok((program, crate::ir::X3IR::new(), trading_errors));
     }
 
     let ir = compile_to_ir(&program)?;

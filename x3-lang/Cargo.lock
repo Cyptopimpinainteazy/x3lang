@@ -2073,6 +2073,7 @@ dependencies = [
 name = "x3-lang-compiler"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "proptest",
  "serde",
  "serde_json",

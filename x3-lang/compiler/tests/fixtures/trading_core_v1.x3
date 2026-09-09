@@ -6,6 +6,10 @@ asset WETH = evm.ethereum.0xC02a {
     decimals: 18
 }
 
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 {
+    decimals: 18
+}
+
 risk policy MainnetArb {
     max_slippage: 30 bps
     max_gas: 0.02 ETH

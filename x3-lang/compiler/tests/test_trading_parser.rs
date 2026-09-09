@@ -34,8 +34,8 @@ fn parses_complete_trading_core_v1_example() {
         parse_source(TRADING_CORE_V1_SOURCE).unwrap_or_else(|e| panic!("canonical trading fixture must parse: {e}"));
 
     let (assets, policy, trade) = find_items(&program);
-    assert_eq!(assets.len(), 2, "expected exactly two AssetDecl items");
-    assert_eq!(program.items.len(), 4, "asset, asset, policy, trade");
+    assert_eq!(assets.len(), 3, "expected USDC, WETH, and ETH AssetDecl items");
+    assert_eq!(program.items.len(), 5, "asset, asset, asset, policy, trade");
 
     let usdc = assets[0];
     assert_eq!(usdc.name.as_str(), "USDC");
@@ -51,6 +51,11 @@ fn parses_complete_trading_core_v1_example() {
     assert_eq!(weth.asset.canonical_id.as_str(), "0xC02a");
     assert_eq!(weth.asset.symbol.as_str(), "WETH");
     assert_eq!(weth.asset.decimals, 18);
+
+    let eth = assets[2];
+    assert_eq!(eth.name.as_str(), "ETH");
+    assert_eq!(eth.asset.chain.as_str(), "ethereum");
+    assert_eq!(eth.asset.decimals, 18);
 
     let policy = policy.expect("canonical fixture must contain one TradeRiskPolicy");
     assert_eq!(policy.name.as_str(), "MainnetArb");
