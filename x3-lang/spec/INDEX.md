@@ -36,6 +36,28 @@ X3-lang is a deterministic, contract-capable, swarm-executable language for the 
 X3 Source → Lexer → Parser → AST → Type Checker → HIR → LIR → Bytecode Emitter → Bytecode Verifier → X3VM
 ```
 
+## Trading Core v1
+
+Trading Core v1 adds `asset`, `risk policy`, and `atomic trade` declarations to
+the Rust compiler pipeline:
+
+```
+asset/risk policy/atomic trade → trading semantic types → debt/risk verifier
+→ trading IR → bytecode → capability-controlled atomic execution → receipt
+```
+
+Guarantees:
+
+- assets are distinct by VM family, chain, canonical identifier, and decimals;
+- every successful borrowed-capital path repays its linear debt exactly once;
+- minimum net profit and all-debts guards are required before commit;
+- host output below `min_out`, fee-ceiling violations, deadline expiry,
+  state-commitment mismatches, and low net profit roll back atomically;
+- success and failure receipts are canonical, hash-verified, and tamper-evident.
+
+Boundary: v1 provides fixture-host execution only. It does not ship live venue
+adapters, route discovery, oracle consensus, or mainnet execution evidence.
+
 ## Production Readiness
 
 > **Note**: All 26 opcodes execute in the VM. ON_FAIL now wires real failure-handler dispatch — a trapped opcode (REQUIRE, OOG, timeout, etc.) transfers control to the most recent handler target instead of immediately returning `Err`. The atomic_router feature is at **85%** readiness per `FEATURE_REGISTRY.toml`. Remaining gaps are production hardening — multi-validator testing, external bridge integration, and CI gate wiring — not missing VM functionality.

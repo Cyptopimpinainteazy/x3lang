@@ -18,6 +18,29 @@ This folder contains the Python MVP surface and the production Rust language wor
 ## Rust workspace files
 - `Cargo.toml`, `compiler/`, `vm/`, `spec/`, `crates/x3-ast`, `crates/x3-common`, `crates/x3-lexer`, `crates/x3-tools`
 
+## Trading Core v1
+
+Trading Core v1 adds chain-qualified assets, linear debts, explicit swap
+routes, risk-policy guards, debt-closure and net-profit verification,
+capability-controlled atomic VM execution, and deterministic receipts.
+
+Canonical example: `examples/trading_core_v1.x3`.
+
+Supported today:
+
+- parse, type-check, verify, lower, encode, decode, and disassemble trading declarations;
+- checked decimal-to-base-unit accounting with explicit rounding controls;
+- borrow/swap/repay/net-profit/all-debts/commit verification;
+- fixture-host execution with atomic rollback and receipt verification;
+- `x3c receipt inspect <receipt.json>` and `x3c receipt verify <receipt.json>`.
+
+Explicit v1 boundaries:
+
+- no live Aave, Uniswap, SushiSwap, bridge, or private-relay adapters;
+- no route discovery or oracle aggregation;
+- fixture capabilities are rejected in production/mainnet execution mode;
+- no live-DEX or mainnet claim is made without real adapter evidence.
+
 ## VM Opcode Surface — Per-Feature Readiness
 
 The atomic_router feature owns VM control-flow execution. Its readiness score is **85%** (derived from `FEATURE_REGISTRY.toml`).

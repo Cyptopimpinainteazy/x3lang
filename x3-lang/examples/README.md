@@ -9,3 +9,4 @@
 | `simple_swap.x3` | Minimal intent exercising basic B-52 from/to/route/require/timeout patterns |
 | `multi_leg_route.x3` | Multi-leg portfolio route with allocation to 4 destinations via swap + bridge |
 | `staking_intent.x3` | Cross-VM staking intent with finality requirements |
+| `trading_core_v1.x3` | **Trading Core v1 example** — typed assets, risk policy, borrow/swap/repay, profit and debt guards, receipt emission. Runs against an explicitly marked fixture host in tests; no live venue adapters are claimed. |
