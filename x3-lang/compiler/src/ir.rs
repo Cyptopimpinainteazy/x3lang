@@ -342,7 +342,7 @@ pub enum Operation {
 }
 
 /// Stable typed asset identity carried by trading IR.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AssetKey {
     pub vm_family: String,
     pub chain: String,

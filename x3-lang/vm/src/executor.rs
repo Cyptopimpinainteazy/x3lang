@@ -26,6 +26,7 @@
 //! `state.gas >= cost` before deducting.
 
 use crate::x3_lang_vm::{SubExecInfo, VmSnapshot, VM};
+use x3_lang_compiler::emitter::decode_trading_operation;
 // Import shared opcode constants
 use crate::spec::opcodes::*;
 use x3_lang_common::{
@@ -340,6 +341,7 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                     memory: vm.state.memory.clone(),
                     asset_ops_len: vm.state.asset_ops.len(),
                     bridge_receipts_len: vm.state.bridge_receipts.len(),
+                    trading_ops_len: vm.state.trading_ops.len(),
                     pc: pc_next,
                     call_stack: vm.state.call_stack.clone(),
                     instruction_count: vm.state.instruction_count,
@@ -381,6 +383,7 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.memory = snapshot.memory;
                 vm.state.asset_ops.truncate(snapshot.asset_ops_len);
                 vm.state.bridge_receipts.truncate(snapshot.bridge_receipts_len);
+                vm.state.trading_ops.truncate(snapshot.trading_ops_len);
                 // Note: We intentionally do NOT restore PC from the snapshot.
                 // Instead execution continues past the rollback instruction.
                 // This prevents infinite re-execution of the atomic scope.
@@ -480,6 +483,29 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                     }
                 };
                 vm.state.registers[0] = bytes_to_register(&result);
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
+            }
+            TRADING_BEGIN..=TRADING_ABORT => {
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(p) => p.to_vec(),
+                    Err(e) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(e);
+                    }
+                };
+                let trading = match decode_trading_operation(opcode, &payload) {
+                    Ok(trading) => trading,
+                    Err(_) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::InvalidOperand);
+                    }
+                };
+                vm.state.trading_ops.push(trading);
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
@@ -627,6 +653,7 @@ fn gas_cost_for_opcode(opcode: u8) -> u128 {
         0x9A => 50,
         0x9B => 50,
         0xA0..=0xAB => 50,
+        0xB0..=0xB8 => 50,
         0xFF => 0,
         _ => 1,
     }
@@ -1466,6 +1493,7 @@ mod tests {
             memory: vm.state.memory.clone(),
             asset_ops_len: 0,
             bridge_receipts_len: 0,
+            trading_ops_len: 0,
             pc: 0,
             call_stack: vec![],
             instruction_count: 3,
