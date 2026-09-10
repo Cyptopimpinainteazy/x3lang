@@ -9,6 +9,10 @@ use crate::ir::{
     self, ChainMetricKind, Condition, CrdtKind as IrCrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind,
     SerialFormat, StorageKind, VectorOp, X3IR,
 };
+use crate::semantic::CompilationMode;
+use crate::trading_lowering;
+use crate::trading_semantic;
+use crate::trading_verify;
 use x3_lang_ast::ast;
 use x3_lang_ast::ast::*;
 use x3_lang_common::Span;
@@ -38,9 +42,45 @@ pub fn lower_program(program: &Program, ctx: LowerCtx) -> Result<X3IR, x3_lang_c
     ir.metadata.nonce = ctx.nonce;
     ir.metadata.chain_id = ctx.chain_id;
 
+    let trading_symbols = if program.items.iter().any(|item| {
+        matches!(
+            item.node,
+            Item::AssetDecl(_) | Item::TradeRiskPolicy(_) | Item::AtomicTrade(_)
+        )
+    }) {
+        let symbols = trading_semantic::analyze_trading(program, CompilationMode::Dev).map_err(|errors| {
+            x3_lang_common::X3Error::SemanticError {
+                message: errors
+                    .iter()
+                    .map(|error| error.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+                span: Span::DUMMY,
+            }
+        })?;
+        let errors = trading_verify::verify_trading_program(program, &symbols, CompilationMode::Dev);
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+        Some(symbols)
+    } else {
+        None
+    };
+
     // Lower top-level declarations into operations
     for item in &program.items {
         match &item.node {
+            Item::AtomicTrade(trade) => {
+                let symbols = trading_symbols
+                    .as_ref()
+                    .ok_or_else(|| x3_lang_common::X3Error::SemanticError {
+                        message: "trading symbols unavailable during lowering".to_string(),
+                        span: Span::DUMMY,
+                    })?;
+                let operations =
+                    trading_lowering::lower_atomic_trade(trade, symbols).map_err(x3_lang_common::X3Error::from)?;
+                ir.operations.extend(operations);
+            }
             Item::Function(func) => {
                 // Lower function body as a sequence of operations
                 lower_annotations_prefix(&func.annotations, &mut ir)?;

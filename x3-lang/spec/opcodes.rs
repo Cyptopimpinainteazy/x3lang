@@ -67,6 +67,16 @@ pub const MODE_CHECK: u8 = 0xA9;
 pub const PACKAGE_IMPORT: u8 = 0xAA;
 pub const REFUND_POLICY: u8 = 0xAB;
 
+pub const TRADING_BEGIN: u8 = 0xB0;
+pub const TRADING_OPEN_DEBT: u8 = 0xB1;
+pub const TRADING_EXECUTE_SWAP: u8 = 0xB2;
+pub const TRADING_CLOSE_DEBT: u8 = 0xB3;
+pub const TRADING_ASSERT_MIN_PROFIT: u8 = 0xB4;
+pub const TRADING_ASSERT_ALL_DEBTS: u8 = 0xB5;
+pub const TRADING_EMIT_RECEIPT: u8 = 0xB6;
+pub const TRADING_COMMIT: u8 = 0xB7;
+pub const TRADING_ABORT: u8 = 0xB8;
+
 pub const NOP: u8 = 0x00;
 pub const BYTECODE_VERSION_1: u8 = 0x01;
 pub const META_NONCE: u8 = 0x10;

@@ -374,6 +374,51 @@ opcodes:
     category: B-52 feature lock
     description: "Refund policy check"
 
+  - code: 0xB0
+    name: TRADING_BEGIN
+    category: Trading core
+    description: "Begin an atomic trading region"
+
+  - code: 0xB1
+    name: TRADING_OPEN_DEBT
+    category: Trading core
+    description: "Open a linear trading debt"
+
+  - code: 0xB2
+    name: TRADING_EXECUTE_SWAP
+    category: Trading core
+    description: "Execute an explicit venue swap"
+
+  - code: 0xB3
+    name: TRADING_CLOSE_DEBT
+    category: Trading core
+    description: "Close a trading debt"
+
+  - code: 0xB4
+    name: TRADING_ASSERT_MIN_PROFIT
+    category: Trading core
+    description: "Assert minimum net profit"
+
+  - code: 0xB5
+    name: TRADING_ASSERT_ALL_DEBTS
+    category: Trading core
+    description: "Assert all debts are closed"
+
+  - code: 0xB6
+    name: TRADING_EMIT_RECEIPT
+    category: Trading core
+    description: "Emit a deterministic trade receipt"
+
+  - code: 0xB7
+    name: TRADING_COMMIT
+    category: Trading core
+    description: "Commit the atomic trade"
+
+  - code: 0xB8
+    name: TRADING_ABORT
+    category: Trading core
+    description: "Abort the atomic trade"
+
   - code: 0xFF
     name: HALT
     category: Misc

@@ -4,7 +4,7 @@
 //! invariants that should never be delegated to an emitter or runtime decoder.
 
 use crate::diagnostic::{CompilerDiagnostic, DiagnosticCode};
-use crate::ir::{Operation, X3IR};
+use crate::ir::{AssetKey, Operation, TradingOperation, X3IR};
 use x3_lang_common::Span;
 
 /// Verify structural and safety invariants of lowered X3IR.
@@ -307,6 +307,7 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     );
                 }
             }
+            Operation::Trading(trading) => verify_trading_operation(trading, &op_context, diagnostics),
             Operation::Nop
             | Operation::Require { .. }
             | Operation::OnFail { .. }
@@ -340,4 +341,76 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
             format!("{context}: {atomic_depth} AtomicBegin operation(s) are not closed by AtomicEnd"),
         );
     }
+}
+
+fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
+    match trading {
+        TradingOperation::BeginAtomicTrade { trade_id, policy_id } => {
+            require_non_empty(diagnostics, context, "trade_id", trade_id);
+            require_non_empty(diagnostics, context, "policy_id", policy_id);
+        }
+        TradingOperation::OpenDebt {
+            debt_id,
+            provider,
+            asset,
+            principal,
+        } => {
+            require_non_empty(diagnostics, context, "debt_id", debt_id);
+            require_non_empty(diagnostics, context, "provider", provider);
+            verify_asset_key(asset, context, "asset", diagnostics);
+            if *principal == 0 {
+                push_unsafe(
+                    diagnostics,
+                    format!("{context}: debt principal must be greater than zero"),
+                );
+            }
+        }
+        TradingOperation::ExecuteSwap {
+            binding,
+            venue,
+            from,
+            to,
+            min_output,
+            ..
+        } => {
+            require_non_empty(diagnostics, context, "binding", binding);
+            require_non_empty(diagnostics, context, "venue", venue);
+            verify_asset_key(from, context, "from", diagnostics);
+            verify_asset_key(to, context, "to", diagnostics);
+            if *min_output == 0 {
+                push_unsafe(diagnostics, format!("{context}: min_output must be greater than zero"));
+            }
+        }
+        TradingOperation::CloseDebt { debt_id } => {
+            require_non_empty(diagnostics, context, "debt_id", debt_id);
+        }
+        TradingOperation::AssertMinNetProfit {
+            settlement_asset,
+            minimum,
+        } => {
+            verify_asset_key(settlement_asset, context, "settlement_asset", diagnostics);
+            if *minimum == 0 {
+                push_unsafe(
+                    diagnostics,
+                    format!("{context}: minimum net profit must be greater than zero"),
+                );
+            }
+        }
+        TradingOperation::AssertAllDebtsClosed
+        | TradingOperation::EmitTradeReceipt
+        | TradingOperation::CommitAtomicTrade
+        | TradingOperation::AbortAtomicTrade => {}
+    }
+}
+
+fn verify_asset_key(asset: &AssetKey, context: &str, field: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
+    require_non_empty(diagnostics, context, &format!("{field}.vm_family"), &asset.vm_family);
+    require_non_empty(diagnostics, context, &format!("{field}.chain"), &asset.chain);
+    require_non_empty(
+        diagnostics,
+        context,
+        &format!("{field}.canonical_id"),
+        &asset.canonical_id,
+    );
+    require_non_empty(diagnostics, context, &format!("{field}.symbol"), &asset.symbol);
 }

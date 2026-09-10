@@ -12,6 +12,7 @@ x3-lang-ast = { path = "../crates/x3-ast" }
 x3-lang-lexer = { path = "../crates/x3-lexer", features = ["logos"] }
 indexmap = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

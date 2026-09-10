@@ -24,6 +24,7 @@ pub mod parser;
 pub mod regalloc;
 pub mod risk;
 pub mod semantic;
+pub mod trading_lowering;
 pub mod trading_semantic;
 pub mod trading_verify;
 pub mod verify;
@@ -48,6 +49,8 @@ pub use ir::{Condition, FailureAction, Operation, ProgramMetadata, RequireKind, 
 // Re-export semantic types
 pub use semantic::{CompilationMode, InvariantRule, RiskScore};
 
+pub use ir::{AssetKey, TradingOperation, ValueRef};
+pub use trading_lowering::{lower_atomic_trade, LowerError};
 pub use trading_semantic::{amount_base_units, analyze_trading, decimal_to_base_units, TradingSymbols, TypedAmount};
 pub use trading_verify::{verify_atomic_trade, verify_trading_program, DebtFlowState};
 

@@ -335,6 +335,62 @@ pub enum Operation {
         target: String,
         after_blocks: u32,
     },
+
+    // ===== Trading Core v1 Operations =====
+    /// A deterministic accounting-oriented trading operation.
+    Trading(TradingOperation),
+}
+
+/// Stable typed asset identity carried by trading IR.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AssetKey {
+    pub vm_family: String,
+    pub chain: String,
+    pub canonical_id: String,
+    pub symbol: String,
+    pub decimals: u8,
+}
+
+/// Reference to a literal base-unit amount or a prior trading binding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ValueRef {
+    Literal(u128),
+    Binding(String),
+}
+
+/// Trading Core v1 IR operations. Field names are stable and explicit for
+/// deterministic receipt and artifact hashing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TradingOperation {
+    BeginAtomicTrade {
+        trade_id: String,
+        policy_id: String,
+    },
+    OpenDebt {
+        debt_id: String,
+        provider: String,
+        asset: AssetKey,
+        principal: u128,
+    },
+    ExecuteSwap {
+        binding: String,
+        venue: String,
+        from: AssetKey,
+        to: AssetKey,
+        input: ValueRef,
+        min_output: u128,
+    },
+    CloseDebt {
+        debt_id: String,
+    },
+    AssertMinNetProfit {
+        settlement_asset: AssetKey,
+        minimum: u128,
+    },
+    AssertAllDebtsClosed,
+    EmitTradeReceipt,
+    CommitAtomicTrade,
+    AbortAtomicTrade,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
