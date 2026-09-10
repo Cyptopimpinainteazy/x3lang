@@ -41,6 +41,70 @@ fn write_fixture(name: &str, body: &str) -> PathBuf {
     path
 }
 
+fn trading_receipt_json(tamper: bool) -> String {
+    use std::collections::BTreeMap;
+
+    use x3_lang_compiler::ir::{AssetKey, TradingOperation};
+    use x3_lang_vm::trading::{build_receipt, DebtRecord, TradeOutcome, TradingState};
+
+    let asset = AssetKey {
+        vm_family: "evm".to_string(),
+        chain: "ethereum".to_string(),
+        canonical_id: "0xUSDC".to_string(),
+        symbol: "USDC".to_string(),
+        decimals: 6,
+    };
+    let operations = vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_string(),
+            policy_id: "P".to_string(),
+        },
+        TradingOperation::OpenDebt {
+            debt_id: "debt".to_string(),
+            provider: "aave_v3".to_string(),
+            asset: asset.clone(),
+            principal: 1_000_000,
+        },
+        TradingOperation::CloseDebt {
+            debt_id: "debt".to_string(),
+        },
+        TradingOperation::CommitAtomicTrade,
+    ];
+    let mut state = TradingState {
+        committed: true,
+        receipt_emitted: true,
+        ..TradingState::default()
+    };
+    state.closed_debts.insert("debt".to_string());
+    state.closed_debt_records.insert(
+        "debt".to_string(),
+        DebtRecord {
+            asset: asset.clone(),
+            principal: 1_000_000,
+            fee: 0,
+        },
+    );
+    let mut deltas = BTreeMap::new();
+    deltas.insert(asset.clone(), 1i128);
+    state.net_deltas = deltas;
+    let mut receipt = build_receipt(
+        "0.1.0",
+        [1u8; 32],
+        "T",
+        "P",
+        [2u8; 32],
+        &operations,
+        &state,
+        Some(&asset),
+        TradeOutcome::Success,
+    )
+    .expect("receipt builds");
+    if tamper {
+        receipt.receipt_hash = [0u8; 32];
+    }
+    serde_json::to_string_pretty(&receipt).expect("receipt json")
+}
+
 const GOOD_SOURCE: &str = r#"intent arb_solana_eth {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
@@ -116,6 +180,48 @@ fn cli_build_produces_aligned_bytecode() {
     assert!(!bytes.is_empty(), "bytecode is non-empty");
     assert_eq!(bytes[0], 0x01, "version byte is 0x01");
     assert_eq!(bytes.len() % 4, 0, "bytecode is 4-byte aligned");
+}
+
+#[test]
+fn cli_receipt_verify_accepts_valid_receipt() {
+    let receipt = write_fixture("cli_valid_receipt.json", &trading_receipt_json(false));
+    let output = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt)
+        .output()
+        .expect("x3c receipt verify");
+    assert!(
+        output.status.success(),
+        "valid receipt must verify: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("receipt verified"));
+}
+
+#[test]
+fn cli_receipt_verify_rejects_tampered_receipt() {
+    let receipt = write_fixture("cli_tampered_receipt.json", &trading_receipt_json(true));
+    let status = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt)
+        .status()
+        .expect("x3c receipt verify");
+    assert!(!status.success(), "tampered receipt must fail verification");
+}
+
+#[test]
+fn cli_receipt_inspect_prints_json() {
+    let receipt = write_fixture("cli_inspect_receipt.json", &trading_receipt_json(false));
+    let output = x3c()
+        .arg("receipt")
+        .arg("inspect")
+        .arg(&receipt)
+        .output()
+        .expect("x3c receipt inspect");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("\"trade_id\""));
 }
 
 #[test]

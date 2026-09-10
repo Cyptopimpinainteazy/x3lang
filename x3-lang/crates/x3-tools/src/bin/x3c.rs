@@ -193,6 +193,19 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect or verify a trading receipt.
+    Receipt {
+        #[command(subcommand)]
+        action: ReceiptAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ReceiptAction {
+    /// Print a receipt as canonical JSON.
+    Inspect { input: PathBuf },
+    /// Verify a receipt's hash and accounting invariants.
+    Verify { input: PathBuf },
 }
 
 fn main() -> ExitCode {
@@ -253,6 +266,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             show_route,
             json,
         } => cmd_plan(&input, show_route, json),
+        Cmd::Receipt { action } => match action {
+            ReceiptAction::Inspect { input } => cmd_receipt_inspect(&input),
+            ReceiptAction::Verify { input } => cmd_receipt_verify(&input),
+        },
     }
 }
 
@@ -1588,4 +1605,30 @@ fn program_summary(program: &Program) -> serde_json::Value {
     serde_json::json!({
         "items": program.items.len(),
     })
+}
+
+fn cmd_receipt_inspect(input: &PathBuf) -> Result<ExitCode, String> {
+    let receipt = read_receipt(input)?;
+    let body = serde_json::to_string_pretty(&receipt).map_err(|e| format!("encode receipt {input:?}: {e}"))?;
+    println!("{body}");
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_receipt_verify(input: &PathBuf) -> Result<ExitCode, String> {
+    let receipt = read_receipt(input)?;
+    match x3_lang_vm::trading::verify_receipt(&receipt) {
+        Ok(()) => {
+            println!("receipt verified: {}", receipt.trade_id);
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(error) => {
+            eprintln!("x3c: receipt verification failed: {error}");
+            Ok(ExitCode::from(1))
+        }
+    }
+}
+
+fn read_receipt(input: &PathBuf) -> Result<x3_lang_vm::trading::TradeReceipt, String> {
+    let body = std::fs::read_to_string(input).map_err(|e| format!("read {input:?}: {e}"))?;
+    serde_json::from_str(&body).map_err(|e| format!("parse receipt {input:?}: {e}"))
 }

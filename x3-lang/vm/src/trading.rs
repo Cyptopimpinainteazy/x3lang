@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use x3_lang_compiler::ir::{AssetKey, TradingOperation, ValueRef};
 
 /// Whether a capability manifest represents deterministic fixtures or a real
@@ -107,7 +109,7 @@ pub struct RepayResult {
 }
 
 /// A cost committed by the host that must be included in net-profit checks.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommittedCost {
     pub asset: AssetKey,
     pub amount: u128,
@@ -205,6 +207,7 @@ pub struct TradingState {
     pub balances: BTreeMap<AssetKey, u128>,
     pub open_debts: BTreeMap<String, DebtRecord>,
     pub closed_debts: BTreeSet<String>,
+    pub closed_debt_records: BTreeMap<String, DebtRecord>,
     pub bindings: BTreeMap<String, AssetKey>,
     pub costs: BTreeMap<AssetKey, u128>,
     pub net_deltas: BTreeMap<AssetKey, i128>,
@@ -403,6 +406,14 @@ impl TradingVm {
                     self.accrue_cost(&record.asset, result.fee)?;
                     self.trading_state.open_debts.remove(debt_id);
                     self.trading_state.closed_debts.insert(debt_id.clone());
+                    self.trading_state.closed_debt_records.insert(
+                        debt_id.clone(),
+                        DebtRecord {
+                            asset: record.asset,
+                            principal: record.principal,
+                            fee: record.fee,
+                        },
+                    );
                 }
                 TradingOperation::AssertMinNetProfit {
                     settlement_asset,
@@ -549,4 +560,205 @@ pub fn fixture_manifest(state_commitment: [u8; 32]) -> CapabilityManifest {
         providers: BTreeSet::new(),
         venues: BTreeSet::new(),
     }
+}
+
+/// Success or failure classification carried by a trade receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TradeOutcome {
+    Success,
+    Failure { reason: String },
+}
+
+/// Typed amount inside a receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypedReceiptAmount {
+    pub asset: AssetKey,
+    pub amount: u128,
+}
+
+/// Final per-asset delta committed by the trade.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetDelta {
+    pub asset: AssetKey,
+    pub delta: i128,
+}
+
+/// Debt repayment status recorded in a receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DebtReceipt {
+    pub debt_id: String,
+    pub asset: AssetKey,
+    pub principal: u128,
+    pub fee: u128,
+    pub repaid: bool,
+}
+
+/// Deterministic, tamper-evident trading receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TradeReceipt {
+    pub format_version: u16,
+    pub compiler_version: String,
+    pub artifact_hash: [u8; 32],
+    pub trade_id: String,
+    pub policy_id: String,
+    pub state_commitment: [u8; 32],
+    pub operations: Vec<TradingOperation>,
+    pub costs: Vec<CommittedCost>,
+    pub debts: Vec<DebtReceipt>,
+    pub deltas: Vec<AssetDelta>,
+    pub realized_net_profit: Option<TypedReceiptAmount>,
+    pub outcome: TradeOutcome,
+    pub receipt_hash: [u8; 32],
+}
+
+/// Receipt encoding and validation errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceiptError {
+    Encoding(String),
+    HashMismatch { expected: [u8; 32], actual: [u8; 32] },
+    OpenDebtInSuccessfulReceipt(String),
+    ProfitInFailedReceipt,
+    EmptyOperationList,
+}
+
+impl fmt::Display for ReceiptError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Encoding(message) => write!(f, "receipt encoding error: {message}"),
+            Self::HashMismatch { expected, actual } => {
+                write!(f, "receipt hash mismatch: expected {expected:?}, actual {actual:?}")
+            }
+            Self::OpenDebtInSuccessfulReceipt(debt) => {
+                write!(f, "successful receipt contains open debt '{debt}'")
+            }
+            Self::ProfitInFailedReceipt => write!(f, "failed receipt must not report realized profit"),
+            Self::EmptyOperationList => write!(f, "receipt must contain at least one operation"),
+        }
+    }
+}
+
+impl Error for ReceiptError {}
+
+/// Canonical receipt bytes with `receipt_hash` zeroed.
+pub fn canonical_receipt_bytes(receipt: &TradeReceipt) -> Result<Vec<u8>, ReceiptError> {
+    let mut canonical = receipt.clone();
+    canonical.receipt_hash = [0u8; 32];
+    serde_json::to_vec(&canonical).map_err(|err| ReceiptError::Encoding(err.to_string()))
+}
+
+/// Compute the deterministic receipt hash over canonical bytes.
+pub fn compute_receipt_hash(receipt: &TradeReceipt) -> Result<[u8; 32], ReceiptError> {
+    let bytes = canonical_receipt_bytes(receipt)?;
+    let digest = Sha256::digest(bytes);
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&digest);
+    Ok(hash)
+}
+
+/// Fill in a receipt's hash from its canonical encoding.
+pub fn finalize_receipt(mut receipt: TradeReceipt) -> Result<TradeReceipt, ReceiptError> {
+    receipt.receipt_hash = compute_receipt_hash(&receipt)?;
+    Ok(receipt)
+}
+
+/// Verify a receipt hash and its accounting/tamper invariants.
+pub fn verify_receipt(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
+    if receipt.operations.is_empty() {
+        return Err(ReceiptError::EmptyOperationList);
+    }
+    let actual = compute_receipt_hash(receipt)?;
+    if actual != receipt.receipt_hash {
+        return Err(ReceiptError::HashMismatch {
+            expected: receipt.receipt_hash,
+            actual,
+        });
+    }
+    match &receipt.outcome {
+        TradeOutcome::Failure { .. } => {
+            if receipt.realized_net_profit.is_some() {
+                return Err(ReceiptError::ProfitInFailedReceipt);
+            }
+        }
+        TradeOutcome::Success => {
+            if let Some(debt) = receipt.debts.iter().find(|debt| !debt.repaid) {
+                return Err(ReceiptError::OpenDebtInSuccessfulReceipt(debt.debt_id.clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Build and finalize a canonical receipt from an execution result.
+#[allow(clippy::too_many_arguments)]
+pub fn build_receipt(
+    compiler_version: &str,
+    artifact_hash: [u8; 32],
+    trade_id: &str,
+    policy_id: &str,
+    state_commitment: [u8; 32],
+    operations: &[TradingOperation],
+    state: &TradingState,
+    settlement_asset: Option<&AssetKey>,
+    outcome: TradeOutcome,
+) -> Result<TradeReceipt, ReceiptError> {
+    let costs = state
+        .costs
+        .iter()
+        .map(|(asset, amount)| CommittedCost {
+            asset: asset.clone(),
+            amount: *amount,
+            kind: "committed".to_string(),
+        })
+        .collect();
+    let mut debts: Vec<DebtReceipt> = state
+        .closed_debt_records
+        .iter()
+        .map(|(debt_id, record)| DebtReceipt {
+            debt_id: debt_id.clone(),
+            asset: record.asset.clone(),
+            principal: record.principal,
+            fee: record.fee,
+            repaid: true,
+        })
+        .collect();
+    for (debt_id, record) in &state.open_debts {
+        debts.push(DebtReceipt {
+            debt_id: debt_id.clone(),
+            asset: record.asset.clone(),
+            principal: record.principal,
+            fee: record.fee,
+            repaid: false,
+        });
+    }
+    let deltas = state
+        .net_deltas
+        .iter()
+        .map(|(asset, delta)| AssetDelta {
+            asset: asset.clone(),
+            delta: *delta,
+        })
+        .collect();
+    let realized_net_profit = match outcome {
+        TradeOutcome::Success => settlement_asset.map(|asset| TypedReceiptAmount {
+            asset: asset.clone(),
+            amount: state.net_deltas.get(asset).copied().unwrap_or(0).max(0) as u128,
+        }),
+        TradeOutcome::Failure { .. } => None,
+    };
+
+    finalize_receipt(TradeReceipt {
+        format_version: 1,
+        compiler_version: compiler_version.to_string(),
+        artifact_hash,
+        trade_id: trade_id.to_string(),
+        policy_id: policy_id.to_string(),
+        state_commitment,
+        operations: operations.to_vec(),
+        costs,
+        debts,
+        deltas,
+        realized_net_profit,
+        outcome,
+        receipt_hash: [0u8; 32],
+    })
 }
