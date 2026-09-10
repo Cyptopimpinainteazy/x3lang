@@ -38,6 +38,16 @@ impl LowerCtx {
 
 /// Lower an entire program to X3IR
 pub fn lower_program(program: &Program, ctx: LowerCtx) -> Result<X3IR, x3_lang_common::X3Error> {
+    lower_program_with_mode(program, ctx, CompilationMode::Dev)
+}
+
+/// Lower an entire program using the requested compilation mode for every
+/// trading analysis and verification pass.
+pub fn lower_program_with_mode(
+    program: &Program,
+    ctx: LowerCtx,
+    mode: CompilationMode,
+) -> Result<X3IR, x3_lang_common::X3Error> {
     let mut ir = X3IR::new();
     ir.metadata.nonce = ctx.nonce;
     ir.metadata.chain_id = ctx.chain_id;
@@ -48,17 +58,15 @@ pub fn lower_program(program: &Program, ctx: LowerCtx) -> Result<X3IR, x3_lang_c
             Item::AssetDecl(_) | Item::TradeRiskPolicy(_) | Item::AtomicTrade(_)
         )
     }) {
-        let symbols = trading_semantic::analyze_trading(program, CompilationMode::Dev).map_err(|errors| {
-            x3_lang_common::X3Error::SemanticError {
-                message: errors
-                    .iter()
-                    .map(|error| error.to_string())
-                    .collect::<Vec<_>>()
-                    .join("; "),
-                span: Span::DUMMY,
-            }
+        let symbols = trading_semantic::analyze_trading(program, mode).map_err(|errors| {
+            errors
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| x3_lang_common::X3Error::InternalError {
+                    message: "trading analysis failed without a diagnostic".to_string(),
+                })
         })?;
-        let errors = trading_verify::verify_trading_program(program, &symbols, CompilationMode::Dev);
+        let errors = trading_verify::verify_trading_program(program, &symbols, mode);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
