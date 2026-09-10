@@ -138,7 +138,10 @@ fn trading_semantic_diagnostic_preserves_source_span() {
         .expect("a duplicate-asset diagnostic must be present");
     let span = duplicate.span().expect("semantic diagnostics must carry a source span");
 
-    assert!(!span.is_dummy(), "the diagnostic must not use Span::DUMMY: {duplicate:?}");
+    assert!(
+        !span.is_dummy(),
+        "the diagnostic must not use Span::DUMMY: {duplicate:?}"
+    );
     let highlighted = source
         .get(span.to_range())
         .expect("the diagnostic span must be within the original source");
