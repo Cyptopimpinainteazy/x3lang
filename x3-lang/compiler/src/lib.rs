@@ -35,7 +35,7 @@ pub mod spec {
 }
 
 use emitter::emit_x3ir;
-use lowering::{lower_program, LowerCtx};
+use lowering::{lower_program, lower_program_with_mode, LowerCtx};
 use parser::parse_source;
 use regalloc::{allocate, AllocationResult};
 use semantic::verify_atomic_swap_decls;
@@ -121,7 +121,7 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
         return Ok((program, crate::ir::X3IR::new(), trading_errors));
     }
 
-    let ir = compile_to_ir(&program)?;
+    let ir = lower_program(&program, LowerCtx::new())?;
     match verify_semantics(&ir, 8, 4, None) {
         Ok(()) => Ok((program, ir, Vec::new())),
         Err(errs) => Ok((program, ir, errs)),
@@ -131,7 +131,7 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
 /// Compile with an explicit compilation mode for mode-gated safety checks.
 pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>, X3Error> {
     let program = parse_source(source)?;
-    let ir = lower_program(&program, LowerCtx::new())?;
+    let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
     verify_semantics(&ir, 8, 4, Some(mode)).map_err(|errs| X3Error::SemanticError {
         message: format!("compilation failed with {} semantic error(s)", errs.len()),
         span: Span::DUMMY,
@@ -163,7 +163,7 @@ pub fn check_source_with_mode(
         return Ok((program, crate::ir::X3IR::new(), trading_errors));
     }
 
-    let ir = compile_to_ir(&program)?;
+    let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
     match verify_semantics(&ir, 8, 4, Some(mode)) {
         Ok(()) => Ok((program, ir, Vec::new())),
         Err(errs) => Ok((program, ir, errs)),
