@@ -11,7 +11,7 @@ use std::fmt;
 
 use indexmap::IndexMap;
 use x3_lang_ast::ast::{Expression, Item, LiteralExpr, Program};
-use x3_lang_ast::{AmountExpr, AssetId, AtomicTradeDecl, DebtId, RoundingMode, TradeRiskPolicy, TradeStmt};
+use x3_lang_ast::{AmountExpr, AssetId, AtomicTradeDecl, RoundingMode, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::{Span, Symbol, X3Error};
 
 use crate::semantic::CompilationMode;
@@ -64,39 +64,46 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
     let mut symbols = TradingSymbols::default();
     let mut errors = Vec::new();
 
+    // Collect declarations before resolving references so policies and trades
+    // do not depend on source declaration order.
     for item in &program.items {
         match &item.node {
             Item::AssetDecl(decl) => {
                 if decl.asset.decimals > MAX_DECIMALS {
-                    errors.push(semantic_error(format!(
-                        "asset '{}' declares {} decimals; maximum is {MAX_DECIMALS}",
-                        decl.name.as_str(),
-                        decl.asset.decimals
-                    )));
+                    errors.push(semantic_error(
+                        format!(
+                            "asset '{}' declares {} decimals; maximum is {MAX_DECIMALS}",
+                            decl.name.as_str(),
+                            decl.asset.decimals
+                        ),
+                        item.span,
+                    ));
                 }
                 if decl.asset.vm_family.as_str().is_empty()
                     || decl.asset.chain.as_str().is_empty()
                     || decl.asset.canonical_id.as_str().is_empty()
                 {
-                    errors.push(semantic_error(format!(
-                        "asset '{}' must declare a non-empty vm family, chain, and canonical identifier",
-                        decl.name.as_str()
-                    )));
+                    errors.push(semantic_error(
+                        format!(
+                            "asset '{}' must declare a non-empty vm family, chain, and canonical identifier",
+                            decl.name.as_str()
+                        ),
+                        item.span,
+                    ));
                 }
                 if symbols.assets.insert(decl.name.clone(), decl.asset.clone()).is_some() {
-                    errors.push(semantic_error(format!(
-                        "duplicate asset declaration '{}'",
-                        decl.name.as_str()
-                    )));
+                    errors.push(semantic_error(
+                        format!("duplicate asset declaration '{}'", decl.name.as_str()),
+                        item.span,
+                    ));
                 }
             }
             Item::TradeRiskPolicy(policy) => {
-                validate_policy_asset(&policy, &symbols.assets, &mut errors);
                 if symbols.policies.insert(policy.name.clone(), policy.clone()).is_some() {
-                    errors.push(semantic_error(format!(
-                        "duplicate trading risk policy '{}'",
-                        policy.name.as_str()
-                    )));
+                    errors.push(semantic_error(
+                        format!("duplicate trading risk policy '{}'", policy.name.as_str()),
+                        item.span,
+                    ));
                 }
             }
             _ => {}
@@ -104,8 +111,14 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
     }
 
     for item in &program.items {
-        if let Item::AtomicTrade(trade) = &item.node {
-            validate_atomic_trade(trade, &symbols, &mut errors);
+        match &item.node {
+            Item::TradeRiskPolicy(policy) => {
+                validate_policy_asset(policy, &symbols.assets, item.span, &mut errors);
+            }
+            Item::AtomicTrade(trade) => {
+                validate_atomic_trade(trade, &symbols, item.span, &mut errors);
+            }
+            _ => {}
         }
     }
 
@@ -116,53 +129,69 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
     }
 }
 
-fn validate_policy_asset(policy: &TradeRiskPolicy, assets: &IndexMap<Symbol, AssetId>, errors: &mut Vec<X3Error>) {
+fn validate_policy_asset(
+    policy: &TradeRiskPolicy,
+    assets: &IndexMap<Symbol, AssetId>,
+    span: Span,
+    errors: &mut Vec<X3Error>,
+) {
     for (field, amount) in [
         ("max_gas", Some(&policy.max_gas)),
         ("min_profit", policy.min_profit.as_ref()),
     ] {
         if let Some(amount) = amount {
-            validate_amount(amount, assets, field, errors);
+            validate_amount(amount, assets, field, span, errors);
         }
     }
     if policy.max_slippage_bps > 10_000 {
-        errors.push(semantic_error(format!(
-            "risk policy '{}' has max_slippage above 10000 bps",
-            policy.name.as_str()
-        )));
+        errors.push(semantic_error(
+            format!(
+                "risk policy '{}' has max_slippage above 10000 bps",
+                policy.name.as_str()
+            ),
+            span,
+        ));
     }
     if policy.max_flash_fee_bps > 10_000 {
-        errors.push(semantic_error(format!(
-            "risk policy '{}' has max_flash_fee above 10000 bps",
-            policy.name.as_str()
-        )));
+        errors.push(semantic_error(
+            format!(
+                "risk policy '{}' has max_flash_fee above 10000 bps",
+                policy.name.as_str()
+            ),
+            span,
+        ));
     }
 }
 
-fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, errors: &mut Vec<X3Error>) {
+fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span: Span, errors: &mut Vec<X3Error>) {
     if !symbols.policies.contains_key(&trade.risk_policy) {
-        errors.push(semantic_error(format!(
-            "atomic trade '{}' references unknown risk policy '{}'",
-            trade.name.as_str(),
-            trade.risk_policy.as_str()
-        )));
+        errors.push(semantic_error(
+            format!(
+                "atomic trade '{}' references unknown risk policy '{}'",
+                trade.name.as_str(),
+                trade.risk_policy.as_str()
+            ),
+            span,
+        ));
     }
 
     // debt name -> asset symbol; binding name -> asset symbol
     let mut debts: HashMap<Symbol, Symbol> = HashMap::new();
-    let mut declared_debts: HashMap<Symbol, Symbol> = HashMap::new();
     let mut bindings: HashMap<Symbol, Symbol> = HashMap::new();
 
     for stmt in &trade.body {
         match stmt {
             TradeStmt::Borrow { amount, debt, .. } => {
-                validate_amount(amount, &symbols.assets, "borrow amount", errors);
-                if declared_debts.insert(debt.0.clone(), amount.asset.clone()).is_some() {
-                    errors.push(semantic_error(format!(
-                        "atomic trade '{}' declares debt '{}' more than once",
-                        trade.name.as_str(),
-                        debt.0.as_str()
-                    )));
+                validate_amount(amount, &symbols.assets, "borrow amount", span, errors);
+                if debts.insert(debt.0.clone(), amount.asset.clone()).is_some() {
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' declares debt '{}' more than once",
+                            trade.name.as_str(),
+                            debt.0.as_str()
+                        ),
+                        span,
+                    ));
                 }
             }
             TradeStmt::Swap {
@@ -173,69 +202,94 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, erro
                 min_output,
                 ..
             } => {
-                validate_amount(input, &symbols.assets, "swap input", errors);
-                validate_amount(min_output, &symbols.assets, "swap min_out", errors);
+                validate_amount(input, &symbols.assets, "swap input", span, errors);
+                validate_amount(min_output, &symbols.assets, "swap min_out", span, errors);
                 if input.asset != *from_asset {
-                    errors.push(semantic_error(format!(
-                        "atomic trade '{}' swap input asset '{}' does not match declared from_asset '{}'",
-                        trade.name.as_str(),
-                        input.asset.as_str(),
-                        from_asset.as_str()
-                    )));
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' swap input asset '{}' does not match declared from_asset '{}'",
+                            trade.name.as_str(),
+                            input.asset.as_str(),
+                            from_asset.as_str()
+                        ),
+                        span,
+                    ));
                 }
                 if min_output.asset != *to_asset {
-                    errors.push(semantic_error(format!(
-                        "atomic trade '{}' swap min_out is denominated in '{}' but the destination is '{}'",
-                        trade.name.as_str(),
-                        min_output.asset.as_str(),
-                        to_asset.as_str()
-                    )));
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' swap min_out is denominated in '{}' but the destination is '{}'",
+                            trade.name.as_str(),
+                            min_output.asset.as_str(),
+                            to_asset.as_str()
+                        ),
+                        span,
+                    ));
                 }
                 if !symbols.assets.contains_key(from_asset) {
-                    errors.push(semantic_error(format!(
-                        "atomic trade '{}' uses undeclared asset '{}'",
-                        trade.name.as_str(),
-                        from_asset.as_str()
-                    )));
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' uses undeclared asset '{}'",
+                            trade.name.as_str(),
+                            from_asset.as_str()
+                        ),
+                        span,
+                    ));
                 }
                 if !symbols.assets.contains_key(to_asset) {
-                    errors.push(semantic_error(format!(
-                        "atomic trade '{}' uses undeclared asset '{}'",
-                        trade.name.as_str(),
-                        to_asset.as_str()
-                    )));
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' uses undeclared asset '{}'",
+                            trade.name.as_str(),
+                            to_asset.as_str()
+                        ),
+                        span,
+                    ));
+                }
+                match referenced_value_asset(&input.value, &bindings, &debts) {
+                    Ok(Some((reference, actual))) if actual != *from_asset => {
+                        errors.push(semantic_error(
+                            format!(
+                                "atomic trade '{}' swap source binding is typed '{}', not '{}' (source '{}')",
+                                trade.name.as_str(),
+                                actual.as_str(),
+                                from_asset.as_str(),
+                                reference
+                            ),
+                            span,
+                        ));
+                    }
+                    Ok(_) => {}
+                    Err(message) => errors.push(semantic_error(
+                        format!("atomic trade '{}': {message}", trade.name.as_str()),
+                        span,
+                    )),
                 }
                 if bindings.insert(binding.clone(), to_asset.clone()).is_some() {
-                    errors.push(semantic_error(format!(
-                        "atomic trade '{}' binds '{}' more than once",
-                        trade.name.as_str(),
-                        binding.as_str()
-                    )));
-                }
-                if let Some(actual) = referenced_value_asset(&input.value, &bindings, &debts) {
-                    if actual != *from_asset {
-                        errors.push(semantic_error(format!(
-                            "atomic trade '{}' swap source binding is typed '{}', not '{}'",
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' binds '{}' more than once",
                             trade.name.as_str(),
-                            actual.as_str(),
-                            from_asset.as_str()
-                        )));
-                    }
+                            binding.as_str()
+                        ),
+                        span,
+                    ));
                 }
             }
             TradeStmt::Repay { debt } => {
-                if declared_debts.contains_key(&debt.0) {
-                    debts.insert(debt.0.clone(), declared_debts[&debt.0].clone());
-                } else {
-                    errors.push(semantic_error(format!(
-                        "atomic trade '{}' repays undeclared debt '{}'",
-                        trade.name.as_str(),
-                        debt.0.as_str()
-                    )));
+                if !debts.contains_key(&debt.0) {
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' repays undeclared debt '{}'",
+                            trade.name.as_str(),
+                            debt.0.as_str()
+                        ),
+                        span,
+                    ));
                 }
             }
             TradeStmt::RequireMinNetProfit { amount } => {
-                validate_amount(amount, &symbols.assets, "net_profit", errors);
+                validate_amount(amount, &symbols.assets, "net_profit", span, errors);
             }
             TradeStmt::RequireAllDebtsRepaid | TradeStmt::EmitReceipt => {}
         }
@@ -246,31 +300,53 @@ fn referenced_value_asset(
     expr: &Expression,
     bindings: &HashMap<Symbol, Symbol>,
     debts: &HashMap<Symbol, Symbol>,
-) -> Option<Symbol> {
+) -> Result<Option<(String, Symbol)>, String> {
     match expr {
-        Expression::Ident(name) => bindings.get(name).cloned(),
-        Expression::FieldAccess { target, field } if field.as_str() == "amount" => {
-            if let Expression::Ident(owner) = target.as_ref() {
-                debts.get(owner).cloned()
-            } else {
-                None
+        Expression::Literal(_) => Ok(None),
+        Expression::Ident(name) => bindings
+            .get(name)
+            .cloned()
+            .map(|asset| Some((name.as_str().to_string(), asset)))
+            .ok_or_else(|| format!("swap input references unknown binding '{}'", name.as_str())),
+        Expression::FieldAccess { target, field } => {
+            let Expression::Ident(owner) = target.as_ref() else {
+                return Err("swap input debt field must have a named debt target".to_string());
+            };
+            if field.as_str() != "amount" {
+                return Err(format!(
+                    "swap input references unsupported debt field '{}.{}'; expected '{}.amount'",
+                    owner.as_str(),
+                    field.as_str(),
+                    owner.as_str()
+                ));
             }
+            debts
+                .get(owner)
+                .cloned()
+                .map(|asset| Some((format!("{}.amount", owner.as_str()), asset)))
+                .ok_or_else(|| format!("swap input references unknown debt '{}.amount'", owner.as_str()))
         }
-        _ => None,
+        _ => Err("swap input contains an unresolved expression".to_string()),
     }
 }
 
-fn validate_amount(amount: &AmountExpr, assets: &IndexMap<Symbol, AssetId>, context: &str, errors: &mut Vec<X3Error>) {
+fn validate_amount(
+    amount: &AmountExpr,
+    assets: &IndexMap<Symbol, AssetId>,
+    context: &str,
+    span: Span,
+    errors: &mut Vec<X3Error>,
+) {
     let Some(asset) = assets.get(&amount.asset) else {
-        errors.push(semantic_error(format!(
-            "{context} references undeclared asset '{}'",
-            amount.asset.as_str()
-        )));
+        errors.push(semantic_error(
+            format!("{context} references undeclared asset '{}'", amount.asset.as_str()),
+            span,
+        ));
         return;
     };
     if let Some(literal) = amount_literal_text(&amount.value) {
         if let Err(err) = decimal_to_base_units(&literal, asset.decimals, RoundingMode::Exact) {
-            errors.push(semantic_error(format!("{context}: {err}")));
+            errors.push(semantic_error(format!("{context}: {err}"), span));
         }
     }
 }
@@ -341,10 +417,10 @@ pub fn decimal_to_base_units(literal: &str, decimals: u8, rounding: RoundingMode
     Ok(base)
 }
 
-fn semantic_error(message: impl Into<String>) -> X3Error {
+fn semantic_error(message: impl Into<String>, span: Span) -> X3Error {
     X3Error::SemanticError {
         message: message.into(),
-        span: Span::DUMMY,
+        span,
     }
 }
 
