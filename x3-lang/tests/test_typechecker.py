@@ -47,3 +47,28 @@ def test_planner_outputs_cross_chain_steps():
     plan = planner.plan(parsed_example(root))
     assert len(plan['steps']) == 3
     assert any(step['type'] == 'bridge' for step in plan['steps'])
+
+
+def test_typechecker_rejects_non_finite_amount_and_malformed_constraints():
+    root = Path(__file__).resolve().parents[2]
+    tc = load_module_from(root / 'x3-lang' / 'typechecker.py')
+    bad = parsed_example(root)
+    bad['from']['amount'] = 'NaN'
+    bad['constraints'] = {'max_slippage': 'not-a-number'}
+
+    ok, errs = tc.typecheck(bad)
+
+    assert not ok
+    assert {'X3_INVALID_AMOUNT', 'X3_INVALID_CONSTRAINT'} <= {e.code for e in errs}
+
+
+def test_typechecker_rejects_malformed_policies_without_crashing():
+    root = Path(__file__).resolve().parents[2]
+    tc = load_module_from(root / 'x3-lang' / 'typechecker.py')
+    bad = parsed_example(root)
+    bad['policies'] = {'timeout': '30s'}
+
+    ok, errs = tc.typecheck(bad)
+
+    assert not ok
+    assert 'X3_INVALID_POLICY' in {e.code for e in errs}
