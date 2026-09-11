@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import importlib.util
+from numeric import NumericParseError, parse_decimal
 
 
 def load_module(path):
@@ -53,13 +54,13 @@ def evaluate_constraints(plan):
     amt = fr.get('amount')
     try:
         if amt is not None:
-            start_amount = float(amt)
-    except Exception:
+            start_amount = float(parse_decimal(amt))
+    except NumericParseError:
         start_amount = None
 
     if constraints['min_profit'] is not None and expected_profit is not None:
         try:
-            min_profit = float(str(constraints['min_profit']).split()[0])
+            min_profit = float(parse_decimal(constraints['min_profit'], allow_unit_suffix=True))
             if expected_profit < min_profit:
                 results.append({
                     'constraint': 'min_profit',
@@ -74,16 +75,16 @@ def evaluate_constraints(plan):
                     'expected_profit_usd': expected_profit,
                     'min_required_profit_usd': min_profit
                 })
-        except Exception:
+        except NumericParseError:
             results.append({'constraint': 'min_profit', 'ok': False, 'error': 'unparseable min_profit'})
 
     if constraints['max_slippage'] is not None and start_amount is not None:
         try:
             s = str(constraints['max_slippage']).strip()
             if s.endswith('%'):
-                max_slippage_pct = float(s[:-1]) / 100.0
+                max_slippage_pct = float(parse_decimal(s[:-1])) / 100.0
             else:
-                max_slippage_pct = float(s)
+                max_slippage_pct = float(parse_decimal(s))
             actual_pct = slippage_usd / start_amount if start_amount else None
             if actual_pct is not None and actual_pct > max_slippage_pct:
                 results.append({
@@ -99,7 +100,7 @@ def evaluate_constraints(plan):
                     'actual_slippage_pct': actual_pct,
                     'max_slippage_pct': max_slippage_pct
                 })
-        except Exception:
+        except NumericParseError:
             results.append({'constraint': 'max_slippage', 'ok': False, 'error': 'unparseable max_slippage'})
 
     if constraints['atomic']:
@@ -123,6 +124,19 @@ def evaluate_constraints(plan):
             })
 
     return results
+
+
+def rust_intent_envelope(intent):
+    """Emit the versioned contract consumed by x3-lang/compiler."""
+    return {
+        'schema_version': 1,
+        'intent': intent['intent'],
+        'from': intent['from'],
+        'to': intent['to'],
+        'path': intent.get('path') or intent.get('route') or [],
+        'requires': intent.get('requires', []),
+        'policies': intent.get('policies', {}),
+    }
 
 
 def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle=None):
@@ -155,7 +169,9 @@ def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle
     if not valid:
         return {'status': 'error', 'errors': typechecker.errors_to_json(errors)}
 
+    rust_contract = rust_intent_envelope(intent)
     plan = planner.plan(intent)
+    plan['validated_intent_v1'] = rust_contract
     # Surface constraints / requires / policies for downstream evaluators and
     # human-readable run output.
     plan.setdefault('requires', list(intent.get('requires', [])))

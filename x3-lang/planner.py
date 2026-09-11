@@ -4,6 +4,7 @@ This planner enriches path steps with explicit source/destination chains, assets
 and structured metadata used by emitters and simulators.
 """
 from typing import Dict, Any, List, Optional
+from numeric import parse_decimal
 
 
 SWAP_CHAIN_MAP = {
@@ -34,11 +35,8 @@ def plan(intent: Dict[str, Any]) -> Dict[str, Any]:
 
     starting_amount = None
     raw_amount = intent.get('from', {}).get('amount')
-    try:
-        if raw_amount is not None:
-            starting_amount = float(str(raw_amount))
-    except (TypeError, ValueError):
-        starting_amount = None
+    if raw_amount is not None:
+        starting_amount = float(parse_decimal(raw_amount))
 
     for idx, p in enumerate(path):
         chain = infer_chain(p, prev_chain)
@@ -83,11 +81,8 @@ def plan(intent: Dict[str, Any]) -> Dict[str, Any]:
     }
     c = intent.get('constraints') or {}
     mp = c.get('min_profit')
-    if isinstance(mp, str):
-        try:
-            estimates['min_required_profit_usd'] = float(mp.split()[0])
-        except Exception:
-            pass
+    if mp is not None:
+        estimates['min_required_profit_usd'] = float(parse_decimal(mp, allow_unit_suffix=True))
 
     return {
         'intent': intent.get('intent'),

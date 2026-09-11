@@ -20,6 +20,10 @@ def test_runner_dry_run_end_to_end():
     assert 'constraint_results' in result
     assert any(r['constraint'] == 'atomic' for r in result['constraint_results'])
     assert result['intent'] == 'arb_solana_eth'
+    contract = result['validated_intent_v1']
+    assert contract['schema_version'] == 1
+    assert contract['from']['amount'] == '10'
+    assert contract['path'][0]['type'] == 'swap'
 
 
 def test_runner_defaults_to_fail_closed_without_backend():
