@@ -143,10 +143,7 @@ fn verify_atomic_trade_at_span(
     }
     if !has_net_profit_guard && policy.min_profit.is_none() {
         errors.push(semantic_error(
-            format!(
-                "atomic trade '{}' has no minimum net-profit guard",
-                trade.name.as_str()
-            ),
+            format!("atomic trade '{}' has no minimum net-profit guard", trade.name.as_str()),
             span,
         ));
     }
