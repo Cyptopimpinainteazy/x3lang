@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use x3_lang_compiler::diagnostic::DiagnosticCode;
-use x3_lang_compiler::ir::{FailureAction, Operation, ProgramMetadata, X3IR};
+use x3_lang_compiler::ir::{AssetKey, FailureAction, Operation, ProgramMetadata, TradingOperation, ValueRef, X3IR};
 use x3_lang_compiler::verify::verify_ir;
 
 fn codes(ir: &X3IR) -> Vec<DiagnosticCode> {
@@ -105,4 +105,149 @@ fn recursively_rejects_unsafe_nested_control_flow() {
     }]);
 
     assert_eq!(codes(&ir), vec![DiagnosticCode::UnsafeIr]);
+}
+
+
+fn asset(symbol: &str) -> AssetKey {
+    AssetKey {
+        vm_family: "evm".to_owned(),
+        chain: "ethereum".to_owned(),
+        canonical_id: format!("0x{symbol}"),
+        symbol: symbol.to_owned(),
+        decimals: 6,
+    }
+}
+
+fn trading_ir(ops: Vec<TradingOperation>) -> X3IR {
+    ir_with(ops.into_iter().map(Operation::Trading).collect())
+}
+
+fn valid_trading_ops() -> Vec<TradingOperation> {
+    vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_owned(),
+            policy_id: "P".to_owned(),
+        },
+        TradingOperation::OpenDebt {
+            debt_id: "debt".to_owned(),
+            provider: "aave_v3".to_owned(),
+            asset: asset("USDC"),
+            principal: 1_000_000,
+        },
+        TradingOperation::ExecuteSwap {
+            binding: "weth".to_owned(),
+            venue: "uniswap_v3".to_owned(),
+            from: asset("USDC"),
+            to: asset("WETH"),
+            input: ValueRef::Binding("debt.amount".to_owned()),
+            min_output: 1,
+        },
+        TradingOperation::ExecuteSwap {
+            binding: "returned".to_owned(),
+            venue: "sushiswap".to_owned(),
+            from: asset("WETH"),
+            to: asset("USDC"),
+            input: ValueRef::Binding("weth".to_owned()),
+            min_output: 1,
+        },
+        TradingOperation::CloseDebt {
+            debt_id: "debt".to_owned(),
+        },
+        TradingOperation::AssertMinNetProfit {
+            settlement_asset: asset("USDC"),
+            minimum: 1,
+        },
+        TradingOperation::AssertAllDebtsClosed,
+        TradingOperation::EmitTradeReceipt,
+        TradingOperation::CommitAtomicTrade,
+    ]
+}
+
+#[test]
+fn accepts_statefully_valid_trading_sequence() {
+    assert!(verify_ir(&trading_ir(valid_trading_ops())).is_ok());
+}
+
+#[test]
+fn rejects_swap_before_begin() {
+    let mut ops = valid_trading_ops();
+    let swap = ops.remove(2);
+    ops.insert(0, swap);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_duplicate_trading_begin() {
+    let mut ops = valid_trading_ops();
+    ops.insert(
+        1,
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T2".to_owned(),
+            policy_id: "P".to_owned(),
+        },
+    );
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_binding_use_before_creation() {
+    let mut ops = valid_trading_ops();
+    if let TradingOperation::ExecuteSwap { input, .. } = &mut ops[2] {
+        *input = ValueRef::Binding("missing".to_owned());
+    }
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_binding_reuse_with_conflicting_asset() {
+    let mut ops = valid_trading_ops();
+    if let TradingOperation::ExecuteSwap { binding, .. } = &mut ops[3] {
+        *binding = "weth".to_owned();
+    }
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_repay_before_borrow() {
+    let mut ops = valid_trading_ops();
+    let close = ops.remove(4);
+    ops.insert(1, close);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_profit_guard_after_receipt() {
+    let mut ops = valid_trading_ops();
+    let profit = ops.remove(5);
+    ops.insert(7, profit);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_receipt_after_commit() {
+    let mut ops = valid_trading_ops();
+    let receipt = ops.remove(7);
+    ops.push(receipt);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_operation_after_commit() {
+    let mut ops = valid_trading_ops();
+    ops.push(TradingOperation::AbortAtomicTrade);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_missing_all_debts_guard() {
+    let mut ops = valid_trading_ops();
+    ops.retain(|op| !matches!(op, TradingOperation::AssertAllDebtsClosed));
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_multiple_commits() {
+    let mut ops = valid_trading_ops();
+    ops.push(TradingOperation::CommitAtomicTrade);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
 }
