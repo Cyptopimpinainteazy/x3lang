@@ -518,7 +518,8 @@ impl TradingVm {
                 .copied()
                 .max()
                 .unwrap_or(0)
-                .max(0) as u128;
+                .max(0);
+            let best = u128::try_from(best).map_err(|_| TradingExecError::AccountingOverflow)?;
             if best < minimum {
                 return Err(TradingExecError::NetProfitBelowFloor { minimum, actual: best });
             }
