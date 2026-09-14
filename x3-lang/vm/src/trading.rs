@@ -10,7 +10,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use x3_lang_compiler::ir::{AssetKey, TradingOperation, ValueRef};
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
 
 /// Whether a capability manifest represents deterministic fixtures or a real
 /// production integration.
@@ -40,21 +40,12 @@ pub struct CapabilityManifest {
     pub venues: BTreeSet<String>,
 }
 
-/// Economic limits copied from the compiled trade's risk policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExecutionLimits {
-    pub max_flash_fee_bps: u16,
-    pub max_gas: u128,
-    pub minimum_net_profit: Option<u128>,
-}
-
-/// Per-execution context that cannot be inferred from bytecode alone.
+/// Per-execution context supplied by the caller.
+/// Safety/economic policy values are compiled into the trading artifact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TradeExecutionContext {
     pub mode: ExecutionMode,
-    pub limits: ExecutionLimits,
     pub current_block: u64,
-    pub deadline_block: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,6 +230,7 @@ pub struct TradingState {
 pub struct TradingVm {
     pub trading_state: TradingState,
     expected_commitment: Option<[u8; 32]>,
+    compiled_policy: Option<CompiledTradingPolicy>,
 }
 
 /// Result of a successful atomic trading execution.
