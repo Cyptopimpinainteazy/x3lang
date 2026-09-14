@@ -3,9 +3,9 @@
 use std::collections::BTreeSet;
 
 use proptest::prelude::*;
-use x3_lang_compiler::ir::{AssetKey, TradingOperation, ValueRef};
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
 use x3_lang_vm::trading::{
-    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionLimits, ExecutionMode,
+    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionMode,
     HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
 };
 
@@ -71,7 +71,17 @@ fn operations() -> Vec<TradingOperation> {
     vec![
         TradingOperation::BeginAtomicTrade {
             trade_id: "T".to_string(),
-            policy_id: "P".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: u128::MAX,
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+            },
         },
         TradingOperation::OpenDebt {
             debt_id: "debt".to_string(),
@@ -118,13 +128,7 @@ fn host(output: u128) -> Host {
 fn context() -> TradeExecutionContext {
     TradeExecutionContext {
         mode: ExecutionMode::Development,
-        limits: ExecutionLimits {
-            max_flash_fee_bps: 10,
-            max_gas: u128::MAX,
-            minimum_net_profit: None,
-        },
         current_block: 1,
-        deadline_block: 10,
     }
 }
 
