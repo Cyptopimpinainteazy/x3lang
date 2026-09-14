@@ -5,6 +5,7 @@
 //! [`TradingHost`] capability implementation.
 
 use std::collections::{BTreeMap, BTreeSet};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use std::error::Error;
 use std::fmt;
 
@@ -693,6 +694,14 @@ pub struct TradeReceipt {
     pub realized_net_profit: Option<TypedReceiptAmount>,
     pub outcome: TradeOutcome,
     pub receipt_hash: [u8; 32],
+    pub attestation: Option<ReceiptAttestation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiptAttestation {
+    pub key_id: String,
+    pub public_key: [u8; 32],
+    pub signature: Vec<u8>,
 }
 
 /// Receipt encoding and validation errors.
@@ -703,6 +712,10 @@ pub enum ReceiptError {
     OpenDebtInSuccessfulReceipt(String),
     ProfitInFailedReceipt,
     EmptyOperationList,
+    EconomicReplayMismatch(String),
+    MissingAttestation,
+    UntrustedAttestor(String),
+    InvalidAttestation,
 }
 
 impl fmt::Display for ReceiptError {
@@ -717,6 +730,10 @@ impl fmt::Display for ReceiptError {
             }
             Self::ProfitInFailedReceipt => write!(f, "failed receipt must not report realized profit"),
             Self::EmptyOperationList => write!(f, "receipt must contain at least one operation"),
+            Self::EconomicReplayMismatch(message) => write!(f, "receipt economic replay mismatch: {message}"),
+            Self::MissingAttestation => write!(f, "receipt is missing a trusted attestation"),
+            Self::UntrustedAttestor(key_id) => write!(f, "receipt attestor '{key_id}' is not trusted"),
+            Self::InvalidAttestation => write!(f, "receipt attestation signature is invalid"),
         }
     }
 }
@@ -727,6 +744,7 @@ impl Error for ReceiptError {}
 pub fn canonical_receipt_bytes(receipt: &TradeReceipt) -> Result<Vec<u8>, ReceiptError> {
     let mut canonical = receipt.clone();
     canonical.receipt_hash = [0u8; 32];
+    canonical.attestation = None;
     serde_json::to_vec(&canonical).map_err(|err| ReceiptError::Encoding(err.to_string()))
 }
 
@@ -770,6 +788,95 @@ pub fn verify_receipt(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
         }
     }
     Ok(())
+}
+
+
+pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
+    let mut deltas: BTreeMap<AssetKey, i128> = BTreeMap::new();
+    for delta in &receipt.deltas {
+        let entry = deltas.entry(delta.asset.clone()).or_insert(0);
+        *entry = entry.checked_add(delta.delta).ok_or_else(|| {
+            ReceiptError::EconomicReplayMismatch("delta overflow".to_string())
+        })?;
+    }
+
+    for cost in &receipt.costs {
+        let entry = deltas.entry(cost.asset.clone()).or_insert(0);
+        *entry = entry.checked_add(cost.amount as i128).ok_or_else(|| {
+            ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string())
+        })?;
+    }
+
+    if let Some(profit) = &receipt.realized_net_profit {
+        let replayed = receipt
+            .deltas
+            .iter()
+            .find(|delta| delta.asset == profit.asset)
+            .map(|delta| delta.delta.max(0) as u128)
+            .unwrap_or(0);
+        if replayed != profit.amount {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "reported profit {} does not equal replayed delta {} for {}",
+                profit.amount, replayed, profit.asset.symbol
+            )));
+        }
+    }
+
+    for debt in &receipt.debts {
+        if matches!(receipt.outcome, TradeOutcome::Success) && !debt.repaid {
+            return Err(ReceiptError::OpenDebtInSuccessfulReceipt(debt.debt_id.clone()));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn sign_receipt(
+    mut receipt: TradeReceipt,
+    key_id: &str,
+    signing_key: &SigningKey,
+) -> Result<TradeReceipt, ReceiptError> {
+    receipt.attestation = None;
+    receipt.receipt_hash = compute_receipt_hash(&receipt)?;
+    let signature = signing_key.sign(&receipt.receipt_hash);
+    receipt.attestation = Some(ReceiptAttestation {
+        key_id: key_id.to_string(),
+        public_key: signing_key.verifying_key().to_bytes(),
+        signature: signature.to_bytes().to_vec(),
+    });
+    Ok(receipt)
+}
+
+pub fn verify_receipt_attestation(
+    receipt: &TradeReceipt,
+    trusted_keys: &BTreeMap<String, [u8; 32]>,
+) -> Result<(), ReceiptError> {
+    let attestation = receipt.attestation.as_ref().ok_or(ReceiptError::MissingAttestation)?;
+    let trusted = trusted_keys
+        .get(&attestation.key_id)
+        .ok_or_else(|| ReceiptError::UntrustedAttestor(attestation.key_id.clone()))?;
+    if trusted != &attestation.public_key {
+        return Err(ReceiptError::UntrustedAttestor(attestation.key_id.clone()));
+    }
+    let verifying_key = VerifyingKey::from_bytes(trusted).map_err(|_| ReceiptError::InvalidAttestation)?;
+    let signature_bytes: [u8; 64] = attestation
+        .signature
+        .as_slice()
+        .try_into()
+        .map_err(|_| ReceiptError::InvalidAttestation)?;
+    let signature = Signature::from_bytes(&signature_bytes);
+    verifying_key
+        .verify(&receipt.receipt_hash, &signature)
+        .map_err(|_| ReceiptError::InvalidAttestation)
+}
+
+pub fn verify_receipt_trusted(
+    receipt: &TradeReceipt,
+    trusted_keys: &BTreeMap<String, [u8; 32]>,
+) -> Result<(), ReceiptError> {
+    verify_receipt(receipt)?;
+    verify_receipt_economics(receipt)?;
+    verify_receipt_attestation(receipt, trusted_keys)
 }
 
 /// Build and finalize a canonical receipt from an execution result.
@@ -844,5 +951,6 @@ pub fn build_receipt(
         realized_net_profit,
         outcome,
         receipt_hash: [0u8; 32],
+        attestation: None,
     })
 }
