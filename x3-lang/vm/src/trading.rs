@@ -135,6 +135,25 @@ impl Error for HostError {}
 /// Capability-controlled external venue/provider boundary.
 pub trait TradingHost {
     fn capabilities(&self) -> &CapabilityManifest;
+
+    /// Begin a host-side transaction for an atomic trade.
+    ///
+    /// Production adapters must stage or journal external side effects after
+    /// this call so a later VM rejection can roll them back.
+    fn begin_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    /// Commit the host-side transaction after every VM invariant has passed.
+    fn commit_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    /// Roll back every staged host-side side effect for the current trade.
+    fn rollback_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
     fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError>;
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError>;
     fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError>;
@@ -261,11 +280,27 @@ impl TradingVm {
 
         let snapshot = self.trading_state.clone();
         self.expected_commitment = Some(manifest.state_commitment);
-        let result = self.execute_inner(operations, host, context);
-        if result.is_err() {
-            self.trading_state = snapshot;
+
+        host.begin_transaction().map_err(TradingExecError::HostRejected)?;
+
+        match self.execute_inner(operations, host, context) {
+            Ok(execution) => {
+                if let Err(error) = host.commit_transaction() {
+                    let _ = host.rollback_transaction();
+                    self.trading_state = snapshot;
+                    return Err(TradingExecError::HostRejected(error));
+                }
+                Ok(execution)
+            }
+            Err(error) => {
+                let rollback = host.rollback_transaction();
+                self.trading_state = snapshot;
+                if let Err(rollback_error) = rollback {
+                    return Err(TradingExecError::HostRejected(rollback_error));
+                }
+                Err(error)
+            }
         }
-        result
     }
 
     fn execute_inner(
@@ -419,6 +454,7 @@ impl TradingVm {
                     settlement_asset,
                     minimum,
                 } => {
+                    self.accrue_host_execution_costs(host)?;
                     let actual = self.net_profit(settlement_asset);
                     if actual < *minimum {
                         return Err(TradingExecError::NetProfitBelowFloor {
@@ -463,10 +499,7 @@ impl TradingVm {
         if !self.trading_state.closed_debts.is_empty() && !self.trading_state.receipt_emitted {
             return Err(TradingExecError::MissingReceipt);
         }
-        let costs = host.execution_costs().map_err(TradingExecError::HostRejected)?;
-        for cost in costs {
-            self.accrue_cost(&cost.asset, cost.amount)?;
-        }
+        self.accrue_host_execution_costs(host)?;
         if let Some(minimum) = context.limits.minimum_net_profit {
             // The settlement asset is checked by AssertMinNetProfit; this is
             // only a defence-in-depth check when a policy carries a floor.
@@ -485,6 +518,17 @@ impl TradingVm {
         Ok(TradeExecution {
             committed_state: self.trading_state.clone(),
         })
+    }
+
+    fn accrue_host_execution_costs(&mut self, host: &dyn TradingHost) -> Result<(), TradingExecError> {
+        let costs = host.execution_costs().map_err(TradingExecError::HostRejected)?;
+        for cost in costs {
+            let already = self.trading_state.costs.get(&cost.asset).copied().unwrap_or(0);
+            if cost.amount > already {
+                self.accrue_cost(&cost.asset, cost.amount - already)?;
+            }
+        }
+        Ok(())
     }
 
     fn check_commitment(&self, commitment: &[u8; 32]) -> Result<(), TradingExecError> {
