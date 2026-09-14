@@ -792,6 +792,129 @@ pub fn verify_receipt(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
 
 
 pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
+    let first = receipt
+        .operations
+        .first()
+        .ok_or(ReceiptError::EmptyOperationList)?;
+    let (trade_id, compiled_policy) = match first {
+        TradingOperation::BeginAtomicTrade { trade_id, policy } => (trade_id, policy),
+        _ => {
+            return Err(ReceiptError::EconomicReplayMismatch(
+                "operation sequence does not begin with BeginAtomicTrade".to_string(),
+            ))
+        }
+    };
+    if trade_id != &receipt.trade_id {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt trade_id does not match compiled operation sequence".to_string(),
+        ));
+    }
+    if compiled_policy.policy_id != receipt.policy_id {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt policy_id does not match compiled operation sequence".to_string(),
+        ));
+    }
+    if !matches!(receipt.operations.last(), Some(TradingOperation::CommitAtomicTrade)) {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "successful receipt operation sequence must terminate in CommitAtomicTrade".to_string(),
+        ));
+    }
+
+    let mut open_debts: BTreeMap<String, (AssetKey, u128)> = BTreeMap::new();
+    let mut closed_debts: BTreeSet<String> = BTreeSet::new();
+    let mut saw_profit_guard = false;
+    let mut saw_all_debts_guard = false;
+    let mut saw_receipt_emit = false;
+
+    for operation in &receipt.operations {
+        match operation {
+            TradingOperation::BeginAtomicTrade { .. } => {}
+            TradingOperation::OpenDebt {
+                debt_id,
+                asset,
+                principal,
+                ..
+            } => {
+                if open_debts
+                    .insert(debt_id.clone(), (asset.clone(), *principal))
+                    .is_some()
+                    || closed_debts.contains(debt_id)
+                {
+                    return Err(ReceiptError::EconomicReplayMismatch(format!(
+                        "debt '{debt_id}' opens more than once"
+                    )));
+                }
+            }
+            TradingOperation::CloseDebt { debt_id } => {
+                if open_debts.remove(debt_id).is_none() || !closed_debts.insert(debt_id.clone()) {
+                    return Err(ReceiptError::EconomicReplayMismatch(format!(
+                        "debt '{debt_id}' closes without a matching open debt"
+                    )));
+                }
+            }
+            TradingOperation::AssertMinNetProfit { .. } => saw_profit_guard = true,
+            TradingOperation::AssertAllDebtsClosed => {
+                if !open_debts.is_empty() {
+                    return Err(ReceiptError::EconomicReplayMismatch(
+                        "all-debts guard appears while debts remain open".to_string(),
+                    ));
+                }
+                saw_all_debts_guard = true;
+            }
+            TradingOperation::EmitTradeReceipt => saw_receipt_emit = true,
+            TradingOperation::CommitAtomicTrade => {}
+            TradingOperation::AbortAtomicTrade => {
+                return Err(ReceiptError::EconomicReplayMismatch(
+                    "successful receipt cannot contain AbortAtomicTrade".to_string(),
+                ))
+            }
+            TradingOperation::ExecuteSwap { .. } => {}
+        }
+    }
+
+    if !open_debts.is_empty() {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt operation sequence leaves debt open".to_string(),
+        ));
+    }
+    if !saw_profit_guard || !saw_all_debts_guard || !saw_receipt_emit {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt operation sequence is missing required final guards/receipt emission".to_string(),
+        ));
+    }
+
+    let mut expected_debts: BTreeMap<String, (&AssetKey, u128)> = BTreeMap::new();
+    for operation in &receipt.operations {
+        if let TradingOperation::OpenDebt {
+            debt_id,
+            asset,
+            principal,
+            ..
+        } = operation
+        {
+            expected_debts.insert(debt_id.clone(), (asset, *principal));
+        }
+    }
+    for debt in &receipt.debts {
+        let Some((asset, principal)) = expected_debts.get(&debt.debt_id) else {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt reports unknown debt '{}'",
+                debt.debt_id
+            )));
+        };
+        if *asset != &debt.asset || *principal != debt.principal {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt debt '{}' does not match compiled operation",
+                debt.debt_id
+            )));
+        }
+    }
+    if expected_debts.len() != receipt.debts.len() {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt debt set does not match compiled operation sequence".to_string(),
+        ));
+    }
+
     let mut deltas: BTreeMap<AssetKey, i128> = BTreeMap::new();
     for delta in &receipt.deltas {
         let entry = deltas.entry(delta.asset.clone()).or_insert(0);
