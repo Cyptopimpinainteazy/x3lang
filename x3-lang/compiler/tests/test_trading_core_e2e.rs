@@ -1,7 +1,9 @@
 //! End-to-end Trading Core v1 pipeline: parse -> type -> verify -> lower ->
 //! execute through an explicitly marked fixture host -> verify receipt.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+use ed25519_dalek::SigningKey;
 
 use x3_lang_ast::Item;
 use x3_lang_compiler::parser::parse_source;
@@ -11,8 +13,8 @@ use x3_lang_compiler::{
 };
 use x3_lang_compiler::emitter::decode_trading_program;
 use x3_lang_vm::trading::{
-    build_receipt, fixture_manifest, verify_receipt, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost,
-    ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult,
+    build_receipt, fixture_manifest, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult,
+    CapabilityManifest, CommittedCost, ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult,
     TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
 };
 
@@ -132,7 +134,13 @@ fn trading_core_v1_pipeline_executes_and_verifies_receipt() {
         TradeOutcome::Success,
     )
     .expect("receipt must build");
-    verify_receipt(&receipt).expect("receipt must verify");
+    let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+    let receipt = sign_receipt(receipt, "e2e-executor", &signing_key).expect("receipt must sign");
+    let trusted = BTreeMap::from([(
+        "e2e-executor".to_string(),
+        signing_key.verifying_key().to_bytes(),
+    )]);
+    verify_receipt_trusted(&receipt, &trusted).expect("signed receipt must verify");
     assert!(receipt
         .realized_net_profit
         .as_ref()
