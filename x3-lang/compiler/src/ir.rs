@@ -361,10 +361,23 @@ pub enum ValueRef {
 /// Trading Core v1 IR operations. Field names are stable and explicit for
 /// deterministic receipt and artifact hashing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompiledTradingPolicy {
+    pub policy_id: String,
+    pub policy_version: u16,
+    pub chain: String,
+    pub max_slippage_bps: u16,
+    pub max_gas: u128,
+    pub max_flash_fee_bps: u16,
+    pub deadline_blocks: u64,
+    pub require_private_submission: bool,
+    pub minimum_net_profit: Option<u128>,
+}
+
 pub enum TradingOperation {
     BeginAtomicTrade {
         trade_id: String,
-        policy_id: String,
+        policy: CompiledTradingPolicy,
     },
     OpenDebt {
         debt_id: String,
