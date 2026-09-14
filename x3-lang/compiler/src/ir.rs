@@ -358,9 +358,7 @@ pub enum ValueRef {
     Binding(String),
 }
 
-/// Trading Core v1 IR operations. Field names are stable and explicit for
-/// deterministic receipt and artifact hashing.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Immutable, compile-time snapshot of the risk policy carried by a trade.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledTradingPolicy {
     pub policy_id: String,
@@ -374,6 +372,9 @@ pub struct CompiledTradingPolicy {
     pub minimum_net_profit: Option<u128>,
 }
 
+/// Trading Core v1 IR operations. Field names are stable and explicit for
+/// deterministic receipt and artifact hashing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TradingOperation {
     BeginAtomicTrade {
         trade_id: String,
