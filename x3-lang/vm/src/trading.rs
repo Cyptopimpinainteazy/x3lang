@@ -908,6 +908,12 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 debt.debt_id
             )));
         }
+        if debt.repaid && debt.fee > debt.principal {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt debt '{}' reports an implausible fee above principal",
+                debt.debt_id
+            )));
+        }
     }
     if expected_debts.len() != receipt.debts.len() {
         return Err(ReceiptError::EconomicReplayMismatch(
