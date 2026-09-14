@@ -78,6 +78,12 @@ fn trading_receipt_json(tamper: bool) -> String {
         TradingOperation::CloseDebt {
             debt_id: "debt".to_string(),
         },
+        TradingOperation::AssertMinNetProfit {
+            settlement_asset: asset.clone(),
+            minimum: 1,
+        },
+        TradingOperation::AssertAllDebtsClosed,
+        TradingOperation::EmitTradeReceipt,
         TradingOperation::CommitAtomicTrade,
     ];
     let mut state = TradingState {
