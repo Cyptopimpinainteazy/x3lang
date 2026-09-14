@@ -279,6 +279,102 @@ pub fn decode_trading_operation(opcode: u8, payload: &[u8]) -> Result<TradingOpe
     Ok(op)
 }
 
+
+/// Decode every Trading Core instruction from emitted X3 bytecode.
+///
+/// Non-trading opcodes are skipped using the standard length-prefixed framing.
+/// This decoder is intentionally strict for trading payloads: malformed
+/// lengths, unknown trading opcodes, or opcode/payload mismatches fail closed.
+pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, X3Error> {
+    if bytecode.first().copied() != Some(BYTECODE_VERSION_1) {
+        return Err(X3Error::CodegenError {
+            message: "unsupported or missing bytecode version".to_string(),
+            span: None,
+        });
+    }
+
+    let mut pos = 1usize;
+    let mut operations = Vec::new();
+
+    while pos < bytecode.len() {
+        if bytecode[pos] == 0 {
+            pos += 1;
+            continue;
+        }
+
+        let opcode = bytecode[pos];
+        pos += 1;
+
+        if opcode == META_NONCE {
+            if pos + 2 > bytecode.len() {
+                return Err(X3Error::CodegenError {
+                    message: "truncated nonce metadata".to_string(),
+                    span: None,
+                });
+            }
+            let len = u16::from_le_bytes([bytecode[pos], bytecode[pos + 1]]) as usize;
+            pos += 2;
+            if pos + len > bytecode.len() {
+                return Err(X3Error::CodegenError {
+                    message: "truncated nonce metadata payload".to_string(),
+                    span: None,
+                });
+            }
+            pos += len;
+            continue;
+        }
+
+        if opcode == META_CHAIN_ID {
+            if pos + 8 > bytecode.len() {
+                return Err(X3Error::CodegenError {
+                    message: "truncated chain-id metadata".to_string(),
+                    span: None,
+                });
+            }
+            pos += 8;
+            continue;
+        }
+
+        if pos + 2 > bytecode.len() {
+            return Err(X3Error::CodegenError {
+                message: format!("truncated instruction header for opcode 0x{opcode:02x}"),
+                span: None,
+            });
+        }
+        let len = u16::from_le_bytes([bytecode[pos], bytecode[pos + 1]]) as usize;
+        pos += 2;
+        if pos + len > bytecode.len() {
+            return Err(X3Error::CodegenError {
+                message: format!("truncated instruction payload for opcode 0x{opcode:02x}"),
+                span: None,
+            });
+        }
+        let payload = &bytecode[pos..pos + len];
+        pos += len;
+
+        if matches!(
+            opcode,
+            TRADING_BEGIN
+                | TRADING_OPEN_DEBT
+                | TRADING_EXECUTE_SWAP
+                | TRADING_CLOSE_DEBT
+                | TRADING_ASSERT_MIN_PROFIT
+                | TRADING_ASSERT_ALL_DEBTS
+                | TRADING_EMIT_RECEIPT
+                | TRADING_COMMIT
+                | TRADING_ABORT
+        ) {
+            operations.push(decode_trading_operation(opcode, payload)?);
+        }
+
+        while pos % 4 != 0 && pos < bytecode.len() {
+            pos += 1;
+        }
+    }
+
+    Ok(operations)
+}
+
 fn emit_trading_op(op: &TradingOperation, bytecode: &mut Vec<u8>) -> Result<(), X3Error> {
     let opcode = trading_opcode(op);
     let payload = encode_trading_operation(op)?;
