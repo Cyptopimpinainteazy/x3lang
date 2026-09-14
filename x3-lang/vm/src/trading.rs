@@ -603,7 +603,7 @@ impl TradingVm {
         *entry = entry.checked_add(amount).ok_or(TradingExecError::AccountingOverflow)?;
         let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
         *delta = delta
-            .checked_add(amount as i128)
+            .checked_add(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
             .ok_or(TradingExecError::AccountingOverflow)?;
         Ok(())
     }
@@ -613,7 +613,7 @@ impl TradingVm {
         *entry = entry.checked_sub(amount).ok_or(TradingExecError::AccountingOverflow)?;
         let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
         *delta = delta
-            .checked_sub(amount as i128)
+            .checked_sub(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
             .ok_or(TradingExecError::AccountingOverflow)?;
         Ok(())
     }
@@ -623,7 +623,7 @@ impl TradingVm {
         *entry = entry.checked_add(amount).ok_or(TradingExecError::AccountingOverflow)?;
         let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
         *delta = delta
-            .checked_sub(amount as i128)
+            .checked_sub(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
             .ok_or(TradingExecError::AccountingOverflow)?;
         Ok(())
     }
@@ -802,7 +802,7 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
 
     for cost in &receipt.costs {
         let entry = deltas.entry(cost.asset.clone()).or_insert(0);
-        *entry = entry.checked_add(cost.amount as i128).ok_or_else(|| {
+        *entry = entry.checked_add(cost.i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?).ok_or_else(|| {
             ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string())
         })?;
     }
@@ -812,7 +812,7 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
             .deltas
             .iter()
             .find(|delta| delta.asset == profit.asset)
-            .map(|delta| delta.delta.max(0) as u128)
+            .map(|delta| u128::try_from(delta.delta.max(0)).unwrap_or(0))
             .unwrap_or(0);
         if replayed != profit.amount {
             return Err(ReceiptError::EconomicReplayMismatch(format!(
@@ -932,7 +932,8 @@ pub fn build_receipt(
     let realized_net_profit = match outcome {
         TradeOutcome::Success => settlement_asset.map(|asset| TypedReceiptAmount {
             asset: asset.clone(),
-            amount: state.net_deltas.get(asset).copied().unwrap_or(0).max(0) as u128,
+            amount: u128::try_from(state.net_deltas.get(asset).copied().unwrap_or(0).max(0))
+                .map_err(|_| ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string()))?,
         }),
         TradeOutcome::Failure { .. } => None,
     };
