@@ -155,6 +155,9 @@ pub trait TradingHost {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TradingExecError {
     NonProductionCapability,
+    CapabilityChainMismatch { expected: String, actual: String },
+    CapabilityVersionMismatch { expected: u16, actual: String },
+    PrivateSubmissionRequired,
     UnknownCapability(String),
     UnsupportedOperation(String),
     InvalidSequence(String),
@@ -174,6 +177,13 @@ impl fmt::Display for TradingExecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NonProductionCapability => write!(f, "production execution rejected fixture capabilities"),
+            Self::CapabilityChainMismatch { expected, actual } => {
+                write!(f, "compiled policy chain '{expected}' does not match host chain '{actual}'")
+            }
+            Self::CapabilityVersionMismatch { expected, actual } => {
+                write!(f, "compiled policy version {expected} is not supported by host version '{actual}'")
+            }
+            Self::PrivateSubmissionRequired => write!(f, "compiled policy requires private submission capability"),
             Self::UnknownCapability(capability) => write!(f, "unknown capability '{capability}'"),
             Self::UnsupportedOperation(operation) => write!(f, "unsupported operation '{operation}'"),
             Self::InvalidSequence(message) => write!(f, "invalid atomic sequence: {message}"),
@@ -255,23 +265,28 @@ impl TradingVm {
         if context.mode == ExecutionMode::Production && manifest.mode != CapabilityMode::Production {
             return Err(TradingExecError::NonProductionCapability);
         }
-        if context.current_block > context.deadline_block {
-            return Err(TradingExecError::DeadlineExpired {
-                current: context.current_block,
-                deadline: context.deadline_block,
-            });
-        }
         let first = operations
             .first()
             .ok_or_else(|| TradingExecError::InvalidSequence("empty trading program".to_string()))?;
-        if !matches!(first, TradingOperation::BeginAtomicTrade { .. }) {
-            return Err(TradingExecError::InvalidSequence(
-                "trading program must begin with BeginAtomicTrade".to_string(),
-            ));
+        let policy = match first {
+            TradingOperation::BeginAtomicTrade { policy, .. } => policy,
+            _ => {
+                return Err(TradingExecError::InvalidSequence(
+                    "trading program must begin with BeginAtomicTrade".to_string(),
+                ))
+            }
+        };
+        self.validate_compiled_policy(policy, manifest)?;
+        if context.current_block > policy.deadline_blocks {
+            return Err(TradingExecError::DeadlineExpired {
+                current: context.current_block,
+                deadline: policy.deadline_blocks,
+            });
         }
 
         let snapshot = self.trading_state.clone();
         self.expected_commitment = Some(manifest.state_commitment);
+        self.compiled_policy = Some(policy.clone());
 
         host.begin_transaction().map_err(TradingExecError::HostRejected)?;
 
@@ -329,7 +344,7 @@ impl TradingVm {
                             "borrow result for {debt_id} does not match the requested asset/principal"
                         )));
                     }
-                    self.check_fee_bps(result.principal, result.fee, context.limits.max_flash_fee_bps)?;
+                    self.check_fee_bps(result.principal, result.fee, self.compiled_policy().max_flash_fee_bps)?;
                     self.credit(asset, result.principal)?;
                     self.accrue_cost(asset, result.fee)?;
                     self.trading_state.open_debts.insert(
@@ -492,7 +507,7 @@ impl TradingVm {
             return Err(TradingExecError::MissingReceipt);
         }
         self.accrue_host_execution_costs(host)?;
-        if let Some(minimum) = context.limits.minimum_net_profit {
+        if let Some(minimum) = self.compiled_policy().minimum_net_profit {
             // The settlement asset is checked by AssertMinNetProfit; this is
             // only a defence-in-depth check when a policy carries a floor.
             let best = self
@@ -510,6 +525,39 @@ impl TradingVm {
         Ok(TradeExecution {
             committed_state: self.trading_state.clone(),
         })
+    }
+
+    fn validate_compiled_policy(
+        &self,
+        policy: &CompiledTradingPolicy,
+        manifest: &CapabilityManifest,
+    ) -> Result<(), TradingExecError> {
+        if policy.chain != manifest.chain {
+            return Err(TradingExecError::CapabilityChainMismatch {
+                expected: policy.chain.clone(),
+                actual: manifest.chain.clone(),
+            });
+        }
+        let supported_version = manifest
+            .version
+            .strip_prefix("trading-policy-v")
+            .and_then(|value| value.parse::<u16>().ok());
+        if supported_version != Some(policy.policy_version) {
+            return Err(TradingExecError::CapabilityVersionMismatch {
+                expected: policy.policy_version,
+                actual: manifest.version.clone(),
+            });
+        }
+        if policy.require_private_submission && !manifest.private_submission {
+            return Err(TradingExecError::PrivateSubmissionRequired);
+        }
+        Ok(())
+    }
+
+    fn compiled_policy(&self) -> &CompiledTradingPolicy {
+        self.compiled_policy
+            .as_ref()
+            .expect("compiled policy must be set before execution")
     }
 
     fn accrue_host_execution_costs(&mut self, host: &dyn TradingHost) -> Result<(), TradingExecError> {
@@ -589,8 +637,8 @@ impl TradingVm {
 pub fn fixture_manifest(state_commitment: [u8; 32]) -> CapabilityManifest {
     CapabilityManifest {
         mode: CapabilityMode::Fixture,
-        version: "test-fixture-v1".to_string(),
-        chain: "fixture".to_string(),
+        version: "trading-policy-v1".to_string(),
+        chain: "ethereum".to_string(),
         state_commitment,
         private_submission: false,
         providers: BTreeSet::new(),
