@@ -33,6 +33,10 @@ struct FixtureHost {
     swap_output: u128,
     borrow_fee: u128,
     commitment: [u8; 32],
+    execution_cost: u128,
+    began: bool,
+    committed: bool,
+    rolled_back: bool,
 }
 
 impl FixtureHost {
@@ -42,6 +46,10 @@ impl FixtureHost {
             swap_output: 2_000_000,
             borrow_fee: 0,
             commitment: COMMITMENT,
+            execution_cost: 0,
+            began: false,
+            committed: false,
+            rolled_back: false,
         }
     }
 }
@@ -49,6 +57,21 @@ impl FixtureHost {
 impl TradingHost for FixtureHost {
     fn capabilities(&self) -> &CapabilityManifest {
         &self.manifest
+    }
+
+    fn begin_transaction(&mut self) -> Result<(), HostError> {
+        self.began = true;
+        Ok(())
+    }
+
+    fn commit_transaction(&mut self) -> Result<(), HostError> {
+        self.committed = true;
+        Ok(())
+    }
+
+    fn rollback_transaction(&mut self) -> Result<(), HostError> {
+        self.rolled_back = true;
+        Ok(())
     }
 
     fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError> {
@@ -83,7 +106,14 @@ impl TradingHost for FixtureHost {
     }
 
     fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError> {
-        Ok(Vec::new())
+        if self.execution_cost == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(vec![CommittedCost {
+            asset: asset("USDC"),
+            amount: self.execution_cost,
+            kind: "gas".to_string(),
+        }])
     }
 }
 
@@ -259,4 +289,49 @@ fn low_net_profit_rolls_back() {
         x3_lang_vm::trading::TradingExecError::NetProfitBelowFloor { .. }
     ));
     assert_eq!(vm.trading_state, before);
+}
+
+
+#[test]
+fn host_transaction_commits_only_after_vm_success() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+
+    vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect("valid trade must commit");
+
+    assert!(host.began);
+    assert!(host.committed);
+    assert!(!host.rolled_back);
+}
+
+#[test]
+fn host_transaction_rolls_back_on_vm_rejection() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.swap_output = 1;
+
+    vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("invalid trade must fail");
+
+    assert!(host.began);
+    assert!(!host.committed);
+    assert!(host.rolled_back);
+}
+
+#[test]
+fn host_execution_costs_are_applied_before_profit_guard() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.execution_cost = 1_100_000;
+
+    let err = vm
+        .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("execution cost must reduce profit before the guard");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::NetProfitBelowFloor { .. }
+    ));
+    assert!(host.rolled_back);
 }
