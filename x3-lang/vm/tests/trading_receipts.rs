@@ -48,6 +48,8 @@ fn operations() -> Vec<TradingOperation> {
             settlement_asset: asset("USDC"),
             minimum: 1,
         },
+        TradingOperation::AssertAllDebtsClosed,
+        TradingOperation::EmitTradeReceipt,
         TradingOperation::CommitAtomicTrade,
     ]
 }
