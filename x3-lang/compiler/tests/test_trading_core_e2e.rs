@@ -12,7 +12,7 @@ use x3_lang_compiler::{
 use x3_lang_compiler::emitter::decode_trading_program;
 use x3_lang_vm::trading::{
     build_receipt, fixture_manifest, verify_receipt, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost,
-    ExecutionLimits, ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult,
+    ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult,
     TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
 };
 
@@ -76,13 +76,7 @@ impl TradingHost for FixtureVenueHost {
 fn execution_context(mode: ExecutionMode) -> TradeExecutionContext {
     TradeExecutionContext {
         mode,
-        limits: ExecutionLimits {
-            max_flash_fee_bps: 10,
-            max_gas: 1_000_000_000,
-            minimum_net_profit: Some(1_000_000_000),
-        },
         current_block: 1,
-        deadline_block: 2,
     }
 }
 
