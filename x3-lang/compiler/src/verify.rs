@@ -637,9 +637,22 @@ fn require_trade_started(
 
 fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
     match trading {
-        TradingOperation::BeginAtomicTrade { trade_id, policy_id } => {
+        TradingOperation::BeginAtomicTrade { trade_id, policy } => {
             require_non_empty(diagnostics, context, "trade_id", trade_id);
-            require_non_empty(diagnostics, context, "policy_id", policy_id);
+            require_non_empty(diagnostics, context, "policy.policy_id", &policy.policy_id);
+            require_non_empty(diagnostics, context, "policy.chain", &policy.chain);
+            if policy.policy_version == 0 {
+                push_unsafe(diagnostics, format!("{context}: policy version must be greater than zero"));
+            }
+            if policy.max_slippage_bps > 10_000 {
+                push_unsafe(diagnostics, format!("{context}: policy max_slippage_bps exceeds 10000"));
+            }
+            if policy.max_flash_fee_bps > 10_000 {
+                push_unsafe(diagnostics, format!("{context}: policy max_flash_fee_bps exceeds 10000"));
+            }
+            if policy.deadline_blocks == 0 {
+                push_unsafe(diagnostics, format!("{context}: policy deadline_blocks must be greater than zero"));
+            }
         }
         TradingOperation::OpenDebt {
             debt_id,
