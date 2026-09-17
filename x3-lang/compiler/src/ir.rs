@@ -6,7 +6,7 @@
 //! X3IR is generated from AST lowering and consumed by the emitter.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// Root IR program - list of operations to execute in sequence
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -351,6 +351,36 @@ pub struct AssetKey {
     pub decimals: u8,
 }
 
+/// Stable submission/privacy requirement for economic execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum SubmissionProfile {
+    Public,
+    Protected,
+    Private,
+}
+
+/// Strength of the state commitment bound into an economic proof.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum StateBindingMode {
+    None,
+    HostCommitment,
+    Exact,
+}
+
+/// Stable cost categories understood by economic policy version 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum CostKind {
+    Gas,
+    LiquidityFee,
+    FlashLiquidityFee,
+    SolverInfrastructureFee,
+    ProofFee,
+    CrossDomainFee,
+    Slippage,
+    PriceImpact,
+    MevLeakage,
+}
+
 /// Reference to a literal base-unit amount or a prior trading binding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValueRef {
@@ -368,8 +398,25 @@ pub struct CompiledTradingPolicy {
     pub max_gas: u128,
     pub max_flash_fee_bps: u16,
     pub deadline_blocks: u64,
+    /// Legacy migration field. It must agree with `submission_profile`.
     pub require_private_submission: bool,
     pub minimum_net_profit: Option<u128>,
+    pub max_total_cost: u128,
+    pub max_price_impact_bps: u16,
+    pub max_mev_leakage_bps: u16,
+    pub quote_freshness_blocks: u64,
+    pub submission_profile: SubmissionProfile,
+    pub state_binding: StateBindingMode,
+    pub allowed_cost_kinds: BTreeSet<CostKind>,
+    pub allow_mint: bool,
+    pub allow_burn: bool,
+}
+
+impl CompiledTradingPolicy {
+    /// Returns true only when the legacy privacy flag and versioned profile agree.
+    pub fn submission_profile_is_consistent(&self) -> bool {
+        self.require_private_submission == (self.submission_profile == SubmissionProfile::Private)
+    }
 }
 
 /// Trading Core v1 IR operations. Field names are stable and explicit for
