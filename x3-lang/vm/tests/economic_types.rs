@@ -9,6 +9,20 @@ use x3_lang_vm::economic::{
     CanonicalCommitment, EconomicError, EconomicPlan, EconomicPolicy, EconomicSnapshot,
 };
 
+struct ControlledCommitment {
+    domain: &'static [u8],
+}
+
+impl CanonicalCommitment for ControlledCommitment {
+    fn domain(&self) -> &'static [u8] {
+        self.domain
+    }
+
+    fn canonical_bytes(&self) -> Result<Vec<u8>, EconomicError> {
+        Ok(b"fixed-payload".to_vec())
+    }
+}
+
 fn asset(symbol: &str) -> AssetKey {
     AssetKey {
         vm_family: "evm".to_string(),
@@ -89,6 +103,31 @@ fn economic_commitments_are_deterministic_and_domain_separated() {
     assert_ne!(
         snapshot.commitment().unwrap(),
         fixture_plan(&snapshot).commitment().unwrap()
+    );
+}
+
+#[test]
+fn identical_canonical_bytes_are_domain_separated_with_stable_snapshot_vector() {
+    let snapshot = fixture_snapshot();
+    let plan = fixture_plan(&snapshot);
+    let snapshot_control = ControlledCommitment {
+        domain: snapshot.domain(),
+    };
+    let plan_control = ControlledCommitment {
+        domain: plan.domain(),
+    };
+
+    assert_ne!(
+        snapshot_control.commitment().unwrap(),
+        plan_control.commitment().unwrap()
+    );
+    assert_eq!(
+        snapshot_control.commitment().unwrap(),
+        [
+            0xd0, 0x28, 0x39, 0x63, 0xc0, 0x38, 0x86, 0xe2, 0x15, 0x06, 0x4f, 0x28, 0xe1, 0xa4,
+            0x6c, 0x5e, 0x5c, 0x23, 0x1f, 0xf2, 0x73, 0x8b, 0x59, 0x72, 0x4b, 0xe5, 0x76, 0xdb,
+            0x23, 0x02, 0x25, 0xc8,
+        ]
     );
 }
 
