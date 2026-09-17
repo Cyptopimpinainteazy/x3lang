@@ -159,6 +159,7 @@ pub enum TradingExecError {
     CapabilityChainMismatch { expected: String, actual: String },
     CapabilityVersionMismatch { expected: u16, actual: String },
     PrivateSubmissionRequired,
+    InconsistentSubmissionProfile,
     UnknownCapability(String),
     UnsupportedOperation(String),
     InvalidSequence(String),
@@ -185,6 +186,9 @@ impl fmt::Display for TradingExecError {
                 write!(f, "compiled policy version {expected} is not supported by host version '{actual}'")
             }
             Self::PrivateSubmissionRequired => write!(f, "compiled policy requires private submission capability"),
+            Self::InconsistentSubmissionProfile => {
+                write!(f, "legacy private-submission flag does not match submission profile")
+            }
             Self::UnknownCapability(capability) => write!(f, "unknown capability '{capability}'"),
             Self::UnsupportedOperation(operation) => write!(f, "unsupported operation '{operation}'"),
             Self::InvalidSequence(message) => write!(f, "invalid atomic sequence: {message}"),
@@ -534,6 +538,9 @@ impl TradingVm {
         policy: &CompiledTradingPolicy,
         manifest: &CapabilityManifest,
     ) -> Result<(), TradingExecError> {
+        if !policy.submission_profile_is_consistent() {
+            return Err(TradingExecError::InconsistentSubmissionProfile);
+        }
         if policy.chain != manifest.chain {
             return Err(TradingExecError::CapabilityChainMismatch {
                 expected: policy.chain.clone(),
@@ -790,7 +797,6 @@ pub fn verify_receipt(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
     }
     Ok(())
 }
-
 
 pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
     let first = receipt

@@ -49,8 +49,14 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         .body
         .iter()
         .find_map(|stmt| match stmt {
-            TradeStmt::Borrow { amount, .. } => symbols.assets.get(&amount.asset).map(|asset| asset.chain.as_str().to_string()),
-            TradeStmt::Swap { from_asset, .. } => symbols.assets.get(from_asset).map(|asset| asset.chain.as_str().to_string()),
+            TradeStmt::Borrow { amount, .. } => symbols
+                .assets
+                .get(&amount.asset)
+                .map(|asset| asset.chain.as_str().to_string()),
+            TradeStmt::Swap { from_asset, .. } => symbols
+                .assets
+                .get(from_asset)
+                .map(|asset| asset.chain.as_str().to_string()),
             _ => None,
         })
         .ok_or_else(|| LowerError {

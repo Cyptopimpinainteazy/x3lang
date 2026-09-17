@@ -314,7 +314,6 @@ fn low_net_profit_rolls_back() {
     assert_eq!(vm.trading_state, before);
 }
 
-
 #[test]
 fn host_transaction_commits_only_after_vm_success() {
     let mut vm = TradingVm::new();
@@ -359,7 +358,6 @@ fn host_execution_costs_are_applied_before_profit_guard() {
     assert!(host.rolled_back);
 }
 
-
 #[test]
 fn compiled_policy_chain_mismatch_is_rejected_before_host_transaction() {
     let mut vm = TradingVm::new();
@@ -395,10 +393,31 @@ fn compiled_policy_version_mismatch_is_rejected_before_host_transaction() {
 }
 
 #[test]
+fn inconsistent_submission_profile_is_rejected_before_host_transaction() {
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.submission_profile = SubmissionProfile::Private;
+    }
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("legacy flag and submission profile must agree");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::InconsistentSubmissionProfile
+    );
+    assert!(!host.began);
+}
+
+#[test]
 fn compiled_private_submission_requirement_is_enforced() {
     let mut operations = ops();
     if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
         policy.require_private_submission = true;
+        policy.submission_profile = SubmissionProfile::Private;
     }
     let mut vm = TradingVm::new();
     let mut host = FixtureHost::new();

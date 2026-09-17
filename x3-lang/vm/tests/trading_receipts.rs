@@ -201,7 +201,6 @@ fn deltas_and_costs_use_ordered_vectors() {
     assert!(receipt.costs.is_empty());
 }
 
-
 fn signing_key() -> SigningKey {
     SigningKey::from_bytes(&[7u8; 32])
 }
