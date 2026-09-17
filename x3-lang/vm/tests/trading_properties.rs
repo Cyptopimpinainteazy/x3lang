@@ -3,7 +3,10 @@
 use std::collections::BTreeSet;
 
 use proptest::prelude::*;
-use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
+use x3_lang_compiler::ir::{
+    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile,
+    TradingOperation, ValueRef,
+};
 use x3_lang_vm::trading::{
     fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionMode, HostError,
     RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
@@ -82,6 +85,22 @@ fn operations() -> Vec<TradingOperation> {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
+                max_total_cost: u128::MAX,
+                max_price_impact_bps: 30,
+                max_mev_leakage_bps: 30,
+                quote_freshness_blocks: 10,
+                submission_profile: SubmissionProfile::Public,
+                state_binding: StateBindingMode::Exact,
+                allowed_cost_kinds: BTreeSet::from([
+                    CostKind::Gas,
+                    CostKind::LiquidityFee,
+                    CostKind::FlashLiquidityFee,
+                    CostKind::Slippage,
+                    CostKind::PriceImpact,
+                    CostKind::MevLeakage,
+                ]),
+                allow_mint: false,
+                allow_burn: false,
             },
         },
         TradingOperation::OpenDebt {

@@ -1,12 +1,15 @@
 //! Lower Trading Core v1 AST declarations into deterministic IR.
 
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use x3_lang_ast::ast::{Expression, LiteralExpr};
 use x3_lang_ast::{AtomicTradeDecl, RoundingMode, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::{Symbol, X3Error};
 
-use crate::ir::{AssetKey, CompiledTradingPolicy, Operation, TradingOperation, ValueRef};
+use crate::ir::{
+    AssetKey, CompiledTradingPolicy, CostKind, Operation, StateBindingMode, SubmissionProfile,
+    TradingOperation, ValueRef,
+};
 use crate::trading_semantic::{decimal_to_base_units, TradingSymbols};
 
 /// Errors produced while lowering a verified atomic trade.
@@ -79,6 +82,26 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         deadline_blocks,
         require_private_submission: policy.require_private_submission,
         minimum_net_profit,
+        max_total_cost: max_gas,
+        max_price_impact_bps: policy.max_slippage_bps,
+        max_mev_leakage_bps: policy.max_slippage_bps,
+        quote_freshness_blocks: deadline_blocks,
+        submission_profile: if policy.require_private_submission {
+            SubmissionProfile::Private
+        } else {
+            SubmissionProfile::Public
+        },
+        state_binding: StateBindingMode::Exact,
+        allowed_cost_kinds: BTreeSet::from([
+            CostKind::Gas,
+            CostKind::LiquidityFee,
+            CostKind::FlashLiquidityFee,
+            CostKind::Slippage,
+            CostKind::PriceImpact,
+            CostKind::MevLeakage,
+        ]),
+        allow_mint: false,
+        allow_burn: false,
     };
 
     let mut operations = vec![Operation::Trading(TradingOperation::BeginAtomicTrade {
