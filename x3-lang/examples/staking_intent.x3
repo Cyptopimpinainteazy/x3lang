@@ -14,3 +14,12 @@ intent cross_vm_stake {
     timeout 300s refund ethereum.ETH to sender
     on_fail rollback
 }
+
+// The bridge above cannot be claimed on the far side without evidence that the
+// source chain locked the funds and that the destination chain filled them.
+// Those are this program's proof obligations, so it declares them rather than
+// leaving the verifier to warn about each one.
+proofs required {
+    source_lock_proof
+    destination_fill_proof
+}

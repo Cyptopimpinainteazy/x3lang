@@ -1,8 +1,16 @@
 // X3 Atomic Swap — Example Source
 //
 // Full `atomic swap` block syntax for cross-VM swaps.
-// NOTE: This syntax is not yet supported by the x3-lang compiler.
-// See: x3-lang/compiler/tests/test_atomic_swap_syntax.rs
+//
+// The `require relayer_quorum >= 3` guard asserts that at least three relayers
+// attest the swap, so the program has to say which swarm attests it — the
+// guard is checked against `relayers { quorum ... }` at compile time.
+
+relayers {
+    quorum_numerator 3
+    quorum_denominator 5
+    relayers [relayer_a, relayer_b, relayer_c, relayer_d, relayer_e]
+}
 
 atomic swap eth.USDC -> sol.SOL {
   amount 500

@@ -39,9 +39,10 @@ use sha2::{Digest, Sha256};
 use x3_lang_ast::ast::Program;
 use x3_lang_compiler::emitter::decode_trading_program;
 use x3_lang_compiler::ir::TradingOperation;
+use x3_lang_compiler::semantic::VerifyOutcome;
 use x3_lang_compiler::{
     check_source, check_source_diagnostics_with_mode, check_source_with_mode, compile_source, compile_to_ir,
-    compile_with_mode, CompilationMode,
+    compile_with_mode_diagnostics, CompilationMode,
 };
 use x3_lang_vm::trading::{
     build_receipt, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult, BridgeRequest,
@@ -270,7 +271,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Parse { input, out } => cmd_parse(&input, out.as_ref()),
         Cmd::Check { input, out } => cmd_check(&input, out.as_ref(), mode, cli.deny_warnings),
         Cmd::Lower { input, out } => cmd_lower(&input, &out),
-        Cmd::Build { input, out } => cmd_build(&input, &out, mode),
+        Cmd::Build { input, out } => cmd_build(&input, &out, mode, cli.deny_warnings),
         Cmd::Simulate { input, gas } | Cmd::Run { input, gas } => cmd_run(&input, gas),
         Cmd::Explain { input } => cmd_explain(&input),
         Cmd::TestFixture { out } => cmd_test_fixture(&out),
@@ -297,7 +298,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             target,
             mode,
             out,
-        } => cmd_deploy(&input, target.as_ref(), mode.as_ref(), out.as_ref()),
+        } => cmd_deploy(&input, target.as_ref(), mode.as_ref(), out.as_ref(), cli.deny_warnings),
         Cmd::Inspect { input, json } => cmd_inspect(&input, json),
         Cmd::Verify { intent, proof } => cmd_verify(&intent, &proof),
         Cmd::Audit { input, mode, out } => cmd_audit(&input, &mode, out.as_ref()),
@@ -319,7 +320,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 out,
                 block,
                 key_hex,
-            } => cmd_receipt_execute(&input, out.as_ref(), mode, block, key_hex.as_deref()),
+            } => cmd_receipt_execute(&input, out.as_ref(), mode, block, key_hex.as_deref(), cli.deny_warnings),
         },
     }
 }
@@ -413,19 +414,50 @@ fn cmd_lower(input: &PathBuf, out: &PathBuf) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_build(input: &PathBuf, out: &PathBuf, mode_str: &str) -> Result<ExitCode, String> {
+/// Surface the verifier's warnings, and refuse to continue when
+/// `--deny-warnings` is set.
+///
+/// `--deny-warnings` is a global flag whose help text promises "semantic
+/// warnings as failures", but it used to be honoured by `check` alone: every
+/// other command that compiled a program accepted the flag and dropped the
+/// warnings on the floor, so the same source came back clean from `build` and
+/// warned from `check`. Measured before the fix: a same-chain intent built with
+/// `x3c build --deny-warnings` exited 0 while `x3c check` reported one
+/// warning. Every command that can produce a warning goes through here now.
+fn report_warnings(outcome: &VerifyOutcome, deny_warnings: bool, command: &str) -> Result<(), ExitCode> {
+    for warning in &outcome.warnings {
+        eprintln!("x3c warning: {warning}");
+    }
+    if deny_warnings && !outcome.warnings.is_empty() {
+        print_error(&format!(
+            "{command} failed — {} warning(s) treated as errors by --deny-warnings",
+            outcome.warnings.len()
+        ));
+        return Err(ExitCode::from(1));
+    }
+    Ok(())
+}
+
+fn cmd_build(input: &PathBuf, out: &PathBuf, mode_str: &str, deny_warnings: bool) -> Result<ExitCode, String> {
     let source = read_source(input)?;
     let comp_mode = parse_mode(mode_str)?;
-    let bytecode = if mode_str == "dev" {
-        compile_source(&source).map_err(|e| format!("compile error: {e}"))?
-    } else {
-        compile_with_mode(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?
-    };
+    let (bytecode, outcome) =
+        compile_with_mode_diagnostics(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?;
+
+    if let Err(code) = report_warnings(&outcome, deny_warnings, "build") {
+        return Ok(code);
+    }
+
     std::fs::write(out, &bytecode).map_err(|e| format!("write {out:?}: {e}"))?;
     println!(
-        "x3c build: {} bytes ({} ops) -> {}",
+        "x3c build: {} bytes ({} ops){} -> {}",
         bytecode.len(),
         bytecode.len() / 4,
+        if outcome.warnings.is_empty() {
+            String::new()
+        } else {
+            format!(", {} warning(s)", outcome.warnings.len())
+        },
         out.display()
     );
     Ok(ExitCode::SUCCESS)
@@ -893,6 +925,7 @@ fn cmd_deploy(
     target: Option<&String>,
     mode: Option<&String>,
     out: Option<&PathBuf>,
+    deny_warnings: bool,
 ) -> Result<ExitCode, String> {
     let source = read_source(input)?;
 
@@ -900,11 +933,15 @@ fn cmd_deploy(
     let mode_str = mode.map(|s| s.as_str()).unwrap_or("dev");
     let comp_mode = parse_mode(mode_str)?;
 
-    let bytecode = if mode_str == "dev" {
-        compile_source(&source).map_err(|e| format!("compile error: {e}"))?
-    } else {
-        compile_with_mode(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?
-    };
+    // `compile_source` is `compile_with_mode(.., Dev)`, so the old
+    // `if mode_str == "dev"` branch lowered identically on both arms — it only
+    // decided whether the warnings were visible, and on the dev arm they were
+    // not. One call now, warnings included.
+    let (bytecode, outcome) =
+        compile_with_mode_diagnostics(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?;
+    if let Err(code) = report_warnings(&outcome, deny_warnings, "deploy") {
+        return Ok(code);
+    }
 
     // Count operations from IR for the plan
     let program = x3_lang_compiler::parser::parse_source(&source).map_err(|e| format!("parse error: {e}"))?;
@@ -1847,14 +1884,15 @@ fn cmd_receipt_execute(
     mode_str: &str,
     block: u64,
     key_hex: Option<&str>,
+    deny_warnings: bool,
 ) -> Result<ExitCode, String> {
     let source = read_source(input)?;
     let comp_mode = parse_mode(mode_str)?;
-    let bytecode = if mode_str == "dev" {
-        compile_source(&source).map_err(|e| format!("compile error: {e}"))?
-    } else {
-        compile_with_mode(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?
-    };
+    let (bytecode, outcome) =
+        compile_with_mode_diagnostics(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?;
+    if let Err(code) = report_warnings(&outcome, deny_warnings, "receipt execute") {
+        return Ok(code);
+    }
     let operations = decode_trading_program(&bytecode).map_err(|e| format!("decode error: {e}"))?;
 
     let (trade_id, policy) = match operations.first() {

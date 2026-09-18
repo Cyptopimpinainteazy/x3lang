@@ -1072,6 +1072,15 @@ fn expression_to_string(expr: &Expression) -> String {
         }
         Expression::Literal(LiteralExpr::Bool(b)) => b.to_string(),
         Expression::Ident(s) => s.as_str().to_string(),
+        // `receiver sol.wallet.owner` is a dotted path, and it is the form the
+        // language's own examples use. It used to fall through to `{:?}` and
+        // become `FieldAccess { target: FieldAccess { ... } }` — a Rust debug
+        // string, which the name-safety check then rejected for "unsafe
+        // characters" and for exceeding 64 characters. The path is what the
+        // program wrote; print that.
+        Expression::FieldAccess { target, field } => {
+            format!("{}.{}", expression_to_string(target), field.as_str())
+        }
         Expression::Binary { op, lhs, rhs } => {
             format!("{} {:?} {}", expression_to_string(lhs), op, expression_to_string(rhs))
         }
@@ -1103,8 +1112,48 @@ fn expression_to_u128_opt(expr: &Expression) -> Option<u128> {
 fn chain_to_string(chain: &ChainRef) -> String {
     chain.as_str().to_ascii_lowercase()
 }
+/// The block count a timeout expression denotes.
+///
+/// Timeouts are written with a unit suffix — `180s`, `40m` — and the lexer
+/// hands those back as *identifiers*, not numbers, so an integer parse rejects
+/// them. The `intent` path has always read the digits off the front;
+/// `atomic swap` and `bridge` rejected the identical syntax with "expected
+/// numeric expression", which made `timeout source 40m` — the form the
+/// language's own documentation and examples use — impossible to lower. Both
+/// paths read timeouts through here now, so they cannot disagree again.
+///
+/// The suffix is **not** converted: `40m` is 40 blocks, not 40 minutes. That is
+/// the convention already baked into every compiled program (`timeout 180s`
+/// lowers to 180 blocks today), and changing it would silently move the
+/// timeout-ordering invariant for every existing program, which is a security
+/// decision rather than a bug fix. See TICKET-033.
+pub(crate) fn timeout_expression_to_blocks(expr: &Expression) -> Option<u32> {
+    match expr {
+        Expression::Literal(LiteralExpr::Int { value, .. }) => u32::try_from(*value).ok(),
+        Expression::Literal(LiteralExpr::Float { raw, .. }) => raw.as_str().parse::<f64>().ok().map(|v| v as u32),
+        // A real duration literal, if the lexer ever produces one for a timeout.
+        Expression::Literal(LiteralExpr::Duration { value, .. }) => u32::try_from(*value).ok(),
+        Expression::Ident(sym) => numeric_prefix_u32(sym.as_str()),
+        _ => None,
+    }
+}
+
+fn numeric_prefix_u32(value: &str) -> Option<u32> {
+    let digits: String = value.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse::<u32>().ok()
+    }
+}
+
 fn expression_to_blocks(expr: &Expression) -> Result<u32, x3_lang_common::X3Error> {
-    expression_to_u128(expr).map(|v| v as u32)
+    // `u32::try_from` rather than a cast: a bare `as u32` used to wrap a large
+    // literal, so `timeout 4294967297` became a one-block timeout — a
+    // too-short window is a safety problem in an HTLC, not a cosmetic one.
+    timeout_expression_to_blocks(expr).ok_or_else(|| {
+        semantic("expected a timeout duration — e.g. `40m`, `180s`, or a block count that fits in 32 bits")
+    })
 }
 fn semantic(message: &str) -> x3_lang_common::X3Error {
     x3_lang_common::X3Error::SemanticError {

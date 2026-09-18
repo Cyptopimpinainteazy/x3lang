@@ -294,14 +294,41 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
     Ok((program, ir, outcome.errors))
 }
 
-/// Compile with an explicit compilation mode for mode-gated safety checks.
-pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>, X3Error> {
+/// Compile with an explicit mode, keeping the verifier's warnings.
+///
+/// `compile_with_mode` returns bytecode alone, so a caller that wanted the
+/// warnings had no way to get them from the build path. That is how `x3c build
+/// --deny-warnings` came to accept the flag and ignore it: `check` could see
+/// the warnings and `build` could not, so the same source produced "clean" from
+/// one command and a warning from the other. `compile_with_mode` now delegates
+/// here, so the two cannot drift.
+///
+/// Warnings are returned even when compilation succeeds — that is the point.
+/// Errors still take the failure path.
+pub fn compile_with_mode_diagnostics(
+    source: &str,
+    mode: CompilationMode,
+) -> Result<(Vec<u8>, semantic::VerifyOutcome), X3Error> {
     let program = parse_source(source)?;
-    let pre = run_pre_emission_layers(&program, mode)?;
+    let mut pre = run_pre_emission_layers(&program, mode)?;
     if !pre.errors.is_empty() {
         return Err(format_pipeline_errors(&pre.errors));
     }
-    emit_x3ir(&pre.ir)
+    let bytecode = emit_x3ir(&pre.ir)?;
+    Ok((
+        bytecode,
+        semantic::VerifyOutcome {
+            errors: Vec::new(),
+            warnings: std::mem::take(&mut pre.warnings),
+        },
+    ))
+}
+
+/// Compile with an explicit compilation mode for mode-gated safety checks.
+///
+/// Use [`compile_with_mode_diagnostics`] when the warnings matter.
+pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>, X3Error> {
+    compile_with_mode_diagnostics(source, mode).map(|(bytecode, _)| bytecode)
 }
 
 /// Check source with an explicit compilation mode. Returns the program, IR,
@@ -439,31 +466,29 @@ mod regalloc_wiring_tests {
             items: vec![Spanned::dummy(Item::AtomicSwap(swap))],
         };
 
-        // Semantic pass may reject the AST we built (the helper version in
-        // the semantic tests uses additional fields that we don't carry
-        // here). That still proves the regalloc entry point is wired: the
-        // semantic error surfaces from inside the regalloc-wired pipeline,
-        // not from a panic or silent failure.
-        match compile_program_with_regalloc(&program) {
-            Ok((bytecode, alloc)) => {
-                assert!(!bytecode.is_empty(), "bytecode must be non-empty");
-                assert_eq!(bytecode[0], 0x01, "bytecode version must be 0x01");
-                assert_eq!(bytecode.len() % 4, 0, "bytecode must be 4-byte aligned");
-                assert_eq!(alloc.len(), 0);
-                assert_eq!(alloc.registers_used, 0);
-                assert_eq!(alloc.spills_used, 0);
-            }
-            Err(e) => {
-                // Acceptable: the semantic verifier rejects the manually
-                // constructed AST. The pipeline reached the semantic pass,
-                // which means parse + lower succeeded — the regalloc entry
-                // point is still wired.
-                eprintln!(
-                    "regalloc wiring test: semantic rejected AST (expected for \
-                     hand-built fixture): {e}"
-                );
-            }
-        }
+        // This fixture used to be rejected by lowering, so the call below
+        // always returned `Err` and everything the `Ok` arm asserted went
+        // unexercised — including `alloc.len() == 0`, which the arm only
+        // stopped agreeing with once the pipeline started succeeding. The
+        // fixture is valid, so the pipeline must succeed; tolerating `Err` was
+        // how the untested arm survived.
+        let (bytecode, alloc) = compile_program_with_regalloc(&program)
+            .expect("a valid hand-built program must compile through the regalloc-wired pipeline");
+        assert!(!bytecode.is_empty(), "bytecode must be non-empty");
+        assert_eq!(bytecode[0], 0x01, "bytecode version must be 0x01");
+        assert_eq!(bytecode.len() % 4, 0, "bytecode must be 4-byte aligned");
+        // What the allocation record owes is to mirror the IR the pass was
+        // handed. `registers_used` and `spills_used` are legitimately zero
+        // here: the fixture is Lock/Release/OnTimeout, which carry no register
+        // operands, so there is no temporary to place. Asserting those two are
+        // zero would be asserting the pass found nothing to do; asserting the
+        // record is empty was asserting the same, and was false.
+        let ir_len = compile_to_ir(&program).expect("lowering must succeed").operations.len();
+        assert_eq!(
+            alloc.operations.len(),
+            ir_len,
+            "the allocation record must mirror the IR operation list"
+        );
     }
 
     /// Fails fast on a syntactically broken source, proving the parse →

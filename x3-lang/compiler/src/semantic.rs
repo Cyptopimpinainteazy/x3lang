@@ -345,12 +345,21 @@ fn check_safe_symbol(field: &str, value: &str, acc: &mut ErrorAccumulator) {
         acc.add_error(err(format!("{field} is empty")));
         return;
     }
-    if value
+    // `.` is allowed because a receiver is written as a dotted path —
+    // `receiver sol.wallet.owner` — and that is the form the language's own
+    // examples use. A bare allowlist extension would also have admitted `.`,
+    // `..` and `a..b`, so the dot is allowed only *between* non-empty segments
+    // and a `..` segment is refused: a `.`-bearing identifier that later gets
+    // treated as a path is a traversal, and this check is the only thing
+    // standing between the program text and whatever consumes it.
+    let unsafe_char = value
         .chars()
-        .any(|c| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
-    {
+        .any(|c| !c.is_ascii_alphanumeric() && c != '_' && c != '-' && c != '.');
+    let unsafe_segment = value.split('.').any(|segment| segment.is_empty() || segment == "..");
+    if unsafe_char || unsafe_segment {
         acc.add_error(err(format!(
-            "{field}={value:?} contains unsafe characters (allowed: alnum, _, -)"
+            "{field}={value:?} contains unsafe characters (allowed: alnum, _, -, and single dots \
+             between non-empty segments)"
         )));
     }
     if value.len() > 64 {
@@ -994,7 +1003,6 @@ fn proof_category(name: &str) -> Option<ProofCategory> {
 /// must *actually* prove — a destination fill, a receipt, a validator quorum —
 /// is a design question; see TICKET-018.
 pub fn verify_proof_requirements(ir: &X3IR, acc: &mut ErrorAccumulator) {
-    let has_lock = ir.operations.iter().any(|op| matches!(op, Operation::Lock { .. }));
     let has_bridge = ir.operations.iter().any(|op| matches!(op, Operation::Bridge { .. }));
 
     let declared: HashSet<ProofCategory> = ir
@@ -1006,9 +1014,19 @@ pub fn verify_proof_requirements(ir: &X3IR, acc: &mut ErrorAccumulator) {
         })
         .collect();
 
-    if has_lock && !declared.contains(&ProofCategory::SourceLock) {
+    // Gated on bridging, not on `Lock`.
+    //
+    // A lock proof exists to convince the *destination* chain that the funds
+    // are locked on the source. With no `Bridge` there is no destination to
+    // convince, and lowering emits a `Lock` for a same-chain transfer — so a
+    // program that never leaves a chain was told to prove it had locked funds
+    // on a chain it never left. Measured on a same-chain intent: one warning,
+    // and nothing the program could do about it. That is the same defect the
+    // vocabulary fix above addressed, one layer down: a warning a correct
+    // program cannot act on trains its reader to ignore the check.
+    if has_bridge && !declared.contains(&ProofCategory::SourceLock) {
         acc.add_warning(X3Error::SemanticError {
-            message: "Lock operation present without a lock proof — add `proofs required { \
+            message: "Bridge operation present without a source-lock proof — add `proofs required { \
                       source_lock_proof }`"
                 .into(),
             span: span(),
@@ -1120,15 +1138,33 @@ fn collect_atomic_scoped<'a>(ops: &'a [Operation], depth: usize, out: &mut Vec<&
 
 /// Whether `op` is a guard that refunds on failure or timeout.
 fn is_refund_action(op: &Operation) -> bool {
-    matches!(
-        op,
+    refund_lock(op).is_some()
+}
+
+/// The lock a refund handler refunds, as `(chain, asset)`.
+///
+/// A refund handler does not refund "the program"; it refunds one specific
+/// lock. Two handlers that name different chains and assets are two different
+/// locks, which is exactly what a two-legged atomic swap has.
+fn refund_lock(op: &Operation) -> Option<(&str, &str)> {
+    match op {
         Operation::OnTimeout {
-            action: FailureAction::Refund { .. },
+            action: FailureAction::Refund { chain, asset, .. },
             ..
-        } | Operation::OnFail {
-            action: FailureAction::Refund { .. }
         }
-    )
+        | Operation::OnFail {
+            action: FailureAction::Refund { chain, asset, .. },
+        } => Some((chain.as_str(), asset.as_str())),
+        _ => None,
+    }
+}
+
+/// The lock a claim releases, as `(chain, asset)`.
+fn release_lock(op: &Operation) -> Option<(&str, &str)> {
+    match op {
+        Operation::Release { chain, asset, .. } => Some((chain.as_str(), asset.as_str())),
+        _ => None,
+    }
 }
 
 /// Return the list of built-in invariant rules for static analysis.
@@ -1168,9 +1204,23 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
             name: "no_double_refund".into(),
             description: "No refund operation may execute twice for the same lock".into(),
             check_fn: |ir| {
-                let refunds: Vec<&Operation> = ir.operations.iter().filter(|op| is_refund_action(op)).collect();
-                if refunds.len() > 1 {
-                    return Err("multiple refund operations found for the same lock".into());
+                // Counted per lock, which is what the rule's own description
+                // says. Counting globally reported every two-legged atomic
+                // swap: `examples/atomic_swap.x3` refunds `eth.USDC` on the
+                // source timeout and `sol.SOL` on the destination timeout, and
+                // those are two different locks, not one lock refunded twice.
+                let mut refunds: Vec<(&str, &str)> = Vec::new();
+                for op in &ir.operations {
+                    let Some(lock) = refund_lock(op) else {
+                        continue;
+                    };
+                    if refunds.contains(&lock) {
+                        return Err(format!(
+                            "multiple refund operations found for the same lock ({}.{})",
+                            lock.0, lock.1
+                        ));
+                    }
+                    refunds.push(lock);
                 }
                 Ok(())
             },
@@ -1195,13 +1245,22 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
             name: "no_refund_after_claim".into(),
             description: "Refund must not execute after claim".into(),
             check_fn: |ir| {
-                let mut found_claim = false;
+                // Per lock, for the same reason as `no_double_refund`: releasing
+                // the destination leg does not stop the source leg from being
+                // refunded on its own timeout, and a structural scan that
+                // ignored the lock would call that a violation.
+                let mut claimed: Vec<(&str, &str)> = Vec::new();
                 for op in atomic_scoped_operations(ir) {
-                    if matches!(op, Operation::Release { .. }) {
-                        found_claim = true;
+                    if let Some(lock) = release_lock(op) {
+                        claimed.push(lock);
                     }
-                    if found_claim && is_refund_action(op) {
-                        return Err("Refund found after Release (claim)".into());
+                    if let Some(lock) = refund_lock(op) {
+                        if claimed.contains(&lock) {
+                            return Err(format!(
+                                "Refund of {}.{} found after its Release (claim)",
+                                lock.0, lock.1
+                            ));
+                        }
                     }
                 }
                 Ok(())
@@ -2066,6 +2125,56 @@ mod tests {
         assert!(
             messages.iter().any(|w| w.contains("destination-fill proof")),
             "a missing destination-fill proof must be reported, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn a_same_chain_lock_does_not_demand_a_cross_chain_proof() {
+        // The requirement used to trigger on `Lock`, and lowering emits a `Lock`
+        // for a same-chain transfer. So an intent that never leaves a chain was
+        // told to prove it had locked funds on a chain it never left — a warning
+        // no correct program could act on, which is how a check stops being read
+        // (TICKET-024).
+        let mut ir = empty_ir();
+        ir.operations = vec![
+            Operation::Lock {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                amount: 100,
+                from: "0x1".into(),
+            },
+            Operation::Release {
+                chain: "ethereum".into(),
+                asset: "ETH".into(),
+                to: "0x1".into(),
+            },
+        ];
+        let outcome = verify_collect(&ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS, None);
+        let messages: Vec<String> = outcome.warnings.iter().map(|w| w.to_string()).collect();
+        assert!(
+            !messages.iter().any(|w| w.contains("proof")),
+            "a same-chain lock has no cross-chain proof to require, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn a_bridging_program_needs_both_a_lock_and_a_fill_proof() {
+        // The other half of the gate: gating on `has_bridge` must not have
+        // silenced the requirement for programs that do cross a chain.
+        let outcome = verify_collect(
+            &cross_chain_with_proofs(&[]),
+            DEFAULT_MAX_ATOMIC_OPS,
+            DEFAULT_MAX_ROUTE_HOPS,
+            None,
+        );
+        let messages: Vec<String> = outcome.warnings.iter().map(|w| w.to_string()).collect();
+        assert!(
+            messages.iter().any(|w| w.contains("source-lock proof")),
+            "a bridge without a source-lock proof must be reported, got: {messages:?}"
+        );
+        assert!(
+            messages.iter().any(|w| w.contains("destination-fill proof")),
+            "a bridge without a destination-fill proof must be reported, got: {messages:?}"
         );
     }
 

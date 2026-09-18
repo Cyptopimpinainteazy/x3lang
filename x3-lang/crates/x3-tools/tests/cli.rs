@@ -309,6 +309,32 @@ const GOOD_SOURCE: &str = r#"intent arb_solana_eth {
 }
 "#;
 
+/// A program that warns for a correct reason: it bridges and declares no
+/// proofs, so the verifier asks for the source-lock and destination-fill
+/// proofs the bridge depends on.
+///
+/// This replaced `GOOD_SOURCE` as the warning fixture. `GOOD_SOURCE` is a
+/// *same-chain* intent, and the warning it produced was the bug fixed in
+/// TICKET-024 — the lock-proof requirement fired on `Lock`, and lowering emits
+/// a `Lock` for a transfer that never leaves a chain. The two tests below were
+/// therefore asserting that the compiler complains about a correct program, and
+/// they went green on a defect. A warning fixture has to warn about something
+/// the program could actually fix.
+const WARN_SOURCE: &str = r#"intent bridging_without_proofs {
+    from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
+    to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    route {
+        bridge x3 ethereum.USDC -> solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    }
+    require nonce unused bridging_001
+    require finality.ethereum >= 32
+    require finality.solana >= 32
+    require slippage <= 50
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
+}
+"#;
+
 #[test]
 fn cli_parse_writes_json() {
     let src = write_fixture("cli_good.x3", GOOD_SOURCE);
@@ -816,7 +842,7 @@ fn cli_check_reports_warnings_instead_of_dropping_them() {
     // Regression: the verifier collected warnings and `cmd_check` discarded
     // them, so a program with an unfulfilled proof requirement reported a
     // clean bill of health. The warning list must now reach the caller.
-    let src = write_fixture("cli_warn.x3", GOOD_SOURCE);
+    let src = write_fixture("cli_warn.x3", WARN_SOURCE);
     let out = std::env::temp_dir().join("cli_warn.json");
     let status = x3c()
         .arg("check")
@@ -835,13 +861,13 @@ fn cli_check_reports_warnings_instead_of_dropping_them() {
         .expect("check output must carry a warnings array");
     assert!(
         !warnings.is_empty(),
-        "GOOD_SOURCE trips the proof/invariant passes, so its warnings must be reported; got {body}"
+        "WARN_SOURCE bridges without proofs, so its warnings must be reported; got {body}"
     );
 }
 
 #[test]
 fn cli_deny_warnings_fails_a_program_that_only_warns() {
-    let src = write_fixture("cli_warn_deny.x3", GOOD_SOURCE);
+    let src = write_fixture("cli_warn_deny.x3", WARN_SOURCE);
     let status = x3c()
         .arg("--deny-warnings")
         .arg("check")
@@ -851,6 +877,56 @@ fn cli_deny_warnings_fails_a_program_that_only_warns() {
     assert!(
         !status.success(),
         "--deny-warnings must fail a program that produces warnings: {status:?}"
+    );
+}
+
+#[test]
+fn cli_build_deny_warnings_fails_a_program_that_only_warns() {
+    // `--deny-warnings` is a global flag documented as "treat semantic warnings
+    // as failures", but only `check` honoured it. `build` accepted it and
+    // dropped the warnings, so this exact invocation exited 0 while `check` on
+    // the same source reported two warnings — a false green on the command CI
+    // actually uses.
+    let src = write_fixture("cli_build_warn_deny.x3", WARN_SOURCE);
+    let out = std::env::temp_dir().join("cli_build_warn_deny.bin");
+    let status = x3c()
+        .arg("--deny-warnings")
+        .arg("build")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .expect("x3c build --deny-warnings");
+    assert!(
+        !status.success(),
+        "build --deny-warnings must fail a program that produces warnings: {status:?}"
+    );
+    assert!(
+        !out.exists(),
+        "a refused build must not leave bytecode behind — that is how a false green gets shipped"
+    );
+}
+
+#[test]
+fn cli_build_without_deny_warnings_still_succeeds_and_reports_the_warning() {
+    // Non-vacuous: warnings must not become errors by default, and they must
+    // not become invisible either.
+    let src = write_fixture("cli_build_warn.x3", WARN_SOURCE);
+    let out = std::env::temp_dir().join("cli_build_warn.bin");
+    let _ = std::fs::remove_file(&out);
+    let result = x3c()
+        .arg("build")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    assert!(result.status.success(), "build must still succeed: {result:?}");
+    assert!(out.exists(), "a successful build must write bytecode");
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        stderr.contains("source-lock proof") && stderr.contains("destination-fill proof"),
+        "the warnings the verifier produced must be visible on a successful build, got: {stderr}"
     );
 }
 

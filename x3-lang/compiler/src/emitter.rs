@@ -151,6 +151,16 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
         Operation::OnTimeout { .. } => {
+            // Operand 0 = "no instruction budget". The instruction is the
+            // program's declaration that a timeout policy exists; `duration_blocks`
+            // stays in the IR, where the verifier checks it is non-zero and
+            // within range, and where the timeout/refund engine reads it.
+            //
+            // It must not become an instruction budget: the two are different
+            // units, and the VM has no block height to compare against. The
+            // operand is explicit (rather than "read r0") because the deadline
+            // used to be taken from a register nothing set for it, so the
+            // outcome depended on the previous instruction's residue.
             bytecode.write_all(&[ON_TIMEOUT])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }

@@ -1772,13 +1772,11 @@ impl<'a> Parser<'a> {
     fn parse_intent_timeout(&mut self) -> Result<Statement, X3Error> {
         self.advance(); // consume `timeout`
         let dur = self.parse_expr()?;
-        // Pull the block count from an integer literal; anything else
-        // falls back to 0 (the existing `OnTimeout` IR only stores u32).
-        let dur_blocks: u32 = match &dur {
-            Expression::Literal(LiteralExpr::Int { value, .. }) => *value as u32,
-            Expression::Ident(sym) => numeric_prefix_u32(sym.as_str()).unwrap_or(0),
-            _ => 0,
-        };
+        // One definition of "what block count does this timeout denote",
+        // shared with the `atomic swap` and `bridge` lowering that used to
+        // reject the same syntax outright. Anything unreadable falls back to 0,
+        // which the semantic layer then rejects as a zero-duration timeout.
+        let dur_blocks: u32 = crate::lowering::timeout_expression_to_blocks(&dur).unwrap_or(0);
         let mut action = FailureAction::Rollback;
         loop {
             match self.peek() {
@@ -3434,15 +3432,6 @@ fn fill_route_bridge_amounts_in_block(block: &mut Block, source_amounts: &[(Stri
 
 fn expression_is_zero(expr: &Expression) -> bool {
     matches!(expr, Expression::Literal(LiteralExpr::Int { value: 0, .. }))
-}
-
-fn numeric_prefix_u32(value: &str) -> Option<u32> {
-    let digits: String = value.chars().take_while(|ch| ch.is_ascii_digit()).collect();
-    if digits.is_empty() {
-        None
-    } else {
-        digits.parse::<u32>().ok()
-    }
 }
 
 fn expression_debug_string(expr: &Expression) -> String {

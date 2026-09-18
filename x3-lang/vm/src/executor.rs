@@ -357,13 +357,27 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.failure_handlers.push(handler_pc);
             }
             ON_TIMEOUT => {
-                // ON_TIMEOUT: ra=deadline_register. Set a per-execution
-                // deadline. If the VM exceeds this many total instructions,
-                // the next opcode will panic with X3_TIMEOUT.
-                let (ra, _rb, _imm) = decode_reg_reg_imm(operand);
-                let deadline = vm.state.registers[ra as usize];
-                vm.state.timeout_deadline = Some(deadline);
-                // Track instruction count for timeout enforcement
+                // ON_TIMEOUT: the operand is the deadline in instructions.
+                //
+                // It used to be read as a *register index*, and the emitter
+                // wrote operand 0 — so the deadline silently became whatever
+                // `r0` happened to hold, which is register residue from an
+                // unrelated instruction. `examples/atomic_swap.x3` failed with
+                // "instruction count 1 exceeded deadline 0" purely because the
+                // previous operation left r0 at zero, while
+                // `examples/simple_swap.x3` passed on the same opcode only
+                // because its residue happened to be large. Carrying the value
+                // in the instruction removes the coin flip; it is the same
+                // shape as REQUIRE carrying `[comparison][threshold]`.
+                //
+                // Zero means **no deadline**. The IR's `duration_blocks` is a
+                // chain timeout in blocks and this VM has no block height, so
+                // it is deliberately not used as an instruction budget — that
+                // would enforce a bound the program never asked for and would
+                // make bytecode fail on the size of the program rather than on
+                // its behaviour. Block-based expiry belongs to the timeout /
+                // refund engine, and the IR keeps the declared value for it.
+                vm.state.timeout_deadline = if operand == 0 { None } else { Some(operand as u128) };
                 vm.state.instruction_count = 0;
             }
             ATOMIC_BEGIN => {
@@ -1469,34 +1483,48 @@ mod tests {
 
     #[test]
     fn on_timeout_sets_deadline() {
-        // ON_TIMEOUT r0 — set deadline from r0
-        // NOP x100 (won't exceed deadline)
+        // ON_TIMEOUT with the deadline as the instruction's operand.
         // HALT
         let code: &[u8] = &[
-            instr(0x42, enc_rri(0, 0, 0)), // ON_TIMEOUT r0
-            instr(0xFF, 0),                // HALT
+            instr(0x42, 100), // ON_TIMEOUT: deadline = 100 instructions
+            instr(0xFF, 0),   // HALT
         ]
         .concat();
         let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
-        vm.state.registers[0] = 100; // deadline = 100 instructions
         execute(&mut vm).unwrap();
         assert_eq!(vm.state.timeout_deadline, Some(100));
     }
 
     #[test]
-    fn timeout_exceeded_panics() {
-        // ON_TIMEOUT r0 with deadline=1, then several NOPs
-        // Each NOP increments instruction_count. After 2 NOPs,
-        // instruction_count > deadline → X3_TIMEOUT panic.
+    fn on_timeout_with_a_zero_operand_sets_no_deadline() {
+        // Zero means "no instruction budget", not "a budget of zero". Treating
+        // the operand as a register index made this emit `r0`, so a program
+        // whose r0 held zero panicked on its first instruction.
         let code: &[u8] = &[
-            instr(0x42, enc_rri(0, 0, 0)), // ON_TIMEOUT r0: deadline=1
-            instr(NOP, 0),                 // NOP (instruction_count=1)
-            instr(NOP, 0),                 // NOP (instruction_count=2 > deadline=1)
-            instr(0xFF, 0),                // HALT (won't reach)
+            instr(0x42, 0), // ON_TIMEOUT: policy only
+            instr(NOP, 0),
+            instr(0xFF, 0), // HALT
         ]
         .concat();
         let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
-        vm.state.registers[0] = 1; // deadline = 1 instruction
+        vm.state.registers[0] = 0;
+        execute(&mut vm).expect("a zero deadline must not bound the program");
+        assert_eq!(vm.state.timeout_deadline, None);
+    }
+
+    #[test]
+    fn timeout_exceeded_panics() {
+        // ON_TIMEOUT with deadline=1, then several NOPs
+        // Each NOP increments instruction_count. After 2 NOPs,
+        // instruction_count > deadline → X3_TIMEOUT panic.
+        let code: &[u8] = &[
+            instr(0x42, 1), // ON_TIMEOUT: deadline = 1 instruction
+            instr(NOP, 0),  // NOP (instruction_count=1)
+            instr(NOP, 0),  // NOP (instruction_count=2 > deadline=1)
+            instr(0xFF, 0), // HALT (won't reach)
+        ]
+        .concat();
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
         let result = execute(&mut vm);
         assert!(result.is_err(), "Timeout should panic");
         let err = result.unwrap_err();
