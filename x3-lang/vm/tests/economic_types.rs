@@ -2,12 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use x3_lang_compiler::ir::{
-    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile,
-};
-use x3_lang_vm::economic::{
-    CanonicalCommitment, EconomicError, EconomicPlan, EconomicPolicy, EconomicSnapshot,
-};
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile};
+use x3_lang_vm::economic::{CanonicalCommitment, EconomicError, EconomicPlan, EconomicPolicy, EconomicSnapshot};
 
 struct ControlledCommitment {
     domain: &'static [u8],
@@ -96,10 +92,7 @@ fn fixture_plan(snapshot: &EconomicSnapshot) -> EconomicPlan {
 #[test]
 fn economic_commitments_are_deterministic_and_domain_separated() {
     let snapshot = fixture_snapshot();
-    assert_eq!(
-        snapshot.commitment().unwrap(),
-        snapshot.commitment().unwrap()
-    );
+    assert_eq!(snapshot.commitment().unwrap(), snapshot.commitment().unwrap());
     assert_ne!(
         snapshot.commitment().unwrap(),
         fixture_plan(&snapshot).commitment().unwrap()
@@ -113,9 +106,7 @@ fn identical_canonical_bytes_are_domain_separated_with_stable_snapshot_vector() 
     let snapshot_control = ControlledCommitment {
         domain: snapshot.domain(),
     };
-    let plan_control = ControlledCommitment {
-        domain: plan.domain(),
-    };
+    let plan_control = ControlledCommitment { domain: plan.domain() };
 
     assert_ne!(
         snapshot_control.commitment().unwrap(),
@@ -124,9 +115,8 @@ fn identical_canonical_bytes_are_domain_separated_with_stable_snapshot_vector() 
     assert_eq!(
         snapshot_control.commitment().unwrap(),
         [
-            0xd0, 0x28, 0x39, 0x63, 0xc0, 0x38, 0x86, 0xe2, 0x15, 0x06, 0x4f, 0x28, 0xe1, 0xa4,
-            0x6c, 0x5e, 0x5c, 0x23, 0x1f, 0xf2, 0x73, 0x8b, 0x59, 0x72, 0x4b, 0xe5, 0x76, 0xdb,
-            0x23, 0x02, 0x25, 0xc8,
+            0xd0, 0x28, 0x39, 0x63, 0xc0, 0x38, 0x86, 0xe2, 0x15, 0x06, 0x4f, 0x28, 0xe1, 0xa4, 0x6c, 0x5e, 0x5c, 0x23,
+            0x1f, 0xf2, 0x73, 0x8b, 0x59, 0x72, 0x4b, 0xe5, 0x76, 0xdb, 0x23, 0x02, 0x25, 0xc8,
         ]
     );
 }
@@ -163,6 +153,7 @@ fn legacy_private_flag_must_match_submission_profile() {
         chain: "ethereum".to_string(),
         max_slippage_bps: 30,
         max_gas: 1_000,
+        max_gas_asset: asset("USDC"),
         max_flash_fee_bps: 10,
         deadline_blocks: 10,
         require_private_submission: true,

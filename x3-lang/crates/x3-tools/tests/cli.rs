@@ -45,8 +45,7 @@ fn trading_receipt_json(tamper: bool) -> String {
     use std::collections::{BTreeMap, BTreeSet};
 
     use x3_lang_compiler::ir::{
-        AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile,
-        TradingOperation,
+        AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation,
     };
     use x3_lang_vm::trading::{build_receipt, DebtRecord, TradeOutcome, TradingState};
 

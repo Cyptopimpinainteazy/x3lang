@@ -6,8 +6,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use x3_lang_compiler::ir::{
-    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile,
-    TradingOperation,
+    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation,
 };
 
 const ECONOMIC_SCHEMA_VERSION: u16 = 1;
@@ -18,10 +17,7 @@ const POLICY_DOMAIN: &[u8] = b"X3:ECONOMIC_POLICY:V1";
 /// Stable failures emitted while validating or committing economic objects.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EconomicError {
-    UnsupportedVersion {
-        object: &'static str,
-        version: u16,
-    },
+    UnsupportedVersion { object: &'static str, version: u16 },
     CanonicalEncoding,
     PolicyWeakening(&'static str),
     InconsistentPolicy(&'static str),
@@ -81,10 +77,7 @@ pub struct EconomicPolicy {
 }
 
 impl EconomicPolicy {
-    pub fn from_compiled(
-        compiled: &CompiledTradingPolicy,
-        settlement_asset: AssetKey,
-    ) -> Result<Self, EconomicError> {
+    pub fn from_compiled(compiled: &CompiledTradingPolicy, settlement_asset: AssetKey) -> Result<Self, EconomicError> {
         if compiled.policy_version != ECONOMIC_SCHEMA_VERSION {
             return Err(EconomicError::UnsupportedVersion {
                 object: "compiled_policy",

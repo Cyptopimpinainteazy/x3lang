@@ -7,8 +7,8 @@ use x3_lang_ast::{AtomicTradeDecl, RoundingMode, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::{Symbol, X3Error};
 
 use crate::ir::{
-    AssetKey, CompiledTradingPolicy, CostKind, Operation, StateBindingMode, SubmissionProfile,
-    TradingOperation, ValueRef,
+    AssetKey, CompiledTradingPolicy, CostKind, Operation, StateBindingMode, SubmissionProfile, TradingOperation,
+    ValueRef,
 };
 use crate::trading_semantic::{decimal_to_base_units, TradingSymbols};
 

@@ -4,8 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ed25519_dalek::SigningKey;
 use x3_lang_compiler::ir::{
-    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile,
-    TradingOperation,
+    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation,
 };
 use x3_lang_vm::trading::{
     build_receipt, canonical_receipt_bytes, finalize_receipt, sign_receipt, verify_receipt, verify_receipt_economics,

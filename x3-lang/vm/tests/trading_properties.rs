@@ -4,8 +4,7 @@ use std::collections::BTreeSet;
 
 use proptest::prelude::*;
 use x3_lang_compiler::ir::{
-    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile,
-    TradingOperation, ValueRef,
+    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation, ValueRef,
 };
 use x3_lang_vm::trading::{
     fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionMode, HostError,
