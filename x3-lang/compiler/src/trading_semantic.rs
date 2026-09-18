@@ -291,7 +291,7 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
             TradeStmt::RequireMinNetProfit { amount } => {
                 validate_amount(amount, &symbols.assets, "net_profit", span, errors);
             }
-            TradeStmt::RequireAllDebtsRepaid | TradeStmt::EmitReceipt => {}
+            TradeStmt::RequireAllDebtsRepaid | TradeStmt::AssertInvariant { .. } | TradeStmt::EmitReceipt => {}
         }
     }
 }

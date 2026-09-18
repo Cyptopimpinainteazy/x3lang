@@ -4,9 +4,8 @@ use std::collections::BTreeSet;
 
 use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
 use x3_lang_vm::trading::{
-    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost,
-    ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost,
-    TradingVm,
+    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode,
+    HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [7u8; 32];
@@ -34,6 +33,11 @@ struct FixtureHost {
     borrow_fee: u128,
     commitment: [u8; 32],
     execution_cost: u128,
+    /// Asset the fixture-reported execution cost is denominated in.
+    /// Defaults to USDC (the settlement asset `ops()` already touches);
+    /// tests can point it at an asset the trade never otherwise credits
+    /// or debits, to prove costs there are still caught.
+    execution_cost_asset: Option<AssetKey>,
     began: bool,
     committed: bool,
     rolled_back: bool,
@@ -47,6 +51,7 @@ impl FixtureHost {
             borrow_fee: 0,
             commitment: COMMITMENT,
             execution_cost: 0,
+            execution_cost_asset: None,
             began: false,
             committed: false,
             rolled_back: false,
@@ -110,7 +115,7 @@ impl TradingHost for FixtureHost {
             return Ok(Vec::new());
         }
         Ok(vec![CommittedCost {
-            asset: asset("USDC"),
+            asset: self.execution_cost_asset.clone().unwrap_or_else(|| asset("USDC")),
             amount: self.execution_cost,
             kind: "gas".to_string(),
         }])
@@ -127,6 +132,7 @@ fn ops() -> Vec<TradingOperation> {
                 chain: "ethereum".to_string(),
                 max_slippage_bps: 30,
                 max_gas: 1_000_000,
+                max_gas_asset: asset("USDC"),
                 max_flash_fee_bps: 10,
                 deadline_blocks: 10,
                 require_private_submission: false,
@@ -169,10 +175,7 @@ fn ops() -> Vec<TradingOperation> {
 }
 
 fn context(mode: ExecutionMode) -> TradeExecutionContext {
-    TradeExecutionContext {
-        mode,
-        current_block: 1,
-    }
+    TradeExecutionContext { mode, current_block: 1 }
 }
 
 #[test]
@@ -295,7 +298,6 @@ fn low_net_profit_rolls_back() {
     assert_eq!(vm.trading_state, before);
 }
 
-
 #[test]
 fn host_transaction_commits_only_after_vm_success() {
     let mut vm = TradingVm::new();
@@ -327,7 +329,11 @@ fn host_transaction_rolls_back_on_vm_rejection() {
 fn host_execution_costs_are_applied_before_profit_guard() {
     let mut vm = TradingVm::new();
     let mut host = FixtureHost::new();
-    host.execution_cost = 1_100_000;
+    // ops()'s baseline profit is exactly the 1_000_000 floor with zero extra
+    // cost, so any positive cost pushes it below the floor. Kept well under
+    // the 1_000_000 max_gas ceiling so this test isolates the profit-guard
+    // behavior specifically, not gas_ceiling_exceeded_rejects_* below.
+    host.execution_cost = 100;
 
     let err = vm
         .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
@@ -339,7 +345,6 @@ fn host_execution_costs_are_applied_before_profit_guard() {
     ));
     assert!(host.rolled_back);
 }
-
 
 #[test]
 fn compiled_policy_chain_mismatch_is_rejected_before_host_transaction() {
@@ -389,10 +394,7 @@ fn compiled_private_submission_requirement_is_enforced() {
         .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
         .expect_err("private submission is a compiled capability requirement");
 
-    assert_eq!(
-        err,
-        x3_lang_vm::trading::TradingExecError::PrivateSubmissionRequired
-    );
+    assert_eq!(err, x3_lang_vm::trading::TradingExecError::PrivateSubmissionRequired);
     assert!(!host.began);
 }
 
@@ -436,5 +438,163 @@ fn compiled_flash_fee_ceiling_cannot_be_relaxed_by_caller() {
     assert!(matches!(
         err,
         x3_lang_vm::trading::TradingExecError::FeeCeilingExceeded { ceiling_bps: 1, .. }
+    ));
+}
+
+/// `ops()` with an `AssertInvariant { kind: Solvent }` inserted right after
+/// the existing guards, before the all-debts/receipt/commit tail.
+fn ops_with_solvent_invariant() -> Vec<TradingOperation> {
+    let mut operations = ops();
+    let insert_at = operations
+        .iter()
+        .position(|op| matches!(op, TradingOperation::AssertAllDebtsClosed))
+        .expect("ops() fixture must contain AssertAllDebtsClosed");
+    operations.insert(
+        insert_at,
+        TradingOperation::AssertInvariant {
+            kind: x3_lang_compiler::ir::InvariantKind::Solvent,
+        },
+    );
+    operations
+}
+
+#[test]
+fn solvent_invariant_passes_when_every_touched_asset_nets_non_negative() {
+    let operations = ops_with_solvent_invariant();
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+
+    vm.execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect("fully repaid, zero-fee trade must satisfy the solvent invariant");
+}
+
+#[test]
+fn solvent_invariant_catches_hidden_cost_in_an_asset_the_trade_never_touches() {
+    let operations = ops_with_solvent_invariant();
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // Gas paid in ETH — an asset this trade never borrows, swaps, or repays,
+    // so nothing else would ever notice it went negative. The named
+    // settlement asset (USDC) still clears its own profit floor: this is
+    // exactly the gap a single-asset profit check can't see.
+    host.execution_cost = 5_000;
+    host.execution_cost_asset = Some(asset("ETH"));
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("a hidden cost in an untouched asset must violate the solvent invariant");
+
+    match err {
+        x3_lang_vm::trading::TradingExecError::InvariantViolated {
+            kind: x3_lang_compiler::ir::InvariantKind::Solvent,
+            asset,
+            deficit,
+        } => {
+            assert_eq!(asset.symbol, "ETH");
+            assert_eq!(deficit, -5_000);
+        }
+        other => panic!("expected InvariantViolated for ETH, got {other:?}"),
+    }
+    assert!(host.rolled_back, "insolvent trade must roll back the host transaction");
+}
+
+#[test]
+fn gas_ceiling_within_policy_still_commits() {
+    // A minimal trade with no profit/debt guards to check, isolating this
+    // test to gas-ceiling behavior specifically: cost exactly equal to the
+    // ceiling (the check is strictly `>`, not `>=`) must still commit.
+    let operations = vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: 100,
+                max_gas_asset: asset("USDC"),
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+            },
+        },
+        TradingOperation::CommitAtomicTrade,
+    ];
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.execution_cost = 100; // == policy.max_gas exactly, not over
+    host.execution_cost_asset = Some(asset("USDC"));
+
+    vm.execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect("gas cost exactly at the compiled ceiling must still commit");
+}
+
+#[test]
+fn gas_ceiling_exceeded_rejects_even_though_profit_and_debts_are_fine() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // Compiled ceiling in ops() is max_gas: 1_000_000 in USDC.
+    host.execution_cost = 1_000_001;
+    host.execution_cost_asset = Some(asset("USDC"));
+
+    let err = vm
+        .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("cost above the compiled max_gas ceiling must be rejected");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::GasCeilingExceeded {
+            asset: asset("USDC"),
+            ceiling: 1_000_000,
+            actual: 1_000_001,
+        }
+    );
+    assert!(
+        host.rolled_back,
+        "over-ceiling trade must roll back the host transaction"
+    );
+}
+
+#[test]
+fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
+    // A trade that skips both AssertMinNetProfit and AssertInvariant never
+    // calls accrue_host_execution_costs anywhere except the unconditional
+    // check CommitAtomicTrade itself performs. Prove that guarantee is real,
+    // not just documented in a comment.
+    let operations = vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: 100,
+                max_gas_asset: asset("USDC"),
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+            },
+        },
+        TradingOperation::CommitAtomicTrade,
+    ];
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.execution_cost = 101;
+    host.execution_cost_asset = Some(asset("USDC"));
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("commit must still enforce the gas ceiling with no other guards present");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::GasCeilingExceeded {
+            actual: 101,
+            ceiling: 100,
+            ..
+        }
     ));
 }

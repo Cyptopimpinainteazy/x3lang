@@ -63,6 +63,7 @@ fn trading_receipt_json(tamper: bool) -> String {
                 chain: "ethereum".to_string(),
                 max_slippage_bps: 30,
                 max_gas: 1_000_000,
+                max_gas_asset: asset.clone(),
                 max_flash_fee_bps: 10,
                 deadline_blocks: 10,
                 require_private_submission: false,

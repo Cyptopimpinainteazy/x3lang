@@ -46,8 +46,14 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         .body
         .iter()
         .find_map(|stmt| match stmt {
-            TradeStmt::Borrow { amount, .. } => symbols.assets.get(&amount.asset).map(|asset| asset.chain.as_str().to_string()),
-            TradeStmt::Swap { from_asset, .. } => symbols.assets.get(from_asset).map(|asset| asset.chain.as_str().to_string()),
+            TradeStmt::Borrow { amount, .. } => symbols
+                .assets
+                .get(&amount.asset)
+                .map(|asset| asset.chain.as_str().to_string()),
+            TradeStmt::Swap { from_asset, .. } => symbols
+                .assets
+                .get(from_asset)
+                .map(|asset| asset.chain.as_str().to_string()),
             _ => None,
         })
         .ok_or_else(|| LowerError {
@@ -55,6 +61,7 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         })?;
 
     let max_gas = literal_amount(&policy.max_gas, symbols, "policy max_gas")?;
+    let max_gas_asset = asset_key(&policy.max_gas.asset, symbols)?;
     let minimum_net_profit = match &policy.min_profit {
         Some(amount) => Some(literal_amount(amount, symbols, "policy min_profit")?),
         None => None,
@@ -67,6 +74,7 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         chain: policy_chain,
         max_slippage_bps: policy.max_slippage_bps,
         max_gas,
+        max_gas_asset,
         max_flash_fee_bps: policy.max_flash_fee_bps,
         deadline_blocks,
         require_private_submission: policy.require_private_submission,
@@ -121,6 +129,12 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
             }
             TradeStmt::RequireAllDebtsRepaid => {
                 operations.push(Operation::Trading(TradingOperation::AssertAllDebtsClosed));
+            }
+            TradeStmt::AssertInvariant { kind } => {
+                let ir_kind = match kind {
+                    x3_lang_ast::InvariantKind::Solvent => crate::ir::InvariantKind::Solvent,
+                };
+                operations.push(Operation::Trading(TradingOperation::AssertInvariant { kind: ir_kind }));
             }
             TradeStmt::EmitReceipt => {
                 has_receipt = true;

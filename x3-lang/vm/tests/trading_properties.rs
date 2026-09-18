@@ -5,8 +5,8 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
 use x3_lang_vm::trading::{
-    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionMode,
-    HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
+    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionMode, HostError,
+    RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [3u8; 32];
@@ -77,6 +77,7 @@ fn operations() -> Vec<TradingOperation> {
                 chain: "ethereum".to_string(),
                 max_slippage_bps: 30,
                 max_gas: u128::MAX,
+                max_gas_asset: asset("USDC"),
                 max_flash_fee_bps: 10,
                 deadline_blocks: 10,
                 require_private_submission: false,

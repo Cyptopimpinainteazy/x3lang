@@ -486,7 +486,7 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
-            TRADING_BEGIN..=TRADING_ABORT => {
+            TRADING_BEGIN..=TRADING_ASSERT_INVARIANT => {
                 let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
                     Ok(p) => p.to_vec(),
                     Err(e) => {

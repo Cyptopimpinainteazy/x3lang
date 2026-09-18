@@ -6,12 +6,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use ed25519_dalek::SigningKey;
 
 use x3_lang_ast::Item;
+use x3_lang_compiler::emitter::decode_trading_program;
 use x3_lang_compiler::parser::parse_source;
 use x3_lang_compiler::{
     analyze_trading, check_source_with_mode, compile_program, lower_atomic_trade, verify_trading_program,
     CompilationMode,
 };
-use x3_lang_compiler::emitter::decode_trading_program;
 use x3_lang_vm::trading::{
     build_receipt, fixture_manifest, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult,
     CapabilityManifest, CommittedCost, ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult,
@@ -30,6 +30,11 @@ impl FixtureVenueHost {
         let mut manifest = fixture_manifest(COMMITMENT);
         manifest.providers = BTreeSet::from(["aave_v3".to_string()]);
         manifest.venues = BTreeSet::from(["uniswap_v3".to_string(), "sushiswap".to_string()]);
+        // MainnetArb (examples/trading_core_v1.x3) declares require_private_submission:
+        // true. This fixture claims that capability so the happy-path test can exercise
+        // a genuine full commit; the negative case (fixture that does NOT claim it) is
+        // already covered by mainnet_audit_reports_missing_private_submission_capability.
+        manifest.private_submission = true;
         Self { manifest }
     }
 }
@@ -76,10 +81,7 @@ impl TradingHost for FixtureVenueHost {
 }
 
 fn execution_context(mode: ExecutionMode) -> TradeExecutionContext {
-    TradeExecutionContext {
-        mode,
-        current_block: 1,
-    }
+    TradeExecutionContext { mode, current_block: 1 }
 }
 
 #[test]
@@ -108,11 +110,7 @@ fn trading_core_v1_pipeline_executes_and_verifies_receipt() {
     let mut vm = TradingVm::new();
     let mut host = FixtureVenueHost::new();
     let execution = vm
-        .execute_atomic(
-            &decoded,
-            &mut host,
-            execution_context(ExecutionMode::Development),
-        )
+        .execute_atomic(&decoded, &mut host, execution_context(ExecutionMode::Development))
         .expect("decoded-bytecode fixture execution must commit");
 
     let settlement = x3_lang_compiler::AssetKey {
@@ -136,10 +134,7 @@ fn trading_core_v1_pipeline_executes_and_verifies_receipt() {
     .expect("receipt must build");
     let signing_key = SigningKey::from_bytes(&[9u8; 32]);
     let receipt = sign_receipt(receipt, "e2e-executor", &signing_key).expect("receipt must sign");
-    let trusted = BTreeMap::from([(
-        "e2e-executor".to_string(),
-        signing_key.verifying_key().to_bytes(),
-    )]);
+    let trusted = BTreeMap::from([("e2e-executor".to_string(), signing_key.verifying_key().to_bytes())]);
     verify_receipt_trusted(&receipt, &trusted).expect("signed receipt must verify");
     assert!(receipt
         .realized_net_profit
@@ -185,7 +180,6 @@ fn mainnet_audit_reports_missing_private_submission_capability() {
         "mainnet audit must report the missing private-submission capability: {errors:?}"
     );
 }
-
 
 #[test]
 fn malformed_trading_bytecode_fails_closed_before_execution() {

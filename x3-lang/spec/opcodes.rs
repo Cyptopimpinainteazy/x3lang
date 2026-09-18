@@ -76,6 +76,7 @@ pub const TRADING_ASSERT_ALL_DEBTS: u8 = 0xB5;
 pub const TRADING_EMIT_RECEIPT: u8 = 0xB6;
 pub const TRADING_COMMIT: u8 = 0xB7;
 pub const TRADING_ABORT: u8 = 0xB8;
+pub const TRADING_ASSERT_INVARIANT: u8 = 0xB9;
 
 pub const NOP: u8 = 0x00;
 pub const BYTECODE_VERSION_1: u8 = 0x01;

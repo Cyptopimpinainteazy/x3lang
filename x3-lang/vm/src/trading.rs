@@ -4,14 +4,14 @@
 //! readiness. Venue and provider behavior is supplied through an explicit
 //! [`TradingHost`] capability implementation.
 
-use std::collections::{BTreeMap, BTreeSet};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, InvariantKind, TradingOperation, ValueRef};
 
 /// Whether a capability manifest represents deterministic fixtures or a real
 /// production integration.
@@ -156,22 +156,50 @@ pub trait TradingHost {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TradingExecError {
     NonProductionCapability,
-    CapabilityChainMismatch { expected: String, actual: String },
-    CapabilityVersionMismatch { expected: u16, actual: String },
+    CapabilityChainMismatch {
+        expected: String,
+        actual: String,
+    },
+    CapabilityVersionMismatch {
+        expected: u16,
+        actual: String,
+    },
     PrivateSubmissionRequired,
     UnknownCapability(String),
     UnsupportedOperation(String),
     InvalidSequence(String),
     HostRejected(HostError),
     AssetMismatch(String),
-    OutputBelowMinOut { minimum: u128, actual: u128 },
+    OutputBelowMinOut {
+        minimum: u128,
+        actual: u128,
+    },
     StateCommitmentMismatch,
-    DeadlineExpired { current: u64, deadline: u64 },
-    FeeCeilingExceeded { ceiling_bps: u16, actual_bps: u128 },
+    DeadlineExpired {
+        current: u64,
+        deadline: u64,
+    },
+    FeeCeilingExceeded {
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
     OpenDebtAtCommit(String),
-    NetProfitBelowFloor { minimum: u128, actual: u128 },
+    NetProfitBelowFloor {
+        minimum: u128,
+        actual: u128,
+    },
     MissingReceipt,
     AccountingOverflow,
+    InvariantViolated {
+        kind: InvariantKind,
+        asset: AssetKey,
+        deficit: i128,
+    },
+    GasCeilingExceeded {
+        asset: AssetKey,
+        ceiling: u128,
+        actual: u128,
+    },
 }
 
 impl fmt::Display for TradingExecError {
@@ -179,10 +207,16 @@ impl fmt::Display for TradingExecError {
         match self {
             Self::NonProductionCapability => write!(f, "production execution rejected fixture capabilities"),
             Self::CapabilityChainMismatch { expected, actual } => {
-                write!(f, "compiled policy chain '{expected}' does not match host chain '{actual}'")
+                write!(
+                    f,
+                    "compiled policy chain '{expected}' does not match host chain '{actual}'"
+                )
             }
             Self::CapabilityVersionMismatch { expected, actual } => {
-                write!(f, "compiled policy version {expected} is not supported by host version '{actual}'")
+                write!(
+                    f,
+                    "compiled policy version {expected} is not supported by host version '{actual}'"
+                )
             }
             Self::PrivateSubmissionRequired => write!(f, "compiled policy requires private submission capability"),
             Self::UnknownCapability(capability) => write!(f, "unknown capability '{capability}'"),
@@ -209,6 +243,18 @@ impl fmt::Display for TradingExecError {
             }
             Self::MissingReceipt => write!(f, "borrowed-capital trade did not emit a receipt"),
             Self::AccountingOverflow => write!(f, "checked trading accounting overflowed"),
+            Self::InvariantViolated { kind, asset, deficit } => write!(
+                f,
+                "invariant '{}' violated: {} nets to a deficit of {}",
+                kind.as_str(),
+                asset.symbol,
+                -deficit
+            ),
+            Self::GasCeilingExceeded { asset, ceiling, actual } => write!(
+                f,
+                "accrued {} cost {actual} exceeds compiled max_gas ceiling {ceiling}",
+                asset.symbol
+            ),
         }
     }
 }
@@ -315,7 +361,7 @@ impl TradingVm {
         &mut self,
         operations: &[TradingOperation],
         host: &mut dyn TradingHost,
-        context: TradeExecutionContext,
+        _context: TradeExecutionContext,
     ) -> Result<TradeExecution, TradingExecError> {
         let mut saw_commit = false;
         for operation in operations {
@@ -476,6 +522,22 @@ impl TradingVm {
                         return Err(TradingExecError::OpenDebtAtCommit(debt.clone()));
                     }
                 }
+                TradingOperation::AssertInvariant { kind } => {
+                    self.accrue_host_execution_costs(host)?;
+                    match kind {
+                        InvariantKind::Solvent => {
+                            if let Some((asset, deficit)) =
+                                self.trading_state.net_deltas.iter().find(|(_, delta)| **delta < 0)
+                            {
+                                return Err(TradingExecError::InvariantViolated {
+                                    kind: *kind,
+                                    asset: asset.clone(),
+                                    deficit: *deficit,
+                                });
+                            }
+                        }
+                    }
+                }
                 TradingOperation::EmitTradeReceipt => {
                     self.trading_state.receipt_emitted = true;
                 }
@@ -483,6 +545,13 @@ impl TradingVm {
                     if let Some((debt, _)) = self.trading_state.open_debts.iter().next() {
                         return Err(TradingExecError::OpenDebtAtCommit(debt.clone()));
                     }
+                    // Guaranteed, not conditional: a trade using a
+                    // policy-level minimum_net_profit instead of an
+                    // explicit `require net_profit`/`invariant solvent`
+                    // statement would otherwise never call
+                    // accrue_host_execution_costs, and the gas ceiling
+                    // would silently never be checked.
+                    self.accrue_host_execution_costs(host)?;
                     self.trading_state.committed = true;
                     saw_commit = true;
                 }
@@ -569,6 +638,28 @@ impl TradingVm {
             if cost.amount > already {
                 self.accrue_cost(&cost.asset, cost.amount - already)?;
             }
+        }
+        self.enforce_gas_ceiling()
+    }
+
+    /// Compiled `max_gas` used to be dead metadata — parsed, carried through
+    /// IR, never actually checked against anything. This is the actual
+    /// enforcement: total accrued cost in the policy's declared gas asset
+    /// must not exceed the compiled ceiling.
+    fn enforce_gas_ceiling(&self) -> Result<(), TradingExecError> {
+        let policy = self.compiled_policy();
+        let actual = self
+            .trading_state
+            .costs
+            .get(&policy.max_gas_asset)
+            .copied()
+            .unwrap_or(0);
+        if actual > policy.max_gas {
+            return Err(TradingExecError::GasCeilingExceeded {
+                asset: policy.max_gas_asset.clone(),
+                ceiling: policy.max_gas,
+                actual,
+            });
         }
         Ok(())
     }
@@ -791,12 +882,8 @@ pub fn verify_receipt(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
     Ok(())
 }
 
-
 pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
-    let first = receipt
-        .operations
-        .first()
-        .ok_or(ReceiptError::EmptyOperationList)?;
+    let first = receipt.operations.first().ok_or(ReceiptError::EmptyOperationList)?;
     let (trade_id, compiled_policy) = match first {
         TradingOperation::BeginAtomicTrade { trade_id, policy } => (trade_id, policy),
         _ => {
@@ -862,6 +949,7 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 }
                 saw_all_debts_guard = true;
             }
+            TradingOperation::AssertInvariant { .. } => {}
             TradingOperation::EmitTradeReceipt => saw_receipt_emit = true,
             TradingOperation::CommitAtomicTrade => {}
             TradingOperation::AbortAtomicTrade => {
@@ -925,18 +1013,19 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
     let mut deltas: BTreeMap<AssetKey, i128> = BTreeMap::new();
     for delta in &receipt.deltas {
         let entry = deltas.entry(delta.asset.clone()).or_insert(0);
-        *entry = entry.checked_add(delta.delta).ok_or_else(|| {
-            ReceiptError::EconomicReplayMismatch("delta overflow".to_string())
-        })?;
+        *entry = entry
+            .checked_add(delta.delta)
+            .ok_or_else(|| ReceiptError::EconomicReplayMismatch("delta overflow".to_string()))?;
     }
 
     for cost in &receipt.costs {
         let entry = deltas.entry(cost.asset.clone()).or_insert(0);
-        *entry = entry.checked_add(i128::try_from(cost.amount).map_err(|_| {
-            ReceiptError::EconomicReplayMismatch("cost conversion overflow".to_string())
-        })?).ok_or_else(|| {
-            ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string())
-        })?;
+        *entry = entry
+            .checked_add(
+                i128::try_from(cost.amount)
+                    .map_err(|_| ReceiptError::EconomicReplayMismatch("cost conversion overflow".to_string()))?,
+            )
+            .ok_or_else(|| ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string()))?;
     }
 
     if let Some(profit) = &receipt.realized_net_profit {
@@ -1067,9 +1156,8 @@ pub fn build_receipt(
                 let raw = state.net_deltas.get(asset).copied().unwrap_or(0).max(0);
                 Some(TypedReceiptAmount {
                     asset: asset.clone(),
-                    amount: u128::try_from(raw).map_err(|_| {
-                        ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string())
-                    })?,
+                    amount: u128::try_from(raw)
+                        .map_err(|_| ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string()))?,
                 })
             }
             None => None,

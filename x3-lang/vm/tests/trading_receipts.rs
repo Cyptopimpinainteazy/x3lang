@@ -29,6 +29,7 @@ fn operations() -> Vec<TradingOperation> {
                 chain: "ethereum".to_string(),
                 max_slippage_bps: 30,
                 max_gas: 1_000_000,
+                max_gas_asset: asset("USDC"),
                 max_flash_fee_bps: 10,
                 deadline_blocks: 10,
                 require_private_submission: false,
@@ -182,7 +183,6 @@ fn deltas_and_costs_use_ordered_vectors() {
     assert!(receipt.costs.is_empty());
 }
 
-
 fn signing_key() -> SigningKey {
     SigningKey::from_bytes(&[7u8; 32])
 }
@@ -196,8 +196,7 @@ fn signed_receipt_verifies_against_explicit_trust_store() {
     let key = signing_key();
     let receipt = sign_receipt(sample_receipt(), "executor-1", &key).expect("receipt must sign");
 
-    verify_receipt_trusted(&receipt, &trusted_keys(&key))
-        .expect("trusted signed receipt must verify");
+    verify_receipt_trusted(&receipt, &trusted_keys(&key)).expect("trusted signed receipt must verify");
 }
 
 #[test]
@@ -227,7 +226,10 @@ fn economic_replay_rejects_forged_reported_profit_even_with_rehashed_receipt() {
     receipt.realized_net_profit.as_mut().unwrap().amount += 1;
     let receipt = finalize_receipt(receipt).expect("attacker can recompute a plain checksum");
 
-    assert!(verify_receipt(&receipt).is_ok(), "plain checksum alone cannot prove economics");
+    assert!(
+        verify_receipt(&receipt).is_ok(),
+        "plain checksum alone cannot prove economics"
+    );
     assert!(matches!(
         verify_receipt_economics(&receipt),
         Err(ReceiptError::EconomicReplayMismatch(_))

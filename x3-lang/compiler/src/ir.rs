@@ -366,6 +366,10 @@ pub struct CompiledTradingPolicy {
     pub chain: String,
     pub max_slippage_bps: u16,
     pub max_gas: u128,
+    /// Asset `max_gas` is denominated in. Without this, `max_gas` is an
+    /// unenforceable bare number: the VM has no way to know which of a
+    /// trade's several accrued costs it's supposed to cap.
+    pub max_gas_asset: AssetKey,
     pub max_flash_fee_bps: u16,
     pub deadline_blocks: u64,
     pub require_private_submission: bool,
@@ -402,9 +406,30 @@ pub enum TradingOperation {
         minimum: u128,
     },
     AssertAllDebtsClosed,
+    AssertInvariant {
+        kind: InvariantKind,
+    },
     EmitTradeReceipt,
     CommitAtomicTrade,
     AbortAtomicTrade,
+}
+
+/// IR-level mirror of `x3_lang_ast::InvariantKind`. Kept as its own type
+/// (matching how `AssetKey`/`CompiledTradingPolicy` mirror their AST
+/// counterparts) so bytecode encoding stays stable independent of AST shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum InvariantKind {
+    /// Every asset touched by the trade nets to a non-negative delta at
+    /// commit time.
+    Solvent,
+}
+
+impl InvariantKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InvariantKind::Solvent => "solvent",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

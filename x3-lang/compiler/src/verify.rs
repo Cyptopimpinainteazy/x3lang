@@ -345,7 +345,6 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
     }
 }
 
-
 #[derive(Default)]
 struct TradingSequenceState {
     began: bool,
@@ -357,6 +356,7 @@ struct TradingSequenceState {
     open_debts: BTreeMap<String, AssetKey>,
     closed_debts: BTreeSet<String>,
     bindings: BTreeMap<String, AssetKey>,
+    invariant_guards_seen: BTreeSet<crate::ir::InvariantKind>,
 }
 
 fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
@@ -398,9 +398,7 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                 }
                 state.began = true;
             }
-            TradingOperation::OpenDebt {
-                debt_id, asset, ..
-            } => {
+            TradingOperation::OpenDebt { debt_id, asset, .. } => {
                 require_trade_started(&state, &op_context, diagnostics);
                 if state.open_debts.contains_key(debt_id) || state.closed_debts.contains(debt_id) {
                     push_unsafe(
@@ -432,10 +430,7 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                     ValueRef::Binding(name) => {
                         if let Some((debt_id, field)) = name.split_once('.') {
                             if field != "amount" {
-                                push_unsafe(
-                                    diagnostics,
-                                    format!("{op_context}: unsupported debt binding '{name}'"),
-                                );
+                                push_unsafe(diagnostics, format!("{op_context}: unsupported debt binding '{name}'"));
                             }
                             match state.open_debts.get(debt_id) {
                                 Some(asset) if asset == from => {}
@@ -514,10 +509,7 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                     );
                 }
                 if state.profit_guard_seen {
-                    push_unsafe(
-                        diagnostics,
-                        format!("{op_context}: duplicate minimum-profit guard"),
-                    );
+                    push_unsafe(diagnostics, format!("{op_context}: duplicate minimum-profit guard"));
                 }
                 state.profit_guard_seen = true;
             }
@@ -539,21 +531,34 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                     );
                 }
                 if state.all_debts_guard_seen {
-                    push_unsafe(
-                        diagnostics,
-                        format!("{op_context}: duplicate all-debts guard"),
-                    );
+                    push_unsafe(diagnostics, format!("{op_context}: duplicate all-debts guard"));
                 }
                 state.all_debts_guard_seen = true;
+            }
+            TradingOperation::AssertInvariant { kind } => {
+                require_trade_started(&state, &op_context, diagnostics);
+                if state.receipt_seen || state.committed {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: invariant '{}' must precede receipt/commit",
+                            kind.as_str()
+                        ),
+                    );
+                }
+                if !state.invariant_guards_seen.insert(*kind) {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: duplicate invariant guard '{}'", kind.as_str()),
+                    );
+                }
             }
             TradingOperation::EmitTradeReceipt => {
                 require_trade_started(&state, &op_context, diagnostics);
                 if !state.profit_guard_seen || !state.all_debts_guard_seen {
                     push_unsafe(
                         diagnostics,
-                        format!(
-                            "{op_context}: receipt must follow minimum-profit and all-debts guards"
-                        ),
+                        format!("{op_context}: receipt must follow minimum-profit and all-debts guards"),
                     );
                 }
                 if state.receipt_seen {
@@ -564,10 +569,7 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
             TradingOperation::CommitAtomicTrade => {
                 require_trade_started(&state, &op_context, diagnostics);
                 if !state.open_debts.is_empty() {
-                    push_unsafe(
-                        diagnostics,
-                        format!("{op_context}: commit with open debts"),
-                    );
+                    push_unsafe(diagnostics, format!("{op_context}: commit with open debts"));
                 }
                 if !state.profit_guard_seen {
                     push_unsafe(
@@ -576,16 +578,10 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                     );
                 }
                 if !state.all_debts_guard_seen {
-                    push_unsafe(
-                        diagnostics,
-                        format!("{op_context}: commit missing all-debts guard"),
-                    );
+                    push_unsafe(diagnostics, format!("{op_context}: commit missing all-debts guard"));
                 }
                 if !state.receipt_seen {
-                    push_unsafe(
-                        diagnostics,
-                        format!("{op_context}: commit missing receipt"),
-                    );
+                    push_unsafe(diagnostics, format!("{op_context}: commit missing receipt"));
                 }
                 if index + 1 != trading.len() {
                     push_unsafe(
@@ -599,10 +595,7 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                 require_trade_started(&state, &op_context, diagnostics);
                 state.aborted = true;
                 if index + 1 != trading.len() {
-                    push_unsafe(
-                        diagnostics,
-                        format!("{op_context}: AbortAtomicTrade must be terminal"),
-                    );
+                    push_unsafe(diagnostics, format!("{op_context}: AbortAtomicTrade must be terminal"));
                 }
             }
         }
@@ -622,11 +615,7 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
     }
 }
 
-fn require_trade_started(
-    state: &TradingSequenceState,
-    context: &str,
-    diagnostics: &mut Vec<CompilerDiagnostic>,
-) {
+fn require_trade_started(state: &TradingSequenceState, context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
     if !state.began {
         push_unsafe(
             diagnostics,
@@ -642,16 +631,26 @@ fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnosti
             require_non_empty(diagnostics, context, "policy.policy_id", &policy.policy_id);
             require_non_empty(diagnostics, context, "policy.chain", &policy.chain);
             if policy.policy_version == 0 {
-                push_unsafe(diagnostics, format!("{context}: policy version must be greater than zero"));
+                push_unsafe(
+                    diagnostics,
+                    format!("{context}: policy version must be greater than zero"),
+                );
             }
             if policy.max_slippage_bps > 10_000 {
                 push_unsafe(diagnostics, format!("{context}: policy max_slippage_bps exceeds 10000"));
             }
+            verify_asset_key(&policy.max_gas_asset, context, "policy.max_gas_asset", diagnostics);
             if policy.max_flash_fee_bps > 10_000 {
-                push_unsafe(diagnostics, format!("{context}: policy max_flash_fee_bps exceeds 10000"));
+                push_unsafe(
+                    diagnostics,
+                    format!("{context}: policy max_flash_fee_bps exceeds 10000"),
+                );
             }
             if policy.deadline_blocks == 0 {
-                push_unsafe(diagnostics, format!("{context}: policy deadline_blocks must be greater than zero"));
+                push_unsafe(
+                    diagnostics,
+                    format!("{context}: policy deadline_blocks must be greater than zero"),
+                );
             }
         }
         TradingOperation::OpenDebt {
@@ -702,6 +701,7 @@ fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnosti
             }
         }
         TradingOperation::AssertAllDebtsClosed
+        | TradingOperation::AssertInvariant { .. }
         | TradingOperation::EmitTradeReceipt
         | TradingOperation::CommitAtomicTrade
         | TradingOperation::AbortAtomicTrade => {}

@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use x3_lang_compiler::diagnostic::DiagnosticCode;
-use x3_lang_compiler::ir::{AssetKey, FailureAction, Operation, ProgramMetadata, TradingOperation, ValueRef, X3IR};
+use x3_lang_compiler::ir::{
+    AssetKey, CompiledTradingPolicy, FailureAction, InvariantKind, Operation, ProgramMetadata, TradingOperation,
+    ValueRef, X3IR,
+};
 use x3_lang_compiler::verify::verify_ir;
 
 fn codes(ir: &X3IR) -> Vec<DiagnosticCode> {
@@ -107,7 +110,6 @@ fn recursively_rejects_unsafe_nested_control_flow() {
     assert_eq!(codes(&ir), vec![DiagnosticCode::UnsafeIr]);
 }
 
-
 fn asset(symbol: &str) -> AssetKey {
     AssetKey {
         vm_family: "evm".to_owned(),
@@ -122,11 +124,26 @@ fn trading_ir(ops: Vec<TradingOperation>) -> X3IR {
     ir_with(ops.into_iter().map(Operation::Trading).collect())
 }
 
+fn compiled_policy(id: &str) -> CompiledTradingPolicy {
+    CompiledTradingPolicy {
+        policy_id: id.to_owned(),
+        policy_version: 1,
+        chain: "ethereum".to_owned(),
+        max_slippage_bps: 30,
+        max_gas: 1_000_000,
+        max_gas_asset: asset("USDC"),
+        max_flash_fee_bps: 10,
+        deadline_blocks: 10,
+        require_private_submission: false,
+        minimum_net_profit: None,
+    }
+}
+
 fn valid_trading_ops() -> Vec<TradingOperation> {
     vec![
         TradingOperation::BeginAtomicTrade {
             trade_id: "T".to_owned(),
-            policy_id: "P".to_owned(),
+            policy: compiled_policy("P"),
         },
         TradingOperation::OpenDebt {
             debt_id: "debt".to_owned(),
@@ -183,7 +200,7 @@ fn rejects_duplicate_trading_begin() {
         1,
         TradingOperation::BeginAtomicTrade {
             trade_id: "T2".to_owned(),
-            policy_id: "P".to_owned(),
+            policy: compiled_policy("P"),
         },
     );
     assert!(verify_ir(&trading_ir(ops)).is_err());
@@ -249,5 +266,70 @@ fn rejects_missing_all_debts_guard() {
 fn rejects_multiple_commits() {
     let mut ops = valid_trading_ops();
     ops.push(TradingOperation::CommitAtomicTrade);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn accepts_invariant_guard_before_receipt() {
+    let mut ops = valid_trading_ops();
+    let receipt_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::EmitTradeReceipt))
+        .expect("fixture must emit a receipt");
+    ops.insert(
+        receipt_index,
+        TradingOperation::AssertInvariant {
+            kind: InvariantKind::Solvent,
+        },
+    );
+    assert!(verify_ir(&trading_ir(ops)).is_ok());
+}
+
+#[test]
+fn rejects_invariant_guard_after_receipt() {
+    let mut ops = valid_trading_ops();
+    let receipt_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::EmitTradeReceipt))
+        .expect("fixture must emit a receipt");
+    ops.insert(
+        receipt_index + 1,
+        TradingOperation::AssertInvariant {
+            kind: InvariantKind::Solvent,
+        },
+    );
+    assert_eq!(codes(&trading_ir(ops)), vec![DiagnosticCode::UnsafeIr]);
+}
+
+#[test]
+fn rejects_duplicate_invariant_guard() {
+    let mut ops = valid_trading_ops();
+    let receipt_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::EmitTradeReceipt))
+        .expect("fixture must emit a receipt");
+    ops.insert(
+        receipt_index,
+        TradingOperation::AssertInvariant {
+            kind: InvariantKind::Solvent,
+        },
+    );
+    ops.insert(
+        receipt_index,
+        TradingOperation::AssertInvariant {
+            kind: InvariantKind::Solvent,
+        },
+    );
+    assert_eq!(codes(&trading_ir(ops)), vec![DiagnosticCode::UnsafeIr]);
+}
+
+#[test]
+fn rejects_invariant_guard_before_trade_begins() {
+    let ops = vec![TradingOperation::AssertInvariant {
+        kind: InvariantKind::Solvent,
+    }];
+    // A lone invariant with no BeginAtomicTrade/CommitAtomicTrade trips more
+    // than one structural rule (unstarted trade, no terminal commit/abort);
+    // this test only cares that it's rejected, not the exact diagnostic count.
     assert!(verify_ir(&trading_ir(ops)).is_err());
 }

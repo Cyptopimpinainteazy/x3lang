@@ -215,6 +215,10 @@ impl X3Formatter {
             TradeStmt::RequireAllDebtsRepaid => {
                 self.write("require all_debts_repaid");
             }
+            TradeStmt::AssertInvariant { kind } => {
+                self.write("invariant ");
+                self.write(kind.as_str());
+            }
             TradeStmt::EmitReceipt => {
                 self.write("emit receipt");
             }
