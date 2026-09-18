@@ -1080,7 +1080,10 @@ pub struct ReceiptAttestation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReceiptError {
     Encoding(String),
-    HashMismatch { expected: [u8; 32], actual: [u8; 32] },
+    HashMismatch {
+        expected: [u8; 32],
+        actual: [u8; 32],
+    },
     OpenDebtInSuccessfulReceipt(String),
     ProfitInFailedReceipt,
     EmptyOperationList,
@@ -1088,6 +1091,13 @@ pub enum ReceiptError {
     MissingAttestation,
     UntrustedAttestor(String),
     InvalidAttestation,
+    /// This exact receipt (by `receipt_hash`) has already been accepted by
+    /// this `ReceiptReplayLedger` once before. Distinct from
+    /// `EconomicReplayMismatch`, which is about re-deriving a receipt's
+    /// reported numbers from its own operations — this is about the same
+    /// valid, correctly signed receipt being presented for settlement a
+    /// second time.
+    ReceiptAlreadySettled([u8; 32]),
 }
 
 impl fmt::Display for ReceiptError {
@@ -1106,6 +1116,9 @@ impl fmt::Display for ReceiptError {
             Self::MissingAttestation => write!(f, "receipt is missing a trusted attestation"),
             Self::UntrustedAttestor(key_id) => write!(f, "receipt attestor '{key_id}' is not trusted"),
             Self::InvalidAttestation => write!(f, "receipt attestation signature is invalid"),
+            Self::ReceiptAlreadySettled(hash) => {
+                write!(f, "receipt {hash:?} has already been settled once")
+            }
         }
     }
 }
@@ -1378,6 +1391,56 @@ pub fn verify_receipt_trusted(
     verify_receipt(receipt)?;
     verify_receipt_economics(receipt)?;
     verify_receipt_attestation(receipt, trusted_keys)
+}
+
+/// Replay protection for receipt settlement.
+///
+/// `verify_receipt_trusted` alone checks that a receipt is well-formed,
+/// economically consistent, and signed by a trusted key — but it is a pure
+/// function with no memory: the identical valid, correctly signed receipt
+/// verifies successfully every single time it's presented. A settlement
+/// service that used `verify_receipt_trusted` as its sole admission check
+/// would accept (and presumably act on) the same trade's receipt twice.
+///
+/// This ledger closes that gap: it wraps `verify_receipt_trusted` with a
+/// record of every `receipt_hash` already accepted, so the second
+/// presentation of an identical receipt is rejected even though every
+/// other check about it still passes. It is deliberately not persisted or
+/// distributed by this crate — a real settlement service is expected to
+/// back this (or an equivalent check) with whatever durable, possibly
+/// shared storage its deployment actually needs; this type documents and
+/// enforces the invariant in-process.
+#[derive(Debug, Clone, Default)]
+pub struct ReceiptReplayLedger {
+    seen: BTreeSet<[u8; 32]>,
+}
+
+impl ReceiptReplayLedger {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Verify `receipt` exactly as `verify_receipt_trusted` does, and
+    /// additionally reject it if this ledger has already accepted the same
+    /// `receipt_hash`. On success, the hash is recorded, so a later replay
+    /// of the identical receipt is rejected even though it would otherwise
+    /// still pass every other check.
+    pub fn verify_and_record(
+        &mut self,
+        receipt: &TradeReceipt,
+        trusted_keys: &BTreeMap<String, [u8; 32]>,
+    ) -> Result<(), ReceiptError> {
+        verify_receipt_trusted(receipt, trusted_keys)?;
+        if !self.seen.insert(receipt.receipt_hash) {
+            return Err(ReceiptError::ReceiptAlreadySettled(receipt.receipt_hash));
+        }
+        Ok(())
+    }
+
+    /// Whether `receipt_hash` has already been accepted by this ledger.
+    pub fn has_settled(&self, receipt_hash: &[u8; 32]) -> bool {
+        self.seen.contains(receipt_hash)
+    }
 }
 
 /// Build and finalize a canonical receipt from an execution result.

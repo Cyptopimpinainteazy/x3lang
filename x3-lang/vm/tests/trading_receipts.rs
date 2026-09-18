@@ -8,7 +8,7 @@ use x3_lang_compiler::ir::{
 };
 use x3_lang_vm::trading::{
     build_receipt, canonical_receipt_bytes, finalize_receipt, sign_receipt, verify_receipt, verify_receipt_economics,
-    verify_receipt_trusted, DebtRecord, ReceiptError, TradeOutcome, TradingState,
+    verify_receipt_trusted, DebtRecord, ReceiptError, ReceiptReplayLedger, TradeOutcome, TradingState,
 };
 
 fn asset(symbol: &str) -> AssetKey {
@@ -268,4 +268,86 @@ fn trusted_verification_rejects_resigned_economically_invalid_receipt() {
         verify_receipt_trusted(&receipt, &trusted_keys(&key)),
         Err(ReceiptError::EconomicReplayMismatch(_))
     ));
+}
+
+#[test]
+fn replay_ledger_rejects_the_identical_receipt_presented_twice() {
+    // Without a ReceiptReplayLedger, verify_receipt_trusted alone accepts
+    // the exact same signed receipt every time it's checked — it's a pure
+    // function with no memory of what it has already verified. This is
+    // exactly the gap a settlement layer needs closed: the same trade must
+    // not be settleable twice just because its receipt is still valid.
+    let key = signing_key();
+    let receipt = sign_receipt(sample_receipt(), "executor-1", &key).expect("receipt must sign");
+    let mut ledger = ReceiptReplayLedger::new();
+
+    ledger
+        .verify_and_record(&receipt, &trusted_keys(&key))
+        .expect("first presentation of a valid receipt must be accepted");
+    assert!(ledger.has_settled(&receipt.receipt_hash));
+
+    let err = ledger
+        .verify_and_record(&receipt, &trusted_keys(&key))
+        .expect_err("presenting the identical receipt again must be rejected as a replay");
+    assert_eq!(err, ReceiptError::ReceiptAlreadySettled(receipt.receipt_hash));
+}
+
+#[test]
+fn replay_ledger_accepts_two_genuinely_different_receipts() {
+    let key = signing_key();
+    let first = sign_receipt(sample_receipt(), "executor-1", &key).expect("receipt must sign");
+
+    // A receipt's trade_id must match its own operations' BeginAtomicTrade,
+    // so a genuinely different trade needs its own operations, not just a
+    // relabeled copy of the first receipt.
+    let mut second_operations = operations();
+    if let TradingOperation::BeginAtomicTrade { trade_id, .. } = &mut second_operations[0] {
+        *trade_id = "T2".to_string();
+    }
+    let second_unsigned = build_receipt(
+        "0.1.0",
+        [1u8; 32],
+        "T2",
+        "P",
+        [2u8; 32],
+        &second_operations,
+        &committed_state(),
+        Some(&asset("USDC")),
+        TradeOutcome::Success,
+    )
+    .expect("second receipt must build");
+    let second = sign_receipt(second_unsigned, "executor-1", &key).expect("receipt must sign");
+    assert_ne!(
+        first.receipt_hash, second.receipt_hash,
+        "a different trade_id must produce a different receipt hash"
+    );
+    let mut ledger = ReceiptReplayLedger::new();
+
+    ledger
+        .verify_and_record(&first, &trusted_keys(&key))
+        .expect("first trade's receipt must settle");
+    ledger
+        .verify_and_record(&second, &trusted_keys(&key))
+        .expect("a genuinely different trade's receipt must settle independently of the first");
+}
+
+#[test]
+fn replay_ledger_does_not_record_a_receipt_that_fails_verification() {
+    // A receipt that is rejected for an unrelated reason (here: tampered
+    // after signing) must not get recorded into the ledger — otherwise a
+    // forged/garbage receipt could poison the ledger and block the
+    // legitimate receipt that shares its hash from ever settling. Since a
+    // tampered receipt's hash almost certainly differs from any real
+    // receipt's hash, the direct risk is more about not silently marking
+    // something as "settled" that never actually passed verification.
+    let key = signing_key();
+    let mut receipt = sign_receipt(sample_receipt(), "executor-1", &key).expect("receipt must sign");
+    receipt.trade_id.push('X'); // invalidates the attestation signature
+    let mut ledger = ReceiptReplayLedger::new();
+
+    assert!(ledger.verify_and_record(&receipt, &trusted_keys(&key)).is_err());
+    assert!(
+        !ledger.has_settled(&receipt.receipt_hash),
+        "a receipt that failed verification must not be recorded as settled"
+    );
 }
