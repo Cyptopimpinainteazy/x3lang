@@ -301,6 +301,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "target" => self.parse_vm_target_item(),
             Tok::Ident(ref s) if s == "finality_policy" => self.parse_finality_policy_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
+            Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "error" => self.parse_error_decl_item(),
             _ => Err(parse_err("expected top-level item".into(), self.peek())),
         }
@@ -1797,6 +1798,53 @@ impl<'a> Parser<'a> {
                 to: target,
             }),
         }
+    }
+
+    /// `parallel <name> { leg <name> { <route steps> } ... }`
+    ///
+    /// Legs are parsed in declaration order, whatever their dependencies turn
+    /// out to be: the plan is the compiler's conclusion, not the author's
+    /// claim, so the parser must not reorder or drop anything before the
+    /// dependency analysis sees it.
+    fn parse_parallel_decl(&mut self) -> Result<ParallelDecl, X3Error> {
+        self.advance(); // consume `parallel`
+        let name = self.expect_ident("parallel block name")?;
+        self.expect(Tok::LBrace, "expected '{' after the parallel block name")?;
+        let mut legs: Vec<ParallelLeg> = Vec::new();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "leg" => {
+                    self.advance();
+                    let leg_name = self.expect_ident("leg name")?;
+                    self.expect(Tok::LBrace, "expected '{' after the leg name")?;
+                    let mut body: Vec<Statement> = Vec::new();
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        match self.peek() {
+                            Tok::KwSwap | Tok::KwBridge | Tok::KwLock | Tok::KwMint | Tok::KwBurn | Tok::KwRelease => {
+                                body.push(self.parse_route_step()?)
+                            }
+                            Tok::Ident(ref s)
+                                if matches!(s.as_str(), "swap" | "bridge" | "lock" | "mint" | "burn" | "release") =>
+                            {
+                                body.push(self.parse_route_step()?)
+                            }
+                            _ => body.push(self.parse_statement()?),
+                        }
+                    }
+                    self.expect(Tok::RBrace, "expected '}' to close the leg")?;
+                    legs.push(ParallelLeg {
+                        name: Symbol::new(&leg_name),
+                        body,
+                    });
+                }
+                other => return Err(parse_err("expected `leg <name> { ... }` inside parallel".into(), other)),
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the parallel block")?;
+        Ok(ParallelDecl {
+            name: Symbol::new(&name),
+            legs,
+        })
     }
 
     /// `venue <name> { kind <kind> chain <chain> domain <vm> asset_in <A>

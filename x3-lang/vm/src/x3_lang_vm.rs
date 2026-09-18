@@ -50,6 +50,7 @@ pub struct VmSnapshot {
     pub trading_ops_len: usize,
     pub atomic_choices_len: usize,
     pub route_fallbacks_len: usize,
+    pub parallel_plans_len: usize,
     pub pc: usize,
     pub call_stack: Vec<usize>,
     pub instruction_count: u128,
@@ -84,6 +85,12 @@ pub struct VMState {
     /// itself to the compiler's approvals, so it is carried in the artifact and
     /// surfaced here rather than being inferable only from the bytecode.
     pub route_fallbacks: Vec<Vec<String>>,
+    /// `parallel` plans the program declared, in order.
+    ///
+    /// The plan is the compiler's conclusion about which legs are independent,
+    /// so a caller can compare what it was told against what the artifact claims
+    /// rather than having to re-derive it.
+    pub parallel_plans: Vec<ParallelPlanRecord>,
     pub paused: bool,
     /// Atomic scope rollback snapshot (set by ATOMIC_BEGIN, consumed by ATOMIC_ROLLBACK).
     pub atomic_snapshot: Option<VmSnapshot>,
@@ -114,6 +121,7 @@ impl VMState {
             trading_ops: Vec::new(),
             atomic_choices: Vec::new(),
             route_fallbacks: Vec::new(),
+            parallel_plans: Vec::new(),
             paused: false,
             atomic_snapshot: None,
             failure_handlers: Vec::new(),
@@ -133,6 +141,17 @@ pub struct AtomicChoiceRecord {
     pub criterion: u8,
     /// Index of the branch whose body this execution ran.
     pub selected: u32,
+}
+
+/// One `parallel` block's plan, as the artifact declared it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParallelPlanRecord {
+    /// Legs the artifact declared.
+    pub legs: usize,
+    /// Waves in execution order; the legs within a wave can run concurrently.
+    pub waves: Vec<Vec<String>>,
+    /// Data dependencies that ordered the legs.
+    pub edges: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug)]

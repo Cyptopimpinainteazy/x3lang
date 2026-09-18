@@ -935,6 +935,54 @@ pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
     }
 }
 
+/// Verify a `parallel` block is a set of legs the DAG can reason about.
+///
+/// The interesting decisions — which legs are independent, and which race — are
+/// made by the dependency DAG in lowering, because they need the legs' lowered
+/// operations rather than their source. What is checked here is what the source
+/// alone can settle: that there are legs to analyse, that they are distinct, and
+/// that each one is a body.
+pub fn verify_parallel_decls(program: &Program, acc: &mut ErrorAccumulator) {
+    for item in &program.items {
+        let Item::ParallelDecl(parallel) = &item.node else {
+            continue;
+        };
+        let name = parallel.name.as_str();
+        if parallel.legs.len() < 2 {
+            acc.add_error(err(format!(
+                "parallel '{name}' declares {} leg(s); a parallel block with one leg is not \
+                 parallel, and accepting it would make the artifact's claim of concurrent \
+                 execution false",
+                parallel.legs.len()
+            )));
+        }
+        if parallel.legs.len() > crate::dag::MAX_PARALLEL_LEGS {
+            acc.add_error(err(format!(
+                "parallel '{name}' declares {} legs, above the {}-leg production bound",
+                parallel.legs.len(),
+                crate::dag::MAX_PARALLEL_LEGS
+            )));
+        }
+        let mut seen: Vec<&str> = Vec::new();
+        for leg in &parallel.legs {
+            let leg_name = leg.name.as_str();
+            if seen.contains(&leg_name) {
+                acc.add_error(err(format!(
+                    "parallel '{name}' declares leg '{leg_name}' twice; the plan names legs, so a \
+                     duplicate makes the plan ambiguous"
+                )));
+            }
+            seen.push(leg_name);
+            if leg.body.is_empty() {
+                acc.add_error(err(format!(
+                    "parallel '{name}' leg '{leg_name}' is empty; it would contribute no dependencies \
+                     and no work"
+                )));
+            }
+        }
+    }
+}
+
 /// Verify every `venue` declaration is a node the graph can actually use.
 ///
 /// A venue's declared attributes are what the planner reads, so a declaration

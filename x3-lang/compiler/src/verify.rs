@@ -82,6 +82,47 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 }
                 let _ = criterion;
             }
+            Operation::ParallelPlan { waves, edges } => {
+                // The compiler built this plan, so what the IR verifier owes is
+                // a check that it is a plan: legs that appear exactly once, no
+                // empty wave, and no edge naming a leg that is not in it. A
+                // plan with a dangling edge is a plan whose ordering nobody
+                // enforced.
+                let leg_count: usize = waves.iter().map(|wave| wave.len()).sum();
+                if leg_count < 2 {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: a parallel plan needs at least two legs, has {leg_count}"),
+                    );
+                }
+                if waves.iter().any(|wave| wave.is_empty()) {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: a parallel plan contains an empty wave"),
+                    );
+                }
+                let mut seen: Vec<&str> = Vec::new();
+                for leg in waves.iter().flatten() {
+                    if seen.contains(&leg.as_str()) {
+                        push_unsafe(
+                            diagnostics,
+                            format!("{op_context}: leg '{leg}' appears in more than one wave"),
+                        );
+                    }
+                    seen.push(leg.as_str());
+                }
+                for (from, to) in edges {
+                    if from == to || !seen.contains(&from.as_str()) || !seen.contains(&to.as_str()) {
+                        push_unsafe(
+                            diagnostics,
+                            format!(
+                                "{op_context}: dependency {from}->{to} does not join two distinct legs \
+                                 of this plan"
+                            ),
+                        );
+                    }
+                }
+            }
             Operation::RouteFallback { approved } => {
                 if approved.is_empty() {
                     push_unsafe(diagnostics, format!("{op_context}: route fallback approves no venues"));

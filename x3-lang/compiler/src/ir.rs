@@ -154,6 +154,20 @@ pub enum Operation {
         /// Venues approved as substitutes, in declaration order.
         approved: Vec<String>,
     },
+    /// The execution plan a `parallel` block produced.
+    ///
+    /// The artifact carries the plan rather than only the legs, because
+    /// "these legs may run concurrently" is a claim about their independence,
+    /// and a reader who cannot see the waves cannot check that claim. The legs'
+    /// operations follow in wave order.
+    ParallelPlan {
+        /// Groups of legs that can run concurrently, in execution order.
+        waves: Vec<Vec<String>>,
+        /// Data dependencies: `from` produces an asset `to` consumes, so `from`
+        /// must complete first. This is the "explicit semantics" that resolves
+        /// what would otherwise be a race.
+        edges: Vec<(String, String)>,
+    },
 
     // ===== Guard Operations =====
     /// Require a condition to be true

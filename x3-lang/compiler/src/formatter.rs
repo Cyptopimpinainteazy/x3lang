@@ -67,6 +67,7 @@ impl X3Formatter {
             Item::AtomicSwap(a) => self.format_atomic_swap(a),
             Item::AtomicChoice(c) => self.format_atomic_choice(c),
             Item::VenueDecl(v) => self.format_venue_decl(v),
+            Item::ParallelDecl(p) => self.format_parallel_decl(p),
             Item::Strategy(s) => self.format_strategy(s),
             Item::Proposal(p) => self.format_proposal(p),
             Item::IntentDecl(i) => self.format_intent(i),
@@ -433,6 +434,28 @@ impl X3Formatter {
         self.indent();
         for stmt in &a.body {
             self.format_statement(stmt);
+        }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_parallel_decl(&mut self, p: &ParallelDecl) {
+        self.write("parallel ");
+        self.write(p.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        for leg in &p.legs {
+            self.write_indent();
+            self.write("leg ");
+            self.write(leg.name.as_str());
+            self.write(" {\n");
+            self.indent();
+            for statement in &leg.body {
+                self.format_statement(statement);
+            }
+            self.dedent();
+            self.write_indent();
+            self.write("}\n");
         }
         self.dedent();
         self.write("}\n");

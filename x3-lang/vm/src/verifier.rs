@@ -226,6 +226,45 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         return Ok(());
     }
 
+    if opcode == PARALLEL_PLAN {
+        // `legs=<n>;waves=a,b|c;edges=a->c`. The verifier checks the record is a
+        // plan that could have been built: at least two legs, no empty wave, a
+        // declared leg count that matches the waves, and no edge naming a leg
+        // outside them. Beyond that the artifact is trusted, because a plan is
+        // not executable state — it is the compiler's conclusion about which
+        // legs are independent, recorded so it can be reviewed.
+        let text = std::str::from_utf8(payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let field =
+            |name: &str| -> Option<&str> { text.split(';').find_map(|part| part.strip_prefix(&format!("{name}="))) };
+        let legs: usize = field("legs")
+            .and_then(|value| value.parse().ok())
+            .ok_or(VerifyError::InvalidOperand(pc))?;
+        let waves_field = field("waves").ok_or(VerifyError::InvalidOperand(pc))?;
+        let waves: Vec<&str> = waves_field.split('|').collect();
+        if legs < 2
+            || waves.is_empty()
+            || waves.iter().any(|wave| wave.is_empty())
+            || waves.iter().map(|wave| wave.split(',').count()).sum::<usize>() != legs
+        {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        let declared: Vec<&str> = waves.iter().flat_map(|wave| wave.split(',')).collect();
+        if declared.len() != legs || declared.iter().any(|leg| leg.is_empty()) {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        if let Some(edges) = field("edges") {
+            for edge in edges.split(',').filter(|edge| !edge.is_empty()) {
+                let Some((from, to)) = edge.split_once("->") else {
+                    return Err(VerifyError::InvalidOperand(pc));
+                };
+                if from == to || !declared.contains(&from) || !declared.contains(&to) {
+                    return Err(VerifyError::InvalidOperand(pc));
+                }
+            }
+        }
+        return Ok(());
+    }
+
     if opcode == ATOMIC_CHOICE {
         // `criterion:paths:selected`. The verifier checks the record describes a
         // branch set that could have been verified — a known criterion, at least

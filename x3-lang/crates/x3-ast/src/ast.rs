@@ -59,6 +59,7 @@ pub enum Item {
     AssetDecl(AssetDecl),
     TradeRiskPolicy(TradeRiskPolicy),
     VenueDecl(VenueDecl),
+    ParallelDecl(ParallelDecl),
     AtomicTrade(AtomicTradeDecl),
 }
 
@@ -535,6 +536,30 @@ pub struct RequireGuard {
     pub subject: Option<Symbol>,
     /// The threshold or target expression (the RHS of the comparison).
     pub value: Expression,
+}
+
+/// One leg of a `parallel` block.
+///
+/// A leg is a body, not an expression: the compiler decides whether legs are
+/// independent from what their operations actually read and write, and an
+/// opaque call would give it nothing to decide with.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParallelLeg {
+    pub name: Symbol,
+    pub body: Vec<Statement>,
+}
+
+/// `parallel <name> { leg <name> { ... } ... }` — legs that may run
+/// concurrently where the compiler can prove they are independent.
+///
+/// Declaring legs here does not make them concurrent: the compiler builds the
+/// dependency DAG and the artifact carries the plan it produced. A leg that
+/// depends on another is ordered by an edge, and two legs that would race are
+/// refused rather than sequenced silently.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParallelDecl {
+    pub name: Symbol,
+    pub legs: Vec<ParallelLeg>,
 }
 
 /// What kind of node a `venue` declaration introduces.

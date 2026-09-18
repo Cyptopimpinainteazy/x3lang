@@ -143,6 +143,85 @@ pub fn lower_program_with_mode(
                 });
                 lower_function_body(&sub.body, &mut ir)?;
             }
+            Item::ParallelDecl(parallel) => {
+                // Lower and verify every leg, then let the dependency DAG decide
+                // what may run concurrently. The legs are verified first because
+                // the DAG is built from what their operations *do* — a leg that
+                // failed verification would contribute a misleading read/write
+                // set to the analysis that decides the plan.
+                let mut lowered: Vec<(String, Vec<Operation>)> = Vec::with_capacity(parallel.legs.len());
+                for leg in &parallel.legs {
+                    let mut body = X3IR::new();
+                    body.metadata = ir.metadata.clone();
+                    body.push(Operation::AtomicBegin);
+                    for statement in &leg.body {
+                        lower_statement(statement, &mut body)?;
+                    }
+                    body.push(Operation::AtomicEnd);
+
+                    let mut errors = crate::ir_level_errors(&body);
+                    errors.extend(
+                        crate::semantic::verify_collect(
+                            &body,
+                            crate::semantic::DEFAULT_MAX_ATOMIC_OPS,
+                            crate::semantic::DEFAULT_MAX_ROUTE_HOPS,
+                            Some(mode),
+                        )
+                        .errors,
+                    );
+                    if let Some(first) = errors.into_iter().next() {
+                        return Err(semantic(&format!(
+                            "parallel '{}' leg '{}': {first}",
+                            parallel.name.as_str(),
+                            leg.name.as_str()
+                        )));
+                    }
+                    lowered.push((leg.name.as_str().to_string(), body.operations));
+                }
+
+                // Two legs that produce the same asset have a race nothing in
+                // the program resolves, so the plan is refused rather than
+                // ordered arbitrarily. A dependency the program *does* express —
+                // one leg consuming what another produces — becomes an edge.
+                let legs: Vec<crate::dag::Leg> = lowered
+                    .iter()
+                    .map(|(name, operations)| crate::dag::leg_from_operations(name, operations))
+                    .collect();
+                let plan = crate::dag::plan(&legs).map_err(|race| {
+                    semantic(&format!(
+                        "parallel '{}': {description}",
+                        parallel.name.as_str(),
+                        description = match &race {
+                            crate::dag::RaceError::WriteWrite { asset, first, second } => format!(
+                                "legs '{first}' and '{second}' both produce {asset}, so the program \
+                                 does not say which write wins"
+                            ),
+                            crate::dag::RaceError::Cycle { legs } => format!(
+                                "the dependencies form a cycle ({}), so there is no execution order",
+                                legs.join(" -> ")
+                            ),
+                            crate::dag::RaceError::TooFewLegs { legs } =>
+                                format!("{legs} leg(s) declared; a parallel block needs at least two"),
+                            crate::dag::RaceError::TooManyLegs { legs, bound } =>
+                                format!("{legs} legs declared, above the {bound}-leg production bound"),
+                            crate::dag::RaceError::DuplicateLeg { name } => format!("leg '{name}' is declared twice"),
+                        }
+                    ))
+                })?;
+
+                let order: Vec<&str> = plan.waves.iter().flatten().map(|name| name.as_str()).collect();
+                ir.push(Operation::ParallelPlan {
+                    waves: plan.waves.clone(),
+                    edges: plan.edges.clone(),
+                });
+                for name in order {
+                    let (_, operations) = lowered
+                        .iter()
+                        .find(|(leg_name, _)| leg_name == name)
+                        .expect("the plan only names legs that were lowered");
+                    ir.operations.extend(operations.iter().cloned());
+                }
+            }
             Item::AtomicChoice(choice) => {
                 // Select the branch, then emit that branch. This is where
                 // "bounded" becomes real: the artifact contains one path's

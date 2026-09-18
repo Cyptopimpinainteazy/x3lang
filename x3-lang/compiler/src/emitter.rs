@@ -214,6 +214,32 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
         // the payload because a runtime can only restrict itself to the
         // compiler's approvals if the approvals travel with the artifact; a
         // bare count would be a claim the runtime could not act on.
+        // `[PARALLEL_PLAN][u16 len][legs=<n>;waves=a,b|c;edges=a->c,b->c]`.
+        //
+        // The plan travels with the artifact because "these legs are
+        // independent" is a claim about them, and a reader who cannot see the
+        // waves cannot check it. Encoded as a payload frame like every other
+        // record here: a payload is consumed as `align4(pc + 3 + len)`, the
+        // expression the writer pads by, so it is correct at any offset.
+        Operation::ParallelPlan { waves, edges } => {
+            let leg_count: usize = waves.iter().map(|wave| wave.len()).sum();
+            let wave_text = waves.iter().map(|wave| wave.join(",")).collect::<Vec<_>>().join("|");
+            let edge_text = edges
+                .iter()
+                .map(|(from, to)| format!("{from}->{to}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let payload = format!("legs={leg_count};waves={wave_text};edges={edge_text}");
+            if payload.len() > u16::MAX as usize {
+                return Err(X3Error::CodegenError {
+                    message: format!("parallel plan payload too large: {} bytes", payload.len()),
+                    span: None,
+                });
+            }
+            bytecode.write_all(&[PARALLEL_PLAN])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
         Operation::RouteFallback { approved } => {
             if approved.is_empty() {
                 return Err(X3Error::CodegenError {
@@ -991,6 +1017,7 @@ fn disassemble_op(opcode: u8, payload: &[u8], _flags: u8, _operand: u16) -> Stri
         // the body under it belongs to.
         0x53 => format!("ATOMIC_CHOICE [{payload_str}]"),
         0x54 => format!("ROUTE_FALLBACK approved [{payload_str}]"),
+        0x55 => format!("PARALLEL_PLAN     {payload_str}"),
         0x60 => format!("EMIT     {payload_str}"),
         0x66 => format!("CALL_HOST  {payload_str}"),
         0x70..=0x7F => format!("VECTOR   {payload_str}"),

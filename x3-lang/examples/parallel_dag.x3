@@ -1,0 +1,45 @@
+// Parallel financial execution — spec build-order item 18, PHASE 16.
+//
+// A `parallel` block declares legs that are *allowed* to run concurrently. The
+// compiler decides which of them actually can, from what their operations read
+// and write, and the artifact carries the plan it produced:
+//
+//   x3c explain <out>.x3b    ->  PARALLEL_PLAN legs=3;waves=buy_eth,buy_sol|convert_eth;edges=buy_eth->convert_eth
+//
+// `buy_eth` and `buy_sol` touch disjoint assets, so nothing orders them and
+// they share a wave. `convert_eth` consumes the ETH that `buy_eth` produces, so
+// there is an edge and it waits — that is a race "resolved by explicit
+// semantics" rather than by guessing.
+//
+// Two things this construct will not let you write:
+//
+// - two legs that both *produce* the same asset. Nothing in the program says
+//   which write wins, so there is no order to derive, and the compiler refuses
+//   rather than sequencing them silently.
+// - a dependency cycle. There is no execution order, and inventing one would
+//   be the quiet wrong answer.
+
+parallel two_way_arb {
+    // Wave 0, concurrently with buy_sol.
+    leg buy_eth {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1_000 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.USDC to sender
+    }
+
+    // Wave 0, concurrently with buy_eth: nothing here touches its assets.
+    leg buy_sol {
+        swap curve ethereum.DAI -> solana.SOL amount 1_000 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.DAI to sender
+    }
+
+    // Wave 1: consumes buy_eth's output, so it cannot start until buy_eth is
+    // done. It is not slower than it needs to be — it stays concurrent with
+    // nothing, because it genuinely depends on something.
+    leg convert_eth {
+        swap sushiswap ethereum.ETH -> ethereum.X3 amount 1 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.ETH to sender
+    }
+}

@@ -25,7 +25,7 @@
 //! Gas is never refunded and never goes negative. The VM checks
 //! `state.gas >= cost` before deducting.
 
-use crate::x3_lang_vm::{AtomicChoiceRecord, SubExecInfo, VmSnapshot, VM};
+use crate::x3_lang_vm::{AtomicChoiceRecord, ParallelPlanRecord, SubExecInfo, VmSnapshot, VM};
 use x3_lang_compiler::emitter::decode_trading_operation;
 // Import shared opcode constants
 use crate::spec::opcodes::*;
@@ -393,6 +393,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     trading_ops_len: vm.state.trading_ops.len(),
                     atomic_choices_len: vm.state.atomic_choices.len(),
                     route_fallbacks_len: vm.state.route_fallbacks.len(),
+                    parallel_plans_len: vm.state.parallel_plans.len(),
                     pc: pc_next,
                     call_stack: vm.state.call_stack.clone(),
                     instruction_count: vm.state.instruction_count,
@@ -437,6 +438,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.trading_ops.truncate(snapshot.trading_ops_len);
                 vm.state.atomic_choices.truncate(snapshot.atomic_choices_len);
                 vm.state.route_fallbacks.truncate(snapshot.route_fallbacks_len);
+                vm.state.parallel_plans.truncate(snapshot.parallel_plans_len);
                 // Note: We intentionally do NOT restore PC from the snapshot.
                 // Instead execution continues past the rollback instruction.
                 // This prevents infinite re-execution of the atomic scope.
@@ -644,6 +646,84 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     criterion,
                     selected,
                 });
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
+            }
+            PARALLEL_PLAN => {
+                // `legs=<n>;waves=a,b|c;edges=a->c`.
+                //
+                // The legs' operations follow this record in wave order, and
+                // this VM runs them in that order: it is a single-threaded
+                // interpreter, so "parallel" is a claim the artifact makes
+                // about independence, and the only thing a sequential
+                // interpreter can do with it is honour the ordering and keep
+                // the claim. It refuses a record that is not a plan, because
+                // recording a malformed plan would put an unverifiable claim in
+                // the trace.
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(payload) => payload.to_vec(),
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                let text = match std::str::from_utf8(&payload) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(
+                            "X3_PARALLEL_PLAN_INVALID: the plan record is not UTF-8".to_string(),
+                        ));
+                    }
+                };
+                let field = |name: &str| -> Option<String> {
+                    text.split(';')
+                        .find_map(|part| part.strip_prefix(&format!("{name}=")).map(|value| value.to_string()))
+                };
+                let legs: usize = match field("legs").and_then(|value| value.parse().ok()) {
+                    Some(legs) => legs,
+                    None => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(format!(
+                            "X3_PARALLEL_PLAN_INVALID: plan {text:?} has no leg count"
+                        )));
+                    }
+                };
+                let waves: Vec<Vec<String>> = field("waves")
+                    .map(|waves| {
+                        waves
+                            .split('|')
+                            .map(|wave| wave.split(',').map(|leg| leg.to_string()).collect())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let declared: Vec<String> = waves.iter().flatten().cloned().collect();
+                let edges: Vec<(String, String)> = field("edges")
+                    .map(|edges| {
+                        edges
+                            .split(',')
+                            .filter(|edge| !edge.is_empty())
+                            .filter_map(|edge| edge.split_once("->"))
+                            .map(|(from, to)| (from.to_string(), to.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if legs < 2 || declared.len() != legs {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_PARALLEL_PLAN_INVALID: plan declares {legs} leg(s) but names {}",
+                        declared.len()
+                    )));
+                }
+                vm.state.parallel_plans.push(ParallelPlanRecord { legs, waves, edges });
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
@@ -1749,6 +1829,7 @@ mod tests {
             trading_ops_len: 0,
             atomic_choices_len: 0,
             route_fallbacks_len: 0,
+            parallel_plans_len: 0,
             pc: 0,
             call_stack: vec![],
             instruction_count: 3,
