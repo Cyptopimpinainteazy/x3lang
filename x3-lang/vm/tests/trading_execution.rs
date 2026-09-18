@@ -4,9 +4,8 @@ use std::collections::BTreeSet;
 
 use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
 use x3_lang_vm::trading::{
-    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost,
-    ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost,
-    TradingVm,
+    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode,
+    HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [7u8; 32];
@@ -169,10 +168,7 @@ fn ops() -> Vec<TradingOperation> {
 }
 
 fn context(mode: ExecutionMode) -> TradeExecutionContext {
-    TradeExecutionContext {
-        mode,
-        current_block: 1,
-    }
+    TradeExecutionContext { mode, current_block: 1 }
 }
 
 #[test]
@@ -295,7 +291,6 @@ fn low_net_profit_rolls_back() {
     assert_eq!(vm.trading_state, before);
 }
 
-
 #[test]
 fn host_transaction_commits_only_after_vm_success() {
     let mut vm = TradingVm::new();
@@ -339,7 +334,6 @@ fn host_execution_costs_are_applied_before_profit_guard() {
     ));
     assert!(host.rolled_back);
 }
-
 
 #[test]
 fn compiled_policy_chain_mismatch_is_rejected_before_host_transaction() {
@@ -389,10 +383,7 @@ fn compiled_private_submission_requirement_is_enforced() {
         .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
         .expect_err("private submission is a compiled capability requirement");
 
-    assert_eq!(
-        err,
-        x3_lang_vm::trading::TradingExecError::PrivateSubmissionRequired
-    );
+    assert_eq!(err, x3_lang_vm::trading::TradingExecError::PrivateSubmissionRequired);
     assert!(!host.began);
 }
 
