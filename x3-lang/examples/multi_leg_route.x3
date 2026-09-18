@@ -3,7 +3,11 @@ intent multi_leg_portfolio {
 
     route {
         bridge X3 polygon.USDC -> arbitrum.USDC amount 400
-        swap Uniswap polygon.USDC -> solana.SOL amount 300
+        // The absolute floor for this leg. Without one the swap has no floor at
+        // all: `min_output 0` accepts any output, so the structural IR verifier
+        // rejects it. The intent's `require slippage <= 120` is the tighter,
+        // run-time bound; this is the floor beneath it.
+        swap Uniswap polygon.USDC -> solana.SOL amount 300 min_output 250
         bridge X3 polygon.USDC -> sui.SUI amount 200
         bridge X3 polygon.USDC -> bitcoin.BTC amount 100
     }

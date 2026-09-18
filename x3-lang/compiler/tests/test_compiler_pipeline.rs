@@ -375,3 +375,48 @@ fn test_route_bridge_light_client_proof_inputs_reach_ir() {
             && transfer_proof == b"erc20-log-proof"
     )));
 }
+
+#[test]
+fn the_structural_ir_layer_runs_on_the_build_path() {
+    // `lib.rs` documents three verification layers, and the second — structural
+    // IR invariants — was called from nowhere but its own tests, so a program
+    // that lowers into a zero-amount move produced bytecode. It is wired into
+    // both entry points now.
+    let source = r#"intent zeromove {
+    from ethereum.USDC amount 0 receiver 0x1111111111111111111111111111111111111111
+    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    route {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 0 min_output 1
+    }
+    require slippage <= 50
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
+}
+"#;
+    let error = compile_source(source).expect_err("a zero-amount move must not compile");
+    let text = format!("{error}");
+    assert!(
+        text.contains("structural IR"),
+        "the failure must come from the structural layer: {text}"
+    );
+    assert!(
+        text.contains("X3E0501") || text.contains("must be greater than zero"),
+        "the diagnostic must identify the violation: {text}"
+    );
+}
+
+#[test]
+fn the_numeric_policy_layer_runs_on_the_build_path() {
+    // The first documented layer, likewise reachable only from its own tests.
+    let source = "fn takes_u64(x: u64) { }\nfn main() { takes_u64(-1); }\n";
+    let error = compile_source(source).expect_err("a signed literal for a u64 parameter must not compile");
+    let text = format!("{error}");
+    assert!(
+        text.contains("AST-level"),
+        "the failure must come from the AST-level layer: {text}"
+    );
+    assert!(
+        text.contains("X3E0202") || text.contains("incompatible integer type"),
+        "the diagnostic must carry its stable code: {text}"
+    );
+}

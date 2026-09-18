@@ -34,6 +34,7 @@ pub mod spec {
     }
 }
 
+use diagnostic::{CompilerDiagnostic, DiagnosticSeverity};
 use emitter::emit_x3ir;
 use lowering::{lower_program, lower_program_with_mode, LowerCtx};
 use parser::parse_source;
@@ -66,10 +67,44 @@ pub use regalloc::{allocate as allocate_registers, AllocationResult as RegisterA
 /// entirely — the same "a check that is not on the path that matters" shape that
 /// keeps turning up in this crate.
 fn ast_level_errors(program: &Program) -> Vec<X3Error> {
+    let mut errors = Vec::new();
     let mut acc = ErrorAccumulator::new();
     verify_atomic_swap_decls(program, &mut acc);
     verify_solver_bond_declared(program, &mut acc);
-    acc.errors().to_vec()
+    errors.extend(acc.errors().iter().cloned());
+
+    // Layer 1 of the pipeline described at the top of this file. It was
+    // documented there and called from nowhere but its own tests, so the
+    // language's integer-literal and coercion policy was never applied to a
+    // real program.
+    errors.extend(
+        numeric::verify_numeric_policy(program)
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+            .map(diagnostic_to_error),
+    );
+
+    errors
+}
+
+/// Layer 2 of the pipeline: structural IR invariants that must hold before
+/// bytecode emission — atomic scoping balance, non-zero amounts and iterations,
+/// empty-field safety. Documented at the top of this file and, like layer 1,
+/// called from nowhere but its own tests.
+fn ir_level_errors(ir: &crate::ir::X3IR) -> Vec<X3Error> {
+    match verify::verify_ir(ir) {
+        Ok(()) => Vec::new(),
+        Err(diagnostics) => diagnostics.iter().map(diagnostic_to_error).collect(),
+    }
+}
+
+/// A pipeline diagnostic as an error the rest of the compiler can carry,
+/// keeping its stable code visible so tooling can still key on it.
+fn diagnostic_to_error(diagnostic: &CompilerDiagnostic) -> X3Error {
+    X3Error::SemanticError {
+        message: format!("{}: {}", diagnostic.code.as_str(), diagnostic.message),
+        span: diagnostic.primary_span,
+    }
 }
 
 /// Compile an X3 AST program to bytecode
@@ -182,12 +217,17 @@ pub fn check_source_diagnostics_with_mode(
     }
 
     let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
-    let outcome = semantic::verify_collect(
+    let mut outcome = semantic::verify_collect(
         &ir,
         semantic::DEFAULT_MAX_ATOMIC_OPS,
         semantic::DEFAULT_MAX_ROUTE_HOPS,
         Some(mode),
     );
+    // Structural IR invariants are errors like any other, and they are reported
+    // first because they are the most fundamental kind of failure.
+    let mut structural = ir_level_errors(&ir);
+    structural.extend(outcome.errors);
+    outcome.errors = structural;
     Ok((program, ir, outcome))
 }
 
@@ -224,6 +264,23 @@ pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>,
     }
 
     let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
+
+    let ir_errors = ir_level_errors(&ir);
+    if !ir_errors.is_empty() {
+        return Err(X3Error::SemanticError {
+            message: format!(
+                "compilation failed with {} structural IR error(s): {}",
+                ir_errors.len(),
+                ir_errors
+                    .iter()
+                    .map(|error| error.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            span: Span::DUMMY,
+        });
+    }
+
     verify_semantics(
         &ir,
         semantic::DEFAULT_MAX_ATOMIC_OPS,

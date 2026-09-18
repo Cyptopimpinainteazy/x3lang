@@ -63,7 +63,9 @@ intent deep_cross_vm_swap {
     to solana.SOL receiver wallet
 
     route {
-        swap Uniswap arbitrum.USDC -> arbitrum.WETH amount 500
+        // Absolute floor for this leg; see the note in multi_leg_route.x3. A
+        // swap with no floor is rejected by the structural IR verifier.
+        swap Uniswap arbitrum.USDC -> arbitrum.WETH amount 500 min_output 400
         bridge X3 arbitrum.WETH -> solana.SOL amount 500 receiver wallet
     }
 
