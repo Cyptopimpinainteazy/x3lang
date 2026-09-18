@@ -197,3 +197,86 @@ fn verifier_api_accepts_well_formed_borrowed_trade_when_called_directly() {
     assert!(verify_atomic_trade(trade, &symbols, CompilationMode::Dev).is_empty());
     assert!(verify_trading_program(&program, &symbols, CompilationMode::Dev).is_empty());
 }
+
+#[test]
+fn swap_across_declared_chains_is_rejected() {
+    // A plain `swap ... via <venue>` is one venue call on one chain — this
+    // is not a bridge. USDC_ARB and USDC_BASE are declared on different
+    // chains; mixing them in one swap must be rejected, not silently
+    // compiled as an ordinary same-chain DEX call.
+    let source = r#"
+asset USDC_ARB = evm.arbitrum.0xA0b8 { decimals: 6 }
+asset USDC_BASE = evm.base.0xB0c9 { decimals: 6 }
+
+risk policy P {
+    max_slippage: 30 bps
+    max_gas: 100000 USDC_ARB
+    max_flash_fee: 10 bps
+    deadline: 10 blocks
+    require_private_submission: false
+}
+
+atomic trade CrossChainMixup using P {
+    let out = swap 100 USDC_ARB -> USDC_BASE via uniswap_v3 min_out 90 USDC_BASE
+    require net_profit >= 1 USDC_ARB
+}
+"#;
+    let errors = pipeline_errors(source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "mixes chains"),
+        "swap across two declared chains must be rejected: {errors:?}"
+    );
+}
+
+#[test]
+fn borrow_on_a_different_chain_than_the_swap_is_rejected() {
+    // Chain mismatch isn't only a from/to-in-one-swap problem — an earlier
+    // statement can set the trade's chain and a later, unrelated statement
+    // can still drift onto a different one.
+    let source = r#"
+asset USDC_ARB = evm.arbitrum.0xA0b8 { decimals: 6 }
+asset WETH_BASE = evm.base.0xC02a { decimals: 18 }
+
+risk policy P {
+    max_slippage: 30 bps
+    max_gas: 100000 USDC_ARB
+    max_flash_fee: 10 bps
+    deadline: 10 blocks
+    require_private_submission: false
+}
+
+atomic trade DriftedChain using P {
+    borrow 1000 USDC_ARB from aave_v3 as debt
+    let out = swap debt.amount USDC_ARB -> WETH_BASE via uniswap_v3 min_out 1 WETH_BASE
+    require net_profit >= 1 USDC_ARB
+}
+"#;
+    let errors = pipeline_errors(source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "mixes chains"),
+        "a later statement on a different chain than the trade's first asset must be rejected: {errors:?}"
+    );
+}
+
+#[test]
+fn same_chain_trade_with_several_assets_is_accepted() {
+    // Multiple assets on the *same* chain (the ordinary, common case) must
+    // not trip the cross-chain check.
+    let source = format!(
+        r#"{ASSET_HEADER}{POLICY_HEADER}
+atomic trade SameChain using P {{
+    borrow 1 USDC from aave_v3 as debt
+    let out = swap debt.amount USDC -> ETH via uniswap_v3 min_out 1 ETH
+    repay debt
+    require net_profit >= 1 USDC
+    require all_debts_repaid
+    emit receipt
+}}
+"#
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        !has_message(&errors, "mixes chains"),
+        "same-chain assets must not be flagged as a chain mismatch: {errors:?}"
+    );
+}
