@@ -850,20 +850,105 @@ pub fn verify_invariants_structured(ir: &X3IR, invariants: &[InvariantRule], acc
     }
 }
 
+/// Operations that execute *inside* an atomic route block, in order.
+///
+/// Intent lowering emits the `from`/`to` endpoints before the route body and a
+/// timeout/on-fail handler after it, so a `Lock`, `Release` or refund handler
+/// sitting outside an atomic block is a *declaration*: its position in the
+/// operation list is not its position in the execution order. Positional
+/// reasoning is only sound over operations that actually execute together, so
+/// the ordering rules below use this view.
+///
+/// Bodies of `If`, `Loop`, `Simulate`, `ScheduledDispatch` and `GasAdaptive` are
+/// walked too, so a claim nested inside a branch or loop is still seen.
+fn atomic_scoped_operations(ir: &X3IR) -> Vec<&Operation> {
+    let mut scoped = Vec::new();
+    collect_atomic_scoped(&ir.operations, 0, &mut scoped);
+    scoped
+}
+
+fn collect_atomic_scoped<'a>(ops: &'a [Operation], depth: usize, out: &mut Vec<&'a Operation>) {
+    let mut depth = depth;
+    for op in ops {
+        match op {
+            Operation::AtomicBegin => {
+                depth += 1;
+                continue;
+            }
+            Operation::AtomicEnd => {
+                depth = depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+        if depth > 0 {
+            out.push(op);
+        }
+        match op {
+            Operation::If { then_ops, else_ops, .. } => {
+                collect_atomic_scoped(then_ops, depth, out);
+                if let Some(else_ops) = else_ops {
+                    collect_atomic_scoped(else_ops, depth, out);
+                }
+            }
+            Operation::Loop { body, .. } | Operation::Simulate { body, .. } => {
+                collect_atomic_scoped(body, depth, out);
+            }
+            Operation::ScheduledDispatch { entry, .. } => collect_atomic_scoped(entry, depth, out),
+            Operation::GasAdaptive {
+                high_gas_ops,
+                low_gas_ops,
+            } => {
+                collect_atomic_scoped(high_gas_ops, depth, out);
+                collect_atomic_scoped(low_gas_ops, depth, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether `op` is a guard that refunds on failure or timeout.
+fn is_refund_action(op: &Operation) -> bool {
+    matches!(
+        op,
+        Operation::OnTimeout {
+            action: FailureAction::Refund { .. },
+            ..
+        } | Operation::OnFail {
+            action: FailureAction::Refund { .. }
+        }
+    )
+}
+
 /// Return the list of built-in invariant rules for static analysis.
+///
+/// The duplicate-claim and claim/refund-ordering rules below reason about
+/// *execution order*, so they only look at operations that execute together —
+/// see [`atomic_scoped_operations`]. They used to scan the whole operation list,
+/// which reported four violations on every well-formed bridging intent:
+/// `tests/conformance/valid/intents/internal_swap.x3`,
+/// `examples/mainnet_safe_swap.x3`, `examples/timeout_refund.x3` and
+/// `examples/flagship_b52.x3` all tripped them, because intent lowering emits
+/// the `from`/`to` endpoints *before* the route body and a timeout/on-fail
+/// handler *after* it. Positional rules are meaningless over declarations whose
+/// order is not execution order, so the rules looked protective while actually
+/// being noise.
+///
+/// `no_double_refund` and `no_route_mutation_after_lock` stay program-wide:
+/// handler cardinality and "no route mutation after a lock" are properties of
+/// the program, not of a position within one block.
 pub fn get_builtin_invariants() -> Vec<InvariantRule> {
     vec![
         InvariantRule {
             name: "no_double_claim".into(),
             description: "No claim operation may execute twice for the same lock".into(),
             check_fn: |ir| {
-                let claims: Vec<&Operation> = ir
-                    .operations
-                    .iter()
+                let claims: Vec<&Operation> = atomic_scoped_operations(ir)
+                    .into_iter()
                     .filter(|op| matches!(op, Operation::Release { .. }))
                     .collect();
                 if claims.len() > 1 {
-                    return Err("multiple Release (claim) operations found for the same intent".into());
+                    return Err("multiple Release (claim) operations execute inside the same atomic route".into());
                 }
                 Ok(())
             },
@@ -872,15 +957,7 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
             name: "no_double_refund".into(),
             description: "No refund operation may execute twice for the same lock".into(),
             check_fn: |ir| {
-                let refunds: Vec<&Operation> = ir
-                    .operations
-                    .iter()
-                    .filter(|op| {
-                        matches!(op, Operation::OnTimeout { action, .. }
-                            if matches!(action, FailureAction::Refund { .. })
-                        )
-                    })
-                    .collect();
+                let refunds: Vec<&Operation> = ir.operations.iter().filter(|op| is_refund_action(op)).collect();
                 if refunds.len() > 1 {
                     return Err("multiple refund operations found for the same lock".into());
                 }
@@ -892,10 +969,8 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
             description: "Claim must not execute after refund".into(),
             check_fn: |ir| {
                 let mut found_refund = false;
-                for op in &ir.operations {
-                    if matches!(op, Operation::OnTimeout { action, .. }
-                        if matches!(action, FailureAction::Refund { .. })
-                    ) {
+                for op in atomic_scoped_operations(ir) {
+                    if is_refund_action(op) {
                         found_refund = true;
                     }
                     if found_refund && matches!(op, Operation::Release { .. }) {
@@ -910,15 +985,11 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
             description: "Refund must not execute after claim".into(),
             check_fn: |ir| {
                 let mut found_claim = false;
-                for op in &ir.operations {
+                for op in atomic_scoped_operations(ir) {
                     if matches!(op, Operation::Release { .. }) {
                         found_claim = true;
                     }
-                    if found_claim
-                        && matches!(op, Operation::OnTimeout { action, .. }
-                            if matches!(action, FailureAction::Refund { .. })
-                        )
-                    {
+                    if found_claim && is_refund_action(op) {
                         return Err("Refund found after Release (claim)".into());
                     }
                 }
@@ -929,15 +1000,21 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
             name: "destination_fill_before_source_claim".into(),
             description: "Destination must be filled before source claim".into(),
             check_fn: |ir| {
-                let bridge_positions: Vec<usize> = ir
-                    .operations
+                let scoped = atomic_scoped_operations(ir);
+                let bridge_positions: Vec<usize> = scoped
                     .iter()
                     .enumerate()
                     .filter(|(_, op)| matches!(op, Operation::Bridge { .. }))
                     .map(|(i, _)| i)
                     .collect();
-                let release_positions: Vec<usize> = ir
-                    .operations
+                // Nothing to order against when the route does not bridge: a
+                // same-chain route releasing its own escrow is not this rule's
+                // business, and flagging it would be the same false positive in
+                // a different disguise.
+                if bridge_positions.is_empty() {
+                    return Ok(());
+                }
+                let release_positions: Vec<usize> = scoped
                     .iter()
                     .enumerate()
                     .filter(|(_, op)| matches!(op, Operation::Release { .. }))
@@ -1507,6 +1584,216 @@ mod tests {
             errs.iter()
                 .any(|e| e.to_string().contains("no explicit finality requirement")),
             "expected a finality-requirement error, got: {errs:?}"
+        );
+    }
+
+    /// The operation order intent lowering actually produces: the `from`/`to`
+    /// endpoints and the failure handler sit *outside* the atomic route.
+    fn intent_shaped_ir() -> X3IR {
+        let mut ir = empty_ir();
+        ir.operations = vec![
+            Operation::IntentResolve {
+                constraints: vec![],
+                resolver: "swap_demo".into(),
+            },
+            Operation::Lock {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                amount: 100,
+                from: "0x1111".into(),
+            },
+            // The `to` endpoint.
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                to: "4Nd1".into(),
+            },
+            Operation::AtomicBegin,
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "ethereum".into(),
+                from_asset: "USDC".into(),
+                to_chain: "solana".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "4Nd1".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::AtomicEnd,
+            Operation::Require {
+                kind: RequireKind::Finality,
+                subject: Some("ethereum".into()),
+                condition: Condition::Expression { expr: "12".into() },
+                error_msg: None,
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "ethereum".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+            // The refund's release target.
+            Operation::Release {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                to: "sender".into(),
+            },
+            Operation::OnFail {
+                action: FailureAction::Rollback,
+            },
+        ];
+        ir
+    }
+
+    /// Run every builtin invariant rule and collect the violations.
+    fn invariant_violations(ir: &X3IR) -> Vec<String> {
+        let mut violations = Vec::new();
+        for rule in get_builtin_invariants() {
+            if let Err(msg) = (rule.check_fn)(ir) {
+                violations.push(format!("{}: {msg}", rule.name));
+            }
+        }
+        violations
+    }
+
+    #[test]
+    fn builtin_invariants_accept_the_intent_ir_shape() {
+        // Regression: before the rules were scoped to atomic route bodies, this
+        // shape tripped four of the six rules. Every well-formed bridging intent
+        // in the repo looked broken, which is the same as the rules being
+        // broken.
+        let violations = invariant_violations(&intent_shaped_ir());
+        assert!(
+            violations.is_empty(),
+            "a well-formed intent must not violate any builtin invariant, got: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn invariants_still_catch_two_claims_inside_one_route() {
+        // Non-vacuous: scoping the rules must not turn them off.
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                to: "a".into(),
+            },
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                to: "b".into(),
+            },
+        ]);
+        assert!(
+            invariant_violations(&ir)
+                .iter()
+                .any(|v| v.starts_with("no_double_claim")),
+            "two claims in one atomic route must be reported"
+        );
+    }
+
+    #[test]
+    fn invariants_still_catch_a_refund_after_a_claim_inside_one_route() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                to: "a".into(),
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+        assert!(
+            invariant_violations(&ir)
+                .iter()
+                .any(|v| v.starts_with("no_refund_after_claim")),
+            "a refund after a claim in one atomic route must be reported"
+        );
+    }
+
+    #[test]
+    fn claim_before_bridge_is_only_flagged_when_the_route_bridges() {
+        // A same-chain route releasing its own escrow has no fill to order
+        // against, so the rule has nothing to say about it...
+        let mut same_chain = empty_ir();
+        same_chain.operations = atomic(vec![Operation::Release {
+            chain: "solana".into(),
+            asset: "USDC".into(),
+            to: "a".into(),
+        }]);
+        assert!(
+            !invariant_violations(&same_chain)
+                .iter()
+                .any(|v| v.starts_with("destination_fill_before_source_claim")),
+            "a route with no bridge must not be flagged for fill ordering"
+        );
+
+        // ...but a claim that precedes the route's bridge still is.
+        let mut bridged = empty_ir();
+        bridged.operations = atomic(vec![
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                to: "a".into(),
+            },
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "ethereum".into(),
+                from_asset: "USDC".into(),
+                to_chain: "solana".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "a".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+        ]);
+        assert!(
+            invariant_violations(&bridged)
+                .iter()
+                .any(|v| v.starts_with("destination_fill_before_source_claim")),
+            "a claim before the route's bridge must be reported"
+        );
+    }
+
+    #[test]
+    fn no_double_refund_counts_on_fail_refunds_as_well_as_timeout_refunds() {
+        // "At most one refund handler" is the property; counting only timeout
+        // handlers missed an on-fail refund alongside a timeout refund.
+        let mut ir = empty_ir();
+        ir.operations = vec![
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+            Operation::OnFail {
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ];
+        assert!(
+            invariant_violations(&ir)
+                .iter()
+                .any(|v| v.starts_with("no_double_refund")),
+            "two refund handlers must be reported regardless of which handler kind they are"
         );
     }
 
