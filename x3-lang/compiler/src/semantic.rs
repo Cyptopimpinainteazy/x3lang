@@ -119,15 +119,44 @@ pub fn verify_with_defaults(ir: &X3IR) -> Result<(), Vec<X3Error>> {
     verify(ir)
 }
 
-/// Verify with explicit budgets.
+/// Everything the semantic verifier found, with warnings kept separate from
+/// errors instead of being discarded.
 ///
-/// `mode` optionally gates mainnet-specific safety checks.
-pub fn verify_with_config(
+/// This exists because `verify_with_config` returns `Ok(())` whenever no
+/// *error* was accumulated, so a warning-based check was collected and then
+/// thrown away. That is how a bridge with no source-finality requirement, a
+/// program violating a builtin invariant, and a bridging program with no proof
+/// declaration each compiled silently until the check was promoted to an error.
+/// Callers that only care about pass/fail keep using `verify_with_config`;
+/// tooling should use `verify_collect` so warnings are visible.
+#[derive(Debug, Clone, Default)]
+pub struct VerifyOutcome {
+    pub errors: Vec<X3Error>,
+    pub warnings: Vec<X3Error>,
+}
+
+impl VerifyOutcome {
+    /// True when nothing rejected the program. Warnings do not fail a program.
+    pub fn is_ok(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    pub fn into_result(self) -> Result<(), Vec<X3Error>> {
+        if self.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(self.errors)
+        }
+    }
+}
+
+/// Run every semantic safety pass and return errors *and* warnings.
+pub fn verify_collect(
     ir: &X3IR,
     max_atomic_ops: u32,
     max_route_hops: u32,
     mode: Option<CompilationMode>,
-) -> Result<(), Vec<X3Error>> {
+) -> VerifyOutcome {
     let mut acc = ErrorAccumulator::new();
     verify_symbols(ir, &mut acc);
     verify_route_depths(ir, &mut acc, max_atomic_ops, max_route_hops);
@@ -150,11 +179,22 @@ pub fn verify_with_config(
         verify_mainnet_safe(ir, &mut acc);
     }
 
-    if acc.has_errors() {
-        Err(acc.take_errors())
-    } else {
-        Ok(())
+    VerifyOutcome {
+        errors: acc.errors().to_vec(),
+        warnings: acc.warnings().to_vec(),
     }
+}
+
+/// Verify with explicit budgets.
+///
+/// `mode` optionally gates mainnet-specific safety checks.
+pub fn verify_with_config(
+    ir: &X3IR,
+    max_atomic_ops: u32,
+    max_route_hops: u32,
+    mode: Option<CompilationMode>,
+) -> Result<(), Vec<X3Error>> {
+    verify_collect(ir, max_atomic_ops, max_route_hops, mode).into_result()
 }
 
 fn span() -> Span {
@@ -1467,6 +1507,88 @@ mod tests {
             errs.iter()
                 .any(|e| e.to_string().contains("no explicit finality requirement")),
             "expected a finality-requirement error, got: {errs:?}"
+        );
+    }
+
+    /// A bridging program with every error-level guard satisfied but no
+    /// `proofs required` declaration.
+    fn fully_guarded_bridge() -> X3IR {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::Require {
+                kind: RequireKind::Finality,
+                subject: Some("solana".into()),
+                condition: Condition::Expression {
+                    expr: "finality >= 12".into(),
+                },
+                error_msg: None,
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+        ir
+    }
+
+    #[test]
+    fn verify_collect_surfaces_warnings_that_verify_hides() {
+        // `verify_with_config` returns `Ok(())` whenever no error was
+        // accumulated, so every warning it collects is discarded. This program
+        // passes `verify` while the proof-requirement pass has something to
+        // say; `verify_collect` is the entry point that keeps that signal.
+        let ir = fully_guarded_bridge();
+
+        assert!(verify(&ir).is_ok(), "this program has no error-level violation");
+
+        let outcome = verify_collect(&ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS, None);
+        assert!(outcome.is_ok(), "warnings must not fail the program");
+        assert!(
+            outcome.warnings.iter().any(|w| w.to_string().contains("fill_proof")),
+            "the unfulfilled proof requirement must be visible as a warning, got: {:?}",
+            outcome.warnings
+        );
+    }
+
+    #[test]
+    fn verify_collect_reports_errors_separately_from_warnings() {
+        // Same program, minus the finality requirement: the violation must land
+        // in `errors`, not be softened into a warning.
+        let mut ir = fully_guarded_bridge();
+        ir.operations.retain(|op| {
+            !matches!(
+                op,
+                Operation::Require {
+                    kind: RequireKind::Finality,
+                    ..
+                }
+            )
+        });
+
+        let outcome = verify_collect(&ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS, None);
+        assert!(!outcome.is_ok(), "a missing finality requirement must fail the program");
+        assert!(
+            outcome
+                .errors
+                .iter()
+                .any(|e| e.to_string().contains("no explicit finality requirement")),
+            "expected a finality error, got: {:?}",
+            outcome.errors
         );
     }
 

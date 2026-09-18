@@ -40,7 +40,8 @@ use x3_lang_ast::ast::Program;
 use x3_lang_compiler::emitter::decode_trading_program;
 use x3_lang_compiler::ir::TradingOperation;
 use x3_lang_compiler::{
-    check_source, check_source_with_mode, compile_source, compile_to_ir, compile_with_mode, CompilationMode,
+    check_source, check_source_diagnostics_with_mode, check_source_with_mode, compile_source, compile_to_ir,
+    compile_with_mode, CompilationMode,
 };
 use x3_lang_vm::trading::{
     build_receipt, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult, BridgeRequest,
@@ -59,6 +60,13 @@ struct Cli {
     /// Operating mode: dev, testnet, or mainnet
     #[arg(long, global = true, default_value = "dev")]
     mode: String,
+
+    /// Treat semantic warnings as failures. The verifier collects warnings as
+    /// well as errors, and a warning that nobody acts on is how a safety check
+    /// silently stops protecting anything; this makes "no warnings" enforceable
+    /// in CI.
+    #[arg(long, global = true)]
+    deny_warnings: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -260,7 +268,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     let mode = &cli.mode;
     match cli.command {
         Cmd::Parse { input, out } => cmd_parse(&input, out.as_ref()),
-        Cmd::Check { input, out } => cmd_check(&input, out.as_ref(), mode),
+        Cmd::Check { input, out } => cmd_check(&input, out.as_ref(), mode, cli.deny_warnings),
         Cmd::Lower { input, out } => cmd_lower(&input, &out),
         Cmd::Build { input, out } => cmd_build(&input, &out, mode),
         Cmd::Simulate { input, gas } | Cmd::Run { input, gas } => cmd_run(&input, gas),
@@ -330,36 +338,65 @@ fn cmd_parse(input: &PathBuf, out: Option<&PathBuf>) -> Result<ExitCode, String>
     }
 }
 
-fn cmd_check(input: &PathBuf, out: Option<&PathBuf>, mode_str: &str) -> Result<ExitCode, String> {
+fn cmd_check(input: &PathBuf, out: Option<&PathBuf>, mode_str: &str, deny_warnings: bool) -> Result<ExitCode, String> {
     let source = read_source(input)?;
     let comp_mode = parse_mode(mode_str)?;
-    let (program, ir, errs) = if mode_str == "dev" {
-        check_source(&source).map_err(|e| format!("lowering failed: {e}"))?
-    } else {
-        check_source_with_mode(&source, comp_mode).map_err(|e| format!("lowering failed: {e}"))?
-    };
+    let (program, ir, outcome) =
+        check_source_diagnostics_with_mode(&source, comp_mode).map_err(|e| format!("lowering failed: {e}"))?;
+    let errs = &outcome.errors;
+    let warnings = &outcome.warnings;
     let program_summary = program_summary(&program);
-    if errs.is_empty() {
+    // A warning used to be collected by the verifier and then dropped on the
+    // floor here, so `x3c check` reported a clean program even when a safety
+    // pass had something to say. Warnings are now reported, and `--deny-warnings`
+    // turns them into a failure.
+    let failed = !errs.is_empty() || (deny_warnings && !warnings.is_empty());
+    if !failed {
+        let warning_list: Vec<String> = warnings.iter().map(|w| format!("{w}")).collect();
         let body = serde_json::json!({
             "status": "ok",
             "program": program_summary,
             "operations": ir.operations.len(),
+            "warnings": warning_list,
         });
         let json = serde_json::to_string_pretty(&body).map_err(|e| format!("serialization failed: {e}"))?;
         write_output(out, &json)?;
-        println!("x3c check: {} ops, no semantic errors", ir.operations.len());
+        for warning in warnings {
+            eprintln!("x3c warning: {warning}");
+        }
+        if warnings.is_empty() {
+            println!("x3c check: {} ops, no semantic errors", ir.operations.len());
+        } else {
+            println!(
+                "x3c check: {} ops, no semantic errors, {} warning(s)",
+                ir.operations.len(),
+                warnings.len()
+            );
+        }
         Ok(ExitCode::SUCCESS)
     } else {
+        let warning_list: Vec<String> = warnings.iter().map(|w| format!("{w}")).collect();
         let body = serde_json::json!({
             "status": "error",
             "program": program_summary,
             "errors": errs.iter().map(|e| format!("{e}")).collect::<Vec<_>>(),
+            "warnings": warning_list,
         });
         let json = serde_json::to_string_pretty(&body).map_err(|e| format!("serialization failed: {e}"))?;
         if let Some(o) = out {
             std::fs::write(o, json).map_err(|e| format!("write {o:?}: {e}"))?;
         } else {
-            print_error(&format!("semantic check failed — {} error(s)", errs.len()));
+            if errs.is_empty() {
+                print_error(&format!(
+                    "semantic check failed — {} warning(s) treated as errors by --deny-warnings",
+                    warnings.len()
+                ));
+            } else {
+                print_error(&format!("semantic check failed — {} error(s)", errs.len()));
+            }
+            for warning in warnings {
+                eprintln!("x3c warning: {warning}");
+            }
             eprintln!("{json}");
         }
         Ok(ExitCode::from(1))

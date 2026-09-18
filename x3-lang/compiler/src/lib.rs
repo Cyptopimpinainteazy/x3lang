@@ -47,7 +47,7 @@ use x3_lang_common::{ErrorAccumulator, Span, X3Error};
 pub use ir::{Condition, FailureAction, Operation, ProgramMetadata, RequireKind, X3IR};
 
 // Re-export semantic types
-pub use semantic::{CompilationMode, InvariantRule, RiskScore};
+pub use semantic::{CompilationMode, InvariantRule, RiskScore, VerifyOutcome};
 
 pub use ir::{AssetKey, TradingOperation, ValueRef};
 pub use trading_lowering::{lower_atomic_trade, LowerError};
@@ -110,36 +110,82 @@ pub fn compile_source(source: &str) -> Result<Vec<u8>, X3Error> {
     compile_with_mode(source, CompilationMode::Dev)
 }
 
-/// Parse, lower, and run the semantic verifier.
+/// Parse, lower, and run the semantic verifier, keeping the warnings.
 ///
-/// Returns the IR plus the list of semantic errors (empty list = clean).
-/// Use this for the `check` CLI command: it stops at the semantic pass
-/// without emitting bytecode, exposing every production-safety problem
-/// in a single shot.
-pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Error>), X3Error> {
+/// Use this when the warnings matter — tooling should. `check_source` and
+/// `check_source_with_mode` remain as pass/fail wrappers for callers that only
+/// need the errors.
+///
+/// The verifier stops at the semantic pass without emitting bytecode, exposing
+/// every production-safety problem in a single shot.
+pub fn check_source_diagnostics(source: &str) -> Result<(Program, crate::ir::X3IR, semantic::VerifyOutcome), X3Error> {
+    check_source_diagnostics_with_mode(source, CompilationMode::Dev)
+}
+
+/// `check_source_diagnostics` with an explicit compilation mode, so
+/// mode-gated safety checks run too.
+pub fn check_source_diagnostics_with_mode(
+    source: &str,
+    mode: CompilationMode,
+) -> Result<(Program, crate::ir::X3IR, semantic::VerifyOutcome), X3Error> {
     let program = parse_source(source)?;
 
     // AST-level atomic swap validation (catches info lost during lowering)
     let mut ast_errors = ErrorAccumulator::new();
     verify_atomic_swap_decls(&program, &mut ast_errors);
     if ast_errors.has_errors() {
-        return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
+        return Ok((
+            program,
+            crate::ir::X3IR::new(),
+            semantic::VerifyOutcome {
+                errors: ast_errors.errors().to_vec(),
+                warnings: ast_errors.warnings().to_vec(),
+            },
+        ));
     }
 
-    let trading_symbols = match analyze_trading(&program, CompilationMode::Dev) {
+    let trading_symbols = match analyze_trading(&program, mode) {
         Ok(symbols) => symbols,
-        Err(trading_errors) => return Ok((program, crate::ir::X3IR::new(), trading_errors)),
+        Err(trading_errors) => {
+            return Ok((
+                program,
+                crate::ir::X3IR::new(),
+                semantic::VerifyOutcome {
+                    errors: trading_errors,
+                    warnings: Vec::new(),
+                },
+            ))
+        }
     };
-    let trading_errors = verify_trading_program(&program, &trading_symbols, CompilationMode::Dev);
+    let trading_errors = verify_trading_program(&program, &trading_symbols, mode);
     if !trading_errors.is_empty() {
-        return Ok((program, crate::ir::X3IR::new(), trading_errors));
+        return Ok((
+            program,
+            crate::ir::X3IR::new(),
+            semantic::VerifyOutcome {
+                errors: trading_errors,
+                warnings: Vec::new(),
+            },
+        ));
     }
 
-    let ir = lower_program(&program, LowerCtx::new())?;
-    match verify_semantics(&ir, 8, 4, None) {
-        Ok(()) => Ok((program, ir, Vec::new())),
-        Err(errs) => Ok((program, ir, errs)),
-    }
+    let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
+    let outcome = semantic::verify_collect(
+        &ir,
+        semantic::DEFAULT_MAX_ATOMIC_OPS,
+        semantic::DEFAULT_MAX_ROUTE_HOPS,
+        Some(mode),
+    );
+    Ok((program, ir, outcome))
+}
+
+/// Parse, lower, and run the semantic verifier.
+///
+/// Returns the IR plus the list of semantic errors (empty list = clean).
+/// Warnings are dropped — use [`check_source_diagnostics`] to see them.
+pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Error>), X3Error> {
+    let (program, ir, outcome) = check_source_diagnostics(source)?;
+    Ok((program, ir, outcome.errors))
 }
 
 /// Compile with an explicit compilation mode for mode-gated safety checks.
@@ -169,32 +215,15 @@ pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>,
 /// Check source with an explicit compilation mode. Returns the program, IR,
 /// and list of semantic errors. When mode is Mainnet, mainnet-specific safety
 /// checks are also run.
+///
+/// Warnings are dropped — use [`check_source_diagnostics_with_mode`] to see
+/// them.
 pub fn check_source_with_mode(
     source: &str,
     mode: CompilationMode,
 ) -> Result<(Program, crate::ir::X3IR, Vec<X3Error>), X3Error> {
-    let program = parse_source(source)?;
-
-    let mut ast_errors = ErrorAccumulator::new();
-    verify_atomic_swap_decls(&program, &mut ast_errors);
-    if ast_errors.has_errors() {
-        return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
-    }
-
-    let trading_symbols = match analyze_trading(&program, mode) {
-        Ok(symbols) => symbols,
-        Err(trading_errors) => return Ok((program, crate::ir::X3IR::new(), trading_errors)),
-    };
-    let trading_errors = verify_trading_program(&program, &trading_symbols, mode);
-    if !trading_errors.is_empty() {
-        return Ok((program, crate::ir::X3IR::new(), trading_errors));
-    }
-
-    let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
-    match verify_semantics(&ir, 8, 4, Some(mode)) {
-        Ok(()) => Ok((program, ir, Vec::new())),
-        Err(errs) => Ok((program, ir, errs)),
-    }
+    let (program, ir, outcome) = check_source_diagnostics_with_mode(source, mode)?;
+    Ok((program, ir, outcome.errors))
 }
 
 /// Run the semantic verifier against an X3IR program.
