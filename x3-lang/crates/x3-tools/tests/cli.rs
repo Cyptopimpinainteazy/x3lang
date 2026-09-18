@@ -86,6 +86,7 @@ fn trading_receipt_json(tamper: bool) -> String {
                 ]),
                 allow_mint: false,
                 allow_burn: false,
+                max_oracle_deviation_bps: None,
             },
         },
         TradingOperation::OpenDebt {

@@ -52,6 +52,7 @@ fn operations() -> Vec<TradingOperation> {
                 ]),
                 allow_mint: false,
                 allow_burn: false,
+                max_oracle_deviation_bps: None,
             },
         },
         TradingOperation::OpenDebt {

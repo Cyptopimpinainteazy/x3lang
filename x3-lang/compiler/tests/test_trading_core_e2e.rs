@@ -57,7 +57,10 @@ impl TradingHost for FixtureVenueHost {
         // Slippage enforcement isn't what this E2E test exercises; a floor
         // of 0 always satisfies `actual >= expected`, so it never fires.
         let _ = request;
-        Ok(QuoteResult { expected_output: 0 })
+        Ok(QuoteResult {
+            expected_output: 0,
+            sources: Vec::new(),
+        })
     }
 
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {

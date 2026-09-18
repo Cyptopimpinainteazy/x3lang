@@ -7,8 +7,8 @@ use x3_lang_compiler::ir::{
 };
 use x3_lang_vm::trading::{
     fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode,
-    HostError, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext,
-    TradingHost, TradingVm,
+    HostError, PriceSource, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult,
+    TradeExecutionContext, TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [7u8; 32];
@@ -38,6 +38,11 @@ struct FixtureHost {
     /// slippage) so existing tests are unaffected unless a test explicitly
     /// diverges the two to simulate a stale/moved quote.
     quote_output: Option<u128>,
+    /// Independent price sources returned by `quote()` alongside the
+    /// primary figure. Empty by default (no oracle-firewall cross-check
+    /// data); tests that need `max_oracle_deviation` to actually have
+    /// something to check set this explicitly.
+    oracle_sources: Vec<PriceSource>,
     borrow_fee: u128,
     commitment: [u8; 32],
     execution_cost: u128,
@@ -57,6 +62,7 @@ impl FixtureHost {
             manifest: manifest(),
             swap_output: 2_000_000,
             quote_output: None,
+            oracle_sources: Vec::new(),
             borrow_fee: 0,
             commitment: COMMITMENT,
             execution_cost: 0,
@@ -100,6 +106,7 @@ impl TradingHost for FixtureHost {
     fn quote(&self, _request: QuoteRequest) -> Result<QuoteResult, HostError> {
         Ok(QuoteResult {
             expected_output: self.quote_output.unwrap_or(self.swap_output),
+            sources: self.oracle_sources.clone(),
         })
     }
 
@@ -168,6 +175,7 @@ fn ops() -> Vec<TradingOperation> {
                 ]),
                 allow_mint: false,
                 allow_burn: false,
+                max_oracle_deviation_bps: None,
             },
         },
         TradingOperation::OpenDebt {
@@ -585,6 +593,7 @@ fn gas_ceiling_within_policy_still_commits() {
                 ]),
                 allow_mint: false,
                 allow_burn: false,
+                max_oracle_deviation_bps: None,
             },
         },
         TradingOperation::CommitAtomicTrade,
@@ -660,6 +669,7 @@ fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
                 ]),
                 allow_mint: false,
                 allow_burn: false,
+                max_oracle_deviation_bps: None,
             },
         },
         TradingOperation::CommitAtomicTrade,
@@ -726,4 +736,111 @@ fn slippage_beyond_policy_ceiling_is_rejected() {
     ));
     assert_eq!(vm.trading_state, before, "rejected trade must not leave partial state");
     assert!(host.rolled_back);
+}
+
+/// `ops()` with `max_oracle_deviation_bps` set on the compiled policy.
+fn ops_with_oracle_deviation(ceiling_bps: u16) -> Vec<TradingOperation> {
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.max_oracle_deviation_bps = Some(ceiling_bps);
+    }
+    operations
+}
+
+#[test]
+fn oracle_deviation_not_checked_when_policy_omits_it() {
+    // No sources reported and no ceiling declared: nothing to fail closed
+    // on, since the policy never asked for cross-checking in the first
+    // place.
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    assert!(host.oracle_sources.is_empty());
+
+    vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect("a policy with no max_oracle_deviation must never require price sources");
+}
+
+#[test]
+fn oracle_firewall_fails_closed_when_required_but_host_reports_no_sources() {
+    let operations = ops_with_oracle_deviation(50);
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // oracle_sources left empty on purpose.
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("declaring max_oracle_deviation with no host cross-check data must fail closed");
+
+    assert_eq!(err, x3_lang_vm::trading::TradingExecError::OracleFirewallUnsatisfied);
+    assert!(host.rolled_back);
+}
+
+#[test]
+fn oracle_firewall_passes_when_every_source_agrees_within_ceiling() {
+    let operations = ops_with_oracle_deviation(50);
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // Primary quote defaults to swap_output (2_000_000). 4_000 above that
+    // is 20 bps — under the 50 bps ceiling.
+    host.oracle_sources = vec![PriceSource {
+        name: "twap".to_string(),
+        expected_output: 2_004_000,
+    }];
+
+    vm.execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect("a source within the deviation ceiling must not block the trade");
+}
+
+#[test]
+fn oracle_firewall_rejects_a_source_that_deviates_beyond_ceiling() {
+    let operations = ops_with_oracle_deviation(50);
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // ~526 bps away from the 2_000_000 primary quote — unambiguously past
+    // a 50 bps ceiling, exactly the "one source disagrees" manipulation
+    // signal this check exists to catch.
+    host.oracle_sources = vec![PriceSource {
+        name: "suspicious_pool".to_string(),
+        expected_output: 1_900_000,
+    }];
+    let before = vm.trading_state.clone();
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("a source that disagrees with the primary quote must be rejected");
+
+    match err {
+        x3_lang_vm::trading::TradingExecError::OracleDeviationExceeded {
+            source,
+            ceiling_bps: 50,
+            ..
+        } => assert_eq!(source, "suspicious_pool"),
+        other => panic!("expected OracleDeviationExceeded naming the bad source, got {other:?}"),
+    }
+    assert_eq!(vm.trading_state, before);
+    assert!(host.rolled_back);
+}
+
+#[test]
+fn oracle_firewall_catches_a_source_quoting_higher_too() {
+    // Deviation is measured both directions: a source claiming a *better*
+    // price than the primary quote is just as much a disagreement as one
+    // claiming worse — high deviation in either direction is the signal,
+    // not "worse than expected" specifically.
+    let operations = ops_with_oracle_deviation(50);
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.oracle_sources = vec![PriceSource {
+        name: "inflated_feed".to_string(),
+        expected_output: 2_200_000,
+    }];
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("a source quoting well above the primary must also violate the ceiling");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::OracleDeviationExceeded { ceiling_bps: 50, .. }
+    ));
 }

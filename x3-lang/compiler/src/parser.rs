@@ -825,6 +825,7 @@ impl<'a> Parser<'a> {
         let mut deadline = None;
         let mut require_private_submission = None;
         let mut min_profit = None;
+        let mut max_oracle_deviation_bps = None;
 
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             match self.peek() {
@@ -882,6 +883,17 @@ impl<'a> Parser<'a> {
                         return Err(parse_err("duplicate 'min_profit' in risk policy".into(), self.peek()));
                     }
                 }
+                Tok::Ident(ref s) if s == "max_oracle_deviation" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after max_oracle_deviation")?;
+                    let value = self.parse_bps_value("max_oracle_deviation")?;
+                    if max_oracle_deviation_bps.replace(value).is_some() {
+                        return Err(parse_err(
+                            "duplicate 'max_oracle_deviation' in risk policy".into(),
+                            self.peek(),
+                        ));
+                    }
+                }
                 _ => {
                     return Err(parse_err("unknown field in trading risk policy".into(), self.peek()));
                 }
@@ -900,6 +912,7 @@ impl<'a> Parser<'a> {
             require_private_submission: require_private_submission
                 .ok_or_else(|| parse_err("risk policy missing 'require_private_submission'".into(), Tok::RBrace))?,
             min_profit,
+            max_oracle_deviation_bps,
         })
     }
 

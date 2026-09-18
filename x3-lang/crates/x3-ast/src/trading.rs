@@ -100,6 +100,12 @@ pub struct TradeRiskPolicy {
     pub require_private_submission: bool,
     /// Optional policy-wide minimum net profit.
     pub min_profit: Option<AmountExpr>,
+    /// Optional oracle-firewall ceiling: maximum allowed disagreement (in
+    /// basis points) between the venue's primary quote and any other
+    /// independent price source the host reports. `None` means no
+    /// cross-source check is required — the historical default, so
+    /// existing policies that don't declare this stay unaffected.
+    pub max_oracle_deviation_bps: Option<u16>,
 }
 
 /// `atomic trade NAME using POLICY { ... }` declaration.

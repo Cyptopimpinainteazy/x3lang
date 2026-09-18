@@ -414,6 +414,11 @@ pub struct CompiledTradingPolicy {
     pub allowed_cost_kinds: BTreeSet<CostKind>,
     pub allow_mint: bool,
     pub allow_burn: bool,
+    /// Oracle-firewall ceiling: maximum allowed disagreement, in basis
+    /// points, between the venue's primary quote and any other independent
+    /// price source the host reports. `None` means no cross-source check
+    /// is required for this trade.
+    pub max_oracle_deviation_bps: Option<u16>,
 }
 
 impl CompiledTradingPolicy {

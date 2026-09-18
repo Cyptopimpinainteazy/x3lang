@@ -78,9 +78,25 @@ pub struct QuoteRequest {
     pub input: u128,
 }
 
+/// An independent price reading, reported alongside the primary quote for
+/// oracle-firewall cross-checking. What "independent" means is a host
+/// concern (a second venue's pool, a TWAP, a signed off-chain feed) — the
+/// VM only ever compares numbers, it never trusts a source because of its
+/// name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PriceSource {
+    pub name: String,
+    pub expected_output: u128,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuoteResult {
     pub expected_output: u128,
+    /// Independent readings for the same route/input, for policies that
+    /// declare `max_oracle_deviation`. Empty means the host has no
+    /// cross-check data — which is only a problem if the policy actually
+    /// requires the check; see `enforce_oracle_firewall`.
+    pub sources: Vec<PriceSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,6 +229,16 @@ pub enum TradingExecError {
         ceiling_bps: u16,
         actual_bps: u128,
     },
+    /// Policy requires an oracle-firewall check (`max_oracle_deviation` is
+    /// set) but the host reported zero independent price sources. Declaring
+    /// the requirement and then not being able to satisfy it fails closed,
+    /// the same way an unclaimed PrivateSubmissionRequired does.
+    OracleFirewallUnsatisfied,
+    OracleDeviationExceeded {
+        source: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
     OpenDebtAtCommit(String),
     NetProfitBelowFloor {
         minimum: u128,
@@ -279,6 +305,18 @@ impl fmt::Display for TradingExecError {
                     "realized slippage {actual_bps} bps exceeds compiled ceiling {ceiling_bps} bps"
                 )
             }
+            Self::OracleFirewallUnsatisfied => write!(
+                f,
+                "compiled policy requires oracle-deviation cross-checking but the host reported no independent price sources"
+            ),
+            Self::OracleDeviationExceeded {
+                source,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "price source '{source}' deviates {actual_bps} bps from the primary quote, exceeding the compiled ceiling {ceiling_bps} bps"
+            ),
             Self::OpenDebtAtCommit(debt) => write!(f, "debt '{debt}' is still open at commit"),
             Self::NetProfitBelowFloor { minimum, actual } => {
                 write!(f, "realized net profit {actual} is below floor {minimum}")
@@ -511,6 +549,9 @@ impl TradingVm {
                         result.output,
                         self.compiled_policy().max_slippage_bps,
                     )?;
+                    if let Some(ceiling_bps) = self.compiled_policy().max_oracle_deviation_bps {
+                        self.enforce_oracle_firewall(quote.expected_output, &quote.sources, ceiling_bps)?;
+                    }
                     self.debit(from, result.input)?;
                     self.credit(to, result.output)?;
                     self.accrue_cost(&result.fee_asset, result.fee)?;
@@ -770,6 +811,38 @@ impl TradingVm {
                 ceiling_bps,
                 actual_bps,
             });
+        }
+        Ok(())
+    }
+
+    /// Cross-check the primary quote against every independent source the
+    /// host reported. Deviation is measured both directions — a source
+    /// quoting *higher* than the primary is just as much a disagreement
+    /// (and just as suspicious a manipulation signal) as one quoting lower.
+    /// A policy that opts into this check and gets zero sources back fails
+    /// closed rather than silently skipping the check it asked for.
+    fn enforce_oracle_firewall(
+        &self,
+        primary_expected: u128,
+        sources: &[PriceSource],
+        ceiling_bps: u16,
+    ) -> Result<(), TradingExecError> {
+        if sources.is_empty() {
+            return Err(TradingExecError::OracleFirewallUnsatisfied);
+        }
+        for source in sources {
+            let diff = primary_expected.abs_diff(source.expected_output);
+            let actual_bps = diff
+                .checked_mul(10_000)
+                .and_then(|value| value.checked_div(primary_expected.max(1)))
+                .ok_or(TradingExecError::AccountingOverflow)?;
+            if actual_bps > ceiling_bps as u128 {
+                return Err(TradingExecError::OracleDeviationExceeded {
+                    source: source.name.clone(),
+                    ceiling_bps,
+                    actual_bps,
+                });
+            }
         }
         Ok(())
     }

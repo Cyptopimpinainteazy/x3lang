@@ -639,6 +639,14 @@ fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnosti
             if policy.max_slippage_bps > 10_000 {
                 push_unsafe(diagnostics, format!("{context}: policy max_slippage_bps exceeds 10000"));
             }
+            if let Some(deviation_bps) = policy.max_oracle_deviation_bps {
+                if deviation_bps > 10_000 {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{context}: policy max_oracle_deviation_bps exceeds 10000"),
+                    );
+                }
+            }
             verify_asset_key(&policy.max_gas_asset, context, "policy.max_gas_asset", diagnostics);
             if policy.max_flash_fee_bps > 10_000 {
                 push_unsafe(

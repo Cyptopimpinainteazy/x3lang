@@ -195,6 +195,17 @@ fn enforce_policy_bounds(
             span,
         ));
     }
+    if let Some(deviation_bps) = policy.max_oracle_deviation_bps {
+        if deviation_bps > 10_000 {
+            errors.push(semantic_error(
+                format!(
+                    "risk policy '{}' has max_oracle_deviation {deviation_bps} bps above the 10000 bps ceiling",
+                    policy.name.as_str()
+                ),
+                span,
+            ));
+        }
+    }
     if policy.max_flash_fee_bps > 10_000 {
         errors.push(semantic_error(
             format!(

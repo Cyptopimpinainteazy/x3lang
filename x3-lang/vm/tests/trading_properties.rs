@@ -47,6 +47,7 @@ impl TradingHost for Host {
         let _ = request;
         Ok(QuoteResult {
             expected_output: self.output,
+            sources: Vec::new(),
         })
     }
 
@@ -108,6 +109,7 @@ fn operations() -> Vec<TradingOperation> {
                 ]),
                 allow_mint: false,
                 allow_burn: false,
+                max_oracle_deviation_bps: None,
             },
         },
         TradingOperation::OpenDebt {
