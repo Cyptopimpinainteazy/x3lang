@@ -67,8 +67,23 @@ fn verify_atomic_trade_at_span(
     let mut has_all_debts_guard = false;
     let mut has_receipt = false;
     let mut seen_invariants = BTreeSet::new();
+    // A plain `swap`/`borrow` is a single-venue, single-chain call — nothing
+    // here models an actual bridge. Without this, referencing an asset
+    // declared on a different chain (a typo, or a copy-paste from another
+    // trade) silently compiles as if it were an ordinary same-chain call.
+    let mut trade_chain: Option<(String, x3_lang_common::Symbol)> = None;
 
     for stmt in &trade.body {
+        for symbol in trade_stmt_asset_refs(stmt) {
+            check_same_chain(
+                symbol,
+                symbols,
+                &mut trade_chain,
+                trade.name.as_str(),
+                span,
+                &mut errors,
+            );
+        }
         match stmt {
             TradeStmt::Borrow { debt, .. } => {
                 has_borrow = true;
@@ -204,6 +219,59 @@ fn enforce_policy_bounds(
             ),
             span,
         ));
+    }
+}
+
+/// Every asset symbol a single trade statement references. A plain `swap`
+/// is one venue call, so every asset it touches must be on the same chain
+/// as the rest of the trade — this is what lets callers find every asset
+/// worth chain-checking without duplicating the match in the caller.
+fn trade_stmt_asset_refs(stmt: &TradeStmt) -> Vec<&x3_lang_common::Symbol> {
+    match stmt {
+        TradeStmt::Borrow { amount, .. } => vec![&amount.asset],
+        TradeStmt::Swap {
+            from_asset,
+            to_asset,
+            min_output,
+            ..
+        } => vec![from_asset, to_asset, &min_output.asset],
+        TradeStmt::RequireMinNetProfit { amount } => vec![&amount.asset],
+        TradeStmt::Repay { .. }
+        | TradeStmt::RequireAllDebtsRepaid
+        | TradeStmt::AssertInvariant { .. }
+        | TradeStmt::EmitReceipt => vec![],
+    }
+}
+
+/// Record the trade's chain on first sighting an asset that's actually
+/// declared (unresolved-asset errors are reported elsewhere), then reject
+/// any later asset reference that lands on a different chain.
+fn check_same_chain(
+    symbol: &x3_lang_common::Symbol,
+    symbols: &TradingSymbols,
+    trade_chain: &mut Option<(String, x3_lang_common::Symbol)>,
+    trade_name: &str,
+    span: Span,
+    errors: &mut Vec<X3Error>,
+) {
+    let Some(asset) = symbols.assets.get(symbol) else {
+        return;
+    };
+    let chain = asset.chain.as_str().to_string();
+    match trade_chain {
+        None => *trade_chain = Some((chain, symbol.clone())),
+        Some((expected_chain, first_symbol)) => {
+            if *expected_chain != chain {
+                errors.push(semantic_error(
+                    format!(
+                        "atomic trade '{trade_name}' mixes chains: '{}' is on '{expected_chain}' but '{}' is on '{chain}' — a plain swap/borrow is single-chain; cross-chain movement needs a bridge, not this asset reference",
+                        first_symbol.as_str(),
+                        symbol.as_str()
+                    ),
+                    span,
+                ));
+            }
+        }
     }
 }
 
