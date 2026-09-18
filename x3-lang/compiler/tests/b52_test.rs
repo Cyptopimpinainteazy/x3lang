@@ -689,3 +689,36 @@ fn test_lowering_vm_target_emits_adapter_call() {
         "expected VmAdapterCall for evm/layerzero/0xabc"
     );
 }
+
+#[test]
+fn disassembly_lists_every_emitted_instruction() {
+    // One operation emits one instruction, so the listing has to account for
+    // every operation plus whatever header records the emitter wrote. This is
+    // the check that catches a walker silently stopping early or desynchronising
+    // — it is how the fixed-frame misclassification would have been caught,
+    // instead of by a hand-count two tools disagreed on.
+    let source = include_str!("../../examples/mainnet_safe_swap.x3");
+    let program = parse_source(source).expect("should parse");
+    let ir = lower_program(&program, LowerCtx::new()).expect("should lower");
+    let bytecode = x3_lang_compiler::emitter::emit_x3ir(&ir).expect("should emit");
+    let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("should disassemble");
+
+    let listed = trace
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            trimmed.len() >= 4 && trimmed.as_bytes()[..4].iter().all(|byte| byte.is_ascii_digit())
+        })
+        .count();
+    let header_records = usize::from(ir.metadata.nonce.is_some()) + usize::from(ir.metadata.chain_id.is_some());
+
+    assert!(
+        ir.operations.len() > 20,
+        "the fixture must be substantial for this to prove anything"
+    );
+    assert_eq!(
+        listed,
+        ir.operations.len() + header_records,
+        "every operation must appear exactly once, plus {header_records} header record(s)"
+    );
+}

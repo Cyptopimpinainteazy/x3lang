@@ -873,15 +873,17 @@ pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
 }
 
 fn is_payload_opcode(opcode: u8) -> bool {
+    // `REQUIRE`, `ON_FAIL`, `ON_TIMEOUT` and the three atomic opcodes are
+    // *fixed* four-byte frames: `[opcode][operand_hi][operand_lo][pad]`. They
+    // were listed here as payload opcodes, which made the walker read their
+    // operand bytes as a payload length. That goes unnoticed while the operand
+    // is zero and truncates the walk the moment it is not: a `REQUIRE` carrying
+    // `comparison = 1, threshold = 4` reads as a length of 0x0401 and jumps a
+    // kilobyte past the end, so the rest of the program disappears from the
+    // listing.
     matches!(
         opcode,
         0x20..=0x25
-            | 0x40
-            | 0x41
-            | 0x42
-            | 0x50
-            | 0x51
-            | 0x52
             | 0x60
             | 0x66
             | 0x70..=0x7F
@@ -1167,6 +1169,25 @@ mod tests {
         assert!(
             trace.contains("ATOMIC_BEGIN"),
             "the instruction after the chain id must decode: {trace}"
+        );
+    }
+
+    #[test]
+    fn a_fixed_frame_operator_with_a_non_zero_operand_does_not_truncate_the_walk() {
+        // `REQUIRE` is a fixed four-byte frame whose second and third bytes are
+        // an operand, not a payload length. Listing it as a payload opcode made
+        // the walker read `[comparison][threshold_lo]` as a length: a guard with
+        // comparison 1 and threshold 4 (`0x0401`) jumped a kilobyte past the end
+        // of the stream and everything after it vanished from the listing.
+        let mut bytes = vec![BYTECODE_VERSION_1];
+        bytes.extend_from_slice(&[REQUIRE, 0x01, 0x04, 0x00]); // comparison GE, threshold 4
+        bytes.extend_from_slice(&[HALT, 0x00, 0x00, 0x00]);
+
+        let trace = disassemble(&bytes).expect("should disassemble");
+        assert!(trace.contains("REQUIRE"), "the guard must be listed: {trace}");
+        assert!(
+            trace.contains("HALT"),
+            "the instruction after it must be listed: {trace}"
         );
     }
 }
