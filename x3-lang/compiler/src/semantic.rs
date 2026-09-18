@@ -158,30 +158,104 @@ pub fn verify_collect(
     mode: Option<CompilationMode>,
 ) -> VerifyOutcome {
     let mut acc = ErrorAccumulator::new();
-    verify_symbols(ir, &mut acc);
-    verify_route_depths(ir, &mut acc, max_atomic_ops, max_route_hops);
-    verify_atomic_balance(ir, &mut acc);
-    verify_rollback_presence(ir, &mut acc);
-    verify_replay_and_expiry(ir, &mut acc);
-    verify_bridge_adapter_allowlist(ir, &mut acc);
-    verify_adapter_compatibility(ir, &mut acc);
-    verify_asset_moves(ir, &mut acc);
-    verify_refund_path_exists(ir, &mut acc);
-    verify_finality_explicit(ir, &mut acc);
-    verify_slippage_explicit(ir, &mut acc);
-    verify_proof_requirements(ir, &mut acc);
-    verify_route_score(ir, &mut acc);
-
     let invariants = get_builtin_invariants();
-    verify_invariants_structured(ir, &invariants, &mut acc);
+    let context = SemanticPassContext {
+        max_atomic_ops,
+        max_route_hops,
+        mode,
+        invariants: &invariants,
+    };
 
-    if mode == Some(CompilationMode::Mainnet) {
-        verify_mainnet_safe(ir, &mut acc);
+    for (_, pass) in SEMANTIC_PASSES {
+        run_semantic_pass(*pass, ir, &mut acc, &context);
     }
 
     VerifyOutcome {
         errors: acc.errors().to_vec(),
         warnings: acc.warnings().to_vec(),
+    }
+}
+
+/// Everything a semantic pass may need beyond the IR itself.
+struct SemanticPassContext<'a> {
+    max_atomic_ops: u32,
+    max_route_hops: u32,
+    mode: Option<CompilationMode>,
+    invariants: &'a [InvariantRule],
+}
+
+/// A step in the semantic pipeline.
+///
+/// An enum rather than a function pointer because the passes do not share a
+/// signature — two take budgets, one takes the invariant rule set, one is gated
+/// on the compilation mode — and a table of `fn` pointers would need an adapter
+/// per pass anyway. The enum makes the table and the dispatch mutually
+/// exhaustive: the compiler will not let a variant exist without an arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SemanticPass {
+    Symbols,
+    RouteDepths,
+    AtomicBalance,
+    RollbackPresence,
+    ReplayAndExpiry,
+    BridgeAdapterAllowlist,
+    AdapterCompatibility,
+    AssetMoves,
+    RefundPathExists,
+    FinalityExplicit,
+    SlippageExplicit,
+    ProofRequirements,
+    RouteScore,
+    Invariants,
+    MainnetSafe,
+}
+
+/// Every whole-program semantic pass, in the order it runs.
+///
+/// This is data rather than a sequence of calls so that "which passes exist" and
+/// "which passes run" are the same list. A pass that is written and never added
+/// here runs against nothing while looking wired, which is the failure this
+/// module keeps producing; the test `every_semantic_pass_is_in_the_registry`
+/// compares the table against the `fn verify_*` definitions in this file.
+const SEMANTIC_PASSES: &[(&str, SemanticPass)] = &[
+    ("verify_symbols", SemanticPass::Symbols),
+    ("verify_route_depths", SemanticPass::RouteDepths),
+    ("verify_atomic_balance", SemanticPass::AtomicBalance),
+    ("verify_rollback_presence", SemanticPass::RollbackPresence),
+    ("verify_replay_and_expiry", SemanticPass::ReplayAndExpiry),
+    ("verify_bridge_adapter_allowlist", SemanticPass::BridgeAdapterAllowlist),
+    ("verify_adapter_compatibility", SemanticPass::AdapterCompatibility),
+    ("verify_asset_moves", SemanticPass::AssetMoves),
+    ("verify_refund_path_exists", SemanticPass::RefundPathExists),
+    ("verify_finality_explicit", SemanticPass::FinalityExplicit),
+    ("verify_slippage_explicit", SemanticPass::SlippageExplicit),
+    ("verify_proof_requirements", SemanticPass::ProofRequirements),
+    ("verify_route_score", SemanticPass::RouteScore),
+    ("verify_invariants_structured", SemanticPass::Invariants),
+    ("verify_mainnet_safe", SemanticPass::MainnetSafe),
+];
+
+fn run_semantic_pass(pass: SemanticPass, ir: &X3IR, acc: &mut ErrorAccumulator, context: &SemanticPassContext<'_>) {
+    match pass {
+        SemanticPass::Symbols => verify_symbols(ir, acc),
+        SemanticPass::RouteDepths => verify_route_depths(ir, acc, context.max_atomic_ops, context.max_route_hops),
+        SemanticPass::AtomicBalance => verify_atomic_balance(ir, acc),
+        SemanticPass::RollbackPresence => verify_rollback_presence(ir, acc),
+        SemanticPass::ReplayAndExpiry => verify_replay_and_expiry(ir, acc),
+        SemanticPass::BridgeAdapterAllowlist => verify_bridge_adapter_allowlist(ir, acc),
+        SemanticPass::AdapterCompatibility => verify_adapter_compatibility(ir, acc),
+        SemanticPass::AssetMoves => verify_asset_moves(ir, acc),
+        SemanticPass::RefundPathExists => verify_refund_path_exists(ir, acc),
+        SemanticPass::FinalityExplicit => verify_finality_explicit(ir, acc),
+        SemanticPass::SlippageExplicit => verify_slippage_explicit(ir, acc),
+        SemanticPass::ProofRequirements => verify_proof_requirements(ir, acc),
+        SemanticPass::RouteScore => verify_route_score(ir, acc),
+        SemanticPass::Invariants => verify_invariants_structured(ir, context.invariants, acc),
+        SemanticPass::MainnetSafe => {
+            if context.mode == Some(CompilationMode::Mainnet) {
+                verify_mainnet_safe(ir, acc);
+            }
+        }
     }
 }
 
@@ -1987,6 +2061,66 @@ mod tests {
             },
         ]);
         ir
+    }
+
+    #[test]
+    fn every_semantic_pass_is_in_the_registry() {
+        // "Which passes exist" and "which passes run" have to be the same list.
+        // A pass that is written and never registered runs against nothing while
+        // looking wired, and no test of that pass would notice — it would be
+        // testing a function the pipeline never calls.
+        //
+        // A `fn verify_*` that is *not* registered is allowed only if something
+        // else in this file calls it: the passes run by `verify_mainnet_safe`,
+        // and the entry points themselves.
+        let source = include_str!("semantic.rs");
+        let registered: Vec<&str> = SEMANTIC_PASSES.iter().map(|(name, _)| *name).collect();
+
+        // References are looked for across the whole crate, because an entry
+        // point or an AST-level pass is legitimately called from `lib.rs`, not
+        // from this file. Test functions inside `mod tests` are not passes, so
+        // definitions are only read above that marker.
+        let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut other_sources = String::new();
+        if let Ok(entries) = std::fs::read_dir(&src_root) {
+            for entry in entries.flatten() {
+                if entry.path().extension().is_some_and(|extension| extension == "rs") {
+                    other_sources.push_str(&std::fs::read_to_string(entry.path()).unwrap_or_default());
+                    other_sources.push('\n');
+                }
+            }
+        }
+        let definitions = source.split("#[cfg(test)]").next().unwrap_or(source);
+
+        let mut orphans = Vec::new();
+        for line in definitions.lines() {
+            let trimmed = line.trim_start();
+            let Some(rest) = trimmed.strip_prefix("pub fn ").or_else(|| trimmed.strip_prefix("fn ")) else {
+                continue;
+            };
+            if !rest.starts_with("verify_") {
+                continue;
+            }
+            let name = rest.split(['(', '<']).next().unwrap_or_default().trim();
+            if name.is_empty() || registered.contains(&name) {
+                continue;
+            }
+
+            let references = other_sources
+                .lines()
+                .filter(|other| !other.trim_start().starts_with("//"))
+                .filter(|other| other.contains(name))
+                .count();
+            if references == 0 {
+                orphans.push(name.to_string());
+            }
+        }
+
+        assert!(
+            orphans.is_empty(),
+            "these passes exist, are named like pipeline passes, and are in neither the registry \
+             nor any caller's body: {orphans:?}"
+        );
     }
 
     #[test]
