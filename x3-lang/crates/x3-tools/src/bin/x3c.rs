@@ -29,13 +29,23 @@
 //! - `new` — generate new X3 project
 //! - `plan` — show the execution plan for an intent
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use ed25519_dalek::SigningKey;
+use sha2::{Digest, Sha256};
 use x3_lang_ast::ast::Program;
+use x3_lang_compiler::emitter::decode_trading_program;
+use x3_lang_compiler::ir::TradingOperation;
 use x3_lang_compiler::{
     check_source, check_source_with_mode, compile_source, compile_to_ir, compile_with_mode, CompilationMode,
+};
+use x3_lang_vm::trading::{
+    build_receipt, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult, CapabilityManifest,
+    CapabilityMode, CommittedCost, ExecutionMode, HostError, QuoteRequest, QuoteResult, RepayRequest, RepayResult,
+    SwapRequest, SwapResult, TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
 };
 use x3_lang_vm::{VMConfig, VMState, VM};
 
@@ -206,6 +216,32 @@ enum ReceiptAction {
     Inspect { input: PathBuf },
     /// Verify a receipt's hash and accounting invariants.
     Verify { input: PathBuf },
+    /// Compile a `.x3` trading program, execute it against a neutral
+    /// fixture host, and emit the resulting signed receipt.
+    ///
+    /// The fixture host is deliberately not a market simulation: every
+    /// swap returns exactly the trade's own declared `min_output` (so
+    /// OutputBelowMinOut/slippage never fire on their own), fees are
+    /// zero, and it claims exactly the providers/venues/private-submission
+    /// capability the compiled policy asks for. This proves the compile
+    /// -> execute -> receipt -> sign -> verify pipeline actually connects
+    /// end to end; it does not simulate real market profitability, and a
+    /// program that needs genuine price movement to clear its own
+    /// min_profit/min_output guards can still legitimately fail here.
+    Execute {
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Block height the trade executes at, checked against the
+        /// compiled policy's deadline_blocks.
+        #[arg(long, default_value_t = 1)]
+        block: u64,
+        /// 64-character hex-encoded ed25519 signing key seed. Defaults to
+        /// a fixed, clearly non-secret dev seed — this command is a
+        /// fixture/demo tool, not a production signer.
+        #[arg(long)]
+        key_hex: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -269,6 +305,12 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Receipt { action } => match action {
             ReceiptAction::Inspect { input } => cmd_receipt_inspect(&input),
             ReceiptAction::Verify { input } => cmd_receipt_verify(&input),
+            ReceiptAction::Execute {
+                input,
+                out,
+                block,
+                key_hex,
+            } => cmd_receipt_execute(&input, out.as_ref(), mode, block, key_hex.as_deref()),
         },
     }
 }
@@ -1605,6 +1647,214 @@ fn program_summary(program: &Program) -> serde_json::Value {
     serde_json::json!({
         "items": program.items.len(),
     })
+}
+
+/// A deliberately neutral fixture host for `x3c receipt execute`. Every
+/// swap returns exactly the trade's own declared `min_output` (so
+/// OutputBelowMinOut and slippage never fire on their own regardless of
+/// what values a specific program chose), fees are zero, and it claims
+/// exactly the providers/venues/private-submission capability the
+/// compiled policy asks for — no more, no less. This proves the compile
+/// -> execute -> receipt -> sign -> verify pipeline connects for real; it
+/// is not a market simulation, and a program whose own guards require
+/// genuine price movement to clear can still legitimately fail here.
+struct NeutralFixtureHost {
+    manifest: CapabilityManifest,
+}
+
+impl TradingHost for NeutralFixtureHost {
+    fn capabilities(&self) -> &CapabilityManifest {
+        &self.manifest
+    }
+
+    fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError> {
+        Ok(BorrowResult {
+            asset: request.asset,
+            principal: request.principal,
+            fee: 0,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+
+    fn quote(&self, request: QuoteRequest) -> Result<QuoteResult, HostError> {
+        let _ = request;
+        Ok(QuoteResult {
+            expected_output: 0,
+            sources: Vec::new(),
+        })
+    }
+
+    fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
+        Ok(SwapResult {
+            from: request.from,
+            to: request.to.clone(),
+            input: request.input,
+            output: request.min_output,
+            fee: 0,
+            fee_asset: request.to,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+
+    fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError> {
+        Ok(RepayResult {
+            debt_id: request.debt_id,
+            asset: request.asset,
+            amount_paid: request.amount,
+            fee: 0,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+
+    fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError> {
+        Ok(Vec::new())
+    }
+}
+
+fn cmd_receipt_execute(
+    input: &PathBuf,
+    out: Option<&PathBuf>,
+    mode_str: &str,
+    block: u64,
+    key_hex: Option<&str>,
+) -> Result<ExitCode, String> {
+    let source = read_source(input)?;
+    let comp_mode = parse_mode(mode_str)?;
+    let bytecode = if mode_str == "dev" {
+        compile_source(&source).map_err(|e| format!("compile error: {e}"))?
+    } else {
+        compile_with_mode(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?
+    };
+    let operations = decode_trading_program(&bytecode).map_err(|e| format!("decode error: {e}"))?;
+
+    let (trade_id, policy) = match operations.first() {
+        Some(TradingOperation::BeginAtomicTrade { trade_id, policy }) => (trade_id.clone(), policy.clone()),
+        _ => return Err("compiled trading program must begin with BeginAtomicTrade".to_string()),
+    };
+
+    let mut providers = BTreeSet::new();
+    let mut venues = BTreeSet::new();
+    let mut settlement_asset = None;
+    for op in &operations {
+        match op {
+            TradingOperation::OpenDebt { provider, .. } => {
+                providers.insert(provider.clone());
+            }
+            TradingOperation::ExecuteSwap { venue, .. } => {
+                venues.insert(venue.clone());
+            }
+            TradingOperation::AssertMinNetProfit {
+                settlement_asset: asset,
+                ..
+            } => {
+                settlement_asset = Some(asset.clone());
+            }
+            _ => {}
+        }
+    }
+
+    // Derived from the compiled bytecode itself, not a caller-supplied
+    // placeholder, so it actually commits the host to this specific
+    // artifact rather than an arbitrary number nothing checks.
+    let state_commitment = sha256_with_domain(&bytecode, b"x3c-receipt-execute-state-commitment");
+    let artifact_hash = sha256_with_domain(&bytecode, b"x3c-receipt-execute-artifact-hash");
+
+    let manifest = CapabilityManifest {
+        mode: CapabilityMode::Fixture,
+        version: format!("trading-policy-v{}", policy.policy_version),
+        chain: policy.chain.clone(),
+        state_commitment,
+        private_submission: policy.require_private_submission,
+        providers,
+        venues,
+    };
+    let mut host = NeutralFixtureHost { manifest };
+
+    let mut vm = TradingVm::new();
+    let context = TradeExecutionContext {
+        mode: ExecutionMode::Development,
+        current_block: block,
+    };
+    let execution = vm
+        .execute_atomic(&operations, &mut host, context)
+        .map_err(|e| format!("trade execution rejected: {e}"))?;
+
+    let receipt = build_receipt(
+        env!("CARGO_PKG_VERSION"),
+        artifact_hash,
+        &trade_id,
+        &policy.policy_id,
+        state_commitment,
+        &operations,
+        &execution.committed_state,
+        settlement_asset.as_ref(),
+        TradeOutcome::Success,
+    )
+    .map_err(|e| format!("receipt build failed: {e}"))?;
+
+    let signing_seed = decode_signing_seed(key_hex)?;
+    let signing_key = SigningKey::from_bytes(&signing_seed);
+    let receipt = sign_receipt(receipt, "x3c-receipt-execute", &signing_key)
+        .map_err(|e| format!("receipt signing failed: {e}"))?;
+
+    let trusted = BTreeMap::from([(
+        "x3c-receipt-execute".to_string(),
+        signing_key.verifying_key().to_bytes(),
+    )]);
+    verify_receipt_trusted(&receipt, &trusted).map_err(|e| format!("receipt failed self-verification: {e}"))?;
+
+    let json = serde_json::to_string_pretty(&receipt).map_err(|e| format!("serialization failed: {e}"))?;
+    write_output(out, &json)?;
+    eprintln!(
+        "x3c receipt execute: trade '{trade_id}' committed, receipt verified (signer public key {})",
+        hex_encode(&signing_key.verifying_key().to_bytes())
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+fn sha256_with_domain(bytes: &[u8], domain: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+/// A fixed, clearly non-secret dev seed when no `--key-hex` is given —
+/// this command is a fixture/demo tool, not a production signer. Anyone
+/// relying on a receipt signed this way for real trust is misusing it;
+/// the printed signer public key makes that unambiguous.
+const DEV_SIGNING_SEED: [u8; 32] = [0x42u8; 32];
+
+fn decode_signing_seed(key_hex: Option<&str>) -> Result<[u8; 32], String> {
+    match key_hex {
+        None => Ok(DEV_SIGNING_SEED),
+        Some(hex) => {
+            let bytes = hex_decode(hex)?;
+            <[u8; 32]>::try_from(bytes.as_slice())
+                .map_err(|_| "key-hex must decode to exactly 32 bytes (64 hex characters)".to_string())
+        }
+    }
+}
+
+fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
+    let input = input.trim();
+    if input.len() % 2 != 0 {
+        return Err(format!(
+            "key-hex must have an even number of characters, got {}",
+            input.len()
+        ));
+    }
+    (0..input.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&input[i..i + 2], 16).map_err(|e| format!("invalid hex in key-hex: {e}")))
+        .collect()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn cmd_receipt_inspect(input: &PathBuf) -> Result<ExitCode, String> {

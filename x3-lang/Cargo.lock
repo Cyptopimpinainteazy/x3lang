@@ -2118,8 +2118,10 @@ name = "x3-tools"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "ed25519-dalek",
  "reqwest",
  "serde_json",
+ "sha2",
  "sha3",
  "x3-lang-ast",
  "x3-lang-common",

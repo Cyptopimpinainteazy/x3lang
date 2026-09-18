@@ -11,9 +11,11 @@ x3-lang-ast = { path = "../x3-ast" }
 x3-lang-compiler = { path = "../../compiler" }
 x3-lang-vm = { path = "../../vm" }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sha3 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "json"] }
 clap = { workspace = true }
+ed25519-dalek = { workspace = true }
 
 [[bin]]
 name = "run_simple"

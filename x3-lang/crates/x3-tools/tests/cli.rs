@@ -143,6 +143,38 @@ fn trading_receipt_json(tamper: bool) -> String {
     serde_json::to_string_pretty(&receipt).expect("receipt json")
 }
 
+const TRADING_SOURCE: &str = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset WETH = evm.ethereum.0xC02a { decimals: 18 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+
+risk policy MainnetArb {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: true
+}
+
+atomic trade CrossDexArb using MainnetArb {
+    borrow 1_000_000 USDC from aave_v3 as debt
+
+    let weth = swap debt.amount USDC -> WETH
+        via uniswap_v3
+        min_out 410 WETH
+
+    let returned = swap weth WETH -> USDC
+        via sushiswap
+        min_out 1_002_000 USDC
+
+    repay debt
+
+    require net_profit >= 1_000 USDC
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
 const GOOD_SOURCE: &str = r#"intent arb_solana_eth {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
@@ -342,5 +374,113 @@ fn cli_check_rejects_unsafe_program() {
     assert!(
         !status.success(),
         "unknown chain must be rejected by `x3c check`, got: {status:?}"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_compiles_runs_and_emits_a_verifiable_receipt() {
+    // Proves the previously-unwired pipeline actually connects: a real
+    // .x3 source file, compiled and executed through the CLI (not
+    // library test code), produces a receipt that independently passes
+    // `x3c receipt verify`.
+    let src = write_fixture("cli_receipt_execute.x3", TRADING_SOURCE);
+    let receipt_path = std::env::temp_dir().join("cli_receipt_execute_out.json");
+
+    let output = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--out")
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(
+        output.status.success(),
+        "receipt execute must succeed for a well-formed trade: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("CrossDexArb"));
+
+    let body = std::fs::read_to_string(&receipt_path).expect("receipt file must be written");
+    assert!(body.contains("\"trade_id\": \"CrossDexArb\""));
+    assert!(body.contains("\"attestation\""));
+
+    let verify_status = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt_path)
+        .status()
+        .expect("x3c receipt verify");
+    assert!(
+        verify_status.success(),
+        "a receipt produced by `receipt execute` must itself pass `receipt verify`"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_is_deterministic_given_the_same_signing_key() {
+    let src = write_fixture("cli_receipt_execute_deterministic.x3", TRADING_SOURCE);
+    let key = "1111111111111111111111111111111111111111111111111111111111111111";
+    let key = &key[..64];
+
+    let first = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--key-hex")
+        .arg(key)
+        .output()
+        .expect("x3c receipt execute");
+    let second = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--key-hex")
+        .arg(key)
+        .output()
+        .expect("x3c receipt execute");
+
+    assert!(first.status.success() && second.status.success());
+    assert_eq!(
+        first.stdout, second.stdout,
+        "the same source and signing key must produce byte-identical receipts"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_rejects_a_trade_past_its_deadline() {
+    let src = write_fixture("cli_receipt_execute_expired.x3", TRADING_SOURCE);
+
+    let status = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--block")
+        .arg("999")
+        .status()
+        .expect("x3c receipt execute");
+
+    assert!(
+        !status.success(),
+        "a trade executed past its compiled deadline must be rejected, not silently succeed"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_rejects_a_malformed_signing_key() {
+    let src = write_fixture("cli_receipt_execute_badkey.x3", TRADING_SOURCE);
+
+    let status = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--key-hex")
+        .arg("deadbeef")
+        .status()
+        .expect("x3c receipt execute");
+
+    assert!(
+        !status.success(),
+        "a 4-byte key-hex must be rejected, not silently truncated/padded"
     );
 }
