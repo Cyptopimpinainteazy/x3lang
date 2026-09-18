@@ -776,8 +776,12 @@ pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
     out.push_str(&format!("; x3-lang bytecode v0x{:02x}\n", bytecode[0]));
     let mut pc = 1usize;
     let mut idx = 0u32;
+    let mut saw_metadata = false;
     // Walk optional metadata: any leading 0x10/0x11 byte is metadata; the
-    // first non-metadata byte is the start of the operation stream.
+    // first non-metadata byte is the start of the operation stream. The widths
+    // here must mirror `emit_x3ir` exactly — `chain_id` is a u64, not a u32 —
+    // and the block is padded to a 4-byte boundary afterwards, because that is
+    // where the writer puts the padding.
     loop {
         if pc >= bytecode.len() {
             break;
@@ -788,17 +792,38 @@ pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
                 let value = std::str::from_utf8(&bytecode[pc + 3..pc + 3 + len]).unwrap_or("<invalid utf-8>");
                 out.push_str(&format!("  {idx:04}  meta.nonce   = {value:?}\n"));
                 idx += 1;
-                pc = align4(pc + 3 + len);
+                pc += 3 + len;
+                saw_metadata = true;
             }
             0x11 => {
-                let id = u32::from_le_bytes([bytecode[pc + 1], bytecode[pc + 2], bytecode[pc + 3], bytecode[pc + 4]]);
+                let id = u64::from_le_bytes([
+                    bytecode[pc + 1],
+                    bytecode[pc + 2],
+                    bytecode[pc + 3],
+                    bytecode[pc + 4],
+                    bytecode[pc + 5],
+                    bytecode[pc + 6],
+                    bytecode[pc + 7],
+                    bytecode[pc + 8],
+                ]);
                 out.push_str(&format!("  {idx:04}  meta.chain_id = {id}\n"));
                 idx += 1;
-                pc += 5;
+                pc += 9;
+                saw_metadata = true;
             }
             _ => break,
         }
     }
+    // The writer pads the metadata block to a 4-byte boundary, and only when it
+    // wrote one; a stream without metadata starts its instructions at offset 1.
+    // NOTE: deliberately no `align4` here. The metadata block is written by
+    // `emit_x3ir` with no padding, so aligning the cursor here started the walk
+    // one byte late and turned payload bytes into opcodes — `x3c explain`
+    // printed garbage for any program with a nonce. The reader has to mirror
+    // the writer. The VM's `first_instruction_pc` *does* align, so the writer
+    // and the VM disagree about this block; that is a separate, coordinated
+    // format fix (see TICKET-023), not something to paper over here.
+    let _ = saw_metadata;
     while pc + 4 <= bytecode.len() {
         if bytecode[pc..pc + 4].iter().all(|b| *b == 0) {
             pc += 4;
@@ -1071,5 +1096,51 @@ mod tests {
                 cursor += 1;
             }
         }
+    }
+
+    #[test]
+    fn nonce_metadata_does_not_shift_the_instruction_stream() {
+        // Regression for `x3c explain`: the reader aligned the metadata block
+        // while the writer does not, so the walk started one byte late and read
+        // payload bytes as opcodes. A 15-byte nonce makes the difference
+        // visible, since `[version][META_NONCE][u16 len][nonce]` is then 19
+        // bytes rather than a multiple of four.
+        let mut ir = X3IR::new();
+        ir.metadata.nonce = Some("simple_swap_001".to_string());
+        // A non-zero opcode: `NOP` encodes as four zero bytes, which the
+        // disassembler treats as padding and skips.
+        ir.operations = vec![Operation::AtomicBegin];
+
+        let bytecode = emit_x3ir(&ir).expect("should emit");
+        assert_eq!(bytecode.len() % 4, 0, "the stream must be 4-byte aligned");
+
+        let trace = disassemble(&bytecode).expect("should disassemble");
+        assert!(trace.contains("meta.nonce"), "the nonce must be reported: {trace}");
+        assert!(
+            trace.contains("ATOMIC_BEGIN"),
+            "the instruction after the metadata must decode: {trace}"
+        );
+    }
+
+    #[test]
+    fn chain_id_metadata_is_read_at_its_real_width() {
+        // The disassembler read `chain_id` as a u32 and advanced five bytes,
+        // while the writer emits a u64. Any stream carrying a chain id desynced
+        // immediately after it.
+        let mut ir = X3IR::new();
+        ir.metadata.nonce = Some("nonce_1".to_string());
+        ir.metadata.chain_id = Some(0x0123_4567_89AB_CDEF);
+        ir.operations = vec![Operation::AtomicBegin];
+
+        let bytecode = emit_x3ir(&ir).expect("should emit");
+        let trace = disassemble(&bytecode).expect("should disassemble");
+        assert!(
+            trace.contains("81985529216486895"),
+            "chain_id must be reported as the u64 that was written: {trace}"
+        );
+        assert!(
+            trace.contains("ATOMIC_BEGIN"),
+            "the instruction after the chain id must decode: {trace}"
+        );
     }
 }
