@@ -143,6 +143,17 @@ pub enum Operation {
         /// Index of the path whose body follows, into the declared path list.
         selected: u32,
     },
+    /// The venues a route's failing legs may be re-routed through.
+    ///
+    /// The artifact carries the approved list itself, not a count of it: a
+    /// runtime can only restrict itself to the compiler's approvals if the
+    /// approvals are in the artifact. Every venue here was verified as a route
+    /// in its own right before it was admitted, which is what "no arbitrary
+    /// dynamic contract substitution" means in practice.
+    RouteFallback {
+        /// Venues approved as substitutes, in declaration order.
+        approved: Vec<String>,
+    },
 
     // ===== Guard Operations =====
     /// Require a condition to be true

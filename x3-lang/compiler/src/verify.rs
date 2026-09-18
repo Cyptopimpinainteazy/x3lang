@@ -82,6 +82,36 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 }
                 let _ = criterion;
             }
+            Operation::RouteFallback { approved } => {
+                if approved.is_empty() {
+                    push_unsafe(diagnostics, format!("{op_context}: route fallback approves no venues"));
+                }
+                if approved.len() > crate::spec::opcodes::MAX_ROUTE_FALLBACKS {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: route fallback approves {} venues, above the {}-venue bound",
+                            approved.len(),
+                            crate::spec::opcodes::MAX_ROUTE_FALLBACKS
+                        ),
+                    );
+                }
+                if approved.iter().any(|venue| venue.trim().is_empty()) {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: route fallback approves an unnamed venue"),
+                    );
+                }
+                if approved.iter().any(|venue| venue.contains(',')) {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: route fallback venue contains ',' which is the payload \
+                             separator, so the approved set would not round-trip"
+                        ),
+                    );
+                }
+            }
             Operation::AtomicEnd => {
                 if atomic_depth == 0 {
                     push_unsafe(
