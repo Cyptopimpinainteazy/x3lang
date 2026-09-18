@@ -77,6 +77,7 @@ fn operations() -> Vec<TradingOperation> {
                 chain: "ethereum".to_string(),
                 max_slippage_bps: 30,
                 max_gas: u128::MAX,
+                max_gas_asset: asset("USDC"),
                 max_flash_fee_bps: 10,
                 deadline_blocks: 10,
                 require_private_submission: false,

@@ -366,6 +366,10 @@ pub struct CompiledTradingPolicy {
     pub chain: String,
     pub max_slippage_bps: u16,
     pub max_gas: u128,
+    /// Asset `max_gas` is denominated in. Without this, `max_gas` is an
+    /// unenforceable bare number: the VM has no way to know which of a
+    /// trade's several accrued costs it's supposed to cap.
+    pub max_gas_asset: AssetKey,
     pub max_flash_fee_bps: u16,
     pub deadline_blocks: u64,
     pub require_private_submission: bool,

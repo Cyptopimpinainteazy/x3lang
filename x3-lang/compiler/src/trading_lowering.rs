@@ -61,6 +61,7 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         })?;
 
     let max_gas = literal_amount(&policy.max_gas, symbols, "policy max_gas")?;
+    let max_gas_asset = asset_key(&policy.max_gas.asset, symbols)?;
     let minimum_net_profit = match &policy.min_profit {
         Some(amount) => Some(literal_amount(amount, symbols, "policy min_profit")?),
         None => None,
@@ -73,6 +74,7 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         chain: policy_chain,
         max_slippage_bps: policy.max_slippage_bps,
         max_gas,
+        max_gas_asset,
         max_flash_fee_bps: policy.max_flash_fee_bps,
         deadline_blocks,
         require_private_submission: policy.require_private_submission,

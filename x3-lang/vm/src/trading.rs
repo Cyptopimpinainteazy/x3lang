@@ -195,6 +195,11 @@ pub enum TradingExecError {
         asset: AssetKey,
         deficit: i128,
     },
+    GasCeilingExceeded {
+        asset: AssetKey,
+        ceiling: u128,
+        actual: u128,
+    },
 }
 
 impl fmt::Display for TradingExecError {
@@ -244,6 +249,11 @@ impl fmt::Display for TradingExecError {
                 kind.as_str(),
                 asset.symbol,
                 -deficit
+            ),
+            Self::GasCeilingExceeded { asset, ceiling, actual } => write!(
+                f,
+                "accrued {} cost {actual} exceeds compiled max_gas ceiling {ceiling}",
+                asset.symbol
             ),
         }
     }
@@ -535,6 +545,13 @@ impl TradingVm {
                     if let Some((debt, _)) = self.trading_state.open_debts.iter().next() {
                         return Err(TradingExecError::OpenDebtAtCommit(debt.clone()));
                     }
+                    // Guaranteed, not conditional: a trade using a
+                    // policy-level minimum_net_profit instead of an
+                    // explicit `require net_profit`/`invariant solvent`
+                    // statement would otherwise never call
+                    // accrue_host_execution_costs, and the gas ceiling
+                    // would silently never be checked.
+                    self.accrue_host_execution_costs(host)?;
                     self.trading_state.committed = true;
                     saw_commit = true;
                 }
@@ -621,6 +638,28 @@ impl TradingVm {
             if cost.amount > already {
                 self.accrue_cost(&cost.asset, cost.amount - already)?;
             }
+        }
+        self.enforce_gas_ceiling()
+    }
+
+    /// Compiled `max_gas` used to be dead metadata — parsed, carried through
+    /// IR, never actually checked against anything. This is the actual
+    /// enforcement: total accrued cost in the policy's declared gas asset
+    /// must not exceed the compiled ceiling.
+    fn enforce_gas_ceiling(&self) -> Result<(), TradingExecError> {
+        let policy = self.compiled_policy();
+        let actual = self
+            .trading_state
+            .costs
+            .get(&policy.max_gas_asset)
+            .copied()
+            .unwrap_or(0);
+        if actual > policy.max_gas {
+            return Err(TradingExecError::GasCeilingExceeded {
+                asset: policy.max_gas_asset.clone(),
+                ceiling: policy.max_gas,
+                actual,
+            });
         }
         Ok(())
     }
