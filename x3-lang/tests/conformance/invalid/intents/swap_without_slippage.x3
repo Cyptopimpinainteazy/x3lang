@@ -1,0 +1,17 @@
+// The bridge side is fully guarded here — nonce, source finality, bounded
+// timeout with a refund path. What is missing is any bound on the swap leg's
+// execution quality. `min_output` is an absolute floor picked at compile
+// time, not a tolerance for how far the market may move before the fill, so
+// a swap without `require slippage <= N` has no slippage bound at all.
+intent swap_without_slippage {
+    from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
+    to Solana.ETH receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    route {
+        bridge X3 ethereum.USDC -> solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+        swap uniswap solana.USDC -> solana.ETH amount 1000 min_output 500
+    }
+    require nonce unused swap_without_slippage_001
+    require finality.ethereum >= 12
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
+}
