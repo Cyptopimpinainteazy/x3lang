@@ -13,9 +13,9 @@ use x3_lang_compiler::{
     CompilationMode,
 };
 use x3_lang_vm::trading::{
-    build_receipt, fixture_manifest, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult,
-    CapabilityManifest, CommittedCost, ExecutionMode, HostError, QuoteRequest, QuoteResult, RepayRequest, RepayResult,
-    SwapRequest, SwapResult, TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
+    build_receipt, fixture_manifest, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult, BridgeRequest,
+    BridgeTransferResult, CapabilityManifest, CommittedCost, ExecutionMode, HostError, QuoteRequest, QuoteResult,
+    RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
 };
 
 const SOURCE: &str = include_str!("../../examples/trading_core_v1.x3");
@@ -30,6 +30,7 @@ impl FixtureVenueHost {
         let mut manifest = fixture_manifest(COMMITMENT);
         manifest.providers = BTreeSet::from(["aave_v3".to_string()]);
         manifest.venues = BTreeSet::from(["uniswap_v3".to_string(), "sushiswap".to_string()]);
+        manifest.bridges = BTreeSet::from(["wormhole".to_string()]);
         // MainnetArb (examples/trading_core_v1.x3) declares require_private_submission:
         // true. This fixture claims that capability so the happy-path test can exercise
         // a genuine full commit; the negative case (fixture that does NOT claim it) is
@@ -87,6 +88,19 @@ impl TradingHost for FixtureVenueHost {
 
     fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError> {
         Ok(Vec::new())
+    }
+
+    fn bridge(&mut self, request: BridgeRequest) -> Result<BridgeTransferResult, HostError> {
+        Ok(BridgeTransferResult {
+            from: request.from,
+            to: request.to.clone(),
+            input: request.input,
+            output: request.input,
+            fee: 0,
+            fee_asset: request.to,
+            receiver: request.receiver,
+            state_commitment: COMMITMENT,
+        })
     }
 }
 
@@ -146,6 +160,114 @@ fn trading_core_v1_pipeline_executes_and_verifies_receipt() {
     let receipt = sign_receipt(receipt, "e2e-executor", &signing_key).expect("receipt must sign");
     let trusted = BTreeMap::from([("e2e-executor".to_string(), signing_key.verifying_key().to_bytes())]);
     verify_receipt_trusted(&receipt, &trusted).expect("signed receipt must verify");
+    assert!(receipt
+        .realized_net_profit
+        .as_ref()
+        .is_some_and(|profit| profit.amount > 0));
+}
+
+const BRIDGE_SOURCE: &str = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset WETH = evm.ethereum.0xC02a { decimals: 18 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+asset USDC_BASE = evm.base.0xB1a0 { decimals: 6 }
+
+risk policy MainnetArbBridge {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+}
+
+atomic trade CrossDexArbToBase using MainnetArbBridge {
+    borrow 1_000_000 USDC from aave_v3 as debt
+
+    let weth = swap debt.amount USDC -> WETH
+        via uniswap_v3
+        min_out 410 WETH
+
+    let returned = swap weth WETH -> USDC
+        via sushiswap
+        min_out 1_002_000 USDC
+
+    repay debt
+
+    bridge returned USDC -> USDC_BASE via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+
+    require net_profit >= 1 USDC_BASE
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
+#[test]
+fn bridge_pipeline_executes_and_verifies_receipt() {
+    // Full pipeline, real bytecode round-trip: proves TRADING_BRIDGE
+    // actually survives compile -> emit -> decode (this is exactly the
+    // opcode that would have desynced the disassembler before the
+    // is_payload_opcode range fix), and that the whole execute -> receipt
+    // -> sign -> verify chain works for a trade that crosses chains.
+    let program = parse_source(BRIDGE_SOURCE).expect("bridge example must parse");
+    let symbols = analyze_trading(&program, CompilationMode::Dev).expect("bridge example must type-check");
+    assert!(verify_trading_program(&program, &symbols, CompilationMode::Dev).is_empty());
+
+    let trade = program
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::AtomicTrade(trade) => Some(trade),
+            _ => None,
+        })
+        .expect("bridge example must contain an atomic trade");
+    let operations = lower_atomic_trade(trade, &symbols).expect("bridge example must lower");
+    assert_eq!(operations.len(), 10);
+
+    let bytecode = compile_program(&program).expect("bridge example must compile to bytecode");
+    assert!(!bytecode.is_empty() && bytecode.len() % 4 == 0);
+
+    let decoded = decode_trading_program(&bytecode).expect("emitted bridge bytecode must decode");
+    assert_eq!(
+        decoded.len(),
+        10,
+        "every trading operation, including Bridge, must survive encode/decode"
+    );
+    assert!(
+        decoded
+            .iter()
+            .any(|op| matches!(op, x3_lang_compiler::ir::TradingOperation::Bridge { .. })),
+        "the decoded program must still contain the Bridge operation"
+    );
+
+    let mut vm = TradingVm::new();
+    let mut host = FixtureVenueHost::new();
+    let execution = vm
+        .execute_atomic(&decoded, &mut host, execution_context(ExecutionMode::Development))
+        .expect("decoded bridge bytecode must execute and commit");
+
+    let settlement = x3_lang_compiler::AssetKey {
+        vm_family: "evm".to_string(),
+        chain: "base".to_string(),
+        canonical_id: "0xB1a0".to_string(),
+        symbol: "USDC_BASE".to_string(),
+        decimals: 6,
+    };
+    let receipt = build_receipt(
+        env!("CARGO_PKG_VERSION"),
+        [5u8; 32],
+        trade.name.as_str(),
+        trade.risk_policy.as_str(),
+        COMMITMENT,
+        &decoded,
+        &execution.committed_state,
+        Some(&settlement),
+        TradeOutcome::Success,
+    )
+    .expect("bridge receipt must build");
+    let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+    let receipt = sign_receipt(receipt, "e2e-executor", &signing_key).expect("bridge receipt must sign");
+    let trusted = BTreeMap::from([("e2e-executor".to_string(), signing_key.verifying_key().to_bytes())]);
+    verify_receipt_trusted(&receipt, &trusted).expect("signed bridge receipt must verify");
     assert!(receipt
         .realized_net_profit
         .as_ref()

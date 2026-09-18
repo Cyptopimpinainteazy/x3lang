@@ -357,6 +357,11 @@ struct TradingSequenceState {
     closed_debts: BTreeSet<String>,
     bindings: BTreeMap<String, AssetKey>,
     invariant_guards_seen: BTreeSet<crate::ir::InvariantKind>,
+    /// Set once a Bridge operation has run. Nothing that operates on the
+    /// source chain (OpenDebt/ExecuteSwap/CloseDebt) may appear after it —
+    /// defense in depth for the same invariant trading_verify.rs already
+    /// enforces at the AST level.
+    bridged: bool,
 }
 
 fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
@@ -400,6 +405,12 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
             }
             TradingOperation::OpenDebt { debt_id, asset, .. } => {
                 require_trade_started(&state, &op_context, diagnostics);
+                if state.bridged {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: open debt appears after the trade bridged to another chain"),
+                    );
+                }
                 if state.open_debts.contains_key(debt_id) || state.closed_debts.contains(debt_id) {
                     push_unsafe(
                         diagnostics,
@@ -417,6 +428,13 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                 ..
             } => {
                 require_trade_started(&state, &op_context, diagnostics);
+
+                if state.bridged {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: swap appears after the trade bridged to another chain"),
+                    );
+                }
 
                 if state.receipt_seen || state.all_debts_guard_seen {
                     push_unsafe(
@@ -484,8 +502,75 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                     state.bindings.insert(binding.clone(), to.clone());
                 }
             }
+            TradingOperation::Bridge { from, to, input, .. } => {
+                require_trade_started(&state, &op_context, diagnostics);
+
+                if state.bridged {
+                    push_unsafe(diagnostics, format!("{op_context}: duplicate Bridge in one trade"));
+                }
+                if state.receipt_seen || state.all_debts_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: bridge appears after final trading guards/receipt"),
+                    );
+                }
+                if from == to {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: bridge from and to assets must differ"),
+                    );
+                }
+
+                match input {
+                    ValueRef::Literal(_) => {}
+                    ValueRef::Binding(name) => {
+                        if let Some((debt_id, field)) = name.split_once('.') {
+                            if field != "amount" {
+                                push_unsafe(diagnostics, format!("{op_context}: unsupported debt binding '{name}'"));
+                            }
+                            match state.open_debts.get(debt_id) {
+                                Some(asset) if asset == from => {}
+                                Some(asset) => push_unsafe(
+                                    diagnostics,
+                                    format!(
+                                        "{op_context}: debt binding '{name}' has asset {} but bridge expects {}",
+                                        asset.symbol, from.symbol
+                                    ),
+                                ),
+                                None => push_unsafe(
+                                    diagnostics,
+                                    format!("{op_context}: debt binding '{name}' used before open debt"),
+                                ),
+                            }
+                        } else {
+                            match state.bindings.get(name) {
+                                Some(asset) if asset == from => {}
+                                Some(asset) => push_unsafe(
+                                    diagnostics,
+                                    format!(
+                                        "{op_context}: binding '{name}' has asset {} but bridge expects {}",
+                                        asset.symbol, from.symbol
+                                    ),
+                                ),
+                                None => push_unsafe(
+                                    diagnostics,
+                                    format!("{op_context}: binding '{name}' used before creation"),
+                                ),
+                            }
+                        }
+                    }
+                }
+
+                state.bridged = true;
+            }
             TradingOperation::CloseDebt { debt_id } => {
                 require_trade_started(&state, &op_context, diagnostics);
+                if state.bridged {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: close debt appears after the trade bridged to another chain"),
+                    );
+                }
                 if state.closed_debts.contains(debt_id) {
                     push_unsafe(
                         diagnostics,
@@ -706,6 +791,18 @@ fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnosti
             if *min_output == 0 {
                 push_unsafe(diagnostics, format!("{context}: min_output must be greater than zero"));
             }
+        }
+        TradingOperation::Bridge {
+            via,
+            from,
+            to,
+            receiver,
+            ..
+        } => {
+            require_non_empty(diagnostics, context, "via", via);
+            verify_asset_key(from, context, "from", diagnostics);
+            verify_asset_key(to, context, "to", diagnostics);
+            require_non_empty(diagnostics, context, "receiver", receiver);
         }
         TradingOperation::CloseDebt { debt_id } => {
             require_non_empty(diagnostics, context, "debt_id", debt_id);

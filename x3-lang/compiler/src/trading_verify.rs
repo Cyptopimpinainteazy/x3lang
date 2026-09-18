@@ -72,6 +72,10 @@ fn verify_atomic_trade_at_span(
     // declared on a different chain (a typo, or a copy-paste from another
     // trade) silently compiles as if it were an ordinary same-chain call.
     let mut trade_chain: Option<(String, x3_lang_common::Symbol)> = None;
+    // Once a trade bridges its proceeds away, nothing after it can still be
+    // operating on the source chain — there is no "resume trading" after a
+    // cross-chain move within one atomic trade.
+    let mut bridged: Option<x3_lang_common::Symbol> = None;
 
     for stmt in &trade.body {
         for symbol in trade_stmt_asset_refs(stmt) {
@@ -83,6 +87,21 @@ fn verify_atomic_trade_at_span(
                 span,
                 &mut errors,
             );
+        }
+        if let Some(bridge_via) = &bridged {
+            if matches!(
+                stmt,
+                TradeStmt::Borrow { .. } | TradeStmt::Swap { .. } | TradeStmt::Repay { .. }
+            ) {
+                errors.push(semantic_error(
+                    format!(
+                        "atomic trade '{}' has a source-chain statement after bridging via '{}' — nothing can operate on the source chain once its proceeds have moved to another chain",
+                        trade.name.as_str(),
+                        bridge_via.as_str()
+                    ),
+                    span,
+                ));
+            }
         }
         match stmt {
             TradeStmt::Borrow { debt, .. } => {
@@ -96,6 +115,41 @@ fn verify_atomic_trade_at_span(
                         ),
                         span,
                     ));
+                }
+            }
+            TradeStmt::Bridge {
+                from_asset,
+                to_asset,
+                via,
+                ..
+            } => {
+                if bridged.is_some() {
+                    errors.push(semantic_error(
+                        format!("atomic trade '{}' bridges more than once", trade.name.as_str()),
+                        span,
+                    ));
+                }
+                bridged = Some(via.clone());
+                if let (Some(from), Some(to)) = (symbols.assets.get(from_asset), symbols.assets.get(to_asset)) {
+                    if from.chain.as_str() == to.chain.as_str() {
+                        errors.push(semantic_error(
+                            format!(
+                                "atomic trade '{}' bridges '{}' to '{}', both on chain '{}' — a bridge must move between two different chains",
+                                trade.name.as_str(),
+                                from_asset.as_str(),
+                                to_asset.as_str(),
+                                from.chain.as_str()
+                            ),
+                            span,
+                        ));
+                    } else {
+                        // Everything after a bridge is now expected to be on
+                        // the destination chain — e.g. `require net_profit`
+                        // naming the destination asset is the normal,
+                        // expected pattern, not a fresh chain mismatch
+                        // against whatever chain the trade started on.
+                        trade_chain = Some((to.chain.as_str().to_string(), to_asset.clone()));
+                    }
                 }
             }
             TradeStmt::Repay { debt } => {
@@ -246,6 +300,14 @@ fn trade_stmt_asset_refs(stmt: &TradeStmt) -> Vec<&x3_lang_common::Symbol> {
             min_output,
             ..
         } => vec![from_asset, to_asset, &min_output.asset],
+        // Only from_asset is checked against the trade's single consistent
+        // chain — to_asset is the deliberate exception: a bridge exists
+        // specifically to move value onto a different chain, so checking
+        // it here would reject the one legitimate cross-chain reference in
+        // the whole language. The Bridge match arm in the caller enforces
+        // its own, different invariant instead: to_asset's chain must
+        // actually differ from from_asset's.
+        TradeStmt::Bridge { from_asset, .. } => vec![from_asset],
         TradeStmt::RequireMinNetProfit { amount } => vec![&amount.asset],
         TradeStmt::Repay { .. }
         | TradeStmt::RequireAllDebtsRepaid

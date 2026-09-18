@@ -43,9 +43,10 @@ use x3_lang_compiler::{
     check_source, check_source_with_mode, compile_source, compile_to_ir, compile_with_mode, CompilationMode,
 };
 use x3_lang_vm::trading::{
-    build_receipt, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult, CapabilityManifest,
-    CapabilityMode, CommittedCost, ExecutionMode, HostError, QuoteRequest, QuoteResult, RepayRequest, RepayResult,
-    SwapRequest, SwapResult, TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
+    build_receipt, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult, BridgeRequest,
+    BridgeTransferResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode, HostError, QuoteRequest,
+    QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradeOutcome, TradingHost,
+    TradingVm,
 };
 use x3_lang_vm::{VMConfig, VMState, VM};
 
@@ -1787,6 +1788,19 @@ impl TradingHost for NeutralFixtureHost {
     fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError> {
         Ok(Vec::new())
     }
+
+    fn bridge(&mut self, request: BridgeRequest) -> Result<BridgeTransferResult, HostError> {
+        Ok(BridgeTransferResult {
+            from: request.from,
+            to: request.to.clone(),
+            input: request.input,
+            output: request.input,
+            fee: 0,
+            fee_asset: request.to,
+            receiver: request.receiver,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
 }
 
 fn cmd_receipt_execute(
@@ -1812,6 +1826,7 @@ fn cmd_receipt_execute(
 
     let mut providers = BTreeSet::new();
     let mut venues = BTreeSet::new();
+    let mut bridges = BTreeSet::new();
     let mut settlement_asset = None;
     for op in &operations {
         match op {
@@ -1820,6 +1835,9 @@ fn cmd_receipt_execute(
             }
             TradingOperation::ExecuteSwap { venue, .. } => {
                 venues.insert(venue.clone());
+            }
+            TradingOperation::Bridge { via, .. } => {
+                bridges.insert(via.clone());
             }
             TradingOperation::AssertMinNetProfit {
                 settlement_asset: asset,
@@ -1845,6 +1863,7 @@ fn cmd_receipt_execute(
         private_submission: policy.require_private_submission,
         providers,
         venues,
+        bridges,
     };
     let mut host = NeutralFixtureHost { manifest };
 

@@ -280,3 +280,119 @@ atomic trade SameChain using P {{
         "same-chain assets must not be flagged as a chain mismatch: {errors:?}"
     );
 }
+
+const BRIDGE_ASSET_HEADER: &str = r#"
+asset USDC_ARB = evm.arbitrum.0xA0b8 { decimals: 6 }
+asset USDC_BASE = evm.base.0xB0c9 { decimals: 6 }
+
+risk policy P {
+    max_slippage: 30 bps
+    max_gas: 100000 USDC_ARB
+    max_flash_fee: 10 bps
+    deadline: 10 blocks
+    require_private_submission: false
+}
+"#;
+
+#[test]
+fn bridge_across_declared_chains_is_the_one_accepted_exception() {
+    // The exact scenario the "mixes chains" errors above exist to reject
+    // for a plain swap must be the one thing a bridge is allowed to do.
+    let source = format!(
+        r#"{BRIDGE_ASSET_HEADER}
+atomic trade CrossChainSettle using P {{
+    bridge 100 USDC_ARB -> USDC_BASE via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+    require net_profit >= 1 USDC_BASE
+    require all_debts_repaid
+    emit receipt
+}}
+"#
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        !has_message(&errors, "mixes chains"),
+        "a bridge crossing declared chains must not be flagged as a chain mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn bridge_to_the_same_chain_is_rejected() {
+    let source = r#"
+asset USDC = evm.arbitrum.0xA0b8 { decimals: 6 }
+asset WETH = evm.arbitrum.0xC02a { decimals: 18 }
+
+risk policy P {
+    max_slippage: 30 bps
+    max_gas: 100000 USDC
+    max_flash_fee: 10 bps
+    deadline: 10 blocks
+    require_private_submission: false
+}
+
+atomic trade FakeBridge using P {
+    bridge 100 USDC -> WETH via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+    require net_profit >= 1 WETH
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+    let errors = pipeline_errors(source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "must move between two different chains"),
+        "a bridge whose source and destination are on the same chain must be rejected: {errors:?}"
+    );
+}
+
+#[test]
+fn statement_after_bridge_is_rejected() {
+    let source = format!(
+        r#"{BRIDGE_ASSET_HEADER}
+atomic trade TradeAfterBridge using P {{
+    bridge 100 USDC_ARB -> USDC_BASE via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+    let out = swap 1 USDC_ARB -> USDC_ARB via uniswap_v3 min_out 1 USDC_ARB
+    require net_profit >= 1 USDC_BASE
+    require all_debts_repaid
+    emit receipt
+}}
+"#
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "after bridging via"),
+        "a swap after the trade already bridged to another chain must be rejected: {errors:?}"
+    );
+}
+
+#[test]
+fn bridge_source_must_match_the_trade_chain() {
+    // The bridge's own from_asset is still checked against the trade's
+    // established chain like any other asset reference — only its
+    // to_asset is exempt.
+    let source = r#"
+asset USDC_ARB = evm.arbitrum.0xA0b8 { decimals: 6 }
+asset WETH_ARB = evm.arbitrum.0xC02a { decimals: 18 }
+asset USDC_BASE = evm.base.0xB0c9 { decimals: 6 }
+asset USDC_OP = evm.optimism.0xD0e1 { decimals: 6 }
+
+risk policy P {
+    max_slippage: 30 bps
+    max_gas: 100000 USDC_ARB
+    max_flash_fee: 10 bps
+    deadline: 10 blocks
+    require_private_submission: false
+}
+
+atomic trade DriftedBridgeSource using P {
+    let out = swap 100 USDC_ARB -> WETH_ARB via uniswap_v3 min_out 1 WETH_ARB
+    bridge 1 USDC_BASE -> USDC_OP via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+    require net_profit >= 1 USDC_OP
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+    let errors = pipeline_errors(source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "mixes chains"),
+        "a bridge whose from_asset drifts onto a chain other than the trade's own must still be caught: {errors:?}"
+    );
+}

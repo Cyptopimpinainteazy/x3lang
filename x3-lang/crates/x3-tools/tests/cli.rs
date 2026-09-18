@@ -175,6 +175,41 @@ atomic trade CrossDexArb using MainnetArb {
 }
 "#;
 
+const BRIDGE_TRADING_SOURCE: &str = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset WETH = evm.ethereum.0xC02a { decimals: 18 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+asset USDC_BASE = evm.base.0xB1a0 { decimals: 6 }
+
+risk policy MainnetArbBridge {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+}
+
+atomic trade CrossDexArbToBase using MainnetArbBridge {
+    borrow 1_000_000 USDC from aave_v3 as debt
+
+    let weth = swap debt.amount USDC -> WETH
+        via uniswap_v3
+        min_out 410 WETH
+
+    let returned = swap weth WETH -> USDC
+        via sushiswap
+        min_out 1_002_000 USDC
+
+    repay debt
+
+    bridge returned USDC -> USDC_BASE via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+
+    require net_profit >= 1 USDC_BASE
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
 /// A B-52 program that declares every optional recommendation `x3c audit`
 /// checks for (vm, solver_market, two rpc_quorum blocks, risk_policy,
 /// privacy, invariant, proofs required, finality_policy, target) plus a
@@ -503,6 +538,46 @@ fn cli_receipt_execute_compiles_runs_and_emits_a_verifiable_receipt() {
     assert!(
         verify_status.success(),
         "a receipt produced by `receipt execute` must itself pass `receipt verify`"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_handles_a_trade_with_a_bridge_leg() {
+    // NeutralFixtureHost's bridge() completes the CLI's coverage of
+    // trading-core-v1's full statement set: a program that crosses chains
+    // must compile, execute, and produce a verifiable receipt through the
+    // CLI exactly like a single-chain one does.
+    let src = write_fixture("cli_receipt_execute_bridge.x3", BRIDGE_TRADING_SOURCE);
+    let receipt_path = std::env::temp_dir().join("cli_receipt_execute_bridge_out.json");
+
+    let output = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--out")
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(
+        output.status.success(),
+        "receipt execute must succeed for a well-formed bridge trade: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("CrossDexArbToBase"));
+
+    let body = std::fs::read_to_string(&receipt_path).expect("receipt file must be written");
+    assert!(body.contains("\"trade_id\": \"CrossDexArbToBase\""));
+    assert!(body.contains("\"attestation\""));
+
+    let verify_status = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt_path)
+        .status()
+        .expect("x3c receipt verify");
+    assert!(
+        verify_status.success(),
+        "a receipt produced by `receipt execute` for a bridge trade must itself pass `receipt verify`"
     );
 }
 

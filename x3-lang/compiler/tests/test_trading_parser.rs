@@ -444,3 +444,92 @@ risk policy WithBreakers {
         "formatter round-trip changed the risk policy AST"
     );
 }
+
+const BRIDGE_SOURCE: &str = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+asset USDC_BASE = evm.base.0xB1a0 { decimals: 6 }
+risk policy P {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+}
+atomic trade CrossChainSettle using P {
+    bridge 1_000_000 USDC -> USDC_BASE via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+    require net_profit >= 1 USDC_BASE
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
+#[test]
+fn parses_bridge_statement() {
+    let program = parse_source(BRIDGE_SOURCE).unwrap_or_else(|e| panic!("bridge source must parse: {e}"));
+    let (_, _, trade) = find_items(&program);
+    let trade = trade.expect("trade must be present");
+    let bridge = trade
+        .body
+        .iter()
+        .find_map(|stmt| match stmt {
+            TradeStmt::Bridge {
+                input,
+                from_asset,
+                to_asset,
+                via,
+                receiver,
+            } => Some((input, from_asset, to_asset, via, receiver)),
+            _ => None,
+        })
+        .expect("trade must contain a bridge statement");
+    let (input, from_asset, to_asset, via, receiver) = bridge;
+    assert_eq!(from_asset.as_str(), "USDC");
+    assert_eq!(input.asset.as_str(), "USDC");
+    assert_eq!(to_asset.as_str(), "USDC_BASE");
+    assert_eq!(via.as_str(), "wormhole");
+    assert!(matches!(receiver, Expression::Literal(LiteralExpr::String(_))));
+}
+
+#[test]
+fn bridge_formatter_round_trips_to_equivalent_ast() {
+    let first = parse_source(BRIDGE_SOURCE).expect("bridge source must parse");
+    let formatted = X3Formatter::new().format_program(&first);
+    assert!(
+        formatted.contains("bridge"),
+        "formatter dropped the bridge statement:\n{formatted}"
+    );
+    assert!(
+        formatted.contains("USDC_BASE"),
+        "formatter dropped the bridge destination asset:\n{formatted}"
+    );
+
+    let second = parse_source(&formatted).unwrap_or_else(|e| panic!("formatted output must reparse: {formatted}\n{e}"));
+    let (_, _, first_trade) = find_items(&first);
+    let (_, _, second_trade) = find_items(&second);
+    assert_eq!(
+        serde_json::to_value(first_trade).unwrap(),
+        serde_json::to_value(second_trade).unwrap(),
+        "formatter round-trip changed the bridge statement AST"
+    );
+}
+
+#[test]
+fn bridge_without_receiver_is_rejected() {
+    let source = BRIDGE_SOURCE.replace(r#"to "0x1234567890abcdef1234567890abcdef12345678""#, "");
+    let err = parse_source(&source).expect_err("bridge without 'to <receiver>' must be a parser diagnostic");
+    assert!(
+        format!("{err}").to_lowercase().contains("receiver"),
+        "diagnostic should name the missing receiver, got: {err}"
+    );
+}
+
+#[test]
+fn bridge_without_via_is_rejected() {
+    let source = BRIDGE_SOURCE.replace("via wormhole ", "");
+    let err = parse_source(&source).expect_err("bridge without 'via <bridge>' must be a parser diagnostic");
+    assert!(
+        format!("{err}").to_lowercase().contains("via"),
+        "diagnostic should name the missing 'via' clause, got: {err}"
+    );
+}

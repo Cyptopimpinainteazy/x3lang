@@ -149,6 +149,21 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
                     min_output: literal_amount(min_output, symbols, "swap min_out")?,
                 }));
             }
+            TradeStmt::Bridge {
+                input,
+                from_asset,
+                to_asset,
+                via,
+                receiver,
+            } => {
+                operations.push(Operation::Trading(TradingOperation::Bridge {
+                    via: via.as_str().to_string(),
+                    from: asset_key(from_asset, symbols)?,
+                    to: asset_key(to_asset, symbols)?,
+                    input: binding_ref(&input.value, symbols, &input.asset)?,
+                    receiver: literal_string(receiver, "bridge receiver")?,
+                }));
+            }
             TradeStmt::Repay { debt } => {
                 operations.push(Operation::Trading(TradingOperation::CloseDebt {
                     debt_id: debt.0.as_str().to_string(),
@@ -246,6 +261,15 @@ fn literal_text(expr: &Expression) -> Option<String> {
         Expression::Literal(LiteralExpr::Int { value, .. }) => Some(value.to_string()),
         Expression::Literal(LiteralExpr::Float { raw, .. }) => Some(raw.as_str().to_string()),
         _ => None,
+    }
+}
+
+fn literal_string(expr: &Expression, context: &str) -> Result<String, LowerError> {
+    match expr {
+        Expression::Literal(LiteralExpr::String(value)) => Ok(value.as_str().to_string()),
+        _ => Err(LowerError {
+            message: format!("{context} must be a string literal"),
+        }),
     }
 }
 

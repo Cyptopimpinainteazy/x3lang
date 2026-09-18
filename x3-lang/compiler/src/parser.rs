@@ -1014,6 +1014,8 @@ impl<'a> Parser<'a> {
                     debt: DebtId(Symbol::new(&debt)),
                 })
             }
+            Tok::KwBridge => self.parse_bridge_trade_stmt(),
+            Tok::Ident(ref s) if s == "bridge" => self.parse_bridge_trade_stmt(),
             Tok::KwRequire => {
                 self.advance();
                 match self.peek() {
@@ -1044,10 +1046,37 @@ impl<'a> Parser<'a> {
                 Ok(TradeStmt::EmitReceipt)
             }
             _ => Err(parse_err(
-                "expected a trading statement (borrow, swap, repay, require, invariant, or emit receipt)".into(),
+                "expected a trading statement (borrow, swap, repay, bridge, require, invariant, or emit receipt)"
+                    .into(),
                 self.peek(),
             )),
         }
+    }
+
+    /// `bridge <amount_expr> -> <asset> via <bridge> to <receiver>` — caller
+    /// has consumed neither `Tok::KwBridge` nor the bare-identifier form;
+    /// both dispatch here (see the general-VM `bridge { ... }` item parser
+    /// for why `bridge` can tokenize as either).
+    fn parse_bridge_trade_stmt(&mut self) -> Result<TradeStmt, X3Error> {
+        self.advance();
+        let input = self.parse_amount_expr("bridge amount")?;
+        self.expect(Tok::Arrow, "expected '->' after bridge amount")?;
+        let to_asset = self.expect_ident("bridge destination asset")?;
+        self.expect(
+            Tok::Ident("via".into()),
+            "expected 'via <bridge>' after destination asset",
+        )?;
+        let via = self.expect_ident("bridge name")?;
+        self.expect(Tok::Ident("to".into()), "expected 'to <receiver>' after bridge name")?;
+        let receiver = self.parse_expr()?;
+        let from_asset = input.asset.clone();
+        Ok(TradeStmt::Bridge {
+            input,
+            from_asset,
+            to_asset: Symbol::new(&to_asset),
+            via: Symbol::new(&via),
+            receiver,
+        })
     }
 
     /// Parse the name after `invariant`. Deliberately closed: an

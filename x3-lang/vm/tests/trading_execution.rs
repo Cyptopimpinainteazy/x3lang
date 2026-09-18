@@ -6,9 +6,9 @@ use x3_lang_compiler::ir::{
     AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation, ValueRef,
 };
 use x3_lang_vm::trading::{
-    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode,
-    HostError, PriceSource, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult,
-    TradeExecutionContext, TradingHost, TradingVm,
+    fixture_manifest, BorrowRequest, BorrowResult, BridgeRequest, BridgeTransferResult, CapabilityManifest,
+    CapabilityMode, CommittedCost, ExecutionMode, HostError, PriceSource, QuoteRequest, QuoteResult, RepayRequest,
+    RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [7u8; 32];
@@ -27,6 +27,7 @@ fn manifest() -> CapabilityManifest {
     let mut manifest = fixture_manifest(COMMITMENT);
     manifest.providers.insert("aave_v3".to_string());
     manifest.venues.insert("uniswap_v3".to_string());
+    manifest.bridges.insert("wormhole".to_string());
     manifest
 }
 
@@ -51,6 +52,19 @@ struct FixtureHost {
     /// tests can point it at an asset the trade never otherwise credits
     /// or debits, to prove costs there are still caught.
     execution_cost_asset: Option<AssetKey>,
+    /// Output amount `bridge()` reports received on the destination chain.
+    /// Defaults to matching the request's input exactly (a neutral, no-fee
+    /// transfer), matching how `swap_output`/`quote_output` default to
+    /// each other. `Some(0)` simulates a host reporting a failed transfer.
+    bridge_output: Option<u128>,
+    /// Fee `bridge()` reports, denominated in `bridge_fee_asset` (defaults
+    /// to the bridge's own `to` asset).
+    bridge_fee: u128,
+    bridge_fee_asset: Option<AssetKey>,
+    /// When set, `bridge()` reports this receiver instead of echoing the
+    /// request's — used to prove a mismatched result is caught, not
+    /// silently trusted.
+    bridge_receiver_override: Option<String>,
     began: bool,
     committed: bool,
     rolled_back: bool,
@@ -67,6 +81,10 @@ impl FixtureHost {
             commitment: COMMITMENT,
             execution_cost: 0,
             execution_cost_asset: None,
+            bridge_output: None,
+            bridge_fee: 0,
+            bridge_fee_asset: None,
+            bridge_receiver_override: None,
             began: false,
             committed: false,
             rolled_back: false,
@@ -141,6 +159,19 @@ impl TradingHost for FixtureHost {
             amount: self.execution_cost,
             kind: "gas".to_string(),
         }])
+    }
+
+    fn bridge(&mut self, request: BridgeRequest) -> Result<BridgeTransferResult, HostError> {
+        Ok(BridgeTransferResult {
+            from: request.from,
+            to: request.to.clone(),
+            input: request.input,
+            output: self.bridge_output.unwrap_or(request.input),
+            fee: self.bridge_fee,
+            fee_asset: self.bridge_fee_asset.clone().unwrap_or(request.to),
+            receiver: self.bridge_receiver_override.clone().unwrap_or(request.receiver),
+            state_commitment: self.commitment,
+        })
     }
 }
 
@@ -1071,4 +1102,180 @@ fn simulating_a_lossy_trade_never_updates_the_cumulative_ledger() {
     vm.execute_atomic(&operations, &mut real_host, context(ExecutionMode::Development))
         .expect("a real trade after only simulations must see a clean ledger and commit");
     assert_eq!(vm.cumulative_realized(&asset("USDC")), -100);
+}
+
+/// `ops()` extended with a bridge leg: after the debt closes, the settled
+/// USDC moves to USDC_BASE via wormhole, and the profit guard checks the
+/// destination asset instead — the natural "prove profit survives the
+/// bridge" pattern.
+fn bridge_ops() -> Vec<TradingOperation> {
+    let mut operations = ops();
+    let close_debt_index = operations
+        .iter()
+        .position(|op| matches!(op, TradingOperation::CloseDebt { .. }))
+        .expect("ops() must contain CloseDebt");
+    operations.insert(
+        close_debt_index + 1,
+        TradingOperation::Bridge {
+            via: "wormhole".to_string(),
+            from: asset("USDC"),
+            to: asset("USDC_BASE"),
+            input: ValueRef::Binding("returned".to_string()),
+            receiver: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
+        },
+    );
+    if let Some(TradingOperation::AssertMinNetProfit { settlement_asset, .. }) = operations
+        .iter_mut()
+        .find(|op| matches!(op, TradingOperation::AssertMinNetProfit { .. }))
+    {
+        *settlement_asset = asset("USDC_BASE");
+    }
+    operations
+}
+
+#[test]
+fn bridge_credits_the_destination_asset_and_debits_the_source() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+
+    let execution = vm
+        .execute_atomic(&bridge_ops(), &mut host, context(ExecutionMode::Development))
+        .expect("a well-formed bridge trade must commit");
+
+    assert_eq!(
+        execution
+            .committed_state
+            .balances
+            .get(&asset("USDC"))
+            .copied()
+            .unwrap_or(0),
+        0,
+        "the bridged amount must be fully debited from the source asset"
+    );
+    assert_eq!(
+        execution
+            .committed_state
+            .balances
+            .get(&asset("USDC_BASE"))
+            .copied()
+            .unwrap_or(0),
+        1_000_000,
+        "the destination asset must be credited with the bridged amount"
+    );
+}
+
+#[test]
+fn bridge_via_not_claimed_by_host_is_rejected() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.manifest.bridges.clear();
+    let before = vm.trading_state.clone();
+
+    let err = vm
+        .execute_atomic(&bridge_ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("an unclaimed bridge capability must be rejected");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::UnknownCapability("wormhole".to_string())
+    );
+    assert_eq!(vm.trading_state, before);
+}
+
+#[test]
+fn bridge_result_with_mismatched_receiver_is_rejected() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.bridge_receiver_override = Some("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string());
+    let before = vm.trading_state.clone();
+
+    let err = vm
+        .execute_atomic(&bridge_ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("a bridge result reporting a different receiver than requested must be rejected");
+
+    assert!(matches!(err, x3_lang_vm::trading::TradingExecError::AssetMismatch(_)));
+    assert_eq!(vm.trading_state, before);
+}
+
+#[test]
+fn bridge_reporting_zero_output_is_rejected() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.bridge_output = Some(0);
+    let before = vm.trading_state.clone();
+
+    let err = vm
+        .execute_atomic(&bridge_ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("a bridge reporting zero output must be rejected, not silently accepted as a real transfer");
+
+    assert!(matches!(err, x3_lang_vm::trading::TradingExecError::AssetMismatch(_)));
+    assert_eq!(vm.trading_state, before);
+}
+
+/// A host that implements every required TradingHost method but never
+/// overrides `bridge()` — proving the trait's default rejection is what
+/// actually runs, not silently succeeding as a no-op.
+struct HostWithoutBridgeSupport {
+    manifest: CapabilityManifest,
+}
+
+impl TradingHost for HostWithoutBridgeSupport {
+    fn capabilities(&self) -> &CapabilityManifest {
+        &self.manifest
+    }
+    fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError> {
+        Ok(BorrowResult {
+            asset: request.asset,
+            principal: request.principal,
+            fee: 0,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+    fn quote(&self, _request: QuoteRequest) -> Result<QuoteResult, HostError> {
+        Ok(QuoteResult {
+            expected_output: 2_000_000,
+            sources: Vec::new(),
+        })
+    }
+    fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
+        Ok(SwapResult {
+            from: request.from,
+            to: request.to.clone(),
+            input: request.input,
+            output: 2_000_000,
+            fee: 0,
+            fee_asset: request.to,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+    fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError> {
+        Ok(RepayResult {
+            debt_id: request.debt_id,
+            asset: request.asset,
+            amount_paid: request.amount,
+            fee: 0,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+    fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError> {
+        Ok(Vec::new())
+    }
+}
+
+#[test]
+fn bridge_against_a_host_with_no_bridging_support_fails_closed() {
+    let mut vm = TradingVm::new();
+    let mut host = HostWithoutBridgeSupport { manifest: manifest() };
+
+    let err = vm
+        .execute_atomic(&bridge_ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("a host that never implements bridge() must fail closed, not silently no-op");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::HostRejected(HostError {
+            code: "X3_BRIDGE_NOT_SUPPORTED".to_string(),
+            message: "this host does not implement cross-chain bridging".to_string(),
+        })
+    );
 }

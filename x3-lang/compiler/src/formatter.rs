@@ -216,6 +216,24 @@ impl X3Formatter {
                 self.write(" ");
                 self.write(min_output.asset.as_str());
             }
+            TradeStmt::Bridge {
+                input,
+                from_asset,
+                to_asset,
+                via,
+                receiver,
+            } => {
+                self.write("bridge ");
+                self.format_expression(&input.value);
+                self.write(" ");
+                self.write(from_asset.as_str());
+                self.write(" -> ");
+                self.write(to_asset.as_str());
+                self.write(" via ");
+                self.write(via.as_str());
+                self.write(" to ");
+                self.format_expression(receiver);
+            }
             TradeStmt::Repay { debt } => {
                 self.write("repay ");
                 self.write(debt.0.as_str());

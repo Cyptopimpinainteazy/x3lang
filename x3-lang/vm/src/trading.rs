@@ -39,6 +39,7 @@ pub struct CapabilityManifest {
     pub private_submission: bool,
     pub providers: BTreeSet<String>,
     pub venues: BTreeSet<String>,
+    pub bridges: BTreeSet<String>,
 }
 
 /// Per-execution context supplied by the caller.
@@ -119,6 +120,32 @@ pub struct SwapResult {
     pub state_commitment: [u8; 32],
 }
 
+/// A cross-chain transfer request. No `min_output`/slippage: a bridge
+/// transfer is proven by a cryptographic inclusion/finality proof at
+/// settlement time, not a venue quote — see `x3_lang_vm::bridge` for the
+/// real proof-verification machinery a production host is expected to use
+/// to actually fulfill this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeRequest {
+    pub via: String,
+    pub from: AssetKey,
+    pub to: AssetKey,
+    pub input: u128,
+    pub receiver: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeTransferResult {
+    pub from: AssetKey,
+    pub to: AssetKey,
+    pub input: u128,
+    pub output: u128,
+    pub fee: u128,
+    pub fee_asset: AssetKey,
+    pub receiver: String,
+    pub state_commitment: [u8; 32],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepayRequest {
     pub debt_id: String,
@@ -191,6 +218,23 @@ pub trait TradingHost {
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError>;
     fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError>;
     fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError>;
+
+    /// Move a settled amount to another chain through a bridge. Defaults
+    /// to a clear, explicit rejection: unlike `quote`/`swap`, most trades
+    /// never bridge at all, so a host with no bridging capability
+    /// shouldn't need to change to keep supporting everything else — but
+    /// a trade that *does* try to bridge against a host that can't must
+    /// fail closed, not silently no-op as if it succeeded. A real
+    /// production host is expected to fulfill this by delegating to
+    /// `x3_lang_vm::bridge`'s real proof-verifying `BridgeAdapter`
+    /// machinery, not by inventing its own verification.
+    fn bridge(&mut self, request: BridgeRequest) -> Result<BridgeTransferResult, HostError> {
+        let _ = request;
+        Err(HostError {
+            code: "X3_BRIDGE_NOT_SUPPORTED".to_string(),
+            message: "this host does not implement cross-chain bridging".to_string(),
+        })
+    }
 }
 
 /// Explicit VM-side trading execution errors.
@@ -637,6 +681,62 @@ impl TradingVm {
                     self.accrue_cost(&result.fee_asset, result.fee)?;
                     self.trading_state.bindings.insert(binding.clone(), to.clone());
                 }
+                TradingOperation::Bridge {
+                    via,
+                    from,
+                    to,
+                    input,
+                    receiver,
+                } => {
+                    if !host.capabilities().bridges.contains(via) {
+                        return Err(TradingExecError::UnknownCapability(via.clone()));
+                    }
+                    let input_units = match input {
+                        ValueRef::Literal(amount) => *amount,
+                        ValueRef::Binding(name) => {
+                            if let Some((debt_id, _field)) = name.split_once('.') {
+                                self.trading_state
+                                    .open_debts
+                                    .get(debt_id)
+                                    .map(|debt| debt.principal)
+                                    .ok_or_else(|| {
+                                        TradingExecError::InvalidSequence(format!(
+                                            "binding '{name}' references unknown debt '{debt_id}'"
+                                        ))
+                                    })?
+                            } else {
+                                *self.trading_state.balances.get(from).unwrap_or(&0)
+                            }
+                        }
+                    };
+                    let result = host
+                        .bridge(BridgeRequest {
+                            via: via.clone(),
+                            from: from.clone(),
+                            to: to.clone(),
+                            input: input_units,
+                            receiver: receiver.clone(),
+                        })
+                        .map_err(TradingExecError::HostRejected)?;
+                    self.check_commitment(&result.state_commitment)?;
+                    if &result.from != from
+                        || &result.to != to
+                        || result.input != input_units
+                        || result.receiver != *receiver
+                    {
+                        return Err(TradingExecError::AssetMismatch(format!(
+                            "bridge result via {via} does not match the requested transfer"
+                        )));
+                    }
+                    if result.output == 0 {
+                        return Err(TradingExecError::AssetMismatch(format!(
+                            "bridge via {via} reported zero output"
+                        )));
+                    }
+                    self.debit(from, result.input)?;
+                    self.credit(to, result.output)?;
+                    self.accrue_cost(&result.fee_asset, result.fee)?;
+                }
                 TradingOperation::CloseDebt { debt_id } => {
                     let record = self
                         .trading_state
@@ -1016,6 +1116,7 @@ pub fn fixture_manifest(state_commitment: [u8; 32]) -> CapabilityManifest {
         private_submission: false,
         providers: BTreeSet::new(),
         venues: BTreeSet::new(),
+        bridges: BTreeSet::new(),
     }
 }
 
@@ -1251,6 +1352,7 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 ))
             }
             TradingOperation::ExecuteSwap { .. } => {}
+            TradingOperation::Bridge { .. } => {}
         }
     }
 

@@ -352,3 +352,130 @@ fn rejects_invariant_guard_before_trade_begins() {
     // this test only cares that it's rejected, not the exact diagnostic count.
     assert!(verify_ir(&trading_ir(ops)).is_err());
 }
+
+fn valid_bridge_ops() -> Vec<TradingOperation> {
+    vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_owned(),
+            policy: compiled_policy("P"),
+        },
+        TradingOperation::OpenDebt {
+            debt_id: "debt".to_owned(),
+            provider: "aave_v3".to_owned(),
+            asset: asset("USDC"),
+            principal: 1_000_000,
+        },
+        TradingOperation::CloseDebt {
+            debt_id: "debt".to_owned(),
+        },
+        TradingOperation::Bridge {
+            via: "wormhole".to_owned(),
+            from: asset("USDC"),
+            to: asset("USDC_BASE"),
+            input: ValueRef::Literal(1_000_000),
+            receiver: "0x1234567890abcdef1234567890abcdef12345678".to_owned(),
+        },
+        TradingOperation::AssertMinNetProfit {
+            settlement_asset: asset("USDC_BASE"),
+            minimum: 1,
+        },
+        TradingOperation::AssertAllDebtsClosed,
+        TradingOperation::EmitTradeReceipt,
+        TradingOperation::CommitAtomicTrade,
+    ]
+}
+
+#[test]
+fn accepts_statefully_valid_bridge_sequence() {
+    assert!(verify_ir(&trading_ir(valid_bridge_ops())).is_ok());
+}
+
+#[test]
+fn rejects_open_debt_after_bridge() {
+    let mut ops = valid_bridge_ops();
+    let bridge_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::Bridge { .. }))
+        .expect("bridge op must be present");
+    ops.insert(
+        bridge_index + 1,
+        TradingOperation::OpenDebt {
+            debt_id: "debt2".to_owned(),
+            provider: "aave_v3".to_owned(),
+            asset: asset("USDC"),
+            principal: 1,
+        },
+    );
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_swap_after_bridge() {
+    let mut ops = valid_bridge_ops();
+    let bridge_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::Bridge { .. }))
+        .expect("bridge op must be present");
+    ops.insert(
+        bridge_index + 1,
+        TradingOperation::ExecuteSwap {
+            binding: "late".to_owned(),
+            venue: "uniswap_v3".to_owned(),
+            from: asset("USDC"),
+            to: asset("WETH"),
+            input: ValueRef::Literal(1),
+            min_output: 1,
+        },
+    );
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_close_debt_after_bridge() {
+    let mut ops = valid_bridge_ops();
+    let bridge_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::Bridge { .. }))
+        .expect("bridge op must be present");
+    ops.insert(
+        bridge_index + 1,
+        TradingOperation::CloseDebt {
+            debt_id: "debt".to_owned(),
+        },
+    );
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_duplicate_bridge() {
+    let mut ops = valid_bridge_ops();
+    let bridge_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::Bridge { .. }))
+        .expect("bridge op must be present");
+    let bridge = ops[bridge_index].clone();
+    ops.insert(bridge_index + 1, bridge);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_bridge_with_empty_via() {
+    let mut ops = valid_bridge_ops();
+    if let Some(TradingOperation::Bridge { via, .. }) =
+        ops.iter_mut().find(|op| matches!(op, TradingOperation::Bridge { .. }))
+    {
+        via.clear();
+    }
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn rejects_bridge_with_empty_receiver() {
+    let mut ops = valid_bridge_ops();
+    if let Some(TradingOperation::Bridge { receiver, .. }) =
+        ops.iter_mut().find(|op| matches!(op, TradingOperation::Bridge { .. }))
+    {
+        receiver.clear();
+    }
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}

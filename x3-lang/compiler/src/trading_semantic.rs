@@ -277,6 +277,74 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                     ));
                 }
             }
+            TradeStmt::Bridge {
+                input,
+                from_asset,
+                to_asset,
+                receiver,
+                ..
+            } => {
+                validate_amount(input, &symbols.assets, "bridge amount", span, errors);
+                if input.asset != *from_asset {
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' bridge input asset '{}' does not match declared from_asset '{}'",
+                            trade.name.as_str(),
+                            input.asset.as_str(),
+                            from_asset.as_str()
+                        ),
+                        span,
+                    ));
+                }
+                if !symbols.assets.contains_key(from_asset) {
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' uses undeclared asset '{}'",
+                            trade.name.as_str(),
+                            from_asset.as_str()
+                        ),
+                        span,
+                    ));
+                }
+                if !symbols.assets.contains_key(to_asset) {
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' uses undeclared asset '{}'",
+                            trade.name.as_str(),
+                            to_asset.as_str()
+                        ),
+                        span,
+                    ));
+                }
+                match referenced_value_asset(&input.value, &bindings, &debts) {
+                    Ok(Some((reference, actual))) if actual != *from_asset => {
+                        errors.push(semantic_error(
+                            format!(
+                                "atomic trade '{}' bridge source binding is typed '{}', not '{}' (source '{}')",
+                                trade.name.as_str(),
+                                actual.as_str(),
+                                from_asset.as_str(),
+                                reference
+                            ),
+                            span,
+                        ));
+                    }
+                    Ok(_) => {}
+                    Err(message) => errors.push(semantic_error(
+                        format!("atomic trade '{}': {message}", trade.name.as_str()),
+                        span,
+                    )),
+                }
+                if !matches!(receiver, Expression::Literal(LiteralExpr::String(_))) {
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' bridge receiver must be a string literal address",
+                            trade.name.as_str()
+                        ),
+                        span,
+                    ));
+                }
+            }
             TradeStmt::Repay { debt } => {
                 if !debts.contains_key(&debt.0) {
                     errors.push(semantic_error(

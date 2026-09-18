@@ -463,6 +463,18 @@ pub enum TradingOperation {
     CloseDebt {
         debt_id: String,
     },
+    /// Move a settled amount to another chain through a bridge. No
+    /// `min_output`: a bridge transfer is proven by a cryptographic
+    /// inclusion/finality proof at settlement time (see
+    /// `x3_lang_vm::bridge`), not subject to venue-side slippage the way
+    /// a DEX swap quote is.
+    Bridge {
+        via: String,
+        from: AssetKey,
+        to: AssetKey,
+        input: ValueRef,
+        receiver: String,
+    },
     AssertMinNetProfit {
         settlement_asset: AssetKey,
         minimum: u128,

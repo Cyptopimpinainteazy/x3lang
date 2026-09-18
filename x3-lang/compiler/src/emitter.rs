@@ -251,6 +251,7 @@ pub fn trading_opcode(op: &TradingOperation) -> u8 {
         TradingOperation::AssertMinNetProfit { .. } => TRADING_ASSERT_MIN_PROFIT,
         TradingOperation::AssertAllDebtsClosed => TRADING_ASSERT_ALL_DEBTS,
         TradingOperation::AssertInvariant { .. } => TRADING_ASSERT_INVARIANT,
+        TradingOperation::Bridge { .. } => TRADING_BRIDGE,
         TradingOperation::EmitTradeReceipt => TRADING_EMIT_RECEIPT,
         TradingOperation::CommitAtomicTrade => TRADING_COMMIT,
         TradingOperation::AbortAtomicTrade => TRADING_ABORT,
@@ -364,6 +365,7 @@ pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, 
                 | TRADING_COMMIT
                 | TRADING_ABORT
                 | TRADING_ASSERT_INVARIANT
+                | TRADING_BRIDGE
         ) {
             operations.push(decode_trading_operation(opcode, payload)?);
         }
@@ -834,7 +836,14 @@ fn is_payload_opcode(opcode: u8) -> bool {
             | 0x70..=0x7F
             | 0x80..=0x9B
             | 0xA0..=0xAB
-            | 0xB0..=0xB8
+            // Every trading opcode (TRADING_BEGIN..=TRADING_BRIDGE) carries
+            // a variable-length JSON payload and must be listed here. This
+            // range used to stop at 0xB8, one below TRADING_ASSERT_INVARIANT
+            // (0xB9) — any bytecode using that opcode (or now TRADING_BRIDGE,
+            // 0xBA) desynced the disassembler immediately after it, since a
+            // non-payload opcode only advances the cursor by a fixed 4
+            // bytes instead of skipping the real payload length.
+            | 0xB0..=0xBA
     )
 }
 
@@ -895,6 +904,7 @@ fn disassemble_op(opcode: u8, payload: &[u8]) -> String {
         0xB7 => format!("TRADING_COMMIT {payload_str}"),
         0xB8 => format!("TRADING_ABORT {payload_str}"),
         0xB9 => format!("TRADING_ASSERT_INVARIANT {payload_str}"),
+        0xBA => format!("TRADING_BRIDGE {payload_str}"),
         0xFF => "HALT".into(),
         other => format!("OP(0x{other:02x})"),
     }
@@ -902,7 +912,7 @@ fn disassemble_op(opcode: u8, payload: &[u8]) -> String {
 
 fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
     use x3_lang_common::{decode_asset_op_payload, decode_bridge_payload, decode_capability_payload};
-    if (TRADING_BEGIN..=TRADING_ASSERT_INVARIANT).contains(&opcode) {
+    if (TRADING_BEGIN..=TRADING_BRIDGE).contains(&opcode) {
         let op = decode_trading_operation(opcode, payload)?;
         return Ok(format!("{op:?}"));
     }

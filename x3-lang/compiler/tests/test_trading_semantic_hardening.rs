@@ -150,3 +150,71 @@ fn trading_semantic_diagnostic_preserves_source_span() {
         "the diagnostic span must highlight the conflicting declaration: {highlighted:?}"
     );
 }
+
+const ASSETS_CROSS_CHAIN: &str = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+asset USDC_BASE = evm.base.0xB1a0 { decimals: 6 }
+"#;
+
+fn source_with_cross_chain_trade(body: &str) -> String {
+    format!("{ASSETS_CROSS_CHAIN}{POLICY}\natomic trade Test using P {{\n{body}\n}}\n")
+}
+
+#[test]
+fn well_formed_bridge_analyzes_cleanly() {
+    let source = source_with_cross_chain_trade(
+        r#"    bridge 1 USDC -> USDC_BASE via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+    require net_profit >= 1 USDC_BASE
+    require all_debts_repaid
+    emit receipt"#,
+    );
+    analyze(&source).expect("well-formed bridge must analyze cleanly");
+}
+
+#[test]
+fn bridge_rejects_undeclared_destination_asset() {
+    let source = source_with_cross_chain_trade(
+        r#"    bridge 1 USDC -> MISSING_ASSET via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+    require net_profit >= 1 USDC
+    require all_debts_repaid
+    emit receipt"#,
+    );
+    let errors = analyze(&source).expect_err("bridging to an undeclared asset must be rejected");
+    assert!(
+        has_message(&errors, "MISSING_ASSET") && has_message(&errors, "undeclared"),
+        "the diagnostic must identify the undeclared destination asset: {errors:?}"
+    );
+}
+
+#[test]
+fn bridge_source_binding_must_match_declared_asset() {
+    let source = source_with_cross_chain_trade(
+        r#"    borrow 1 USDC from aave_v3 as debt
+    bridge debt.amount USDC_BASE -> USDC_BASE via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+    repay debt
+    require net_profit >= 1 USDC
+    require all_debts_repaid
+    emit receipt"#,
+    );
+    let errors = analyze(&source).expect_err("bridging a USDC debt binding typed as USDC_BASE must be rejected");
+    assert!(
+        has_message(&errors, "debt") && has_message(&errors, "USDC"),
+        "the diagnostic must identify the debt and the conflicting asset: {errors:?}"
+    );
+}
+
+#[test]
+fn bridge_receiver_must_be_a_string_literal() {
+    let source = source_with_cross_chain_trade(
+        r#"    bridge 1 USDC -> USDC_BASE via wormhole to 12345
+    require net_profit >= 1 USDC_BASE
+    require all_debts_repaid
+    emit receipt"#,
+    );
+    let errors = analyze(&source).expect_err("a non-string bridge receiver must be rejected");
+    assert!(
+        has_message(&errors, "receiver") && has_message(&errors, "string literal"),
+        "the diagnostic must explain the receiver must be a string literal: {errors:?}"
+    );
+}

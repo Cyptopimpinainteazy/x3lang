@@ -140,6 +140,22 @@ pub enum TradeStmt {
     Repay {
         debt: DebtId,
     },
+    /// Move a settled amount to another chain through a bridge — the one
+    /// place a trade is allowed to cross chains at all. Unlike `Swap`,
+    /// there is no `min_output`: a bridge transfer is proven by a
+    /// cryptographic inclusion/finality proof at settlement time, not
+    /// subject to venue-side slippage the way a DEX quote is.
+    Bridge {
+        input: AmountExpr,
+        from_asset: Symbol,
+        to_asset: Symbol,
+        via: Symbol,
+        /// Destination-chain receiver address. Must be a string literal —
+        /// deliberately not a dynamic binding, since a bridge destination
+        /// should be an explicit, reviewable part of the trade's source,
+        /// not a value that could be swapped out by upstream state.
+        receiver: Expression,
+    },
     RequireMinNetProfit {
         amount: AmountExpr,
     },
