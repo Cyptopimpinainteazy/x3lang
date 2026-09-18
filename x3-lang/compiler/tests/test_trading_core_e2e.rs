@@ -191,6 +191,94 @@ fn mainnet_audit_reports_missing_private_submission_capability() {
     );
 }
 
+/// Same shape as the canonical fixture but `require_private_submission:
+/// false`, so a mainnet-mode check has nothing legitimate left to fail on
+/// — isolating the regression below from the pre-existing, correct
+/// private-submission check covered above.
+const MAINNET_CLEAN_SOURCE: &str = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset WETH = evm.ethereum.0xC02a { decimals: 18 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+
+risk policy MainnetArb {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+}
+
+atomic trade CrossDexArb using MainnetArb {
+    borrow 1_000_000 USDC from aave_v3 as debt
+
+    let weth = swap debt.amount USDC -> WETH
+        via uniswap_v3
+        min_out 410 WETH
+
+    let returned = swap weth WETH -> USDC
+        via sushiswap
+        min_out 1_002_000 USDC
+
+    repay debt
+
+    require net_profit >= 1_000 USDC
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
+#[test]
+fn mainnet_mode_does_not_demand_bridge_infrastructure_from_a_single_chain_trade() {
+    // Regression test for a real bug: verify_mainnet_safe's RPC-consensus/
+    // relayer-attestation/solver-bond checks used to require their
+    // corresponding Operation variant to be present *unconditionally*,
+    // unlike every other check in verify_mainnet_safe (e.g.
+    // verify_refund_path_exists), which only fires when the program
+    // actually contains a bridge/cross-chain operation. Since Trading
+    // Core v1 lowers entirely into Operation::Trading(..) and has no
+    // concept of an RPC/relayer/solver layer at all, this meant a
+    // correctly-hardened trading-core-v1 program could never pass
+    // `--mode mainnet` — regardless of how safe the trade itself was.
+    let (_, _, errors) =
+        check_source_with_mode(MAINNET_CLEAN_SOURCE, CompilationMode::Mainnet).expect("check must parse");
+    assert!(
+        errors.is_empty(),
+        "a well-formed trading-core-v1 program must pass mainnet mode cleanly: {errors:?}"
+    );
+}
+
+#[test]
+fn mainnet_mode_still_demands_bridge_infrastructure_from_a_real_bridge_intent() {
+    // The other side of the same fix: a program that *does* use general-VM
+    // cross-chain operations must still be held to the full RPC/relayer/
+    // solver-bond bar. Proves the fix narrowed the check's scope rather
+    // than disabling it.
+    let source = r#"intent arb_solana_eth {
+    from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
+    to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    route {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777
+    }
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
+}
+"#;
+    let (_, _, errors) = check_source_with_mode(source, CompilationMode::Mainnet).expect("check must parse");
+    let all_msgs: String = errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n");
+    assert!(
+        all_msgs.contains("no RPC consensus declared"),
+        "a program with a real swap operation must still require RPC consensus: {all_msgs}"
+    );
+    assert!(
+        all_msgs.contains("no relayer attestation declared"),
+        "a program with a real swap operation must still require relayer attestation: {all_msgs}"
+    );
+    assert!(
+        all_msgs.contains("missing solver bond declaration"),
+        "a program with a real swap operation must still require a solver bond: {all_msgs}"
+    );
+}
+
 #[test]
 fn malformed_trading_bytecode_fails_closed_before_execution() {
     let program = parse_source(SOURCE).expect("example must parse");
