@@ -3,6 +3,7 @@
 use crate::executor::{ExecError, ExecResult};
 use std::sync::Arc;
 use x3_lang_common::{AssetOpPayload, BridgePayload};
+use x3_lang_compiler::ir::TradingOperation;
 
 pub type Register = u128; // 128-bit to match u256-like operations; adjust as needed
 
@@ -46,6 +47,7 @@ pub struct VmSnapshot {
     pub memory: Vec<u8>,
     pub asset_ops_len: usize,
     pub bridge_receipts_len: usize,
+    pub trading_ops_len: usize,
     pub pc: usize,
     pub call_stack: Vec<usize>,
     pub instruction_count: u128,
@@ -66,6 +68,7 @@ pub struct VMState {
     pub bridge_ops: Vec<BridgePayload>,
     pub bridge_receipts: Vec<Vec<u8>>,
     pub sub_exec_ops: Vec<SubExecInfo>,
+    pub trading_ops: Vec<TradingOperation>,
     pub paused: bool,
     /// Atomic scope rollback snapshot (set by ATOMIC_BEGIN, consumed by ATOMIC_ROLLBACK).
     pub atomic_snapshot: Option<VmSnapshot>,
@@ -93,6 +96,7 @@ impl VMState {
             bridge_ops: Vec::new(),
             bridge_receipts: Vec::new(),
             sub_exec_ops: Vec::new(),
+            trading_ops: Vec::new(),
             paused: false,
             atomic_snapshot: None,
             failure_handlers: Vec::new(),

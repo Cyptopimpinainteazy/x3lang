@@ -15,6 +15,16 @@
       "name": "same_chain_bridge",
       "path": "invalid/routes/same_chain_bridge.x3",
       "expect": "reject"
+    },
+    {
+      "name": "bridge_without_finality",
+      "path": "invalid/intents/bridge_without_finality.x3",
+      "expect": "reject"
+    },
+    {
+      "name": "swap_without_slippage",
+      "path": "invalid/intents/swap_without_slippage.x3",
+      "expect": "reject"
     }
   ]
 }

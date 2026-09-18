@@ -145,6 +145,7 @@ fn golden_ir_for_transfer() {
             "Swap",
             "AtomicEnd",
             "Other",
+            "Other",
             "Release",
             "Other"
         ]

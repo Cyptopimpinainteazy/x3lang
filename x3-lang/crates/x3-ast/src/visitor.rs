@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::trading::TradeRiskPolicy;
 
 pub enum WalkResult {
     Continue,
@@ -31,6 +32,7 @@ pub trait AstVisitor {
     fn visit_finality_policy(&mut self, _f: &FinalityPolicy) {}
     fn visit_proofs_required(&mut self, _p: &ProofsRequired) {}
     fn visit_vm_target(&mut self, _t: &VmTarget) {}
+    fn visit_trade_risk_policy(&mut self, _p: &TradeRiskPolicy) {}
 }
 
 // Helper module alias for Spanned to avoid cyclic dependencies in imports

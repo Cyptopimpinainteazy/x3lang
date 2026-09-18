@@ -5,6 +5,7 @@
 pub mod capability;
 pub mod diagnostic;
 pub mod error;
+pub mod fixed;
 pub mod source;
 pub mod span;
 pub mod symbol;

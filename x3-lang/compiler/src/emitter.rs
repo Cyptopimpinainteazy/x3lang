@@ -4,8 +4,8 @@
 //! for the X3 runtime or specific chain emitters (EVM, SVM, etc.).
 
 use crate::ir::{
-    ChainMetricKind, CrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind, SerialFormat, StorageKind, VectorOp,
-    X3IR,
+    ChainMetricKind, CrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind, SerialFormat, StorageKind,
+    TradingOperation, VectorOp, X3IR,
 };
 // Import shared opcode constants
 use crate::spec::opcodes::*;
@@ -180,6 +180,7 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
         Operation::ModeCheck { .. } => emit_payload_op(MODE_CHECK, op, bytecode)?,
         Operation::PackageImport { .. } => emit_payload_op(PACKAGE_IMPORT, op, bytecode)?,
         Operation::RefundPolicy { .. } => emit_payload_op(REFUND_POLICY, op, bytecode)?,
+        Operation::Trading(trading) => emit_trading_op(trading, bytecode)?,
         Operation::Nop => {
             bytecode.write_all(&[NOP])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
@@ -235,6 +236,158 @@ fn emit_payload_op(opcode: u8, op: &Operation, bytecode: &mut Vec<u8>) -> Result
             span: None,
         });
     }
+    bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+    bytecode.write_all(&payload)?;
+    Ok(())
+}
+
+/// Return the stable opcode for a trading operation variant.
+pub fn trading_opcode(op: &TradingOperation) -> u8 {
+    match op {
+        TradingOperation::BeginAtomicTrade { .. } => TRADING_BEGIN,
+        TradingOperation::OpenDebt { .. } => TRADING_OPEN_DEBT,
+        TradingOperation::ExecuteSwap { .. } => TRADING_EXECUTE_SWAP,
+        TradingOperation::CloseDebt { .. } => TRADING_CLOSE_DEBT,
+        TradingOperation::AssertMinNetProfit { .. } => TRADING_ASSERT_MIN_PROFIT,
+        TradingOperation::AssertAllDebtsClosed => TRADING_ASSERT_ALL_DEBTS,
+        TradingOperation::AssertInvariant { .. } => TRADING_ASSERT_INVARIANT,
+        TradingOperation::Bridge { .. } => TRADING_BRIDGE,
+        TradingOperation::EmitTradeReceipt => TRADING_EMIT_RECEIPT,
+        TradingOperation::CommitAtomicTrade => TRADING_COMMIT,
+        TradingOperation::AbortAtomicTrade => TRADING_ABORT,
+    }
+}
+
+/// Encode a trading operation payload deterministically.
+pub fn encode_trading_operation(op: &TradingOperation) -> Result<Vec<u8>, X3Error> {
+    serde_json::to_vec(op).map_err(|err| X3Error::CodegenError {
+        message: format!("failed to encode trading operation: {err}"),
+        span: None,
+    })
+}
+
+/// Decode and authenticate a trading operation payload against its opcode.
+pub fn decode_trading_operation(opcode: u8, payload: &[u8]) -> Result<TradingOperation, X3Error> {
+    let op: TradingOperation = serde_json::from_slice(payload).map_err(|err| X3Error::CodegenError {
+        message: format!("failed to decode trading operation: {err}"),
+        span: None,
+    })?;
+    if trading_opcode(&op) != opcode {
+        return Err(X3Error::CodegenError {
+            message: format!("trading payload does not match opcode 0x{opcode:02x}"),
+            span: None,
+        });
+    }
+    Ok(op)
+}
+
+/// Decode every Trading Core instruction from emitted X3 bytecode.
+///
+/// Non-trading opcodes are skipped using the standard length-prefixed framing.
+/// This decoder is intentionally strict for trading payloads: malformed
+/// lengths, unknown trading opcodes, or opcode/payload mismatches fail closed.
+pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, X3Error> {
+    if bytecode.first().copied() != Some(BYTECODE_VERSION_1) {
+        return Err(X3Error::CodegenError {
+            message: "unsupported or missing bytecode version".to_string(),
+            span: None,
+        });
+    }
+
+    let mut pos = 1usize;
+    let mut operations = Vec::new();
+
+    while pos < bytecode.len() {
+        if bytecode[pos] == 0 {
+            pos += 1;
+            continue;
+        }
+
+        let opcode = bytecode[pos];
+        pos += 1;
+
+        if opcode == META_NONCE {
+            if pos + 2 > bytecode.len() {
+                return Err(X3Error::CodegenError {
+                    message: "truncated nonce metadata".to_string(),
+                    span: None,
+                });
+            }
+            let len = u16::from_le_bytes([bytecode[pos], bytecode[pos + 1]]) as usize;
+            pos += 2;
+            if pos + len > bytecode.len() {
+                return Err(X3Error::CodegenError {
+                    message: "truncated nonce metadata payload".to_string(),
+                    span: None,
+                });
+            }
+            pos += len;
+            continue;
+        }
+
+        if opcode == META_CHAIN_ID {
+            if pos + 8 > bytecode.len() {
+                return Err(X3Error::CodegenError {
+                    message: "truncated chain-id metadata".to_string(),
+                    span: None,
+                });
+            }
+            pos += 8;
+            continue;
+        }
+
+        if pos + 2 > bytecode.len() {
+            return Err(X3Error::CodegenError {
+                message: format!("truncated instruction header for opcode 0x{opcode:02x}"),
+                span: None,
+            });
+        }
+        let len = u16::from_le_bytes([bytecode[pos], bytecode[pos + 1]]) as usize;
+        pos += 2;
+        if pos + len > bytecode.len() {
+            return Err(X3Error::CodegenError {
+                message: format!("truncated instruction payload for opcode 0x{opcode:02x}"),
+                span: None,
+            });
+        }
+        let payload = &bytecode[pos..pos + len];
+        pos += len;
+
+        if matches!(
+            opcode,
+            TRADING_BEGIN
+                | TRADING_OPEN_DEBT
+                | TRADING_EXECUTE_SWAP
+                | TRADING_CLOSE_DEBT
+                | TRADING_ASSERT_MIN_PROFIT
+                | TRADING_ASSERT_ALL_DEBTS
+                | TRADING_EMIT_RECEIPT
+                | TRADING_COMMIT
+                | TRADING_ABORT
+                | TRADING_ASSERT_INVARIANT
+                | TRADING_BRIDGE
+        ) {
+            operations.push(decode_trading_operation(opcode, payload)?);
+        }
+
+        while pos % 4 != 0 && pos < bytecode.len() {
+            pos += 1;
+        }
+    }
+
+    Ok(operations)
+}
+
+fn emit_trading_op(op: &TradingOperation, bytecode: &mut Vec<u8>) -> Result<(), X3Error> {
+    let opcode = trading_opcode(op);
+    let payload = encode_trading_operation(op)?;
+    if payload.len() > u16::MAX as usize {
+        return Err(X3Error::CodegenError {
+            message: "trading operation payload too large".to_string(),
+            span: None,
+        });
+    }
+    bytecode.write_all(&[opcode])?;
     bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
     bytecode.write_all(&payload)?;
     Ok(())
@@ -683,6 +836,14 @@ fn is_payload_opcode(opcode: u8) -> bool {
             | 0x70..=0x7F
             | 0x80..=0x9B
             | 0xA0..=0xAB
+            // Every trading opcode (TRADING_BEGIN..=TRADING_BRIDGE) carries
+            // a variable-length JSON payload and must be listed here. This
+            // range used to stop at 0xB8, one below TRADING_ASSERT_INVARIANT
+            // (0xB9) — any bytecode using that opcode (or now TRADING_BRIDGE,
+            // 0xBA) desynced the disassembler immediately after it, since a
+            // non-payload opcode only advances the cursor by a fixed 4
+            // bytes instead of skipping the real payload length.
+            | 0xB0..=0xBA
     )
 }
 
@@ -733,6 +894,17 @@ fn disassemble_op(opcode: u8, payload: &[u8]) -> String {
         0xA9 => format!("MODE_CHECK   {payload_str}"),
         0xAA => format!("PACKAGE_IMPORT {payload_str}"),
         0xAB => format!("REFUND_POLICY {payload_str}"),
+        0xB0 => format!("TRADING_BEGIN {payload_str}"),
+        0xB1 => format!("TRADING_OPEN_DEBT {payload_str}"),
+        0xB2 => format!("TRADING_EXECUTE_SWAP {payload_str}"),
+        0xB3 => format!("TRADING_CLOSE_DEBT {payload_str}"),
+        0xB4 => format!("TRADING_ASSERT_MIN_PROFIT {payload_str}"),
+        0xB5 => format!("TRADING_ASSERT_ALL_DEBTS {payload_str}"),
+        0xB6 => format!("TRADING_EMIT_RECEIPT {payload_str}"),
+        0xB7 => format!("TRADING_COMMIT {payload_str}"),
+        0xB8 => format!("TRADING_ABORT {payload_str}"),
+        0xB9 => format!("TRADING_ASSERT_INVARIANT {payload_str}"),
+        0xBA => format!("TRADING_BRIDGE {payload_str}"),
         0xFF => "HALT".into(),
         other => format!("OP(0x{other:02x})"),
     }
@@ -740,6 +912,10 @@ fn disassemble_op(opcode: u8, payload: &[u8]) -> String {
 
 fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
     use x3_lang_common::{decode_asset_op_payload, decode_bridge_payload, decode_capability_payload};
+    if (TRADING_BEGIN..=TRADING_BRIDGE).contains(&opcode) {
+        let op = decode_trading_operation(opcode, payload)?;
+        return Ok(format!("{op:?}"));
+    }
     if matches!(opcode, 0x20..=0x24) {
         let p = decode_asset_op_payload(opcode, payload).map_err(|_| X3Error::CodegenError {
             message: "bad asset payload".into(),

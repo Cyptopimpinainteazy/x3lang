@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use x3_lang_common::{BinOp, DurationUnit, FloatSuffix, IntBase, IntSuffix, SizeUnit, Spanned, Symbol, UnOp};
 
+use crate::trading::{AssetDecl, AtomicTradeDecl, TradeRiskPolicy};
+
 /// Node ID - deterministic, 0-based index assigned during parsing/lowering when required.
 /// Internally is a simple u32 wrapper for compactness and reproducibility.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -52,6 +54,10 @@ pub enum Item {
     FinalityPolicy(FinalityPolicy),
     ProofsRequired(ProofsRequired),
     VmTarget(VmTarget),
+    // ===== Trading Core v1 top-level declarations =====
+    AssetDecl(AssetDecl),
+    TradeRiskPolicy(TradeRiskPolicy),
+    AtomicTrade(AtomicTradeDecl),
 }
 
 /// A `use` declaration
@@ -825,6 +831,7 @@ impl Program {
                 Item::FinalityPolicy(f) => v.visit_finality_policy(f),
                 Item::ProofsRequired(p) => v.visit_proofs_required(p),
                 Item::VmTarget(t) => v.visit_vm_target(t),
+                Item::TradeRiskPolicy(p) => v.visit_trade_risk_policy(p),
                 _ => (),
             }
             v.exit_item(item);

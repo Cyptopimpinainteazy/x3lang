@@ -334,6 +334,7 @@ checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
+ "rand_core 0.6.4",
  "serde",
  "sha2",
  "subtle",
@@ -2073,6 +2074,8 @@ dependencies = [
 name = "x3-lang-compiler"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
+ "indexmap",
  "proptest",
  "serde",
  "serde_json",
@@ -2115,8 +2118,10 @@ name = "x3-tools"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "ed25519-dalek",
  "reqwest",
  "serde_json",
+ "sha2",
  "sha3",
  "x3-lang-ast",
  "x3-lang-common",

@@ -5,7 +5,9 @@
 //! immutable by design and suitable for serialisation, analysis, and lowering.
 
 pub mod ast;
+pub mod trading;
 pub mod visitor;
 
 pub use ast::*;
+pub use trading::*;
 pub use visitor::{AstVisitor, WalkResult};

@@ -6,6 +6,8 @@ intent swap_demo {
         swap uniswap solana.USDC -> solana.ETH amount 1000 min_output 500
     }
     require nonce unused swap_demo_2026_06_06
+    require finality.ethereum >= 12
+    require slippage <= 50
     timeout 30s refund ethereum.USDC to sender
     on_fail rollback
 }

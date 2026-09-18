@@ -41,12 +41,271 @@ fn write_fixture(name: &str, body: &str) -> PathBuf {
     path
 }
 
+fn trading_receipt_json(tamper: bool) -> String {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use x3_lang_compiler::ir::{
+        AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation,
+    };
+    use x3_lang_vm::trading::{build_receipt, DebtRecord, TradeOutcome, TradingState};
+
+    let asset = AssetKey {
+        vm_family: "evm".to_string(),
+        chain: "ethereum".to_string(),
+        canonical_id: "0xUSDC".to_string(),
+        symbol: "USDC".to_string(),
+        decimals: 6,
+    };
+    let operations = vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: 1_000_000,
+                max_gas_asset: asset.clone(),
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+                max_total_cost: 1_000_000,
+                max_price_impact_bps: 30,
+                max_mev_leakage_bps: 30,
+                quote_freshness_blocks: 10,
+                submission_profile: SubmissionProfile::Public,
+                state_binding: StateBindingMode::Exact,
+                allowed_cost_kinds: BTreeSet::from([
+                    CostKind::Gas,
+                    CostKind::LiquidityFee,
+                    CostKind::FlashLiquidityFee,
+                    CostKind::Slippage,
+                    CostKind::PriceImpact,
+                    CostKind::MevLeakage,
+                ]),
+                allow_mint: false,
+                allow_burn: false,
+                max_oracle_deviation_bps: None,
+                max_cumulative_loss: None,
+                max_cumulative_loss_asset: None,
+            },
+        },
+        TradingOperation::OpenDebt {
+            debt_id: "debt".to_string(),
+            provider: "aave_v3".to_string(),
+            asset: asset.clone(),
+            principal: 1_000_000,
+        },
+        TradingOperation::CloseDebt {
+            debt_id: "debt".to_string(),
+        },
+        TradingOperation::AssertMinNetProfit {
+            settlement_asset: asset.clone(),
+            minimum: 1,
+        },
+        TradingOperation::AssertAllDebtsClosed,
+        TradingOperation::EmitTradeReceipt,
+        TradingOperation::CommitAtomicTrade,
+    ];
+    let mut state = TradingState {
+        committed: true,
+        receipt_emitted: true,
+        ..TradingState::default()
+    };
+    state.closed_debts.insert("debt".to_string());
+    state.closed_debt_records.insert(
+        "debt".to_string(),
+        DebtRecord {
+            asset: asset.clone(),
+            principal: 1_000_000,
+            fee: 0,
+        },
+    );
+    let mut deltas = BTreeMap::new();
+    deltas.insert(asset.clone(), 1i128);
+    state.net_deltas = deltas;
+    let mut receipt = build_receipt(
+        "0.1.0",
+        [1u8; 32],
+        "T",
+        "P",
+        [2u8; 32],
+        &operations,
+        &state,
+        Some(&asset),
+        TradeOutcome::Success,
+    )
+    .expect("receipt builds");
+    if tamper {
+        receipt.receipt_hash = [0u8; 32];
+    }
+    serde_json::to_string_pretty(&receipt).expect("receipt json")
+}
+
+const TRADING_SOURCE: &str = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset WETH = evm.ethereum.0xC02a { decimals: 18 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+
+risk policy MainnetArb {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: true
+}
+
+atomic trade CrossDexArb using MainnetArb {
+    borrow 1_000_000 USDC from aave_v3 as debt
+
+    let weth = swap debt.amount USDC -> WETH
+        via uniswap_v3
+        min_out 410 WETH
+
+    let returned = swap weth WETH -> USDC
+        via sushiswap
+        min_out 1_002_000 USDC
+
+    repay debt
+
+    require net_profit >= 1_000 USDC
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
+const BRIDGE_TRADING_SOURCE: &str = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset WETH = evm.ethereum.0xC02a { decimals: 18 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+asset USDC_BASE = evm.base.0xB1a0 { decimals: 6 }
+
+risk policy MainnetArbBridge {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+}
+
+atomic trade CrossDexArbToBase using MainnetArbBridge {
+    borrow 1_000_000 USDC from aave_v3 as debt
+
+    let weth = swap debt.amount USDC -> WETH
+        via uniswap_v3
+        min_out 410 WETH
+
+    let returned = swap weth WETH -> USDC
+        via sushiswap
+        min_out 1_002_000 USDC
+
+    repay debt
+
+    bridge returned USDC -> USDC_BASE via wormhole to "0x1234567890abcdef1234567890abcdef12345678"
+
+    require net_profit >= 1 USDC_BASE
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
+/// A B-52 program that declares every optional recommendation `x3c audit`
+/// checks for (vm, solver_market, two rpc_quorum blocks, risk_policy,
+/// privacy, invariant, proofs required, finality_policy, target) plus a
+/// nonce guard, refund path, and timeout — chosen so a clean run produces
+/// zero [FAIL] and zero [WARN] entries at all.
+const FULLY_CONFIGURED_SOURCE: &str = r#"
+vm {
+    chain arbitrum
+    adapter evm
+    finality safe
+}
+
+solver_market {
+    mode competitive
+    min_reputation 95
+}
+
+relayers {
+    quorum_numerator 3
+    quorum_denominator 5
+    relayers [relayer_a, relayer_b, relayer_c, relayer_d, relayer_e]
+}
+
+rpc_quorum {
+    source arbitrum
+    require_numerator 2
+    require_denominator 3
+    reject_on [receipt_disagree, finality_disagree]
+}
+
+rpc_quorum {
+    source solana
+    require_numerator 2
+    require_denominator 3
+    reject_on [receipt_disagree, finality_disagree]
+}
+
+risk_policy {
+    max_slippage 5
+    max_position 500000
+}
+
+privacy {
+    hide_route_until_commit true
+    reveal_on claim
+    encrypted true
+}
+
+invariant no_double_claim
+
+proofs required {
+    source_lock_proof
+    source_finality_proof
+    destination_fill_proof
+}
+
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+}
+
+error SlippageExceeded
+
+target evm {
+    adapter evm_adapter
+    contract 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18
+}
+
+intent safe_cross_vm_swap {
+    from arbitrum.USDC amount 500
+    to solana.SOL receiver wallet
+
+    route {
+        bridge X3 arbitrum.USDC -> solana.SOL receiver wallet
+    }
+
+    require nonce unused safe_swap_001
+    require slippage <= 5
+    require route_score >= 90
+    require finality.arbitrum >= 32
+    require finality.solana >= 32
+    require relayer_quorum >= 3
+    require solver_bond >= 10000
+
+    timeout 3600s
+    on_fail refund arbitrum.USDC to sender
+}
+"#;
+
 const GOOD_SOURCE: &str = r#"intent arb_solana_eth {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
     route {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777
     }
+    require slippage <= 50
     timeout 30s refund ethereum.USDC to sender
     on_fail rollback
 }
@@ -116,6 +375,48 @@ fn cli_build_produces_aligned_bytecode() {
     assert!(!bytes.is_empty(), "bytecode is non-empty");
     assert_eq!(bytes[0], 0x01, "version byte is 0x01");
     assert_eq!(bytes.len() % 4, 0, "bytecode is 4-byte aligned");
+}
+
+#[test]
+fn cli_receipt_verify_accepts_valid_receipt() {
+    let receipt = write_fixture("cli_valid_receipt.json", &trading_receipt_json(false));
+    let output = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt)
+        .output()
+        .expect("x3c receipt verify");
+    assert!(
+        output.status.success(),
+        "valid receipt must verify: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("receipt verified"));
+}
+
+#[test]
+fn cli_receipt_verify_rejects_tampered_receipt() {
+    let receipt = write_fixture("cli_tampered_receipt.json", &trading_receipt_json(true));
+    let status = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt)
+        .status()
+        .expect("x3c receipt verify");
+    assert!(!status.success(), "tampered receipt must fail verification");
+}
+
+#[test]
+fn cli_receipt_inspect_prints_json() {
+    let receipt = write_fixture("cli_inspect_receipt.json", &trading_receipt_json(false));
+    let output = x3c()
+        .arg("receipt")
+        .arg("inspect")
+        .arg(&receipt)
+        .output()
+        .expect("x3c receipt inspect");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("\"trade_id\""));
 }
 
 #[test]
@@ -198,5 +499,274 @@ fn cli_check_rejects_unsafe_program() {
     assert!(
         !status.success(),
         "unknown chain must be rejected by `x3c check`, got: {status:?}"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_compiles_runs_and_emits_a_verifiable_receipt() {
+    // Proves the previously-unwired pipeline actually connects: a real
+    // .x3 source file, compiled and executed through the CLI (not
+    // library test code), produces a receipt that independently passes
+    // `x3c receipt verify`.
+    let src = write_fixture("cli_receipt_execute.x3", TRADING_SOURCE);
+    let receipt_path = std::env::temp_dir().join("cli_receipt_execute_out.json");
+
+    let output = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--out")
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(
+        output.status.success(),
+        "receipt execute must succeed for a well-formed trade: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("CrossDexArb"));
+
+    let body = std::fs::read_to_string(&receipt_path).expect("receipt file must be written");
+    assert!(body.contains("\"trade_id\": \"CrossDexArb\""));
+    assert!(body.contains("\"attestation\""));
+
+    let verify_status = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt_path)
+        .status()
+        .expect("x3c receipt verify");
+    assert!(
+        verify_status.success(),
+        "a receipt produced by `receipt execute` must itself pass `receipt verify`"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_handles_a_trade_with_a_bridge_leg() {
+    // NeutralFixtureHost's bridge() completes the CLI's coverage of
+    // trading-core-v1's full statement set: a program that crosses chains
+    // must compile, execute, and produce a verifiable receipt through the
+    // CLI exactly like a single-chain one does.
+    let src = write_fixture("cli_receipt_execute_bridge.x3", BRIDGE_TRADING_SOURCE);
+    let receipt_path = std::env::temp_dir().join("cli_receipt_execute_bridge_out.json");
+
+    let output = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--out")
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(
+        output.status.success(),
+        "receipt execute must succeed for a well-formed bridge trade: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("CrossDexArbToBase"));
+
+    let body = std::fs::read_to_string(&receipt_path).expect("receipt file must be written");
+    assert!(body.contains("\"trade_id\": \"CrossDexArbToBase\""));
+    assert!(body.contains("\"attestation\""));
+
+    let verify_status = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt_path)
+        .status()
+        .expect("x3c receipt verify");
+    assert!(
+        verify_status.success(),
+        "a receipt produced by `receipt execute` for a bridge trade must itself pass `receipt verify`"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_is_deterministic_given_the_same_signing_key() {
+    let src = write_fixture("cli_receipt_execute_deterministic.x3", TRADING_SOURCE);
+    let key = "1111111111111111111111111111111111111111111111111111111111111111";
+    let key = &key[..64];
+
+    let first = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--key-hex")
+        .arg(key)
+        .output()
+        .expect("x3c receipt execute");
+    let second = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--key-hex")
+        .arg(key)
+        .output()
+        .expect("x3c receipt execute");
+
+    assert!(first.status.success() && second.status.success());
+    assert_eq!(
+        first.stdout, second.stdout,
+        "the same source and signing key must produce byte-identical receipts"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_rejects_a_trade_past_its_deadline() {
+    let src = write_fixture("cli_receipt_execute_expired.x3", TRADING_SOURCE);
+
+    let status = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--block")
+        .arg("999")
+        .status()
+        .expect("x3c receipt execute");
+
+    assert!(
+        !status.success(),
+        "a trade executed past its compiled deadline must be rejected, not silently succeed"
+    );
+}
+
+#[test]
+fn cli_receipt_execute_rejects_a_malformed_signing_key() {
+    let src = write_fixture("cli_receipt_execute_badkey.x3", TRADING_SOURCE);
+
+    let status = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("--key-hex")
+        .arg("deadbeef")
+        .status()
+        .expect("x3c receipt execute");
+
+    assert!(
+        !status.success(),
+        "a 4-byte key-hex must be rejected, not silently truncated/padded"
+    );
+}
+
+#[test]
+fn cli_audit_passes_a_program_with_zero_fail_and_zero_warn_issues() {
+    let src = write_fixture("cli_audit_fully_configured.x3", FULLY_CONFIGURED_SOURCE);
+    let output = x3c().arg("audit").arg(&src).output().expect("x3c audit");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("[FAIL]"),
+        "fixture must have zero real failures: {stdout}"
+    );
+    assert!(
+        !stdout.contains("[WARN]"),
+        "fixture must have zero warnings, to isolate this from the WARN/FAIL conflation being tested: {stdout}"
+    );
+    assert!(
+        stdout.contains("Status: PASS"),
+        "zero FAIL and zero WARN must audit clean: {stdout}"
+    );
+    assert!(
+        output.status.success(),
+        "a program with no real issues must exit 0: {stdout}"
+    );
+}
+
+#[test]
+fn cli_audit_status_reflects_fail_severity_not_warn_count() {
+    // Regression test for a real bug: `has_failures` used to be computed
+    // from `!issues.is_empty()`, where `issues` held both [FAIL] and
+    // [WARN]-prefixed strings in one vector — so a single missed "consider
+    // adding X for production" WARN flipped the entire audit to FAIL, with
+    // no way to ever report a clean pass short of declaring every optional
+    // B-52 item. Every example .x3 file in this repo failed `x3c audit`
+    // for exactly this reason, including ones explicitly named as the
+    // canonical safe example (examples/mainnet_safe_swap.x3) and the
+    // flagship feature-complete one (examples/flagship_b52.x3). Dropping
+    // exactly one optional declaration (here: the `privacy` block) from an
+    // otherwise fully-configured, zero-FAIL program must produce exactly
+    // one [WARN] and still report Status: PASS.
+    let without_privacy = FULLY_CONFIGURED_SOURCE.replacen(
+        "privacy {\n    hide_route_until_commit true\n    reveal_on claim\n    encrypted true\n}\n\n",
+        "",
+        1,
+    );
+    assert_ne!(
+        without_privacy, FULLY_CONFIGURED_SOURCE,
+        "the privacy block must actually have been removed from the fixture"
+    );
+    let src = write_fixture("cli_audit_one_warning.x3", &without_privacy);
+
+    let output = x3c().arg("audit").arg(&src).output().expect("x3c audit");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("[FAIL]"),
+        "dropping an optional block must not introduce a real failure: {stdout}"
+    );
+    assert!(
+        stdout.contains("[WARN] no privacy block found"),
+        "dropping the privacy block must be flagged as a warning: {stdout}"
+    );
+    assert!(
+        stdout.contains("Status: PASS"),
+        "a program with only WARN-level issues and zero FAIL-level issues must still report PASS: {stdout}"
+    );
+    assert!(
+        output.status.success(),
+        "a program with only warnings must exit 0, not 1: {stdout}"
+    );
+}
+
+#[test]
+fn cli_audit_recognizes_trading_core_v1_declarations() {
+    // Regression test for a real bug: every check here (has_intent,
+    // has_nonce, has_refund, has_timeout, has_risk_policy, has_invariant)
+    // was originally written against only the older intent-DSL's AST
+    // shape (Item::IntentDecl and its Statement variants). A
+    // trading-core-v1 program has none of those — it lowers to
+    // Item::AtomicTrade / Item::TradeRiskPolicy instead — so every one of
+    // these checks used to report FAIL/WARN regardless of how safe the
+    // trade actually was, e.g. "no risk policy found" on a program that
+    // manifestly declares one.
+    let src = write_fixture("cli_audit_trading_core.x3", TRADING_SOURCE);
+    let output = x3c()
+        .arg("--mode")
+        .arg("dev")
+        .arg("audit")
+        .arg(&src)
+        .output()
+        .expect("x3c audit");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("[PASS] atomic trade declaration present"),
+        "must recognize Item::AtomicTrade as a valid top-level declaration: {stdout}"
+    );
+    assert!(
+        stdout.contains("deadline_blocks present"),
+        "must recognize the mandatory risk-policy deadline as satisfying the timeout check: {stdout}"
+    );
+    assert!(
+        stdout.contains("[PASS] risk policy configured"),
+        "must recognize Item::TradeRiskPolicy, not just the older Item::RiskPolicy: {stdout}"
+    );
+    assert!(
+        !stdout.contains("no intent declaration found"),
+        "must not demand an Item::IntentDecl from a trading-core-v1 program: {stdout}"
+    );
+    assert!(
+        !stdout.contains("missing nonce guard"),
+        "must not demand an AST-level nonce guard — trading-core-v1 replay protection is a receipt-layer concern: {stdout}"
+    );
+    assert!(
+        !stdout.contains("no risk policy found"),
+        "must not report a risk policy as absent when Item::TradeRiskPolicy is present: {stdout}"
+    );
+    assert!(
+        !stdout.contains("no vm declaration found") && !stdout.contains("no solver market found"),
+        "must not demand cross-chain bridge infrastructure from a single-chain atomic trade: {stdout}"
     );
 }

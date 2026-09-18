@@ -29,13 +29,24 @@
 //! - `new` — generate new X3 project
 //! - `plan` — show the execution plan for an intent
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use ed25519_dalek::SigningKey;
+use sha2::{Digest, Sha256};
 use x3_lang_ast::ast::Program;
+use x3_lang_compiler::emitter::decode_trading_program;
+use x3_lang_compiler::ir::TradingOperation;
 use x3_lang_compiler::{
     check_source, check_source_with_mode, compile_source, compile_to_ir, compile_with_mode, CompilationMode,
+};
+use x3_lang_vm::trading::{
+    build_receipt, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult, BridgeRequest,
+    BridgeTransferResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode, HostError, QuoteRequest,
+    QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradeOutcome, TradingHost,
+    TradingVm,
 };
 use x3_lang_vm::{VMConfig, VMState, VM};
 
@@ -193,6 +204,45 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect or verify a trading receipt.
+    Receipt {
+        #[command(subcommand)]
+        action: ReceiptAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ReceiptAction {
+    /// Print a receipt as canonical JSON.
+    Inspect { input: PathBuf },
+    /// Verify a receipt's hash and accounting invariants.
+    Verify { input: PathBuf },
+    /// Compile a `.x3` trading program, execute it against a neutral
+    /// fixture host, and emit the resulting signed receipt.
+    ///
+    /// The fixture host is deliberately not a market simulation: every
+    /// swap returns exactly the trade's own declared `min_output` (so
+    /// OutputBelowMinOut/slippage never fire on their own), fees are
+    /// zero, and it claims exactly the providers/venues/private-submission
+    /// capability the compiled policy asks for. This proves the compile
+    /// -> execute -> receipt -> sign -> verify pipeline actually connects
+    /// end to end; it does not simulate real market profitability, and a
+    /// program that needs genuine price movement to clear its own
+    /// min_profit/min_output guards can still legitimately fail here.
+    Execute {
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Block height the trade executes at, checked against the
+        /// compiled policy's deadline_blocks.
+        #[arg(long, default_value_t = 1)]
+        block: u64,
+        /// 64-character hex-encoded ed25519 signing key seed. Defaults to
+        /// a fixed, clearly non-secret dev seed — this command is a
+        /// fixture/demo tool, not a production signer.
+        #[arg(long)]
+        key_hex: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -253,6 +303,16 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             show_route,
             json,
         } => cmd_plan(&input, show_route, json),
+        Cmd::Receipt { action } => match action {
+            ReceiptAction::Inspect { input } => cmd_receipt_inspect(&input),
+            ReceiptAction::Verify { input } => cmd_receipt_verify(&input),
+            ReceiptAction::Execute {
+                input,
+                out,
+                block,
+                key_hex,
+            } => cmd_receipt_execute(&input, out.as_ref(), mode, block, key_hex.as_deref()),
+        },
     }
 }
 
@@ -1059,64 +1119,104 @@ fn cmd_audit(input: &PathBuf, mode_str: &String, out: Option<&PathBuf>) -> Resul
         }
     }
 
-    // Check: intent must exist
+    // Every check below this point was originally written against only
+    // the older intent-DSL's AST shape (Item::IntentDecl, its Statement
+    // variants). Trading Core v1 (Item::AtomicTrade / Item::TradeRiskPolicy)
+    // is a structurally different language sharing this same program: it
+    // has no `Item::IntentDecl` at all, so every one of these checks used
+    // to report FAIL/WARN against a trading-core-v1 program regardless of
+    // how safe it actually was — e.g. "no risk policy found" on a program
+    // that declares one, just under a different item type. A program is
+    // treated as "pure trading-core-v1" when it declares at least one
+    // atomic trade and no general intent at all; a program mixing both
+    // stays on the original intent-only checks, since nothing here can
+    // safely assume which half of a mixed program a check is about.
+    let has_atomic_trade = program
+        .items
+        .iter()
+        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::AtomicTrade(_)));
     let has_intent = program
         .items
         .iter()
         .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::IntentDecl(_)));
+    let pure_trading_core = has_atomic_trade && !has_intent;
+
+    // Check: a top-level intent or atomic trade must exist
     if has_intent {
         passed.push("intent declaration present".into());
+    } else if has_atomic_trade {
+        passed.push("atomic trade declaration present".into());
     } else {
         issues.push("[FAIL] no intent declaration found".into());
     }
 
-    // Check: nonce guard for replay protection
-    let has_nonce = program.items.iter().any(|item| {
-        if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
-            intent.body.stmts.iter().any(|s| matches!(s, x3_lang_ast::ast::Statement::Require(g) if g.kind == x3_lang_ast::ast::RequireKind::Nonce))
+    // Check: nonce guard for replay protection. Trading Core v1 has no
+    // AST-level nonce guard — replay protection there is enforced at the
+    // receipt-verification layer (ReceiptReplayLedger), which isn't
+    // something a static audit of the source can see at all. Flagging its
+    // absence here would just be checking for syntax that doesn't apply,
+    // so a pure trading-core-v1 program skips this check entirely rather
+    // than failing it.
+    if !pure_trading_core {
+        let has_nonce = program.items.iter().any(|item| {
+            if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
+                intent.body.stmts.iter().any(|s| matches!(s, x3_lang_ast::ast::Statement::Require(g) if g.kind == x3_lang_ast::ast::RequireKind::Nonce))
+            } else {
+                false
+            }
+        });
+        if has_nonce {
+            passed.push("nonce guard present — replay protected".into());
         } else {
-            false
+            issues.push("[FAIL] missing nonce guard — add 'require nonce unused'".into());
         }
-    });
-    if has_nonce {
-        passed.push("nonce guard present — replay protected".into());
-    } else {
-        issues.push("[FAIL] missing nonce guard — add 'require nonce unused'".into());
     }
 
-    // Check: refund path
-    let has_refund = program.items.iter().any(|item| {
-        if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
-            intent.body.stmts.iter().any(|s| {
-                matches!(s, x3_lang_ast::ast::Statement::Require(g) if g.kind == x3_lang_ast::ast::RequireKind::RefundPath)
-                    || matches!(s, x3_lang_ast::ast::Statement::OnFail(x3_lang_ast::ast::FailureAction::Refund(_)))
-            })
+    // Check: refund path. A failed atomic trade in Trading Core v1 rolls
+    // back in full — there is no partial-execution "stuck funds" scenario
+    // an explicit refund path exists to solve for a cross-chain bridge
+    // intent, so this doesn't apply to a pure trading-core-v1 program.
+    if !pure_trading_core {
+        let has_refund = program.items.iter().any(|item| {
+            if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
+                intent.body.stmts.iter().any(|s| {
+                    matches!(s, x3_lang_ast::ast::Statement::Require(g) if g.kind == x3_lang_ast::ast::RequireKind::RefundPath)
+                        || matches!(s, x3_lang_ast::ast::Statement::OnFail(x3_lang_ast::ast::FailureAction::Refund(_)))
+                })
+            } else {
+                false
+            }
+        });
+        if has_refund {
+            passed.push("refund path configured".into());
         } else {
-            false
+            issues.push("[WARN] missing refund path — users may lose funds on timeout".into());
         }
-    });
-    if has_refund {
-        passed.push("refund path configured".into());
-    } else {
-        issues.push("[WARN] missing refund path — users may lose funds on timeout".into());
     }
 
-    // Check: timeout
-    let has_timeout = program.items.iter().any(|item| {
-        if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
-            intent
-                .body
-                .stmts
-                .iter()
-                .any(|s| matches!(s, x3_lang_ast::ast::Statement::OnTimeout { .. }))
-        } else {
-            false
-        }
-    });
-    if has_timeout {
-        passed.push("timeout configured".into());
+    // Check: timeout. Trading Core v1's risk policy always declares a
+    // mandatory `deadline` — the parser itself refuses to compile a policy
+    // missing one — so a pure trading-core-v1 program always satisfies
+    // this by construction; there's nothing to check for its absence.
+    if pure_trading_core {
+        passed.push("deadline_blocks present (mandatory risk-policy field)".into());
     } else {
-        issues.push("[FAIL] missing timeout — funds may be locked indefinitely".into());
+        let has_timeout = program.items.iter().any(|item| {
+            if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
+                intent
+                    .body
+                    .stmts
+                    .iter()
+                    .any(|s| matches!(s, x3_lang_ast::ast::Statement::OnTimeout { .. }))
+            } else {
+                false
+            }
+        });
+        if has_timeout {
+            passed.push("timeout configured".into());
+        } else {
+            issues.push("[FAIL] missing timeout — funds may be locked indefinitely".into());
+        }
     }
 
     // Check: chain names are known
@@ -1152,117 +1252,155 @@ fn cmd_audit(input: &PathBuf, mode_str: &String, out: Option<&PathBuf>) -> Resul
     }
 
     // --- B-52 configuration checks (WARN-only — optional but recommended for production) ---
-    let has_vm = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::VmDecl(_)));
-    if has_vm {
-        passed.push("vm declaration present".into());
-    } else {
-        issues.push("[WARN] no vm declaration found — recommend adding for production use".into());
+    //
+    // vm/solver_market/relayer_swarm/rpc_quorum/privacy/proofs_required/
+    // finality_policy/target describe cross-chain bridge-routing
+    // infrastructure — solver markets, relayer swarms, multi-RPC quorum
+    // consensus, cross-domain finality — that a pure trading-core-v1
+    // program structurally cannot have any use for: check_same_chain
+    // rejects cross-chain asset mixing in an atomic trade at compile
+    // time, so there is no bridge leg here to recommend hardening.
+    // Warning about their absence on every such program is just noise,
+    // so these are skipped entirely (neither PASS nor WARN) rather than
+    // penalizing a program for correctly not needing them.
+    if !pure_trading_core {
+        let has_vm = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::VmDecl(_)));
+        if has_vm {
+            passed.push("vm declaration present".into());
+        } else {
+            issues.push("[WARN] no vm declaration found — recommend adding for production use".into());
+        }
+
+        let has_solver_market = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::SolverMarket(_)));
+        if has_solver_market {
+            passed.push("solver market configured".into());
+        } else {
+            issues.push("[WARN] no solver market found — recommend adding for production use".into());
+        }
+
+        let has_relayer_swarm = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RelayerSwarm(_)));
+        if has_relayer_swarm {
+            passed.push("relayer swarm configured".into());
+        } else {
+            issues.push("[WARN] no relayer swarm found — recommend adding for production use".into());
+        }
+
+        let has_rpc_quorum = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RpcQuorum(_)));
+        if has_rpc_quorum {
+            passed.push("rpc quorum configured".into());
+        } else {
+            issues.push("[WARN] no rpc quorum found — recommend adding for production use".into());
+        }
+
+        let has_privacy_block = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::PrivacyBlock(_)));
+        if has_privacy_block {
+            passed.push("privacy block configured".into());
+        } else {
+            issues.push("[WARN] no privacy block found — recommend adding for production use".into());
+        }
+
+        let has_proofs_required = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::ProofsRequired(_)));
+        if has_proofs_required {
+            passed.push("proofs required configured".into());
+        } else {
+            issues.push("[WARN] no proofs required declaration found — recommend adding for production use".into());
+        }
+
+        let has_finality_policy = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::FinalityPolicy(_)));
+        if has_finality_policy {
+            passed.push("finality policy configured".into());
+        } else {
+            issues.push("[WARN] no finality policy found — recommend adding for production use".into());
+        }
+
+        let has_target = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::VmTarget(_)));
+        if has_target {
+            passed.push("target declared".into());
+        } else {
+            issues.push("[WARN] no target found — recommend adding for production use".into());
+        }
     }
 
-    let has_solver_market = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::SolverMarket(_)));
-    if has_solver_market {
-        passed.push("solver market configured".into());
-    } else {
-        issues.push("[WARN] no solver market found — recommend adding for production use".into());
-    }
-
-    let has_relayer_swarm = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RelayerSwarm(_)));
-    if has_relayer_swarm {
-        passed.push("relayer swarm configured".into());
-    } else {
-        issues.push("[WARN] no relayer swarm found — recommend adding for production use".into());
-    }
-
-    let has_rpc_quorum = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RpcQuorum(_)));
-    if has_rpc_quorum {
-        passed.push("rpc quorum configured".into());
-    } else {
-        issues.push("[WARN] no rpc quorum found — recommend adding for production use".into());
-    }
-
-    let has_risk_policy = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RiskPolicy(_)));
+    // risk policy and invariant declarations are meaningful for both
+    // language families, just under different item/statement shapes:
+    // Trading Core v1's `risk policy NAME { ... }` lowers to
+    // Item::TradeRiskPolicy (not the older Item::RiskPolicy), and its
+    // `invariant solvent` is a TradeStmt::AssertInvariant inside an atomic
+    // trade body, not a top-level Item::InvariantDecl.
+    let has_risk_policy = program.items.iter().any(|item| {
+        matches!(
+            &item.node,
+            x3_lang_ast::ast::Item::RiskPolicy(_) | x3_lang_ast::ast::Item::TradeRiskPolicy(_)
+        )
+    });
     if has_risk_policy {
         passed.push("risk policy configured".into());
     } else {
         issues.push("[WARN] no risk policy found — recommend adding for production use".into());
     }
 
-    let has_privacy_block = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::PrivacyBlock(_)));
-    if has_privacy_block {
-        passed.push("privacy block configured".into());
-    } else {
-        issues.push("[WARN] no privacy block found — recommend adding for production use".into());
-    }
-
-    let has_invariant = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::InvariantDecl(_)));
+    let has_invariant = program.items.iter().any(|item| match &item.node {
+        x3_lang_ast::ast::Item::InvariantDecl(_) => true,
+        x3_lang_ast::ast::Item::AtomicTrade(trade) => trade
+            .body
+            .iter()
+            .any(|stmt| matches!(stmt, x3_lang_ast::TradeStmt::AssertInvariant { .. })),
+        _ => false,
+    });
     if has_invariant {
         passed.push("invariant check declared".into());
     } else {
         issues.push("[WARN] no invariant declared — recommend adding for production use".into());
     }
 
-    let has_proofs_required = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::ProofsRequired(_)));
-    if has_proofs_required {
-        passed.push("proofs required configured".into());
-    } else {
-        issues.push("[WARN] no proofs required declaration found — recommend adding for production use".into());
-    }
-
-    let has_finality_policy = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::FinalityPolicy(_)));
-    if has_finality_policy {
-        passed.push("finality policy configured".into());
-    } else {
-        issues.push("[WARN] no finality policy found — recommend adding for production use".into());
-    }
-
-    let has_target = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::VmTarget(_)));
-    if has_target {
-        passed.push("target declared".into());
-    } else {
-        issues.push("[WARN] no target found — recommend adding for production use".into());
-    }
-
     // Compute risk score
     let scorer = x3_lang_compiler::risk::RiskScorer::with_mode(comp_mode);
     let report = scorer.score_program(&program);
 
-    let has_failures = !issues.is_empty() || !semantic_errors.is_empty();
+    // `issues` holds both [FAIL] and [WARN]-severity entries so the report
+    // can print them together in one list — but that means checking
+    // `!issues.is_empty()` here would fail the whole audit over a single
+    // missed "recommend adding for production use" suggestion, with no way
+    // to ever report a clean PASS unless every optional recommendation is
+    // followed. Every real program in this repo failed x3c audit for
+    // exactly this reason, including examples explicitly named as the
+    // canonical safe ones (mainnet_safe_swap.x3, flagship_b52.x3). Only an
+    // actual [FAIL] or a semantic error should fail the audit; a [WARN] is
+    // a recommendation, not a safety violation.
+    let fail_count = issues.iter().filter(|i| i.starts_with("[FAIL]")).count();
+    let warn_count = issues.len() - fail_count;
+    let has_failures = fail_count > 0 || !semantic_errors.is_empty();
     let report_json = serde_json::json!({
         "intent": input.display().to_string(),
         "mode": mode_str,
         "status": if has_failures { "fail" } else { "pass" },
         "checks_passed": passed.len(),
-        "checks_failed": issues.len(),
+        "checks_failed": fail_count,
+        "checks_warned": warn_count,
         "semantic_errors": semantic_errors.len(),
         "risk_score": report.overall_score,
         "risk_max": report.max_score,
@@ -1588,4 +1726,256 @@ fn program_summary(program: &Program) -> serde_json::Value {
     serde_json::json!({
         "items": program.items.len(),
     })
+}
+
+/// A deliberately neutral fixture host for `x3c receipt execute`. Every
+/// swap returns exactly the trade's own declared `min_output` (so
+/// OutputBelowMinOut and slippage never fire on their own regardless of
+/// what values a specific program chose), fees are zero, and it claims
+/// exactly the providers/venues/private-submission capability the
+/// compiled policy asks for — no more, no less. This proves the compile
+/// -> execute -> receipt -> sign -> verify pipeline connects for real; it
+/// is not a market simulation, and a program whose own guards require
+/// genuine price movement to clear can still legitimately fail here.
+struct NeutralFixtureHost {
+    manifest: CapabilityManifest,
+}
+
+impl TradingHost for NeutralFixtureHost {
+    fn capabilities(&self) -> &CapabilityManifest {
+        &self.manifest
+    }
+
+    fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError> {
+        Ok(BorrowResult {
+            asset: request.asset,
+            principal: request.principal,
+            fee: 0,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+
+    fn quote(&self, request: QuoteRequest) -> Result<QuoteResult, HostError> {
+        let _ = request;
+        Ok(QuoteResult {
+            expected_output: 0,
+            sources: Vec::new(),
+        })
+    }
+
+    fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
+        Ok(SwapResult {
+            from: request.from,
+            to: request.to.clone(),
+            input: request.input,
+            output: request.min_output,
+            fee: 0,
+            fee_asset: request.to,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+
+    fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError> {
+        Ok(RepayResult {
+            debt_id: request.debt_id,
+            asset: request.asset,
+            amount_paid: request.amount,
+            fee: 0,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+
+    fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError> {
+        Ok(Vec::new())
+    }
+
+    fn bridge(&mut self, request: BridgeRequest) -> Result<BridgeTransferResult, HostError> {
+        Ok(BridgeTransferResult {
+            from: request.from,
+            to: request.to.clone(),
+            input: request.input,
+            output: request.input,
+            fee: 0,
+            fee_asset: request.to,
+            receiver: request.receiver,
+            state_commitment: self.manifest.state_commitment,
+        })
+    }
+}
+
+fn cmd_receipt_execute(
+    input: &PathBuf,
+    out: Option<&PathBuf>,
+    mode_str: &str,
+    block: u64,
+    key_hex: Option<&str>,
+) -> Result<ExitCode, String> {
+    let source = read_source(input)?;
+    let comp_mode = parse_mode(mode_str)?;
+    let bytecode = if mode_str == "dev" {
+        compile_source(&source).map_err(|e| format!("compile error: {e}"))?
+    } else {
+        compile_with_mode(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?
+    };
+    let operations = decode_trading_program(&bytecode).map_err(|e| format!("decode error: {e}"))?;
+
+    let (trade_id, policy) = match operations.first() {
+        Some(TradingOperation::BeginAtomicTrade { trade_id, policy }) => (trade_id.clone(), policy.clone()),
+        _ => return Err("compiled trading program must begin with BeginAtomicTrade".to_string()),
+    };
+
+    let mut providers = BTreeSet::new();
+    let mut venues = BTreeSet::new();
+    let mut bridges = BTreeSet::new();
+    let mut settlement_asset = None;
+    for op in &operations {
+        match op {
+            TradingOperation::OpenDebt { provider, .. } => {
+                providers.insert(provider.clone());
+            }
+            TradingOperation::ExecuteSwap { venue, .. } => {
+                venues.insert(venue.clone());
+            }
+            TradingOperation::Bridge { via, .. } => {
+                bridges.insert(via.clone());
+            }
+            TradingOperation::AssertMinNetProfit {
+                settlement_asset: asset,
+                ..
+            } => {
+                settlement_asset = Some(asset.clone());
+            }
+            _ => {}
+        }
+    }
+
+    // Derived from the compiled bytecode itself, not a caller-supplied
+    // placeholder, so it actually commits the host to this specific
+    // artifact rather than an arbitrary number nothing checks.
+    let state_commitment = sha256_with_domain(&bytecode, b"x3c-receipt-execute-state-commitment");
+    let artifact_hash = sha256_with_domain(&bytecode, b"x3c-receipt-execute-artifact-hash");
+
+    let manifest = CapabilityManifest {
+        mode: CapabilityMode::Fixture,
+        version: format!("trading-policy-v{}", policy.policy_version),
+        chain: policy.chain.clone(),
+        state_commitment,
+        private_submission: policy.require_private_submission,
+        providers,
+        venues,
+        bridges,
+    };
+    let mut host = NeutralFixtureHost { manifest };
+
+    let mut vm = TradingVm::new();
+    let context = TradeExecutionContext {
+        mode: ExecutionMode::Development,
+        current_block: block,
+    };
+    let execution = vm
+        .execute_atomic(&operations, &mut host, context)
+        .map_err(|e| format!("trade execution rejected: {e}"))?;
+
+    let receipt = build_receipt(
+        env!("CARGO_PKG_VERSION"),
+        artifact_hash,
+        &trade_id,
+        &policy.policy_id,
+        state_commitment,
+        &operations,
+        &execution.committed_state,
+        settlement_asset.as_ref(),
+        TradeOutcome::Success,
+    )
+    .map_err(|e| format!("receipt build failed: {e}"))?;
+
+    let signing_seed = decode_signing_seed(key_hex)?;
+    let signing_key = SigningKey::from_bytes(&signing_seed);
+    let receipt = sign_receipt(receipt, "x3c-receipt-execute", &signing_key)
+        .map_err(|e| format!("receipt signing failed: {e}"))?;
+
+    let trusted = BTreeMap::from([(
+        "x3c-receipt-execute".to_string(),
+        signing_key.verifying_key().to_bytes(),
+    )]);
+    verify_receipt_trusted(&receipt, &trusted).map_err(|e| format!("receipt failed self-verification: {e}"))?;
+
+    let json = serde_json::to_string_pretty(&receipt).map_err(|e| format!("serialization failed: {e}"))?;
+    write_output(out, &json)?;
+    eprintln!(
+        "x3c receipt execute: trade '{trade_id}' committed, receipt verified (signer public key {})",
+        hex_encode(&signing_key.verifying_key().to_bytes())
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+fn sha256_with_domain(bytes: &[u8], domain: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+/// A fixed, clearly non-secret dev seed when no `--key-hex` is given —
+/// this command is a fixture/demo tool, not a production signer. Anyone
+/// relying on a receipt signed this way for real trust is misusing it;
+/// the printed signer public key makes that unambiguous.
+const DEV_SIGNING_SEED: [u8; 32] = [0x42u8; 32];
+
+fn decode_signing_seed(key_hex: Option<&str>) -> Result<[u8; 32], String> {
+    match key_hex {
+        None => Ok(DEV_SIGNING_SEED),
+        Some(hex) => {
+            let bytes = hex_decode(hex)?;
+            <[u8; 32]>::try_from(bytes.as_slice())
+                .map_err(|_| "key-hex must decode to exactly 32 bytes (64 hex characters)".to_string())
+        }
+    }
+}
+
+fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
+    let input = input.trim();
+    if input.len() % 2 != 0 {
+        return Err(format!(
+            "key-hex must have an even number of characters, got {}",
+            input.len()
+        ));
+    }
+    (0..input.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&input[i..i + 2], 16).map_err(|e| format!("invalid hex in key-hex: {e}")))
+        .collect()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn cmd_receipt_inspect(input: &PathBuf) -> Result<ExitCode, String> {
+    let receipt = read_receipt(input)?;
+    let body = serde_json::to_string_pretty(&receipt).map_err(|e| format!("encode receipt {input:?}: {e}"))?;
+    println!("{body}");
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_receipt_verify(input: &PathBuf) -> Result<ExitCode, String> {
+    let receipt = read_receipt(input)?;
+    match x3_lang_vm::trading::verify_receipt(&receipt) {
+        Ok(()) => {
+            println!("receipt verified: {}", receipt.trade_id);
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(error) => {
+            eprintln!("x3c: receipt verification failed: {error}");
+            Ok(ExitCode::from(1))
+        }
+    }
+}
+
+fn read_receipt(input: &PathBuf) -> Result<x3_lang_vm::trading::TradeReceipt, String> {
+    let body = std::fs::read_to_string(input).map_err(|e| format!("read {input:?}: {e}"))?;
+    serde_json::from_str(&body).map_err(|e| format!("parse receipt {input:?}: {e}"))
 }

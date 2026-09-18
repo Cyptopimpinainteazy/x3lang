@@ -15,15 +15,20 @@
 pub mod diagnostic;
 pub mod emitter;
 pub mod formatter;
+pub mod fusion;
 pub mod intent_emit;
 pub mod ir;
 pub mod linter;
 pub mod lowering;
 pub mod numeric;
+pub mod opportunity;
 pub mod parser;
 pub mod regalloc;
 pub mod risk;
 pub mod semantic;
+pub mod trading_lowering;
+pub mod trading_semantic;
+pub mod trading_verify;
 pub mod verify;
 pub mod spec {
     pub mod opcodes {
@@ -32,7 +37,7 @@ pub mod spec {
 }
 
 use emitter::emit_x3ir;
-use lowering::{lower_program, LowerCtx};
+use lowering::{lower_program, lower_program_with_mode, LowerCtx};
 use parser::parse_source;
 use regalloc::{allocate, AllocationResult};
 use semantic::verify_atomic_swap_decls;
@@ -45,6 +50,11 @@ pub use ir::{Condition, FailureAction, Operation, ProgramMetadata, RequireKind, 
 
 // Re-export semantic types
 pub use semantic::{CompilationMode, InvariantRule, RiskScore};
+
+pub use ir::{AssetKey, TradingOperation, ValueRef};
+pub use trading_lowering::{lower_atomic_trade, LowerError};
+pub use trading_semantic::{amount_base_units, analyze_trading, decimal_to_base_units, TradingSymbols, TypedAmount};
+pub use trading_verify::{verify_atomic_trade, verify_trading_program, DebtFlowState};
 
 // Re-export register-allocation entry points so callers (and tests) can run
 // allocation as a standalone pass without going through the full pipeline.
@@ -69,9 +79,7 @@ pub fn compile_program(program: &Program) -> Result<Vec<u8>, X3Error> {
 /// pipeline. Without it, the linear-scan allocator at
 /// `x3-lang/compiler/src/regalloc.rs` is dead code as far as the compiled
 /// binary is concerned.
-pub fn compile_program_with_regalloc(
-    program: &Program,
-) -> Result<(Vec<u8>, AllocationResult), X3Error> {
+pub fn compile_program_with_regalloc(program: &Program) -> Result<(Vec<u8>, AllocationResult), X3Error> {
     let mut ir = compile_to_ir(program)?;
     let _alloc = allocate(&ir.operations);
     // The v0.1 pipeline records allocation metadata without rewriting
@@ -84,10 +92,24 @@ pub fn compile_program_with_regalloc(
     Ok((bytecode, _alloc))
 }
 
-/// Parse and compile X3 source for the currently supported capability subset.
+/// Parse, verify, lower, and compile X3 source for the currently supported
+/// capability subset.
+///
+/// The semantic verifier runs on this path, not only on the `check`-style
+/// entry points. This used to lower and emit directly, which made the
+/// *default* build path the unverified one: `cmd_build` in `x3c` selects this
+/// function whenever the mode is `dev`, so the compiler emitted bytecode for
+/// programs the verifier rejects. Measured before the fix: 280 bytes / 70 ops
+/// of bytecode for `tests/conformance/invalid/routes/same_chain_bridge.x3`,
+/// which `x3c check` refuses with four safety errors including "bridge
+/// from_chain == to_chain; cross-VM bridge must target a different chain".
+///
+/// `lower_program(program, ctx)` is exactly `lower_program_with_mode(program,
+/// ctx, CompilationMode::Dev)`, so routing through [`compile_with_mode`] does
+/// not change how anything lowers — it only adds the verification that was
+/// missing.
 pub fn compile_source(source: &str) -> Result<Vec<u8>, X3Error> {
-    let program = parse_source(source)?;
-    compile_program(&program)
+    compile_with_mode(source, CompilationMode::Dev)
 }
 
 /// Parse, lower, and run the semantic verifier.
@@ -106,7 +128,16 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
         return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
     }
 
-    let ir = compile_to_ir(&program)?;
+    let trading_symbols = match analyze_trading(&program, CompilationMode::Dev) {
+        Ok(symbols) => symbols,
+        Err(trading_errors) => return Ok((program, crate::ir::X3IR::new(), trading_errors)),
+    };
+    let trading_errors = verify_trading_program(&program, &trading_symbols, CompilationMode::Dev);
+    if !trading_errors.is_empty() {
+        return Ok((program, crate::ir::X3IR::new(), trading_errors));
+    }
+
+    let ir = lower_program(&program, LowerCtx::new())?;
     match verify_semantics(&ir, 8, 4, None) {
         Ok(()) => Ok((program, ir, Vec::new())),
         Err(errs) => Ok((program, ir, errs)),
@@ -116,9 +147,22 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
 /// Compile with an explicit compilation mode for mode-gated safety checks.
 pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>, X3Error> {
     let program = parse_source(source)?;
-    let ir = lower_program(&program, LowerCtx::new())?;
-    verify_semantics(&ir, 8, 4, Some(mode)).map_err(|errs| X3Error::SemanticError {
-        message: format!("compilation failed with {} semantic error(s)", errs.len()),
+    let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
+    verify_semantics(
+        &ir,
+        semantic::DEFAULT_MAX_ATOMIC_OPS,
+        semantic::DEFAULT_MAX_ROUTE_HOPS,
+        Some(mode),
+    )
+    .map_err(|errs| X3Error::SemanticError {
+        // Report every violation, not just a count: a bare "3 semantic
+        // error(s)" gives a caller nothing to act on and hides which guard
+        // refused the program.
+        message: format!(
+            "compilation failed with {} semantic error(s): {}",
+            errs.len(),
+            errs.iter().map(|err| err.to_string()).collect::<Vec<_>>().join("; ")
+        ),
         span: Span::DUMMY,
     })?;
     emit_x3ir(&ir)
@@ -139,7 +183,16 @@ pub fn check_source_with_mode(
         return Ok((program, crate::ir::X3IR::new(), ast_errors.take_errors()));
     }
 
-    let ir = compile_to_ir(&program)?;
+    let trading_symbols = match analyze_trading(&program, mode) {
+        Ok(symbols) => symbols,
+        Err(trading_errors) => return Ok((program, crate::ir::X3IR::new(), trading_errors)),
+    };
+    let trading_errors = verify_trading_program(&program, &trading_symbols, mode);
+    if !trading_errors.is_empty() {
+        return Ok((program, crate::ir::X3IR::new(), trading_errors));
+    }
+
+    let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
     match verify_semantics(&ir, 8, 4, Some(mode)) {
         Ok(()) => Ok((program, ir, Vec::new())),
         Err(errs) => Ok((program, ir, errs)),
@@ -218,9 +271,7 @@ fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
 #[cfg(test)]
 mod regalloc_wiring_tests {
     use super::*;
-    use x3_lang_ast::ast::{
-        AssetRef, AtomicSwapDecl, ChainRef, Expression, HashlockSpec, Item, LiteralExpr, Program,
-    };
+    use x3_lang_ast::ast::{AssetRef, AtomicSwapDecl, ChainRef, Expression, HashlockSpec, Item, LiteralExpr, Program};
     use x3_lang_common::Spanned;
 
     /// The new `compile_program_with_regalloc` entry point runs the full
@@ -244,9 +295,7 @@ mod regalloc_wiring_tests {
             receiver: None,
             hashlock: Some(HashlockSpec {
                 hash_fn: "sha256".into(),
-                secret: Box::new(Expression::Literal(LiteralExpr::String(
-                    "my_secret".into(),
-                ))),
+                secret: Box::new(Expression::Literal(LiteralExpr::String("my_secret".into()))),
             }),
             body: vec![],
             requires: vec![],

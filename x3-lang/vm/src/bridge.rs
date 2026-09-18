@@ -453,6 +453,16 @@ pub struct EthereumLightClientVerifier {
     trusted_header_hash: String,
     min_block_number: Option<u64>,
     expected_log_address: Option<String>,
+    /// Whether `verify_evm_transfer_proof` checks the receipt actually
+    /// contains an ERC-20 Transfer log matching the request's asset,
+    /// amount, and receiver — as opposed to only checking that *some*
+    /// transaction was successfully included at the trusted finalized
+    /// header. Defaults to `true`: without this, a proof of any unrelated
+    /// successful Ethereum transaction would be accepted as evidence for
+    /// an arbitrary bridge request. The only legitimate reason to disable
+    /// it is testing the receipt trie-inclusion mechanism in isolation —
+    /// see `without_transfer_event_check`, which is `#[cfg(test)]`-only
+    /// so it cannot be reached from any real caller.
     require_erc20_transfer: bool,
 }
 
@@ -462,7 +472,7 @@ impl EthereumLightClientVerifier {
             trusted_header_hash: normalize_hex_string(trusted_header_hash.into()),
             min_block_number: None,
             expected_log_address: None,
-            require_erc20_transfer: false,
+            require_erc20_transfer: true,
         }
     }
 
@@ -471,9 +481,24 @@ impl EthereumLightClientVerifier {
         self
     }
 
+    /// Additionally pins the required ERC-20 Transfer log to this specific
+    /// token contract address. Transfer-event content matching (asset,
+    /// amount, receiver against the request) is already on by default;
+    /// this only narrows *which contract's* log is acceptable.
     pub fn with_erc20_transfer_event(mut self, token_address: impl Into<String>) -> Self {
         self.expected_log_address = Some(token_address.into().to_ascii_lowercase());
         self.require_erc20_transfer = true;
+        self
+    }
+
+    /// Test-only escape hatch to verify receipt trie inclusion without
+    /// requiring a matching ERC-20 Transfer log — for fixtures (e.g. a
+    /// pre-EIP-658 legacy receipt) that exercise the trie-proof mechanism
+    /// itself rather than transfer-content matching. `#[cfg(test)]` keeps
+    /// this unreachable from any production or library caller.
+    #[cfg(test)]
+    fn without_transfer_event_check(mut self) -> Self {
+        self.require_erc20_transfer = false;
         self
     }
 }
@@ -660,6 +685,8 @@ pub struct EthereumRpcFinalityVerifier {
     min_confirmations: u64,
     expected_log_address: Option<String>,
     expected_log_topic: Option<String>,
+    /// See `EthereumLightClientVerifier::require_erc20_transfer` — same
+    /// invariant, same reason it defaults to `true`.
     require_erc20_transfer: bool,
 }
 
@@ -671,7 +698,7 @@ impl EthereumRpcFinalityVerifier {
             min_confirmations: 12,
             expected_log_address: None,
             expected_log_topic: None,
-            require_erc20_transfer: false,
+            require_erc20_transfer: true,
         }
     }
 
@@ -690,6 +717,10 @@ impl EthereumRpcFinalityVerifier {
         self
     }
 
+    /// Additionally pins the required ERC-20 Transfer log to this specific
+    /// token contract address/topic. Transfer-event content matching
+    /// (asset, amount, receiver against the request) is already on by
+    /// default; this only narrows *which contract's* log is acceptable.
     pub fn with_erc20_transfer_event(mut self, token_address: impl Into<String>) -> Self {
         self.expected_log_address = Some(token_address.into().to_ascii_lowercase());
         self.expected_log_topic = Some(ERC20_TRANSFER_TOPIC.to_string());
@@ -3875,9 +3906,15 @@ mod tests {
         req.source_finality_proof = serde_json::to_vec(&finality).expect("finality JSON");
         req.transfer_proof = serde_json::to_vec(&transfer).expect("transfer JSON");
 
+        // Block 46147 is one of Ethereum's earliest blocks — long before
+        // ERC-20/EIP-658 — so its receipt has no Transfer log to match
+        // against. This test is specifically about receipt trie-inclusion
+        // mechanics on a legacy receipt, not transfer-content verification,
+        // hence the explicit (test-only) opt-out below.
         let verifier =
             EthereumLightClientVerifier::new("0x4e3a3754410177e6937ef1f84bba68ea139e8d1a2258c5f85db9f1cd715a1bdd")
-                .with_min_block_number(46147);
+                .with_min_block_number(46147)
+                .without_transfer_event_check();
         let finality = verifier
             .verify_evm_finality(&req)
             .expect("mainnet header proof verifies");
@@ -3949,6 +3986,76 @@ mod tests {
         let err = verifier
             .verify_evm_transfer_proof(&req, &finality)
             .expect_err("wrong amount must fail event validation");
+        assert_eq!(err.code, "X3_EVM_TRANSFER_EVENT_MISMATCH");
+    }
+
+    #[test]
+    fn ethereum_light_client_verifier_rejects_mismatched_transfer_by_default() {
+        // Regression test for a real vulnerability: EthereumLightClientVerifier
+        // ::new(..) used to default require_erc20_transfer to false, so
+        // verify_evm_transfer_proof only checked that *some* transaction
+        // was successfully included at the trusted finalized header —
+        // never that it actually transferred the requested asset, amount,
+        // or receiver. That is also the exact construction pattern
+        // init_production_backend() uses for X3_BRIDGE_VERIFIER=
+        // evm-light-client when X3_EVM_ERC20_CHECK_ADDRESS is unset: a
+        // proof of any unrelated successful Ethereum transaction would
+        // have been accepted as valid evidence for an arbitrary bridge
+        // request, with no opt-in required to be safe. This test builds
+        // the verifier with bare `::new(..)` — no `.with_erc20_transfer_
+        // event(..)` — against a real, successful, correctly-included
+        // USDC transfer receipt, but requests a different amount than
+        // what the receipt actually transferred. It must still be
+        // rejected by default.
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("vm crate lives under x3-lang/vm");
+        let script = repo_root.join("scripts/proof/generate_eth_bridge_fixture.py");
+        let archive = repo_root.join("docs/x3-lang/fixtures/ethereum-mainnet-17000000-usdc-receipt-proof.archive.json");
+        let output = std::process::Command::new("python3")
+            .arg(&script)
+            .arg("--from-archive-only")
+            .arg(&archive)
+            .output()
+            .expect("fixture generator should run");
+        assert!(output.status.success(), "modern USDC archive generation failed");
+
+        let fixture: Value = serde_json::from_slice(&output.stdout).expect("generated fixture JSON");
+        let mut req = BridgeTransferRequest {
+            via: "X3".into(),
+            from_chain: "ethereum".into(),
+            from_asset: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".into(),
+            to_chain: "x3".into(),
+            to_asset: "USDC".into(),
+            amount: 18_000_000,
+            receiver: b"0xc45143c530e9dc0c3895c458c160144a3129955b".to_vec(),
+            source_finality_proof: serde_json::to_vec(
+                fixture.get("source_finality_proof").expect("source_finality_proof"),
+            )
+            .expect("finality JSON"),
+            transfer_proof: serde_json::to_vec(fixture.get("transfer_proof").expect("transfer_proof"))
+                .expect("transfer JSON"),
+        };
+        // Bare `::new(..)` — exactly what init_production_backend() builds
+        // when X3_EVM_ERC20_CHECK_ADDRESS isn't set. No `.with_erc20_
+        // transfer_event(..)` opt-in at all.
+        let verifier =
+            EthereumLightClientVerifier::new("0x96cfa0fb5e50b0a3f6cc76f3299cfbf48f17e8b41798d1394474e67ec8a97e9f")
+                .with_min_block_number(17_000_000);
+        let finality = verifier
+            .verify_evm_finality(&req)
+            .expect("modern header proof verifies");
+
+        // The real receipt transferred 18_000_000 units to a specific
+        // receiver. Ask about a different amount instead: a default-safe
+        // verifier must reject this even though the underlying receipt is
+        // genuinely successful and genuinely included at the trusted header.
+        req.amount = 999_999_999;
+        let err = verifier
+            .verify_evm_transfer_proof(&req, &finality)
+            .expect_err("a mismatched transfer must be rejected even without the with_erc20_transfer_event(..) builder call — content verification must be on by default");
         assert_eq!(err.code, "X3_EVM_TRANSFER_EVENT_MISMATCH");
     }
 
