@@ -1315,13 +1315,26 @@ fn cmd_audit(input: &PathBuf, mode_str: &String, out: Option<&PathBuf>) -> Resul
     let scorer = x3_lang_compiler::risk::RiskScorer::with_mode(comp_mode);
     let report = scorer.score_program(&program);
 
-    let has_failures = !issues.is_empty() || !semantic_errors.is_empty();
+    // `issues` holds both [FAIL] and [WARN]-severity entries so the report
+    // can print them together in one list — but that means checking
+    // `!issues.is_empty()` here would fail the whole audit over a single
+    // missed "recommend adding for production use" suggestion, with no way
+    // to ever report a clean PASS unless every optional recommendation is
+    // followed. Every real program in this repo failed x3c audit for
+    // exactly this reason, including examples explicitly named as the
+    // canonical safe ones (mainnet_safe_swap.x3, flagship_b52.x3). Only an
+    // actual [FAIL] or a semantic error should fail the audit; a [WARN] is
+    // a recommendation, not a safety violation.
+    let fail_count = issues.iter().filter(|i| i.starts_with("[FAIL]")).count();
+    let warn_count = issues.len() - fail_count;
+    let has_failures = fail_count > 0 || !semantic_errors.is_empty();
     let report_json = serde_json::json!({
         "intent": input.display().to_string(),
         "mode": mode_str,
         "status": if has_failures { "fail" } else { "pass" },
         "checks_passed": passed.len(),
-        "checks_failed": issues.len(),
+        "checks_failed": fail_count,
+        "checks_warned": warn_count,
         "semantic_errors": semantic_errors.len(),
         "risk_score": report.overall_score,
         "risk_max": report.max_score,
