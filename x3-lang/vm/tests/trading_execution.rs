@@ -365,6 +365,76 @@ fn host_transaction_rolls_back_on_vm_rejection() {
 }
 
 #[test]
+fn simulate_never_commits_even_when_every_guard_passes() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let before = vm.trading_state.clone();
+
+    let execution = vm
+        .simulate_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect("a trade that would succeed must project a successful outcome");
+
+    // The projection reflects a real pass — the guards actually ran
+    // against the real host — but nothing was allowed to land.
+    assert!(execution.committed_state.committed);
+    assert!(execution.committed_state.receipt_emitted);
+    assert!(host.began);
+    assert!(
+        !host.committed,
+        "simulate_atomic must never call host.commit_transaction()"
+    );
+    assert!(
+        host.rolled_back,
+        "simulate_atomic must always call host.rollback_transaction()"
+    );
+    assert_eq!(
+        vm.trading_state, before,
+        "simulate_atomic must restore VM state even on a successful projection"
+    );
+}
+
+#[test]
+fn simulate_reports_the_same_failure_a_real_execution_would_hit() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.swap_output = 1;
+    let before = vm.trading_state.clone();
+
+    let err = vm
+        .simulate_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("a trade that would fail must project the same failure");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::OutputBelowMinOut { .. }
+    ));
+    assert!(host.began);
+    assert!(!host.committed);
+    assert!(host.rolled_back);
+    assert_eq!(vm.trading_state, before);
+}
+
+#[test]
+fn simulate_does_not_disturb_a_later_real_execution() {
+    let mut vm = TradingVm::new();
+
+    let mut probe_host = FixtureHost::new();
+    vm.simulate_atomic(&ops(), &mut probe_host, context(ExecutionMode::Development))
+        .expect("projection must succeed");
+
+    // The same VM, reused for a real execution right after simulating,
+    // must behave exactly as if the simulation never happened.
+    let mut real_host = FixtureHost::new();
+    let execution = vm
+        .execute_atomic(&ops(), &mut real_host, context(ExecutionMode::Development))
+        .expect("a real execution after a simulation must still commit normally");
+
+    assert!(execution.committed_state.committed);
+    assert!(real_host.committed);
+    assert!(!real_host.rolled_back);
+}
+
+#[test]
 fn host_execution_costs_are_applied_before_profit_guard() {
     let mut vm = TradingVm::new();
     let mut host = FixtureHost::new();

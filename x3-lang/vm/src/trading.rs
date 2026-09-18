@@ -381,12 +381,51 @@ impl TradingVm {
         Self::default()
     }
 
-    /// Execute a lowered trading operation sequence atomically.
+    /// Execute a lowered trading operation sequence atomically. On success,
+    /// the host-side transaction is committed for real.
     pub fn execute_atomic(
         &mut self,
         operations: &[TradingOperation],
         host: &mut dyn TradingHost,
         context: TradeExecutionContext,
+    ) -> Result<TradeExecution, TradingExecError> {
+        self.run_atomic(operations, host, context, true)
+    }
+
+    /// Run a trade through the exact same policy validation, host calls,
+    /// and guard checks as `execute_atomic` — but never let it land.
+    /// `host.commit_transaction()` is never called, `host.rollback_transaction()`
+    /// is always called, and `self.trading_state` is always restored to its
+    /// pre-call snapshot, whether the guards passed or failed.
+    ///
+    /// This is a real dry run against the real host, not a synthetic
+    /// re-implementation: it exercises the same `TradingHost` staging
+    /// contract (`begin_transaction`/`rollback_transaction`) that
+    /// production adapters already have to support for rollback-on-
+    /// rejection, so the projected `TradeExecution` returned on success
+    /// reflects exactly what would have committed. Useful for previewing a
+    /// trade — or screening many candidate routes — without paying for a
+    /// real settlement or risking a host-side transaction actually
+    /// landing.
+    ///
+    /// `committed_state.committed` on the returned execution reflects that
+    /// the trade's own `CommitAtomicTrade` guard passed, not that any host
+    /// funds moved: nothing a simulation returns is final.
+    pub fn simulate_atomic(
+        &mut self,
+        operations: &[TradingOperation],
+        host: &mut dyn TradingHost,
+        context: TradeExecutionContext,
+    ) -> Result<TradeExecution, TradingExecError> {
+        self.run_atomic(operations, host, context, false)
+    }
+
+    fn run_atomic(
+        &mut self,
+        operations: &[TradingOperation],
+        host: &mut dyn TradingHost,
+        context: TradeExecutionContext,
+        commit: bool,
     ) -> Result<TradeExecution, TradingExecError> {
         let manifest = host.capabilities();
         if context.mode == ExecutionMode::Production && manifest.mode != CapabilityMode::Production {
@@ -417,23 +456,38 @@ impl TradingVm {
 
         host.begin_transaction().map_err(TradingExecError::HostRejected)?;
 
-        match self.execute_inner(operations, host, context) {
-            Ok(execution) => {
-                if let Err(error) = host.commit_transaction() {
-                    let _ = host.rollback_transaction();
+        let outcome = self.execute_inner(operations, host, context);
+        if commit {
+            match outcome {
+                Ok(execution) => {
+                    if let Err(error) = host.commit_transaction() {
+                        let _ = host.rollback_transaction();
+                        self.trading_state = snapshot;
+                        return Err(TradingExecError::HostRejected(error));
+                    }
+                    Ok(execution)
+                }
+                Err(error) => {
+                    let rollback = host.rollback_transaction();
                     self.trading_state = snapshot;
-                    return Err(TradingExecError::HostRejected(error));
+                    if let Err(rollback_error) = rollback {
+                        return Err(TradingExecError::HostRejected(rollback_error));
+                    }
+                    Err(error)
                 }
-                Ok(execution)
             }
-            Err(error) => {
-                let rollback = host.rollback_transaction();
-                self.trading_state = snapshot;
-                if let Err(rollback_error) = rollback {
-                    return Err(TradingExecError::HostRejected(rollback_error));
-                }
-                Err(error)
+        } else {
+            // Simulation: always roll back and restore state, regardless
+            // of outcome — nothing is allowed to land. If the rollback
+            // itself fails, we can't vouch the host is actually clean, so
+            // that failure takes priority over handing back a projected
+            // "this would have succeeded" result.
+            let rollback = host.rollback_transaction();
+            self.trading_state = snapshot;
+            if let Err(rollback_error) = rollback {
+                return Err(TradingExecError::HostRejected(rollback_error));
             }
+            outcome
         }
     }
 
