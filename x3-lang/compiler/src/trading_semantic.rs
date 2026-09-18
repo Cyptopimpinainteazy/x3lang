@@ -138,6 +138,7 @@ fn validate_policy_asset(
     for (field, amount) in [
         ("max_gas", Some(&policy.max_gas)),
         ("min_profit", policy.min_profit.as_ref()),
+        ("max_cumulative_loss", policy.max_cumulative_loss.as_ref()),
     ] {
         if let Some(amount) = amount {
             validate_amount(amount, assets, field, span, errors);

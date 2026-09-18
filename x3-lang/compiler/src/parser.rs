@@ -826,6 +826,7 @@ impl<'a> Parser<'a> {
         let mut require_private_submission = None;
         let mut min_profit = None;
         let mut max_oracle_deviation_bps = None;
+        let mut max_cumulative_loss = None;
 
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             match self.peek() {
@@ -894,6 +895,17 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
+                Tok::Ident(ref s) if s == "max_cumulative_loss" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after max_cumulative_loss")?;
+                    let value = self.parse_amount_expr("max_cumulative_loss")?;
+                    if max_cumulative_loss.replace(value).is_some() {
+                        return Err(parse_err(
+                            "duplicate 'max_cumulative_loss' in risk policy".into(),
+                            self.peek(),
+                        ));
+                    }
+                }
                 _ => {
                     return Err(parse_err("unknown field in trading risk policy".into(), self.peek()));
                 }
@@ -913,6 +925,7 @@ impl<'a> Parser<'a> {
                 .ok_or_else(|| parse_err("risk policy missing 'require_private_submission'".into(), Tok::RBrace))?,
             min_profit,
             max_oracle_deviation_bps,
+            max_cumulative_loss,
         })
     }
 

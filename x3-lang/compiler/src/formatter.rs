@@ -162,6 +162,20 @@ impl X3Formatter {
             self.write(min_profit.asset.as_str());
             self.write("\n");
         }
+        if let Some(deviation_bps) = policy.max_oracle_deviation_bps {
+            self.write_indent();
+            self.write("max_oracle_deviation: ");
+            self.write(&deviation_bps.to_string());
+            self.write(" bps\n");
+        }
+        if let Some(max_cumulative_loss) = &policy.max_cumulative_loss {
+            self.write_indent();
+            self.write("max_cumulative_loss: ");
+            self.format_expression(&max_cumulative_loss.value);
+            self.write(" ");
+            self.write(max_cumulative_loss.asset.as_str());
+            self.write("\n");
+        }
         self.dedent();
         self.write("}\n");
     }

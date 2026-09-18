@@ -648,6 +648,20 @@ fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnosti
                 }
             }
             verify_asset_key(&policy.max_gas_asset, context, "policy.max_gas_asset", diagnostics);
+            match (policy.max_cumulative_loss, &policy.max_cumulative_loss_asset) {
+                (Some(_), Some(asset)) => {
+                    verify_asset_key(asset, context, "policy.max_cumulative_loss_asset", diagnostics);
+                }
+                (None, None) => {}
+                _ => {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{context}: policy max_cumulative_loss and max_cumulative_loss_asset must both be set or both be absent"
+                        ),
+                    );
+                }
+            }
             if policy.max_flash_fee_bps > 10_000 {
                 push_unsafe(
                     diagnostics,

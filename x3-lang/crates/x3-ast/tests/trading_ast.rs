@@ -104,6 +104,7 @@ fn trade_risk_policy_holds_all_enforceable_fields() {
         require_private_submission: true,
         min_profit: Some(AmountExpr::literal(1_000_000_000_000, Symbol::from("USDC"))),
         max_oracle_deviation_bps: Some(50),
+        max_cumulative_loss: None,
     };
 
     assert_eq!(policy.name.as_str(), "MainnetArb");
@@ -142,6 +143,7 @@ fn asset_and_atomic_trade_are_top_level_items() {
         require_private_submission: true,
         min_profit: Some(AmountExpr::literal(1_000_000_000_000, Symbol::from("USDC"))),
         max_oracle_deviation_bps: Some(50),
+        max_cumulative_loss: None,
     };
     let program = Program::new(vec![
         Spanned::new(

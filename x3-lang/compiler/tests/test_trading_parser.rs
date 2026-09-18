@@ -319,6 +319,62 @@ risk policy P {
 }
 
 #[test]
+fn max_cumulative_loss_is_optional_and_parses_when_present() {
+    let fixture_program = parse_source(TRADING_CORE_V1_SOURCE).expect("fixture must parse");
+    let (_, policy_without, _) = find_items(&fixture_program);
+    assert!(
+        policy_without
+            .expect("fixture must declare a policy")
+            .max_cumulative_loss
+            .is_none(),
+        "the canonical fixture never declares max_cumulative_loss — must default to None, not error"
+    );
+
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+risk policy WithBreaker {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+    max_cumulative_loss: 500000000 USDC
+}
+"#;
+    let program = parse_source(source).expect("policy declaring max_cumulative_loss must parse");
+    let (_, policy, _) = find_items(&program);
+    let amount = policy
+        .expect("policy must be present")
+        .max_cumulative_loss
+        .as_ref()
+        .expect("max_cumulative_loss must be Some");
+    assert_eq!(amount.asset.as_str(), "USDC");
+}
+
+#[test]
+fn duplicate_max_cumulative_loss_is_rejected() {
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+risk policy P {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+    max_cumulative_loss: 500000000 USDC
+    max_cumulative_loss: 1000000000 USDC
+}
+"#;
+    let err = parse_source(source).expect_err("duplicate max_cumulative_loss must be a parser diagnostic");
+    assert!(
+        format!("{err}").to_lowercase().contains("max_cumulative_loss"),
+        "diagnostic should name the duplicated field, got: {err}"
+    );
+}
+
+#[test]
 fn formatted_source_reparses_to_equivalent_ast() {
     let first = parse_source(TRADING_CORE_V1_SOURCE).expect("canonical fixture must parse");
     let formatted = X3Formatter::new().format_program(&first);
@@ -346,4 +402,45 @@ fn symbol_and_debt_helpers_used_by_parser_output() {
     let _ = Symbol::from("helper");
     let _ = DebtId(Symbol::from("helper"));
     let _ = AmountExpr::literal(1, Symbol::from("USDC"));
+}
+#[test]
+fn formatter_round_trips_max_oracle_deviation_and_max_cumulative_loss() {
+    // Neither field is set on the canonical fixture, so the general
+    // round-trip test above never exercises their formatter output.
+    // format_trade_risk_policy silently dropped max_oracle_deviation_bps
+    // entirely until this test was written to catch it: a policy that
+    // declared an oracle-deviation ceiling would lose that ceiling on any
+    // format round-trip, with no error and no warning.
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+risk policy WithBreakers {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+    max_oracle_deviation: 50 bps
+    max_cumulative_loss: 500000000 USDC
+}
+"#;
+    let first = parse_source(source).expect("must parse");
+    let formatted = X3Formatter::new().format_program(&first);
+    assert!(
+        formatted.contains("max_oracle_deviation"),
+        "formatter dropped max_oracle_deviation:\n{formatted}"
+    );
+    assert!(
+        formatted.contains("max_cumulative_loss"),
+        "formatter dropped max_cumulative_loss:\n{formatted}"
+    );
+
+    let second = parse_source(&formatted).unwrap_or_else(|e| panic!("formatted output must reparse: {formatted}\n{e}"));
+    let (_, first_policy, _) = find_items(&first);
+    let (_, second_policy, _) = find_items(&second);
+    assert_eq!(
+        serde_json::to_value(first_policy).unwrap(),
+        serde_json::to_value(second_policy).unwrap(),
+        "formatter round-trip changed the risk policy AST"
+    );
 }

@@ -256,6 +256,15 @@ pub enum TradingExecError {
         ceiling: u128,
         actual: u128,
     },
+    /// Committing this trade would push the VM instance's running realized
+    /// total for `asset` — summed across every trade it has already
+    /// committed under a policy declaring `max_cumulative_loss` — below
+    /// `-ceiling`. A cross-trade circuit breaker, not a per-trade guard.
+    CumulativeLossCeilingExceeded {
+        asset: AssetKey,
+        ceiling: u128,
+        projected_loss: u128,
+    },
 }
 
 impl fmt::Display for TradingExecError {
@@ -335,6 +344,15 @@ impl fmt::Display for TradingExecError {
                 "accrued {} cost {actual} exceeds compiled max_gas ceiling {ceiling}",
                 asset.symbol
             ),
+            Self::CumulativeLossCeilingExceeded {
+                asset,
+                ceiling,
+                projected_loss,
+            } => write!(
+                f,
+                "committing this trade would bring cumulative {} losses to {projected_loss}, exceeding the compiled max_cumulative_loss ceiling {ceiling}",
+                asset.symbol
+            ),
         }
     }
 }
@@ -368,6 +386,13 @@ pub struct TradingVm {
     pub trading_state: TradingState,
     expected_commitment: Option<[u8; 32]>,
     compiled_policy: Option<CompiledTradingPolicy>,
+    /// Realized net proceeds, per asset, summed across every trade this VM
+    /// instance has actually committed (never a simulated or failed one).
+    /// Lives for the lifetime of the `TradingVm`, not any single trade —
+    /// this is the state a cross-trade circuit breaker like
+    /// `max_cumulative_loss` reads and updates. A fresh `TradingVm::new()`
+    /// starts a fresh strategy session with an empty ledger.
+    cumulative_realized: BTreeMap<AssetKey, i128>,
 }
 
 /// Result of a successful atomic trading execution.
@@ -465,6 +490,7 @@ impl TradingVm {
                         self.trading_state = snapshot;
                         return Err(TradingExecError::HostRejected(error));
                     }
+                    self.record_cumulative_realized(&execution.committed_state);
                     Ok(execution)
                 }
                 Err(error) => {
@@ -746,9 +772,52 @@ impl TradingVm {
                 return Err(TradingExecError::NetProfitBelowFloor { minimum, actual: best });
             }
         }
+        if let (Some(ceiling), Some(asset)) = (
+            self.compiled_policy().max_cumulative_loss,
+            self.compiled_policy().max_cumulative_loss_asset.clone(),
+        ) {
+            let prior = self.cumulative_realized.get(&asset).copied().unwrap_or(0);
+            let this_trade = self.trading_state.net_deltas.get(&asset).copied().unwrap_or(0);
+            let projected = prior
+                .checked_add(this_trade)
+                .ok_or(TradingExecError::AccountingOverflow)?;
+            let ceiling_i128 = i128::try_from(ceiling).map_err(|_| TradingExecError::AccountingOverflow)?;
+            if projected < -ceiling_i128 {
+                let projected_loss = u128::try_from(-projected).map_err(|_| TradingExecError::AccountingOverflow)?;
+                return Err(TradingExecError::CumulativeLossCeilingExceeded {
+                    asset,
+                    ceiling,
+                    projected_loss,
+                });
+            }
+        }
         Ok(TradeExecution {
             committed_state: self.trading_state.clone(),
         })
+    }
+
+    /// Merge a just-committed trade's realized deltas into the VM's
+    /// cross-trade ledger. Only called from the real-commit path in
+    /// `run_atomic` — never for a simulated or failed trade — so
+    /// `max_cumulative_loss` only ever reflects trades that actually
+    /// landed. Uses `saturating_add`: by the time this runs, the host has
+    /// already committed for real, so a ledger update can no longer fail
+    /// the trade; the guard check above already used `checked_add` on the
+    /// one asset a policy actually cares about; a general ledger entry at
+    /// the practical limits of `i128` is not a case worth failing an
+    /// already-landed trade over.
+    fn record_cumulative_realized(&mut self, state: &TradingState) {
+        for (asset, delta) in &state.net_deltas {
+            let entry = self.cumulative_realized.entry(asset.clone()).or_insert(0);
+            *entry = entry.saturating_add(*delta);
+        }
+    }
+
+    /// Realized net proceeds for `asset`, summed across every trade this
+    /// VM instance has committed so far (0 if the asset has never been
+    /// touched by a committed trade). Never affected by `simulate_atomic`.
+    pub fn cumulative_realized(&self, asset: &AssetKey) -> i128 {
+        self.cumulative_realized.get(asset).copied().unwrap_or(0)
     }
 
     fn validate_compiled_policy(

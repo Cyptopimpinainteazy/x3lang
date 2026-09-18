@@ -176,6 +176,8 @@ fn ops() -> Vec<TradingOperation> {
                 allow_mint: false,
                 allow_burn: false,
                 max_oracle_deviation_bps: None,
+                max_cumulative_loss: None,
+                max_cumulative_loss_asset: None,
             },
         },
         TradingOperation::OpenDebt {
@@ -664,6 +666,8 @@ fn gas_ceiling_within_policy_still_commits() {
                 allow_mint: false,
                 allow_burn: false,
                 max_oracle_deviation_bps: None,
+                max_cumulative_loss: None,
+                max_cumulative_loss_asset: None,
             },
         },
         TradingOperation::CommitAtomicTrade,
@@ -740,6 +744,8 @@ fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
                 allow_mint: false,
                 allow_burn: false,
                 max_oracle_deviation_bps: None,
+                max_cumulative_loss: None,
+                max_cumulative_loss_asset: None,
             },
         },
         TradingOperation::CommitAtomicTrade,
@@ -913,4 +919,140 @@ fn oracle_firewall_catches_a_source_quoting_higher_too() {
         err,
         x3_lang_vm::trading::TradingExecError::OracleDeviationExceeded { ceiling_bps: 50, .. }
     ));
+}
+
+/// A minimal trade (no debts, no swaps) whose only USDC movement is the
+/// host-reported execution cost, letting a test control exactly how much a
+/// single trade "loses" without any of the other guards (profit floor,
+/// debt closure) getting in the way. `ceiling` is `None` for a policy that
+/// never declares `max_cumulative_loss` at all.
+fn minimal_loss_trade(ceiling: Option<u128>) -> Vec<TradingOperation> {
+    vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: u128::MAX,
+                max_gas_asset: asset("USDC"),
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+                max_oracle_deviation_bps: None,
+                max_cumulative_loss: ceiling,
+                max_cumulative_loss_asset: ceiling.map(|_| asset("USDC")),
+            },
+        },
+        TradingOperation::CommitAtomicTrade,
+    ]
+}
+
+#[test]
+fn cumulative_loss_ceiling_is_not_checked_when_policy_omits_it() {
+    // No ceiling declared: however much a trade loses, there is nothing to
+    // fail closed on — mirrors oracle_deviation_not_checked_when_policy_omits_it.
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.execution_cost = 1_000_000_000;
+    host.execution_cost_asset = Some(asset("USDC"));
+
+    vm.execute_atomic(
+        &minimal_loss_trade(None),
+        &mut host,
+        context(ExecutionMode::Development),
+    )
+    .expect("a policy with no max_cumulative_loss must never block on realized losses");
+    assert_eq!(vm.cumulative_realized(&asset("USDC")), -1_000_000_000);
+}
+
+#[test]
+fn cumulative_loss_ceiling_trips_only_once_prior_trades_are_summed_in() {
+    // Each individual trade loses 100 — well under a 150 ceiling on its
+    // own. The ceiling only bites on the second trade because it is
+    // cumulative: -100 (trade 1, committed) + -100 (trade 2) = -200, past
+    // -150. This is the property that makes it a cross-trade circuit
+    // breaker rather than just a per-trade check in disguise.
+    let mut vm = TradingVm::new();
+    let operations = minimal_loss_trade(Some(150));
+
+    let mut host1 = FixtureHost::new();
+    host1.execution_cost = 100;
+    host1.execution_cost_asset = Some(asset("USDC"));
+    vm.execute_atomic(&operations, &mut host1, context(ExecutionMode::Development))
+        .expect("first 100-loss trade must commit: -100 is within the -150 ceiling");
+    assert_eq!(vm.cumulative_realized(&asset("USDC")), -100);
+
+    let mut host2 = FixtureHost::new();
+    host2.execution_cost = 100;
+    host2.execution_cost_asset = Some(asset("USDC"));
+    let err = vm
+        .execute_atomic(&operations, &mut host2, context(ExecutionMode::Development))
+        .expect_err("second 100-loss trade must be rejected: cumulative -200 breaches the -150 ceiling");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::CumulativeLossCeilingExceeded {
+            asset: asset("USDC"),
+            ceiling: 150,
+            projected_loss: 200,
+        }
+    );
+    assert!(host2.rolled_back);
+    // The rejected trade must not itself be recorded — the ledger stays at
+    // the pre-rejection total, not the projected (and never-landed) one.
+    assert_eq!(vm.cumulative_realized(&asset("USDC")), -100);
+}
+
+#[test]
+fn cumulative_loss_ledger_only_grows_from_trades_that_actually_commit() {
+    // A rejected trade (here: rejected for an unrelated reason, an expired
+    // deadline, before execution even begins) must leave the cumulative
+    // ledger untouched, exactly like it leaves trading_state untouched.
+    let mut vm = TradingVm::new();
+    let operations = minimal_loss_trade(Some(50));
+    let mut host = FixtureHost::new();
+    host.execution_cost = 1_000; // would blow the ceiling if it ever landed
+    host.execution_cost_asset = Some(asset("USDC"));
+    let mut ctx = context(ExecutionMode::Development);
+    ctx.current_block = 999; // past deadline_blocks: 10
+
+    vm.execute_atomic(&operations, &mut host, ctx)
+        .expect_err("expired deadline must abort before any accounting runs");
+
+    assert_eq!(vm.cumulative_realized(&asset("USDC")), 0);
+}
+
+#[test]
+fn simulating_a_lossy_trade_never_updates_the_cumulative_ledger() {
+    let mut vm = TradingVm::new();
+    let operations = minimal_loss_trade(Some(150));
+
+    // Simulate the same 100-loss trade three times over — a real run
+    // would trip the ceiling by the second one, exactly as proven above.
+    for _ in 0..3 {
+        let mut host = FixtureHost::new();
+        host.execution_cost = 100;
+        host.execution_cost_asset = Some(asset("USDC"));
+        vm.simulate_atomic(&operations, &mut host, context(ExecutionMode::Development))
+            .expect("simulating a within-ceiling loss must project success");
+        assert!(!host.committed);
+        assert!(host.rolled_back);
+    }
+
+    assert_eq!(
+        vm.cumulative_realized(&asset("USDC")),
+        0,
+        "simulate_atomic must never contribute to the cross-trade ledger, no matter how many times it runs"
+    );
+
+    // A real trade right after must start from that same untouched ledger.
+    let mut real_host = FixtureHost::new();
+    real_host.execution_cost = 100;
+    real_host.execution_cost_asset = Some(asset("USDC"));
+    vm.execute_atomic(&operations, &mut real_host, context(ExecutionMode::Development))
+        .expect("a real trade after only simulations must see a clean ledger and commit");
+    assert_eq!(vm.cumulative_realized(&asset("USDC")), -100);
 }

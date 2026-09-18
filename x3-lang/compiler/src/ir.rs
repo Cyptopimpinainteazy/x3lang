@@ -419,6 +419,16 @@ pub struct CompiledTradingPolicy {
     /// price source the host reports. `None` means no cross-source check
     /// is required for this trade.
     pub max_oracle_deviation_bps: Option<u16>,
+    /// Cross-trade circuit breaker: maximum realized loss, in
+    /// `max_cumulative_loss_asset`, the VM instance executing this trade
+    /// may have accumulated across every trade it has already committed
+    /// before this one is allowed to commit too. `None` means no
+    /// cross-trade ceiling is enforced. Always `Some` exactly when
+    /// `max_cumulative_loss_asset` is `Some` — the VM has no way to
+    /// enforce an amount with no asset to measure it in.
+    pub max_cumulative_loss: Option<u128>,
+    /// Asset `max_cumulative_loss` is denominated in.
+    pub max_cumulative_loss_asset: Option<AssetKey>,
 }
 
 impl CompiledTradingPolicy {
