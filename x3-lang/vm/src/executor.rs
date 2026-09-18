@@ -301,19 +301,42 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                 continue;
             }
             REQUIRE => {
-                // REQUIRE: ra=condition_register. Panic if R[ra] == 0.
-                let (ra, _rb, _imm) = decode_reg_reg_imm(operand);
-                let condition = vm.state.registers[ra as usize];
-                if condition == 0 {
+                // REQUIRE: flags = comparison code, operand = threshold. The
+                // value being guarded is register r0, where the declaration
+                // instruction for this guard leaves it.
+                //
+                // The operand deliberately does not hold the packed
+                // register/register/immediate triple other instructions use: a
+                // guard always tests r0, and the field is better spent on the
+                // threshold. This used to ignore both fields and test r0 for
+                // non-zero, which made every guard depend on whatever the
+                // previous instruction happened to leave behind — an unrelated
+                // instruction's empty result was enough to fail a guard, and
+                // the same residue could as easily pass one that should fail.
+                let threshold = operand as u128;
+                let value = vm.state.registers[0];
+                let satisfied = match _flags {
+                    // An assertion about the artifact's configuration. The
+                    // compiler has already checked it and there is no run-time
+                    // quantity to test, so the instruction stands as a record
+                    // of the guard rather than a test.
+                    REQUIRE_COMPARE_STATIC => true,
+                    REQUIRE_COMPARE_GE => value >= threshold,
+                    // A comparison this VM does not implement must not pass by
+                    // default.
+                    other => {
+                        return Err(ExecError::Panic(format!(
+                            "X3_REQUIRE_FAILED: unknown comparison code {other} at pc {}",
+                            vm.state.pc
+                        )))
+                    }
+                };
+                if !satisfied {
                     if try_dispatch_handler(vm) {
                         continue;
                     }
-                    // Name the pc. Without it a failed guard is untraceable:
-                    // the opcode carries no identity and no condition, so the
-                    // only way to find which `require` refused is to look at
-                    // where it happened.
                     return Err(ExecError::Panic(format!(
-                        "X3_REQUIRE_FAILED: condition register r{ra} is zero at pc {}",
+                        "X3_REQUIRE_FAILED: r0={value} is below the required {threshold} at pc {}",
                         vm.state.pc
                     )));
                 }
@@ -464,7 +487,15 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                         return Err(e);
                     }
                 };
-                vm.state.registers[0] = bytes_to_register(&result);
+                // Only move the result into r0 when there is one. A handler
+                // that already set r0 — a declaration leaving the guarded
+                // quantity there — must not have it overwritten by the register
+                // encoding of an empty vector, which is zero. That overwrite is
+                // what made guards fail on the residue of unrelated
+                // instructions.
+                if !result.is_empty() {
+                    vm.state.registers[0] = bytes_to_register(&result);
+                }
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
@@ -487,7 +518,9 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                         return Err(e);
                     }
                 };
-                vm.state.registers[0] = bytes_to_register(&result);
+                if !result.is_empty() {
+                    vm.state.registers[0] = bytes_to_register(&result);
+                }
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
@@ -921,7 +954,11 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
                     "relayer attest: more signatures than declared relayers".to_string(),
                 ));
             }
-            vm.state.registers[0] = signatures.len() as u128;
+            // Leave the guarded quantity in r0: `require relayer_quorum >= N`
+            // compares the swarm's quorum numerator against N. This used to put
+            // the signature count here, which is zero for every compiled
+            // artifact.
+            vm.state.registers[0] = quorum_numerator as u128;
             Ok(vec![])
         }
         CapabilityPayload::RpcConsensus {
@@ -1284,6 +1321,12 @@ mod tests {
         [opcode, 0, (operand & 0xFF) as u8, (operand >> 8) as u8]
     }
 
+    /// The same, with an explicit flags byte — `REQUIRE` keeps its comparison
+    /// code there.
+    fn instr_flags(opcode: u8, flags: u8, operand: u16) -> [u8; 4] {
+        [opcode, flags, (operand & 0xFF) as u8, (operand >> 8) as u8]
+    }
+
     #[test]
     fn if_condition_zero_skips_body() {
         // IF r0, 1  (skip 1 instruction if r0==0)
@@ -1354,22 +1397,50 @@ mod tests {
     }
 
     #[test]
-    fn require_fails_when_zero() {
-        // REQUIRE r0 with r0=0 → must panic
-        let code: &[u8] = &[
-            instr(0x40, enc_rri(0, 0, 0)), // REQUIRE r0
-            instr(0xFF, 0),                // HALT
-        ]
-        .concat();
+    fn a_static_guard_does_not_depend_on_r0() {
+        // A `REQUIRE` with the STATIC comparison asserts something about the
+        // artifact's configuration, which the compiler already checked; there is
+        // no run-time quantity to test. It used to test r0 for non-zero, so a
+        // guard failed whenever an unrelated instruction happened to leave zero
+        // there — which is exactly what the flagship examples hit.
+        let code: &[u8] = &[instr_flags(REQUIRE, REQUIRE_COMPARE_STATIC, 0), instr(HALT, 0)].concat();
         let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
         vm.state.registers[0] = 0;
-        let result = execute(&mut vm);
-        assert!(result.is_err(), "REQUIRE with r0=0 should panic");
-        let err = result.unwrap_err();
-        match err {
-            ExecError::Panic(msg) => assert!(msg.contains("REQUIRE_FAILED")),
-            _ => panic!("expected Panic, got {:?}", err),
+        assert!(
+            execute(&mut vm).is_ok(),
+            "a static guard must not depend on the residue of an unrelated instruction"
+        );
+    }
+
+    #[test]
+    fn a_compared_guard_fails_below_its_threshold() {
+        let code: &[u8] = &[instr_flags(REQUIRE, REQUIRE_COMPARE_GE, 10), instr(HALT, 0)].concat();
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
+        vm.state.registers[0] = 9;
+        match execute(&mut vm) {
+            Err(ExecError::Panic(msg)) => assert!(msg.contains("REQUIRE_FAILED"), "got: {msg}"),
+            other => panic!("expected a guard failure, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_compared_guard_passes_at_its_threshold() {
+        let code: &[u8] = &[instr_flags(REQUIRE, REQUIRE_COMPARE_GE, 10), instr(HALT, 0)].concat();
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
+        vm.state.registers[0] = 10;
+        assert!(execute(&mut vm).is_ok(), "r0 equal to the threshold must satisfy >=");
+    }
+
+    #[test]
+    fn an_unknown_comparison_code_fails_closed() {
+        // A comparison this VM does not implement must not pass by default.
+        let code: &[u8] = &[instr_flags(REQUIRE, 0x7F, 0), instr(HALT, 0)].concat();
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
+        vm.state.registers[0] = 1;
+        assert!(
+            execute(&mut vm).is_err(),
+            "an unimplemented comparison must not silently succeed"
+        );
     }
 
     #[test]
@@ -1575,11 +1646,11 @@ mod tests {
         //   PC 12: ADD r0, r0, r2  — handler: r0 = 0 + 42 = 42 (marker)
         //   PC 16: HALT
         let code: &[u8] = &[
-            instr(ON_FAIL, enc_rri(1, 0, 0)), // ON_FAIL r1
-            instr(REQUIRE, enc_rri(0, 0, 0)), // REQUIRE r0  → fails
-            instr(HALT, 0),                   // HALT (unreachable)
-            instr(0x01, enc_tt(0, 0, 2)),     // ADD r0, r0, r2 (handler)
-            instr(HALT, 0),                   // HALT
+            instr(ON_FAIL, enc_rri(1, 0, 0)),            // ON_FAIL r1
+            instr_flags(REQUIRE, REQUIRE_COMPARE_GE, 1), // REQUIRE r0 >= 1 → fails
+            instr(HALT, 0),                              // HALT (unreachable)
+            instr(0x01, enc_tt(0, 0, 2)),                // ADD r0, r0, r2 (handler)
+            instr(HALT, 0),                              // HALT
         ]
         .concat();
         let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);

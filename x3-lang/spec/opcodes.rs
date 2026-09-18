@@ -84,3 +84,20 @@ pub const BYTECODE_VERSION_1: u8 = 0x01;
 pub const META_NONCE: u8 = 0x10;
 pub const META_CHAIN_ID: u8 = 0x11;
 pub const HALT: u8 = 0xFF;
+
+/// Comparison codes for `REQUIRE`, carried in the instruction's flags byte.
+///
+/// `REQUIRE`'s operand field holds a threshold rather than the packed
+/// register/register/immediate triples other instructions use, because a guard
+/// always tests register `r0` — the one a declaration instruction leaves the
+/// guarded quantity in.
+///
+/// `STATIC` means the guard asserts something about the artifact's
+/// configuration rather than about run-time state. The compiler has already
+/// checked it, so the instruction records the guard in the artifact and has
+/// nothing to test. The executor must not invent a test for it: that is how
+/// every guard in the language came to depend on whatever an unrelated previous
+/// instruction happened to leave in `r0`.
+pub const REQUIRE_COMPARE_STATIC: u8 = 0;
+/// `r0 >= operand`.
+pub const REQUIRE_COMPARE_GE: u8 = 1;

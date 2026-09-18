@@ -125,7 +125,25 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&body_bytecode)?;
         }
         Operation::Require { .. } => {
-            bytecode.write_all(&[REQUIRE])?;
+            // `[REQUIRE][comparison][threshold u16]`, always STATIC today.
+            //
+            // Every guard in the language asserts something about the artifact's
+            // configuration — `require relayer_quorum >= 3` against
+            // `relayers { quorum 3_of_5 }`, `require finality.ethereum >= 32`
+            // against the settlement path's finality policy — and the
+            // compile-time verifier is what checks those. The instruction records
+            // the guard in the artifact; it does not test run-time state.
+            //
+            // A comparison (`REQUIRE_COMPARE_GE`, evaluated by the executor) is
+            // defined and tested, but nothing emits it yet: a guard would have to
+            // find its quantity in `r0`, and no instruction puts it there. The
+            // declarations sit at the top of a program and the guards at the
+            // bottom, so `r0` at a guard holds whatever the last unrelated
+            // instruction left — which is exactly the accident that used to make
+            // guards fail. Emitting a comparison against that would be a new
+            // wrong answer rather than a fix; the data flow has to arrive first
+            // (TICKET-027).
+            bytecode.write_all(&[REQUIRE, REQUIRE_COMPARE_STATIC])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
         Operation::OnFail { .. } => {
