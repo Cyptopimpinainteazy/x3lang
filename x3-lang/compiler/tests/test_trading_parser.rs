@@ -5,7 +5,9 @@
 //! basis points), and formatter round-trip equivalence via serde values.
 
 use x3_lang_ast::ast::{Expression, Item, LiteralExpr, Program};
-use x3_lang_ast::{AmountExpr, AssetDecl, AtomicTradeDecl, DebtId, TradeRiskPolicy, TradeStmt};
+use x3_lang_ast::{
+    AmountExpr, AssetDecl, AtomicTradeDecl, DebtId, TradeEffect, TradeGuarantee, TradeRiskPolicy, TradeStmt,
+};
 use x3_lang_common::Symbol;
 use x3_lang_compiler::formatter::X3Formatter;
 use x3_lang_compiler::parser::parse_source;
@@ -610,5 +612,107 @@ fn bridge_without_via_is_rejected() {
     assert!(
         format!("{err}").to_lowercase().contains("via"),
         "diagnostic should name the missing 'via' clause, got: {err}"
+    );
+}
+
+/// A trade header carrying the optional `effects` / `guarantees` clauses.
+fn trade_with_clauses(clauses: &str) -> String {
+    format!(
+        r#"{}
+{}"#,
+        clauses, TRADE_BODY
+    )
+}
+
+const TRADE_BODY: &str = r#"{
+    borrow 1_000_000 USDC from aave_v3 as debt
+    let weth = swap debt.amount USDC -> ETH
+        via uniswap_v3
+        min_out 1 ETH
+    repay debt
+    require net_profit >= 1_000 USDC
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
+#[test]
+fn effects_and_guarantees_reach_the_ast() {
+    let source = trade_with_clauses(
+        "atomic trade T using MainnetArb\n    effects [borrow, repay]\n    guarantees [debt_closed]\n",
+    );
+    let program = parse_source(&source).expect("effects and guarantees must parse");
+    let (_, _, trade) = find_items(&program);
+    let trade = trade.expect("trade must be present");
+    assert_eq!(
+        trade.effects,
+        vec![TradeEffect::Borrow, TradeEffect::Repay],
+        "declared effects must reach the AST in order"
+    );
+    assert_eq!(
+        trade.guarantees,
+        vec![TradeGuarantee::DebtClosed],
+        "declared guarantees must reach the AST in order"
+    );
+}
+
+#[test]
+fn omitting_effects_and_guarantees_leaves_them_empty() {
+    // Both clauses are optional; the canonical fixture declares neither.
+    let fixture_program = parse_source(TRADING_CORE_V1_SOURCE).expect("fixture must parse");
+    let (_, _, trade) = find_items(&fixture_program);
+    let trade = trade.expect("fixture must declare a trade");
+    assert!(
+        trade.effects.is_empty(),
+        "no effects clause must mean no declared effects"
+    );
+    assert!(
+        trade.guarantees.is_empty(),
+        "no guarantees clause must mean no declared guarantees"
+    );
+}
+
+#[test]
+fn an_unknown_effect_name_is_rejected_and_the_known_set_is_named() {
+    let source = trade_with_clauses("atomic trade T using MainnetArb\n    effects [borrow, liquidate]\n");
+    let err = parse_source(&source).expect_err("an unknown effect must not be accepted as a label");
+    let text = format!("{err}").to_lowercase();
+    assert!(
+        text.contains("liquidate"),
+        "the diagnostic must name the bad effect: {err}"
+    );
+    assert!(
+        text.contains("borrow") && text.contains("repay"),
+        "the diagnostic must list the known effects: {err}"
+    );
+}
+
+#[test]
+fn an_unknown_guarantee_name_is_rejected() {
+    let source = trade_with_clauses("atomic trade T using MainnetArb\n    guarantees [debt_closed, moonshot]\n");
+    let err = parse_source(&source).expect_err("an unknown guarantee must be rejected");
+    assert!(
+        format!("{err}").to_lowercase().contains("moonshot"),
+        "the diagnostic must name the bad guarantee: {err}"
+    );
+}
+
+#[test]
+fn duplicate_effects_are_rejected() {
+    let source = trade_with_clauses("atomic trade T using MainnetArb\n    effects [borrow, borrow]\n");
+    let err = parse_source(&source).expect_err("a duplicate effect must be rejected");
+    assert!(
+        format!("{err}").to_lowercase().contains("duplicate"),
+        "the diagnostic should say duplicate, got: {err}"
+    );
+}
+
+#[test]
+fn an_empty_effects_list_is_rejected() {
+    let source = trade_with_clauses("atomic trade T using MainnetArb\n    effects []\n");
+    let err = parse_source(&source).expect_err("an empty effects list must be rejected");
+    assert!(
+        format!("{err}").to_lowercase().contains("at least one"),
+        "the diagnostic should explain that an empty list is meaningless, got: {err}"
     );
 }

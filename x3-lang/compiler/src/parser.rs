@@ -12,7 +12,10 @@
 //! converts lexer `TokenKind` items into its internal `Tok` enum.
 
 use x3_lang_ast::ast::*;
-use x3_lang_ast::{AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, DebtId, InvariantKind, TradeRiskPolicy, TradeStmt};
+use x3_lang_ast::{
+    AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, DebtId, InvariantKind, TradeEffect, TradeGuarantee,
+    TradeRiskPolicy, TradeStmt,
+};
 use x3_lang_common::{BinOp as CBinOp, IntBase, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
 use x3_lang_lexer::token::{Keyword, Token, TokenKind};
 
@@ -956,6 +959,59 @@ impl<'a> Parser<'a> {
         let name = self.expect_ident("atomic trade name")?;
         self.expect(Tok::Ident("using".into()), "expected 'using' after trade name")?;
         let risk_policy = self.expect_ident("atomic trade risk policy")?;
+
+        // Optional `effects [...]` / `guarantees [...]` clauses. Both use a
+        // closed vocabulary, so an unrecognized name is a parse error rather
+        // than a label the compiler silently accepts and never checks.
+        let mut effects: Vec<TradeEffect> = Vec::new();
+        let mut guarantees: Vec<TradeGuarantee> = Vec::new();
+        loop {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "effects" => {
+                    self.advance();
+                    for name in self.parse_bracketed_ident_list("effects")? {
+                        let effect = TradeEffect::from_name(&name).ok_or_else(|| {
+                            parse_err(
+                                format!(
+                                    "unknown trade effect '{name}'; known effects are: {}",
+                                    known_names(TradeEffect::ALL.iter().map(|effect| effect.as_str()))
+                                ),
+                                self.peek(),
+                            )
+                        })?;
+                        if effects.contains(&effect) {
+                            return Err(parse_err(
+                                format!("duplicate trade effect '{}'", effect.as_str()),
+                                self.peek(),
+                            ));
+                        }
+                        effects.push(effect);
+                    }
+                }
+                Tok::Ident(ref s) if s == "guarantees" => {
+                    self.advance();
+                    for name in self.parse_bracketed_ident_list("guarantees")? {
+                        let guarantee = TradeGuarantee::from_name(&name).ok_or_else(|| {
+                            parse_err(
+                                format!(
+                                    "unknown trade guarantee '{name}'; known guarantees are: {}",
+                                    known_names(TradeGuarantee::ALL.iter().map(|g| g.as_str()))
+                                ),
+                                self.peek(),
+                            )
+                        })?;
+                        if guarantees.contains(&guarantee) {
+                            return Err(parse_err(
+                                format!("duplicate trade guarantee '{}'", guarantee.as_str()),
+                                self.peek(),
+                            ));
+                        }
+                        guarantees.push(guarantee);
+                    }
+                }
+                _ => break,
+            }
+        }
         self.expect(Tok::LBrace, "expected '{' to open the atomic trade body")?;
 
         let mut body = Vec::new();
@@ -981,6 +1037,8 @@ impl<'a> Parser<'a> {
         Ok(AtomicTradeDecl {
             name: Symbol::new(&name),
             risk_policy: Symbol::new(&risk_policy),
+            effects,
+            guarantees,
             body,
         })
     }
@@ -1171,6 +1229,44 @@ impl<'a> Parser<'a> {
             Tok::Int(value) if value <= u64::MAX as u128 => Ok(value as u64),
             Tok::Int(_) => Err(parse_err(format!("{field}: value exceeds u64"), self.peek())),
             other => Err(parse_err(format!("{field}: expected an unsigned integer"), other)),
+        }
+    }
+
+    /// `[a, b, c]` — a comma-separated identifier list in square brackets.
+    fn parse_bracketed_ident_list(&mut self, clause: &str) -> Result<Vec<String>, X3Error> {
+        self.expect(Tok::LBracket, &format!("expected '[' after '{clause}'"))?;
+        let mut names = Vec::new();
+        while self.peek() != Tok::RBracket && self.peek() != Tok::Eof {
+            names.push(self.parse_clause_name(clause)?);
+            if self.peek() == Tok::Comma {
+                self.advance();
+            }
+        }
+        self.expect(Tok::RBracket, &format!("expected ']' to close the '{clause}' list"))?;
+        if names.is_empty() {
+            return Err(parse_err(
+                format!(
+                    "'{clause}' must list at least one name; omit the clause rather than declaring an \
+                     empty one"
+                ),
+                self.peek(),
+            ));
+        }
+        Ok(names)
+    }
+
+    /// Accept a name that may also be a language keyword.
+    ///
+    /// `swap` and `bridge` are keywords, so `effects [borrow, swap, repay]` has
+    /// to accept them. Rejecting a keyword here would make the vocabulary
+    /// unreachable for two of the four effects — the two that matter most.
+    fn parse_clause_name(&mut self, clause: &str) -> Result<String, X3Error> {
+        let found = self.advance();
+        match found {
+            Tok::Ident(name) => Ok(name),
+            Tok::KwSwap => Ok("swap".to_string()),
+            Tok::KwBridge => Ok("bridge".to_string()),
+            other => Err(parse_err(format!("{clause}: expected a name, found {other:?}"), other)),
         }
     }
 
@@ -3082,6 +3178,13 @@ fn require_kind_from_str(name: &str) -> Result<RequireKind, X3Error> {
         "mainnet_safe" => RequireKind::MainnetSafe,
         other => RequireKind::Custom(Symbol::new(other)),
     })
+}
+
+/// Render a closed vocabulary for a diagnostic: sorted, comma-separated.
+fn known_names<'a>(names: impl Iterator<Item = &'a str>) -> String {
+    let mut names: Vec<&str> = names.collect();
+    names.sort_unstable();
+    names.join(", ")
 }
 
 fn parse_err(message: String, found: Tok) -> X3Error {

@@ -44,6 +44,41 @@ fn verify_atomic_trade_at_span(
     span: Span,
 ) -> Vec<X3Error> {
     let mut errors = Vec::new();
+
+    // Declared effects and guarantees must be discharged by the body. That is
+    // the whole point of declaring them: an `effects` list the compiler never
+    // checks reads like a promise while meaning nothing, which is the same
+    // defect as the policy ceilings that were aliased from unrelated fields.
+    // This is what lets X3Lang refuse an economically broken trade before it
+    // reaches a chain.
+    for effect in &trade.effects {
+        if !trade.body.iter().any(|stmt| effect.is_produced_by(stmt)) {
+            errors.push(semantic_error(
+                format!(
+                    "atomic trade '{}' declares effect '{}' but no statement in the body produces it; \
+                     add a '{}' statement or drop it from the effects list",
+                    trade.name.as_str(),
+                    effect.as_str(),
+                    effect.as_str()
+                ),
+                span,
+            ));
+        }
+    }
+    for guarantee in &trade.guarantees {
+        if !trade.body.iter().any(|stmt| guarantee.is_discharged_by(stmt)) {
+            errors.push(semantic_error(
+                format!(
+                    "atomic trade '{}' declares guarantee '{}' but nothing in the body discharges it; {}",
+                    trade.name.as_str(),
+                    guarantee.as_str(),
+                    guarantee_requirement(*guarantee)
+                ),
+                span,
+            ));
+        }
+    }
+
     let policy = match symbols.policies.get(&trade.risk_policy) {
         Some(policy) => policy,
         None => {
@@ -353,6 +388,15 @@ fn deadline_is_zero(expr: &Expression) -> bool {
         Expression::Literal(LiteralExpr::Int { value: 0, .. }) => true,
         Expression::Literal(LiteralExpr::Int { value, .. }) => *value == 0,
         _ => false,
+    }
+}
+
+/// What the author has to add to discharge a guarantee, for the diagnostic.
+fn guarantee_requirement(guarantee: x3_lang_ast::TradeGuarantee) -> &'static str {
+    match guarantee {
+        x3_lang_ast::TradeGuarantee::DebtClosed => "add `require all_debts_repaid`",
+        x3_lang_ast::TradeGuarantee::MinProfit => "add `require net_profit >= <amount>`",
+        x3_lang_ast::TradeGuarantee::Solvent => "add `invariant solvent`",
     }
 }
 

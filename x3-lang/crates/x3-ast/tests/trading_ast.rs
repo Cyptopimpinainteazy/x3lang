@@ -3,7 +3,8 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use x3_lang_ast::trading::{
-    AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, DebtId, RoundingMode, TradeRiskPolicy, TradeStmt,
+    AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, DebtId, RoundingMode, TradeEffect, TradeGuarantee,
+    TradeRiskPolicy, TradeStmt,
 };
 use x3_lang_ast::{ChainRef, Expression, Item, LiteralExpr, Program};
 use x3_lang_common::{BytePos, IntBase, Span, Spanned, Symbol};
@@ -38,6 +39,8 @@ fn atomic_trade_body_matches_plan_sample() {
     let trade = AtomicTradeDecl {
         name: Symbol::from("CrossDexArb"),
         risk_policy: Symbol::from("MainnetArb"),
+        effects: vec![TradeEffect::Borrow, TradeEffect::Repay],
+        guarantees: vec![TradeGuarantee::DebtClosed],
         body: vec![
             TradeStmt::Borrow {
                 amount: AmountExpr::literal(1_000_000_000_000, Symbol::from("USDC")),
@@ -161,6 +164,8 @@ fn asset_and_atomic_trade_are_top_level_items() {
             Item::AtomicTrade(AtomicTradeDecl {
                 name: Symbol::from("CrossDexArb"),
                 risk_policy: Symbol::from("MainnetArb"),
+                effects: vec![],
+                guarantees: vec![],
                 body: vec![TradeStmt::RequireAllDebtsRepaid],
             }),
             span,

@@ -124,7 +124,129 @@ pub struct TradeRiskPolicy {
 pub struct AtomicTradeDecl {
     pub name: Symbol,
     pub risk_policy: Symbol,
+    /// Economic effects this body claims to produce, from
+    /// `effects [borrow, swap, repay]`. Each one must be realized by a matching
+    /// statement or the trade is rejected — an effect label the compiler cannot
+    /// check would read like a guarantee while meaning nothing.
+    #[serde(default)]
+    pub effects: Vec<TradeEffect>,
+    /// Guarantees this body promises to discharge before it may commit, from
+    /// `guarantees [debt_closed, min_profit]`. Each one must be discharged by a
+    /// matching guard in the body, for the same reason.
+    #[serde(default)]
+    pub guarantees: Vec<TradeGuarantee>,
     pub body: Vec<TradeStmt>,
+}
+
+/// An economic effect a trade body claims to produce.
+///
+/// Deliberately closed, like `InvariantKind`: an unrecognized name is a parse
+/// error, not a silently-accepted label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TradeEffect {
+    /// Take on debt that must later be repaid.
+    Borrow,
+    /// Convert one asset into another through a venue.
+    Swap,
+    /// Move value to another chain.
+    Bridge,
+    /// Close a previously opened debt.
+    Repay,
+}
+
+impl TradeEffect {
+    /// Every effect the language knows, in a fixed order for diagnostics.
+    pub const ALL: [TradeEffect; 4] = [
+        TradeEffect::Borrow,
+        TradeEffect::Swap,
+        TradeEffect::Bridge,
+        TradeEffect::Repay,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TradeEffect::Borrow => "borrow",
+            TradeEffect::Swap => "swap",
+            TradeEffect::Bridge => "bridge",
+            TradeEffect::Repay => "repay",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "borrow" => Some(TradeEffect::Borrow),
+            "swap" => Some(TradeEffect::Swap),
+            "bridge" => Some(TradeEffect::Bridge),
+            "repay" => Some(TradeEffect::Repay),
+            _ => None,
+        }
+    }
+
+    /// Whether `stmt` produces this effect.
+    pub fn is_produced_by(self, stmt: &TradeStmt) -> bool {
+        match self {
+            TradeEffect::Borrow => matches!(stmt, TradeStmt::Borrow { .. }),
+            TradeEffect::Swap => matches!(stmt, TradeStmt::Swap { .. }),
+            TradeEffect::Bridge => matches!(stmt, TradeStmt::Bridge { .. }),
+            TradeEffect::Repay => matches!(stmt, TradeStmt::Repay { .. }),
+        }
+    }
+}
+
+/// A guarantee a trade body promises before it is allowed to commit.
+///
+/// Closed like `TradeEffect`, and restricted to guarantees the compiler can
+/// actually discharge from the body: a name whose enforcement would be a no-op
+/// is not admitted, for the same reason the unenforceable policy ceilings were
+/// removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TradeGuarantee {
+    /// Every borrowed debt is closed exactly once.
+    DebtClosed,
+    /// A minimum net profit floor is asserted.
+    MinProfit,
+    /// The solvent invariant is asserted.
+    Solvent,
+}
+
+impl TradeGuarantee {
+    /// Every guarantee the language knows, in a fixed order for diagnostics.
+    pub const ALL: [TradeGuarantee; 3] = [
+        TradeGuarantee::DebtClosed,
+        TradeGuarantee::MinProfit,
+        TradeGuarantee::Solvent,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TradeGuarantee::DebtClosed => "debt_closed",
+            TradeGuarantee::MinProfit => "min_profit",
+            TradeGuarantee::Solvent => "solvent",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "debt_closed" => Some(TradeGuarantee::DebtClosed),
+            "min_profit" => Some(TradeGuarantee::MinProfit),
+            "solvent" => Some(TradeGuarantee::Solvent),
+            _ => None,
+        }
+    }
+
+    /// Whether `stmt` discharges this guarantee in a trade body.
+    pub fn is_discharged_by(self, stmt: &TradeStmt) -> bool {
+        match self {
+            TradeGuarantee::DebtClosed => matches!(stmt, TradeStmt::RequireAllDebtsRepaid),
+            TradeGuarantee::MinProfit => matches!(stmt, TradeStmt::RequireMinNetProfit { .. }),
+            TradeGuarantee::Solvent => matches!(
+                stmt,
+                TradeStmt::AssertInvariant {
+                    kind: InvariantKind::Solvent
+                }
+            ),
+        }
+    }
 }
 
 /// A statement inside an atomic trade body.

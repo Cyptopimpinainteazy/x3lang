@@ -396,3 +396,93 @@ atomic trade DriftedBridgeSource using P {
         "a bridge whose from_asset drifts onto a chain other than the trade's own must still be caught: {errors:?}"
     );
 }
+
+/// A trade whose declared effects are all produced and whose declared
+/// guarantees are all discharged by its body.
+const DISCHARGED_TRADE: &str = r#"
+atomic trade Discharged using P
+    effects [borrow, swap, repay]
+    guarantees [debt_closed, min_profit]
+{
+    borrow 1_000_000 USDC from aave_v3 as debt
+    let weth = swap debt.amount USDC -> ETH
+        via uniswap_v3
+        min_out 1 ETH
+    repay debt
+    require net_profit >= 1_000 USDC
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+
+#[test]
+fn declared_effects_and_guarantees_are_discharged_by_the_body() {
+    let source = format!("{ASSET_HEADER}{POLICY_HEADER}{DISCHARGED_TRADE}");
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    // Guard against this test passing vacuously: if the clause syntax failed to
+    // parse, the only error would be a ParseError and the check below would
+    // trivially hold.
+    assert!(
+        !errors.iter().any(|e| matches!(e, X3Error::ParseError { .. })),
+        "the effects/guarantees clauses must parse: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|e| {
+            let text = format!("{e}");
+            text.contains("declares effect") || text.contains("declares guarantee")
+        }),
+        "a body that produces and discharges everything it declares must compile: {errors:?}"
+    );
+}
+
+#[test]
+fn an_effect_with_no_matching_statement_is_rejected() {
+    // The body never bridges, so declaring the bridge effect is a claim the
+    // compiler will not let stand.
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}",
+        DISCHARGED_TRADE.replace("effects [borrow, swap, repay]", "effects [borrow, bridge, repay]")
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "declares effect 'bridge'"),
+        "an undeclared-but-claimed effect must be reported: {errors:?}"
+    );
+}
+
+#[test]
+fn a_guarantee_with_no_discharge_is_rejected() {
+    // Nothing asserts the solvent invariant, so declaring that guarantee is a
+    // promise the body does not keep.
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}",
+        DISCHARGED_TRADE.replace(
+            "guarantees [debt_closed, min_profit]",
+            "guarantees [debt_closed, min_profit, solvent]"
+        )
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "declares guarantee 'solvent'"),
+        "an undischarged guarantee must be reported: {errors:?}"
+    );
+}
+
+#[test]
+fn a_trade_without_effect_or_guarantee_clauses_is_unaffected() {
+    // Both clauses are optional; omitting them must not introduce diagnostics.
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}",
+        DISCHARGED_TRADE
+            .replace("    effects [borrow, swap, repay]\n", "")
+            .replace("    guarantees [debt_closed, min_profit]\n", "")
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        !errors.iter().any(|e| {
+            let text = format!("{e}");
+            text.contains("declares effect") || text.contains("declares guarantee")
+        }),
+        "omitting the optional clauses must be fine: {errors:?}"
+    );
+}
