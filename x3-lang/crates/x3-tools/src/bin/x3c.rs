@@ -125,6 +125,15 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Read a validated_intent_v1 JSON envelope, lower to X3IR, run the
+    /// semantic verifier, and execute the resulting VM path.
+    RunIntent {
+        input: PathBuf,
+        #[arg(long, default_value_t = 1_000_000u128)]
+        gas: u128,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
     /// Prove an `.x3` intent against a fixture file.
     Prove {
         input: PathBuf,
@@ -282,6 +291,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             out,
         } => cmd_intent(&input, emit_hash, emit_plan, out.as_ref()),
         Cmd::Prove { input, fixture, out } => cmd_prove(&input, &fixture, out.as_ref()),
+        Cmd::RunIntent { input, gas, out } => cmd_run_intent(&input, gas, out.as_ref()),
         // B-52 commands
         Cmd::Fmt { input, check } => cmd_fmt(&input, check),
         Cmd::Lint { input } => cmd_lint(&input, mode),
@@ -491,6 +501,94 @@ fn collect_stats(state: &VMState) -> (usize, usize, usize) {
         state.bridge_ops.len(),
         state.bridge_receipts.len(),
     )
+}
+
+fn cmd_run_intent(input: &PathBuf, gas: u128, out: Option<&PathBuf>) -> Result<ExitCode, String> {
+    let source = read_source(input)?;
+
+    let intent = x3_lang_compiler::parse_validated_intent_json(&source)
+        .map_err(|e| format!("invalid validated_intent_v1: {e}"))?;
+
+    let ir = match x3_lang_compiler::to_ir(&intent) {
+        Ok(ir) => ir,
+        Err(err) => {
+            let body = serde_json::json!({
+                "status": "error",
+                "stage": "lowering",
+                "errors": [format!("{err}")],
+            });
+            let json = serde_json::to_string_pretty(&body).map_err(|e| format!("serialization failed: {e}"))?;
+            if let Some(o) = out {
+                std::fs::write(o, json).map_err(|e| format!("write {o:?}: {e}"))?;
+            } else {
+                print_error(&format!("intent lowering failed: {err}"));
+                eprintln!("{json}");
+            }
+            return Ok(ExitCode::from(1));
+        }
+    };
+
+    if let Err(errs) = x3_lang_compiler::check_ir(&ir) {
+        let body = serde_json::json!({
+            "status": "error",
+            "stage": "semantic",
+            "operations": ir.operations.len(),
+            "errors": errs.iter().map(|e| format!("{e}")).collect::<Vec<_>>(),
+        });
+        let json = serde_json::to_string_pretty(&body).map_err(|e| format!("serialization failed: {e}"))?;
+        if let Some(o) = out {
+            std::fs::write(o, json).map_err(|e| format!("write {o:?}: {e}"))?;
+        } else {
+            print_error(&format!("semantic check failed — {} error(s)", errs.len()));
+            eprintln!("{json}");
+        }
+        return Ok(ExitCode::from(1));
+    }
+
+    let bytecode = match x3_lang_compiler::emitter::emit_x3ir(&ir) {
+        Ok(code) => code,
+        Err(err) => {
+            print_error(&format!("bytecode emission failed: {err}"));
+            return Ok(ExitCode::from(1));
+        }
+    };
+
+    let mut vm = VM::new(bytecode, VMConfig::default(), gas);
+    match vm.execute() {
+        Ok(()) => {
+            let (asset_ops, bridge_ops, receipts) = collect_stats(&vm.state);
+            let body = serde_json::json!({
+                "status": "ok",
+                "operations": ir.operations.len(),
+                "asset_ops": asset_ops,
+                "bridge_ops": bridge_ops,
+                "receipts": receipts,
+                "gas_remaining": vm.state.gas.to_string(),
+            });
+            let json = serde_json::to_string_pretty(&body).map_err(|e| format!("serialization failed: {e}"))?;
+            write_output(out, &json)?;
+            println!(
+                "x3c run-intent: ok — {} asset ops, {} bridge ops, {} receipts, gas remaining {}",
+                asset_ops, bridge_ops, receipts, vm.state.gas
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => {
+            let body = serde_json::json!({
+                "status": "error",
+                "stage": "vm",
+                "errors": [format!("{err:?}")],
+            });
+            let json = serde_json::to_string_pretty(&body).map_err(|e| format!("serialization failed: {e}"))?;
+            if let Some(o) = out {
+                std::fs::write(o, json).map_err(|e| format!("write {o:?}: {e}"))?;
+            } else {
+                print_error(&format!("VM error: {err:?}"));
+                eprintln!("{json}");
+            }
+            Ok(ExitCode::from(1))
+        }
+    }
 }
 
 fn cmd_explain(input: &PathBuf) -> Result<ExitCode, String> {

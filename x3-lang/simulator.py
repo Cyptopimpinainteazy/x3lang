@@ -19,6 +19,7 @@ DEFAULTS = {
 
 import importlib.util
 import os
+from numeric import NumericParseError, parse_decimal
 
 
 def _load_registry():
@@ -44,8 +45,8 @@ def simulate(plan: Dict[str, Any]) -> Dict[str, Any]:
     amt = fr.get('amount')
     try:
         if amt is not None:
-            start_amount = float(amt)
-    except Exception:
+            start_amount = float(parse_decimal(amt))
+    except NumericParseError:
         start_amount = None
 
     for s in plan.get('steps', []):
