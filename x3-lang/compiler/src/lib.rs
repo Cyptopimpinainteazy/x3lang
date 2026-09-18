@@ -60,6 +60,97 @@ pub use trading_verify::{verify_atomic_trade, verify_trading_program, DebtFlowSt
 // allocation as a standalone pass without going through the full pipeline.
 pub use regalloc::{allocate as allocate_registers, AllocationResult as RegisterAllocationResult};
 
+/// Everything that has to be checked before bytecode may be emitted, and the IR
+/// those checks ran against.
+pub(crate) struct PreEmission {
+    pub ir: crate::ir::X3IR,
+    pub errors: Vec<X3Error>,
+    pub warnings: Vec<X3Error>,
+}
+
+/// Run every verification layer that precedes bytecode emission.
+///
+/// This exists because the layers used to be wired per entry point, and they
+/// were not wired the same way in each: two of the three layers documented at
+/// the top of this file were reachable from none of them, the AST-level pass was
+/// reached by one `check` variant and not by its sibling, and two entry points
+/// ran no AST or IR checks at all. A single funnel makes "every entry point runs
+/// the same checks" true by construction, instead of something to re-audit after
+/// every change.
+///
+/// The order is deliberate: a program the AST-level or trading checks already
+/// refused is not lowered, so the caller gets the real reasons instead of a
+/// cascade of consequences.
+pub(crate) fn run_pre_emission_layers(program: &Program, mode: CompilationMode) -> Result<PreEmission, X3Error> {
+    run_pre_emission_layers_with_context(program, LowerCtx::new(), mode)
+}
+
+/// The same funnel, for callers that lower with an explicit context (replay
+/// protection, chain id).
+pub(crate) fn run_pre_emission_layers_with_context(
+    program: &Program,
+    ctx: LowerCtx,
+    mode: CompilationMode,
+) -> Result<PreEmission, X3Error> {
+    let mut errors = ast_level_errors(program);
+
+    let trading_symbols = match analyze_trading(program, mode) {
+        Ok(symbols) => symbols,
+        Err(trading_errors) => {
+            return Ok(PreEmission {
+                ir: crate::ir::X3IR::new(),
+                errors: trading_errors,
+                warnings: Vec::new(),
+            })
+        }
+    };
+    errors.extend(verify_trading_program(program, &trading_symbols, mode));
+
+    if !errors.is_empty() {
+        return Ok(PreEmission {
+            ir: crate::ir::X3IR::new(),
+            errors,
+            warnings: Vec::new(),
+        });
+    }
+
+    let ir = lower_program_with_mode(program, ctx, mode)?;
+    errors.extend(ir_level_errors(&ir));
+
+    let outcome = semantic::verify_collect(
+        &ir,
+        semantic::DEFAULT_MAX_ATOMIC_OPS,
+        semantic::DEFAULT_MAX_ROUTE_HOPS,
+        Some(mode),
+    );
+    errors.extend(outcome.errors);
+
+    Ok(PreEmission {
+        ir,
+        errors,
+        warnings: outcome.warnings,
+    })
+}
+
+/// Report a batch of pipeline errors as one error carrying every message.
+///
+/// Every violation is listed, not just a count: a bare "3 error(s)" gives a
+/// caller nothing to act on and hides which layer refused the program.
+fn format_pipeline_errors(errors: &[X3Error]) -> X3Error {
+    X3Error::SemanticError {
+        message: format!(
+            "compilation failed with {} error(s): {}",
+            errors.len(),
+            errors
+                .iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
+        ),
+        span: Span::DUMMY,
+    }
+}
+
 /// Diagnostics that can only be seen on the AST, before lowering.
 ///
 /// Both entry points run this. It used to be reachable only from the
@@ -127,7 +218,11 @@ pub fn compile_program(program: &Program) -> Result<Vec<u8>, X3Error> {
 /// `x3-lang/compiler/src/regalloc.rs` is dead code as far as the compiled
 /// binary is concerned.
 pub fn compile_program_with_regalloc(program: &Program) -> Result<(Vec<u8>, AllocationResult), X3Error> {
-    let mut ir = compile_to_ir(program)?;
+    let pre = run_pre_emission_layers(program, CompilationMode::Dev)?;
+    if !pre.errors.is_empty() {
+        return Err(format_pipeline_errors(&pre.errors));
+    }
+    let ir = pre.ir;
     let _alloc = allocate(&ir.operations);
     // The v0.1 pipeline records allocation metadata without rewriting
     // the IR (see `patch_operation` in `regalloc.rs`). Future versions
@@ -178,57 +273,15 @@ pub fn check_source_diagnostics_with_mode(
     mode: CompilationMode,
 ) -> Result<(Program, crate::ir::X3IR, semantic::VerifyOutcome), X3Error> {
     let program = parse_source(source)?;
-
-    let ast_errors = ast_level_errors(&program);
-    if !ast_errors.is_empty() {
-        return Ok((
-            program,
-            crate::ir::X3IR::new(),
-            semantic::VerifyOutcome {
-                errors: ast_errors,
-                warnings: Vec::new(),
-            },
-        ));
-    }
-
-    let trading_symbols = match analyze_trading(&program, mode) {
-        Ok(symbols) => symbols,
-        Err(trading_errors) => {
-            return Ok((
-                program,
-                crate::ir::X3IR::new(),
-                semantic::VerifyOutcome {
-                    errors: trading_errors,
-                    warnings: Vec::new(),
-                },
-            ))
-        }
-    };
-    let trading_errors = verify_trading_program(&program, &trading_symbols, mode);
-    if !trading_errors.is_empty() {
-        return Ok((
-            program,
-            crate::ir::X3IR::new(),
-            semantic::VerifyOutcome {
-                errors: trading_errors,
-                warnings: Vec::new(),
-            },
-        ));
-    }
-
-    let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
-    let mut outcome = semantic::verify_collect(
-        &ir,
-        semantic::DEFAULT_MAX_ATOMIC_OPS,
-        semantic::DEFAULT_MAX_ROUTE_HOPS,
-        Some(mode),
-    );
-    // Structural IR invariants are errors like any other, and they are reported
-    // first because they are the most fundamental kind of failure.
-    let mut structural = ir_level_errors(&ir);
-    structural.extend(outcome.errors);
-    outcome.errors = structural;
-    Ok((program, ir, outcome))
+    let pre = run_pre_emission_layers(&program, mode)?;
+    Ok((
+        program,
+        pre.ir,
+        semantic::VerifyOutcome {
+            errors: pre.errors,
+            warnings: pre.warnings,
+        },
+    ))
 }
 
 /// Parse, lower, and run the semantic verifier.
@@ -243,62 +296,11 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
 /// Compile with an explicit compilation mode for mode-gated safety checks.
 pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>, X3Error> {
     let program = parse_source(source)?;
-
-    // AST-level checks run here too. They used to be reachable only from the
-    // `check`-style entry points, so `x3c build` — the path that actually emits
-    // bytecode — skipped every one of them.
-    let ast_errors = ast_level_errors(&program);
-    if !ast_errors.is_empty() {
-        return Err(X3Error::SemanticError {
-            message: format!(
-                "compilation failed with {} AST-level error(s): {}",
-                ast_errors.len(),
-                ast_errors
-                    .iter()
-                    .map(|error| error.to_string())
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            ),
-            span: Span::DUMMY,
-        });
+    let pre = run_pre_emission_layers(&program, mode)?;
+    if !pre.errors.is_empty() {
+        return Err(format_pipeline_errors(&pre.errors));
     }
-
-    let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
-
-    let ir_errors = ir_level_errors(&ir);
-    if !ir_errors.is_empty() {
-        return Err(X3Error::SemanticError {
-            message: format!(
-                "compilation failed with {} structural IR error(s): {}",
-                ir_errors.len(),
-                ir_errors
-                    .iter()
-                    .map(|error| error.to_string())
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            ),
-            span: Span::DUMMY,
-        });
-    }
-
-    verify_semantics(
-        &ir,
-        semantic::DEFAULT_MAX_ATOMIC_OPS,
-        semantic::DEFAULT_MAX_ROUTE_HOPS,
-        Some(mode),
-    )
-    .map_err(|errs| X3Error::SemanticError {
-        // Report every violation, not just a count: a bare "3 semantic
-        // error(s)" gives a caller nothing to act on and hides which guard
-        // refused the program.
-        message: format!(
-            "compilation failed with {} semantic error(s): {}",
-            errs.len(),
-            errs.iter().map(|err| err.to_string()).collect::<Vec<_>>().join("; ")
-        ),
-        span: Span::DUMMY,
-    })?;
-    emit_x3ir(&ir)
+    emit_x3ir(&pre.ir)
 }
 
 /// Check source with an explicit compilation mode. Returns the program, IR,
@@ -317,18 +319,25 @@ pub fn check_source_with_mode(
 
 /// Run the semantic verifier against an X3IR program.
 pub fn check_ir(ir: &crate::ir::X3IR) -> Result<(), Vec<X3Error>> {
-    verify_semantics(
-        ir,
-        semantic::DEFAULT_MAX_ATOMIC_OPS,
-        semantic::DEFAULT_MAX_ROUTE_HOPS,
-        None,
-    )
+    // The documented production entry for "verify with the default budgets".
+    // This called `verify_with_config(.., DEFAULT, DEFAULT, None)` directly,
+    // which is exactly `verify_with_defaults` — so that function was public,
+    // documented as the one callers should use, and called by nobody.
+    semantic::verify_with_defaults(ir)
 }
 
 /// Compile with explicit lowering context (for replay protection, chain_id, etc.)
 pub fn compile_program_with_context(program: &Program, ctx: LowerCtx) -> Result<Vec<u8>, X3Error> {
+    // Every verification layer, on the same funnel the source entry points use.
+    // These two entry points used to lower and emit with no AST or IR checks at
+    // all.
+    let pre = run_pre_emission_layers_with_context(program, ctx, CompilationMode::Dev)?;
+    if !pre.errors.is_empty() {
+        return Err(format_pipeline_errors(&pre.errors));
+    }
+
     // AST → X3IR
-    let ir = lower_program(program, ctx)?;
+    let ir = pre.ir;
 
     // X3IR → Bytecode
     let bytecode = emit_x3ir(&ir)?;

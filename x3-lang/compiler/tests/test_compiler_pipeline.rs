@@ -396,12 +396,8 @@ fn the_structural_ir_layer_runs_on_the_build_path() {
     let error = compile_source(source).expect_err("a zero-amount move must not compile");
     let text = format!("{error}");
     assert!(
-        text.contains("structural IR"),
-        "the failure must come from the structural layer: {text}"
-    );
-    assert!(
-        text.contains("X3E0501") || text.contains("must be greater than zero"),
-        "the diagnostic must identify the violation: {text}"
+        text.contains("X3E0501"),
+        "the failure must come from the structural IR layer, whose code is X3E0501: {text}"
     );
 }
 
@@ -412,11 +408,84 @@ fn the_numeric_policy_layer_runs_on_the_build_path() {
     let error = compile_source(source).expect_err("a signed literal for a u64 parameter must not compile");
     let text = format!("{error}");
     assert!(
-        text.contains("AST-level"),
-        "the failure must come from the AST-level layer: {text}"
+        text.contains("X3E0202"),
+        "the failure must come from the numeric policy layer, whose code is X3E0202: {text}"
     );
+}
+
+fn collect_rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rust_sources(&path, out);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+#[test]
+fn every_published_verification_pass_has_a_caller() {
+    // The failure mode this guards against, and which this session hit twice:
+    // `verify_ir` and `verify_numeric_policy` were documented as layers of the
+    // pipeline, well covered by their own tests, and called from nowhere in
+    // `src/` — so they ran against no program that was ever compiled. Tests do
+    // not catch that; a caller count does.
+    //
+    // A pass referenced only in a comment does not count: the doc comment on
+    // `lib.rs` naming `verify_ir` is exactly what made it look wired.
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut paths = Vec::new();
+    collect_rust_sources(&src, &mut paths);
+    let sources: Vec<(std::path::PathBuf, String)> = paths
+        .into_iter()
+        .map(|path| {
+            let text = std::fs::read_to_string(&path).expect("read a compiler source file");
+            (path, text)
+        })
+        .collect();
+
+    let mut orphans = Vec::new();
+    for (path, text) in &sources {
+        for (index, line) in text.lines().enumerate() {
+            let trimmed = line.trim_start();
+            let Some(rest) = trimmed.strip_prefix("pub fn ") else {
+                continue;
+            };
+            if !rest.starts_with("verify_") && !rest.starts_with("analyze_") {
+                continue;
+            }
+            let name = rest.split(['(', '<', ' ']).next().unwrap_or_default().trim();
+            if name.is_empty() {
+                continue;
+            }
+
+            let mut references = 0usize;
+            for (other_path, other_text) in &sources {
+                for (other_index, other_line) in other_text.lines().enumerate() {
+                    if other_path == path && other_index == index {
+                        continue;
+                    }
+                    if other_line.trim_start().starts_with("//") {
+                        continue;
+                    }
+                    if other_line.contains(name) {
+                        references += 1;
+                    }
+                }
+            }
+            if references == 0 {
+                orphans.push(format!("{}: {name}", path.display()));
+            }
+        }
+    }
+
     assert!(
-        text.contains("X3E0202") || text.contains("incompatible integer type"),
-        "the diagnostic must carry its stable code: {text}"
+        orphans.is_empty(),
+        "these verification passes have no caller outside their own definition, so they run \
+         against nothing: {orphans:?}"
     );
 }

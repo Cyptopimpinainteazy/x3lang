@@ -1354,40 +1354,6 @@ fn verify_manual_recovery(ir: &X3IR, acc: &mut ErrorAccumulator) {
     }
 }
 
-// ───── Invariant analysis ────────────────────────────────────────────────
-
-/// Run static analysis on invariant declarations from the AST.
-/// Generates conditions that must be true at runtime.
-pub fn analyze_invariants(invariant_names: &[String]) -> Vec<String> {
-    let mut conditions = Vec::new();
-    for name in invariant_names {
-        match name.to_ascii_lowercase().as_str() {
-            "no_double_claim" => {
-                conditions.push("assert count(Release) <= 1".into());
-            }
-            "no_double_refund" => {
-                conditions.push("assert count(Refund) <= 1".into());
-            }
-            "no_claim_after_refund" => {
-                conditions.push("assert not (Refund before Release)".into());
-            }
-            "no_refund_after_claim" => {
-                conditions.push("assert not (Release before Refund)".into());
-            }
-            "destination_fill_before_source_claim" => {
-                conditions.push("assert exists(Bridge) before any(Release)".into());
-            }
-            "no_route_mutation_after_lock" => {
-                conditions.push("assert not (RouteScore after Lock)".into());
-            }
-            other => {
-                conditions.push(format!("assert invariant({other})"));
-            }
-        }
-    }
-    conditions
-}
-
 // ───── Risk scoring ──────────────────────────────────────────────────────
 
 /// Compute a risk score (0-100, lower = safer) for an X3IR program based
