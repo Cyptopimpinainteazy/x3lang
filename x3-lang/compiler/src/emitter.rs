@@ -863,7 +863,7 @@ pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
         let entry = disassemble_op(opcode, payload);
         out.push_str(&format!("  {idx:04}  0x{opcode:02x}  {entry}\n"));
         idx += 1;
-        if is_payload_opcode(opcode) {
+        if is_payload_opcode(opcode, true) {
             pc = payload_end;
         } else {
             pc += 4;
@@ -872,33 +872,10 @@ pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
     Ok(out)
 }
 
-fn is_payload_opcode(opcode: u8) -> bool {
-    // `REQUIRE`, `ON_FAIL`, `ON_TIMEOUT` and the three atomic opcodes are
-    // *fixed* four-byte frames: `[opcode][operand_hi][operand_lo][pad]`. They
-    // were listed here as payload opcodes, which made the walker read their
-    // operand bytes as a payload length. That goes unnoticed while the operand
-    // is zero and truncates the walk the moment it is not: a `REQUIRE` carrying
-    // `comparison = 1, threshold = 4` reads as a length of 0x0401 and jumps a
-    // kilobyte past the end, so the rest of the program disappears from the
-    // listing.
-    matches!(
-        opcode,
-        0x20..=0x25
-            | 0x60
-            | 0x66
-            | 0x70..=0x7F
-            | 0x80..=0x9B
-            | 0xA0..=0xAB
-            // Every trading opcode (TRADING_BEGIN..=TRADING_BRIDGE) carries
-            // a variable-length JSON payload and must be listed here. This
-            // range used to stop at 0xB8, one below TRADING_ASSERT_INVARIANT
-            // (0xB9) — any bytecode using that opcode (or now TRADING_BRIDGE,
-            // 0xBA) desynced the disassembler immediately after it, since a
-            // non-payload opcode only advances the cursor by a fixed 4
-            // bytes instead of skipping the real payload length.
-            | 0xB0..=0xBA
-    )
-}
+// The payload/fixed-frame classification is not defined here. It lives once, in
+// `spec/opcodes.rs`, because this crate and the VM both walk the same bytes: the
+// two copies had drifted, and this one listed `0x66` — which no emitter arm
+// produces — while omitting `CALL_HOST` (`0x61`), which does carry a payload.
 
 fn align4(value: usize) -> usize {
     (value + 3) & !3
@@ -1189,5 +1166,29 @@ mod tests {
             trace.contains("HALT"),
             "the instruction after it must be listed: {trace}"
         );
+    }
+
+    #[test]
+    fn payload_carrying_instructions_are_walked_by_their_length() {
+        // `EMIT` and `CALL_HOST` carry a length-prefixed payload, and the two
+        // readers used to disagree about them: this crate's list named `0x66`,
+        // which no emitter arm produces, instead of `CALL_HOST` (`0x61`), and the
+        // VM's list named neither. A reader that calls them fixed-width walks
+        // four bytes into the payload and then reads payload text as opcodes.
+        for opcode in [EMIT, CALL_HOST] {
+            let mut bytes = vec![BYTECODE_VERSION_1];
+            bytes.extend_from_slice(&[opcode, 5, 0]); // five-byte payload
+            bytes.extend_from_slice(b"hello");
+            while bytes.len() % 4 != 0 {
+                bytes.push(0);
+            }
+            bytes.extend_from_slice(&[HALT, 0, 0, 0]);
+
+            let trace = disassemble(&bytes).expect("should disassemble");
+            assert!(
+                trace.contains("HALT"),
+                "opcode 0x{opcode:02x} must be walked by its payload length, not as a fixed frame: {trace}"
+            );
+        }
     }
 }

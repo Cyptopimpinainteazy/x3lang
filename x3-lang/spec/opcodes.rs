@@ -101,3 +101,31 @@ pub const HALT: u8 = 0xFF;
 pub const REQUIRE_COMPARE_STATIC: u8 = 0;
 /// `r0 >= operand`.
 pub const REQUIRE_COMPARE_GE: u8 = 1;
+
+/// Whether an instruction carries a length-prefixed payload —
+/// `[opcode][u16 len][payload]`, the whole thing padded to four bytes.
+///
+/// This is the single definition. It previously existed twice, once in the
+/// compiler's disassembler and once in the VM's verifier, and the two had
+/// drifted apart: the disassembler listed `0x66`, which no arm of the emitter
+/// produces, while omitting `CALL_HOST` (`0x61`), which does carry a payload; and
+/// the verifier listed neither `EMIT` nor `CALL_HOST`. A reader that classifies a
+/// payload-carrying instruction as fixed-width advances four bytes and then reads
+/// bytes that are not instructions, which is how the same defect has surfaced
+/// four times in this format.
+///
+/// `compiler_stream` distinguishes the two encodings the VM accepts: emitter
+/// output frames the asset and bridge operations with a payload, while raw
+/// bytecode (hand-assembled, or emitted before this framing existed) does not.
+/// The compiler's disassembler only ever reads emitter output, so it passes
+/// `true`.
+pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
+    (compiler_stream && matches!(opcode, LOCK | MINT | BURN | RELEASE | SWAP | BRIDGE))
+        || matches!(
+            opcode,
+            EMIT | CALL_HOST
+                | GPU_DISPATCH..=SUB_EXEC
+                | ROUTE_SCORE..=REFUND_POLICY
+                | TRADING_BEGIN..=TRADING_BRIDGE
+        )
+}

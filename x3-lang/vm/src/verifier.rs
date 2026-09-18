@@ -131,16 +131,9 @@ fn has_compiler_header(bytes: &[u8]) -> bool {
     bytes.first() == Some(&BYTECODE_VERSION_1) && bytes.get(1).copied().unwrap_or(NOP) != NOP
 }
 
-fn is_payload_opcode(op: u8, compiler_stream: bool) -> bool {
-    (compiler_stream && matches!(op, LOCK | MINT | BURN | RELEASE | SWAP | BRIDGE))
-        || (GPU_DISPATCH..=SUB_EXEC).contains(&op)
-        || (ROUTE_SCORE..=REFUND_POLICY).contains(&op)
-        // Trading-core opcodes carry a variable-length payload too. Without
-        // this the verifier advanced four bytes past a trading opcode instead
-        // of skipping its real payload, so it validated bytes that are not
-        // instruction starts.
-        || (TRADING_BEGIN..=TRADING_BRIDGE).contains(&op)
-}
+// The classification comes from `spec/opcodes.rs`, shared with the compiler's
+// disassembler. Local copies had drifted: this one omitted `EMIT` and
+// `CALL_HOST`, which carry payloads, so the verifier walked four bytes into them.
 
 fn align4(value: usize) -> usize {
     (value + 3) & !3
