@@ -132,6 +132,7 @@ fn ops() -> Vec<TradingOperation> {
                 chain: "ethereum".to_string(),
                 max_slippage_bps: 30,
                 max_gas: 1_000_000,
+                max_gas_asset: asset("USDC"),
                 max_flash_fee_bps: 10,
                 deadline_blocks: 10,
                 require_private_submission: false,
@@ -328,7 +329,11 @@ fn host_transaction_rolls_back_on_vm_rejection() {
 fn host_execution_costs_are_applied_before_profit_guard() {
     let mut vm = TradingVm::new();
     let mut host = FixtureHost::new();
-    host.execution_cost = 1_100_000;
+    // ops()'s baseline profit is exactly the 1_000_000 floor with zero extra
+    // cost, so any positive cost pushes it below the floor. Kept well under
+    // the 1_000_000 max_gas ceiling so this test isolates the profit-guard
+    // behavior specifically, not gas_ceiling_exceeded_rejects_* below.
+    host.execution_cost = 100;
 
     let err = vm
         .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
@@ -491,4 +496,105 @@ fn solvent_invariant_catches_hidden_cost_in_an_asset_the_trade_never_touches() {
         other => panic!("expected InvariantViolated for ETH, got {other:?}"),
     }
     assert!(host.rolled_back, "insolvent trade must roll back the host transaction");
+}
+
+#[test]
+fn gas_ceiling_within_policy_still_commits() {
+    // A minimal trade with no profit/debt guards to check, isolating this
+    // test to gas-ceiling behavior specifically: cost exactly equal to the
+    // ceiling (the check is strictly `>`, not `>=`) must still commit.
+    let operations = vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: 100,
+                max_gas_asset: asset("USDC"),
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+            },
+        },
+        TradingOperation::CommitAtomicTrade,
+    ];
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.execution_cost = 100; // == policy.max_gas exactly, not over
+    host.execution_cost_asset = Some(asset("USDC"));
+
+    vm.execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect("gas cost exactly at the compiled ceiling must still commit");
+}
+
+#[test]
+fn gas_ceiling_exceeded_rejects_even_though_profit_and_debts_are_fine() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // Compiled ceiling in ops() is max_gas: 1_000_000 in USDC.
+    host.execution_cost = 1_000_001;
+    host.execution_cost_asset = Some(asset("USDC"));
+
+    let err = vm
+        .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("cost above the compiled max_gas ceiling must be rejected");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::GasCeilingExceeded {
+            asset: asset("USDC"),
+            ceiling: 1_000_000,
+            actual: 1_000_001,
+        }
+    );
+    assert!(
+        host.rolled_back,
+        "over-ceiling trade must roll back the host transaction"
+    );
+}
+
+#[test]
+fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
+    // A trade that skips both AssertMinNetProfit and AssertInvariant never
+    // calls accrue_host_execution_costs anywhere except the unconditional
+    // check CommitAtomicTrade itself performs. Prove that guarantee is real,
+    // not just documented in a comment.
+    let operations = vec![
+        TradingOperation::BeginAtomicTrade {
+            trade_id: "T".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: 100,
+                max_gas_asset: asset("USDC"),
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+            },
+        },
+        TradingOperation::CommitAtomicTrade,
+    ];
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.execution_cost = 101;
+    host.execution_cost_asset = Some(asset("USDC"));
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("commit must still enforce the gas ceiling with no other guards present");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::GasCeilingExceeded {
+            actual: 101,
+            ceiling: 100,
+            ..
+        }
+    ));
 }
