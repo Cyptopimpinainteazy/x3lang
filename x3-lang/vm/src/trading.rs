@@ -4,8 +4,8 @@
 //! readiness. Venue and provider behavior is supplied through an explicit
 //! [`TradingHost`] capability implementation.
 
-use std::collections::{BTreeMap, BTreeSet};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
@@ -179,10 +179,16 @@ impl fmt::Display for TradingExecError {
         match self {
             Self::NonProductionCapability => write!(f, "production execution rejected fixture capabilities"),
             Self::CapabilityChainMismatch { expected, actual } => {
-                write!(f, "compiled policy chain '{expected}' does not match host chain '{actual}'")
+                write!(
+                    f,
+                    "compiled policy chain '{expected}' does not match host chain '{actual}'"
+                )
             }
             Self::CapabilityVersionMismatch { expected, actual } => {
-                write!(f, "compiled policy version {expected} is not supported by host version '{actual}'")
+                write!(
+                    f,
+                    "compiled policy version {expected} is not supported by host version '{actual}'"
+                )
             }
             Self::PrivateSubmissionRequired => write!(f, "compiled policy requires private submission capability"),
             Self::UnknownCapability(capability) => write!(f, "unknown capability '{capability}'"),
@@ -315,7 +321,7 @@ impl TradingVm {
         &mut self,
         operations: &[TradingOperation],
         host: &mut dyn TradingHost,
-        context: TradeExecutionContext,
+        _context: TradeExecutionContext,
     ) -> Result<TradeExecution, TradingExecError> {
         let mut saw_commit = false;
         for operation in operations {
@@ -791,12 +797,8 @@ pub fn verify_receipt(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
     Ok(())
 }
 
-
 pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
-    let first = receipt
-        .operations
-        .first()
-        .ok_or(ReceiptError::EmptyOperationList)?;
+    let first = receipt.operations.first().ok_or(ReceiptError::EmptyOperationList)?;
     let (trade_id, compiled_policy) = match first {
         TradingOperation::BeginAtomicTrade { trade_id, policy } => (trade_id, policy),
         _ => {
@@ -925,18 +927,19 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
     let mut deltas: BTreeMap<AssetKey, i128> = BTreeMap::new();
     for delta in &receipt.deltas {
         let entry = deltas.entry(delta.asset.clone()).or_insert(0);
-        *entry = entry.checked_add(delta.delta).ok_or_else(|| {
-            ReceiptError::EconomicReplayMismatch("delta overflow".to_string())
-        })?;
+        *entry = entry
+            .checked_add(delta.delta)
+            .ok_or_else(|| ReceiptError::EconomicReplayMismatch("delta overflow".to_string()))?;
     }
 
     for cost in &receipt.costs {
         let entry = deltas.entry(cost.asset.clone()).or_insert(0);
-        *entry = entry.checked_add(i128::try_from(cost.amount).map_err(|_| {
-            ReceiptError::EconomicReplayMismatch("cost conversion overflow".to_string())
-        })?).ok_or_else(|| {
-            ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string())
-        })?;
+        *entry = entry
+            .checked_add(
+                i128::try_from(cost.amount)
+                    .map_err(|_| ReceiptError::EconomicReplayMismatch("cost conversion overflow".to_string()))?,
+            )
+            .ok_or_else(|| ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string()))?;
     }
 
     if let Some(profit) = &receipt.realized_net_profit {
@@ -1067,9 +1070,8 @@ pub fn build_receipt(
                 let raw = state.net_deltas.get(asset).copied().unwrap_or(0).max(0);
                 Some(TypedReceiptAmount {
                     asset: asset.clone(),
-                    amount: u128::try_from(raw).map_err(|_| {
-                        ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string())
-                    })?,
+                    amount: u128::try_from(raw)
+                        .map_err(|_| ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string()))?,
                 })
             }
             None => None,

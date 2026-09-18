@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use x3_lang_compiler::diagnostic::DiagnosticCode;
-use x3_lang_compiler::ir::{AssetKey, FailureAction, Operation, ProgramMetadata, TradingOperation, ValueRef, X3IR};
+use x3_lang_compiler::ir::{
+    AssetKey, CompiledTradingPolicy, FailureAction, Operation, ProgramMetadata, TradingOperation, ValueRef, X3IR,
+};
 use x3_lang_compiler::verify::verify_ir;
 
 fn codes(ir: &X3IR) -> Vec<DiagnosticCode> {
@@ -107,7 +109,6 @@ fn recursively_rejects_unsafe_nested_control_flow() {
     assert_eq!(codes(&ir), vec![DiagnosticCode::UnsafeIr]);
 }
 
-
 fn asset(symbol: &str) -> AssetKey {
     AssetKey {
         vm_family: "evm".to_owned(),
@@ -122,11 +123,25 @@ fn trading_ir(ops: Vec<TradingOperation>) -> X3IR {
     ir_with(ops.into_iter().map(Operation::Trading).collect())
 }
 
+fn compiled_policy(id: &str) -> CompiledTradingPolicy {
+    CompiledTradingPolicy {
+        policy_id: id.to_owned(),
+        policy_version: 1,
+        chain: "ethereum".to_owned(),
+        max_slippage_bps: 30,
+        max_gas: 1_000_000,
+        max_flash_fee_bps: 10,
+        deadline_blocks: 10,
+        require_private_submission: false,
+        minimum_net_profit: None,
+    }
+}
+
 fn valid_trading_ops() -> Vec<TradingOperation> {
     vec![
         TradingOperation::BeginAtomicTrade {
             trade_id: "T".to_owned(),
-            policy_id: "P".to_owned(),
+            policy: compiled_policy("P"),
         },
         TradingOperation::OpenDebt {
             debt_id: "debt".to_owned(),
@@ -183,7 +198,7 @@ fn rejects_duplicate_trading_begin() {
         1,
         TradingOperation::BeginAtomicTrade {
             trade_id: "T2".to_owned(),
-            policy_id: "P".to_owned(),
+            policy: compiled_policy("P"),
         },
     );
     assert!(verify_ir(&trading_ir(ops)).is_err());

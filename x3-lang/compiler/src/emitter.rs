@@ -279,7 +279,6 @@ pub fn decode_trading_operation(opcode: u8, payload: &[u8]) -> Result<TradingOpe
     Ok(op)
 }
 
-
 /// Decode every Trading Core instruction from emitted X3 bytecode.
 ///
 /// Non-trading opcodes are skipped using the standard length-prefixed framing.
