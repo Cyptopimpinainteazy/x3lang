@@ -932,7 +932,9 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
 
     for cost in &receipt.costs {
         let entry = deltas.entry(cost.asset.clone()).or_insert(0);
-        *entry = entry.checked_add(cost.i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?).ok_or_else(|| {
+        *entry = entry.checked_add(i128::try_from(cost.amount).map_err(|_| {
+            ReceiptError::EconomicReplayMismatch("cost conversion overflow".to_string())
+        })?).ok_or_else(|| {
             ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string())
         })?;
     }
@@ -1060,11 +1062,18 @@ pub fn build_receipt(
         })
         .collect();
     let realized_net_profit = match outcome {
-        TradeOutcome::Success => settlement_asset.map(|asset| TypedReceiptAmount {
-            asset: asset.clone(),
-            amount: u128::try_from(state.net_deltas.get(asset).copied().unwrap_or(0).max(0))
-                .map_err(|_| ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string()))?,
-        }),
+        TradeOutcome::Success => match settlement_asset {
+            Some(asset) => {
+                let raw = state.net_deltas.get(asset).copied().unwrap_or(0).max(0);
+                Some(TypedReceiptAmount {
+                    asset: asset.clone(),
+                    amount: u128::try_from(raw).map_err(|_| {
+                        ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string())
+                    })?,
+                })
+            }
+            None => None,
+        },
         TradeOutcome::Failure { .. } => None,
     };
 
