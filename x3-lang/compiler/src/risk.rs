@@ -4,9 +4,11 @@
 //! chain risk, bridge risk, solver risk, and liquidity risk.
 
 use crate::semantic::CompilationMode;
+use crate::trading_semantic::analyze_trading;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use x3_lang_ast::ast::*;
+use x3_lang_ast::trading::{InvariantKind, TradeStmt};
 use x3_lang_common::Spanned;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,13 +81,15 @@ impl RiskScorer {
         let mut has_liquidity_check = false;
         let mut has_profit_check = false;
         let mut timeout_secs: u64 = 0;
-        let mut slippage_pct: u64 = 0;
+        let mut slippage_bps: u64 = 0;
         let mut has_refund = false;
         let mut has_nonce = false;
         let mut has_route_score = false;
 
+        let mut has_intent_decl = false;
         for item in &program.items {
             if let Item::IntentDecl(intent) = &item.node {
+                has_intent_decl = true;
                 for stmt in &intent.body.stmts {
                     match stmt {
                         Statement::Lock { chain, .. } => {
@@ -126,7 +130,10 @@ impl RiskScorer {
                             RequireKind::RouteScore => has_route_score = true,
                             RequireKind::Slippage => {
                                 if let Expression::Literal(LiteralExpr::Int { value, .. }) = &guard.value {
-                                    slippage_pct = *value as u64;
+                                    // This guard's literal is a whole percent (e.g. `require
+                                    // slippage < 5` means 5%); normalize to basis points so it
+                                    // shares a scale with trading-core-v1's native bps policy.
+                                    slippage_bps = (*value as u64).saturating_mul(100);
                                 }
                             }
                             _ => {}
@@ -152,6 +159,127 @@ impl RiskScorer {
                         _ => {}
                     }
                 }
+            }
+        }
+
+        // Trading Core v1 risk scoring. This is a structurally different AST
+        // (Item::AtomicTrade / Item::TradeRiskPolicy, not Item::IntentDecl),
+        // so it feeds the same shared categories above through its own
+        // signals rather than being silently invisible to every check in
+        // this function (see PR #216's description: this was a known,
+        // unfixed gap — a well-formed trading-core-v1 program used to score
+        // as if it had no chains, no profit check, no refund path, no
+        // replay protection, and no liquidity check, regardless of what it
+        // actually declared).
+        let mut has_trading_core = false;
+        let mut trading_gas_declared = false;
+        let mut trading_oracle_firewall = false;
+        let mut trading_cumulative_loss_ceiling = false;
+        if let Ok(symbols) = analyze_trading(program, self.mode.unwrap_or(CompilationMode::Dev)) {
+            for item in &program.items {
+                let Item::AtomicTrade(trade) = &item.node else {
+                    continue;
+                };
+                has_trading_core = true;
+
+                let policy = symbols.policies.get(&trade.risk_policy);
+
+                for stmt in &trade.body {
+                    match stmt {
+                        TradeStmt::Swap {
+                            from_asset, to_asset, ..
+                        } => {
+                            has_liquidity_check = true; // min_output is a required field, not optional
+                            for asset_name in [from_asset, to_asset] {
+                                if let Some(asset) = symbols.assets.get(asset_name) {
+                                    let c = asset.chain.as_str().to_ascii_lowercase();
+                                    if !chains_used.contains(&c) {
+                                        chains_used.push(c);
+                                    }
+                                }
+                            }
+                        }
+                        TradeStmt::Bridge {
+                            from_asset,
+                            to_asset,
+                            via,
+                            ..
+                        } => {
+                            let b = via.as_str().to_ascii_lowercase();
+                            if !bridges_used.contains(&b) {
+                                bridges_used.push(b);
+                            }
+                            for asset_name in [from_asset, to_asset] {
+                                if let Some(asset) = symbols.assets.get(asset_name) {
+                                    let c = asset.chain.as_str().to_ascii_lowercase();
+                                    if !chains_used.contains(&c) {
+                                        chains_used.push(c);
+                                    }
+                                }
+                            }
+                        }
+                        TradeStmt::RequireMinNetProfit { .. } => has_profit_check = true,
+                        TradeStmt::AssertInvariant {
+                            kind: InvariantKind::Solvent,
+                        } => {
+                            has_profit_check = true; // stronger than a single-asset profit floor
+                        }
+                        TradeStmt::EmitReceipt => has_nonce = true, // replay protection is receipt-based, not a nonce guard
+                        _ => {}
+                    }
+                }
+
+                // Atomic execution always rolls back every leg on any guard
+                // failure (verified: trading_execution.rs's
+                // `failure_restores_the_pre_execution_state`) — strictly
+                // stronger than the intent-DSL's optional refund path.
+                has_refund = true;
+
+                if let Some(policy) = policy {
+                    trading_gas_declared = true; // max_gas is a required policy field
+                    if policy.min_profit.is_some() {
+                        has_profit_check = true;
+                    }
+                    if timeout_secs == 0 {
+                        timeout_secs = 1; // deadline is a required policy field; not statically evaluated here
+                    }
+                    slippage_bps = slippage_bps.max(policy.max_slippage_bps as u64);
+                    if policy.max_oracle_deviation_bps.is_some() {
+                        trading_oracle_firewall = true;
+                    }
+                    if policy.max_cumulative_loss.is_some() {
+                        trading_cumulative_loss_ceiling = true;
+                    }
+                } else {
+                    details.push(format!(
+                        "trading risk: atomic trade '{}' references unresolved risk policy '{}'",
+                        trade.name.as_str(),
+                        trade.risk_policy.as_str()
+                    ));
+                }
+            }
+        }
+
+        if has_trading_core {
+            let gas_score: u32 = if trading_gas_declared { 0 } else { 25 };
+            categories.insert("gas_risk".into(), gas_score);
+            if !trading_gas_declared {
+                details.push("gas risk: atomic trade has no resolved risk policy declaring max_gas".into());
+            }
+
+            let oracle_score: u32 = if trading_oracle_firewall { 0 } else { 20 };
+            categories.insert("oracle_risk".into(), oracle_score);
+            if !trading_oracle_firewall {
+                details.push(
+                    "oracle risk: no max_oracle_deviation_bps ceiling — a single venue quote is trusted uncorroborated"
+                        .into(),
+                );
+            }
+
+            let cumulative_loss_score: u32 = if trading_cumulative_loss_ceiling { 0 } else { 15 };
+            categories.insert("cumulative_loss_risk".into(), cumulative_loss_score);
+            if !trading_cumulative_loss_ceiling {
+                details.push("cumulative loss risk: no max_cumulative_loss ceiling — repeated small losing trades are not circuit-broken".into());
             }
         }
 
@@ -247,19 +375,23 @@ impl RiskScorer {
             details.push(format!("timeout risk: long deadline ({}s)", timeout_secs));
         }
 
-        // Slippage risk
-        let slippage_score: u32 = if slippage_pct > 10 {
+        // Slippage risk (basis points; 100 bps = 1%)
+        let slippage_score: u32 = if slippage_bps > 1000 {
             40
-        } else if slippage_pct > 5 {
+        } else if slippage_bps > 500 {
             20
-        } else if slippage_pct > 0 {
+        } else if slippage_bps > 0 {
             5
         } else {
             10
         };
         categories.insert("slippage_risk".into(), slippage_score);
-        if slippage_pct > 10 {
-            details.push(format!("slippage risk: high slippage ({}%)", slippage_pct));
+        if slippage_bps > 1000 {
+            details.push(format!(
+                "slippage risk: high slippage ({}bps / {:.2}%)",
+                slippage_bps,
+                slippage_bps as f64 / 100.0
+            ));
         }
 
         // Refund path risk
@@ -276,11 +408,15 @@ impl RiskScorer {
             details.push("nonce risk: no nonce guard for replay protection".into());
         }
 
-        // Route score risk
-        let route_score_risk: u32 = if has_route_score { 0 } else { 10 };
-        categories.insert("route_score_risk".into(), route_score_risk);
-        if !has_route_score {
-            details.push("route score risk: no route score threshold".into());
+        // Route score risk. Genuinely inapplicable to a pure trading-core-v1
+        // program — there is no route-scoring concept in that AST — so it
+        // is only scored when the program actually declares an intent.
+        if has_intent_decl {
+            let route_score_risk: u32 = if has_route_score { 0 } else { 10 };
+            categories.insert("route_score_risk".into(), route_score_risk);
+            if !has_route_score {
+                details.push("route score risk: no route score threshold".into());
+            }
         }
 
         let overall_score: u32 = categories.values().sum();
