@@ -285,6 +285,28 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         if with_domain != legs {
             return Err(VerifyError::InvalidOperand(pc));
         }
+        // The settlement section is what a coordinator acts on, so a plan
+        // without one, or with a record that does not line up with the waves,
+        // is refused rather than accepted as "no obligations".
+        let settle = field("settle").ok_or(VerifyError::InvalidOperand(pc))?;
+        let records: Vec<&str> = settle.split('|').collect();
+        if records.len() != waves.len() {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        for (index, record) in records.iter().enumerate() {
+            let parts: Vec<&str> = record.split(':').collect();
+            if parts.len() != 4 || parts[0].parse::<usize>().ok() != Some(index) {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+            if parts[1].is_empty() || !matches!(parts[3], "local" | "coordinated") {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+            // The rule the compiler enforces, checked again where it is read: a
+            // wave over more than one domain is not locally recoverable.
+            if parts[1] != "-" && parts[1].contains('+') && parts[3] == "local" {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+        }
         return Ok(());
     }
 

@@ -82,7 +82,12 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 }
                 let _ = criterion;
             }
-            Operation::ParallelPlan { waves, edges, domains } => {
+            Operation::ParallelPlan {
+                waves,
+                edges,
+                domains,
+                settlement,
+            } => {
                 // The compiler built this plan, so what the IR verifier owes is
                 // a check that it is a plan: legs that appear exactly once, no
                 // empty wave, and no edge naming a leg that is not in it. A
@@ -134,6 +139,45 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                             format!(
                                 "{op_context}: dependency {from}->{to} does not join two distinct legs \
                                  of this plan"
+                            ),
+                        );
+                    }
+                }
+                // Every wave owes a statement about its settlement. A wave with
+                // no entry is a wave whose recoverability nobody decided.
+                if settlement.len() != waves.len() {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: {} wave(s) but {} settlement record(s)",
+                            waves.len(),
+                            settlement.len()
+                        ),
+                    );
+                }
+                for (index, record) in settlement.iter().enumerate() {
+                    if record.wave != index {
+                        push_unsafe(
+                            diagnostics,
+                            format!("{op_context}: settlement record {index} names wave {}", record.wave),
+                        );
+                    }
+                    if record.domains.is_empty() {
+                        push_unsafe(
+                            diagnostics,
+                            format!("{op_context}: wave {index} settles over no domain"),
+                        );
+                    }
+                    // A wave spanning more than one domain cannot be undone by
+                    // this VM alone; claiming otherwise would tell a coordinator
+                    // it has a rollback it does not have.
+                    if record.domains.len() > 1 && record.locally_recoverable {
+                        push_unsafe(
+                            diagnostics,
+                            format!(
+                                "{op_context}: wave {index} spans {} domains but is marked locally \
+                                 recoverable",
+                                record.domains.len()
                             ),
                         );
                     }

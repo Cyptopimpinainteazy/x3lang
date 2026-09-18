@@ -221,7 +221,12 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
         // waves cannot check it. Encoded as a payload frame like every other
         // record here: a payload is consumed as `align4(pc + 3 + len)`, the
         // expression the writer pads by, so it is correct at any offset.
-        Operation::ParallelPlan { waves, edges, domains } => {
+        Operation::ParallelPlan {
+            waves,
+            edges,
+            domains,
+            settlement,
+        } => {
             let leg_count: usize = waves.iter().map(|wave| wave.len()).sum();
             let wave_text = waves.iter().map(|wave| wave.join(",")).collect::<Vec<_>>().join("|");
             let edge_text = edges
@@ -237,7 +242,42 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 .map(|(leg, domains)| format!("{leg}:{}", domains.iter().cloned().collect::<Vec<_>>().join("+")))
                 .collect::<Vec<_>>()
                 .join(",");
-            let payload = format!("legs={leg_count};waves={wave_text};edges={edge_text};domains={domain_text}");
+            // The settlement section is what a coordinator acts on, so it is in
+            // the artifact rather than left to be re-derived: `wave:domains:
+            // proofs:recoverable`, with `-` for an empty set.
+            let settlement_text = settlement
+                .iter()
+                .map(|wave| {
+                    let domains = if wave.domains.is_empty() {
+                        "-".to_string()
+                    } else {
+                        wave.domains.iter().cloned().collect::<Vec<_>>().join("+")
+                    };
+                    let proofs = if wave.outstanding_proofs.is_empty() {
+                        "-".to_string()
+                    } else {
+                        wave.outstanding_proofs.iter().cloned().collect::<Vec<_>>().join("+")
+                    };
+                    format!(
+                        "{}:{}:{}:{}",
+                        wave.wave,
+                        domains,
+                        proofs,
+                        if wave.locally_recoverable {
+                            "local"
+                        } else {
+                            "coordinated"
+                        }
+                    )
+                })
+                .collect::<Vec<_>>()
+                // `|` between records: `,` already separates the domains and
+                // proofs within one, and a separator that appears inside the
+                // thing it separates cannot be parsed back.
+                .join("|");
+            let payload = format!(
+                "legs={leg_count};waves={wave_text};edges={edge_text};domains={domain_text};settle={settlement_text}"
+            );
             if payload.len() > u16::MAX as usize {
                 return Err(X3Error::CodegenError {
                     message: format!("parallel plan payload too large: {} bytes", payload.len()),

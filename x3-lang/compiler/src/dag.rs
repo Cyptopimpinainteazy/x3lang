@@ -43,6 +43,13 @@ pub struct Leg {
     pub chains: BTreeSet<String>,
     /// Cross-chain steps the leg contains, as `(from_chain, to_chain)`.
     pub bridges: BTreeSet<(String, String)>,
+    /// Proof inputs this leg's bridges need and do not carry.
+    ///
+    /// A `Bridge` operation takes a source-finality proof and a transfer proof
+    /// as inputs; when a program writes the bridge without them, the obligation
+    /// is outstanding. It is recorded rather than assumed settled, because a
+    /// coordinator cannot treat a wave as final on a proof nobody produced.
+    pub outstanding_proofs: BTreeSet<String>,
 }
 
 /// Why a `parallel` block cannot be scheduled.
@@ -80,6 +87,8 @@ pub struct ParallelPlan {
     /// Groups of legs that can run concurrently. Within a wave the legs are
     /// sorted, and every leg in wave `n` depends only on legs in waves `< n`.
     pub waves: Vec<Vec<String>>,
+    /// What a coordinator owes before each wave may be treated as settled.
+    pub settlement: Vec<WaveSettlement>,
     /// The execution domain of each leg, in wave order.
     ///
     /// A domain is the VM family a chain runs on, taken from the program's own
@@ -106,6 +115,32 @@ impl ParallelPlan {
             })
             .unwrap_or_default()
     }
+}
+
+/// A coordinator's view of one wave.
+///
+/// The waves say what may run concurrently; this says what has to be *true*
+/// afterwards, which is the part a coordinator acts on. Two facts are derivable
+/// and both matter:
+///
+/// - **`outstanding_proofs`** — the proof inputs the wave's bridges need and do
+///   not carry. A coordinator cannot treat a cross-domain effect as final on a
+///   proof nobody produced.
+/// - **`locally_recoverable`** — whether the VM alone can undo the wave. A wave
+///   confined to one domain can be rolled back by the local atomic scope; a wave
+///   spanning domains cannot, because its effects on the other domain are
+///   already out of this VM's hands. Saying so is the difference between a plan
+///   and a hope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaveSettlement {
+    /// Wave index, matching `ParallelPlan::waves`.
+    pub wave: usize,
+    /// VM families the wave touches.
+    pub domains: BTreeSet<String>,
+    /// Proof inputs the wave's bridges need and do not carry.
+    pub outstanding_proofs: BTreeSet<String>,
+    /// Whether the VM's own rollback can undo the wave without a counterparty.
+    pub locally_recoverable: bool,
 }
 
 /// The assets an operation consumes and produces.
@@ -154,6 +189,7 @@ pub fn leg_from_operations(name: &str, operations: &[Operation]) -> Result<Leg, 
     let mut writes = BTreeSet::new();
     let mut chains = BTreeSet::new();
     let mut bridges = BTreeSet::new();
+    let mut outstanding = BTreeSet::new();
     for operation in operations {
         let (operation_reads, operation_writes) = touched(operation);
         reads.extend(operation_reads);
@@ -162,18 +198,38 @@ pub fn leg_from_operations(name: &str, operations: &[Operation]) -> Result<Leg, 
             chains.insert(chain);
         }
         if let Operation::Bridge {
-            from_chain, to_chain, ..
+            from_chain,
+            to_chain,
+            source_finality_proof,
+            transfer_proof,
+            ..
         } = operation
         {
             bridges.insert((from_chain.clone(), to_chain.clone()));
+            // Name the obligation with the chain it is owed on, so a coordinator
+            // can act on it without re-deriving which bridge asked.
+            if source_finality_proof.is_empty() {
+                outstanding.insert(format!("{from_chain}:source_finality_proof"));
+            }
+            if transfer_proof.is_empty() {
+                outstanding.insert(format!("{to_chain}:transfer_proof"));
+            }
         }
     }
-    // An asset a leg both produces and consumes is its own business: the read is
-    // satisfied by the write in the same leg, so it is not a dependency on
-    // another leg.
-    for produced in &writes {
-        reads.remove(produced);
-    }
+    // Note on why there is no "an asset this leg both reads and writes is
+    // internal, so drop the read" step here. There was one, and it was wrong in
+    // the direction that matters. A leg that bridges another leg's output also
+    // carries a refund path on that asset, and the refund path lowers to a
+    // `Release` on it — a write. Pruning the read against that write erased the
+    // leg's real dependency on its producer, so the two legs looked unordered
+    // and an otherwise correct plan was refused as a race.
+    //
+    // Keeping both sets means a leg that writes what another produces gets
+    // *both* the dependency edge and the write-write overlap; the overlap check
+    // then sees the ordering and stays quiet. The cost is the other direction: a
+    // leg that locks an asset it also consumes now depends on whoever produces
+    // it, which serialises two legs that might have run together. Ordering too
+    // much is a lost opportunity; ordering too little is a race.
 
     if chains.len() > 1 && bridges.len() < chains.len() - 1 {
         return Err(RaceError::ImplicitCrossChain {
@@ -189,6 +245,7 @@ pub fn leg_from_operations(name: &str, operations: &[Operation]) -> Result<Leg, 
         writes,
         chains,
         bridges,
+        outstanding_proofs: outstanding,
     })
 }
 
@@ -231,24 +288,9 @@ pub fn plan(legs: &[Leg], chain_domains: &BTreeMap<String, String>) -> Result<Pa
         }
     }
 
-    // A race is two legs producing the same asset. There is no edge that
-    // resolves it: whichever ran first, the other's write is against a state the
-    // program never described.
-    let mut producers: BTreeMap<&str, &str> = BTreeMap::new();
-    for leg in legs {
-        for asset in &leg.writes {
-            if let Some(first) = producers.get(asset.as_str()) {
-                return Err(RaceError::WriteWrite {
-                    asset: asset.clone(),
-                    first: (*first).to_string(),
-                    second: leg.name.clone(),
-                });
-            }
-            producers.insert(asset.as_str(), leg.name.as_str());
-        }
-    }
-
-    // A producer must run before its consumers.
+    // A producer must run before its consumers. This is the "explicit
+    // semantics" half of the race requirement: the program said one leg feeds
+    // another, so the order is derived rather than guessed.
     let mut edges: BTreeSet<(String, String)> = BTreeSet::new();
     for producer in legs {
         for consumer in legs {
@@ -261,7 +303,54 @@ pub fn plan(legs: &[Leg], chain_domains: &BTreeMap<String, String>) -> Result<Pa
         }
     }
 
+    // A race is two legs writing the same asset *with nothing ordering them*.
+    // The ordering has to be checked before the conflict is called a race:
+    // `alpha` producing ETH and a later leg locking that ETH both write it, and
+    // the dependency between them is exactly what makes that safe. An earlier
+    // version of this function compared writes across the whole block and
+    // refused that program, which is the same mistake as sequencing two legs
+    // silently — it ignored the ordering the program had already expressed.
+    for (index, first) in legs.iter().enumerate() {
+        for second in legs.iter().skip(index + 1) {
+            let shared: Vec<&String> = first.writes.intersection(&second.writes).collect();
+            if shared.is_empty() {
+                continue;
+            }
+            if ordered(&edges, &first.name, &second.name) || ordered(&edges, &second.name, &first.name) {
+                continue;
+            }
+            let asset = shared[0].clone();
+            return Err(RaceError::WriteWrite {
+                asset,
+                first: first.name.clone(),
+                second: second.name.clone(),
+            });
+        }
+    }
+
     let waves = waves(legs, &edges)?;
+    let mut settlement: Vec<WaveSettlement> = Vec::new();
+    for (index, wave) in waves.iter().enumerate() {
+        let mut wave_domains: BTreeSet<String> = BTreeSet::new();
+        let mut wave_proofs: BTreeSet<String> = BTreeSet::new();
+        for name in wave {
+            if let Some(leg) = legs.iter().find(|leg| &leg.name == name) {
+                for chain in &leg.chains {
+                    wave_domains.insert(chain_domains.get(chain).cloned().unwrap_or_else(|| chain.clone()));
+                }
+                wave_proofs.extend(leg.outstanding_proofs.iter().cloned());
+            }
+        }
+        settlement.push(WaveSettlement {
+            wave: index,
+            domains: wave_domains.clone(),
+            outstanding_proofs: wave_proofs,
+            // One domain: the VM's atomic scope is the whole story. More than
+            // one: part of the wave is beyond this VM's reach.
+            locally_recoverable: wave_domains.len() <= 1,
+        });
+    }
+
     let mut domains: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for leg in legs {
         let leg_domains: BTreeSet<String> = leg
@@ -274,6 +363,7 @@ pub fn plan(legs: &[Leg], chain_domains: &BTreeMap<String, String>) -> Result<Pa
     Ok(ParallelPlan {
         edges: edges.into_iter().collect(),
         waves,
+        settlement,
         domains,
     })
 }
@@ -281,6 +371,27 @@ pub fn plan(legs: &[Leg], chain_domains: &BTreeMap<String, String>) -> Result<Pa
 /// The domains a plan spans, sorted. One entry means the plan is single-VM.
 pub fn domains_spanned(plan: &ParallelPlan) -> BTreeSet<String> {
     plan.domains.values().flatten().cloned().collect()
+}
+
+/// Whether `from` reaches `to` along the dependency edges, so the two legs have
+/// an order the program expressed.
+fn ordered(edges: &BTreeSet<(String, String)>, from: &str, to: &str) -> bool {
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut frontier: Vec<&str> = vec![from];
+    while let Some(current) = frontier.pop() {
+        if current == to {
+            return true;
+        }
+        if !seen.insert(current) {
+            continue;
+        }
+        for (edge_from, edge_to) in edges {
+            if edge_from == current {
+                frontier.push(edge_to);
+            }
+        }
+    }
+    false
 }
 
 /// Kahn's algorithm with a lexicographic tie-break, so the wave assignment is

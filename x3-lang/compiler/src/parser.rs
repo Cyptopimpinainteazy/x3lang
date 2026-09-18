@@ -1828,6 +1828,15 @@ impl<'a> Parser<'a> {
                             {
                                 body.push(self.parse_route_step()?)
                             }
+                            // A leg that bridges must be able to declare its
+                            // expiry. Without this the verdict on a bridging leg
+                            // is "no refund path" — correct, and impossible for
+                            // the program to answer, because a leg had no way to
+                            // state a timeout. The intent clause parser is what
+                            // knows the `timeout <duration> refund <asset> to
+                            // <who>` form, so a leg borrows it rather than
+                            // growing a second spelling of the same statement.
+                            Tok::Ident(ref s) if s == "timeout" => body.push(self.parse_intent_timeout()?),
                             _ => body.push(self.parse_statement()?),
                         }
                     }

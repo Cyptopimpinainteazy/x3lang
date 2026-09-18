@@ -154,6 +154,18 @@ pub struct ParallelPlanRecord {
     pub edges: Vec<(String, String)>,
     /// The VM family each leg executes on, as the artifact declared it.
     pub domains: std::collections::BTreeMap<String, Vec<String>>,
+    /// What each wave owes before it may be treated as settled.
+    pub settlement: Vec<WaveSettlementRecord>,
+}
+
+/// What a coordinator owes for one wave, as the artifact declared it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WaveSettlementRecord {
+    pub wave: usize,
+    pub domains: Vec<String>,
+    pub outstanding_proofs: Vec<String>,
+    /// Whether the VM's own rollback can undo the wave without a counterparty.
+    pub locally_recoverable: bool,
 }
 
 #[derive(Clone, Debug)]

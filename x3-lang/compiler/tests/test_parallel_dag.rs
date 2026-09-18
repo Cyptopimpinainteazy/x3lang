@@ -258,15 +258,16 @@ fn a_cross_chain_leg_with_a_bridge_step_is_accepted() {
     leg a {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
         require slippage <= 50
+        require nonce unused bridge_plan_1
         on_fail refund ethereum.USDC to sender
     }
     leg b {
-        swap uniswap ethereum.DAI -> ethereum.ETH amount 1 min_output 1
+        swap uniswap ethereum.DAI -> ethereum.X3 amount 1 min_output 1
         require slippage <= 50
         on_fail refund ethereum.DAI to sender
     }
     leg c {
-        bridge x3 ethereum.ETH -> solana.SOL receiver 0x1
+        bridge x3 ethereum.ETH -> solana.SOL amount 1 receiver 0x1
         require finality.ethereum >= 12
         timeout 30s refund ethereum.ETH to sender
         on_fail refund ethereum.ETH to sender
@@ -275,8 +276,8 @@ fn a_cross_chain_leg_with_a_bridge_step_is_accepted() {
 "#;
     let found = errors(&source);
     assert!(
-        !found.iter().any(|error| error.contains("cross-chain step")),
-        "a leg that bridges explicitly must not be refused for crossing chains: {found:?}"
+        found.is_empty(),
+        "a leg that bridges explicitly must compile cleanly, not merely avoid one message: {found:?}"
     );
 }
 
@@ -336,4 +337,178 @@ fn two_declarations_disagreeing_about_one_chain_are_refused() {
         found.iter().any(|error| error.contains("declared on two domains")),
         "an ambiguous chain-to-VM mapping must be refused: {found:?}"
     );
+}
+
+/// The per-wave settlement records the plan carries.
+fn settlement(source: &str) -> Vec<(usize, Vec<String>, Vec<String>, bool)> {
+    let (_, ir, outcome) =
+        x3_lang_compiler::check_source_diagnostics_with_mode(source, CompilationMode::Dev).expect("source must lower");
+    assert!(outcome.errors.is_empty(), "unexpected errors: {:?}", outcome.errors);
+    ir.operations
+        .iter()
+        .find_map(|operation| match operation {
+            Operation::ParallelPlan { settlement, .. } => Some(
+                settlement
+                    .iter()
+                    .map(|record| {
+                        (
+                            record.wave,
+                            record.domains.iter().cloned().collect::<Vec<_>>(),
+                            record.outstanding_proofs.iter().cloned().collect::<Vec<_>>(),
+                            record.locally_recoverable,
+                        )
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .expect("the artifact must carry the settlement section")
+}
+
+/// A parallel block where the last leg bridges to another chain.
+fn bridging_plan() -> String {
+    r#"parallel cross {
+    leg alpha {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
+        require slippage <= 50
+        require nonce unused cross_plan_1
+        on_fail refund ethereum.USDC to sender
+    }
+    leg beta {
+        swap uniswap ethereum.DAI -> ethereum.X3 amount 1 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.DAI to sender
+    }
+    leg bridge_out {
+        bridge x3 ethereum.ETH -> solana.SOL amount 1 receiver 0x1
+        require finality.ethereum >= 12
+        timeout 30s refund ethereum.ETH to sender
+        on_fail refund ethereum.ETH to sender
+    }
+}
+"#
+    .to_string()
+}
+
+#[test]
+fn a_wave_over_one_domain_is_locally_recoverable() {
+    let source = format!(
+        "{}{}",
+        vm("ethereum", "evm"),
+        parallel(&format!(
+            "{}{}",
+            leg("buy_eth", "USDC", "ethereum.ETH"),
+            leg("buy_sol", "DAI", "ethereum.SOL")
+        ))
+    );
+    let records = settlement(&source);
+    assert_eq!(records.len(), 1, "one wave, one record: {records:?}");
+    assert!(records[0].3, "a single-domain wave is undoable by the VM alone");
+}
+
+#[test]
+fn a_wave_over_two_domains_is_not_locally_recoverable() {
+    // This is the fact a coordinator needs and that nothing else in the plan
+    // states: part of this wave is beyond the reach of the local rollback.
+    let source = format!(
+        "{}{}{}{}",
+        vm("ethereum", "evm"),
+        vm("solana", "svm"),
+        concurrent_across_domains(),
+        ""
+    );
+    let records = settlement(&source);
+    assert_eq!(records.len(), 1, "one wave: {records:?}");
+    assert_eq!(records[0].1, vec!["evm".to_string(), "svm".to_string()]);
+    assert!(
+        !records[0].3,
+        "a wave spanning two domains cannot be undone by this VM alone"
+    );
+}
+
+/// A wave containing one `evm` leg and one `svm` leg, with no dependency
+/// between them.
+fn concurrent_across_domains() -> String {
+    r#"parallel cross {
+    leg on_eth {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.USDC to sender
+    }
+    leg on_sol {
+        swap raydium solana.USDC -> solana.SOL amount 1 min_output 1
+        require slippage <= 50
+        on_fail refund solana.USDC to sender
+    }
+}
+"#
+    .to_string()
+}
+
+#[test]
+fn a_bridge_without_its_proof_inputs_reports_them_as_outstanding() {
+    // The bridge takes a source-finality proof and a transfer proof as inputs.
+    // A program that writes the bridge without them leaves the obligation open,
+    // and the plan says so, naming the chain each proof is owed on.
+    let source = format!("{}{}", vm("ethereum", "evm"), bridging_plan());
+    let records = settlement(&source);
+    let bridging_wave = records
+        .iter()
+        .find(|(_, domains, _, _)| domains.contains(&"solana".to_string()))
+        .expect("the bridging wave must be recorded");
+    assert_eq!(
+        bridging_wave.2,
+        vec![
+            "ethereum:source_finality_proof".to_string(),
+            "solana:transfer_proof".to_string()
+        ],
+        "the outstanding proofs must name the chain they are owed on: {records:?}"
+    );
+}
+
+#[test]
+fn a_bridge_with_its_proof_inputs_reports_none_outstanding() {
+    // Non-vacuous: the same bridge, said with its proofs, owes nothing.
+    let source = format!(
+        "{}{}",
+        vm("ethereum", "evm"),
+        r#"parallel cross {
+    leg alpha {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
+        require slippage <= 50
+        require nonce unused cross_plan_1
+        on_fail refund ethereum.USDC to sender
+    }
+    leg beta {
+        swap uniswap ethereum.DAI -> ethereum.X3 amount 1 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.DAI to sender
+    }
+    leg bridge_out {
+        bridge x3 ethereum.ETH -> solana.SOL amount 1 receiver 0x1 transfer_proof eth_receipt
+        require finality.ethereum >= 12
+        timeout 30s refund ethereum.ETH to sender
+        on_fail refund ethereum.ETH to sender
+    }
+}
+"#
+    );
+    let records = settlement(&source);
+    let bridging_wave = records
+        .iter()
+        .find(|(_, domains, _, _)| domains.contains(&"solana".to_string()))
+        .expect("the bridging wave must be recorded");
+    assert!(
+        !bridging_wave.2.iter().any(|proof| proof.contains("transfer_proof")),
+        "a bridge that carries its transfer proof owes none: {records:?}"
+    );
+}
+
+#[test]
+fn every_wave_has_a_settlement_record_indexed_to_it() {
+    let source = format!("{}{}", vm("ethereum", "evm"), bridging_plan());
+    let records = settlement(&source);
+    for (index, record) in records.iter().enumerate() {
+        assert_eq!(record.0, index, "records are indexed by wave: {records:?}");
+    }
 }

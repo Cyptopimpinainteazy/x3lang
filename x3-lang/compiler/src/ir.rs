@@ -177,6 +177,10 @@ pub enum Operation {
         /// honestly say "this is chain X" when the program never said two chains
         /// share a VM. The set of these values answers "is this plan multi-VM".
         domains: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+        /// What a coordinator owes before each wave may be treated as settled:
+        /// the outstanding proof inputs, the domains involved, and whether the
+        /// VM alone can undo the wave.
+        settlement: Vec<crate::dag::WaveSettlement>,
     },
 
     // ===== Guard Operations =====

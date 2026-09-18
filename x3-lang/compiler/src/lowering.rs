@@ -176,6 +176,26 @@ pub fn lower_program_with_mode(
                             leg.name.as_str()
                         )));
                     }
+                    // Replay protection is a property of the program, and a leg
+                    // is the only place a nonce guard can be written — so a leg
+                    // that declares one declares it for the program. Two legs
+                    // disagreeing about it is ambiguous rather than ordered:
+                    // there is one artifact, and it cannot carry two nonces.
+                    if let Some(nonce) = body.metadata.nonce.clone() {
+                        match &ir.metadata.nonce {
+                            None => ir.metadata.nonce = Some(nonce),
+                            Some(existing) if *existing == nonce => {}
+                            Some(existing) => {
+                                return Err(semantic(&format!(
+                                    "parallel '{}' leg '{}' declares nonce '{nonce}' but the program \
+                                     already carries '{existing}'; one artifact cannot carry two \
+                                     replay-protection nonces",
+                                    parallel.name.as_str(),
+                                    leg.name.as_str()
+                                )))
+                            }
+                        }
+                    }
                     lowered.push((leg.name.as_str().to_string(), body.operations));
                 }
 
@@ -229,6 +249,7 @@ pub fn lower_program_with_mode(
                     waves: plan.waves.clone(),
                     edges: plan.edges.clone(),
                     domains: plan.domains.clone(),
+                    settlement: plan.settlement.clone(),
                 });
                 for name in order {
                     let (_, operations) = lowered
