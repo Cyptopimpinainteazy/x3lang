@@ -101,14 +101,23 @@ fn skip_compiler_metadata(bytes: &[u8]) -> usize {
             return pc;
         }
         match bytes[pc] {
-            0x10 => {
+            META_NONCE => {
                 // nonce metadata: 2-byte length followed by UTF-8 nonce.
                 let len = u16::from_le_bytes([bytes[pc + 1], bytes[pc + 2]]) as usize;
-                pc = ((pc + 3 + len) + 3) & !3;
+                // Deliberately no alignment. `emit_x3ir` writes this record
+                // unpadded and the executor's own `first_instruction_pc` walks
+                // it unpadded, so the verifier has to agree with both. It used
+                // to round up to a 4-byte boundary, which desynchronised the
+                // walk for any nonce whose record length was 1 or 3 bytes short
+                // of a multiple of four: the validator then read metadata bytes
+                // as opcodes and rejected bytecode the executor runs fine.
+                pc += 3 + len;
             }
-            0x11 => {
-                // chain_id metadata: 4-byte u32 payload.
-                pc += 5;
+            META_CHAIN_ID => {
+                // chain_id metadata: an 8-byte u64 payload, so the record is
+                // nine bytes. This read a u32 and advanced five, which put the
+                // cursor three bytes into the next instruction.
+                pc += 9;
             }
             _ => return pc,
         }
@@ -116,7 +125,10 @@ fn skip_compiler_metadata(bytes: &[u8]) -> usize {
 }
 
 fn has_compiler_header(bytes: &[u8]) -> bool {
-    bytes.first() == Some(&BYTECODE_VERSION_1)
+    // Same rule as the executor's `has_compiler_header`: a version byte
+    // followed by a real record. A stream of `[0x01][0x00..]` is raw bytecode
+    // that happens to start with the version byte, not a compiler stream.
+    bytes.first() == Some(&BYTECODE_VERSION_1) && bytes.get(1).copied().unwrap_or(NOP) != NOP
 }
 
 fn is_payload_opcode(op: u8, compiler_stream: bool) -> bool {
@@ -336,5 +348,64 @@ mod tests {
                 "opcode 0x{opcode:02x} should reject malformed payload"
             );
         }
+    }
+
+    /// A compiler stream: version byte, metadata records, then `ATOMIC_BEGIN`.
+    ///
+    /// `ATOMIC_BEGIN` encodes as `[opcode][u16 0]` padded to four bytes, so the
+    /// expected first boundary is the metadata length.
+    fn compiler_stream_with(nonce: Option<&str>, chain_id: Option<u64>) -> (InstructionStream, usize) {
+        let mut bytes = vec![BYTECODE_VERSION_1];
+        if let Some(nonce) = nonce {
+            bytes.push(META_NONCE);
+            bytes.extend_from_slice(&(nonce.len() as u16).to_le_bytes());
+            bytes.extend_from_slice(nonce.as_bytes());
+        }
+        if let Some(chain_id) = chain_id {
+            bytes.push(META_CHAIN_ID);
+            bytes.extend_from_slice(&chain_id.to_le_bytes());
+        }
+        let first_instruction = bytes.len();
+        bytes.extend_from_slice(&[ATOMIC_BEGIN, 0, 0, 0]);
+        // `emit_x3ir` pads the whole stream to a multiple of four, and `verify`
+        // requires that.
+        while bytes.len() % 4 != 0 {
+            bytes.push(0);
+        }
+        (InstructionStream::new(bytes), first_instruction)
+    }
+
+    #[test]
+    fn a_nonce_record_that_is_not_a_multiple_of_four_does_not_shift_the_walk() {
+        // `[0x10][u16 15]["simple_swap_001"]` is 18 bytes, so the first
+        // instruction begins at 19. The verifier used to round that up to 20 and
+        // start reading the metadata's last byte as an opcode, which is how a
+        // stream the executor runs fine could fail validation.
+        let (code, expected) = compiler_stream_with(Some("simple_swap_001"), None);
+        assert_eq!(expected, 19, "the record must be 18 bytes plus the version byte");
+
+        let boundaries = verify(&code).expect("a stream the executor runs must verify");
+        assert!(
+            boundaries.contains(&expected),
+            "the first instruction must be found at {expected}, got {boundaries:?}"
+        );
+        assert!(
+            !boundaries.contains(&(expected + 1)),
+            "the walk must not be a byte late, got {boundaries:?}"
+        );
+    }
+
+    #[test]
+    fn chain_id_metadata_is_walked_as_nine_bytes() {
+        // The record is `[0x11][u64]`; reading it as a u32 advanced only five
+        // bytes and put the cursor three bytes into the next instruction.
+        let (code, expected) = compiler_stream_with(Some("nonce_1"), Some(0x0123_4567_89AB_CDEF));
+        assert_eq!(expected, 1 + 10 + 9, "nonce record then nine bytes of chain id");
+
+        let boundaries = verify(&code).expect("a stream with a chain id must verify");
+        assert!(
+            boundaries.contains(&expected),
+            "the first instruction must be found at {expected}, got {boundaries:?}"
+        );
     }
 }

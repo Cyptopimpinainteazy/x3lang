@@ -14,8 +14,16 @@ use x3_lang_common::{
     encode_asset_op_payload, encode_bridge_payload, encode_capability_payload, AssetOpPayload, BridgePayload,
     CapabilityPayload, X3Error,
 };
-/// Pad `bytecode` so its length is a multiple of 4. The X3 VM verifier
-/// requires every instruction to start on a 4-byte boundary.
+/// Pad `bytecode` so its length is a multiple of 4, which is what keeps every
+/// *subsequent* instruction starting on a 4-byte boundary.
+///
+/// Note that the metadata header is written unpadded, on purpose: the executor's
+/// `first_instruction_pc` and this crate's `disassemble` both walk it unpadded,
+/// so the first instruction after a header sits at `3 + len + 1` rather than at
+/// a rounded offset. An earlier version of this comment claimed the VM verifier
+/// required every instruction — including that first one — to be aligned, and
+/// `vm/src/verifier.rs` acted on that claim; the two disagreed for any nonce
+/// whose record was 1 or 3 bytes short of a multiple of four.
 fn pad_to_4(bytecode: &mut Vec<u8>) {
     let rem = bytecode.len() % 4;
     if rem != 0 {
