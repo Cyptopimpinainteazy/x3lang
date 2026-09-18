@@ -5,12 +5,13 @@
 //! [`TradingHost`] capability implementation.
 
 use std::collections::{BTreeMap, BTreeSet};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use std::error::Error;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use x3_lang_compiler::ir::{AssetKey, TradingOperation, ValueRef};
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
 
 /// Whether a capability manifest represents deterministic fixtures or a real
 /// production integration.
@@ -40,21 +41,12 @@ pub struct CapabilityManifest {
     pub venues: BTreeSet<String>,
 }
 
-/// Economic limits copied from the compiled trade's risk policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExecutionLimits {
-    pub max_flash_fee_bps: u16,
-    pub max_gas: u128,
-    pub minimum_net_profit: Option<u128>,
-}
-
-/// Per-execution context that cannot be inferred from bytecode alone.
+/// Per-execution context supplied by the caller.
+/// Safety/economic policy values are compiled into the trading artifact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TradeExecutionContext {
     pub mode: ExecutionMode,
-    pub limits: ExecutionLimits,
     pub current_block: u64,
-    pub deadline_block: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +127,25 @@ impl Error for HostError {}
 /// Capability-controlled external venue/provider boundary.
 pub trait TradingHost {
     fn capabilities(&self) -> &CapabilityManifest;
+
+    /// Begin a host-side transaction for an atomic trade.
+    ///
+    /// Production adapters must stage or journal external side effects after
+    /// this call so a later VM rejection can roll them back.
+    fn begin_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    /// Commit the host-side transaction after every VM invariant has passed.
+    fn commit_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    /// Roll back every staged host-side side effect for the current trade.
+    fn rollback_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
     fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError>;
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError>;
     fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError>;
@@ -145,6 +156,9 @@ pub trait TradingHost {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TradingExecError {
     NonProductionCapability,
+    CapabilityChainMismatch { expected: String, actual: String },
+    CapabilityVersionMismatch { expected: u16, actual: String },
+    PrivateSubmissionRequired,
     UnknownCapability(String),
     UnsupportedOperation(String),
     InvalidSequence(String),
@@ -164,6 +178,13 @@ impl fmt::Display for TradingExecError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NonProductionCapability => write!(f, "production execution rejected fixture capabilities"),
+            Self::CapabilityChainMismatch { expected, actual } => {
+                write!(f, "compiled policy chain '{expected}' does not match host chain '{actual}'")
+            }
+            Self::CapabilityVersionMismatch { expected, actual } => {
+                write!(f, "compiled policy version {expected} is not supported by host version '{actual}'")
+            }
+            Self::PrivateSubmissionRequired => write!(f, "compiled policy requires private submission capability"),
             Self::UnknownCapability(capability) => write!(f, "unknown capability '{capability}'"),
             Self::UnsupportedOperation(operation) => write!(f, "unsupported operation '{operation}'"),
             Self::InvalidSequence(message) => write!(f, "invalid atomic sequence: {message}"),
@@ -220,6 +241,7 @@ pub struct TradingState {
 pub struct TradingVm {
     pub trading_state: TradingState,
     expected_commitment: Option<[u8; 32]>,
+    compiled_policy: Option<CompiledTradingPolicy>,
 }
 
 /// Result of a successful atomic trading execution.
@@ -244,28 +266,49 @@ impl TradingVm {
         if context.mode == ExecutionMode::Production && manifest.mode != CapabilityMode::Production {
             return Err(TradingExecError::NonProductionCapability);
         }
-        if context.current_block > context.deadline_block {
-            return Err(TradingExecError::DeadlineExpired {
-                current: context.current_block,
-                deadline: context.deadline_block,
-            });
-        }
         let first = operations
             .first()
             .ok_or_else(|| TradingExecError::InvalidSequence("empty trading program".to_string()))?;
-        if !matches!(first, TradingOperation::BeginAtomicTrade { .. }) {
-            return Err(TradingExecError::InvalidSequence(
-                "trading program must begin with BeginAtomicTrade".to_string(),
-            ));
+        let policy = match first {
+            TradingOperation::BeginAtomicTrade { policy, .. } => policy,
+            _ => {
+                return Err(TradingExecError::InvalidSequence(
+                    "trading program must begin with BeginAtomicTrade".to_string(),
+                ))
+            }
+        };
+        self.validate_compiled_policy(policy, manifest)?;
+        if context.current_block > policy.deadline_blocks {
+            return Err(TradingExecError::DeadlineExpired {
+                current: context.current_block,
+                deadline: policy.deadline_blocks,
+            });
         }
 
         let snapshot = self.trading_state.clone();
         self.expected_commitment = Some(manifest.state_commitment);
-        let result = self.execute_inner(operations, host, context);
-        if result.is_err() {
-            self.trading_state = snapshot;
+        self.compiled_policy = Some(policy.clone());
+
+        host.begin_transaction().map_err(TradingExecError::HostRejected)?;
+
+        match self.execute_inner(operations, host, context) {
+            Ok(execution) => {
+                if let Err(error) = host.commit_transaction() {
+                    let _ = host.rollback_transaction();
+                    self.trading_state = snapshot;
+                    return Err(TradingExecError::HostRejected(error));
+                }
+                Ok(execution)
+            }
+            Err(error) => {
+                let rollback = host.rollback_transaction();
+                self.trading_state = snapshot;
+                if let Err(rollback_error) = rollback {
+                    return Err(TradingExecError::HostRejected(rollback_error));
+                }
+                Err(error)
+            }
         }
-        result
     }
 
     fn execute_inner(
@@ -302,7 +345,7 @@ impl TradingVm {
                             "borrow result for {debt_id} does not match the requested asset/principal"
                         )));
                     }
-                    self.check_fee_bps(result.principal, result.fee, context.limits.max_flash_fee_bps)?;
+                    self.check_fee_bps(result.principal, result.fee, self.compiled_policy().max_flash_fee_bps)?;
                     self.credit(asset, result.principal)?;
                     self.accrue_cost(asset, result.fee)?;
                     self.trading_state.open_debts.insert(
@@ -419,6 +462,7 @@ impl TradingVm {
                     settlement_asset,
                     minimum,
                 } => {
+                    self.accrue_host_execution_costs(host)?;
                     let actual = self.net_profit(settlement_asset);
                     if actual < *minimum {
                         return Err(TradingExecError::NetProfitBelowFloor {
@@ -463,11 +507,8 @@ impl TradingVm {
         if !self.trading_state.closed_debts.is_empty() && !self.trading_state.receipt_emitted {
             return Err(TradingExecError::MissingReceipt);
         }
-        let costs = host.execution_costs().map_err(TradingExecError::HostRejected)?;
-        for cost in costs {
-            self.accrue_cost(&cost.asset, cost.amount)?;
-        }
-        if let Some(minimum) = context.limits.minimum_net_profit {
+        self.accrue_host_execution_costs(host)?;
+        if let Some(minimum) = self.compiled_policy().minimum_net_profit {
             // The settlement asset is checked by AssertMinNetProfit; this is
             // only a defence-in-depth check when a policy carries a floor.
             let best = self
@@ -477,7 +518,8 @@ impl TradingVm {
                 .copied()
                 .max()
                 .unwrap_or(0)
-                .max(0) as u128;
+                .max(0);
+            let best = u128::try_from(best).map_err(|_| TradingExecError::AccountingOverflow)?;
             if best < minimum {
                 return Err(TradingExecError::NetProfitBelowFloor { minimum, actual: best });
             }
@@ -485,6 +527,50 @@ impl TradingVm {
         Ok(TradeExecution {
             committed_state: self.trading_state.clone(),
         })
+    }
+
+    fn validate_compiled_policy(
+        &self,
+        policy: &CompiledTradingPolicy,
+        manifest: &CapabilityManifest,
+    ) -> Result<(), TradingExecError> {
+        if policy.chain != manifest.chain {
+            return Err(TradingExecError::CapabilityChainMismatch {
+                expected: policy.chain.clone(),
+                actual: manifest.chain.clone(),
+            });
+        }
+        let supported_version = manifest
+            .version
+            .strip_prefix("trading-policy-v")
+            .and_then(|value| value.parse::<u16>().ok());
+        if supported_version != Some(policy.policy_version) {
+            return Err(TradingExecError::CapabilityVersionMismatch {
+                expected: policy.policy_version,
+                actual: manifest.version.clone(),
+            });
+        }
+        if policy.require_private_submission && !manifest.private_submission {
+            return Err(TradingExecError::PrivateSubmissionRequired);
+        }
+        Ok(())
+    }
+
+    fn compiled_policy(&self) -> &CompiledTradingPolicy {
+        self.compiled_policy
+            .as_ref()
+            .expect("compiled policy must be set before execution")
+    }
+
+    fn accrue_host_execution_costs(&mut self, host: &dyn TradingHost) -> Result<(), TradingExecError> {
+        let costs = host.execution_costs().map_err(TradingExecError::HostRejected)?;
+        for cost in costs {
+            let already = self.trading_state.costs.get(&cost.asset).copied().unwrap_or(0);
+            if cost.amount > already {
+                self.accrue_cost(&cost.asset, cost.amount - already)?;
+            }
+        }
+        Ok(())
     }
 
     fn check_commitment(&self, commitment: &[u8; 32]) -> Result<(), TradingExecError> {
@@ -518,7 +604,7 @@ impl TradingVm {
         *entry = entry.checked_add(amount).ok_or(TradingExecError::AccountingOverflow)?;
         let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
         *delta = delta
-            .checked_add(amount as i128)
+            .checked_add(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
             .ok_or(TradingExecError::AccountingOverflow)?;
         Ok(())
     }
@@ -528,7 +614,7 @@ impl TradingVm {
         *entry = entry.checked_sub(amount).ok_or(TradingExecError::AccountingOverflow)?;
         let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
         *delta = delta
-            .checked_sub(amount as i128)
+            .checked_sub(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
             .ok_or(TradingExecError::AccountingOverflow)?;
         Ok(())
     }
@@ -538,7 +624,7 @@ impl TradingVm {
         *entry = entry.checked_add(amount).ok_or(TradingExecError::AccountingOverflow)?;
         let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
         *delta = delta
-            .checked_sub(amount as i128)
+            .checked_sub(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
             .ok_or(TradingExecError::AccountingOverflow)?;
         Ok(())
     }
@@ -553,8 +639,8 @@ impl TradingVm {
 pub fn fixture_manifest(state_commitment: [u8; 32]) -> CapabilityManifest {
     CapabilityManifest {
         mode: CapabilityMode::Fixture,
-        version: "test-fixture-v1".to_string(),
-        chain: "fixture".to_string(),
+        version: "trading-policy-v1".to_string(),
+        chain: "ethereum".to_string(),
         state_commitment,
         private_submission: false,
         providers: BTreeSet::new(),
@@ -609,6 +695,14 @@ pub struct TradeReceipt {
     pub realized_net_profit: Option<TypedReceiptAmount>,
     pub outcome: TradeOutcome,
     pub receipt_hash: [u8; 32],
+    pub attestation: Option<ReceiptAttestation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiptAttestation {
+    pub key_id: String,
+    pub public_key: [u8; 32],
+    pub signature: Vec<u8>,
 }
 
 /// Receipt encoding and validation errors.
@@ -619,6 +713,10 @@ pub enum ReceiptError {
     OpenDebtInSuccessfulReceipt(String),
     ProfitInFailedReceipt,
     EmptyOperationList,
+    EconomicReplayMismatch(String),
+    MissingAttestation,
+    UntrustedAttestor(String),
+    InvalidAttestation,
 }
 
 impl fmt::Display for ReceiptError {
@@ -633,6 +731,10 @@ impl fmt::Display for ReceiptError {
             }
             Self::ProfitInFailedReceipt => write!(f, "failed receipt must not report realized profit"),
             Self::EmptyOperationList => write!(f, "receipt must contain at least one operation"),
+            Self::EconomicReplayMismatch(message) => write!(f, "receipt economic replay mismatch: {message}"),
+            Self::MissingAttestation => write!(f, "receipt is missing a trusted attestation"),
+            Self::UntrustedAttestor(key_id) => write!(f, "receipt attestor '{key_id}' is not trusted"),
+            Self::InvalidAttestation => write!(f, "receipt attestation signature is invalid"),
         }
     }
 }
@@ -643,6 +745,7 @@ impl Error for ReceiptError {}
 pub fn canonical_receipt_bytes(receipt: &TradeReceipt) -> Result<Vec<u8>, ReceiptError> {
     let mut canonical = receipt.clone();
     canonical.receipt_hash = [0u8; 32];
+    canonical.attestation = None;
     serde_json::to_vec(&canonical).map_err(|err| ReceiptError::Encoding(err.to_string()))
 }
 
@@ -686,6 +789,226 @@ pub fn verify_receipt(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
         }
     }
     Ok(())
+}
+
+
+pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
+    let first = receipt
+        .operations
+        .first()
+        .ok_or(ReceiptError::EmptyOperationList)?;
+    let (trade_id, compiled_policy) = match first {
+        TradingOperation::BeginAtomicTrade { trade_id, policy } => (trade_id, policy),
+        _ => {
+            return Err(ReceiptError::EconomicReplayMismatch(
+                "operation sequence does not begin with BeginAtomicTrade".to_string(),
+            ))
+        }
+    };
+    if trade_id != &receipt.trade_id {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt trade_id does not match compiled operation sequence".to_string(),
+        ));
+    }
+    if compiled_policy.policy_id != receipt.policy_id {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt policy_id does not match compiled operation sequence".to_string(),
+        ));
+    }
+    if !matches!(receipt.operations.last(), Some(TradingOperation::CommitAtomicTrade)) {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "successful receipt operation sequence must terminate in CommitAtomicTrade".to_string(),
+        ));
+    }
+
+    let mut open_debts: BTreeMap<String, (AssetKey, u128)> = BTreeMap::new();
+    let mut closed_debts: BTreeSet<String> = BTreeSet::new();
+    let mut saw_profit_guard = false;
+    let mut saw_all_debts_guard = false;
+    let mut saw_receipt_emit = false;
+
+    for operation in &receipt.operations {
+        match operation {
+            TradingOperation::BeginAtomicTrade { .. } => {}
+            TradingOperation::OpenDebt {
+                debt_id,
+                asset,
+                principal,
+                ..
+            } => {
+                if open_debts
+                    .insert(debt_id.clone(), (asset.clone(), *principal))
+                    .is_some()
+                    || closed_debts.contains(debt_id)
+                {
+                    return Err(ReceiptError::EconomicReplayMismatch(format!(
+                        "debt '{debt_id}' opens more than once"
+                    )));
+                }
+            }
+            TradingOperation::CloseDebt { debt_id } => {
+                if open_debts.remove(debt_id).is_none() || !closed_debts.insert(debt_id.clone()) {
+                    return Err(ReceiptError::EconomicReplayMismatch(format!(
+                        "debt '{debt_id}' closes without a matching open debt"
+                    )));
+                }
+            }
+            TradingOperation::AssertMinNetProfit { .. } => saw_profit_guard = true,
+            TradingOperation::AssertAllDebtsClosed => {
+                if !open_debts.is_empty() {
+                    return Err(ReceiptError::EconomicReplayMismatch(
+                        "all-debts guard appears while debts remain open".to_string(),
+                    ));
+                }
+                saw_all_debts_guard = true;
+            }
+            TradingOperation::EmitTradeReceipt => saw_receipt_emit = true,
+            TradingOperation::CommitAtomicTrade => {}
+            TradingOperation::AbortAtomicTrade => {
+                return Err(ReceiptError::EconomicReplayMismatch(
+                    "successful receipt cannot contain AbortAtomicTrade".to_string(),
+                ))
+            }
+            TradingOperation::ExecuteSwap { .. } => {}
+        }
+    }
+
+    if !open_debts.is_empty() {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt operation sequence leaves debt open".to_string(),
+        ));
+    }
+    if !saw_profit_guard || !saw_all_debts_guard || !saw_receipt_emit {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt operation sequence is missing required final guards/receipt emission".to_string(),
+        ));
+    }
+
+    let mut expected_debts: BTreeMap<String, (&AssetKey, u128)> = BTreeMap::new();
+    for operation in &receipt.operations {
+        if let TradingOperation::OpenDebt {
+            debt_id,
+            asset,
+            principal,
+            ..
+        } = operation
+        {
+            expected_debts.insert(debt_id.clone(), (asset, *principal));
+        }
+    }
+    for debt in &receipt.debts {
+        let Some((asset, principal)) = expected_debts.get(&debt.debt_id) else {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt reports unknown debt '{}'",
+                debt.debt_id
+            )));
+        };
+        if *asset != &debt.asset || *principal != debt.principal {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt debt '{}' does not match compiled operation",
+                debt.debt_id
+            )));
+        }
+        if debt.repaid && debt.fee > debt.principal {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt debt '{}' reports an implausible fee above principal",
+                debt.debt_id
+            )));
+        }
+    }
+    if expected_debts.len() != receipt.debts.len() {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt debt set does not match compiled operation sequence".to_string(),
+        ));
+    }
+
+    let mut deltas: BTreeMap<AssetKey, i128> = BTreeMap::new();
+    for delta in &receipt.deltas {
+        let entry = deltas.entry(delta.asset.clone()).or_insert(0);
+        *entry = entry.checked_add(delta.delta).ok_or_else(|| {
+            ReceiptError::EconomicReplayMismatch("delta overflow".to_string())
+        })?;
+    }
+
+    for cost in &receipt.costs {
+        let entry = deltas.entry(cost.asset.clone()).or_insert(0);
+        *entry = entry.checked_add(i128::try_from(cost.amount).map_err(|_| {
+            ReceiptError::EconomicReplayMismatch("cost conversion overflow".to_string())
+        })?).ok_or_else(|| {
+            ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string())
+        })?;
+    }
+
+    if let Some(profit) = &receipt.realized_net_profit {
+        let replayed = receipt
+            .deltas
+            .iter()
+            .find(|delta| delta.asset == profit.asset)
+            .map(|delta| u128::try_from(delta.delta.max(0)).unwrap_or(0))
+            .unwrap_or(0);
+        if replayed != profit.amount {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "reported profit {} does not equal replayed delta {} for {}",
+                profit.amount, replayed, profit.asset.symbol
+            )));
+        }
+    }
+
+    for debt in &receipt.debts {
+        if matches!(receipt.outcome, TradeOutcome::Success) && !debt.repaid {
+            return Err(ReceiptError::OpenDebtInSuccessfulReceipt(debt.debt_id.clone()));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn sign_receipt(
+    mut receipt: TradeReceipt,
+    key_id: &str,
+    signing_key: &SigningKey,
+) -> Result<TradeReceipt, ReceiptError> {
+    receipt.attestation = None;
+    receipt.receipt_hash = compute_receipt_hash(&receipt)?;
+    let signature = signing_key.sign(&receipt.receipt_hash);
+    receipt.attestation = Some(ReceiptAttestation {
+        key_id: key_id.to_string(),
+        public_key: signing_key.verifying_key().to_bytes(),
+        signature: signature.to_bytes().to_vec(),
+    });
+    Ok(receipt)
+}
+
+pub fn verify_receipt_attestation(
+    receipt: &TradeReceipt,
+    trusted_keys: &BTreeMap<String, [u8; 32]>,
+) -> Result<(), ReceiptError> {
+    let attestation = receipt.attestation.as_ref().ok_or(ReceiptError::MissingAttestation)?;
+    let trusted = trusted_keys
+        .get(&attestation.key_id)
+        .ok_or_else(|| ReceiptError::UntrustedAttestor(attestation.key_id.clone()))?;
+    if trusted != &attestation.public_key {
+        return Err(ReceiptError::UntrustedAttestor(attestation.key_id.clone()));
+    }
+    let verifying_key = VerifyingKey::from_bytes(trusted).map_err(|_| ReceiptError::InvalidAttestation)?;
+    let signature_bytes: [u8; 64] = attestation
+        .signature
+        .as_slice()
+        .try_into()
+        .map_err(|_| ReceiptError::InvalidAttestation)?;
+    let signature = Signature::from_bytes(&signature_bytes);
+    verifying_key
+        .verify(&receipt.receipt_hash, &signature)
+        .map_err(|_| ReceiptError::InvalidAttestation)
+}
+
+pub fn verify_receipt_trusted(
+    receipt: &TradeReceipt,
+    trusted_keys: &BTreeMap<String, [u8; 32]>,
+) -> Result<(), ReceiptError> {
+    verify_receipt(receipt)?;
+    verify_receipt_economics(receipt)?;
+    verify_receipt_attestation(receipt, trusted_keys)
 }
 
 /// Build and finalize a canonical receipt from an execution result.
@@ -739,10 +1062,18 @@ pub fn build_receipt(
         })
         .collect();
     let realized_net_profit = match outcome {
-        TradeOutcome::Success => settlement_asset.map(|asset| TypedReceiptAmount {
-            asset: asset.clone(),
-            amount: state.net_deltas.get(asset).copied().unwrap_or(0).max(0) as u128,
-        }),
+        TradeOutcome::Success => match settlement_asset {
+            Some(asset) => {
+                let raw = state.net_deltas.get(asset).copied().unwrap_or(0).max(0);
+                Some(TypedReceiptAmount {
+                    asset: asset.clone(),
+                    amount: u128::try_from(raw).map_err(|_| {
+                        ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string())
+                    })?,
+                })
+            }
+            None => None,
+        },
         TradeOutcome::Failure { .. } => None,
     };
 
@@ -760,5 +1091,6 @@ pub fn build_receipt(
         realized_net_profit,
         outcome,
         receipt_hash: [0u8; 32],
+        attestation: None,
     })
 }

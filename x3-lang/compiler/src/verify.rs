@@ -4,7 +4,8 @@
 //! invariants that should never be delegated to an emitter or runtime decoder.
 
 use crate::diagnostic::{CompilerDiagnostic, DiagnosticCode};
-use crate::ir::{AssetKey, Operation, TradingOperation, X3IR};
+use crate::ir::{AssetKey, Operation, TradingOperation, ValueRef, X3IR};
+use std::collections::{BTreeMap, BTreeSet};
 use x3_lang_common::Span;
 
 /// Verify structural and safety invariants of lowered X3IR.
@@ -22,6 +23,7 @@ pub fn verify_ir(ir: &X3IR) -> Result<(), Vec<CompilerDiagnostic>> {
     }
 
     verify_sequence(&ir.operations, "program", &mut diagnostics);
+    verify_trading_sequences(&ir.operations, "program", &mut diagnostics);
 
     if diagnostics.is_empty() {
         Ok(())
@@ -343,11 +345,314 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
     }
 }
 
+
+#[derive(Default)]
+struct TradingSequenceState {
+    began: bool,
+    committed: bool,
+    aborted: bool,
+    receipt_seen: bool,
+    all_debts_guard_seen: bool,
+    profit_guard_seen: bool,
+    open_debts: BTreeMap<String, AssetKey>,
+    closed_debts: BTreeSet<String>,
+    bindings: BTreeMap<String, AssetKey>,
+}
+
+fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
+    let trading: Vec<&TradingOperation> = ops
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Trading(trading) => Some(trading),
+            _ => None,
+        })
+        .collect();
+
+    if trading.is_empty() {
+        return;
+    }
+
+    let mut state = TradingSequenceState::default();
+
+    for (index, op) in trading.iter().enumerate() {
+        let op_context = format!("{context}.trading[{index}]");
+
+        if state.committed || state.aborted {
+            push_unsafe(
+                diagnostics,
+                format!("{op_context}: trading operation appears after terminal commit/abort"),
+            );
+            continue;
+        }
+
+        match op {
+            TradingOperation::BeginAtomicTrade { .. } => {
+                if state.began {
+                    push_unsafe(diagnostics, format!("{op_context}: duplicate BeginAtomicTrade"));
+                }
+                if index != 0 {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: BeginAtomicTrade must be the first trading operation"),
+                    );
+                }
+                state.began = true;
+            }
+            TradingOperation::OpenDebt {
+                debt_id, asset, ..
+            } => {
+                require_trade_started(&state, &op_context, diagnostics);
+                if state.open_debts.contains_key(debt_id) || state.closed_debts.contains(debt_id) {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: debt '{debt_id}' is opened more than once"),
+                    );
+                } else {
+                    state.open_debts.insert(debt_id.clone(), asset.clone());
+                }
+            }
+            TradingOperation::ExecuteSwap {
+                binding,
+                from,
+                to,
+                input,
+                ..
+            } => {
+                require_trade_started(&state, &op_context, diagnostics);
+
+                if state.receipt_seen || state.all_debts_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: swap appears after final trading guards/receipt"),
+                    );
+                }
+
+                match input {
+                    ValueRef::Literal(_) => {}
+                    ValueRef::Binding(name) => {
+                        if let Some((debt_id, field)) = name.split_once('.') {
+                            if field != "amount" {
+                                push_unsafe(
+                                    diagnostics,
+                                    format!("{op_context}: unsupported debt binding '{name}'"),
+                                );
+                            }
+                            match state.open_debts.get(debt_id) {
+                                Some(asset) if asset == from => {}
+                                Some(asset) => push_unsafe(
+                                    diagnostics,
+                                    format!(
+                                        "{op_context}: debt binding '{name}' has asset {} but swap expects {}",
+                                        asset.symbol, from.symbol
+                                    ),
+                                ),
+                                None => push_unsafe(
+                                    diagnostics,
+                                    format!("{op_context}: debt binding '{name}' used before open debt"),
+                                ),
+                            }
+                        } else {
+                            match state.bindings.get(name) {
+                                Some(asset) if asset == from => {}
+                                Some(asset) => push_unsafe(
+                                    diagnostics,
+                                    format!(
+                                        "{op_context}: binding '{name}' has asset {} but swap expects {}",
+                                        asset.symbol, from.symbol
+                                    ),
+                                ),
+                                None => push_unsafe(
+                                    diagnostics,
+                                    format!("{op_context}: binding '{name}' used before creation"),
+                                ),
+                            }
+                        }
+                    }
+                }
+
+                if let Some(existing) = state.bindings.get(binding) {
+                    if existing != to {
+                        push_unsafe(
+                            diagnostics,
+                            format!(
+                                "{op_context}: binding '{binding}' reused with conflicting asset {} -> {}",
+                                existing.symbol, to.symbol
+                            ),
+                        );
+                    } else {
+                        push_unsafe(
+                            diagnostics,
+                            format!("{op_context}: binding '{binding}' is assigned more than once"),
+                        );
+                    }
+                } else {
+                    state.bindings.insert(binding.clone(), to.clone());
+                }
+            }
+            TradingOperation::CloseDebt { debt_id } => {
+                require_trade_started(&state, &op_context, diagnostics);
+                if state.closed_debts.contains(debt_id) {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: debt '{debt_id}' is closed more than once"),
+                    );
+                } else if state.open_debts.remove(debt_id).is_none() {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: debt '{debt_id}' closed before it was opened"),
+                    );
+                } else {
+                    state.closed_debts.insert(debt_id.clone());
+                }
+            }
+            TradingOperation::AssertMinNetProfit { .. } => {
+                require_trade_started(&state, &op_context, diagnostics);
+                if state.receipt_seen || state.all_debts_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: minimum-profit guard appears after final guards/receipt"),
+                    );
+                }
+                if state.profit_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: duplicate minimum-profit guard"),
+                    );
+                }
+                state.profit_guard_seen = true;
+            }
+            TradingOperation::AssertAllDebtsClosed => {
+                require_trade_started(&state, &op_context, diagnostics);
+                if !state.open_debts.is_empty() {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: all-debts guard reached with open debts: {}",
+                            state.open_debts.keys().cloned().collect::<Vec<_>>().join(", ")
+                        ),
+                    );
+                }
+                if !state.profit_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: all-debts guard must follow the minimum-profit guard"),
+                    );
+                }
+                if state.all_debts_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: duplicate all-debts guard"),
+                    );
+                }
+                state.all_debts_guard_seen = true;
+            }
+            TradingOperation::EmitTradeReceipt => {
+                require_trade_started(&state, &op_context, diagnostics);
+                if !state.profit_guard_seen || !state.all_debts_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: receipt must follow minimum-profit and all-debts guards"
+                        ),
+                    );
+                }
+                if state.receipt_seen {
+                    push_unsafe(diagnostics, format!("{op_context}: duplicate receipt emission"));
+                }
+                state.receipt_seen = true;
+            }
+            TradingOperation::CommitAtomicTrade => {
+                require_trade_started(&state, &op_context, diagnostics);
+                if !state.open_debts.is_empty() {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: commit with open debts"),
+                    );
+                }
+                if !state.profit_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: commit missing minimum-profit guard"),
+                    );
+                }
+                if !state.all_debts_guard_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: commit missing all-debts guard"),
+                    );
+                }
+                if !state.receipt_seen {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: commit missing receipt"),
+                    );
+                }
+                if index + 1 != trading.len() {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: CommitAtomicTrade must be the final trading operation"),
+                    );
+                }
+                state.committed = true;
+            }
+            TradingOperation::AbortAtomicTrade => {
+                require_trade_started(&state, &op_context, diagnostics);
+                state.aborted = true;
+                if index + 1 != trading.len() {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: AbortAtomicTrade must be terminal"),
+                    );
+                }
+            }
+        }
+    }
+
+    if !state.began {
+        push_unsafe(
+            diagnostics,
+            format!("{context}: trading sequence is missing BeginAtomicTrade"),
+        );
+    }
+    if !state.committed && !state.aborted {
+        push_unsafe(
+            diagnostics,
+            format!("{context}: trading sequence has no terminal commit/abort"),
+        );
+    }
+}
+
+fn require_trade_started(
+    state: &TradingSequenceState,
+    context: &str,
+    diagnostics: &mut Vec<CompilerDiagnostic>,
+) {
+    if !state.began {
+        push_unsafe(
+            diagnostics,
+            format!("{context}: trading operation appears before BeginAtomicTrade"),
+        );
+    }
+}
+
 fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
     match trading {
-        TradingOperation::BeginAtomicTrade { trade_id, policy_id } => {
+        TradingOperation::BeginAtomicTrade { trade_id, policy } => {
             require_non_empty(diagnostics, context, "trade_id", trade_id);
-            require_non_empty(diagnostics, context, "policy_id", policy_id);
+            require_non_empty(diagnostics, context, "policy.policy_id", &policy.policy_id);
+            require_non_empty(diagnostics, context, "policy.chain", &policy.chain);
+            if policy.policy_version == 0 {
+                push_unsafe(diagnostics, format!("{context}: policy version must be greater than zero"));
+            }
+            if policy.max_slippage_bps > 10_000 {
+                push_unsafe(diagnostics, format!("{context}: policy max_slippage_bps exceeds 10000"));
+            }
+            if policy.max_flash_fee_bps > 10_000 {
+                push_unsafe(diagnostics, format!("{context}: policy max_flash_fee_bps exceeds 10000"));
+            }
+            if policy.deadline_blocks == 0 {
+                push_unsafe(diagnostics, format!("{context}: policy deadline_blocks must be greater than zero"));
+            }
         }
         TradingOperation::OpenDebt {
             debt_id,

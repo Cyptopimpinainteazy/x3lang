@@ -157,22 +157,34 @@ enum Tok {
     Eof,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct ParserToken {
+    kind: Tok,
+    span: Span,
+}
+
 struct Parser<'a> {
-    tokens: &'a [Tok],
+    tokens: &'a [ParserToken],
     pos: usize,
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: &'a [Tok]) -> Self {
+    fn new(tokens: &'a [ParserToken]) -> Self {
         Parser { tokens, pos: 0 }
     }
 
     fn peek(&self) -> Tok {
-        self.tokens.get(self.pos).cloned().unwrap_or(Tok::Eof)
+        self.tokens
+            .get(self.pos)
+            .map(|token| token.kind.clone())
+            .unwrap_or(Tok::Eof)
     }
 
     fn peek_n(&self, n: usize) -> Tok {
-        self.tokens.get(self.pos + n).cloned().unwrap_or(Tok::Eof)
+        self.tokens
+            .get(self.pos + n)
+            .map(|token| token.kind.clone())
+            .unwrap_or(Tok::Eof)
     }
 
     fn advance(&mut self) -> Tok {
@@ -197,6 +209,7 @@ impl<'a> Parser<'a> {
     fn parse_program(&mut self) -> Result<Vec<Spanned<Item>>, X3Error> {
         let mut items = Vec::new();
         loop {
+            let item_start = self.pos;
             match self.peek() {
                 Tok::Eof => break,
                 Tok::At => {
@@ -205,15 +218,25 @@ impl<'a> Parser<'a> {
                     let annots = self.parse_annotations()?;
                     let item = self.parse_top_item()?;
                     let with_annots = annotate_item(item, annots);
-                    items.push(Spanned::new(with_annots, Span::DUMMY));
+                    items.push(Spanned::new(with_annots, self.consumed_span(item_start)));
                 }
                 _ => {
                     let item = self.parse_top_item()?;
-                    items.push(Spanned::new(item, Span::DUMMY));
+                    items.push(Spanned::new(item, self.consumed_span(item_start)));
                 }
             }
         }
         Ok(items)
+    }
+
+    fn consumed_span(&self, start: usize) -> Span {
+        let Some(first) = self.tokens.get(start) else {
+            return Span::DUMMY;
+        };
+        let Some(last) = self.tokens.get(self.pos.saturating_sub(1)) else {
+            return Span::DUMMY;
+        };
+        Span::new(first.span.start, last.span.end, first.span.file_id)
     }
 
     fn parse_top_item(&mut self) -> Result<Item, X3Error> {
@@ -3235,9 +3258,14 @@ fn annotate_item(item: Item, annotations: Vec<Annotation>) -> Item {
 
 /// Tokenize source via the x3-lang-lexer crate, converting its
 /// `Token` stream into the parser's internal `Tok` enum.
-fn tokenize(source: &str) -> Vec<Tok> {
+fn tokenize(source: &str) -> Vec<ParserToken> {
     let lexer = x3_lang_lexer::Lexer::new(source, 0);
-    lexer.filter_map(lexer_token_to_tok).collect()
+    lexer
+        .filter_map(|token| {
+            let span = token.span;
+            lexer_token_to_tok(token).map(|kind| ParserToken { kind, span })
+        })
+        .collect()
 }
 
 /// Convert a lexer token to the parser's Tok enum.

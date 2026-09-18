@@ -2,9 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use x3_lang_compiler::ir::{AssetKey, TradingOperation, ValueRef};
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
 use x3_lang_vm::trading::{
-    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionLimits,
+    fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost,
     ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost,
     TradingVm,
 };
@@ -33,6 +33,10 @@ struct FixtureHost {
     swap_output: u128,
     borrow_fee: u128,
     commitment: [u8; 32],
+    execution_cost: u128,
+    began: bool,
+    committed: bool,
+    rolled_back: bool,
 }
 
 impl FixtureHost {
@@ -42,6 +46,10 @@ impl FixtureHost {
             swap_output: 2_000_000,
             borrow_fee: 0,
             commitment: COMMITMENT,
+            execution_cost: 0,
+            began: false,
+            committed: false,
+            rolled_back: false,
         }
     }
 }
@@ -49,6 +57,21 @@ impl FixtureHost {
 impl TradingHost for FixtureHost {
     fn capabilities(&self) -> &CapabilityManifest {
         &self.manifest
+    }
+
+    fn begin_transaction(&mut self) -> Result<(), HostError> {
+        self.began = true;
+        Ok(())
+    }
+
+    fn commit_transaction(&mut self) -> Result<(), HostError> {
+        self.committed = true;
+        Ok(())
+    }
+
+    fn rollback_transaction(&mut self) -> Result<(), HostError> {
+        self.rolled_back = true;
+        Ok(())
     }
 
     fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError> {
@@ -83,7 +106,14 @@ impl TradingHost for FixtureHost {
     }
 
     fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError> {
-        Ok(Vec::new())
+        if self.execution_cost == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(vec![CommittedCost {
+            asset: asset("USDC"),
+            amount: self.execution_cost,
+            kind: "gas".to_string(),
+        }])
     }
 }
 
@@ -91,7 +121,17 @@ fn ops() -> Vec<TradingOperation> {
     vec![
         TradingOperation::BeginAtomicTrade {
             trade_id: "T".to_string(),
-            policy_id: "P".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: 1_000_000,
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+            },
         },
         TradingOperation::OpenDebt {
             debt_id: "debt".to_string(),
@@ -131,13 +171,7 @@ fn ops() -> Vec<TradingOperation> {
 fn context(mode: ExecutionMode) -> TradeExecutionContext {
     TradeExecutionContext {
         mode,
-        limits: ExecutionLimits {
-            max_flash_fee_bps: 10,
-            max_gas: 1_000_000,
-            minimum_net_profit: None,
-        },
         current_block: 1,
-        deadline_block: 10,
     }
 }
 
@@ -259,4 +293,148 @@ fn low_net_profit_rolls_back() {
         x3_lang_vm::trading::TradingExecError::NetProfitBelowFloor { .. }
     ));
     assert_eq!(vm.trading_state, before);
+}
+
+
+#[test]
+fn host_transaction_commits_only_after_vm_success() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+
+    vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect("valid trade must commit");
+
+    assert!(host.began);
+    assert!(host.committed);
+    assert!(!host.rolled_back);
+}
+
+#[test]
+fn host_transaction_rolls_back_on_vm_rejection() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.swap_output = 1;
+
+    vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("invalid trade must fail");
+
+    assert!(host.began);
+    assert!(!host.committed);
+    assert!(host.rolled_back);
+}
+
+#[test]
+fn host_execution_costs_are_applied_before_profit_guard() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.execution_cost = 1_100_000;
+
+    let err = vm
+        .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("execution cost must reduce profit before the guard");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::NetProfitBelowFloor { .. }
+    ));
+    assert!(host.rolled_back);
+}
+
+
+#[test]
+fn compiled_policy_chain_mismatch_is_rejected_before_host_transaction() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.manifest.chain = "base".to_string();
+
+    let err = vm
+        .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("host chain must match compiled policy");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::CapabilityChainMismatch { .. }
+    ));
+    assert!(!host.began);
+}
+
+#[test]
+fn compiled_policy_version_mismatch_is_rejected_before_host_transaction() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.manifest.version = "trading-policy-v2".to_string();
+
+    let err = vm
+        .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("host policy version must match compiled policy");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::CapabilityVersionMismatch { .. }
+    ));
+    assert!(!host.began);
+}
+
+#[test]
+fn compiled_private_submission_requirement_is_enforced() {
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.require_private_submission = true;
+    }
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.manifest.private_submission = false;
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("private submission is a compiled capability requirement");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::PrivateSubmissionRequired
+    );
+    assert!(!host.began);
+}
+
+#[test]
+fn compiled_deadline_cannot_be_extended_by_caller() {
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.deadline_blocks = 2;
+    }
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let ctx = TradeExecutionContext {
+        mode: ExecutionMode::Development,
+        current_block: 3,
+    };
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, ctx)
+        .expect_err("caller cannot extend compiled deadline");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::DeadlineExpired { deadline: 2, .. }
+    ));
+}
+
+#[test]
+fn compiled_flash_fee_ceiling_cannot_be_relaxed_by_caller() {
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.max_flash_fee_bps = 1;
+    }
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.borrow_fee = 1_000;
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("compiled flash fee ceiling must control execution");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::FeeCeilingExceeded { ceiling_bps: 1, .. }
+    ));
 }

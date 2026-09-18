@@ -228,11 +228,22 @@ fn formatted_source_reparses_to_equivalent_ast() {
     let first = parse_source(TRADING_CORE_V1_SOURCE).expect("canonical fixture must parse");
     let formatted = X3Formatter::new().format_program(&first);
     let second = parse_source(&formatted).unwrap_or_else(|e| panic!("formatted output must reparse: {formatted}\n{e}"));
+
+    let first_nodes: Vec<_> = first.items.iter().map(|item| &item.node).collect();
+    let second_nodes: Vec<_> = second.items.iter().map(|item| &item.node).collect();
     assert_eq!(
-        serde_json::to_value(&first).unwrap(),
-        serde_json::to_value(&second).unwrap(),
-        "formatter round-trip changed the trading AST"
+        serde_json::to_value(first_nodes).unwrap(),
+        serde_json::to_value(second_nodes).unwrap(),
+        "formatter round-trip changed the semantic trading AST"
     );
+
+    for item in &second.items {
+        assert!(!item.span.is_dummy(), "formatted parse must preserve source spans");
+        assert!(
+            item.span.to_range().end <= formatted.len(),
+            "formatted parse span must stay inside formatted source"
+        );
+    }
 }
 
 #[test]

@@ -6,7 +6,7 @@ use x3_lang_ast::ast::{Expression, LiteralExpr};
 use x3_lang_ast::{AtomicTradeDecl, RoundingMode, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::{Symbol, X3Error};
 
-use crate::ir::{AssetKey, Operation, TradingOperation, ValueRef};
+use crate::ir::{AssetKey, CompiledTradingPolicy, Operation, TradingOperation, ValueRef};
 use crate::trading_semantic::{decimal_to_base_units, TradingSymbols};
 
 /// Errors produced while lowering a verified atomic trade.
@@ -42,9 +42,40 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         ),
     })?;
 
+    let policy_chain = trade
+        .body
+        .iter()
+        .find_map(|stmt| match stmt {
+            TradeStmt::Borrow { amount, .. } => symbols.assets.get(&amount.asset).map(|asset| asset.chain.as_str().to_string()),
+            TradeStmt::Swap { from_asset, .. } => symbols.assets.get(from_asset).map(|asset| asset.chain.as_str().to_string()),
+            _ => None,
+        })
+        .ok_or_else(|| LowerError {
+            message: format!("atomic trade '{}' has no chain-qualified asset", trade.name.as_str()),
+        })?;
+
+    let max_gas = literal_amount(&policy.max_gas, symbols, "policy max_gas")?;
+    let minimum_net_profit = match &policy.min_profit {
+        Some(amount) => Some(literal_amount(amount, symbols, "policy min_profit")?),
+        None => None,
+    };
+    let deadline_blocks = literal_u64(&policy.deadline, "policy deadline")?;
+
+    let compiled_policy = CompiledTradingPolicy {
+        policy_id: policy.name.as_str().to_string(),
+        policy_version: 1,
+        chain: policy_chain,
+        max_slippage_bps: policy.max_slippage_bps,
+        max_gas,
+        max_flash_fee_bps: policy.max_flash_fee_bps,
+        deadline_blocks,
+        require_private_submission: policy.require_private_submission,
+        minimum_net_profit,
+    };
+
     let mut operations = vec![Operation::Trading(TradingOperation::BeginAtomicTrade {
         trade_id: trade.name.as_str().to_string(),
-        policy_id: policy.name.as_str().to_string(),
+        policy: compiled_policy,
     })];
     let mut has_borrow = false;
     let mut has_receipt = false;
@@ -168,5 +199,16 @@ fn literal_text(expr: &Expression) -> Option<String> {
         Expression::Literal(LiteralExpr::Int { value, .. }) => Some(value.to_string()),
         Expression::Literal(LiteralExpr::Float { raw, .. }) => Some(raw.as_str().to_string()),
         _ => None,
+    }
+}
+
+fn literal_u64(expr: &Expression, context: &str) -> Result<u64, LowerError> {
+    match expr {
+        Expression::Literal(LiteralExpr::Int { value, .. }) => u64::try_from(*value).map_err(|_| LowerError {
+            message: format!("{context} exceeds u64"),
+        }),
+        _ => Err(LowerError {
+            message: format!("{context} must be an integer literal"),
+        }),
     }
 }

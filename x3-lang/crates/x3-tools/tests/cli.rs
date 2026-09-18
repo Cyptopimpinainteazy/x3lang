@@ -44,7 +44,7 @@ fn write_fixture(name: &str, body: &str) -> PathBuf {
 fn trading_receipt_json(tamper: bool) -> String {
     use std::collections::BTreeMap;
 
-    use x3_lang_compiler::ir::{AssetKey, TradingOperation};
+    use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation};
     use x3_lang_vm::trading::{build_receipt, DebtRecord, TradeOutcome, TradingState};
 
     let asset = AssetKey {
@@ -57,7 +57,17 @@ fn trading_receipt_json(tamper: bool) -> String {
     let operations = vec![
         TradingOperation::BeginAtomicTrade {
             trade_id: "T".to_string(),
-            policy_id: "P".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: 1_000_000,
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+            },
         },
         TradingOperation::OpenDebt {
             debt_id: "debt".to_string(),
@@ -68,6 +78,12 @@ fn trading_receipt_json(tamper: bool) -> String {
         TradingOperation::CloseDebt {
             debt_id: "debt".to_string(),
         },
+        TradingOperation::AssertMinNetProfit {
+            settlement_asset: asset.clone(),
+            minimum: 1,
+        },
+        TradingOperation::AssertAllDebtsClosed,
+        TradingOperation::EmitTradeReceipt,
         TradingOperation::CommitAtomicTrade,
     ];
     let mut state = TradingState {

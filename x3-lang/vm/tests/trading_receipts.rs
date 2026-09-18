@@ -1,9 +1,12 @@
 //! Deterministic receipt encoding, hashing, and tamper-detection tests.
 
-use x3_lang_compiler::ir::{AssetKey, TradingOperation};
+use std::collections::BTreeMap;
+
+use ed25519_dalek::SigningKey;
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation};
 use x3_lang_vm::trading::{
-    build_receipt, canonical_receipt_bytes, finalize_receipt, verify_receipt, DebtRecord, ReceiptError, TradeOutcome,
-    TradingState,
+    build_receipt, canonical_receipt_bytes, finalize_receipt, sign_receipt, verify_receipt, verify_receipt_economics,
+    verify_receipt_trusted, DebtRecord, ReceiptError, TradeOutcome, TradingState,
 };
 
 fn asset(symbol: &str) -> AssetKey {
@@ -20,7 +23,17 @@ fn operations() -> Vec<TradingOperation> {
     vec![
         TradingOperation::BeginAtomicTrade {
             trade_id: "T".to_string(),
-            policy_id: "P".to_string(),
+            policy: CompiledTradingPolicy {
+                policy_id: "P".to_string(),
+                policy_version: 1,
+                chain: "ethereum".to_string(),
+                max_slippage_bps: 30,
+                max_gas: 1_000_000,
+                max_flash_fee_bps: 10,
+                deadline_blocks: 10,
+                require_private_submission: false,
+                minimum_net_profit: None,
+            },
         },
         TradingOperation::OpenDebt {
             debt_id: "debt".to_string(),
@@ -35,6 +48,8 @@ fn operations() -> Vec<TradingOperation> {
             settlement_asset: asset("USDC"),
             minimum: 1,
         },
+        TradingOperation::AssertAllDebtsClosed,
+        TradingOperation::EmitTradeReceipt,
         TradingOperation::CommitAtomicTrade,
     ]
 }
@@ -165,4 +180,69 @@ fn deltas_and_costs_use_ordered_vectors() {
     assert_eq!(receipt.deltas[0].asset, asset("USDC"));
     assert_eq!(receipt.deltas[0].delta, 2_000_000);
     assert!(receipt.costs.is_empty());
+}
+
+
+fn signing_key() -> SigningKey {
+    SigningKey::from_bytes(&[7u8; 32])
+}
+
+fn trusted_keys(key: &SigningKey) -> BTreeMap<String, [u8; 32]> {
+    BTreeMap::from([("executor-1".to_string(), key.verifying_key().to_bytes())])
+}
+
+#[test]
+fn signed_receipt_verifies_against_explicit_trust_store() {
+    let key = signing_key();
+    let receipt = sign_receipt(sample_receipt(), "executor-1", &key).expect("receipt must sign");
+
+    verify_receipt_trusted(&receipt, &trusted_keys(&key))
+        .expect("trusted signed receipt must verify");
+}
+
+#[test]
+fn tampering_after_signing_invalidates_attestation() {
+    let key = signing_key();
+    let mut receipt = sign_receipt(sample_receipt(), "executor-1", &key).expect("receipt must sign");
+    receipt.trade_id.push('X');
+
+    assert!(verify_receipt_trusted(&receipt, &trusted_keys(&key)).is_err());
+}
+
+#[test]
+fn untrusted_attestor_is_rejected() {
+    let key = signing_key();
+    let receipt = sign_receipt(sample_receipt(), "executor-1", &key).expect("receipt must sign");
+    let empty = BTreeMap::new();
+
+    assert!(matches!(
+        verify_receipt_trusted(&receipt, &empty),
+        Err(ReceiptError::UntrustedAttestor(_))
+    ));
+}
+
+#[test]
+fn economic_replay_rejects_forged_reported_profit_even_with_rehashed_receipt() {
+    let mut receipt = sample_receipt();
+    receipt.realized_net_profit.as_mut().unwrap().amount += 1;
+    let receipt = finalize_receipt(receipt).expect("attacker can recompute a plain checksum");
+
+    assert!(verify_receipt(&receipt).is_ok(), "plain checksum alone cannot prove economics");
+    assert!(matches!(
+        verify_receipt_economics(&receipt),
+        Err(ReceiptError::EconomicReplayMismatch(_))
+    ));
+}
+
+#[test]
+fn trusted_verification_rejects_resigned_economically_invalid_receipt() {
+    let key = signing_key();
+    let mut receipt = sample_receipt();
+    receipt.realized_net_profit.as_mut().unwrap().amount += 1;
+    let receipt = sign_receipt(receipt, "executor-1", &key).expect("receipt can be signed");
+
+    assert!(matches!(
+        verify_receipt_trusted(&receipt, &trusted_keys(&key)),
+        Err(ReceiptError::EconomicReplayMismatch(_))
+    ));
 }

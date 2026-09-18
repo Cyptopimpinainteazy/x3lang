@@ -1,7 +1,9 @@
 //! End-to-end Trading Core v1 pipeline: parse -> type -> verify -> lower ->
 //! execute through an explicitly marked fixture host -> verify receipt.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+use ed25519_dalek::SigningKey;
 
 use x3_lang_ast::Item;
 use x3_lang_compiler::parser::parse_source;
@@ -9,9 +11,10 @@ use x3_lang_compiler::{
     analyze_trading, check_source_with_mode, compile_program, lower_atomic_trade, verify_trading_program,
     CompilationMode,
 };
+use x3_lang_compiler::emitter::decode_trading_program;
 use x3_lang_vm::trading::{
-    build_receipt, fixture_manifest, verify_receipt, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost,
-    ExecutionLimits, ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult,
+    build_receipt, fixture_manifest, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult,
+    CapabilityManifest, CommittedCost, ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult,
     TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
 };
 
@@ -75,13 +78,7 @@ impl TradingHost for FixtureVenueHost {
 fn execution_context(mode: ExecutionMode) -> TradeExecutionContext {
     TradeExecutionContext {
         mode,
-        limits: ExecutionLimits {
-            max_flash_fee_bps: 10,
-            max_gas: 1_000_000_000,
-            minimum_net_profit: Some(1_000_000_000),
-        },
         current_block: 1,
-        deadline_block: 2,
     }
 }
 
@@ -105,22 +102,18 @@ fn trading_core_v1_pipeline_executes_and_verifies_receipt() {
     let bytecode = compile_program(&program).expect("example must compile to bytecode");
     assert!(!bytecode.is_empty() && bytecode.len() % 4 == 0);
 
+    let decoded = decode_trading_program(&bytecode).expect("emitted trading bytecode must decode");
+    assert_eq!(decoded.len(), 9, "every trading operation must survive encode/decode");
+
     let mut vm = TradingVm::new();
     let mut host = FixtureVenueHost::new();
     let execution = vm
         .execute_atomic(
-            operations
-                .iter()
-                .map(|operation| match operation {
-                    x3_lang_compiler::Operation::Trading(trading) => trading.clone(),
-                    _ => panic!("lowered trading sequence only contains trading operations"),
-                })
-                .collect::<Vec<_>>()
-                .as_slice(),
+            &decoded,
             &mut host,
             execution_context(ExecutionMode::Development),
         )
-        .expect("fixture execution must commit");
+        .expect("decoded-bytecode fixture execution must commit");
 
     let settlement = x3_lang_compiler::AssetKey {
         vm_family: "evm".to_string(),
@@ -135,19 +128,19 @@ fn trading_core_v1_pipeline_executes_and_verifies_receipt() {
         trade.name.as_str(),
         trade.risk_policy.as_str(),
         COMMITMENT,
-        &operations
-            .iter()
-            .map(|operation| match operation {
-                x3_lang_compiler::Operation::Trading(trading) => trading.clone(),
-                _ => panic!("unexpected operation"),
-            })
-            .collect::<Vec<_>>(),
+        &decoded,
         &execution.committed_state,
         Some(&settlement),
         TradeOutcome::Success,
     )
     .expect("receipt must build");
-    verify_receipt(&receipt).expect("receipt must verify");
+    let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+    let receipt = sign_receipt(receipt, "e2e-executor", &signing_key).expect("receipt must sign");
+    let trusted = BTreeMap::from([(
+        "e2e-executor".to_string(),
+        signing_key.verifying_key().to_bytes(),
+    )]);
+    verify_receipt_trusted(&receipt, &trusted).expect("signed receipt must verify");
     assert!(receipt
         .realized_net_profit
         .as_ref()
@@ -190,5 +183,23 @@ fn mainnet_audit_reports_missing_private_submission_capability() {
             .iter()
             .any(|error| error.to_string().contains("private-submission")),
         "mainnet audit must report the missing private-submission capability: {errors:?}"
+    );
+}
+
+
+#[test]
+fn malformed_trading_bytecode_fails_closed_before_execution() {
+    let program = parse_source(SOURCE).expect("example must parse");
+    let mut bytecode = compile_program(&program).expect("example must compile");
+    let trading_start = bytecode
+        .iter()
+        .position(|byte| *byte == x3_lang_compiler::spec::opcodes::TRADING_BEGIN)
+        .expect("compiled artifact must contain a trading opcode");
+    bytecode[trading_start + 1] = 0xff;
+    bytecode[trading_start + 2] = 0xff;
+
+    assert!(
+        decode_trading_program(&bytecode).is_err(),
+        "malformed trading payload length must fail closed"
     );
 }

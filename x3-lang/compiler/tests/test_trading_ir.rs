@@ -35,8 +35,15 @@ fn canonical_example_lowers_to_exact_operation_order() {
 
     assert!(matches!(
         &ops[0],
-        Operation::Trading(TradingOperation::BeginAtomicTrade { trade_id, policy_id })
-            if trade_id == "CrossDexArb" && policy_id == "MainnetArb"
+        Operation::Trading(TradingOperation::BeginAtomicTrade { trade_id, policy })
+            if trade_id == "CrossDexArb"
+                && policy.policy_id == "MainnetArb"
+                && policy.policy_version == 1
+                && policy.chain == "ethereum"
+                && policy.max_slippage_bps == 30
+                && policy.max_flash_fee_bps == 10
+                && policy.deadline_blocks == 2
+                && policy.require_private_submission
     ));
     assert!(matches!(
         &ops[1],
