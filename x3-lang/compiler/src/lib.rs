@@ -41,7 +41,7 @@ use parser::parse_source;
 use regalloc::{allocate, AllocationResult};
 use semantic::verify_atomic_swap_decls;
 use semantic::verify_with_config as verify_semantics;
-use semantic::{verify_relayer_quorum_declared, verify_solver_bond_declared};
+use semantic::{verify_atomic_choice_decls, verify_relayer_quorum_declared, verify_solver_bond_declared};
 use x3_lang_ast::ast::Program;
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
 
@@ -161,6 +161,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     let mut errors = Vec::new();
     let mut acc = ErrorAccumulator::new();
     verify_atomic_swap_decls(program, &mut acc);
+    verify_atomic_choice_decls(program, &mut acc);
     verify_solver_bond_declared(program, &mut acc);
     verify_relayer_quorum_declared(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
@@ -183,7 +184,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
 /// bytecode emission — atomic scoping balance, non-zero amounts and iterations,
 /// empty-field safety. Documented at the top of this file and, like layer 1,
 /// called from nowhere but its own tests.
-fn ir_level_errors(ir: &crate::ir::X3IR) -> Vec<X3Error> {
+pub(crate) fn ir_level_errors(ir: &crate::ir::X3IR) -> Vec<X3Error> {
     match verify::verify_ir(ir) {
         Ok(()) => Vec::new(),
         Err(diagnostics) => diagnostics.iter().map(diagnostic_to_error).collect(),

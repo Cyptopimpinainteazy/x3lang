@@ -51,6 +51,13 @@ pub const DEFAULT_MAX_ATOMIC_OPS: u32 = 8;
 /// Maximum number of hops (bridge operations) allowed in a single route.
 pub const DEFAULT_MAX_ROUTE_HOPS: u32 = 4;
 
+/// Maximum number of paths an `atomic_choice` may declare.
+///
+/// "Bounded branch execution" is the construct's whole purpose, so the bound is
+/// a named production limit the verifier enforces rather than whatever the
+/// parser happens to accept.
+pub const MAX_ATOMIC_CHOICE_PATHS: u32 = 8;
+
 /// Hard-coded allow-list of chains the production adapters know about.
 /// Adding a new chain here is an explicit, auditable action.
 pub const KNOWN_CHAINS: &[&str] = &[
@@ -611,7 +618,7 @@ pub const SWAP_KNOWN_CHAINS: &[&str] = &[
 pub const SUPPORTED_HASH_FUNCTIONS: &[&str] = &["sha256", "blake2b"];
 
 /// Extract a `u128` integer value from an expression, if it is a literal integer.
-fn extract_int_from_expr(expr: &Expression) -> Option<u128> {
+pub(crate) fn extract_int_from_expr(expr: &Expression) -> Option<u128> {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => Some(*value),
         _ => None,
@@ -653,6 +660,137 @@ fn require_guards(program: &Program) -> Vec<(&str, &x3_lang_ast::ast::RequireGua
         }
     }
     guards
+}
+
+/// How many hops a path's body represents, when it is written as statements.
+///
+/// A `swap` or `bridge` statement is one hop. `None` means the path declares
+/// neither a hop chain nor a route statement, so the compiler has no hop count
+/// to rank by — which is an error for `choose fewest_hops`, not a zero.
+pub(crate) fn path_hop_count(path: &x3_lang_ast::ast::ChoicePath) -> Option<u32> {
+    if !path.hops.is_empty() {
+        return Some(path.hops.len() as u32);
+    }
+    let mut hops = 0u32;
+    for statement in &path.body {
+        if matches!(
+            statement,
+            x3_lang_ast::ast::Statement::Swap { .. } | x3_lang_ast::ast::Statement::Bridge { .. }
+        ) {
+            hops += 1;
+        }
+    }
+    if hops == 0 {
+        None
+    } else {
+        Some(hops)
+    }
+}
+
+/// Verify an `atomic_choice` is a bounded, type-consistent branch set.
+///
+/// The construct's promise is that the compiler enumerated every permitted
+/// branch, checked each one, and that the artifact cannot run a branch it did
+/// not verify. Each clause below is one of those promises:
+///
+/// - **enumerate permitted branches** — at least two, at most
+///   [`MAX_ATOMIC_CHOICE_PATHS`], with distinct names. A set of one is not a
+///   choice, and an unbounded set is not bounded execution.
+/// - **type-check every branch** — each path must have an executable body;
+///   lowering and the IR passes then run over the selected path, and the
+///   bounds check is what keeps "every branch was checked" from being a claim
+///   about branches the parser silently dropped.
+/// - **equivalent required output type** — every path must declare
+///   `net_output <amount> <ASSET>` and all of them must name the same asset.
+///   Without this, "choose the best branch" compares things that are not the
+///   same kind of thing.
+/// - **prohibit arbitrary runtime code mutation** — the criterion is a closed
+///   enum, and the data it ranks must be evaluable at compile time. A path
+///   whose `net_output` is not an integer literal cannot be ranked, so it is
+///   refused rather than defaulted.
+pub fn verify_atomic_choice_decls(program: &Program, acc: &mut ErrorAccumulator) {
+    for item in &program.items {
+        let Item::AtomicChoice(choice) = &item.node else {
+            continue;
+        };
+        let name = choice.name.as_str();
+
+        if choice.paths.len() < 2 {
+            acc.add_error(err(format!(
+                "atomic_choice '{name}' declares {} path(s); a choice needs at least two branches",
+                choice.paths.len()
+            )));
+        }
+        if choice.paths.len() as u32 > MAX_ATOMIC_CHOICE_PATHS {
+            acc.add_error(err(format!(
+                "atomic_choice '{name}' declares {} paths, above the {MAX_ATOMIC_CHOICE_PATHS}-path \
+                 production bound for bounded branch execution",
+                choice.paths.len()
+            )));
+        }
+
+        let mut seen: Vec<&str> = Vec::new();
+        let mut outputs: Vec<(&str, &str)> = Vec::new();
+        for path in &choice.paths {
+            let path_name = path.name.as_str();
+            if seen.contains(&path_name) {
+                acc.add_error(err(format!(
+                    "atomic_choice '{name}' declares path '{path_name}' twice; branches are selected \
+                     by index and a duplicate name makes the set ambiguous"
+                )));
+            }
+            seen.push(path_name);
+
+            if path.body.is_empty() {
+                acc.add_error(err(format!(
+                    "atomic_choice '{name}' path '{path_name}' has no executable body — a hop chain \
+                     alone names a route but no venue to execute it against, so there is nothing to \
+                     verify"
+                )));
+            }
+
+            match &path.net_output {
+                None => acc.add_error(err(format!(
+                    "atomic_choice '{name}' path '{path_name}' declares no `net_output <amount> \
+                     <ASSET>`; the compiler cannot compare a branch whose output it does not know"
+                ))),
+                Some(output) => {
+                    if extract_int_from_expr(&output.value).is_none() {
+                        acc.add_error(err(format!(
+                            "atomic_choice '{name}' path '{path_name}' has a `net_output` that is not \
+                             an integer literal; choosing between branches needs values the compiler \
+                             can evaluate, not expressions it must defer"
+                        )));
+                    }
+                    outputs.push((path_name, output.asset.as_str()));
+                }
+            }
+        }
+
+        if let Some((first_path, first_asset)) = outputs.first() {
+            for (path_name, asset) in outputs.iter().skip(1) {
+                if asset != first_asset {
+                    acc.add_error(err(format!(
+                        "atomic_choice '{name}' paths do not require the same output asset: path \
+                         '{first_path}' produces {first_asset} and path '{path_name}' produces \
+                         {asset}; a choice must compare equivalent outputs"
+                    )));
+                }
+            }
+        }
+
+        if choice.criterion == x3_lang_ast::ast::ChoiceCriterion::FewestHops {
+            for path in &choice.paths {
+                if path_hop_count(path).is_none() {
+                    acc.add_error(err(format!(
+                        "atomic_choice '{name}' path '{}' has no hops to count — declare a hop chain \
+                         or a swap/bridge statement for `choose fewest_hops`",
+                        path.name.as_str()
+                    )));
+                }
+            }
+        }
+    }
 }
 
 /// A `require solver_bond >= N` guard needs a bond to compare against.

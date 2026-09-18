@@ -18,6 +18,7 @@ pub trait AstVisitor {
     // Cross-chain visitors (default no-op)
     fn visit_bridge(&mut self, _b: &BridgeDecl) {}
     fn visit_atomic_swap(&mut self, _a: &AtomicSwapDecl) {}
+    fn visit_atomic_choice(&mut self, _c: &AtomicChoiceDecl) {}
     fn visit_cross_chain_strategy(&mut self, _s: &CrossChainStrategy) {}
     fn visit_proposal(&mut self, _p: &ProposalDecl) {}
     // B-52 feature lock visitors

@@ -60,6 +60,28 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 }
                 atomic_depth += 1;
             }
+            Operation::AtomicChoice {
+                paths,
+                criterion,
+                selected,
+            } => {
+                if *paths < 2 {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: an atomic choice with fewer than two paths is not a choice"),
+                    );
+                }
+                if *paths == 0 || *selected >= *paths {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: atomic choice selects path {selected} of {paths}; the selected \
+                             index must name a declared path"
+                        ),
+                    );
+                }
+                let _ = criterion;
+            }
             Operation::AtomicEnd => {
                 if atomic_depth == 0 {
                     push_unsafe(

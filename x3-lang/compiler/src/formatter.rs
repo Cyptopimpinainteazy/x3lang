@@ -65,6 +65,7 @@ impl X3Formatter {
             Item::Enum(e) => self.format_enum(e),
             Item::Bridge(b) => self.format_bridge(b),
             Item::AtomicSwap(a) => self.format_atomic_swap(a),
+            Item::AtomicChoice(c) => self.format_atomic_choice(c),
             Item::Strategy(s) => self.format_strategy(s),
             Item::Proposal(p) => self.format_proposal(p),
             Item::IntentDecl(i) => self.format_intent(i),
@@ -432,6 +433,45 @@ impl X3Formatter {
         for stmt in &a.body {
             self.format_statement(stmt);
         }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_atomic_choice(&mut self, c: &AtomicChoiceDecl) {
+        self.write("atomic_choice ");
+        self.write(c.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        for path in &c.paths {
+            self.write("path ");
+            self.write(path.name.as_str());
+            self.write(" {\n");
+            self.indent();
+            if !path.hops.is_empty() {
+                for (index, hop) in path.hops.iter().enumerate() {
+                    if index > 0 {
+                        self.write(" -> ");
+                    }
+                    self.format_asset_ref(hop);
+                }
+                self.write("\n");
+            }
+            for stmt in &path.body {
+                self.format_statement(stmt);
+            }
+            if let Some(output) = &path.net_output {
+                self.write("net_output ");
+                self.format_expression(&output.value);
+                self.write(" ");
+                self.write(output.asset.as_str());
+                self.write("\n");
+            }
+            self.dedent();
+            self.write("}\n");
+        }
+        self.write("choose ");
+        self.write(c.criterion.as_str());
+        self.write(";\n");
         self.dedent();
         self.write("}\n");
     }

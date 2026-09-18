@@ -48,6 +48,7 @@ pub struct VmSnapshot {
     pub asset_ops_len: usize,
     pub bridge_receipts_len: usize,
     pub trading_ops_len: usize,
+    pub atomic_choices_len: usize,
     pub pc: usize,
     pub call_stack: Vec<usize>,
     pub instruction_count: u128,
@@ -69,6 +70,13 @@ pub struct VMState {
     pub bridge_receipts: Vec<Vec<u8>>,
     pub sub_exec_ops: Vec<SubExecInfo>,
     pub trading_ops: Vec<TradingOperation>,
+    /// `atomic_choice` records the running program executed, in order.
+    ///
+    /// The instruction exists to be *observable*: a caller can see that the
+    /// artifact carried a branch set, how large it was, and which branch was
+    /// taken, instead of having to infer it from which operations happen to be
+    /// present.
+    pub atomic_choices: Vec<AtomicChoiceRecord>,
     pub paused: bool,
     /// Atomic scope rollback snapshot (set by ATOMIC_BEGIN, consumed by ATOMIC_ROLLBACK).
     pub atomic_snapshot: Option<VmSnapshot>,
@@ -97,6 +105,7 @@ impl VMState {
             bridge_receipts: Vec::new(),
             sub_exec_ops: Vec::new(),
             trading_ops: Vec::new(),
+            atomic_choices: Vec::new(),
             paused: false,
             atomic_snapshot: None,
             failure_handlers: Vec::new(),
@@ -104,6 +113,18 @@ impl VMState {
             instruction_count: 0,
         }
     }
+}
+
+/// One `atomic_choice` the program executed: the size of the branch set the
+/// artifact declared, the criterion that ranked it, and the branch taken.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AtomicChoiceRecord {
+    /// Number of branches the compiled artifact declared.
+    pub paths: u32,
+    /// Criterion code, as it appears in the instruction's flags byte.
+    pub criterion: u8,
+    /// Index of the branch whose body this execution ran.
+    pub selected: u32,
 }
 
 #[derive(Clone, Debug)]

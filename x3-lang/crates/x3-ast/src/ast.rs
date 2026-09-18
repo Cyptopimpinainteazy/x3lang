@@ -35,6 +35,7 @@ pub enum Item {
     // Cross-chain top-level declarations
     Bridge(BridgeDecl),
     AtomicSwap(AtomicSwapDecl),
+    AtomicChoice(AtomicChoiceDecl),
     Strategy(CrossChainStrategy),
     Proposal(ProposalDecl),
     GpuBlock(GpuBlock),
@@ -581,6 +582,69 @@ pub struct AtomicSwapDecl {
     pub timeout_destination: Option<Expression>,
 }
 
+/// How an `atomic_choice` picks one of its paths.
+///
+/// A closed set on purpose. The compiler has to "prohibit arbitrary runtime
+/// code mutation", so the choice is a criterion the compiler understands and
+/// can evaluate over the paths it verified — never an expression whose value
+/// decides at run time which code runs. Adding a criterion means teaching the
+/// compiler how to rank paths by it, which is exactly the review point that
+/// keeps the set closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChoiceCriterion {
+    /// Take the path whose declared `net_output` is largest.
+    HighestNetOutput,
+    /// Take the path with the fewest hops.
+    FewestHops,
+}
+
+impl ChoiceCriterion {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ChoiceCriterion::HighestNetOutput => "highest_net_output",
+            ChoiceCriterion::FewestHops => "fewest_hops",
+        }
+    }
+
+    /// The criteria the language accepts. Used both by the parser and by the
+    /// error message for an unknown one, so the two cannot list different sets.
+    pub const ALL: &'static [ChoiceCriterion] = &[ChoiceCriterion::HighestNetOutput, ChoiceCriterion::FewestHops];
+
+    pub fn parse(name: &str) -> Option<ChoiceCriterion> {
+        ChoiceCriterion::ALL.iter().copied().find(|c| c.as_str() == name)
+    }
+}
+
+/// One `path <name> { ... }` arm of an `atomic_choice`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChoicePath {
+    pub name: Symbol,
+    /// Executable body, in the same statement grammar every other block uses.
+    pub body: Vec<Statement>,
+    /// `A -> B -> C`, when the path is written as a hop chain. Kept so the
+    /// route's shape survives parsing; resolving hops to venues is the
+    /// opportunity graph's job, not this node's.
+    pub hops: Vec<AssetRef>,
+    /// `net_output <amount>` — what this path claims to produce. Required by
+    /// `choose highest_net_output`, because a criterion the compiler cannot
+    /// evaluate over every path is not a criterion.
+    pub net_output: Option<crate::AmountExpr>,
+}
+
+/// `atomic_choice { path A { ... } path B { ... } choose <criterion> }` —
+/// bounded branch execution.
+///
+/// The paths are the permitted branches: every one is parsed, lowered and
+/// verified, the compiler picks one by the declared criterion, and the
+/// artifact records both the full branch set and which one was taken. Nothing
+/// at run time can choose a branch the compiler did not verify.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtomicChoiceDecl {
+    pub name: Symbol,
+    pub paths: Vec<ChoicePath>,
+    pub criterion: ChoiceCriterion,
+}
+
 /// `strategy <name> { ... }` — a constrained execution strategy (arb, liquidation, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrossChainStrategy {
@@ -827,6 +891,7 @@ impl Program {
                 Item::Enum(e) => v.visit_enum(e),
                 Item::Bridge(b) => v.visit_bridge(b),
                 Item::AtomicSwap(a) => v.visit_atomic_swap(a),
+                Item::AtomicChoice(c) => v.visit_atomic_choice(c),
                 Item::Strategy(s) => v.visit_cross_chain_strategy(s),
                 Item::Proposal(p) => v.visit_proposal(p),
                 Item::VmDecl(d) => v.visit_vm_decl(d),

@@ -13,8 +13,8 @@
 
 use x3_lang_ast::ast::*;
 use x3_lang_ast::{
-    AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, DebtId, InvariantKind, TradeEffect, TradeGuarantee,
-    TradeRiskPolicy, TradeStmt,
+    AmountExpr, AssetDecl, AssetId, AtomicChoiceDecl, AtomicTradeDecl, ChoiceCriterion, ChoicePath, DebtId,
+    InvariantKind, TradeEffect, TradeGuarantee, TradeRiskPolicy, TradeStmt,
 };
 use x3_lang_common::{BinOp as CBinOp, IntBase, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
 use x3_lang_lexer::token::{Keyword, Token, TokenKind};
@@ -259,13 +259,17 @@ impl<'a> Parser<'a> {
                 self.advance(); // consume 'atomic'
                 if self.check(Tok::KwSwap) {
                     self.parse_atomic_swap_item_new()
+                } else if self.check(Tok::Ident("choice".to_string())) {
+                    // `atomic choice { ... }` — the spaced spelling of the
+                    // same declaration `atomic_choice { ... }` reaches above.
+                    self.parse_atomic_choice_body(Symbol::new("atomic_choice"))
                 } else if self.check(Tok::Ident("trade".to_string())) {
                     self.parse_atomic_trade_decl().map(Item::AtomicTrade)
                 } else {
                     // Parser saw 'atomic' at top level without 'swap' —
                     // not a valid top-level item.
                     Err(parse_err(
-                        "expected 'swap' or 'trade' after 'atomic' at top level".into(),
+                        "expected 'swap', 'trade' or 'choice' after 'atomic' at top level".into(),
                         self.peek(),
                     ))
                 }
@@ -278,6 +282,10 @@ impl<'a> Parser<'a> {
             Tok::KwIntent => self.parse_intent_item(),
             Tok::KwSubscription => self.parse_subscription_item(),
             Tok::Ident(ref s) if s == "asset" => self.parse_asset_decl().map(Item::AssetDecl),
+            Tok::Ident(ref s) if s == "atomic_choice" => {
+                self.advance(); // consume 'atomic_choice'
+                self.parse_atomic_choice_body(Symbol::new("atomic_choice"))
+            }
             Tok::Ident(ref s) if s == "risk" && matches!(self.peek_n(1), Tok::Ident(ref n) if n == "policy") => {
                 self.parse_trade_risk_policy().map(Item::TradeRiskPolicy)
             }
@@ -1224,6 +1232,133 @@ impl<'a> Parser<'a> {
 
     /// A count of blocks. Used for ceilings where the unit is blocks and a
     /// fractional value would be meaningless.
+    /// `[<name>] { path <name> { ... } ... choose <criterion> }`
+    ///
+    /// The caller has consumed `atomic_choice` / `atomic choice`. The paths are
+    /// all parsed, however many there are — bounding them is a semantic
+    /// decision, and a parser that silently stopped after N paths would hide
+    /// the program's real shape from the verifier.
+    fn parse_atomic_choice_body(&mut self, name: Symbol) -> Result<Item, X3Error> {
+        // Both `atomic_choice { ... }` and `atomic_choice <name> { ... }`. The
+        // name is optional because the declaration is anonymous in the spec's
+        // form, but it is what error messages need to point at, so allowing one
+        // is worth the two lines.
+        let name = if let Tok::Ident(candidate) = self.peek() {
+            self.advance();
+            Symbol::new(&candidate)
+        } else {
+            name
+        };
+        self.expect(Tok::LBrace, "expected '{' after atomic_choice")?;
+        let mut paths: Vec<ChoicePath> = Vec::new();
+        let mut criterion: Option<ChoiceCriterion> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "path" => {
+                    self.advance();
+                    let path_name = self.expect_ident("path name")?;
+                    paths.push(self.parse_choice_path(Symbol::new(&path_name))?);
+                }
+                Tok::Ident(ref s) if s == "choose" => {
+                    self.advance();
+                    let wanted = self.expect_ident("choice criterion")?;
+                    criterion = Some(ChoiceCriterion::parse(&wanted).ok_or_else(|| {
+                        let allowed: Vec<&str> = ChoiceCriterion::ALL.iter().map(|c| c.as_str()).collect();
+                        parse_err(
+                            format!(
+                                "unknown choice criterion '{wanted}'; the compiler can only choose by a \
+                                 criterion it can evaluate over every path, so the set is closed: {}",
+                                allowed.join(", ")
+                            ),
+                            self.peek(),
+                        )
+                    })?);
+                    self.opt_semi();
+                }
+                other => {
+                    return Err(parse_err(
+                        "expected `path <name> { ... }` or `choose <criterion>` inside atomic_choice".into(),
+                        other,
+                    ))
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close atomic_choice")?;
+        let criterion = criterion.ok_or_else(|| {
+            parse_err(
+                "atomic_choice has no `choose` clause; a branch set with no criterion is not a choice".into(),
+                self.peek(),
+            )
+        })?;
+        Ok(Item::AtomicChoice(AtomicChoiceDecl { name, paths, criterion }))
+    }
+
+    /// `{ <statements> }`, or `{ <chain.ASSET> -> <chain.ASSET> -> ... }`.
+    fn parse_choice_path(&mut self, name: Symbol) -> Result<ChoicePath, X3Error> {
+        self.expect(Tok::LBrace, "expected '{' after the path name")?;
+        let mut body: Vec<Statement> = Vec::new();
+        let mut hops: Vec<AssetRef> = Vec::new();
+        let mut net_output: Option<AmountExpr> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "net_output" => {
+                    self.advance();
+                    let value = self.parse_expr()?;
+                    let asset = self.expect_ident("asset for net_output")?;
+                    net_output = Some(AmountExpr {
+                        value,
+                        asset: Symbol::new(&asset),
+                    });
+                    self.opt_semi();
+                }
+                // A hop chain is `chain.ASSET` followed by `->`, which no
+                // statement begins with: statements start with a keyword or
+                // with `emit`/`route`/`require`, none of which is dotted.
+                Tok::Ident(_) if self.peek_n(1) == Tok::Dot && self.peek_n(3) == Tok::Arrow => {
+                    if !body.is_empty() {
+                        return Err(parse_err(
+                            "a path is either a hop chain or a block of statements, not both".into(),
+                            self.peek(),
+                        ));
+                    }
+                    hops = self.parse_hop_chain()?;
+                }
+                // A path's real content is a route — the swaps and bridges the
+                // branch would take — so the route-step grammar is the one that
+                // applies here. It is used *without* the `Statement::Atomic`
+                // wrapper that `route { ... }` adds: each path is already
+                // lowered inside its own `AtomicBegin`/`AtomicEnd`, and
+                // wrapping again would be a nested atomic scope, which the IR
+                // verifier rejects.
+                Tok::KwSwap | Tok::KwBridge | Tok::KwLock | Tok::KwMint | Tok::KwBurn | Tok::KwRelease => {
+                    body.push(self.parse_route_step()?);
+                }
+                Tok::Ident(ref s) if matches!(s.as_str(), "swap" | "bridge" | "lock" | "mint" | "burn" | "release") => {
+                    body.push(self.parse_route_step()?);
+                }
+                _ => body.push(self.parse_statement()?),
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the path")?;
+        Ok(ChoicePath {
+            name,
+            body,
+            hops,
+            net_output,
+        })
+    }
+
+    /// `<chain.ASSET> -> <chain.ASSET> [-> ...]`
+    fn parse_hop_chain(&mut self) -> Result<Vec<AssetRef>, X3Error> {
+        let mut hops = vec![self.parse_asset_ref()?];
+        while self.peek() == Tok::Arrow {
+            self.advance();
+            hops.push(self.parse_asset_ref()?);
+        }
+        self.opt_semi();
+        Ok(hops)
+    }
+
     fn parse_block_count(&mut self, field: &str) -> Result<u64, X3Error> {
         match self.advance() {
             Tok::Int(value) if value <= u64::MAX as u128 => Ok(value as u64),

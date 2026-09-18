@@ -21,6 +21,7 @@ pub const ON_TIMEOUT: u8 = 0x42;
 pub const ATOMIC_BEGIN: u8 = 0x50;
 pub const ATOMIC_END: u8 = 0x51;
 pub const ATOMIC_ROLLBACK: u8 = 0x52;
+pub const ATOMIC_CHOICE: u8 = 0x53;
 
 pub const EMIT: u8 = 0x60;
 pub const CALL_HOST: u8 = 0x61;
@@ -101,6 +102,17 @@ pub const HALT: u8 = 0xFF;
 pub const REQUIRE_COMPARE_STATIC: u8 = 0;
 /// `r0 >= operand`.
 pub const REQUIRE_COMPARE_GE: u8 = 1;
+
+/// Criterion codes for `ATOMIC_CHOICE`, carried in the instruction's flags
+/// byte; the operand packs `paths << 8 | selected`.
+///
+/// The artifact records which criterion ranked the branches and which index
+/// won, so a reader can tell that the emitted body is one of a verified set
+/// rather than the only branch the program had. Any code outside this set is a
+/// verifier failure — the criterion set is closed precisely so that an
+/// unrecognised one cannot be interpreted as some default.
+pub const CHOICE_CRITERION_HIGHEST_NET_OUTPUT: u8 = 0;
+pub const CHOICE_CRITERION_FEWEST_HOPS: u8 = 1;
 
 /// Whether an instruction carries a length-prefixed payload —
 /// `[opcode][u16 len][payload]`, the whole thing padded to four bytes.

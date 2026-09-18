@@ -136,6 +136,68 @@ pub fn lower_program_with_mode(
                 });
                 lower_function_body(&sub.body, &mut ir)?;
             }
+            Item::AtomicChoice(choice) => {
+                // Select the branch, then emit that branch. This is where
+                // "bounded" becomes real: the artifact contains one path's
+                // operations and a record of the whole branch set, so there is
+                // no run-time code path that can reach a path the compiler did
+                // not verify. Selection is compile-time because the ranking
+                // data (`net_output`, hop counts) is, which is also why the
+                // verifier refuses a `net_output` it cannot evaluate.
+                let selected = select_choice_path(choice).ok_or_else(|| {
+                    semantic(&format!(
+                        "atomic_choice '{}': no path could be selected from {} declared path(s)",
+                        choice.name.as_str(),
+                        choice.paths.len()
+                    ))
+                })?;
+
+                // Every branch is lowered and verified, not only the winner.
+                // "Type-check every branch" is the contract, and a branch set
+                // where the compiler checked only the path it happened to pick
+                // would mean its promise covers code nobody looked at. Each
+                // branch is verified inside the same atomic scope it will
+                // execute in, with the program's own metadata, so a branch's
+                // checks see exactly the context the program has — including
+                // the per-branch atomic operation bound, which is per branch
+                // precisely because only one branch runs.
+                let mut verified: Vec<Vec<Operation>> = Vec::with_capacity(choice.paths.len());
+                for path in &choice.paths {
+                    let mut branch = X3IR::new();
+                    branch.metadata = ir.metadata.clone();
+                    branch.push(Operation::AtomicBegin);
+                    for statement in &path.body {
+                        lower_statement(statement, &mut branch)?;
+                    }
+                    branch.push(Operation::AtomicEnd);
+
+                    let mut errors = crate::ir_level_errors(&branch);
+                    errors.extend(
+                        crate::semantic::verify_collect(
+                            &branch,
+                            crate::semantic::DEFAULT_MAX_ATOMIC_OPS,
+                            crate::semantic::DEFAULT_MAX_ROUTE_HOPS,
+                            Some(mode),
+                        )
+                        .errors,
+                    );
+                    if let Some(first) = errors.into_iter().next() {
+                        return Err(semantic(&format!(
+                            "atomic_choice '{}' path '{}': {first}",
+                            choice.name.as_str(),
+                            path.name.as_str()
+                        )));
+                    }
+                    verified.push(branch.operations);
+                }
+
+                ir.push(Operation::AtomicChoice {
+                    paths: choice.paths.len() as u32,
+                    criterion: choice.criterion,
+                    selected: selected as u32,
+                });
+                ir.operations.extend(verified.swap_remove(selected));
+            }
             Item::AtomicSwap(atomic) => {
                 // ── Semantic validation ──────────────────────────────────
                 // Validate hash function name if hashlock is specified
@@ -1057,6 +1119,56 @@ fn failure_action_to_ir(action: &ast::FailureAction) -> ir::FailureAction {
         ast::FailureAction::Halt => ir::FailureAction::Halt,
         ast::FailureAction::Quarantine => ir::FailureAction::Quarantine,
     }
+}
+
+/// Pick the path an `atomic_choice` will emit.
+///
+/// Ties go to the earliest declared path, which makes the selection a function
+/// of the program text alone. Returns `None` when no path can be ranked — the
+/// AST-level verifier rejects those programs, and lowering refuses rather than
+/// defaulting to path 0, because a default would turn "the compiler could not
+/// decide" into "the compiler decided the first one".
+fn select_choice_path(choice: &x3_lang_ast::ast::AtomicChoiceDecl) -> Option<usize> {
+    use x3_lang_ast::ast::ChoiceCriterion;
+
+    let ranked: Vec<(usize, u128)> = match choice.criterion {
+        ChoiceCriterion::HighestNetOutput => choice
+            .paths
+            .iter()
+            .enumerate()
+            .filter_map(|(index, path)| {
+                let output = path.net_output.as_ref()?;
+                let amount = crate::semantic::extract_int_from_expr(&output.value)?;
+                Some((index, amount))
+            })
+            .collect(),
+        ChoiceCriterion::FewestHops => choice
+            .paths
+            .iter()
+            .enumerate()
+            .filter_map(|(index, path)| crate::semantic::path_hop_count(path).map(|hops| (index, u128::from(hops))))
+            .collect(),
+    };
+
+    // A criterion that could only rank some of the paths has not ranked the
+    // branch set: the winner would be "best of the paths we could measure".
+    if ranked.len() != choice.paths.len() {
+        return None;
+    }
+
+    let better = |candidate: u128, incumbent: u128| match choice.criterion {
+        ChoiceCriterion::HighestNetOutput => candidate > incumbent,
+        ChoiceCriterion::FewestHops => candidate < incumbent,
+    };
+
+    let mut best: Option<(usize, u128)> = None;
+    for (index, score) in ranked {
+        match best {
+            Some((_, incumbent)) if !better(score, incumbent) => {}
+            _ => best = Some((index, score)),
+        }
+    }
+    best.map(|(index, _)| index)
 }
 
 fn expression_to_string(expr: &Expression) -> String {

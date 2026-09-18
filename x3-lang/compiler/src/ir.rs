@@ -8,6 +8,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 
+/// How an `atomic_choice` ranked its paths.
+///
+/// Re-exported from the AST so the compiler has one definition of the closed
+/// criterion set: an IR and an AST that could disagree about which criteria
+/// exist would be a way for an unverified criterion to reach the artifact.
+pub use x3_lang_ast::ast::ChoiceCriterion;
+
 /// Root IR program - list of operations to execute in sequence
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct X3IR {
@@ -120,6 +127,22 @@ pub enum Operation {
     AtomicBegin,
     /// Mark end of atomic block
     AtomicEnd,
+    /// A bounded branch set: every path was parsed, lowered and verified, and
+    /// exactly one was chosen by a criterion the compiler evaluates.
+    ///
+    /// The record carries the *whole* branch set, not just the winner, because
+    /// the artifact's claim is "these were the permitted branches and this is
+    /// the one that was taken". The operations that follow are the selected
+    /// path's body; nothing at run time can select a different one, which is
+    /// what makes the choice bounded rather than dynamic.
+    AtomicChoice {
+        /// Number of paths the compiler considered.
+        paths: u32,
+        /// The criterion the choice was made by.
+        criterion: ChoiceCriterion,
+        /// Index of the path whose body follows, into the declared path list.
+        selected: u32,
+    },
 
     // ===== Guard Operations =====
     /// Require a condition to be true

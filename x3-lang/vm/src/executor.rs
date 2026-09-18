@@ -25,7 +25,7 @@
 //! Gas is never refunded and never goes negative. The VM checks
 //! `state.gas >= cost` before deducting.
 
-use crate::x3_lang_vm::{SubExecInfo, VmSnapshot, VM};
+use crate::x3_lang_vm::{AtomicChoiceRecord, SubExecInfo, VmSnapshot, VM};
 use x3_lang_compiler::emitter::decode_trading_operation;
 // Import shared opcode constants
 use crate::spec::opcodes::*;
@@ -391,6 +391,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     asset_ops_len: vm.state.asset_ops.len(),
                     bridge_receipts_len: vm.state.bridge_receipts.len(),
                     trading_ops_len: vm.state.trading_ops.len(),
+                    atomic_choices_len: vm.state.atomic_choices.len(),
                     pc: pc_next,
                     call_stack: vm.state.call_stack.clone(),
                     instruction_count: vm.state.instruction_count,
@@ -433,6 +434,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.asset_ops.truncate(snapshot.asset_ops_len);
                 vm.state.bridge_receipts.truncate(snapshot.bridge_receipts_len);
                 vm.state.trading_ops.truncate(snapshot.trading_ops_len);
+                vm.state.atomic_choices.truncate(snapshot.atomic_choices_len);
                 // Note: We intentionally do NOT restore PC from the snapshot.
                 // Instead execution continues past the rollback instruction.
                 // This prevents infinite re-execution of the atomic scope.
@@ -572,6 +574,38 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 continue;
             }
             NOP => { // NOP
+            }
+            ATOMIC_CHOICE => {
+                // `[ATOMIC_CHOICE][criterion][paths << 8 | selected]`.
+                //
+                // The branch body has already been selected at compile time and
+                // is what follows in the instruction stream, so this instruction
+                // does not choose anything at run time — that is the point. Its
+                // job is to state and check the record: the artifact declares
+                // how many branches were verified and which one it took, and the
+                // VM refuses a record that is internally inconsistent rather
+                // than executing a body whose provenance it cannot describe.
+                let criterion = _flags;
+                let paths = u32::from(operand >> 8);
+                let selected = u32::from(operand & 0x00FF);
+                let known_criterion = matches!(
+                    criterion,
+                    CHOICE_CRITERION_HIGHEST_NET_OUTPUT | CHOICE_CRITERION_FEWEST_HOPS
+                );
+                if !known_criterion || paths < 2 || selected >= paths {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_CHOICE_RECORD_INVALID: criterion {criterion}, selected {selected} of {paths} \
+                         — the branch record does not describe a verified branch set"
+                    )));
+                }
+                vm.state.atomic_choices.push(AtomicChoiceRecord {
+                    paths,
+                    criterion,
+                    selected,
+                });
             }
             HALT => {
                 // HALT
@@ -1624,6 +1658,7 @@ mod tests {
             asset_ops_len: 0,
             bridge_receipts_len: 0,
             trading_ops_len: 0,
+            atomic_choices_len: 0,
             pc: 0,
             call_stack: vec![],
             instruction_count: 3,
