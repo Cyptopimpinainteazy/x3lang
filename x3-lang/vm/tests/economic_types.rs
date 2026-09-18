@@ -167,6 +167,9 @@ fn legacy_private_flag_must_match_submission_profile() {
         allowed_cost_kinds: BTreeSet::from([CostKind::Gas]),
         allow_mint: false,
         allow_burn: false,
+        max_oracle_deviation_bps: None,
+        max_cumulative_loss: None,
+        max_cumulative_loss_asset: None,
     };
 
     assert!(!policy.submission_profile_is_consistent());
