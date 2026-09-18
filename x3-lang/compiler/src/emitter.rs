@@ -78,11 +78,23 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&[ATOMIC_BEGIN])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
-        // `[ATOMIC_CHOICE][criterion][paths << 8 | selected]`. The record is
-        // carried in the artifact rather than dropped after lowering: a reader
-        // of the bytecode can see that this body is one of N verified branches
-        // and which criterion picked it, which is the whole claim the construct
-        // makes.
+        // `[ATOMIC_CHOICE][u16 len][criterion:paths:selected]`.
+        //
+        // The record is carried in the artifact rather than dropped after
+        // lowering: a reader of the bytecode can see that this body is one of N
+        // verified branches and which criterion picked it, which is the whole
+        // claim the construct makes.
+        //
+        // It is a *payload* op rather than a fixed frame on purpose. A fixed
+        // frame in this format is three bytes, and the reader advances a fixed
+        // instruction with `align4(pc + 3)` regardless of what the writer
+        // emitted, so a four-byte fixed frame is only readable when it does not
+        // start at an offset congruent to 1 mod 4. `atomic_choice` is emitted
+        // first in its program, which is exactly that offset, and the stream
+        // desynced: `x3c run examples/atomic_choice.x3` failed with
+        // `InvalidOpcode(3)` — the reader had advanced into the middle of the
+        // record. A payload frame is consumed as `align4(pc + 3 + len)`, the
+        // same expression the writer pads by, so it is correct at any offset.
         Operation::AtomicChoice {
             paths,
             criterion,
@@ -92,17 +104,19 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 ChoiceCriterion::HighestNetOutput => CHOICE_CRITERION_HIGHEST_NET_OUTPUT,
                 ChoiceCriterion::FewestHops => CHOICE_CRITERION_FEWEST_HOPS,
             };
-            if *paths > u8::MAX as u32 || *selected > u8::MAX as u32 {
+            if *selected >= *paths {
                 return Err(X3Error::CodegenError {
                     message: format!(
-                        "atomic choice does not fit its encoding: paths={paths}, selected={selected} \
-                         (each must fit in a byte)"
+                        "atomic choice selects path {selected} of {paths}; the selected index must \
+                         name a declared path"
                     ),
                     span: None,
                 });
             }
-            bytecode.write_all(&[ATOMIC_CHOICE, criterion_code])?;
-            bytecode.write_all(&(((*paths as u16) << 8) | *selected as u16).to_le_bytes())?;
+            let payload = format!("{criterion_code}:{paths}:{selected}");
+            bytecode.write_all(&[ATOMIC_CHOICE])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
         }
         Operation::AtomicEnd => {
             bytecode.write_all(&[ATOMIC_END])?;
@@ -945,7 +959,7 @@ fn align4(value: usize) -> usize {
     (value + 3) & !3
 }
 
-fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String {
+fn disassemble_op(opcode: u8, payload: &[u8], _flags: u8, _operand: u16) -> String {
     let payload_str = match decode_payload(opcode, payload) {
         Ok(s) => s,
         Err(_) => format!("<raw {} bytes>", payload.len()),
@@ -975,18 +989,7 @@ fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String
         // decodes it rather than printing the opcode name alone: a reader
         // should be able to see how many branches were verified and which one
         // the body under it belongs to.
-        0x53 => {
-            let criterion = match flags {
-                CHOICE_CRITERION_HIGHEST_NET_OUTPUT => "highest_net_output",
-                CHOICE_CRITERION_FEWEST_HOPS => "fewest_hops",
-                _ => "unknown",
-            };
-            format!(
-                "ATOMIC_CHOICE {criterion} selected {}/{}",
-                operand & 0x00FF,
-                operand >> 8
-            )
-        }
+        0x53 => format!("ATOMIC_CHOICE [{payload_str}]"),
         0x54 => format!("ROUTE_FALLBACK approved [{payload_str}]"),
         0x60 => format!("EMIT     {payload_str}"),
         0x66 => format!("CALL_HOST  {payload_str}"),

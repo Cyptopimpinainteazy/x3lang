@@ -226,6 +226,29 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         return Ok(());
     }
 
+    if opcode == ATOMIC_CHOICE {
+        // `criterion:paths:selected`. The verifier checks the record describes a
+        // branch set that could have been verified — a known criterion, at least
+        // two paths, and a selected index that names one — because a record that
+        // does not is a body whose provenance the artifact cannot state.
+        let text = std::str::from_utf8(payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let fields: Vec<&str> = text.split(':').collect();
+        if fields.len() != 3 {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        let criterion: u8 = fields[0].parse().map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let paths: u32 = fields[1].parse().map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let selected: u32 = fields[2].parse().map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let known_criterion = matches!(
+            criterion,
+            CHOICE_CRITERION_HIGHEST_NET_OUTPUT | CHOICE_CRITERION_FEWEST_HOPS
+        );
+        if !known_criterion || paths < 2 || selected >= paths {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        return Ok(());
+    }
+
     if opcode == ROUTE_FALLBACK {
         // The approved-venue list is a plain comma-separated payload, not a
         // `CapabilityPayload`, so the decoder below cannot read it: without

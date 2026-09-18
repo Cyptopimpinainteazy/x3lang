@@ -144,7 +144,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
     (compiler_stream && matches!(opcode, LOCK | MINT | BURN | RELEASE | SWAP | BRIDGE))
         || matches!(
             opcode,
-            EMIT | CALL_HOST | ROUTE_FALLBACK
+            EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK
                 | GPU_DISPATCH..=SUB_EXEC
                 | ROUTE_SCORE..=REFUND_POLICY
                 | TRADING_BEGIN..=TRADING_BRIDGE

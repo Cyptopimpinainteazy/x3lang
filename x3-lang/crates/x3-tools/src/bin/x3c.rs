@@ -141,6 +141,26 @@ enum Cmd {
     },
     /// Run static analysis linter.
     Lint { input: PathBuf },
+    /// Build the opportunity graph from a program's `venue` declarations and
+    /// search it for routes between two assets.
+    Graph {
+        input: PathBuf,
+        /// Asset to start from, as `chain.ASSET`.
+        #[arg(long)]
+        from: String,
+        /// Asset to reach, as `chain.ASSET`.
+        #[arg(long)]
+        to: String,
+        /// Maximum hops.
+        #[arg(long, default_value_t = 4)]
+        max_hops: usize,
+        /// Reject venues that declare more slippage than this, in bps.
+        #[arg(long)]
+        max_slippage_bps: Option<u32>,
+        /// Reject venues whose declared liquidity is below this.
+        #[arg(long)]
+        min_liquidity: Option<u128>,
+    },
     /// Compute route/risk score for an intent.
     Score { input: PathBuf },
     /// Generate and run tests for an intent.
@@ -285,6 +305,14 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         // B-52 commands
         Cmd::Fmt { input, check } => cmd_fmt(&input, check),
         Cmd::Lint { input } => cmd_lint(&input, mode),
+        Cmd::Graph {
+            input,
+            from,
+            to,
+            max_hops,
+            max_slippage_bps,
+            min_liquidity,
+        } => cmd_graph(&input, &from, &to, max_hops, max_slippage_bps, min_liquidity),
         Cmd::Score { input } => cmd_score(&input, mode),
         Cmd::Test {
             input,
@@ -402,6 +430,77 @@ fn cmd_check(input: &PathBuf, out: Option<&PathBuf>, mode_str: &str, deny_warnin
         }
         Ok(ExitCode::from(1))
     }
+}
+
+/// `x3c graph` — build the opportunity graph and search it.
+///
+/// This is the reachability the graph needs to be a feature rather than a
+/// module: without a command that builds a graph from a real program and prints
+/// what the planner found, nothing outside the tests would ever exercise it.
+fn cmd_graph(
+    input: &PathBuf,
+    from: &str,
+    to: &str,
+    max_hops: usize,
+    max_slippage_bps: Option<u32>,
+    min_liquidity: Option<u128>,
+) -> Result<ExitCode, String> {
+    let source = read_source(input)?;
+    let program = x3_lang_compiler::parser::parse_source(&source).map_err(|e| format!("parse error: {e}"))?;
+
+    // The declarations are checked before they are searched: a graph built from
+    // an inconsistent venue would answer confidently about a node that cannot
+    // exist.
+    let mut acc = x3_lang_common::ErrorAccumulator::new();
+    x3_lang_compiler::semantic::verify_venue_decls(&program, &mut acc);
+    if acc.has_errors() {
+        for error in acc.errors() {
+            print_error(&format!("{error}"));
+        }
+        return Ok(ExitCode::from(1));
+    }
+
+    let graph = x3_lang_compiler::opportunity::OpportunityGraph::from_program(&program);
+    let constraints = x3_lang_compiler::opportunity::OpportunityConstraints {
+        max_hops,
+        max_slippage_bps,
+        min_liquidity,
+        ..Default::default()
+    };
+    let opportunities = x3_lang_compiler::opportunity::search(&graph, from, to, &constraints);
+
+    println!(
+        "x3c graph: {} venue(s), {} edge(s); {from} -> {to} within {} hop(s): {} opportunit{}",
+        graph.edges.len(),
+        graph.edges.len(),
+        constraints.max_hops,
+        opportunities.len(),
+        if opportunities.len() == 1 { "y" } else { "ies" }
+    );
+    for (rank, opportunity) in opportunities.iter().enumerate() {
+        println!(
+            "  {}. {}  fee {} bps, slippage {} bps, risk {}, latency {}ms, finality {} block(s), \
+             min liquidity {}",
+            rank + 1,
+            opportunity.venues.join(" -> "),
+            opportunity.fee_bps,
+            opportunity.slippage_bps,
+            opportunity.max_risk,
+            opportunity.latency_ms,
+            opportunity.finality_blocks,
+            opportunity.min_liquidity
+        );
+    }
+    if opportunities.is_empty() {
+        // An empty result is the interesting case, so say which venues were
+        // refused and why rather than printing nothing.
+        for edge in &graph.edges {
+            if let Some(reason) = x3_lang_compiler::opportunity::reject_reason(edge, &constraints) {
+                println!("  refused {} -> {}: {reason:?}", edge.from, edge.venue);
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 fn cmd_lower(input: &PathBuf, out: &PathBuf) -> Result<ExitCode, String> {

@@ -578,7 +578,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             NOP => { // NOP
             }
             ATOMIC_CHOICE => {
-                // `[ATOMIC_CHOICE][criterion][paths << 8 | selected]`.
+                // `[ATOMIC_CHOICE][u16 len][criterion:paths:selected]`.
                 //
                 // The branch body has already been selected at compile time and
                 // is what follows in the instruction stream, so this instruction
@@ -587,9 +587,45 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 // how many branches were verified and which one it took, and the
                 // VM refuses a record that is internally inconsistent rather
                 // than executing a body whose provenance it cannot describe.
-                let criterion = _flags;
-                let paths = u32::from(operand >> 8);
-                let selected = u32::from(operand & 0x00FF);
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(payload) => payload.to_vec(),
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                let text = match std::str::from_utf8(&payload) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(
+                            "X3_CHOICE_RECORD_INVALID: the branch record is not UTF-8".to_string(),
+                        ));
+                    }
+                };
+                let fields: Vec<&str> = text.split(':').collect();
+                let parsed = (fields.len() == 3)
+                    .then(|| {
+                        Some((
+                            fields[0].parse::<u8>().ok()?,
+                            fields[1].parse::<u32>().ok()?,
+                            fields[2].parse::<u32>().ok()?,
+                        ))
+                    })
+                    .flatten();
+                let Some((criterion, paths, selected)) = parsed else {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_CHOICE_RECORD_INVALID: branch record {text:?} is not \
+                         `criterion:paths:selected`"
+                    )));
+                };
                 let known_criterion = matches!(
                     criterion,
                     CHOICE_CRITERION_HIGHEST_NET_OUTPUT | CHOICE_CRITERION_FEWEST_HOPS
@@ -608,6 +644,8 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     criterion,
                     selected,
                 });
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
             }
             ROUTE_FALLBACK => {
                 // `[ROUTE_FALLBACK][u16 len][venue,venue,...]`.

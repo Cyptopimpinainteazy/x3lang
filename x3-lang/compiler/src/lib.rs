@@ -20,6 +20,7 @@ pub mod ir;
 pub mod linter;
 pub mod lowering;
 pub mod numeric;
+pub mod opportunity;
 pub mod parser;
 pub mod regalloc;
 pub mod risk;
@@ -43,6 +44,7 @@ use semantic::verify_atomic_swap_decls;
 use semantic::verify_with_config as verify_semantics;
 use semantic::{
     verify_atomic_choice_decls, verify_relayer_quorum_declared, verify_route_fallbacks, verify_solver_bond_declared,
+    verify_venue_decls,
 };
 use x3_lang_ast::ast::Program;
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
@@ -165,6 +167,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_atomic_swap_decls(program, &mut acc);
     verify_atomic_choice_decls(program, &mut acc);
     verify_route_fallbacks(program, &mut acc);
+    verify_venue_decls(program, &mut acc);
     verify_solver_bond_declared(program, &mut acc);
     verify_relayer_quorum_declared(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());

@@ -58,6 +58,7 @@ pub enum Item {
     // ===== Trading Core v1 top-level declarations =====
     AssetDecl(AssetDecl),
     TradeRiskPolicy(TradeRiskPolicy),
+    VenueDecl(VenueDecl),
     AtomicTrade(AtomicTradeDecl),
 }
 
@@ -534,6 +535,110 @@ pub struct RequireGuard {
     pub subject: Option<Symbol>,
     /// The threshold or target expression (the RHS of the comparison).
     pub value: Expression,
+}
+
+/// What kind of node a `venue` declaration introduces.
+///
+/// One closed set rather than a declaration shape per kind: a pool, an
+/// orderbook, a lending market, a perp market, a flash-liquidity source, a
+/// bridge adapter and a settlement path all appear in the opportunity graph as
+/// nodes with the same edge attributes, and the compiler can only reason about
+/// them together if they are one kind of thing with a discriminant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VenueKind {
+    /// A constant-product/AMM style pool.
+    Pool,
+    /// A central-limit orderbook.
+    Orderbook,
+    /// A lending market (a source or sink of debt).
+    Lending,
+    /// A perpetuals venue.
+    Perp,
+    /// A flash-liquidity source: capital that must be returned within the
+    /// transaction.
+    Flash,
+    /// A bridge or cross-domain adapter.
+    Bridge,
+    /// A settlement path: how a position is finally closed.
+    Settlement,
+}
+
+impl VenueKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            VenueKind::Pool => "pool",
+            VenueKind::Orderbook => "orderbook",
+            VenueKind::Lending => "lending",
+            VenueKind::Perp => "perp",
+            VenueKind::Flash => "flash",
+            VenueKind::Bridge => "bridge",
+            VenueKind::Settlement => "settlement",
+        }
+    }
+
+    /// The kinds a program may declare. `parse` and the unknown-kind error
+    /// message both read this, so the two cannot list different sets.
+    pub const ALL: &'static [VenueKind] = &[
+        VenueKind::Pool,
+        VenueKind::Orderbook,
+        VenueKind::Lending,
+        VenueKind::Perp,
+        VenueKind::Flash,
+        VenueKind::Bridge,
+        VenueKind::Settlement,
+    ];
+
+    pub fn parse(name: &str) -> Option<VenueKind> {
+        VenueKind::ALL.iter().copied().find(|kind| kind.as_str() == name)
+    }
+
+    /// Whether a venue of this kind can be a graph edge's intermediate stop,
+    /// as opposed to only funding (`flash`) or only terminating (`settlement`)
+    /// a path. A flash source is returned within the transaction, so it never
+    /// takes the path anywhere; a settlement path is where the path ends.
+    pub fn is_traversable(self) -> bool {
+        matches!(
+            self,
+            VenueKind::Pool | VenueKind::Orderbook | VenueKind::Lending | VenueKind::Perp | VenueKind::Bridge
+        )
+    }
+}
+
+/// `venue <name> { kind pool chain ethereum ... }` — one node of the
+/// opportunity graph, with the attributes its edges carry.
+///
+/// The declared attributes are what make the graph searchable and what let a
+/// `fallback`'s bounds be checked against something: before this, a venue was
+/// only a name, so `require slippage <= 7` had nothing to compare against.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VenueDecl {
+    pub name: Symbol,
+    pub kind: VenueKind,
+    /// Chain the venue settles on.
+    pub chain: ChainRef,
+    /// VM family hosting the venue (for example `evm`, `svm`).
+    pub domain: Symbol,
+    /// Asset the venue takes in.
+    pub asset_in: AssetRef,
+    /// Asset the venue gives out. Equal to `asset_in` for a pure lending or
+    /// flash venue, which moves one asset and charges a fee for it.
+    pub asset_out: AssetRef,
+    /// Venue fee in basis points.
+    pub fee_bps: u32,
+    /// Declared depth, as an amount of `asset_in`.
+    pub liquidity: u128,
+    /// Slippage in basis points at the declared liquidity. A function would be
+    /// more expressive; a bound is what the compiler can check today, and an
+    /// unchecked function would be a promise nothing enforces.
+    pub slippage_bps: u32,
+    /// Expected latency to settlement, in milliseconds.
+    pub latency_ms: u32,
+    /// Blocks of finality the venue's settlement requires.
+    pub finality_blocks: u32,
+    /// Declared risk score, 0 (safest) to 100.
+    pub risk: u32,
+    /// Proof a claim against this venue must carry, if any.
+    pub proof: Option<Symbol>,
 }
 
 /// One approved substitution in a `fallback` block.
