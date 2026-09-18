@@ -1,0 +1,41 @@
+// Bounded route fallback — spec build-order item 15.
+//
+// A route may declare which venues it is allowed to fall back to when a leg
+// fails. The list is the approval: every venue in it is checked as the route it
+// would produce before the artifact is emitted, and the artifact carries the
+// list so a runtime can restrict itself to the compiler's approvals instead of
+// trusting its own judgment at the moment a leg fails.
+//
+// What is deliberately absent: any way to say "any venue" or "whatever the
+// router finds". A substitution the compiler cannot name is a substitution it
+// cannot verify, so the grammar has no form for one — which is what "no
+// arbitrary dynamic contract substitution" costs in syntax.
+//
+// The bounds inside the block exist to bound a *substitution*: `slippage` and
+// `profit` say what a replacement may cost. A guard that says nothing about
+// cost, such as `require nonce unused ...`, is refused there — a block that
+// looks like it constrains the runtime while constraining nothing is worse than
+// no block at all.
+
+intent rebalance_with_fallback {
+    from ethereum.USDC amount 5_000 receiver 0x1111111111111111111111111111111111111111
+    to ethereum.ETH receiver 0x1111111111111111111111111111111111111111
+
+    route {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 5_000 min_output 1
+
+        fallback {
+            replace with curve
+            replace with balancer min_output 1
+            require slippage <= 7
+            require profit >= 0
+        }
+    }
+
+    require nonce unused rebalance_with_fallback_1
+    require slippage <= 50
+    require route_score >= 90
+
+    timeout 120s refund ethereum.USDC to sender
+    on_fail rollback
+}

@@ -285,6 +285,19 @@ pub enum Statement {
         duration: Expression,
         action: FailureAction,
     },
+    /// `fallback { replace with <venue> ... require <bound> ... }` — the
+    /// approved substitutions for a route's failing legs.
+    ///
+    /// The list *is* the approval: the runtime may pick a replacement only from
+    /// these venues, and every one of them is verified as a route in its own
+    /// right before it is admitted. A substitution the compiler did not check
+    /// cannot be expressed here, which is what stops a failing leg from being
+    /// replaced by arbitrary code.
+    RouteFallback {
+        replacements: Vec<FallbackReplacement>,
+        /// Bounds a substitution must satisfy, written as ordinary guards.
+        requires: Vec<RequireGuard>,
+    },
 
     // ===== Capability statements =====
     Snapshot,
@@ -521,6 +534,16 @@ pub struct RequireGuard {
     pub subject: Option<Symbol>,
     /// The threshold or target expression (the RHS of the comparison).
     pub value: Expression,
+}
+
+/// One approved substitution in a `fallback` block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FallbackReplacement {
+    /// The venue the failing leg may be re-routed through.
+    pub venue: Symbol,
+    /// Replacement `min_output`, when the substitute is expected to fill less
+    /// than the leg it replaces. `None` keeps the leg's own bound.
+    pub min_output: Option<Expression>,
 }
 
 /// What to do when a cross-chain operation fails or times out.

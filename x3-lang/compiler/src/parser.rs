@@ -14,7 +14,7 @@
 use x3_lang_ast::ast::*;
 use x3_lang_ast::{
     AmountExpr, AssetDecl, AssetId, AtomicChoiceDecl, AtomicTradeDecl, ChoiceCriterion, ChoicePath, DebtId,
-    InvariantKind, TradeEffect, TradeGuarantee, TradeRiskPolicy, TradeStmt,
+    FallbackReplacement, InvariantKind, TradeEffect, TradeGuarantee, TradeRiskPolicy, TradeStmt,
 };
 use x3_lang_common::{BinOp as CBinOp, IntBase, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
 use x3_lang_lexer::token::{Keyword, Token, TokenKind};
@@ -1731,13 +1731,14 @@ impl<'a> Parser<'a> {
             // dance.
             Tok::Ident(ref s) if s == "swap" => self.parse_swap_step(),
             Tok::Ident(ref s) if s == "bridge" => self.parse_bridge_step(),
+            Tok::Ident(ref s) if s == "fallback" => self.parse_route_fallback(),
             Tok::Ident(ref s) if s == "lock" || s == "mint" || s == "burn" || s == "release" => {
                 let kw = s.clone();
                 self.advance();
                 self.parse_lmbr_step(&kw)
             }
             _ => Err(parse_err(
-                "expected route operation (swap/bridge/lock/mint/burn/release)".into(),
+                "expected route operation (swap/bridge/lock/mint/burn/release/fallback)".into(),
                 self.peek(),
             )),
         }
@@ -1795,6 +1796,56 @@ impl<'a> Parser<'a> {
                 to: target,
             }),
         }
+    }
+
+    /// `fallback { replace with <venue> [min_output <n>]; ... require <bound>; ... }`
+    ///
+    /// Every replacement is listed explicitly. There is deliberately no "any
+    /// venue" form and no wildcard: the compiler can only approve a
+    /// substitution it can name and verify.
+    fn parse_route_fallback(&mut self) -> Result<Statement, X3Error> {
+        self.advance(); // consume `fallback`
+        self.expect(Tok::LBrace, "expected '{' after fallback")?;
+        let mut replacements: Vec<FallbackReplacement> = Vec::new();
+        let mut requires: Vec<RequireGuard> = Vec::new();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "replace" => {
+                    self.advance();
+                    // `replace with <venue>` and `replace <venue>` are both
+                    // accepted; the `with` is there to be read, not to be
+                    // required.
+                    if let Tok::Ident(ref next) = self.peek() {
+                        if next == "with" {
+                            self.advance();
+                        }
+                    }
+                    let venue = self.expect_ident("replacement venue")?;
+                    let mut min_output: Option<Expression> = None;
+                    if let Tok::Ident(ref next) = self.peek() {
+                        if next == "min_output" {
+                            self.advance();
+                            min_output = Some(self.parse_expr()?);
+                        }
+                    }
+                    self.opt_semi();
+                    replacements.push(FallbackReplacement {
+                        venue: Symbol::new(&venue),
+                        min_output,
+                    });
+                }
+                Tok::KwRequire => requires.push(self.parse_require_guard()?),
+                other => {
+                    return Err(parse_err(
+                        "expected `replace with <venue>` or a `require` bound inside fallback".into(),
+                        other,
+                    ))
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close fallback")?;
+        self.opt_semi();
+        Ok(Statement::RouteFallback { replacements, requires })
     }
 
     fn parse_swap_step(&mut self) -> Result<Statement, X3Error> {

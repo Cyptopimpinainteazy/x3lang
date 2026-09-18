@@ -392,6 +392,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     bridge_receipts_len: vm.state.bridge_receipts.len(),
                     trading_ops_len: vm.state.trading_ops.len(),
                     atomic_choices_len: vm.state.atomic_choices.len(),
+                    route_fallbacks_len: vm.state.route_fallbacks.len(),
                     pc: pc_next,
                     call_stack: vm.state.call_stack.clone(),
                     instruction_count: vm.state.instruction_count,
@@ -435,6 +436,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.bridge_receipts.truncate(snapshot.bridge_receipts_len);
                 vm.state.trading_ops.truncate(snapshot.trading_ops_len);
                 vm.state.atomic_choices.truncate(snapshot.atomic_choices_len);
+                vm.state.route_fallbacks.truncate(snapshot.route_fallbacks_len);
                 // Note: We intentionally do NOT restore PC from the snapshot.
                 // Instead execution continues past the rollback instruction.
                 // This prevents infinite re-execution of the atomic scope.
@@ -606,6 +608,55 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     criterion,
                     selected,
                 });
+            }
+            ROUTE_FALLBACK => {
+                // `[ROUTE_FALLBACK][u16 len][venue,venue,...]`.
+                //
+                // The list is the compiler's approval, and the VM's job is to
+                // refuse a record that does not describe one: an empty list
+                // approves nothing (a failing leg would then have no approved
+                // substitute, which is a different declaration), and more
+                // venues than the production bound is a set the compiler did
+                // not bound. Every venue in it was verified as a route before
+                // the artifact was emitted; the VM records which set this
+                // execution was handed.
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(payload) => payload.to_vec(),
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                let text = match std::str::from_utf8(&payload) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(
+                            "X3_ROUTE_FALLBACK_INVALID: approved venues are not UTF-8".to_string(),
+                        ));
+                    }
+                };
+                let approved: Vec<String> = text.split(',').map(|venue| venue.to_string()).collect();
+                if approved.is_empty()
+                    || approved.iter().any(|venue| venue.is_empty())
+                    || approved.len() > MAX_ROUTE_FALLBACKS
+                {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_ROUTE_FALLBACK_INVALID: {} approved venue(s) — an approved set must be \
+                         non-empty and within the {MAX_ROUTE_FALLBACKS} venue production bound",
+                        approved.len()
+                    )));
+                }
+                vm.state.route_fallbacks.push(approved);
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
             }
             HALT => {
                 // HALT
@@ -1659,6 +1710,7 @@ mod tests {
             bridge_receipts_len: 0,
             trading_ops_len: 0,
             atomic_choices_len: 0,
+            route_fallbacks_len: 0,
             pc: 0,
             call_stack: vec![],
             instruction_count: 3,

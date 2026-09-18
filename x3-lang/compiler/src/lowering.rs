@@ -77,6 +77,13 @@ pub fn lower_program_with_mode(
 
     // Lower top-level declarations into operations
     for item in &program.items {
+        // Route fallbacks are verified before they are lowered: each approved
+        // substitution is turned back into the route it would produce and run
+        // through the same layers, so "compiler-approved" means the substitute
+        // was actually checked rather than merely enumerated.
+        for body in item_bodies(&item.node) {
+            verify_route_fallbacks_in(body, &ir.metadata, mode)?;
+        }
         match &item.node {
             Item::AtomicTrade(trade) => {
                 let symbols = trading_symbols
@@ -701,6 +708,18 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 error_msg: None,
             });
         }
+        Statement::RouteFallback { replacements, .. } => {
+            // The approvals are the record. Each one was verified as a route in
+            // its own right by `verify_route_fallbacks` before lowering ran, so
+            // this arm only materialises the list the artifact has to carry —
+            // it does not decide what is approved.
+            ir.push(Operation::RouteFallback {
+                approved: replacements
+                    .iter()
+                    .map(|replacement| replacement.venue.as_str().to_string())
+                    .collect(),
+            });
+        }
         Statement::OnFail(action) => {
             ir.push(Operation::OnFail {
                 action: failure_action_to_ir(action),
@@ -1169,6 +1188,153 @@ fn select_choice_path(choice: &x3_lang_ast::ast::AtomicChoiceDecl) -> Option<usi
         }
     }
     best.map(|(index, _)| index)
+}
+
+/// The statement bodies a top-level item may hold, for passes that need to see
+/// the route as a whole rather than one statement at a time.
+fn item_bodies(item: &Item) -> Vec<&Vec<Statement>> {
+    match item {
+        Item::IntentDecl(intent) => vec![&intent.body.stmts],
+        Item::AtomicSwap(swap) => vec![&swap.body],
+        Item::Strategy(strategy) => vec![&strategy.body],
+        Item::Bridge(bridge) => vec![&bridge.body],
+        Item::Proposal(proposal) => vec![&proposal.body],
+        _ => Vec::new(),
+    }
+}
+
+/// Rebuild the program's statements with every swap leg re-routed through
+/// `venue` and the fallback block removed.
+///
+/// Rebuilt from the *whole* item body, not just the route block, because the
+/// guards that make a route valid sit at the intent level: verifying a
+/// substitute against the route alone would report every approved venue as
+/// missing a slippage bound. This is the program the runtime would run if it
+/// took that substitution, which is the only thing worth verifying — approving
+/// a venue without checking the route it produces approves on the strength of
+/// the venue's name.
+fn substituted_route(statements: &[Statement], venue: &str) -> Vec<Statement> {
+    fn map(statement: &Statement, venue: &str) -> Option<Statement> {
+        match statement {
+            Statement::RouteFallback { .. } => None,
+            Statement::Swap {
+                from,
+                to,
+                route,
+                min_output,
+                ..
+            } => Some(Statement::Swap {
+                from: from.clone(),
+                to: to.clone(),
+                route: route.clone(),
+                min_output: min_output.clone(),
+                dex: Some(Expression::Literal(LiteralExpr::String(x3_lang_common::Symbol::new(
+                    venue,
+                )))),
+            }),
+            Statement::Atomic(block) => Some(Statement::Atomic(AtomicBlock {
+                meta: block.meta.clone(),
+                body: Block::new(block.body.stmts.iter().filter_map(|inner| map(inner, venue)).collect()),
+            })),
+            Statement::If {
+                cond,
+                then_block,
+                else_block,
+            } => Some(Statement::If {
+                cond: cond.clone(),
+                then_block: Block::new(then_block.stmts.iter().filter_map(|inner| map(inner, venue)).collect()),
+                else_block: else_block
+                    .as_ref()
+                    .map(|block| Block::new(block.stmts.iter().filter_map(|inner| map(inner, venue)).collect())),
+            }),
+            other => Some(other.clone()),
+        }
+    }
+
+    statements
+        .iter()
+        .filter_map(|statement| map(statement, venue))
+        .collect()
+}
+
+/// Verify every approved substitution in `statements` as a route.
+///
+/// The route's own steps stay in place — the guards and the refund path that
+/// make it valid are exactly what the substitute has to satisfy too — so a
+/// replacement that would produce an invalid route is refused here, before it
+/// can be written into the artifact as approved.
+fn verify_route_fallbacks_in(
+    statements: &[Statement],
+    metadata: &crate::ir::ProgramMetadata,
+    mode: CompilationMode,
+) -> Result<(), x3_lang_common::X3Error> {
+    fn collect_replacements<'a>(statements: &'a [Statement], out: &mut Vec<&'a FallbackReplacement>) {
+        for statement in statements {
+            match statement {
+                Statement::RouteFallback { replacements, .. } => out.extend(replacements.iter()),
+                Statement::Atomic(block) => collect_replacements(&block.body.stmts, out),
+                Statement::If {
+                    then_block, else_block, ..
+                } => {
+                    collect_replacements(&then_block.stmts, out);
+                    if let Some(block) = else_block {
+                        collect_replacements(&block.stmts, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn has_swap_leg(statements: &[Statement]) -> bool {
+        statements.iter().any(|statement| match statement {
+            Statement::Swap { .. } => true,
+            Statement::Atomic(block) => has_swap_leg(&block.body.stmts),
+            Statement::If {
+                then_block, else_block, ..
+            } => has_swap_leg(&then_block.stmts) || else_block.as_ref().is_some_and(|block| has_swap_leg(&block.stmts)),
+            _ => false,
+        })
+    }
+
+    let mut replacements: Vec<&FallbackReplacement> = Vec::new();
+    collect_replacements(statements, &mut replacements);
+    if replacements.is_empty() {
+        return Ok(());
+    }
+    if !has_swap_leg(statements) {
+        return Err(semantic(
+            "fallback declares approved replacements but the route has no swap leg to replace",
+        ));
+    }
+
+    for replacement in replacements {
+        let venue = replacement.venue.as_str();
+        let route = substituted_route(statements, venue);
+        let mut verified = X3IR::new();
+        verified.metadata = metadata.clone();
+        for step in &route {
+            lower_statement(step, &mut verified)?;
+        }
+
+        let mut errors = crate::ir_level_errors(&verified);
+        errors.extend(
+            crate::semantic::verify_collect(
+                &verified,
+                crate::semantic::DEFAULT_MAX_ATOMIC_OPS,
+                crate::semantic::DEFAULT_MAX_ROUTE_HOPS,
+                Some(mode),
+            )
+            .errors,
+        );
+        if let Some(first) = errors.into_iter().next() {
+            return Err(semantic(&format!(
+                "fallback approves venue '{venue}', but re-routing the leg through it does not \
+                 produce a valid route: {first}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn expression_to_string(expr: &Expression) -> String {

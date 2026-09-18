@@ -901,6 +901,32 @@ impl X3Formatter {
                     FailureAction::Quarantine => self.write("quarantine;\n"),
                 }
             }
+            Statement::RouteFallback { replacements, requires } => {
+                self.write_indent();
+                self.write("fallback {\n");
+                self.indent();
+                for replacement in replacements {
+                    self.write_indent();
+                    self.write("replace with ");
+                    self.write(replacement.venue.as_str());
+                    if let Some(min_output) = &replacement.min_output {
+                        self.write(" min_output ");
+                        self.format_expression(min_output);
+                    }
+                    self.write(";\n");
+                }
+                for guard in requires {
+                    self.write_indent();
+                    self.write("require ");
+                    self.format_require_kind(&guard.kind);
+                    self.write(" ");
+                    self.format_expression(&guard.value);
+                    self.write(";\n");
+                }
+                self.dedent();
+                self.write_indent();
+                self.write("}\n");
+            }
             Statement::OnTimeout { duration, action } => {
                 self.write_indent();
                 self.write("on_timeout ");

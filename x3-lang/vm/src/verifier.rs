@@ -226,6 +226,22 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         return Ok(());
     }
 
+    if opcode == ROUTE_FALLBACK {
+        // The approved-venue list is a plain comma-separated payload, not a
+        // `CapabilityPayload`, so the decoder below cannot read it: without
+        // this branch the fall-through rejected the opcode outright and every
+        // program that declared a fallback failed verification with
+        // `InvalidOperand` while the executor could run it. The same shape as
+        // the trading range above, in the same function.
+        let text = std::str::from_utf8(payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let approved: Vec<&str> = text.split(',').collect();
+        if approved.is_empty() || approved.iter().any(|venue| venue.is_empty()) || approved.len() > MAX_ROUTE_FALLBACKS
+        {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        return Ok(());
+    }
+
     let payload = decode_capability_payload(opcode, payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
     match payload {
         CapabilityPayload::ScheduledDispatch { period_blocks, .. } => {

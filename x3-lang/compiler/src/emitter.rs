@@ -196,6 +196,28 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
             bytecode.write_all(payload.as_bytes())?;
         }
+        // `[ROUTE_FALLBACK][u16 len][venue,venue,...]`. The approved list is
+        // the payload because a runtime can only restrict itself to the
+        // compiler's approvals if the approvals travel with the artifact; a
+        // bare count would be a claim the runtime could not act on.
+        Operation::RouteFallback { approved } => {
+            if approved.is_empty() {
+                return Err(X3Error::CodegenError {
+                    message: "route fallback with no approved venues must not be emitted".to_string(),
+                    span: None,
+                });
+            }
+            let payload = approved.join(",");
+            if payload.len() > u16::MAX as usize {
+                return Err(X3Error::CodegenError {
+                    message: format!("route fallback payload too large: {} bytes", payload.len()),
+                    span: None,
+                });
+            }
+            bytecode.write_all(&[ROUTE_FALLBACK])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
         Operation::Call { function, args } => {
             bytecode.write_all(&[CALL_HOST])?;
             let payload = format!("{}:{:?}", function, args);
@@ -965,6 +987,7 @@ fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String
                 operand >> 8
             )
         }
+        0x54 => format!("ROUTE_FALLBACK approved [{payload_str}]"),
         0x60 => format!("EMIT     {payload_str}"),
         0x66 => format!("CALL_HOST  {payload_str}"),
         0x70..=0x7F => format!("VECTOR   {payload_str}"),

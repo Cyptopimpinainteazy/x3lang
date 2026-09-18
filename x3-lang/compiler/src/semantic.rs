@@ -793,6 +793,111 @@ pub fn verify_atomic_choice_decls(program: &Program, acc: &mut ErrorAccumulator)
     }
 }
 
+/// The guard kinds that can bound a substitution.
+///
+/// A `fallback` block's `require` lines exist to bound what a replacement may
+/// cost. `require nonce unused ...` is not a bound on a substitution, so
+/// accepting it would let the block look like it constrains the runtime while
+/// constraining nothing.
+fn guard_bounds_a_substitution(kind: &x3_lang_ast::ast::RequireKind) -> bool {
+    use x3_lang_ast::ast::RequireKind;
+    matches!(
+        kind,
+        RequireKind::Slippage | RequireKind::Profit | RequireKind::Finality | RequireKind::BridgeLiquidity
+    )
+}
+
+/// Verify every route `fallback` is a closed, bounded, statically checked set of
+/// substitutions.
+///
+/// The construct's promise is "the runtime may choose only among
+/// compiler-approved routes". Each clause below is one part of that promise:
+///
+/// - **closed** — at least one replacement, at most
+///   [`MAX_ROUTE_FALLBACKS`](crate::spec::opcodes::MAX_ROUTE_FALLBACKS), each
+///   venue named once. There is no wildcard and no "any venue": a substitution
+///   the compiler cannot enumerate is a substitution it cannot verify.
+/// - **a real substitution** — a replacement whose venue is already a venue of
+///   the same route replaces nothing, and the route must contain a `swap` leg
+///   for a fallback to replace in the first place.
+/// - **bounded** — every `require` inside the block must be a guard that
+///   actually bounds a substitution, and its value must be an integer literal
+///   the compiler can evaluate. A bound the compiler defers is not a bound.
+///
+/// The per-substitution *route* verification (does the replacement travel the
+/// same assets, is the resulting route valid?) happens in lowering, where the
+/// route's other steps are in scope.
+pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
+    fn walk(statements: &[x3_lang_ast::ast::Statement], acc: &mut ErrorAccumulator) {
+        for statement in statements {
+            match statement {
+                x3_lang_ast::ast::Statement::RouteFallback { replacements, requires } => {
+                    if replacements.is_empty() {
+                        acc.add_error(err(
+                            "fallback block approves no replacements; an empty approval set would let a \
+                             failing leg be re-routed by something the compiler never checked",
+                        ));
+                    }
+                    if replacements.len() > crate::spec::opcodes::MAX_ROUTE_FALLBACKS {
+                        acc.add_error(err(format!(
+                            "fallback approves {} replacements, above the {}-venue production bound for \
+                             statically bounded fallbacks",
+                            replacements.len(),
+                            crate::spec::opcodes::MAX_ROUTE_FALLBACKS
+                        )));
+                    }
+                    let mut seen: Vec<&str> = Vec::new();
+                    for replacement in replacements {
+                        let venue = replacement.venue.as_str();
+                        if seen.contains(&venue) {
+                            acc.add_error(err(format!(
+                                "fallback approves venue '{venue}' twice; the approved set is a set, and a \
+                                 duplicate would make it ambiguous which entry was verified"
+                            )));
+                        }
+                        seen.push(venue);
+                    }
+                    for guard in requires {
+                        if !guard_bounds_a_substitution(&guard.kind) {
+                            acc.add_error(err(format!(
+                                "fallback contains `require {}`, which does not bound a substitution; a \
+                                 fallback may only constrain what a replacement may cost",
+                                format!("{:?}", guard.kind).to_lowercase()
+                            )));
+                        }
+                        if extract_int_from_expr(&guard.value).is_none() {
+                            acc.add_error(err(
+                                "fallback bound is not an integer literal; a bound the compiler cannot \
+                                 evaluate does not bound the runtime",
+                            ));
+                        }
+                    }
+                }
+                x3_lang_ast::ast::Statement::Atomic(block) => walk(&block.body.stmts, acc),
+                x3_lang_ast::ast::Statement::If {
+                    then_block, else_block, ..
+                } => {
+                    walk(&then_block.stmts, acc);
+                    if let Some(else_block) = else_block {
+                        walk(&else_block.stmts, acc);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    for item in &program.items {
+        match &item.node {
+            Item::IntentDecl(intent) => walk(&intent.body.stmts, acc),
+            Item::AtomicSwap(swap) => walk(&swap.body, acc),
+            Item::Strategy(strategy) => walk(&strategy.body, acc),
+            Item::Bridge(bridge) => walk(&bridge.body, acc),
+            _ => {}
+        }
+    }
+}
+
 /// A `require solver_bond >= N` guard needs a bond to compare against.
 ///
 /// The guard asserts something about the program's configuration — "the solver

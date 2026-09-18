@@ -22,6 +22,7 @@ pub const ATOMIC_BEGIN: u8 = 0x50;
 pub const ATOMIC_END: u8 = 0x51;
 pub const ATOMIC_ROLLBACK: u8 = 0x52;
 pub const ATOMIC_CHOICE: u8 = 0x53;
+pub const ROUTE_FALLBACK: u8 = 0x54;
 
 pub const EMIT: u8 = 0x60;
 pub const CALL_HOST: u8 = 0x61;
@@ -114,6 +115,14 @@ pub const REQUIRE_COMPARE_GE: u8 = 1;
 pub const CHOICE_CRITERION_HIGHEST_NET_OUTPUT: u8 = 0;
 pub const CHOICE_CRITERION_FEWEST_HOPS: u8 = 1;
 
+/// Maximum approved substitutions a route `fallback` may declare.
+///
+/// "Every fallback must be statically bounded" is the constraint, so the bound
+/// is shared by the compiler that enforces it and the VM that refuses a record
+/// outside it — one definition, so an artifact cannot be emitted against a
+/// bound the runtime does not apply.
+pub const MAX_ROUTE_FALLBACKS: usize = 8;
+
 /// Whether an instruction carries a length-prefixed payload —
 /// `[opcode][u16 len][payload]`, the whole thing padded to four bytes.
 ///
@@ -135,7 +144,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
     (compiler_stream && matches!(opcode, LOCK | MINT | BURN | RELEASE | SWAP | BRIDGE))
         || matches!(
             opcode,
-            EMIT | CALL_HOST
+            EMIT | CALL_HOST | ROUTE_FALLBACK
                 | GPU_DISPATCH..=SUB_EXEC
                 | ROUTE_SCORE..=REFUND_POLICY
                 | TRADING_BEGIN..=TRADING_BRIDGE
