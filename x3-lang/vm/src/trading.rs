@@ -64,6 +64,25 @@ pub struct BorrowResult {
     pub state_commitment: [u8; 32],
 }
 
+/// A pre-execution price quote, requested before committing to a swap so
+/// the VM has a reference point to measure realized slippage against.
+/// `min_output` alone is an absolute floor set once at compile time; this
+/// is a live figure the host is expected to refresh per call, letting the
+/// VM catch "the market moved more than the policy allows" even when the
+/// actual output still clears that floor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuoteRequest {
+    pub venue: String,
+    pub from: AssetKey,
+    pub to: AssetKey,
+    pub input: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuoteResult {
+    pub expected_output: u128,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwapRequest {
     pub venue: String,
@@ -147,6 +166,12 @@ pub trait TradingHost {
     }
 
     fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError>;
+    /// Return a live reference price for a prospective swap, requested
+    /// immediately before the swap itself so the VM can measure realized
+    /// slippage against it. Required, not optional: a host with no real
+    /// pricing source has no business claiming to satisfy a policy that
+    /// declares a slippage ceiling.
+    fn quote(&self, request: QuoteRequest) -> Result<QuoteResult, HostError>;
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError>;
     fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError>;
     fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError>;
@@ -181,6 +206,10 @@ pub enum TradingExecError {
         deadline: u64,
     },
     FeeCeilingExceeded {
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    SlippageExceeded {
         ceiling_bps: u16,
         actual_bps: u128,
     },
@@ -240,6 +269,15 @@ impl fmt::Display for TradingExecError {
                 actual_bps,
             } => {
                 write!(f, "host fee {actual_bps} bps exceeds ceiling {ceiling_bps} bps")
+            }
+            Self::SlippageExceeded {
+                ceiling_bps,
+                actual_bps,
+            } => {
+                write!(
+                    f,
+                    "realized slippage {actual_bps} bps exceeds compiled ceiling {ceiling_bps} bps"
+                )
             }
             Self::OpenDebtAtCommit(debt) => write!(f, "debt '{debt}' is still open at commit"),
             Self::NetProfitBelowFloor { minimum, actual } => {
@@ -436,6 +474,17 @@ impl TradingVm {
                             }
                         }
                     };
+                    // Quote first, before the swap actually executes, so the
+                    // reference price can't be influenced by the swap's own
+                    // effects.
+                    let quote = host
+                        .quote(QuoteRequest {
+                            venue: venue.clone(),
+                            from: from.clone(),
+                            to: to.clone(),
+                            input: input_units,
+                        })
+                        .map_err(TradingExecError::HostRejected)?;
                     let result = host
                         .swap(SwapRequest {
                             venue: venue.clone(),
@@ -457,6 +506,11 @@ impl TradingVm {
                             actual: result.output,
                         });
                     }
+                    self.check_slippage_bps(
+                        quote.expected_output,
+                        result.output,
+                        self.compiled_policy().max_slippage_bps,
+                    )?;
                     self.debit(from, result.input)?;
                     self.credit(to, result.output)?;
                     self.accrue_cost(&result.fee_asset, result.fee)?;
@@ -690,6 +744,29 @@ impl TradingVm {
             .ok_or(TradingExecError::AccountingOverflow)?;
         if actual_bps > ceiling_bps as u128 {
             return Err(TradingExecError::FeeCeilingExceeded {
+                ceiling_bps,
+                actual_bps,
+            });
+        }
+        Ok(())
+    }
+
+    /// Realized slippage is only ever a shortfall against the quote: an
+    /// `actual` at or above `expected` is zero slippage (or better than
+    /// quoted), never negative. `min_output` is a separate, absolute floor
+    /// checked elsewhere — this catches "still above the floor, but worse
+    /// than the policy's tolerance for how far the market can move."
+    fn check_slippage_bps(&self, expected: u128, actual: u128, ceiling_bps: u16) -> Result<(), TradingExecError> {
+        if actual >= expected {
+            return Ok(());
+        }
+        let shortfall = expected - actual;
+        let actual_bps = shortfall
+            .checked_mul(10_000)
+            .and_then(|value| value.checked_div(expected.max(1)))
+            .ok_or(TradingExecError::AccountingOverflow)?;
+        if actual_bps > ceiling_bps as u128 {
+            return Err(TradingExecError::SlippageExceeded {
                 ceiling_bps,
                 actual_bps,
             });

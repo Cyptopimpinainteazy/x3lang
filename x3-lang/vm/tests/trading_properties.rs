@@ -8,7 +8,8 @@ use x3_lang_compiler::ir::{
 };
 use x3_lang_vm::trading::{
     fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionMode, HostError,
-    RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
+    QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost,
+    TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [3u8; 32];
@@ -39,6 +40,13 @@ impl TradingHost for Host {
             principal: request.principal,
             fee: 0,
             state_commitment: COMMITMENT,
+        })
+    }
+
+    fn quote(&self, request: QuoteRequest) -> Result<QuoteResult, HostError> {
+        let _ = request;
+        Ok(QuoteResult {
+            expected_output: self.output,
         })
     }
 
