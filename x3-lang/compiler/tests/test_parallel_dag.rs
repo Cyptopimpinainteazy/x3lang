@@ -26,7 +26,7 @@ fn plan(source: &str) -> (Vec<Vec<String>>, Vec<String>) {
     ir.operations
         .iter()
         .find_map(|operation| match operation {
-            Operation::ParallelPlan { waves, edges } => Some((
+            Operation::ParallelPlan { waves, edges, .. } => Some((
                 waves.clone(),
                 edges
                     .iter()
@@ -61,7 +61,7 @@ fn independent_legs_share_a_wave() {
     let source = parallel(&format!(
         "{}{}",
         leg("buy_eth", "USDC", "ethereum.ETH"),
-        leg("buy_sol", "DAI", "solana.SOL")
+        leg("buy_sol", "DAI", "ethereum.SOL")
     ));
     let (waves, edges) = plan(&source);
     assert_eq!(waves, vec![vec!["buy_eth".to_string(), "buy_sol".to_string()]]);
@@ -76,7 +76,7 @@ fn a_consumer_is_ordered_after_its_producer() {
     let source = parallel(&format!(
         "{}{}{}",
         leg("buy_eth", "USDC", "ethereum.ETH"),
-        leg("buy_sol", "DAI", "solana.SOL"),
+        leg("buy_sol", "DAI", "ethereum.SOL"),
         leg("convert", "ETH", "ethereum.X3")
     ));
     let (waves, edges) = plan(&source);
@@ -119,11 +119,11 @@ fn the_plan_does_not_depend_on_declaration_order() {
     let forward = parallel(&format!(
         "{}{}",
         leg("alpha", "USDC", "ethereum.ETH"),
-        leg("beta", "DAI", "solana.SOL")
+        leg("beta", "DAI", "ethereum.SOL")
     ));
     let reversed = parallel(&format!(
         "{}{}",
-        leg("beta", "DAI", "solana.SOL"),
+        leg("beta", "DAI", "ethereum.SOL"),
         leg("alpha", "USDC", "ethereum.ETH")
     ));
     assert_eq!(
@@ -196,7 +196,7 @@ fn every_leg_of_a_plan_appears_exactly_once() {
     let source = parallel(&format!(
         "{}{}{}",
         leg("buy_eth", "USDC", "ethereum.ETH"),
-        leg("buy_sol", "DAI", "solana.SOL"),
+        leg("buy_sol", "DAI", "ethereum.SOL"),
         leg("convert", "ETH", "ethereum.X3")
     ));
     let (waves, _) = plan(&source);
@@ -205,4 +205,135 @@ fn every_leg_of_a_plan_appears_exactly_once() {
     legs.sort();
     legs.dedup();
     assert_eq!(legs.len(), 3, "no leg may appear twice: {waves:?}");
+}
+
+/// A `vm` declaration mapping a chain to a VM family.
+fn vm(chain: &str, adapter: &str) -> String {
+    format!("vm {{\n    chain {chain}\n    adapter {adapter}\n    finality safe\n}}\n")
+}
+
+/// The per-leg domains the plan reports.
+fn domains(source: &str) -> std::collections::BTreeMap<String, Vec<String>> {
+    let (_, ir, outcome) =
+        x3_lang_compiler::check_source_diagnostics_with_mode(source, CompilationMode::Dev).expect("source must lower");
+    assert!(outcome.errors.is_empty(), "unexpected errors: {:?}", outcome.errors);
+    ir.operations
+        .iter()
+        .find_map(|operation| match operation {
+            Operation::ParallelPlan { domains, .. } => Some(
+                domains
+                    .iter()
+                    .map(|(leg, set)| (leg.clone(), set.iter().cloned().collect::<Vec<_>>()))
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .expect("the artifact must carry the plan")
+}
+
+#[test]
+fn a_cross_chain_leg_without_a_bridge_step_is_refused() {
+    // Moving value between chains takes a step that says so. This used to pass:
+    // the IR dropped a swap's output chain, so a leg could move value across a
+    // domain boundary and nothing could see it. With the output chain carried,
+    // the leg names two chains and has no bridge among them.
+    let source = parallel(&format!(
+        "{}{}",
+        leg("buy_eth", "USDC", "ethereum.ETH"),
+        leg("buy_sol", "DAI", "solana.SOL")
+    ));
+    let found = errors(&source);
+    assert!(
+        found
+            .iter()
+            .any(|error| error.contains("touches 2 chains") && error.contains("cross-chain step")),
+        "a leg that moves value between chains implicitly must be refused: {found:?}"
+    );
+}
+
+#[test]
+fn a_cross_chain_leg_with_a_bridge_step_is_accepted() {
+    // Non-vacuous: the same movement, said out loud, is fine.
+    let source = r#"parallel cross {
+    leg a {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.USDC to sender
+    }
+    leg b {
+        swap uniswap ethereum.DAI -> ethereum.ETH amount 1 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.DAI to sender
+    }
+    leg c {
+        bridge x3 ethereum.ETH -> solana.SOL receiver 0x1
+        require finality.ethereum >= 12
+        timeout 30s refund ethereum.ETH to sender
+        on_fail refund ethereum.ETH to sender
+    }
+}
+"#;
+    let found = errors(&source);
+    assert!(
+        !found.iter().any(|error| error.contains("cross-chain step")),
+        "a leg that bridges explicitly must not be refused for crossing chains: {found:?}"
+    );
+}
+
+#[test]
+fn declared_vm_families_are_what_the_plan_reports() {
+    let source = format!(
+        "{}{}{}",
+        vm("ethereum", "evm"),
+        vm("solana", "svm"),
+        parallel(&format!(
+            "{}{}",
+            leg("buy_eth", "USDC", "ethereum.ETH"),
+            leg("buy_sol", "DAI", "ethereum.SOL")
+        ))
+    );
+    let domains = domains(&source);
+    assert_eq!(
+        domains.get("buy_eth"),
+        Some(&vec!["evm".to_string()]),
+        "the plan names the VM family the declaration gave, not the chain: {domains:?}"
+    );
+    assert_eq!(domains.get("buy_sol"), Some(&vec!["evm".to_string()]));
+}
+
+#[test]
+fn an_undeclared_chain_is_its_own_domain() {
+    // Without a declaration the compiler can only honestly report the chain.
+    let source = parallel(&format!(
+        "{}{}",
+        leg("buy_eth", "USDC", "ethereum.ETH"),
+        leg("buy_sol", "DAI", "ethereum.SOL")
+    ));
+    let domains = domains(&source);
+    assert_eq!(
+        domains.get("buy_eth"),
+        Some(&vec!["ethereum".to_string()]),
+        "an undeclared chain is its own domain: {domains:?}"
+    );
+}
+
+#[test]
+fn two_declarations_disagreeing_about_one_chain_are_refused() {
+    // The plan would have to say which VM executes a leg on this chain, and two
+    // declarations mean it cannot.
+    let source = format!(
+        "{}{}{}",
+        vm("ethereum", "evm"),
+        vm("ethereum", "svm"),
+        parallel(&format!(
+            "{}{}",
+            leg("buy_eth", "USDC", "ethereum.ETH"),
+            leg("buy_sol", "DAI", "ethereum.SOL")
+        ))
+    );
+    let found = errors(&source);
+    assert!(
+        found.iter().any(|error| error.contains("declared on two domains")),
+        "an ambiguous chain-to-VM mapping must be refused: {found:?}"
+    );
 }

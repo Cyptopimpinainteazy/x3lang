@@ -39,6 +39,10 @@ pub struct Leg {
     pub reads: BTreeSet<String>,
     /// Assets the leg produces. Two legs producing the same asset is a race.
     pub writes: BTreeSet<String>,
+    /// Chains the leg's operations touch.
+    pub chains: BTreeSet<String>,
+    /// Cross-chain steps the leg contains, as `(from_chain, to_chain)`.
+    pub bridges: BTreeSet<(String, String)>,
 }
 
 /// Why a `parallel` block cannot be scheduled.
@@ -59,6 +63,12 @@ pub enum RaceError {
     TooManyLegs { legs: usize, bound: usize },
     /// Two legs with the same name.
     DuplicateLeg { name: String },
+    /// A leg touches more chains than it has cross-chain steps for.
+    ImplicitCrossChain {
+        leg: String,
+        chains: Vec<String>,
+        bridges: usize,
+    },
 }
 
 /// A deterministic execution plan.
@@ -70,6 +80,15 @@ pub struct ParallelPlan {
     /// Groups of legs that can run concurrently. Within a wave the legs are
     /// sorted, and every leg in wave `n` depends only on legs in waves `< n`.
     pub waves: Vec<Vec<String>>,
+    /// The execution domain of each leg, in wave order.
+    ///
+    /// A domain is the VM family a chain runs on, taken from the program's own
+    /// declarations. A chain nothing declares is its own domain: the compiler
+    /// can only honestly say "this is chain X" when the program never said two
+    /// chains share a VM. The set of these values is the answer to "is this plan
+    /// multi-VM", which is what makes the plan a *multi-VM* plan rather than a
+    /// list of legs.
+    pub domains: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl ParallelPlan {
@@ -104,9 +123,10 @@ fn touched(operation: &Operation) -> (Vec<String>, Vec<String>) {
         Operation::Swap {
             from_chain,
             from_asset,
+            to_chain,
             to_asset,
             ..
-        } => (vec![key(from_chain, from_asset)], vec![key(from_chain, to_asset)]),
+        } => (vec![key(from_chain, from_asset)], vec![key(to_chain, to_asset)]),
         Operation::Bridge {
             from_chain,
             from_asset,
@@ -123,13 +143,30 @@ fn key(chain: &str, asset: &str) -> String {
 }
 
 /// Build one leg from its lowered operations.
-pub fn leg_from_operations(name: &str, operations: &[Operation]) -> Leg {
+///
+/// Refuses a leg that touches more chains than it has cross-chain steps for.
+/// Moving value between N chains takes at least N-1 steps that say so; a leg
+/// that names several chains and fewer bridges is moving value across a domain
+/// boundary the program never drew, which is exactly what "multi-VM planning"
+/// has to refuse rather than infer.
+pub fn leg_from_operations(name: &str, operations: &[Operation]) -> Result<Leg, RaceError> {
     let mut reads = BTreeSet::new();
     let mut writes = BTreeSet::new();
+    let mut chains = BTreeSet::new();
+    let mut bridges = BTreeSet::new();
     for operation in operations {
         let (operation_reads, operation_writes) = touched(operation);
         reads.extend(operation_reads);
         writes.extend(operation_writes);
+        for chain in chains_of(operation) {
+            chains.insert(chain);
+        }
+        if let Operation::Bridge {
+            from_chain, to_chain, ..
+        } = operation
+        {
+            bridges.insert((from_chain.clone(), to_chain.clone()));
+        }
     }
     // An asset a leg both produces and consumes is its own business: the read is
     // satisfied by the write in the same leg, so it is not a dependency on
@@ -137,10 +174,38 @@ pub fn leg_from_operations(name: &str, operations: &[Operation]) -> Leg {
     for produced in &writes {
         reads.remove(produced);
     }
-    Leg {
+
+    if chains.len() > 1 && bridges.len() < chains.len() - 1 {
+        return Err(RaceError::ImplicitCrossChain {
+            leg: name.to_string(),
+            chains: chains.iter().cloned().collect(),
+            bridges: bridges.len(),
+        });
+    }
+
+    Ok(Leg {
         name: name.to_string(),
         reads,
         writes,
+        chains,
+        bridges,
+    })
+}
+
+/// The chains an operation names.
+fn chains_of(operation: &Operation) -> Vec<String> {
+    match operation {
+        Operation::Lock { chain, .. }
+        | Operation::Mint { chain, .. }
+        | Operation::Burn { chain, .. }
+        | Operation::Release { chain, .. } => vec![chain.clone()],
+        Operation::Swap {
+            from_chain, to_chain, ..
+        } => vec![from_chain.clone(), to_chain.clone()],
+        Operation::Bridge {
+            from_chain, to_chain, ..
+        } => vec![from_chain.clone(), to_chain.clone()],
+        _ => Vec::new(),
     }
 }
 
@@ -149,7 +214,7 @@ pub fn leg_from_operations(name: &str, operations: &[Operation]) -> Leg {
 /// `BTreeSet`/`BTreeMap` throughout: the ordering of the output must not depend
 /// on a hash seed, and PHASE 42 names unordered maps as the first thing a
 /// consensus-affecting decision may not use.
-pub fn plan(legs: &[Leg]) -> Result<ParallelPlan, RaceError> {
+pub fn plan(legs: &[Leg], chain_domains: &BTreeMap<String, String>) -> Result<ParallelPlan, RaceError> {
     if legs.len() < 2 {
         return Err(RaceError::TooFewLegs { legs: legs.len() });
     }
@@ -197,10 +262,25 @@ pub fn plan(legs: &[Leg]) -> Result<ParallelPlan, RaceError> {
     }
 
     let waves = waves(legs, &edges)?;
+    let mut domains: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for leg in legs {
+        let leg_domains: BTreeSet<String> = leg
+            .chains
+            .iter()
+            .map(|chain| chain_domains.get(chain).cloned().unwrap_or_else(|| chain.clone()))
+            .collect();
+        domains.insert(leg.name.clone(), leg_domains);
+    }
     Ok(ParallelPlan {
         edges: edges.into_iter().collect(),
         waves,
+        domains,
     })
+}
+
+/// The domains a plan spans, sorted. One entry means the plan is single-VM.
+pub fn domains_spanned(plan: &ParallelPlan) -> BTreeSet<String> {
+    plan.domains.values().flatten().cloned().collect()
 }
 
 /// Kahn's algorithm with a lexicographic tie-break, so the wave assignment is

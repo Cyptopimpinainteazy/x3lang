@@ -2152,6 +2152,7 @@ mod tests {
             Operation::Swap {
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
+                to_chain: "ethereum".to_string(),
                 to_asset: "ETH".into(),
                 input_amount: 1_000,
                 min_output: 500,
@@ -2181,6 +2182,7 @@ mod tests {
             Operation::Swap {
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
+                to_chain: "ethereum".to_string(),
                 to_asset: "ETH".into(),
                 input_amount: 1_000,
                 min_output: 500,

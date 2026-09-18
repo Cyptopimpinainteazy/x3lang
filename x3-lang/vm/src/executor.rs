@@ -26,6 +26,7 @@
 //! `state.gas >= cost` before deducting.
 
 use crate::x3_lang_vm::{AtomicChoiceRecord, ParallelPlanRecord, SubExecInfo, VmSnapshot, VM};
+use std::collections::BTreeMap;
 use x3_lang_compiler::emitter::decode_trading_operation;
 // Import shared opcode constants
 use crate::spec::opcodes::*;
@@ -714,7 +715,24 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                             .collect()
                     })
                     .unwrap_or_default();
-                if legs < 2 || declared.len() != legs {
+                // Which VM each leg runs on. Absent here is a refusal, not an
+                // empty set: a plan that does not say is not a multi-VM plan.
+                let domains: BTreeMap<String, Vec<String>> = field("domains")
+                    .map(|domains| {
+                        domains
+                            .split(',')
+                            .filter(|entry| !entry.is_empty())
+                            .filter_map(|entry| entry.split_once(':'))
+                            .map(|(leg, leg_domains)| {
+                                (
+                                    leg.to_string(),
+                                    leg_domains.split('+').map(|domain| domain.to_string()).collect(),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if legs < 2 || declared.len() != legs || domains.len() != legs {
                     if try_dispatch_handler(vm) {
                         continue;
                     }
@@ -723,7 +741,12 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                         declared.len()
                     )));
                 }
-                vm.state.parallel_plans.push(ParallelPlanRecord { legs, waves, edges });
+                vm.state.parallel_plans.push(ParallelPlanRecord {
+                    legs,
+                    waves,
+                    edges,
+                    domains,
+                });
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }

@@ -221,7 +221,7 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
         // waves cannot check it. Encoded as a payload frame like every other
         // record here: a payload is consumed as `align4(pc + 3 + len)`, the
         // expression the writer pads by, so it is correct at any offset.
-        Operation::ParallelPlan { waves, edges } => {
+        Operation::ParallelPlan { waves, edges, domains } => {
             let leg_count: usize = waves.iter().map(|wave| wave.len()).sum();
             let wave_text = waves.iter().map(|wave| wave.join(",")).collect::<Vec<_>>().join("|");
             let edge_text = edges
@@ -229,7 +229,15 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 .map(|(from, to)| format!("{from}->{to}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            let payload = format!("legs={leg_count};waves={wave_text};edges={edge_text}");
+            // Domains are carried per leg because "is this plan multi-VM" is a
+            // question about the legs, and a reader who cannot see which VM
+            // each leg runs on cannot answer it.
+            let domain_text = domains
+                .iter()
+                .map(|(leg, domains)| format!("{leg}:{}", domains.iter().cloned().collect::<Vec<_>>().join("+")))
+                .collect::<Vec<_>>()
+                .join(",");
+            let payload = format!("legs={leg_count};waves={wave_text};edges={edge_text};domains={domain_text}");
             if payload.len() > u16::MAX as usize {
                 return Err(X3Error::CodegenError {
                     message: format!("parallel plan payload too large: {} bytes", payload.len()),
@@ -592,6 +600,7 @@ fn operation_to_asset_payload(op: &Operation) -> Result<AssetOpPayload, X3Error>
         Operation::Swap {
             from_chain,
             from_asset,
+            to_chain,
             to_asset,
             input_amount,
             min_output,
@@ -599,6 +608,7 @@ fn operation_to_asset_payload(op: &Operation) -> Result<AssetOpPayload, X3Error>
         } => AssetOpPayload::Swap {
             from_chain: from_chain.clone(),
             from_asset: from_asset.clone(),
+            to_chain: to_chain.clone(),
             to_asset: to_asset.clone(),
             input_amount: *input_amount,
             min_output: *min_output,

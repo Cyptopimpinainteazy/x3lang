@@ -152,6 +152,8 @@ pub struct ParallelPlanRecord {
     pub waves: Vec<Vec<String>>,
     /// Data dependencies that ordered the legs.
     pub edges: Vec<(String, String)>,
+    /// The VM family each leg executes on, as the artifact declared it.
+    pub domains: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Clone, Debug)]

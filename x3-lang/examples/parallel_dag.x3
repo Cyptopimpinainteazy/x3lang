@@ -1,23 +1,35 @@
-// Parallel financial execution — spec build-order item 18, PHASE 16.
+// Parallel multi-VM execution — spec build-order items 18 and 19.
 //
 // A `parallel` block declares legs that are *allowed* to run concurrently. The
 // compiler decides which of them actually can, from what their operations read
-// and write, and the artifact carries the plan it produced:
+// and write, and it reports which VM each leg executes on:
 //
-//   x3c explain <out>.x3b    ->  PARALLEL_PLAN legs=3;waves=buy_eth,buy_sol|convert_eth;edges=buy_eth->convert_eth
+//   x3c explain <out>.x3b
+//     PARALLEL_PLAN legs=3;waves=buy_eth,buy_sol|convert_eth;
+//                   edges=buy_eth->convert_eth;
+//                   domains=buy_eth:evm,buy_sol:svm,convert_eth:evm
 //
-// `buy_eth` and `buy_sol` touch disjoint assets, so nothing orders them and
-// they share a wave. `convert_eth` consumes the ETH that `buy_eth` produces, so
-// there is an edge and it waits — that is a race "resolved by explicit
-// semantics" rather than by guessing.
+// `buy_eth` and `buy_sol` touch disjoint assets *on different VMs*, so nothing
+// orders them and they share a wave: this is a genuinely cross-VM plan, not a
+// list of legs with a cross-VM claim attached. `convert_eth` consumes the ETH
+// that `buy_eth` produces, so there is an edge and it waits — a race "resolved
+// by explicit semantics" rather than by guessing.
 //
-// Two things this construct will not let you write:
-//
-// - two legs that both *produce* the same asset. Nothing in the program says
-//   which write wins, so there is no order to derive, and the compiler refuses
-//   rather than sequencing them silently.
-// - a dependency cycle. There is no execution order, and inventing one would
-//   be the quiet wrong answer.
+// The `vm` declarations are what let the plan name `evm` and `svm` instead of
+// repeating the chain names. Without them a chain is its own domain, because
+// the compiler can only honestly report what the program said.
+
+vm {
+    chain ethereum
+    adapter evm
+    finality safe
+}
+
+vm {
+    chain solana
+    adapter svm
+    finality safe
+}
 
 parallel two_way_arb {
     // Wave 0, concurrently with buy_sol.
@@ -27,16 +39,17 @@ parallel two_way_arb {
         on_fail refund ethereum.USDC to sender
     }
 
-    // Wave 0, concurrently with buy_eth: nothing here touches its assets.
+    // Wave 0, concurrently with buy_eth: a different chain, a different VM, and
+    // no asset in common.
     leg buy_sol {
-        swap curve ethereum.DAI -> solana.SOL amount 1_000 min_output 1
+        swap raydium solana.USDC -> solana.SOL amount 1_000 min_output 1
         require slippage <= 50
-        on_fail refund ethereum.DAI to sender
+        on_fail refund solana.USDC to sender
     }
 
     // Wave 1: consumes buy_eth's output, so it cannot start until buy_eth is
-    // done. It is not slower than it needs to be — it stays concurrent with
-    // nothing, because it genuinely depends on something.
+    // done. It stays concurrent with nothing, because it genuinely depends on
+    // something.
     leg convert_eth {
         swap sushiswap ethereum.ETH -> ethereum.X3 amount 1 min_output 1
         require slippage <= 50

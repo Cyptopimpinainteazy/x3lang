@@ -210,6 +210,11 @@ pub enum AssetOpPayload {
     Swap {
         from_chain: String,
         from_asset: String,
+        /// Chain the output asset lives on. Not derivable from `from_chain`:
+        /// `ethereum.DAI -> solana.SOL` is a swap whose output is on another
+        /// chain, and dropping it made every cross-chain swap invisible to the
+        /// reader.
+        to_chain: String,
         to_asset: String,
         input_amount: u128,
         min_output: u128,
@@ -498,6 +503,7 @@ pub fn encode_asset_op_payload(payload: &AssetOpPayload) -> Result<Vec<u8>, Capa
         AssetOpPayload::Swap {
             from_chain,
             from_asset,
+            to_chain,
             to_asset,
             input_amount,
             min_output,
@@ -505,6 +511,7 @@ pub fn encode_asset_op_payload(payload: &AssetOpPayload) -> Result<Vec<u8>, Capa
         } => {
             write_string(&mut out, from_chain)?;
             write_string(&mut out, from_asset)?;
+            write_string(&mut out, to_chain)?;
             write_string(&mut out, to_asset)?;
             write_u128(&mut out, *input_amount);
             write_u128(&mut out, *min_output);
@@ -543,6 +550,7 @@ pub fn decode_asset_op_payload(opcode: u8, bytes: &[u8]) -> Result<AssetOpPayloa
         0x24 => AssetOpPayload::Swap {
             from_chain: reader.read_string()?,
             from_asset: reader.read_string()?,
+            to_chain: reader.read_string()?,
             to_asset: reader.read_string()?,
             input_amount: reader.read_u128()?,
             min_output: reader.read_u128()?,

@@ -93,6 +93,10 @@ pub enum Operation {
     Swap {
         from_chain: String,
         from_asset: String,
+        /// Chain the output asset lives on. Carried explicitly because
+        /// `ethereum.DAI -> solana.SOL` is a swap that moves value between
+        /// chains, and a reader that only knew `from_chain` could not tell.
+        to_chain: String,
         to_asset: String,
         input_amount: u128,
         min_output: u128,
@@ -167,6 +171,12 @@ pub enum Operation {
         /// must complete first. This is the "explicit semantics" that resolves
         /// what would otherwise be a race.
         edges: Vec<(String, String)>,
+        /// The execution domain of each leg: the VM family its chains run on.
+        ///
+        /// A chain nothing declares is its own domain — the compiler can only
+        /// honestly say "this is chain X" when the program never said two chains
+        /// share a VM. The set of these values answers "is this plan multi-VM".
+        domains: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
     },
 
     // ===== Guard Operations =====

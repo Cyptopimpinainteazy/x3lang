@@ -186,11 +186,17 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
             AssetOpPayload::Swap {
                 from_chain,
                 from_asset,
+                to_chain,
                 to_asset,
                 input_amount,
                 ..
             } => {
-                if from_chain.is_empty() || from_asset.is_empty() || to_asset.is_empty() || input_amount == 0 {
+                if from_chain.is_empty()
+                    || from_asset.is_empty()
+                    || to_chain.is_empty()
+                    || to_asset.is_empty()
+                    || input_amount == 0
+                {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
             }
@@ -261,6 +267,23 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
                     return Err(VerifyError::InvalidOperand(pc));
                 }
             }
+        }
+        // Every leg must name the domain it executes on: a plan that does not
+        // say which VM runs a leg is not a multi-VM plan, it is a list of legs
+        // with a multi-VM claim attached.
+        let domains = field("domains").ok_or(VerifyError::InvalidOperand(pc))?;
+        let mut with_domain = 0usize;
+        for entry in domains.split(',').filter(|entry| !entry.is_empty()) {
+            let Some((leg, leg_domains)) = entry.split_once(':') else {
+                return Err(VerifyError::InvalidOperand(pc));
+            };
+            if !declared.contains(&leg) || leg_domains.is_empty() {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+            with_domain += 1;
+        }
+        if with_domain != legs {
+            return Err(VerifyError::InvalidOperand(pc));
         }
         return Ok(());
     }
