@@ -39,6 +39,7 @@ use lowering::{lower_program, lower_program_with_mode, LowerCtx};
 use parser::parse_source;
 use regalloc::{allocate, AllocationResult};
 use semantic::verify_atomic_swap_decls;
+use semantic::verify_solver_bond_declared;
 use semantic::verify_with_config as verify_semantics;
 use x3_lang_ast::ast::Program;
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
@@ -57,6 +58,19 @@ pub use trading_verify::{verify_atomic_trade, verify_trading_program, DebtFlowSt
 // Re-export register-allocation entry points so callers (and tests) can run
 // allocation as a standalone pass without going through the full pipeline.
 pub use regalloc::{allocate as allocate_registers, AllocationResult as RegisterAllocationResult};
+
+/// Diagnostics that can only be seen on the AST, before lowering.
+///
+/// Both entry points run this. It used to be reachable only from the
+/// `check`-style entry points, so `x3c build` skipped AST-level validation
+/// entirely — the same "a check that is not on the path that matters" shape that
+/// keeps turning up in this crate.
+fn ast_level_errors(program: &Program) -> Vec<X3Error> {
+    let mut acc = ErrorAccumulator::new();
+    verify_atomic_swap_decls(program, &mut acc);
+    verify_solver_bond_declared(program, &mut acc);
+    acc.errors().to_vec()
+}
 
 /// Compile an X3 AST program to bytecode
 ///
@@ -130,16 +144,14 @@ pub fn check_source_diagnostics_with_mode(
 ) -> Result<(Program, crate::ir::X3IR, semantic::VerifyOutcome), X3Error> {
     let program = parse_source(source)?;
 
-    // AST-level atomic swap validation (catches info lost during lowering)
-    let mut ast_errors = ErrorAccumulator::new();
-    verify_atomic_swap_decls(&program, &mut ast_errors);
-    if ast_errors.has_errors() {
+    let ast_errors = ast_level_errors(&program);
+    if !ast_errors.is_empty() {
         return Ok((
             program,
             crate::ir::X3IR::new(),
             semantic::VerifyOutcome {
-                errors: ast_errors.errors().to_vec(),
-                warnings: ast_errors.warnings().to_vec(),
+                errors: ast_errors,
+                warnings: Vec::new(),
             },
         ));
     }
@@ -191,6 +203,26 @@ pub fn check_source(source: &str) -> Result<(Program, crate::ir::X3IR, Vec<X3Err
 /// Compile with an explicit compilation mode for mode-gated safety checks.
 pub fn compile_with_mode(source: &str, mode: CompilationMode) -> Result<Vec<u8>, X3Error> {
     let program = parse_source(source)?;
+
+    // AST-level checks run here too. They used to be reachable only from the
+    // `check`-style entry points, so `x3c build` — the path that actually emits
+    // bytecode — skipped every one of them.
+    let ast_errors = ast_level_errors(&program);
+    if !ast_errors.is_empty() {
+        return Err(X3Error::SemanticError {
+            message: format!(
+                "compilation failed with {} AST-level error(s): {}",
+                ast_errors.len(),
+                ast_errors
+                    .iter()
+                    .map(|error| error.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            span: Span::DUMMY,
+        });
+    }
+
     let ir = lower_program_with_mode(&program, LowerCtx::new(), mode)?;
     verify_semantics(
         &ir,

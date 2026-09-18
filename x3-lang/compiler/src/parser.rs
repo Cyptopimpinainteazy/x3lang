@@ -1926,6 +1926,7 @@ impl<'a> Parser<'a> {
         self.expect(Tok::LBrace, "expected '{' after solver_market")?;
         let mut mode = Symbol::new("competitive");
         let mut min_reputation: u64 = 0;
+        let mut bond: Option<AmountExpr> = None;
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             match self.peek() {
                 Tok::Ident(ref s) if s == "mode" => {
@@ -1937,11 +1938,22 @@ impl<'a> Parser<'a> {
                     let expr = self.parse_expr()?;
                     min_reputation = expr_to_u64(&expr);
                 }
+                Tok::Ident(ref s) if s == "bond" => {
+                    self.advance();
+                    let value = self.parse_amount_expr("solver bond")?;
+                    if bond.replace(value).is_some() {
+                        return Err(parse_err("duplicate 'bond' in solver_market".into(), self.peek()));
+                    }
+                }
                 _ => break,
             }
         }
         self.expect(Tok::RBrace, "expected '}' after solver_market body")?;
-        Ok(Item::SolverMarket(SolverMarket { mode, min_reputation }))
+        Ok(Item::SolverMarket(SolverMarket {
+            mode,
+            min_reputation,
+            bond,
+        }))
     }
 
     /// `relayers { quorum <n>_of_<m> ... }`

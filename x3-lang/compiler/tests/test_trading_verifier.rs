@@ -486,3 +486,89 @@ fn a_trade_without_effect_or_guarantee_clauses_is_unaffected() {
         "omitting the optional clauses must be fine: {errors:?}"
     );
 }
+
+/// An intent that requires a solver bond, so the requirement can be compared
+/// against whatever the program declares.
+fn intent_requiring_solver_bond(amount: &str) -> String {
+    format!(
+        r#"intent bonded_swap {{
+    from ethereum.USDC amount 1 receiver 0x1
+    to solana.USDC receiver 0x2
+    route {{
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
+    }}
+    require slippage <= 50
+    require solver_bond >= {amount}
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
+}}
+"#
+    )
+}
+
+fn solver_market_declaring(bond: &str) -> String {
+    format!("solver_market {{\n    mode competitive\n    min_reputation 95\n    bond {bond} USDC\n}}\n\n")
+}
+
+#[test]
+fn a_solver_bond_guard_without_a_declaration_is_rejected() {
+    // The guard asserts "the solver posted at least N", which is a claim about
+    // the program's configuration. With no `bond` anywhere it asserted nothing —
+    // in the compiler and in the VM alike.
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}",
+        intent_requiring_solver_bond("10_000")
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "no `solver_market"),
+        "an unbacked solver bond guard must be reported: {errors:?}"
+    );
+}
+
+#[test]
+fn a_solver_bond_guard_above_the_declared_bond_is_rejected() {
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}{}",
+        solver_market_declaring("1_000"),
+        intent_requiring_solver_bond("10_000")
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "declared bond is 1000"),
+        "a requirement above the declared bond must be reported: {errors:?}"
+    );
+}
+
+#[test]
+fn a_solver_bond_guard_within_the_declared_bond_is_accepted() {
+    // Non-vacuous: the check must not reject a backed requirement.
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}{}",
+        solver_market_declaring("10_000"),
+        intent_requiring_solver_bond("10_000")
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        !errors.iter().any(|error| format!("{error}").contains("solver bond")),
+        "a backed solver bond requirement must compile: {errors:?}"
+    );
+}
+
+#[test]
+fn ast_level_checks_run_on_the_build_path_not_only_the_check_path() {
+    // `compile_source` is what `x3c build` calls, and it used to skip every
+    // AST-level check — the same "a check that is not on the path that matters"
+    // shape as the rest of this compiler. The unbacked bond above must be
+    // refused there too, not only by `check_source`.
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}",
+        intent_requiring_solver_bond("10_000")
+    );
+    let result = x3_lang_compiler::compile_source(&source);
+    assert!(
+        result.is_err(),
+        "the build path must refuse an unbacked solver bond guard, got {:?}",
+        result.map(|bytecode| bytecode.len())
+    );
+}

@@ -621,6 +621,15 @@ pub struct VmDecl {
 pub struct SolverMarket {
     pub mode: Symbol,
     pub min_reputation: u64,
+    /// The bond a solver must post, from `bond <amount> <ASSET>`.
+    ///
+    /// Optional in the grammar so existing programs keep parsing, but a program
+    /// that writes `require solver_bond >= N` without one is rejected: the guard
+    /// has nothing to compare against. A bond is an amount, so it carries the
+    /// asset it is denominated in — the same rule that made `max_gas` need
+    /// `max_gas_asset` before it could be enforced.
+    #[serde(default)]
+    pub bond: Option<crate::AmountExpr>,
 }
 
 /// `relayers { quorum 3_of_5 ... }` — declares a relayer swarm with quorum configuration.

@@ -222,6 +222,7 @@ vm {
 solver_market {
     mode competitive
     min_reputation 95
+    bond 10_000 USDC
 }
 
 relayers {

@@ -535,6 +535,49 @@ fn extract_int_from_expr(expr: &Expression) -> Option<u128> {
     }
 }
 
+/// A `require solver_bond >= N` guard needs a bond to compare against.
+///
+/// The guard asserts something about the program's configuration — "the solver
+/// backing this trade has posted at least N" — so it is a compile-time check,
+/// not a run-time one. Without a `solver_market { bond <amount> <ASSET> }`
+/// declaration there is no bond anywhere in the program, and the guard asserted
+/// nothing in either the compiler or the VM. This is the compile-time half; the
+/// run-time half is TICKET-027.
+pub fn verify_solver_bond_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    let declared = program.items.iter().find_map(|item| match &item.node {
+        Item::SolverMarket(market) => market.bond.as_ref().and_then(|bond| extract_int_from_expr(&bond.value)),
+        _ => None,
+    });
+
+    for item in &program.items {
+        let Item::IntentDecl(intent) = &item.node else {
+            continue;
+        };
+        for statement in &intent.body.stmts {
+            let x3_lang_ast::ast::Statement::Require(guard) = statement else {
+                continue;
+            };
+            if guard.kind != x3_lang_ast::ast::RequireKind::SolverBond {
+                continue;
+            }
+            let required = extract_int_from_expr(&guard.value).unwrap_or(0);
+            match declared {
+                None => acc.add_error(err(format!(
+                    "intent '{}' requires a solver bond of {required} but the program declares no \
+                     `solver_market {{ bond <amount> <ASSET> }}` — the guard has nothing to compare \
+                     against",
+                    intent.name.as_str()
+                ))),
+                Some(bond) if required > bond => acc.add_error(err(format!(
+                    "intent '{}' requires a solver bond of {required}, but the declared bond is {bond}",
+                    intent.name.as_str()
+                ))),
+                Some(_) => {}
+            }
+        }
+    }
+}
+
 /// Extract a duration in seconds from an expression.
 ///
 /// - `Literal(Int(n))` → bare number treated as seconds → `Some(n)`
