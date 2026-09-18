@@ -643,3 +643,54 @@ fn cli_audit_status_reflects_fail_severity_not_warn_count() {
         "a program with only warnings must exit 0, not 1: {stdout}"
     );
 }
+
+#[test]
+fn cli_audit_recognizes_trading_core_v1_declarations() {
+    // Regression test for a real bug: every check here (has_intent,
+    // has_nonce, has_refund, has_timeout, has_risk_policy, has_invariant)
+    // was originally written against only the older intent-DSL's AST
+    // shape (Item::IntentDecl and its Statement variants). A
+    // trading-core-v1 program has none of those — it lowers to
+    // Item::AtomicTrade / Item::TradeRiskPolicy instead — so every one of
+    // these checks used to report FAIL/WARN regardless of how safe the
+    // trade actually was, e.g. "no risk policy found" on a program that
+    // manifestly declares one.
+    let src = write_fixture("cli_audit_trading_core.x3", TRADING_SOURCE);
+    let output = x3c()
+        .arg("--mode")
+        .arg("dev")
+        .arg("audit")
+        .arg(&src)
+        .output()
+        .expect("x3c audit");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("[PASS] atomic trade declaration present"),
+        "must recognize Item::AtomicTrade as a valid top-level declaration: {stdout}"
+    );
+    assert!(
+        stdout.contains("deadline_blocks present"),
+        "must recognize the mandatory risk-policy deadline as satisfying the timeout check: {stdout}"
+    );
+    assert!(
+        stdout.contains("[PASS] risk policy configured"),
+        "must recognize Item::TradeRiskPolicy, not just the older Item::RiskPolicy: {stdout}"
+    );
+    assert!(
+        !stdout.contains("no intent declaration found"),
+        "must not demand an Item::IntentDecl from a trading-core-v1 program: {stdout}"
+    );
+    assert!(
+        !stdout.contains("missing nonce guard"),
+        "must not demand an AST-level nonce guard — trading-core-v1 replay protection is a receipt-layer concern: {stdout}"
+    );
+    assert!(
+        !stdout.contains("no risk policy found"),
+        "must not report a risk policy as absent when Item::TradeRiskPolicy is present: {stdout}"
+    );
+    assert!(
+        !stdout.contains("no vm declaration found") && !stdout.contains("no solver market found"),
+        "must not demand cross-chain bridge infrastructure from a single-chain atomic trade: {stdout}"
+    );
+}

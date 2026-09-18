@@ -1118,64 +1118,104 @@ fn cmd_audit(input: &PathBuf, mode_str: &String, out: Option<&PathBuf>) -> Resul
         }
     }
 
-    // Check: intent must exist
+    // Every check below this point was originally written against only
+    // the older intent-DSL's AST shape (Item::IntentDecl, its Statement
+    // variants). Trading Core v1 (Item::AtomicTrade / Item::TradeRiskPolicy)
+    // is a structurally different language sharing this same program: it
+    // has no `Item::IntentDecl` at all, so every one of these checks used
+    // to report FAIL/WARN against a trading-core-v1 program regardless of
+    // how safe it actually was — e.g. "no risk policy found" on a program
+    // that declares one, just under a different item type. A program is
+    // treated as "pure trading-core-v1" when it declares at least one
+    // atomic trade and no general intent at all; a program mixing both
+    // stays on the original intent-only checks, since nothing here can
+    // safely assume which half of a mixed program a check is about.
+    let has_atomic_trade = program
+        .items
+        .iter()
+        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::AtomicTrade(_)));
     let has_intent = program
         .items
         .iter()
         .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::IntentDecl(_)));
+    let pure_trading_core = has_atomic_trade && !has_intent;
+
+    // Check: a top-level intent or atomic trade must exist
     if has_intent {
         passed.push("intent declaration present".into());
+    } else if has_atomic_trade {
+        passed.push("atomic trade declaration present".into());
     } else {
         issues.push("[FAIL] no intent declaration found".into());
     }
 
-    // Check: nonce guard for replay protection
-    let has_nonce = program.items.iter().any(|item| {
-        if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
-            intent.body.stmts.iter().any(|s| matches!(s, x3_lang_ast::ast::Statement::Require(g) if g.kind == x3_lang_ast::ast::RequireKind::Nonce))
+    // Check: nonce guard for replay protection. Trading Core v1 has no
+    // AST-level nonce guard — replay protection there is enforced at the
+    // receipt-verification layer (ReceiptReplayLedger), which isn't
+    // something a static audit of the source can see at all. Flagging its
+    // absence here would just be checking for syntax that doesn't apply,
+    // so a pure trading-core-v1 program skips this check entirely rather
+    // than failing it.
+    if !pure_trading_core {
+        let has_nonce = program.items.iter().any(|item| {
+            if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
+                intent.body.stmts.iter().any(|s| matches!(s, x3_lang_ast::ast::Statement::Require(g) if g.kind == x3_lang_ast::ast::RequireKind::Nonce))
+            } else {
+                false
+            }
+        });
+        if has_nonce {
+            passed.push("nonce guard present — replay protected".into());
         } else {
-            false
+            issues.push("[FAIL] missing nonce guard — add 'require nonce unused'".into());
         }
-    });
-    if has_nonce {
-        passed.push("nonce guard present — replay protected".into());
-    } else {
-        issues.push("[FAIL] missing nonce guard — add 'require nonce unused'".into());
     }
 
-    // Check: refund path
-    let has_refund = program.items.iter().any(|item| {
-        if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
-            intent.body.stmts.iter().any(|s| {
-                matches!(s, x3_lang_ast::ast::Statement::Require(g) if g.kind == x3_lang_ast::ast::RequireKind::RefundPath)
-                    || matches!(s, x3_lang_ast::ast::Statement::OnFail(x3_lang_ast::ast::FailureAction::Refund(_)))
-            })
+    // Check: refund path. A failed atomic trade in Trading Core v1 rolls
+    // back in full — there is no partial-execution "stuck funds" scenario
+    // an explicit refund path exists to solve for a cross-chain bridge
+    // intent, so this doesn't apply to a pure trading-core-v1 program.
+    if !pure_trading_core {
+        let has_refund = program.items.iter().any(|item| {
+            if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
+                intent.body.stmts.iter().any(|s| {
+                    matches!(s, x3_lang_ast::ast::Statement::Require(g) if g.kind == x3_lang_ast::ast::RequireKind::RefundPath)
+                        || matches!(s, x3_lang_ast::ast::Statement::OnFail(x3_lang_ast::ast::FailureAction::Refund(_)))
+                })
+            } else {
+                false
+            }
+        });
+        if has_refund {
+            passed.push("refund path configured".into());
         } else {
-            false
+            issues.push("[WARN] missing refund path — users may lose funds on timeout".into());
         }
-    });
-    if has_refund {
-        passed.push("refund path configured".into());
-    } else {
-        issues.push("[WARN] missing refund path — users may lose funds on timeout".into());
     }
 
-    // Check: timeout
-    let has_timeout = program.items.iter().any(|item| {
-        if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
-            intent
-                .body
-                .stmts
-                .iter()
-                .any(|s| matches!(s, x3_lang_ast::ast::Statement::OnTimeout { .. }))
-        } else {
-            false
-        }
-    });
-    if has_timeout {
-        passed.push("timeout configured".into());
+    // Check: timeout. Trading Core v1's risk policy always declares a
+    // mandatory `deadline` — the parser itself refuses to compile a policy
+    // missing one — so a pure trading-core-v1 program always satisfies
+    // this by construction; there's nothing to check for its absence.
+    if pure_trading_core {
+        passed.push("deadline_blocks present (mandatory risk-policy field)".into());
     } else {
-        issues.push("[FAIL] missing timeout — funds may be locked indefinitely".into());
+        let has_timeout = program.items.iter().any(|item| {
+            if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
+                intent
+                    .body
+                    .stmts
+                    .iter()
+                    .any(|s| matches!(s, x3_lang_ast::ast::Statement::OnTimeout { .. }))
+            } else {
+                false
+            }
+        });
+        if has_timeout {
+            passed.push("timeout configured".into());
+        } else {
+            issues.push("[FAIL] missing timeout — funds may be locked indefinitely".into());
+        }
     }
 
     // Check: chain names are known
@@ -1211,104 +1251,129 @@ fn cmd_audit(input: &PathBuf, mode_str: &String, out: Option<&PathBuf>) -> Resul
     }
 
     // --- B-52 configuration checks (WARN-only — optional but recommended for production) ---
-    let has_vm = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::VmDecl(_)));
-    if has_vm {
-        passed.push("vm declaration present".into());
-    } else {
-        issues.push("[WARN] no vm declaration found — recommend adding for production use".into());
+    //
+    // vm/solver_market/relayer_swarm/rpc_quorum/privacy/proofs_required/
+    // finality_policy/target describe cross-chain bridge-routing
+    // infrastructure — solver markets, relayer swarms, multi-RPC quorum
+    // consensus, cross-domain finality — that a pure trading-core-v1
+    // program structurally cannot have any use for: check_same_chain
+    // rejects cross-chain asset mixing in an atomic trade at compile
+    // time, so there is no bridge leg here to recommend hardening.
+    // Warning about their absence on every such program is just noise,
+    // so these are skipped entirely (neither PASS nor WARN) rather than
+    // penalizing a program for correctly not needing them.
+    if !pure_trading_core {
+        let has_vm = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::VmDecl(_)));
+        if has_vm {
+            passed.push("vm declaration present".into());
+        } else {
+            issues.push("[WARN] no vm declaration found — recommend adding for production use".into());
+        }
+
+        let has_solver_market = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::SolverMarket(_)));
+        if has_solver_market {
+            passed.push("solver market configured".into());
+        } else {
+            issues.push("[WARN] no solver market found — recommend adding for production use".into());
+        }
+
+        let has_relayer_swarm = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RelayerSwarm(_)));
+        if has_relayer_swarm {
+            passed.push("relayer swarm configured".into());
+        } else {
+            issues.push("[WARN] no relayer swarm found — recommend adding for production use".into());
+        }
+
+        let has_rpc_quorum = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RpcQuorum(_)));
+        if has_rpc_quorum {
+            passed.push("rpc quorum configured".into());
+        } else {
+            issues.push("[WARN] no rpc quorum found — recommend adding for production use".into());
+        }
+
+        let has_privacy_block = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::PrivacyBlock(_)));
+        if has_privacy_block {
+            passed.push("privacy block configured".into());
+        } else {
+            issues.push("[WARN] no privacy block found — recommend adding for production use".into());
+        }
+
+        let has_proofs_required = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::ProofsRequired(_)));
+        if has_proofs_required {
+            passed.push("proofs required configured".into());
+        } else {
+            issues.push("[WARN] no proofs required declaration found — recommend adding for production use".into());
+        }
+
+        let has_finality_policy = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::FinalityPolicy(_)));
+        if has_finality_policy {
+            passed.push("finality policy configured".into());
+        } else {
+            issues.push("[WARN] no finality policy found — recommend adding for production use".into());
+        }
+
+        let has_target = program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::VmTarget(_)));
+        if has_target {
+            passed.push("target declared".into());
+        } else {
+            issues.push("[WARN] no target found — recommend adding for production use".into());
+        }
     }
 
-    let has_solver_market = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::SolverMarket(_)));
-    if has_solver_market {
-        passed.push("solver market configured".into());
-    } else {
-        issues.push("[WARN] no solver market found — recommend adding for production use".into());
-    }
-
-    let has_relayer_swarm = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RelayerSwarm(_)));
-    if has_relayer_swarm {
-        passed.push("relayer swarm configured".into());
-    } else {
-        issues.push("[WARN] no relayer swarm found — recommend adding for production use".into());
-    }
-
-    let has_rpc_quorum = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RpcQuorum(_)));
-    if has_rpc_quorum {
-        passed.push("rpc quorum configured".into());
-    } else {
-        issues.push("[WARN] no rpc quorum found — recommend adding for production use".into());
-    }
-
-    let has_risk_policy = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::RiskPolicy(_)));
+    // risk policy and invariant declarations are meaningful for both
+    // language families, just under different item/statement shapes:
+    // Trading Core v1's `risk policy NAME { ... }` lowers to
+    // Item::TradeRiskPolicy (not the older Item::RiskPolicy), and its
+    // `invariant solvent` is a TradeStmt::AssertInvariant inside an atomic
+    // trade body, not a top-level Item::InvariantDecl.
+    let has_risk_policy = program.items.iter().any(|item| {
+        matches!(
+            &item.node,
+            x3_lang_ast::ast::Item::RiskPolicy(_) | x3_lang_ast::ast::Item::TradeRiskPolicy(_)
+        )
+    });
     if has_risk_policy {
         passed.push("risk policy configured".into());
     } else {
         issues.push("[WARN] no risk policy found — recommend adding for production use".into());
     }
 
-    let has_privacy_block = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::PrivacyBlock(_)));
-    if has_privacy_block {
-        passed.push("privacy block configured".into());
-    } else {
-        issues.push("[WARN] no privacy block found — recommend adding for production use".into());
-    }
-
-    let has_invariant = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::InvariantDecl(_)));
+    let has_invariant = program.items.iter().any(|item| match &item.node {
+        x3_lang_ast::ast::Item::InvariantDecl(_) => true,
+        x3_lang_ast::ast::Item::AtomicTrade(trade) => trade
+            .body
+            .iter()
+            .any(|stmt| matches!(stmt, x3_lang_ast::TradeStmt::AssertInvariant { .. })),
+        _ => false,
+    });
     if has_invariant {
         passed.push("invariant check declared".into());
     } else {
         issues.push("[WARN] no invariant declared — recommend adding for production use".into());
-    }
-
-    let has_proofs_required = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::ProofsRequired(_)));
-    if has_proofs_required {
-        passed.push("proofs required configured".into());
-    } else {
-        issues.push("[WARN] no proofs required declaration found — recommend adding for production use".into());
-    }
-
-    let has_finality_policy = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::FinalityPolicy(_)));
-    if has_finality_policy {
-        passed.push("finality policy configured".into());
-    } else {
-        issues.push("[WARN] no finality policy found — recommend adding for production use".into());
-    }
-
-    let has_target = program
-        .items
-        .iter()
-        .any(|item| matches!(&item.node, x3_lang_ast::ast::Item::VmTarget(_)));
-    if has_target {
-        passed.push("target declared".into());
-    } else {
-        issues.push("[WARN] no target found — recommend adding for production use".into());
     }
 
     // Compute risk score

@@ -924,6 +924,23 @@ pub fn verify_mainnet_safe(ir: &X3IR, acc: &mut ErrorAccumulator) {
     verify_manual_recovery(ir, acc);
 }
 
+/// Whether the program contains any general-VM cross-chain/bridge-shaped
+/// operation. RPC-consensus, relayer-attestation, and solver-bond safety
+/// only mean anything for a program actually relying on that
+/// infrastructure — a program with none of these operations at all (e.g.
+/// a Trading Core v1 atomic trade, which lowers entirely into
+/// `Operation::Trading(..)` and has no concept of an RPC/relayer/solver
+/// layer to begin with) has nothing here to be unsafe about. Mirrors the
+/// same condition `verify_refund_path_exists` already uses.
+fn has_cross_chain_operation(ir: &X3IR) -> bool {
+    ir.operations.iter().any(|op| {
+        matches!(
+            op,
+            Operation::Bridge { .. } | Operation::Swap { .. } | Operation::Lock { .. }
+        )
+    })
+}
+
 fn verify_single_rpc(ir: &X3IR, acc: &mut ErrorAccumulator) {
     let rpc_count = ir
         .operations
@@ -931,7 +948,9 @@ fn verify_single_rpc(ir: &X3IR, acc: &mut ErrorAccumulator) {
         .filter(|op| matches!(op, Operation::RpcConsensus { .. }))
         .count();
     if rpc_count == 0 {
-        acc.add_error(err("mainnet: no RPC consensus declared — single-RPC is unsafe"));
+        if has_cross_chain_operation(ir) {
+            acc.add_error(err("mainnet: no RPC consensus declared — single-RPC is unsafe"));
+        }
         return;
     }
     for op in &ir.operations {
@@ -953,9 +972,11 @@ fn verify_single_relayer(ir: &X3IR, acc: &mut ErrorAccumulator) {
         .filter(|op| matches!(op, Operation::RelayerAttest { .. }))
         .count();
     if relayer_count == 0 {
-        acc.add_error(err(
-            "mainnet: no relayer attestation declared — single-relayer is unsafe",
-        ));
+        if has_cross_chain_operation(ir) {
+            acc.add_error(err(
+                "mainnet: no relayer attestation declared — single-relayer is unsafe",
+            ));
+        }
         return;
     }
     for op in &ir.operations {
@@ -979,7 +1000,9 @@ fn verify_single_relayer(ir: &X3IR, acc: &mut ErrorAccumulator) {
 fn verify_solver_bond(ir: &X3IR, acc: &mut ErrorAccumulator) {
     let has_solver = ir.operations.iter().any(|op| matches!(op, Operation::SolverBid { .. }));
     if !has_solver {
-        acc.add_error(err("mainnet: missing solver bond declaration"));
+        if has_cross_chain_operation(ir) {
+            acc.add_error(err("mainnet: missing solver bond declaration"));
+        }
         return;
     }
     for op in &ir.operations {
