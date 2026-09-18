@@ -165,6 +165,7 @@ pub enum TradingExecError {
         actual: String,
     },
     PrivateSubmissionRequired,
+    InconsistentSubmissionProfile,
     UnknownCapability(String),
     UnsupportedOperation(String),
     InvalidSequence(String),
@@ -219,6 +220,9 @@ impl fmt::Display for TradingExecError {
                 )
             }
             Self::PrivateSubmissionRequired => write!(f, "compiled policy requires private submission capability"),
+            Self::InconsistentSubmissionProfile => {
+                write!(f, "legacy private-submission flag does not match submission profile")
+            }
             Self::UnknownCapability(capability) => write!(f, "unknown capability '{capability}'"),
             Self::UnsupportedOperation(operation) => write!(f, "unsupported operation '{operation}'"),
             Self::InvalidSequence(message) => write!(f, "invalid atomic sequence: {message}"),
@@ -603,6 +607,9 @@ impl TradingVm {
         policy: &CompiledTradingPolicy,
         manifest: &CapabilityManifest,
     ) -> Result<(), TradingExecError> {
+        if !policy.submission_profile_is_consistent() {
+            return Err(TradingExecError::InconsistentSubmissionProfile);
+        }
         if policy.chain != manifest.chain {
             return Err(TradingExecError::CapabilityChainMismatch {
                 expected: policy.chain.clone(),

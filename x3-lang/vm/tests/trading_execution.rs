@@ -2,7 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
+use x3_lang_compiler::ir::{
+    AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation, ValueRef,
+};
 use x3_lang_vm::trading::{
     fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode,
     HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
@@ -137,6 +139,22 @@ fn ops() -> Vec<TradingOperation> {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
+                max_total_cost: 1_000_000,
+                max_price_impact_bps: 30,
+                max_mev_leakage_bps: 30,
+                quote_freshness_blocks: 10,
+                submission_profile: SubmissionProfile::Public,
+                state_binding: StateBindingMode::Exact,
+                allowed_cost_kinds: BTreeSet::from([
+                    CostKind::Gas,
+                    CostKind::LiquidityFee,
+                    CostKind::FlashLiquidityFee,
+                    CostKind::Slippage,
+                    CostKind::PriceImpact,
+                    CostKind::MevLeakage,
+                ]),
+                allow_mint: false,
+                allow_burn: false,
             },
         },
         TradingOperation::OpenDebt {
@@ -381,10 +399,31 @@ fn compiled_policy_version_mismatch_is_rejected_before_host_transaction() {
 }
 
 #[test]
+fn inconsistent_submission_profile_is_rejected_before_host_transaction() {
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.submission_profile = SubmissionProfile::Private;
+    }
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("legacy flag and submission profile must agree");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::InconsistentSubmissionProfile
+    );
+    assert!(!host.began);
+}
+
+#[test]
 fn compiled_private_submission_requirement_is_enforced() {
     let mut operations = ops();
     if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
         policy.require_private_submission = true;
+        policy.submission_profile = SubmissionProfile::Private;
     }
     let mut vm = TradingVm::new();
     let mut host = FixtureHost::new();
@@ -517,6 +556,22 @@ fn gas_ceiling_within_policy_still_commits() {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
+                max_total_cost: 1_000_000,
+                max_price_impact_bps: 30,
+                max_mev_leakage_bps: 30,
+                quote_freshness_blocks: 10,
+                submission_profile: SubmissionProfile::Public,
+                state_binding: StateBindingMode::Exact,
+                allowed_cost_kinds: BTreeSet::from([
+                    CostKind::Gas,
+                    CostKind::LiquidityFee,
+                    CostKind::FlashLiquidityFee,
+                    CostKind::Slippage,
+                    CostKind::PriceImpact,
+                    CostKind::MevLeakage,
+                ]),
+                allow_mint: false,
+                allow_burn: false,
             },
         },
         TradingOperation::CommitAtomicTrade,
@@ -576,6 +631,22 @@ fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
+                max_total_cost: 1_000_000,
+                max_price_impact_bps: 30,
+                max_mev_leakage_bps: 30,
+                quote_freshness_blocks: 10,
+                submission_profile: SubmissionProfile::Public,
+                state_binding: StateBindingMode::Exact,
+                allowed_cost_kinds: BTreeSet::from([
+                    CostKind::Gas,
+                    CostKind::LiquidityFee,
+                    CostKind::FlashLiquidityFee,
+                    CostKind::Slippage,
+                    CostKind::PriceImpact,
+                    CostKind::MevLeakage,
+                ]),
+                allow_mint: false,
+                allow_burn: false,
             },
         },
         TradingOperation::CommitAtomicTrade,

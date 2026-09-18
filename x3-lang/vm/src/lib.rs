@@ -1,5 +1,6 @@
 pub mod bridge;
 pub mod btc_adapter;
+pub mod economic;
 pub mod executor;
 pub mod jit;
 pub mod trading;
@@ -13,6 +14,7 @@ pub mod x3_lang_vm;
 
 pub use bridge::*;
 pub use btc_adapter::*;
+pub use economic::*;
 pub use executor::*;
 pub use jit::*;
 pub use trading::*;

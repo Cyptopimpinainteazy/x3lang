@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use x3_lang_compiler::diagnostic::DiagnosticCode;
 use x3_lang_compiler::ir::{
-    AssetKey, CompiledTradingPolicy, FailureAction, InvariantKind, Operation, ProgramMetadata, TradingOperation,
-    ValueRef, X3IR,
+    AssetKey, CompiledTradingPolicy, CostKind, FailureAction, InvariantKind, Operation, ProgramMetadata,
+    StateBindingMode, SubmissionProfile, TradingOperation, ValueRef, X3IR,
 };
 use x3_lang_compiler::verify::verify_ir;
 
@@ -136,6 +136,22 @@ fn compiled_policy(id: &str) -> CompiledTradingPolicy {
         deadline_blocks: 10,
         require_private_submission: false,
         minimum_net_profit: None,
+        max_total_cost: 1_000_000,
+        max_price_impact_bps: 30,
+        max_mev_leakage_bps: 30,
+        quote_freshness_blocks: 10,
+        submission_profile: SubmissionProfile::Public,
+        state_binding: StateBindingMode::Exact,
+        allowed_cost_kinds: BTreeSet::from([
+            CostKind::Gas,
+            CostKind::LiquidityFee,
+            CostKind::FlashLiquidityFee,
+            CostKind::Slippage,
+            CostKind::PriceImpact,
+            CostKind::MevLeakage,
+        ]),
+        allow_mint: false,
+        allow_burn: false,
     }
 }
 

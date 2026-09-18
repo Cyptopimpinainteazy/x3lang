@@ -42,9 +42,11 @@ fn write_fixture(name: &str, body: &str) -> PathBuf {
 }
 
 fn trading_receipt_json(tamper: bool) -> String {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
-    use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation};
+    use x3_lang_compiler::ir::{
+        AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation,
+    };
     use x3_lang_vm::trading::{build_receipt, DebtRecord, TradeOutcome, TradingState};
 
     let asset = AssetKey {
@@ -68,6 +70,22 @@ fn trading_receipt_json(tamper: bool) -> String {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
+                max_total_cost: 1_000_000,
+                max_price_impact_bps: 30,
+                max_mev_leakage_bps: 30,
+                quote_freshness_blocks: 10,
+                submission_profile: SubmissionProfile::Public,
+                state_binding: StateBindingMode::Exact,
+                allowed_cost_kinds: BTreeSet::from([
+                    CostKind::Gas,
+                    CostKind::LiquidityFee,
+                    CostKind::FlashLiquidityFee,
+                    CostKind::Slippage,
+                    CostKind::PriceImpact,
+                    CostKind::MevLeakage,
+                ]),
+                allow_mint: false,
+                allow_burn: false,
             },
         },
         TradingOperation::OpenDebt {
