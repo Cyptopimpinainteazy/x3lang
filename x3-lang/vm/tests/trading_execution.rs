@@ -60,6 +60,12 @@ struct FixtureHost {
     /// `CostKind`; tests point this at an unknown or unlisted category to
     /// prove the policy allowlist is actually consulted.
     execution_cost_kind: String,
+    /// Block `quote()` reports its price as having been taken at. Defaults to
+    /// 0 so a test only sees a staleness failure when it asks for one.
+    quote_block: u64,
+    /// How many times `swap()` was actually invoked. Lets a test prove a guard
+    /// aborted the leg *before* the host was asked to move value.
+    swap_calls: usize,
     /// Output amount `bridge()` reports received on the destination chain.
     /// Defaults to matching the request's input exactly (a neutral, no-fee
     /// transfer), matching how `swap_output`/`quote_output` default to
@@ -91,6 +97,8 @@ impl FixtureHost {
             execution_cost: 0,
             execution_cost_asset: None,
             execution_cost_kind: "gas".to_string(),
+            quote_block: 0,
+            swap_calls: 0,
             bridge_output: None,
             bridge_fee: 0,
             bridge_fee_asset: None,
@@ -135,10 +143,12 @@ impl TradingHost for FixtureHost {
         Ok(QuoteResult {
             expected_output: self.quote_output.unwrap_or(self.swap_output),
             sources: self.oracle_sources.clone(),
+            quote_block: self.quote_block,
         })
     }
 
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
+        self.swap_calls += 1;
         Ok(SwapResult {
             from: request.from,
             to: request.to.clone(),
@@ -200,10 +210,7 @@ fn ops() -> Vec<TradingOperation> {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
-                max_total_cost: 1_000_000,
-                max_price_impact_bps: 30,
-                max_mev_leakage_bps: 30,
-                quote_freshness_blocks: 10,
+                quote_freshness_blocks: Some(10),
                 submission_profile: SubmissionProfile::Public,
                 state_binding: StateBindingMode::Exact,
                 allowed_cost_kinds: BTreeSet::from([
@@ -692,10 +699,7 @@ fn gas_ceiling_within_policy_still_commits() {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
-                max_total_cost: 1_000_000,
-                max_price_impact_bps: 30,
-                max_mev_leakage_bps: 30,
-                quote_freshness_blocks: 10,
+                quote_freshness_blocks: Some(10),
                 submission_profile: SubmissionProfile::Public,
                 state_binding: StateBindingMode::Exact,
                 allowed_cost_kinds: BTreeSet::from([
@@ -772,10 +776,7 @@ fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
-                max_total_cost: 1_000_000,
-                max_price_impact_bps: 30,
-                max_mev_leakage_bps: 30,
-                quote_freshness_blocks: 10,
+                quote_freshness_blocks: Some(10),
                 submission_profile: SubmissionProfile::Public,
                 state_binding: StateBindingMode::Exact,
                 allowed_cost_kinds: BTreeSet::from([
@@ -988,10 +989,7 @@ fn minimal_loss_trade(ceiling: Option<u128>) -> Vec<TradingOperation> {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
-                max_total_cost: u128::MAX,
-                max_price_impact_bps: 30,
-                max_mev_leakage_bps: 30,
-                quote_freshness_blocks: 10,
+                quote_freshness_blocks: Some(10),
                 submission_profile: SubmissionProfile::Public,
                 state_binding: StateBindingMode::Exact,
                 allowed_cost_kinds: BTreeSet::from([
@@ -1253,6 +1251,7 @@ impl TradingHost for HostWithoutBridgeSupport {
         Ok(QuoteResult {
             expected_output: 2_000_000,
             sources: Vec::new(),
+            quote_block: 0,
         })
     }
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
@@ -1479,4 +1478,101 @@ fn bridge_fee_in_a_disallowed_category_is_rejected() {
         }
     );
     assert!(host.rolled_back);
+}
+
+/// Set the compiled policy's quote-freshness ceiling in an existing op
+/// sequence.
+fn with_quote_freshness(mut operations: Vec<TradingOperation>, ceiling: Option<u64>) -> Vec<TradingOperation> {
+    match operations.first_mut() {
+        Some(TradingOperation::BeginAtomicTrade { policy, .. }) => {
+            policy.quote_freshness_blocks = ceiling;
+        }
+        other => panic!("expected BeginAtomicTrade first, got {other:?}"),
+    }
+    operations
+}
+
+/// Execution context at `block`. `ops()` declares `deadline_blocks: 10`, so
+/// these tests stay at or below that or they would trip the deadline guard
+/// instead of the one under test.
+fn context_at(block: u64) -> TradeExecutionContext {
+    TradeExecutionContext {
+        mode: ExecutionMode::Development,
+        current_block: block,
+    }
+}
+
+#[test]
+fn fresh_quote_within_the_ceiling_commits() {
+    // quote_block 0, current_block 5 -> age 5, ceiling 10.
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let operations = with_quote_freshness(ops(), Some(10));
+    let execution = vm
+        .execute_atomic(&operations, &mut host, context_at(5))
+        .expect("a quote inside the freshness ceiling must commit");
+    assert!(execution.committed_state.committed);
+}
+
+#[test]
+fn stale_quote_is_rejected() {
+    // quote_block 0, current_block 5 -> age 5, ceiling 2.
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let operations = with_quote_freshness(ops(), Some(2));
+    let before = vm.trading_state.clone();
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context_at(5))
+        .expect_err("a quote older than the ceiling must be rejected");
+
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::QuoteStale {
+            age_blocks: 5,
+            ceiling_blocks: 2,
+        }
+    );
+    assert_eq!(vm.trading_state, before);
+    assert!(host.rolled_back);
+}
+
+#[test]
+fn stale_quote_aborts_before_the_host_is_asked_to_swap() {
+    // The guard runs before `host.swap()`, so a stale price cannot cause a
+    // host-side value movement that would then have to be unwound.
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let operations = with_quote_freshness(ops(), Some(2));
+
+    let _ = vm.execute_atomic(&operations, &mut host, context_at(5));
+
+    assert_eq!(
+        host.swap_calls, 0,
+        "the stale quote must be rejected before any swap reaches the host"
+    );
+}
+
+#[test]
+fn a_policy_without_a_quote_freshness_ceiling_does_not_check_age() {
+    // The same block/quote pairing that is stale under `Some(2)` above, but
+    // with no declared ceiling: freshness is opt-in, so this commits.
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let operations = with_quote_freshness(ops(), None);
+    vm.execute_atomic(&operations, &mut host, context_at(5))
+        .expect("with no declared ceiling, quote age is not a failure");
+}
+
+#[test]
+fn a_quote_from_a_higher_block_is_not_treated_as_stale() {
+    // A destination-chain venue's block clock is not the policy chain's, so a
+    // quote block above `current_block` is an ordinary cross-chain reading
+    // rather than evidence of staleness.
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.quote_block = 500;
+    let operations = with_quote_freshness(ops(), Some(2));
+    vm.execute_atomic(&operations, &mut host, context_at(5))
+        .expect("a quote block ahead of current_block must not read as stale");
 }

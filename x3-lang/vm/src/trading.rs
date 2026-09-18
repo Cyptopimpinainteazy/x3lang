@@ -98,6 +98,14 @@ pub struct QuoteResult {
     /// cross-check data — which is only a problem if the policy actually
     /// requires the check; see `enforce_oracle_firewall`.
     pub sources: Vec<PriceSource>,
+    /// The block the quote was taken at, as reported by the host. Required, not
+    /// optional: a policy that declares `quote_freshness` cannot enforce a
+    /// ceiling without it, and a host that cannot say when its price was valid
+    /// has no business satisfying a policy that bounds quote age. The VM
+    /// measures age against the caller-supplied
+    /// `TradeExecutionContext::current_block`; the caller is responsible for
+    /// tying that block to the clock of the quote's own chain.
+    pub quote_block: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,6 +291,14 @@ pub enum TradingExecError {
         ceiling_bps: u16,
         actual_bps: u128,
     },
+    /// The venue quote the trade was about to be priced from is older than the
+    /// compiled `quote_freshness` ceiling allows. Trading against a stale price
+    /// is how a "profitable" route settles at a loss, so this fails closed
+    /// before the swap is attempted rather than after.
+    QuoteStale {
+        age_blocks: u64,
+        ceiling_blocks: u64,
+    },
     OpenDebtAtCommit(String),
     NetProfitBelowFloor {
         minimum: u128,
@@ -384,6 +400,13 @@ impl fmt::Display for TradingExecError {
             } => write!(
                 f,
                 "price source '{source}' deviates {actual_bps} bps from the primary quote, exceeding the compiled ceiling {ceiling_bps} bps"
+            ),
+            Self::QuoteStale {
+                age_blocks,
+                ceiling_blocks,
+            } => write!(
+                f,
+                "venue quote is {age_blocks} blocks old, exceeding the compiled quote_freshness ceiling of {ceiling_blocks} blocks"
             ),
             Self::OpenDebtAtCommit(debt) => write!(f, "debt '{debt}' is still open at commit"),
             Self::NetProfitBelowFloor { minimum, actual } => {
@@ -599,7 +622,7 @@ impl TradingVm {
         &mut self,
         operations: &[TradingOperation],
         host: &mut dyn TradingHost,
-        _context: TradeExecutionContext,
+        context: TradeExecutionContext,
     ) -> Result<TradeExecution, TradingExecError> {
         let mut saw_commit = false;
         for operation in operations {
@@ -683,6 +706,10 @@ impl TradingVm {
                             input: input_units,
                         })
                         .map_err(TradingExecError::HostRejected)?;
+                    // Checked before `swap()`, not after: a stale price must
+                    // abort the leg before the host is asked to move value, so
+                    // there is no host-side side effect to unwind.
+                    self.enforce_quote_freshness(&quote, context.current_block)?;
                     let result = host
                         .swap(SwapRequest {
                             venue: venue.clone(),
@@ -1079,6 +1106,31 @@ impl TradingVm {
             return Err(TradingExecError::SlippageExceeded {
                 ceiling_bps,
                 actual_bps,
+            });
+        }
+        Ok(())
+    }
+
+    /// Reject a venue quote older than the compiled `quote_freshness` ceiling.
+    ///
+    /// Age is measured against the caller-supplied `current_block`. A quote
+    /// whose block is *ahead* of `current_block` saturates to age 0 rather than
+    /// being rejected: a trade's policy chain and a destination-chain venue do
+    /// not share a block clock, so a quote block above the policy chain's
+    /// current block is an ordinary cross-chain reading, not evidence of
+    /// staleness.
+    ///
+    /// A policy that does not declare `quote_freshness` imposes no bound, so
+    /// this is a no-op for it.
+    fn enforce_quote_freshness(&self, quote: &QuoteResult, current_block: u64) -> Result<(), TradingExecError> {
+        let Some(ceiling_blocks) = self.compiled_policy().quote_freshness_blocks else {
+            return Ok(());
+        };
+        let age_blocks = current_block.saturating_sub(quote.quote_block);
+        if age_blocks > ceiling_blocks {
+            return Err(TradingExecError::QuoteStale {
+                age_blocks,
+                ceiling_blocks,
             });
         }
         Ok(())

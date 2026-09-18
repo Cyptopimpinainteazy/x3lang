@@ -36,11 +36,8 @@ fn fixture_policy() -> EconomicPolicy {
         chain: "ethereum".to_string(),
         settlement_asset: asset("USDC"),
         minimum_net_profit: 10_000,
-        max_total_cost: 1_000,
         max_slippage_bps: 30,
-        max_price_impact_bps: 20,
-        max_mev_leakage_bps: 10,
-        quote_freshness_blocks: 3,
+        quote_freshness_blocks: Some(3),
         deadline_blocks: 10,
         submission_profile: SubmissionProfile::Private,
         state_binding: StateBindingMode::Exact,
@@ -125,11 +122,36 @@ fn identical_canonical_bytes_are_domain_separated_with_stable_snapshot_vector() 
 fn runtime_policy_cannot_weaken_compiled_policy() {
     let compiled = fixture_policy();
     let mut runtime = compiled.clone();
-    runtime.max_total_cost += 1;
+    runtime.max_slippage_bps += 1;
     assert_eq!(
         runtime.validate_not_weaker_than(&compiled),
-        Err(EconomicError::PolicyWeakening("max_total_cost")),
+        Err(EconomicError::PolicyWeakening("max_slippage_bps")),
     );
+}
+
+#[test]
+fn dropping_the_quote_freshness_ceiling_is_a_weakening() {
+    // `quote_freshness_blocks` is a *maximum* quote age, so relaxing it to "no
+    // bound" is weaker than the compiled policy and must be refused. This is
+    // the check that used to compare a fabricated alias of `deadline_blocks`
+    // against itself.
+    let compiled = fixture_policy();
+    let mut runtime = compiled.clone();
+    runtime.quote_freshness_blocks = None;
+    assert_eq!(
+        runtime.validate_not_weaker_than(&compiled),
+        Err(EconomicError::PolicyWeakening("quote_freshness_blocks")),
+    );
+}
+
+#[test]
+fn a_stricter_quote_freshness_ceiling_is_allowed() {
+    // Non-vacuous: tightening the ceiling must still pass, or the check above
+    // would just be rejecting everything.
+    let compiled = fixture_policy();
+    let mut runtime = compiled.clone();
+    runtime.quote_freshness_blocks = Some(1);
+    assert_eq!(runtime.validate_not_weaker_than(&compiled), Ok(()));
 }
 
 #[test]
@@ -158,10 +180,7 @@ fn legacy_private_flag_must_match_submission_profile() {
         deadline_blocks: 10,
         require_private_submission: true,
         minimum_net_profit: Some(10),
-        max_total_cost: 1_000,
-        max_price_impact_bps: 20,
-        max_mev_leakage_bps: 10,
-        quote_freshness_blocks: 3,
+        quote_freshness_blocks: Some(3),
         submission_profile: SubmissionProfile::Public,
         state_binding: StateBindingMode::Exact,
         allowed_cost_kinds: BTreeSet::from([CostKind::Gas]),

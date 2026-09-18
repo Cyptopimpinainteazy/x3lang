@@ -455,10 +455,21 @@ pub struct CompiledTradingPolicy {
     /// Legacy migration field. It must agree with `submission_profile`.
     pub require_private_submission: bool,
     pub minimum_net_profit: Option<u128>,
-    pub max_total_cost: u128,
-    pub max_price_impact_bps: u16,
-    pub max_mev_leakage_bps: u16,
-    pub quote_freshness_blocks: u64,
+    /// Maximum age, in blocks, of the venue quote a swap is allowed to have
+    /// been taken at. `None` means no freshness requirement — the same opt-in
+    /// shape as `max_oracle_deviation_bps`.
+    ///
+    /// Three sibling ceilings were removed here rather than left unenforced:
+    /// `max_total_cost` (a bare amount with no denomination asset, hardcoded to
+    /// `max_gas`, so it duplicated the gas ceiling and could mean nothing
+    /// else), and `max_price_impact_bps` / `max_mev_leakage_bps` (both
+    /// hardcoded to `max_slippage_bps`; the host boundary carries no
+    /// price-impact or MEV-leakage evidence, so enforcing them would have
+    /// required inventing host fields and comparing fabricated numbers). No
+    /// source program could set any of the three, and nothing enforced them —
+    /// they were read only by `EconomicPolicy::validate_not_weaker_than`,
+    /// which compared each one against a copy of itself.
+    pub quote_freshness_blocks: Option<u64>,
     pub submission_profile: SubmissionProfile,
     pub state_binding: StateBindingMode,
     pub allowed_cost_kinds: BTreeSet<CostKind>,

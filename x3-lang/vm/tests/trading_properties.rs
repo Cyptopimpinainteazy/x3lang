@@ -48,6 +48,7 @@ impl TradingHost for Host {
         Ok(QuoteResult {
             expected_output: self.output,
             sources: Vec::new(),
+            quote_block: 0,
         })
     }
 
@@ -93,10 +94,7 @@ fn operations() -> Vec<TradingOperation> {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
-                max_total_cost: u128::MAX,
-                max_price_impact_bps: 30,
-                max_mev_leakage_bps: 30,
-                quote_freshness_blocks: 10,
+                quote_freshness_blocks: Some(10),
                 submission_profile: SubmissionProfile::Public,
                 state_binding: StateBindingMode::Exact,
                 allowed_cost_kinds: BTreeSet::from([

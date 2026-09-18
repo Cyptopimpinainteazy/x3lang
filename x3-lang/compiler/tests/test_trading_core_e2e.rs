@@ -61,6 +61,7 @@ impl TradingHost for FixtureVenueHost {
         Ok(QuoteResult {
             expected_output: 0,
             sources: Vec::new(),
+            quote_block: 0,
         })
     }
 

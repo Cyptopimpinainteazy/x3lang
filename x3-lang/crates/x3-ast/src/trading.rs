@@ -111,6 +111,12 @@ pub struct TradeRiskPolicy {
     /// not just this one trade. `None` means no cross-trade ceiling is
     /// enforced — the historical default.
     pub max_cumulative_loss: Option<AmountExpr>,
+    /// Optional quote-freshness ceiling: the maximum age, in blocks, of the
+    /// venue quote a swap may be priced from. `None` means the policy requires
+    /// no freshness bound — the same opt-in shape as
+    /// `max_oracle_deviation_bps`, so policies that do not declare it are
+    /// unaffected.
+    pub quote_freshness: Option<u64>,
 }
 
 /// `atomic trade NAME using POLICY { ... }` declaration.

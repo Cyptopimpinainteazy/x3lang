@@ -70,10 +70,7 @@ fn trading_receipt_json(tamper: bool) -> String {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
-                max_total_cost: 1_000_000,
-                max_price_impact_bps: 30,
-                max_mev_leakage_bps: 30,
-                quote_freshness_blocks: 10,
+                quote_freshness_blocks: Some(10),
                 submission_profile: SubmissionProfile::Public,
                 state_binding: StateBindingMode::Exact,
                 allowed_cost_kinds: BTreeSet::from([

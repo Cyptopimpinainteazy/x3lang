@@ -63,11 +63,10 @@ pub struct EconomicPolicy {
     pub chain: String,
     pub settlement_asset: AssetKey,
     pub minimum_net_profit: u128,
-    pub max_total_cost: u128,
     pub max_slippage_bps: u16,
-    pub max_price_impact_bps: u16,
-    pub max_mev_leakage_bps: u16,
-    pub quote_freshness_blocks: u64,
+    /// Maximum age in blocks of the venue quote a swap may be priced from.
+    /// `None` means the policy requires no freshness bound.
+    pub quote_freshness_blocks: Option<u64>,
     pub deadline_blocks: u64,
     pub submission_profile: SubmissionProfile,
     pub state_binding: StateBindingMode,
@@ -94,10 +93,7 @@ impl EconomicPolicy {
             chain: compiled.chain.clone(),
             settlement_asset,
             minimum_net_profit: compiled.minimum_net_profit.unwrap_or(0),
-            max_total_cost: compiled.max_total_cost,
             max_slippage_bps: compiled.max_slippage_bps,
-            max_price_impact_bps: compiled.max_price_impact_bps,
-            max_mev_leakage_bps: compiled.max_mev_leakage_bps,
             quote_freshness_blocks: compiled.quote_freshness_blocks,
             deadline_blocks: compiled.deadline_blocks,
             submission_profile: compiled.submission_profile,
@@ -129,19 +125,10 @@ impl EconomicPolicy {
         if self.minimum_net_profit < compiled.minimum_net_profit {
             return Err(EconomicError::PolicyWeakening("minimum_net_profit"));
         }
-        if self.max_total_cost > compiled.max_total_cost {
-            return Err(EconomicError::PolicyWeakening("max_total_cost"));
-        }
         if self.max_slippage_bps > compiled.max_slippage_bps {
             return Err(EconomicError::PolicyWeakening("max_slippage_bps"));
         }
-        if self.max_price_impact_bps > compiled.max_price_impact_bps {
-            return Err(EconomicError::PolicyWeakening("max_price_impact_bps"));
-        }
-        if self.max_mev_leakage_bps > compiled.max_mev_leakage_bps {
-            return Err(EconomicError::PolicyWeakening("max_mev_leakage_bps"));
-        }
-        if self.quote_freshness_blocks > compiled.quote_freshness_blocks {
+        if quote_freshness_is_weaker(self.quote_freshness_blocks, compiled.quote_freshness_blocks) {
             return Err(EconomicError::PolicyWeakening("quote_freshness_blocks"));
         }
         if self.deadline_blocks > compiled.deadline_blocks {
@@ -253,5 +240,46 @@ fn validate_version(object: &'static str, version: u16) -> Result<(), EconomicEr
         Ok(())
     } else {
         Err(EconomicError::UnsupportedVersion { object, version })
+    }
+}
+
+/// Whether a runtime quote-freshness ceiling is weaker than the compiled one.
+///
+/// `quote_freshness_blocks` is a *maximum* allowed quote age in blocks, so a
+/// larger value permits staler quotes and is weaker. `None` means "no freshness
+/// requirement", i.e. an unbounded age — the weakest possible setting. So a
+/// runtime `None` weakens any compiled ceiling, and any runtime ceiling is
+/// stricter than a compiled `None`.
+fn quote_freshness_is_weaker(runtime: Option<u64>, compiled: Option<u64>) -> bool {
+    match (runtime, compiled) {
+        (Some(runtime), Some(compiled)) => runtime > compiled,
+        (None, Some(_)) => true,
+        (Some(_), None) => false,
+        (None, None) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quote_freshness_is_weaker;
+
+    #[test]
+    fn a_larger_freshness_ceiling_is_weaker() {
+        assert!(quote_freshness_is_weaker(Some(11), Some(10)));
+        assert!(!quote_freshness_is_weaker(Some(10), Some(10)));
+        assert!(!quote_freshness_is_weaker(Some(9), Some(10)));
+    }
+
+    #[test]
+    fn dropping_a_freshness_requirement_is_weaker() {
+        // `None` means "no bound", which is weaker than any concrete ceiling...
+        assert!(quote_freshness_is_weaker(None, Some(10)));
+        // ...and therefore not weaker when there was no ceiling to begin with.
+        assert!(!quote_freshness_is_weaker(None, None));
+    }
+
+    #[test]
+    fn adding_a_freshness_requirement_is_stricter() {
+        assert!(!quote_freshness_is_weaker(Some(10), None));
     }
 }

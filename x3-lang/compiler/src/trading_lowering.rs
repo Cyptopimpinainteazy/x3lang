@@ -89,10 +89,7 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         deadline_blocks,
         require_private_submission: policy.require_private_submission,
         minimum_net_profit,
-        max_total_cost: max_gas,
-        max_price_impact_bps: policy.max_slippage_bps,
-        max_mev_leakage_bps: policy.max_slippage_bps,
-        quote_freshness_blocks: deadline_blocks,
+        quote_freshness_blocks: policy.quote_freshness,
         submission_profile: if policy.require_private_submission {
             SubmissionProfile::Private
         } else {

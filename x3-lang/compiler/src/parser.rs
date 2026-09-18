@@ -827,6 +827,7 @@ impl<'a> Parser<'a> {
         let mut min_profit = None;
         let mut max_oracle_deviation_bps = None;
         let mut max_cumulative_loss = None;
+        let mut quote_freshness = None;
 
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             match self.peek() {
@@ -906,6 +907,25 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
+                Tok::Ident(ref s) if s == "quote_freshness" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after quote_freshness")?;
+                    let value = self.parse_block_count("quote_freshness")?;
+                    if value == 0 {
+                        return Err(parse_err(
+                            "quote_freshness must be greater than zero blocks; omit the field instead of \
+                             declaring a zero ceiling"
+                                .into(),
+                            self.peek(),
+                        ));
+                    }
+                    if quote_freshness.replace(value).is_some() {
+                        return Err(parse_err(
+                            "duplicate 'quote_freshness' in risk policy".into(),
+                            self.peek(),
+                        ));
+                    }
+                }
                 _ => {
                     return Err(parse_err("unknown field in trading risk policy".into(), self.peek()));
                 }
@@ -926,6 +946,7 @@ impl<'a> Parser<'a> {
             min_profit,
             max_oracle_deviation_bps,
             max_cumulative_loss,
+            quote_freshness,
         })
     }
 
@@ -1139,6 +1160,16 @@ impl<'a> Parser<'a> {
         match self.advance() {
             Tok::Int(value) if value <= u8::MAX as u128 => Ok(value as u8),
             Tok::Int(_) => Err(parse_err(format!("{field}: value exceeds u8"), self.peek())),
+            other => Err(parse_err(format!("{field}: expected an unsigned integer"), other)),
+        }
+    }
+
+    /// A count of blocks. Used for ceilings where the unit is blocks and a
+    /// fractional value would be meaningless.
+    fn parse_block_count(&mut self, field: &str) -> Result<u64, X3Error> {
+        match self.advance() {
+            Tok::Int(value) if value <= u64::MAX as u128 => Ok(value as u64),
+            Tok::Int(_) => Err(parse_err(format!("{field}: value exceeds u64"), self.peek())),
             other => Err(parse_err(format!("{field}: expected an unsigned integer"), other)),
         }
     }

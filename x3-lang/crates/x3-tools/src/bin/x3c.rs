@@ -1760,6 +1760,7 @@ impl TradingHost for NeutralFixtureHost {
         Ok(QuoteResult {
             expected_output: 0,
             sources: Vec::new(),
+            quote_block: 0,
         })
     }
 

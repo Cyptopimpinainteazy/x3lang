@@ -318,6 +318,85 @@ risk policy P {
     );
 }
 
+/// The four policy fields below used to be fabricated by the lowering pass from
+/// unrelated source fields, so no program could set them. Only
+/// `quote_freshness` survived — it is now source-declarable and enforced. These
+/// tests pin the syntax that replaced the fabrication.
+#[test]
+fn quote_freshness_is_optional_and_parses_when_present() {
+    let fixture_program = parse_source(TRADING_CORE_V1_SOURCE).expect("fixture must parse");
+    let (_, policy_without, _) = find_items(&fixture_program);
+    assert_eq!(
+        policy_without.expect("fixture must declare a policy").quote_freshness,
+        None,
+        "the canonical fixture never declares quote_freshness — must default to None, not error"
+    );
+
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+risk policy WithFreshness {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+    quote_freshness: 12
+}
+"#;
+    let program = parse_source(source).expect("policy declaring quote_freshness must parse");
+    let (_, policy, _) = find_items(&program);
+    assert_eq!(policy.expect("policy must be present").quote_freshness, Some(12));
+}
+
+#[test]
+fn duplicate_quote_freshness_is_rejected() {
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 { decimals: 18 }
+risk policy P {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+    quote_freshness: 12
+    quote_freshness: 24
+}
+"#;
+    let err = parse_source(source).expect_err("duplicate quote_freshness must be a parser diagnostic");
+    assert!(
+        format!("{err}").to_lowercase().contains("quote_freshness"),
+        "diagnostic should name the duplicated field, got: {err}"
+    );
+}
+
+#[test]
+fn a_zero_or_fractional_quote_freshness_ceiling_is_rejected() {
+    // Zero would mean "no quote may ever be used", which is never what a policy
+    // author means; the way to express "no bound" is to omit the field.
+    for ceiling in ["0", "12.5", "nope"] {
+        let source = format!(
+            r#"
+asset USDC = evm.ethereum.0xA0b8 {{ decimals: 6 }}
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 {{ decimals: 18 }}
+risk policy P {{
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+    quote_freshness: {ceiling}
+}}
+"#
+        );
+        assert!(
+            parse_source(&source).is_err(),
+            "quote_freshness: {ceiling} must be rejected"
+        );
+    }
+}
+
 #[test]
 fn max_cumulative_loss_is_optional_and_parses_when_present() {
     let fixture_program = parse_source(TRADING_CORE_V1_SOURCE).expect("fixture must parse");
