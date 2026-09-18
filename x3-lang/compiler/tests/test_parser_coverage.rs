@@ -148,3 +148,45 @@ fn rejects_empty_top_level_intent() {
 fn rejects_unknown_top_level() {
     must_reject("blah x { }");
 }
+
+/// Anything unrecognised inside an intent body used to be parsed as a generic
+/// expression statement and then silently ignored, so a declaration the author
+/// believed was in force was not. Only the documented clause set is accepted
+/// now.
+#[test]
+fn rejects_an_unrecognised_clause_in_an_intent_body() {
+    must_reject(
+        r#"intent t {
+    from ethereum.USDC amount 1
+    widgetize the route
+}"#,
+    );
+}
+
+#[test]
+fn rejects_proofs_required_nested_inside_an_intent_body() {
+    // It parses as a file-scope item, and a nested copy was accepted and never
+    // applied — the diagnostic has to say so rather than silently dropping it.
+    let err = parse_source(
+        r#"intent t {
+    from ethereum.USDC amount 1
+    proofs required { source_lock_proof }
+}"#,
+    )
+    .expect_err("a nested proofs declaration must be rejected");
+    assert!(
+        format!("{err}").contains("file scope"),
+        "the diagnostic must point at file scope, got: {err}"
+    );
+}
+
+#[test]
+fn accepts_proofs_required_at_file_scope() {
+    must_parse(
+        r#"proofs required { source_lock_proof destination_fill_proof }
+
+intent t {
+    from ethereum.USDC amount 1
+}"#,
+    );
+}

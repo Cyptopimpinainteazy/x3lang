@@ -775,39 +775,73 @@ pub fn verify_slippage_explicit(ir: &X3IR, acc: &mut ErrorAccumulator) {
     }
 }
 
+/// A proof category a cross-chain program has to account for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ProofCategory {
+    /// Evidence that the source chain locked the asset.
+    SourceLock,
+    /// Evidence that the destination chain filled the transfer.
+    DestinationFill,
+}
+
+/// Classify a declared proof name into the category it satisfies.
+///
+/// Proof names are free-form symbols — `parse_proofs_required_item` accepts any
+/// identifier — so matching is a naming convention, done by substring so a
+/// project may call its lock proof `eth_lock_attestation`. The vocabulary this
+/// recognises is the one the repository's own programs use:
+/// `source_lock_proof`, `source_finality_proof`, `destination_fill_proof`,
+/// `destination_finality_proof`, `solver_signature`.
+fn proof_category(name: &str) -> Option<ProofCategory> {
+    let name = name.to_ascii_lowercase();
+    if name.contains("lock") {
+        Some(ProofCategory::SourceLock)
+    } else if name.contains("fill") {
+        Some(ProofCategory::DestinationFill)
+    } else {
+        None
+    }
+}
+
 /// Verify that state transitions have required proof declarations.
-/// - Lock operations need a lock_proof
-/// - Bridge operations need a fill_proof
-/// - Release operations need a claim_proof
+///
+/// This used to demand `lock_proof`, `fill_proof` and `claim_proof`. Those
+/// exact names appear in **zero** `.x3` files in the repository, so no correct
+/// program could satisfy the check: every bridging program reported warnings it
+/// could do nothing about. The requirement now matches the vocabulary programs
+/// actually use.
+///
+/// The `claim_proof` requirement is gone rather than renamed. No program
+/// declares one, and the destination-fill proof is what authorises the release,
+/// so requiring the name was the same defect in a third place. What a release
+/// must *actually* prove — a destination fill, a receipt, a validator quorum —
+/// is a design question; see TICKET-018.
 pub fn verify_proof_requirements(ir: &X3IR, acc: &mut ErrorAccumulator) {
     let has_lock = ir.operations.iter().any(|op| matches!(op, Operation::Lock { .. }));
     let has_bridge = ir.operations.iter().any(|op| matches!(op, Operation::Bridge { .. }));
-    let has_release = ir.operations.iter().any(|op| matches!(op, Operation::Release { .. }));
 
-    let required_proofs: HashSet<String> = ir
+    let declared: HashSet<ProofCategory> = ir
         .operations
         .iter()
         .filter_map(|op| match op {
-            Operation::ProofRequired { proof_type, .. } => Some(proof_type.to_ascii_lowercase()),
+            Operation::ProofRequired { proof_type, .. } => proof_category(proof_type),
             _ => None,
         })
         .collect();
 
-    if has_lock && !required_proofs.contains("lock_proof") {
+    if has_lock && !declared.contains(&ProofCategory::SourceLock) {
         acc.add_warning(X3Error::SemanticError {
-            message: "Lock operation present without `proofs required { lock_proof }` declaration".into(),
+            message: "Lock operation present without a lock proof — add `proofs required { \
+                      source_lock_proof }`"
+                .into(),
             span: span(),
         });
     }
-    if has_bridge && !required_proofs.contains("fill_proof") {
+    if has_bridge && !declared.contains(&ProofCategory::DestinationFill) {
         acc.add_warning(X3Error::SemanticError {
-            message: "Bridge operation present without `proofs required { fill_proof }` declaration".into(),
-            span: span(),
-        });
-    }
-    if has_release && !required_proofs.contains("claim_proof") {
-        acc.add_warning(X3Error::SemanticError {
-            message: "Release operation present without `proofs required { claim_proof }` declaration".into(),
+            message: "Bridge operation present without a destination-fill proof — add `proofs \
+                      required { destination_fill_proof }`"
+                .into(),
             span: span(),
         });
     }
@@ -1794,6 +1828,100 @@ mod tests {
                 .iter()
                 .any(|v| v.starts_with("no_double_refund")),
             "two refund handlers must be reported regardless of which handler kind they are"
+        );
+    }
+
+    /// A locking + bridging program, optionally declaring proofs.
+    fn cross_chain_with_proofs(declared: &[&str]) -> X3IR {
+        let mut ir = empty_ir();
+        ir.operations = vec![
+            Operation::Lock {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                amount: 100,
+                from: "0x1".into(),
+            },
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "ethereum".into(),
+                from_asset: "USDC".into(),
+                to_chain: "solana".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "4Nd1".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+        ];
+        for proof in declared {
+            ir.operations.push(Operation::ProofRequired {
+                proof_type: (*proof).to_string(),
+                source: "intent".into(),
+            });
+        }
+        ir
+    }
+
+    #[test]
+    fn proof_requirement_accepts_the_vocabulary_real_programs_use() {
+        // The check demanded `lock_proof` / `fill_proof` / `claim_proof`, exact
+        // names that appear in zero `.x3` files, so every bridging program got
+        // warnings it could not act on. The names the repository's own programs
+        // declare must satisfy it.
+        let outcome = verify_collect(
+            &cross_chain_with_proofs(&["source_lock_proof", "destination_fill_proof"]),
+            DEFAULT_MAX_ATOMIC_OPS,
+            DEFAULT_MAX_ROUTE_HOPS,
+            None,
+        );
+        let proof_warnings: Vec<String> = outcome
+            .warnings
+            .iter()
+            .map(|w| w.to_string())
+            .filter(|w| w.contains("lock proof") || w.contains("destination-fill proof"))
+            .collect();
+        assert!(
+            proof_warnings.is_empty(),
+            "declaring source_lock_proof and destination_fill_proof must satisfy the check, got: {proof_warnings:?}"
+        );
+    }
+
+    #[test]
+    fn proof_requirement_still_warns_when_nothing_is_declared() {
+        // Non-vacuous: a program that depends on a lock and a fill but declares
+        // no proof must still be told.
+        let outcome = verify_collect(
+            &cross_chain_with_proofs(&[]),
+            DEFAULT_MAX_ATOMIC_OPS,
+            DEFAULT_MAX_ROUTE_HOPS,
+            None,
+        );
+        let messages: Vec<String> = outcome.warnings.iter().map(|w| w.to_string()).collect();
+        assert!(
+            messages.iter().any(|w| w.contains("lock proof")),
+            "a missing lock proof must be reported, got: {messages:?}"
+        );
+        assert!(
+            messages.iter().any(|w| w.contains("destination-fill proof")),
+            "a missing destination-fill proof must be reported, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn an_unrelated_proof_does_not_satisfy_the_lock_or_fill_requirement() {
+        // A declaration that names neither a lock nor a fill must not silence
+        // the check.
+        let outcome = verify_collect(
+            &cross_chain_with_proofs(&["solver_signature"]),
+            DEFAULT_MAX_ATOMIC_OPS,
+            DEFAULT_MAX_ROUTE_HOPS,
+            None,
+        );
+        let messages: Vec<String> = outcome.warnings.iter().map(|w| w.to_string()).collect();
+        assert!(
+            messages.iter().any(|w| w.contains("lock proof"))
+                && messages.iter().any(|w| w.contains("destination-fill proof")),
+            "an unrelated proof declaration must not satisfy either requirement, got: {messages:?}"
         );
     }
 

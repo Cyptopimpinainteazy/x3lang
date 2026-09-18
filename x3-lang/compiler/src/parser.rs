@@ -1382,13 +1382,19 @@ impl<'a> Parser<'a> {
             Tok::KwOnFail => self.parse_intent_onfail(),
             Tok::Ident(ref s) if s == "use" => self.parse_intent_use(),
             Tok::Ident(ref s) if s == "on" => self.parse_intent_on_event(),
-            _ => {
-                // Fallback: treat as an expression statement so the typechecker
-                // gets a real diagnostic instead of a hard panic.
-                let e = self.parse_expr()?;
-                self.opt_semi();
-                Ok(Statement::Expr(e))
-            }
+            Tok::Ident(ref s) if s == "proofs" => Err(parse_err(
+                "`proofs required { ... }` must be declared at file scope, not inside an intent body: a \
+                 nested declaration parsed successfully and was then never applied to the intent"
+                    .into(),
+                self.peek().clone(),
+            )),
+            other => Err(parse_err(
+                format!(
+                    "unexpected clause in intent body: {other:?}; expected one of `from`, `to`, `route`, \
+                     `require`, `timeout`, `on_fail`, `use` or `on`"
+                ),
+                other.clone(),
+            )),
         }
     }
 
