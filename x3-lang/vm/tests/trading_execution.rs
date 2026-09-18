@@ -5,7 +5,8 @@ use std::collections::BTreeSet;
 use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
 use x3_lang_vm::trading::{
     fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode,
-    HostError, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
+    HostError, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext,
+    TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [7u8; 32];
@@ -30,6 +31,11 @@ fn manifest() -> CapabilityManifest {
 struct FixtureHost {
     manifest: CapabilityManifest,
     swap_output: u128,
+    /// Quoted output returned by `quote()`, checked against the real
+    /// `swap_output` for slippage. Defaults to `swap_output` itself (zero
+    /// slippage) so existing tests are unaffected unless a test explicitly
+    /// diverges the two to simulate a stale/moved quote.
+    quote_output: Option<u128>,
     borrow_fee: u128,
     commitment: [u8; 32],
     execution_cost: u128,
@@ -48,6 +54,7 @@ impl FixtureHost {
         Self {
             manifest: manifest(),
             swap_output: 2_000_000,
+            quote_output: None,
             borrow_fee: 0,
             commitment: COMMITMENT,
             execution_cost: 0,
@@ -85,6 +92,12 @@ impl TradingHost for FixtureHost {
             principal: request.principal,
             fee: self.borrow_fee,
             state_commitment: self.commitment,
+        })
+    }
+
+    fn quote(&self, _request: QuoteRequest) -> Result<QuoteResult, HostError> {
+        Ok(QuoteResult {
+            expected_output: self.quote_output.unwrap_or(self.swap_output),
         })
     }
 
@@ -597,4 +610,49 @@ fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
             ..
         }
     ));
+}
+
+#[test]
+fn output_matching_or_beating_the_quote_is_never_slippage() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // swap_output (what actually executes) stays at the default 2_000_000;
+    // quote_output below it means the trade did *better* than quoted.
+    host.quote_output = Some(1_900_000);
+
+    vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect("beating the quote must never be reported as slippage");
+}
+
+#[test]
+fn slippage_within_policy_ceiling_still_commits() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // ops()'s policy allows 30 bps. Quote 5_000 above the actual 2_000_000
+    // output is ~24.9 bps — comfortably under the ceiling.
+    host.quote_output = Some(2_005_000);
+
+    vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect("slippage under the compiled ceiling must still commit");
+}
+
+#[test]
+fn slippage_beyond_policy_ceiling_is_rejected() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // Quote far above the actual output — unambiguously over the 30 bps
+    // ceiling ops()'s policy declares.
+    host.quote_output = Some(2_100_000);
+    let before = vm.trading_state.clone();
+
+    let err = vm
+        .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+        .expect_err("realized output far below the live quote must violate the slippage ceiling");
+
+    assert!(matches!(
+        err,
+        x3_lang_vm::trading::TradingExecError::SlippageExceeded { ceiling_bps: 30, .. }
+    ));
+    assert_eq!(vm.trading_state, before, "rejected trade must not leave partial state");
+    assert!(host.rolled_back);
 }
