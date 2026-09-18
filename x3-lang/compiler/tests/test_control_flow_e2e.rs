@@ -4,7 +4,6 @@
 //! constructs produce executable bytecode that behaves correctly in the VM.
 
 use x3_lang_compiler::{compile_source, compile_to_ir, parser::parse_source};
-use x3_lang_vm::executor::execute;
 use x3_lang_vm::x3_lang_vm::{VMConfig, VM};
 
 /// Compile an x3-lang source string and execute it in a fresh VM.
@@ -15,7 +14,7 @@ fn compile_and_run(source: &str, r0_init: u128, r1_init: u128, gas: u128) -> VM 
     let mut vm = VM::new(bytecode, VMConfig::default(), gas);
     vm.state.registers[0] = r0_init;
     vm.state.registers[1] = r1_init;
-    execute(&mut vm).unwrap_or_else(|e| panic!("VM execution failed: {e:?}"));
+    vm.execute().unwrap_or_else(|e| panic!("VM execution failed: {e:?}"));
     vm
 }
 
@@ -71,7 +70,7 @@ fn e2e_compiled_bytecode_passes_through_vm_without_panic() {
 
     // Execute in VM (mempool_scan will use dry-run bridge)
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
-    let result = execute(&mut vm);
+    let result = vm.execute();
     // May succeed or fail at bridge level, but should not crash
     assert!(result.is_ok() || result.is_err(), "VM should not panic");
 }
@@ -93,7 +92,7 @@ fn e2e_swap_intent_compiles_and_executes() {
 
     // Execute in VM
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
-    let result = execute(&mut vm);
+    let result = vm.execute();
     // May get a bridge error from dry-run, but not a VM crash
     if let Err(e) = &result {
         let msg = format!("{e:?}");
@@ -115,7 +114,7 @@ fn e2e_multisig_intent_compile_and_execute() {
     assert!(bytecode.contains(&0x86), "storage opcode");
 
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
-    let result = execute(&mut vm);
+    let result = vm.execute();
     if let Err(e) = &result {
         let msg = format!("{e:?}");
         assert!(!msg.contains("InvalidOpcode"), "no invalid opcodes: {msg}");

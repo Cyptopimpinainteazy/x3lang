@@ -31,6 +31,36 @@ fn b52_execute_ok(opcode: u8, payload: &CapabilityPayload, gas: u128) -> VM {
 }
 
 #[test]
+fn vm_execute_verifies_before_it_runs_anything() {
+    // The claim is that no public path runs unverified bytecode. It had no
+    // negative case: nothing here proved that bytecode the verifier rejects is
+    // actually refused rather than interpreted. `x3_lang_vm::executor::execute`
+    // used to be public and did exactly the latter, so the claim was one import
+    // away from being false.
+    //
+    // 0xAC is the first opcode the verifier does not know: the extras range ends
+    // at 0xAB and the trading range starts at 0xB0. (0xFF would not work here —
+    // it is HALT, which the verifier accepts, and the first run of this test
+    // failed because of exactly that.)
+    const UNKNOWN_OPCODE: u8 = 0xAC;
+    let mut vm = VM::new(vec![UNKNOWN_OPCODE; 8], VMConfig::default(), 100_000);
+    let gas_before = vm.state.gas;
+    let pc_before = vm.state.pc;
+    match vm.execute() {
+        Err(ExecError::Panic(message)) => assert!(
+            message.contains("X3_VERIFY_FAILED"),
+            "a refusal must be a verification failure, got: {message}"
+        ),
+        other => panic!("bytecode the verifier rejects must not run, got: {other:?}"),
+    }
+    assert_eq!(
+        (vm.state.gas, vm.state.pc),
+        (gas_before, pc_before),
+        "verification must fail before a single instruction executes"
+    );
+}
+
+#[test]
 fn test_route_score_happy_path() {
     let vm = b52_execute_ok(
         ROUTE_SCORE,

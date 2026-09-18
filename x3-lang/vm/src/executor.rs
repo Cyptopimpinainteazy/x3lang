@@ -59,8 +59,15 @@ fn try_dispatch_handler(vm: &mut VM) -> bool {
     }
 }
 
-/// Execute the VM until halt or out of gas.
-pub fn execute(vm: &mut VM) -> ExecResult<()> {
+/// Execute the VM until halt or out of gas, **without verifying the bytecode**.
+///
+/// Crate-internal on purpose. The public door is
+/// [`VM::execute`](crate::x3_lang_vm::VM::execute), which verifies first and
+/// then calls this. It used to be `pub`, which made the verification guarantee
+/// a matter of picking the right name: an integrator could reach the
+/// interpreter directly through `x3_lang_vm::executor::execute` and run
+/// bytecode that was never checked. There is now exactly one public way in.
+pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
     let has_compiler_header = has_compiler_header(vm.code.as_slice());
     if vm.state.pc == 0 {
         vm.state.pc = first_instruction_pc(vm.code.as_slice())?;

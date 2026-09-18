@@ -3,7 +3,6 @@ use x3_lang_common::Symbol;
 use x3_lang_compiler::emitter;
 use x3_lang_compiler::lowering::LowerCtx;
 use x3_lang_compiler::lowering;
-use x3_lang_vm::executor::execute;
 use x3_lang_vm::{VMConfig, VM};
 
 fn main() {
