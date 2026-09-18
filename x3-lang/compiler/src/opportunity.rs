@@ -30,6 +30,37 @@ use x3_lang_ast::ast::{AssetRef, Item, Program, VenueDecl, VenueKind};
 /// Maximum hops a searched path may use.
 pub const DEFAULT_MAX_PATH_HOPS: usize = 4;
 
+/// Maximum edge examinations one search may perform.
+///
+/// PHASE 42 requires a *bounded* search, and the hop bound alone does not give
+/// one: a graph with many edges per node still explodes. The budget makes the
+/// cost of a search a property of the caller's declaration rather than of
+/// whatever graph it is pointed at.
+pub const DEFAULT_MAX_EXPANSIONS: usize = 4096;
+
+/// The result of a search.
+///
+/// Exhausting the budget is a distinct outcome rather than an empty result.
+/// Returning "no opportunities" for "I stopped looking" is the quiet wrong
+/// answer this type exists to make impossible: a caller that cannot tell the
+/// two apart will report an unreachable route for a route it never finished
+/// considering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchOutcome {
+    Found(Vec<Opportunity>),
+    BudgetExhausted { examined: usize, budget: usize },
+}
+
+impl SearchOutcome {
+    /// The opportunities found, if the search finished.
+    pub fn found(&self) -> Option<&[Opportunity]> {
+        match self {
+            SearchOutcome::Found(found) => Some(found),
+            SearchOutcome::BudgetExhausted { .. } => None,
+        }
+    }
+}
+
 /// A node in the graph. Assets and venues are both nodes; the edge carries the
 /// relationship, which is why an asset's identity and a venue's identity cannot
 /// be confused for one another.
@@ -244,12 +275,18 @@ pub enum RejectionReason {
 /// Results are ranked by [`Opportunity::rank_key`], most attractive first. The
 /// search is depth-first with an explicit hop budget and a visited set, so it
 /// terminates on any graph, including one with cycles.
-pub fn search(
+pub fn search(graph: &OpportunityGraph, from: &str, to: &str, constraints: &OpportunityConstraints) -> SearchOutcome {
+    search_with_budget(graph, from, to, constraints, DEFAULT_MAX_EXPANSIONS)
+}
+
+/// The same search with an explicit expansion budget.
+pub fn search_with_budget(
     graph: &OpportunityGraph,
     from: &str,
     to: &str,
     constraints: &OpportunityConstraints,
-) -> Vec<Opportunity> {
+    max_expansions: usize,
+) -> SearchOutcome {
     let max_hops = if constraints.max_hops == 0 {
         DEFAULT_MAX_PATH_HOPS
     } else {
@@ -260,21 +297,31 @@ pub fn search(
     let mut venues: Vec<String> = Vec::new();
     let mut assets: Vec<String> = vec![from.to_string()];
     let mut visited: Vec<String> = vec![from.to_string()];
-    walk(
+    let mut examined = 0usize;
+    let exhausted = walk(
         graph,
         from,
         to,
         constraints,
         max_hops,
+        max_expansions,
+        &mut examined,
         &mut venues,
         &mut assets,
         &mut visited,
         &mut found,
     );
+    if exhausted {
+        return SearchOutcome::BudgetExhausted {
+            examined,
+            budget: max_expansions,
+        };
+    }
     found.sort_by(|left, right| left.rank_key().cmp(&right.rank_key()));
-    found
+    SearchOutcome::Found(found)
 }
 
+/// Depth-first walk. Returns `true` when the budget ran out.
 #[allow(clippy::too_many_arguments)]
 fn walk(
     graph: &OpportunityGraph,
@@ -282,15 +329,21 @@ fn walk(
     target: &str,
     constraints: &OpportunityConstraints,
     max_hops: usize,
+    budget: usize,
+    examined: &mut usize,
     venues: &mut Vec<String>,
     assets: &mut Vec<String>,
     visited: &mut Vec<String>,
     found: &mut Vec<Opportunity>,
-) {
+) -> bool {
     if venues.len() >= max_hops {
-        return;
+        return false;
     }
     for edge in graph.edges_from(current) {
+        *examined += 1;
+        if *examined > budget {
+            return true;
+        }
         // A path may not revisit an asset. Without this a cycle is an infinite
         // family of paths that differ only in how many times they go round.
         if visited.contains(&edge.to) {
@@ -306,24 +359,27 @@ fn walk(
 
         if edge.to == target {
             found.push(summarize(venues, assets, graph));
-        } else {
-            walk(
-                graph,
-                &edge.to,
-                target,
-                constraints,
-                max_hops,
-                venues,
-                assets,
-                visited,
-                found,
-            );
+        } else if walk(
+            graph,
+            &edge.to,
+            target,
+            constraints,
+            max_hops,
+            budget,
+            examined,
+            venues,
+            assets,
+            visited,
+            found,
+        ) {
+            return true;
         }
 
         venues.pop();
         assets.pop();
         visited.pop();
     }
+    false
 }
 
 /// Why an edge cannot be used under these constraints, or `None` if it can.

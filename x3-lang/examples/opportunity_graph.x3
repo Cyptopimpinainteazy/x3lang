@@ -9,6 +9,12 @@
 //   x3c graph examples/opportunity_graph.x3 \
 //       --from ethereum.USDC --to solana.SOL --max-slippage-bps 10
 //
+//   x3c optimize examples/opportunity_graph.x3 \
+//       --from ethereum.USDC --to solana.SOL --objective minimize_slippage
+//
+// `graph` lists what is available; `optimize` picks one and says whether the
+// objective decided it or a canonical tie-break did.
+//
 // The two ways out of USDC are deliberately unlike each other: `deep_pool` is
 // dearer and tighter, `wide_pool` is cheaper and slippier. Which one is a
 // better opportunity depends on the constraint, which is the point — the

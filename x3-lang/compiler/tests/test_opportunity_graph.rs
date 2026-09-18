@@ -5,7 +5,20 @@
 //! budget, its ranking is a function of the graph and not of iteration order,
 //! and a constraint removes a path instead of merely ranking it lower.
 
-use x3_lang_compiler::opportunity::{search, OpportunityConstraints, OpportunityGraph, RejectionReason};
+use x3_lang_compiler::opportunity::{
+    search, Opportunity, OpportunityConstraints, OpportunityGraph, RejectionReason, SearchOutcome,
+};
+
+/// Unwrap a finished search. A test that silently accepted an exhausted budget
+/// would be testing the wrong outcome entirely.
+fn found(outcome: SearchOutcome) -> Vec<Opportunity> {
+    match outcome {
+        SearchOutcome::Found(found) => found,
+        SearchOutcome::BudgetExhausted { examined, budget } => {
+            panic!("the search budget was exhausted ({examined} of {budget}); the test graph is tiny, so this is a bug")
+        }
+    }
+}
 
 fn graph_from(source: &str) -> OpportunityGraph {
     let program = x3_lang_compiler::parser::parse_source(source).expect("venues must parse");
@@ -76,7 +89,7 @@ fn both_ways_are_found_and_ranked_by_fee() {
         max_hops: 4,
         ..Default::default()
     };
-    let found = search(&graph, "ethereum.USDC", "solana.SOL", &constraints);
+    let found = found(search(&graph, "ethereum.USDC", "solana.SOL", &constraints));
     assert_eq!(found.len(), 2, "both two-hop routes must be found: {found:?}");
     assert_eq!(
         found[0].venues,
@@ -95,7 +108,7 @@ fn a_slippage_bound_removes_a_route_rather_than_ranking_it_lower() {
         max_slippage_bps: Some(10),
         ..Default::default()
     };
-    let found = search(&graph, "ethereum.USDC", "solana.SOL", &constraints);
+    let found = found(search(&graph, "ethereum.USDC", "solana.SOL", &constraints));
     assert_eq!(found.len(), 1, "a bound is a filter, not a preference: {found:?}");
     assert_eq!(found[0].venues, vec!["dear_but_deep", "to_solana"]);
 }
@@ -108,7 +121,7 @@ fn a_liquidity_floor_removes_venues_that_cannot_absorb_the_size() {
         min_liquidity: Some(1_000_000),
         ..Default::default()
     };
-    let found = search(&graph, "ethereum.USDC", "solana.SOL", &constraints);
+    let found = found(search(&graph, "ethereum.USDC", "solana.SOL", &constraints));
     // The bridge declares 500_000, so no path can absorb the size.
     assert!(found.is_empty(), "no route should survive: {found:?}");
 }
@@ -120,7 +133,7 @@ fn a_path_reports_the_worst_attribute_it_contains() {
         max_hops: 4,
         ..Default::default()
     };
-    let found = search(&graph, "ethereum.USDC", "solana.SOL", &constraints);
+    let found = found(search(&graph, "ethereum.USDC", "solana.SOL", &constraints));
     let route = &found[0];
     // Slippage and finality are worst-case, not sums: a route is no better than
     // its weakest leg, and it is not settled until its slowest leg is.
@@ -138,7 +151,7 @@ fn the_ranking_is_a_function_of_the_graph() {
     // not depend on hash iteration order or on anything else that varies
     // between runs. A ranking that does is not reproducible, and an
     // unreproducible planner cannot be reviewed.
-    let first = search(
+    let first = found(search(
         &graph_from(TWO_WAYS),
         "ethereum.USDC",
         "solana.SOL",
@@ -146,8 +159,8 @@ fn the_ranking_is_a_function_of_the_graph() {
             max_hops: 4,
             ..Default::default()
         },
-    );
-    let second = search(
+    ));
+    let second = found(search(
         &graph_from(TWO_WAYS),
         "ethereum.USDC",
         "solana.SOL",
@@ -155,7 +168,7 @@ fn the_ranking_is_a_function_of_the_graph() {
             max_hops: 4,
             ..Default::default()
         },
-    );
+    ));
     assert_eq!(first, second, "the same graph must rank the same way");
 }
 
@@ -197,7 +210,7 @@ venue back {
         max_hops: 8,
         ..Default::default()
     };
-    let found = search(&graph, "ethereum.USDC", "ethereum.ETH", &constraints);
+    let found = found(search(&graph, "ethereum.USDC", "ethereum.ETH", &constraints));
     assert_eq!(
         found.len(),
         1,
@@ -209,7 +222,7 @@ venue back {
 #[test]
 fn the_hop_budget_is_respected() {
     let graph = graph_from(TWO_WAYS);
-    let one_hop = search(
+    let one_hop = found(search(
         &graph,
         "ethereum.USDC",
         "solana.SOL",
@@ -217,7 +230,7 @@ fn the_hop_budget_is_respected() {
             max_hops: 1,
             ..Default::default()
         },
-    );
+    ));
     assert!(one_hop.is_empty(), "the route needs two hops: {one_hop:?}");
 }
 
@@ -229,7 +242,7 @@ fn a_required_proof_filters_out_venues_that_declare_none() {
         require_proof: true,
         ..Default::default()
     };
-    let found = search(&graph, "ethereum.USDC", "solana.SOL", &constraints);
+    let found = found(search(&graph, "ethereum.USDC", "solana.SOL", &constraints));
     assert_eq!(
         found.len(),
         2,

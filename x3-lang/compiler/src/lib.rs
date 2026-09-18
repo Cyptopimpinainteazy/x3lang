@@ -21,6 +21,7 @@ pub mod linter;
 pub mod lowering;
 pub mod numeric;
 pub mod opportunity;
+pub mod optimizer;
 pub mod parser;
 pub mod regalloc;
 pub mod risk;
