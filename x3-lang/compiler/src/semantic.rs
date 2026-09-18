@@ -609,6 +609,43 @@ fn extract_int_from_expr(expr: &Expression) -> Option<u128> {
     }
 }
 
+/// Every `require` guard in the program, paired with the name of the
+/// declaration that owns it.
+///
+/// Guards do not live in one shape. An `intent` body carries them as
+/// statements, while `bridge`, `atomic swap`, `strategy` and `proposal`
+/// collect them into a `requires` list. A verifier that walks one shape skips
+/// the others silently, so the guard-versus-declaration checks share this
+/// enumeration instead of each one re-deriving it.
+fn require_guards(program: &Program) -> Vec<(&str, &x3_lang_ast::ast::RequireGuard)> {
+    let mut guards: Vec<(&str, &x3_lang_ast::ast::RequireGuard)> = Vec::new();
+    for item in &program.items {
+        match &item.node {
+            Item::IntentDecl(intent) => {
+                for statement in &intent.body.stmts {
+                    if let x3_lang_ast::ast::Statement::Require(guard) = statement {
+                        guards.push((intent.name.as_str(), guard));
+                    }
+                }
+            }
+            Item::Bridge(decl) => {
+                guards.extend(decl.requires.iter().map(|guard| (decl.name.as_str(), guard)));
+            }
+            Item::AtomicSwap(decl) => {
+                guards.extend(decl.requires.iter().map(|guard| (decl.name.as_str(), guard)));
+            }
+            Item::Strategy(decl) => {
+                guards.extend(decl.requires.iter().map(|guard| (decl.name.as_str(), guard)));
+            }
+            Item::Proposal(decl) => {
+                guards.extend(decl.requires.iter().map(|guard| (decl.name.as_str(), guard)));
+            }
+            _ => {}
+        }
+    }
+    guards
+}
+
 /// A `require solver_bond >= N` guard needs a bond to compare against.
 ///
 /// The guard asserts something about the program's configuration — "the solver
@@ -623,31 +660,54 @@ pub fn verify_solver_bond_declared(program: &Program, acc: &mut ErrorAccumulator
         _ => None,
     });
 
-    for item in &program.items {
-        let Item::IntentDecl(intent) = &item.node else {
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::SolverBond {
             continue;
-        };
-        for statement in &intent.body.stmts {
-            let x3_lang_ast::ast::Statement::Require(guard) = statement else {
-                continue;
-            };
-            if guard.kind != x3_lang_ast::ast::RequireKind::SolverBond {
-                continue;
-            }
-            let required = extract_int_from_expr(&guard.value).unwrap_or(0);
-            match declared {
-                None => acc.add_error(err(format!(
-                    "intent '{}' requires a solver bond of {required} but the program declares no \
-                     `solver_market {{ bond <amount> <ASSET> }}` — the guard has nothing to compare \
-                     against",
-                    intent.name.as_str()
-                ))),
-                Some(bond) if required > bond => acc.add_error(err(format!(
-                    "intent '{}' requires a solver bond of {required}, but the declared bond is {bond}",
-                    intent.name.as_str()
-                ))),
-                Some(_) => {}
-            }
+        }
+        let required = extract_int_from_expr(&guard.value).unwrap_or(0);
+        match declared {
+            None => acc.add_error(err(format!(
+                "declaration '{owner}' requires a solver bond of {required} but the program declares \
+                 no `solver_market {{ bond <amount> <ASSET> }}` — the guard has nothing to compare \
+                 against"
+            ))),
+            Some(bond) if required > bond => acc.add_error(err(format!(
+                "declaration '{owner}' requires a solver bond of {required}, but the declared bond is {bond}"
+            ))),
+            Some(_) => {}
+        }
+    }
+}
+
+/// A `require relayer_quorum >= N` guard needs a quorum to compare against.
+///
+/// The guard asserts "at least N relayers attest this operation";
+/// `relayers { quorum N_of_M }` is where the swarm states how many must
+/// actually attest. So a guard demanding more relayers than the declared
+/// quorum claims something the configuration never does, and a guard with no
+/// swarm at all claims something no configuration backs. Same shape as the
+/// solver bond, and the same reason it has to be a compile-time check.
+pub fn verify_relayer_quorum_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    let declared = program.items.iter().find_map(|item| match &item.node {
+        Item::RelayerSwarm(swarm) => Some(swarm.quorum_numerator),
+        _ => None,
+    });
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::RelayerQuorum {
+            continue;
+        }
+        let required = extract_int_from_expr(&guard.value).unwrap_or(0);
+        match declared {
+            None => acc.add_error(err(format!(
+                "declaration '{owner}' requires a relayer quorum of {required} but the program \
+                 declares no `relayers {{ quorum N_of_M }}` — the guard has nothing to compare against"
+            ))),
+            Some(quorum) if required > u128::from(quorum) => acc.add_error(err(format!(
+                "declaration '{owner}' requires a relayer quorum of {required}, but the declared \
+                 swarm attests with a quorum of {quorum}"
+            ))),
+            Some(_) => {}
         }
     }
 }

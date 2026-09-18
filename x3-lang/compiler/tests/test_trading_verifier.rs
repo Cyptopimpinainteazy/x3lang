@@ -572,3 +572,95 @@ fn ast_level_checks_run_on_the_build_path_not_only_the_check_path() {
         result.map(|bytecode| bytecode.len())
     );
 }
+
+/// An intent that requires a relayer quorum, so the requirement can be compared
+/// against whatever the program declares.
+fn intent_requiring_relayer_quorum(count: u32) -> String {
+    format!(
+        r#"intent quorum_swap {{
+    from ethereum.USDC amount 1 receiver 0x1
+    to solana.USDC receiver 0x2
+    route {{
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
+    }}
+    require slippage <= 50
+    require relayer_quorum >= {count}
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
+}}
+"#
+    )
+}
+
+fn relayer_swarm_declaring(numerator: u32, denominator: u32) -> String {
+    format!(
+        "relayers {{\n    quorum_numerator {numerator}\n    quorum_denominator {denominator}\n    \
+         relayers [relayer_a, relayer_b, relayer_c, relayer_d, relayer_e]\n}}\n\n"
+    )
+}
+
+#[test]
+fn a_relayer_quorum_guard_without_a_swarm_is_rejected() {
+    // The guard asserts "at least three relayers attest", which is a claim about
+    // the program's configuration. With no `relayers { quorum ... }` block it
+    // asserted nothing, in the compiler and in the VM alike.
+    let source = format!("{ASSET_HEADER}{POLICY_HEADER}{}", intent_requiring_relayer_quorum(3));
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "declares no `relayers"),
+        "an unbacked relayer quorum guard must be reported: {errors:?}"
+    );
+}
+
+#[test]
+fn a_relayer_quorum_guard_above_the_declared_quorum_is_rejected() {
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}{}",
+        relayer_swarm_declaring(2, 3),
+        intent_requiring_relayer_quorum(3)
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "quorum of 2"),
+        "demanding more relayers than the swarm attests with must be reported: {errors:?}"
+    );
+}
+
+#[test]
+fn a_relayer_quorum_guard_within_the_declared_quorum_is_accepted() {
+    // Non-vacuous: a guard the swarm's quorum does satisfy must compile.
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}{}",
+        relayer_swarm_declaring(3, 5),
+        intent_requiring_relayer_quorum(2)
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        !errors.iter().any(|error| format!("{error}").contains("relayer quorum")),
+        "a backed relayer quorum requirement must compile: {errors:?}"
+    );
+}
+
+#[test]
+fn relayer_quorum_guards_are_checked_wherever_they_live() {
+    // Guards are statements inside an `intent` body but a `requires` list on
+    // `bridge`/`atomic swap`/`strategy`/`proposal`. A check that walks one shape
+    // silently skips the others, so the second location is exercised explicitly.
+    let source = format!(
+        "{ASSET_HEADER}{POLICY_HEADER}{}",
+        r#"atomic swap ethereum.USDC -> solana.SOL {
+    amount 500
+    receiver sol.wallet.owner
+    hashlock blake2b(secret)
+    timeout source 2400
+    timeout destination 1200
+    require relayer_quorum >= 3
+}
+"#
+    );
+    let errors = pipeline_errors(&source, CompilationMode::Dev);
+    assert!(
+        has_message(&errors, "declares no `relayers"),
+        "an atomic swap's unbacked quorum guard must be reported too: {errors:?}"
+    );
+}
