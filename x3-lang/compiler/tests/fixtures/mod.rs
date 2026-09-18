@@ -19,6 +19,7 @@ pub const TRANSFER: &str = r#"intent internal_transfer {
     route {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777
     }
+    require slippage <= 50
     timeout 30s refund ethereum.USDC to sender
     on_fail rollback
 }
@@ -34,6 +35,8 @@ pub const ATOMIC_SWAP: &str = r#"intent swap_demo {
         swap uniswap solana.USDC -> solana.ETH amount 1000 min_output 500
     }
     require nonce unused swap_demo_2026_06_06
+    require finality.ethereum >= 12
+    require slippage <= 50
     timeout 30s refund ethereum.USDC to sender
     on_fail rollback
 }
@@ -48,6 +51,7 @@ pub const EVM_CALL: &str = r#"intent evm_call {
         bridge X3 ethereum.USDC -> polygon.USDC receiver 0x2222222222222222222222222222222222222222
     }
     require nonce unused evm_call_2026_06_06
+    require finality.ethereum >= 12
     timeout 30s refund ethereum.USDC to sender
     on_fail rollback
 }
@@ -61,6 +65,7 @@ pub const X3_CALL: &str = r#"intent x3_call {
         bridge X3 ethereum.USDC -> x3.USDC receiver x3-receiver-1234
     }
     require nonce unused x3_call_2026_06_06
+    require finality.ethereum >= 12
     timeout 30s refund ethereum.USDC to sender
     on_fail rollback
 }
@@ -75,6 +80,7 @@ pub const BTC_ROUTE: &str = r#"intent btc_route {
         bridge X3 bitcoin.BTC -> ethereum.WBTC receiver 0x1111111111111111111111111111111111111111
     }
     require nonce unused btc_route_2026_06_06
+    require finality.bitcoin >= 6
     timeout 30s refund bitcoin.BTC to sender
     on_fail rollback
 }

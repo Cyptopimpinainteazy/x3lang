@@ -6,10 +6,11 @@ intent cross_vm_stake {
         bridge X3 ethereum.ETH -> solana.stakedSOL receiver vault
     }
 
+    require nonce unused cross_vm_stake_001
     require finality.ethereum >= 32
     require finality.solana >= 32
     require route_score >= 85
 
-    timeout 300s
+    timeout 300s refund ethereum.ETH to sender
     on_fail rollback
 }

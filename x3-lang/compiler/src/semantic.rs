@@ -139,6 +139,7 @@ pub fn verify_with_config(
     verify_asset_moves(ir, &mut acc);
     verify_refund_path_exists(ir, &mut acc);
     verify_finality_explicit(ir, &mut acc);
+    verify_slippage_explicit(ir, &mut acc);
     verify_proof_requirements(ir, &mut acc);
     verify_route_score(ir, &mut acc);
 
@@ -657,6 +658,13 @@ pub fn verify_refund_path_exists(ir: &X3IR, acc: &mut ErrorAccumulator) {
 
 /// Verify that every cross-chain operation has explicit finality
 /// requirements declared via Require with Finality kind.
+///
+/// This is an error, not a warning. `verify_with_config` returns `Ok(())`
+/// whenever no *error* was accumulated, so a warning here was collected and
+/// then dropped on the floor: a bridging program with no finality
+/// requirement compiled silently. That is the exact shape of the classic
+/// cross-chain loss — minting against a source-chain lock that a reorg can
+/// still erase — so the requirement is enforced at compile time instead.
 pub fn verify_finality_explicit(ir: &X3IR, acc: &mut ErrorAccumulator) {
     let bridge_chains: HashSet<String> = ir
         .operations
@@ -686,13 +694,44 @@ pub fn verify_finality_explicit(ir: &X3IR, acc: &mut ErrorAccumulator) {
 
     for chain in &bridge_chains {
         if !finality_chains.contains(chain) {
-            acc.add_warning(X3Error::SemanticError {
-                message: format!(
-                    "bridge from chain '{chain}' has no explicit finality requirement — add `require finality.{chain} >= <confirmations>`"
-                ),
-                span: span(),
-            });
+            acc.add_error(err(format!(
+                "bridge from chain '{chain}' has no explicit finality requirement — add `require finality.{chain} >= <confirmations>`"
+            )));
         }
+    }
+}
+
+/// Verify that every swap leg carries an explicit slippage bound.
+///
+/// `min_output` is not a substitute. It is a single absolute floor baked into
+/// one route at compile time; it says nothing about how far the market may
+/// move between the quote and the fill, and it cannot adapt when the route's
+/// liquidity does. A program with a swap leg and no `require slippage <= N`
+/// therefore has no bound at all on that leg's execution quality, which is
+/// how a "profitable" cross-chain trade settles at a loss. Same fail-closed
+/// shape as `verify_finality_explicit`: the bound must be declared, not
+/// assumed.
+pub fn verify_slippage_explicit(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let has_swap_leg = ir
+        .operations
+        .iter()
+        .any(|op| matches!(op, Operation::Swap { .. } | Operation::MultiHopSwap { .. }));
+    if !has_swap_leg {
+        return;
+    }
+    let has_slippage_bound = ir.operations.iter().any(|op| {
+        matches!(
+            op,
+            Operation::Require {
+                kind: crate::ir::RequireKind::SlippageTolerance,
+                ..
+            }
+        )
+    });
+    if !has_slippage_bound {
+        acc.add_error(err(
+            "swap leg present without an explicit slippage bound — add `require slippage <= <percent>`",
+        ));
     }
 }
 
@@ -747,6 +786,16 @@ pub fn verify_invariants_on_intent(ir: &X3IR, invariants: &[InvariantRule]) -> V
 }
 
 /// Verify invariants and emit structured warnings via the ErrorAccumulator.
+///
+/// NOTE (2026-09-18): these rules are unsound for `intent` programs and must
+/// not be promoted to errors yet. They reason about linear position in
+/// `ir.operations`, but intent lowering emits the `from`/`to` endpoints
+/// *before* the route body, and it uses `Release` for the destination endpoint
+/// rather than for a source-chain claim. A well-formed intent such as
+/// `internal_swap.x3` therefore trips four of the six rules — double-claim,
+/// both claim/refund orderings, and destination-fill-before-claim — which
+/// makes them false positives against the intent surface rather than findings.
+/// See `.ai/reports/x3lang-intent-guards-20260918.md`.
 pub fn verify_invariants_structured(ir: &X3IR, invariants: &[InvariantRule], acc: &mut ErrorAccumulator) {
     for rule in invariants {
         match (rule.check_fn)(ir) {
@@ -1296,6 +1345,16 @@ mod tests {
                 source_finality_proof: vec![],
                 transfer_proof: vec![],
             },
+            // A bridging program must state how final the source chain has to
+            // be before the transfer is trusted.
+            Operation::Require {
+                kind: RequireKind::Finality,
+                subject: Some("solana".into()),
+                condition: Condition::Expression {
+                    expr: "finality >= 12".into(),
+                },
+                error_msg: None,
+            },
             Operation::OnTimeout {
                 duration_blocks: 30,
                 action: FailureAction::Refund {
@@ -1306,6 +1365,152 @@ mod tests {
             },
         ]);
         assert!(verify(&ir).is_ok());
+    }
+
+    #[test]
+    fn swap_without_slippage_bound_is_rejected() {
+        // `min_output` is an absolute floor chosen at compile time, not a
+        // tolerance for how far the market may move, so it does not satisfy
+        // this guard. The refund path is present so the only thing this
+        // program is missing is the slippage bound.
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Swap {
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_asset: "ETH".into(),
+                input_amount: 1_000,
+                min_output: 500,
+                dex: Some("uniswap".into()),
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+
+        let errs = verify(&ir).expect_err("a swap with no slippage bound must not compile");
+        assert!(
+            errs.iter().any(|e| e.to_string().contains("explicit slippage bound")),
+            "expected a slippage-bound error, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn swap_with_slippage_bound_passes() {
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Swap {
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_asset: "ETH".into(),
+                input_amount: 1_000,
+                min_output: 500,
+                dex: Some("uniswap".into()),
+            },
+            Operation::Require {
+                kind: RequireKind::SlippageTolerance,
+                subject: None,
+                condition: Condition::Expression { expr: "50".into() },
+                error_msg: None,
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+
+        let result = verify(&ir);
+        assert!(result.is_ok(), "expected ok, got: {:?}", result.err());
+    }
+
+    #[test]
+    fn bridge_without_finality_requirement_is_rejected() {
+        // Regression: this used to be an `add_warning`, and `verify_with_config`
+        // returns `Ok(())` whenever no *error* was accumulated — so the warning
+        // was collected and then dropped. A bridge that never states a source
+        // finality requirement compiled silently, which is precisely how a
+        // reorged source lock turns into an unbacked destination mint.
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+
+        let errs = verify(&ir).expect_err("a bridge with no finality requirement must not compile");
+        assert!(
+            errs.iter()
+                .any(|e| e.to_string().contains("no explicit finality requirement")),
+            "expected a finality-requirement error, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn finality_requirement_for_the_wrong_chain_does_not_satisfy_the_guard() {
+        // The chain named in the requirement is what counts — declaring
+        // finality for some other chain must not wave the bridge through.
+        let mut ir = empty_ir();
+        ir.operations = atomic(vec![
+            Operation::Bridge {
+                via: "x3".into(),
+                from_chain: "solana".into(),
+                from_asset: "USDC".into(),
+                to_chain: "ethereum".into(),
+                to_asset: "USDC".into(),
+                amount: 100,
+                receiver: "0xabc".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::Require {
+                kind: RequireKind::Finality,
+                subject: Some("ethereum".into()),
+                condition: Condition::Expression {
+                    expr: "finality >= 12".into(),
+                },
+                error_msg: None,
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ]);
+
+        let errs = verify(&ir).expect_err("finality for an unrelated chain must not satisfy the guard");
+        assert!(
+            errs.iter()
+                .any(|e| e.to_string().contains("no explicit finality requirement")),
+            "expected a finality-requirement error, got: {errs:?}"
+        );
     }
 
     #[test]
@@ -1781,6 +1986,14 @@ mod tests {
                 receiver: "0xabc".into(),
                 source_finality_proof: vec![],
                 transfer_proof: vec![],
+            },
+            Operation::Require {
+                kind: RequireKind::Finality,
+                subject: Some("solana".into()),
+                condition: Condition::Expression {
+                    expr: "finality >= 12".into(),
+                },
+                error_msg: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,

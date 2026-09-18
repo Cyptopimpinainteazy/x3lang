@@ -381,6 +381,56 @@ pub enum CostKind {
     MevLeakage,
 }
 
+impl CostKind {
+    /// Every cost kind understood by economic policy version 1, in a fixed
+    /// order so callers can iterate deterministically.
+    pub const ALL: [CostKind; 9] = [
+        CostKind::Gas,
+        CostKind::LiquidityFee,
+        CostKind::FlashLiquidityFee,
+        CostKind::SolverInfrastructureFee,
+        CostKind::ProofFee,
+        CostKind::CrossDomainFee,
+        CostKind::Slippage,
+        CostKind::PriceImpact,
+        CostKind::MevLeakage,
+    ];
+
+    /// Canonical, stable name for this cost kind.
+    ///
+    /// Hosts report committed costs as `CommittedCost { kind: String }`, and
+    /// receipts persist those reports. Before this mapping existed the wire
+    /// string was never compared against anything, so a policy's
+    /// `allowed_cost_kinds` allowlist could not be enforced: any string a
+    /// host sent was accepted, and receipts stored the placeholder
+    /// `"committed"` instead of the real category. This is the single
+    /// source of truth for both directions.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CostKind::Gas => "gas",
+            CostKind::LiquidityFee => "liquidity_fee",
+            CostKind::FlashLiquidityFee => "flash_liquidity_fee",
+            CostKind::SolverInfrastructureFee => "solver_infrastructure_fee",
+            CostKind::ProofFee => "proof_fee",
+            CostKind::CrossDomainFee => "cross_domain_fee",
+            CostKind::Slippage => "slippage",
+            CostKind::PriceImpact => "price_impact",
+            CostKind::MevLeakage => "mev_leakage",
+        }
+    }
+
+    /// Parse a host- or receipt-reported cost kind.
+    ///
+    /// Returns `None` for anything unrecognized. Callers in the execution and
+    /// verification paths must treat `None` as a hard failure rather than a
+    /// default: an unclassifiable cost cannot be checked against a policy
+    /// allowlist, and silently accepting it would let a host bypass the
+    /// allowlist by inventing a category.
+    pub fn from_str(name: &str) -> Option<CostKind> {
+        CostKind::ALL.into_iter().find(|kind| kind.as_str() == name)
+    }
+}
+
 /// Reference to a literal base-unit amount or a prior trading binding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValueRef {

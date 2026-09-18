@@ -103,6 +103,8 @@ fn operations() -> Vec<TradingOperation> {
                     CostKind::Gas,
                     CostKind::LiquidityFee,
                     CostKind::FlashLiquidityFee,
+                    CostKind::ProofFee,
+                    CostKind::CrossDomainFee,
                     CostKind::Slippage,
                     CostKind::PriceImpact,
                     CostKind::MevLeakage,

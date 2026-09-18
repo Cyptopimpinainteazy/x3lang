@@ -8,7 +8,7 @@ use x3_lang_compiler::ir::{
 };
 use x3_lang_vm::trading::{
     build_receipt, canonical_receipt_bytes, finalize_receipt, sign_receipt, verify_receipt, verify_receipt_economics,
-    verify_receipt_trusted, DebtRecord, ReceiptError, ReceiptReplayLedger, TradeOutcome, TradingState,
+    verify_receipt_trusted, CommittedCost, DebtRecord, ReceiptError, ReceiptReplayLedger, TradeOutcome, TradingState,
 };
 
 fn asset(symbol: &str) -> AssetKey {
@@ -46,6 +46,8 @@ fn operations() -> Vec<TradingOperation> {
                     CostKind::Gas,
                     CostKind::LiquidityFee,
                     CostKind::FlashLiquidityFee,
+                    CostKind::ProofFee,
+                    CostKind::CrossDomainFee,
                     CostKind::Slippage,
                     CostKind::PriceImpact,
                     CostKind::MevLeakage,
@@ -349,5 +351,64 @@ fn replay_ledger_does_not_record_a_receipt_that_fails_verification() {
     assert!(
         !ledger.has_settled(&receipt.receipt_hash),
         "a receipt that failed verification must not be recorded as settled"
+    );
+}
+
+/// Build a receipt whose committed-state cost ledger carries `kind`, so the
+/// replay path can be exercised with a specific cost category.
+fn receipt_with_cost_kind(kind: &str) -> x3_lang_vm::trading::TradeReceipt {
+    let mut state = committed_state();
+    state.cost_ledger.push(CommittedCost {
+        asset: asset("USDC"),
+        amount: 10,
+        kind: kind.to_string(),
+    });
+    build_receipt(
+        "0.1.0",
+        [1u8; 32],
+        "T",
+        "P",
+        [2u8; 32],
+        &operations(),
+        &state,
+        Some(&asset("USDC")),
+        TradeOutcome::Success,
+    )
+    .expect("receipt must build")
+}
+
+#[test]
+fn receipt_with_an_allowed_cost_kind_passes_economic_replay() {
+    // Establishes that the cost-kind check is not vacuous: a category the
+    // compiled policy does list must replay cleanly.
+    let receipt = receipt_with_cost_kind("gas");
+    verify_receipt(&receipt).expect("hash must verify");
+    verify_receipt_economics(&receipt).expect("an allowlisted cost kind must replay");
+}
+
+#[test]
+fn receipt_with_an_unknown_cost_kind_fails_economic_replay() {
+    // An unclassifiable category cannot be checked against any allowlist, so
+    // a receipt carrying one must not verify.
+    let receipt = receipt_with_cost_kind("totally_made_up");
+    verify_receipt(&receipt).expect("hash must verify");
+    let err = verify_receipt_economics(&receipt).expect_err("an unknown cost kind must fail replay");
+    assert!(
+        matches!(err, ReceiptError::EconomicReplayMismatch(ref message) if message.contains("unknown cost kind")),
+        "expected an unknown-cost-kind replay mismatch, got {err:?}"
+    );
+}
+
+#[test]
+fn receipt_with_a_disallowed_cost_kind_fails_economic_replay() {
+    // `solver_infrastructure_fee` is a real `CostKind` that the compiled
+    // policy in `operations()` does not allow. A receipt claiming it was
+    // charged must be rejected by replay, not silently totalled.
+    let receipt = receipt_with_cost_kind("solver_infrastructure_fee");
+    verify_receipt(&receipt).expect("hash must verify");
+    let err = verify_receipt_economics(&receipt).expect_err("a disallowed cost kind must fail replay");
+    assert!(
+        matches!(err, ReceiptError::EconomicReplayMismatch(ref message) if message.contains("allowed_cost_kinds")),
+        "expected an allowlist replay mismatch, got {err:?}"
     );
 }

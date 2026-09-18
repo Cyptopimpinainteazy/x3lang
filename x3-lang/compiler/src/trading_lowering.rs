@@ -99,10 +99,20 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
             SubmissionProfile::Public
         },
         state_binding: StateBindingMode::Exact,
+        // The default allowlist must cover every category a v1 trade body
+        // can actually generate, or enabling enforcement would make legal
+        // trades unpayable. A trade body can bridge (cross-domain fee) and
+        // a bridge is settled against a finality/inclusion proof (proof
+        // fee), so both belong here alongside gas and the venue-side
+        // slippage/impact categories. Solver infrastructure fees stay
+        // excluded: nothing in a v1 trade body charges one, so a host
+        // reporting that category is rejected.
         allowed_cost_kinds: BTreeSet::from([
             CostKind::Gas,
             CostKind::LiquidityFee,
             CostKind::FlashLiquidityFee,
+            CostKind::ProofFee,
+            CostKind::CrossDomainFee,
             CostKind::Slippage,
             CostKind::PriceImpact,
             CostKind::MevLeakage,

@@ -83,6 +83,9 @@ fn e2e_swap_intent_compiles_and_executes() {
             route {
                 swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777;
             }
+            require slippage <= 50
+            timeout 30s refund ethereum.USDC to sender
+            on_fail rollback
         }
     "#;
     let bytecode = compile_source(source).expect("swap intent should compile");

@@ -154,6 +154,50 @@ impl<'a> Lexer<'a> {
                 }
                 '+' => tokens.push(token(TokenKind::BinOp(BinOp::Plus), start, i, file_id)),
                 '*' => tokens.push(token(TokenKind::BinOp(BinOp::Star), start, i, file_id)),
+                // Comments. These arms must precede the generic `'/` arm
+                // below, or `//` would lex as two division operators and
+                // `/*` as division followed by multiply.
+                '/' if source[i..].starts_with('/') => {
+                    // Line comment: `//` to end of line. The terminating
+                    // newline is deliberately left unconsumed so the Newline
+                    // token that ends the logical line is still produced —
+                    // this grammar is newline-sensitive, and swallowing it
+                    // would let a trailing comment merge two statements.
+                    i += 1;
+                    while i < bytes.len() {
+                        let next = source[i..].chars().next().unwrap();
+                        if next == '\n' {
+                            break;
+                        }
+                        i += next.len_utf8();
+                    }
+                }
+                '/' if source[i..].starts_with('*') => {
+                    // Block comment: `/* ... */`. Newlines inside the comment
+                    // still produce Newline tokens, so wrapping a token in a
+                    // block comment cannot silently merge two logical lines
+                    // the way a plain whitespace skip would.
+                    i += 1;
+                    let mut terminated = false;
+                    while i < bytes.len() {
+                        let next = source[i..].chars().next().unwrap();
+                        if next == '*' && source[i + 1..].starts_with('/') {
+                            i += 2;
+                            terminated = true;
+                            break;
+                        }
+                        if next == '\n' {
+                            tokens.push(token(TokenKind::Newline, i, i + 1, file_id));
+                        }
+                        i += next.len_utf8();
+                    }
+                    if !terminated {
+                        // Fail closed. Silently treating an unterminated block
+                        // comment as whitespace to end of file would discard
+                        // the rest of the program and still report success.
+                        tokens.push(token(TokenKind::Unknown('/'), start, start + 1, file_id));
+                    }
+                }
                 '/' => tokens.push(token(TokenKind::BinOp(BinOp::Slash), start, i, file_id)),
                 '%' => tokens.push(token(TokenKind::BinOp(BinOp::Percent), start, i, file_id)),
                 '<' => tokens.push(token(TokenKind::BinOp(BinOp::Lt), start, i, file_id)),
@@ -237,4 +281,120 @@ fn well_formed_number_part(part: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kinds(source: &str) -> Vec<TokenKind> {
+        Lexer::lex_all(source).into_iter().map(|token| token.kind).collect()
+    }
+
+    fn newline_count(tokens: &[TokenKind]) -> usize {
+        tokens.iter().filter(|kind| matches!(kind, TokenKind::Newline)).count()
+    }
+
+    fn has_unknown(tokens: &[TokenKind]) -> bool {
+        tokens.iter().any(|kind| matches!(kind, TokenKind::Unknown(_)))
+    }
+
+    fn has_intent_keyword(tokens: &[TokenKind]) -> bool {
+        tokens
+            .iter()
+            .any(|kind| matches!(kind, TokenKind::Keyword(Keyword::Intent)))
+    }
+
+    #[test]
+    fn line_comment_at_start_of_file_is_skipped() {
+        // Regression: `//` used to lex as two `Slash` operators, so a file
+        // beginning with a comment failed the parser with "expected top-level
+        // item". Six of the shipped `examples/*.x3` files were unparseable
+        // for exactly this reason.
+        let tokens = kinds("// leading comment\nintent a {\n}\n");
+        assert!(
+            !has_unknown(&tokens),
+            "comment characters leaked into tokens: {tokens:?}"
+        );
+        assert!(
+            has_intent_keyword(&tokens),
+            "the declaration after the comment must survive"
+        );
+    }
+
+    #[test]
+    fn line_comment_inside_a_block_is_skipped() {
+        let tokens = kinds("intent a {\n// inner\n}\n");
+        assert!(
+            !has_unknown(&tokens),
+            "comment characters leaked into tokens: {tokens:?}"
+        );
+        assert!(has_intent_keyword(&tokens));
+    }
+
+    #[test]
+    fn line_comment_does_not_swallow_its_terminating_newline() {
+        // The grammar is newline-sensitive. If a line comment consumed its own
+        // newline, a trailing comment could merge two statements into one.
+        let tokens = kinds("let x = 1 // trailing\nlet y = 2\n");
+        assert_eq!(newline_count(&tokens), 2, "both logical line endings must survive");
+    }
+
+    #[test]
+    fn block_comment_is_skipped() {
+        let tokens = kinds("/* block */\nintent a {\n}\n");
+        assert!(!has_unknown(&tokens), "block comment characters leaked: {tokens:?}");
+        assert!(has_intent_keyword(&tokens));
+    }
+
+    #[test]
+    fn multiline_block_comment_preserves_line_structure() {
+        // Four line endings: after `{`, inside the comment, after `*/`, and
+        // after the closing `}`.
+        let tokens = kinds("intent a {\n/* x\ny */\n}\n");
+        assert!(!has_unknown(&tokens), "block comment characters leaked: {tokens:?}");
+        assert_eq!(
+            newline_count(&tokens),
+            4,
+            "newlines inside a block comment must still be observed"
+        );
+    }
+
+    #[test]
+    fn unterminated_block_comment_fails_closed() {
+        // Treating an unterminated block comment as whitespace to EOF would
+        // discard the rest of the program and still report success.
+        let tokens = kinds("/* never closed\nintent a {\n}\n");
+        assert!(
+            has_unknown(&tokens),
+            "an unterminated block comment must produce an error token, got {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn division_is_still_lexed_as_slash() {
+        let tokens = kinds("let x = 6 / 2\n");
+        assert!(
+            tokens.iter().any(|kind| matches!(kind, TokenKind::BinOp(BinOp::Slash))),
+            "single `/` must remain division"
+        );
+        assert!(!has_unknown(&tokens));
+    }
+
+    #[test]
+    fn comment_markers_inside_comments_do_not_confuse_the_lexer() {
+        let line_with_block = kinds("// a /* b */\nintent a {\n}\n");
+        assert!(
+            !has_unknown(&line_with_block),
+            "line comment must swallow `/*`: {line_with_block:?}"
+        );
+        assert!(has_intent_keyword(&line_with_block));
+
+        let block_with_line = kinds("/* // */\nintent a {\n}\n");
+        assert!(
+            !has_unknown(&block_with_line),
+            "block comment must swallow `//`: {block_with_line:?}"
+        );
+        assert!(has_intent_keyword(&block_with_line));
+    }
 }

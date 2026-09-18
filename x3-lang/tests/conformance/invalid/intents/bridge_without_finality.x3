@@ -1,0 +1,14 @@
+// Every other bridge guard is satisfied here — cross-chain route, replay
+// nonce, bounded timeout with a refund path. The only thing missing is the
+// source-chain finality requirement, which is what stops a reorged lock from
+// becoming an unbacked mint on the destination.
+intent unsafe_bridge_no_finality {
+    from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
+    to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    route {
+        bridge X3 ethereum.USDC -> solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    }
+    require nonce unused unsafe_bridge_001
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
+}

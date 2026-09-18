@@ -6,9 +6,12 @@ intent simple_swap {
         bridge X3 arbitrum.USDC -> solana.SOL receiver wallet
     }
 
+    require nonce unused simple_swap_001
+    require finality.arbitrum >= 32
+    require finality.solana >= 32
     require slippage <= 50
     require route_score >= 90
 
-    timeout 180s
+    timeout 180s refund arbitrum.USDC to sender
     on_fail rollback
 }

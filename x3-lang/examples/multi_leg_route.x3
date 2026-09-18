@@ -8,8 +8,11 @@ intent multi_leg_portfolio {
         bridge X3 polygon.USDC -> bitcoin.BTC amount 100
     }
 
+    require nonce unused multi_leg_portfolio_001
+    require finality.polygon >= 32
     require slippage <= 120
     require route_score >= 90
 
+    timeout 600s refund polygon.USDC to sender
     on_fail rollback
 }

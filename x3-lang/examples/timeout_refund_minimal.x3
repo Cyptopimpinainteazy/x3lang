@@ -4,5 +4,7 @@ intent timeout_refund_minimal {
     route {
         bridge X3 Ethereum.USDC -> Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
     }
+    require nonce unused timeout_refund_minimal_1
+    require finality.ethereum >= 12
     timeout 45s refund Ethereum.USDC to sender
 }
