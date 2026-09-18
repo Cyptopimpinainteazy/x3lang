@@ -486,7 +486,10 @@ pub fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
-            TRADING_BEGIN..=TRADING_ASSERT_INVARIANT => {
+            // The whole trading range, not up to TRADING_ASSERT_INVARIANT:
+            // TRADING_BRIDGE (0xBA) is emitted by the trading bridge operation
+            // and previously fell through to the unknown-opcode arm.
+            TRADING_BEGIN..=TRADING_BRIDGE => {
                 let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
                     Ok(p) => p.to_vec(),
                     Err(e) => {

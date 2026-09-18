@@ -135,6 +135,11 @@ fn is_payload_opcode(op: u8, compiler_stream: bool) -> bool {
     (compiler_stream && matches!(op, LOCK | MINT | BURN | RELEASE | SWAP | BRIDGE))
         || (GPU_DISPATCH..=SUB_EXEC).contains(&op)
         || (ROUTE_SCORE..=REFUND_POLICY).contains(&op)
+        // Trading-core opcodes carry a variable-length payload too. Without
+        // this the verifier advanced four bytes past a trading opcode instead
+        // of skipping its real payload, so it validated bytes that are not
+        // instruction starts.
+        || (TRADING_BEGIN..=TRADING_BRIDGE).contains(&op)
 }
 
 fn align4(value: usize) -> usize {
@@ -215,6 +220,19 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         return Ok(());
     }
 
+    if (TRADING_BEGIN..=TRADING_BRIDGE).contains(&opcode) {
+        // Trading payloads are their own encoding (see the compiler's
+        // `decode_trading_operation`), not a `CapabilityPayload`, so the
+        // capability decoder below cannot read them: it rejects the opcode
+        // outright, which made every trading-core program fail verification
+        // with `InvalidOperand` even though the executor runs it. Decoding here
+        // keeps the verifier's promise that a payload it accepts has actually
+        // been checked against its opcode.
+        x3_lang_compiler::emitter::decode_trading_operation(opcode, payload)
+            .map_err(|_| VerifyError::InvalidOperand(pc))?;
+        return Ok(());
+    }
+
     let payload = decode_capability_payload(opcode, payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
     match payload {
         CapabilityPayload::ScheduledDispatch { period_blocks, .. } => {
@@ -259,9 +277,17 @@ fn valid_opcode(op: u8) -> bool {
     // asset ops (0x20-0x24), control (0x30-0x33), guards
     // (0x40-0x44), atomic (0x50-0x52), emit/call (0x60-0x66),
     // vector (0x70-0x73), capability payloads (0x80-0x9B),
-    // and extras (0xA0-0xAB). Halt (0xFF) and reserved (0x00-0x18)
-    // are also valid. Anything outside 0x00-0xFF is impossible.
-    op <= 0xAB || op == HALT
+    // extras (0xA0-0xAB) and the trading core (0xB0-0xBA). Halt (0xFF)
+    // and reserved (0x00-0x18) are also valid. Anything outside
+    // 0x00-0xFF is impossible.
+    //
+    // The trading range was missing, so `verify` rejected every bytecode a
+    // trading-core program produces: `x3c run examples/trading_core_v1.x3`
+    // failed with `X3_VERIFY_FAILED: InvalidOpcode(176, 1)` — 0xB0 is
+    // TRADING_BEGIN, the first instruction of the stream. The compiler's
+    // disassembler already carries this range, and carries a comment about
+    // having been fixed for the same reason.
+    op <= 0xAB || (TRADING_BEGIN..=TRADING_BRIDGE).contains(&op) || op == HALT
 }
 
 #[cfg(test)]
