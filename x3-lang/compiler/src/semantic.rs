@@ -1198,21 +1198,34 @@ fn verify_single_relayer(ir: &X3IR, acc: &mut ErrorAccumulator) {
 }
 
 fn verify_solver_bond(ir: &X3IR, acc: &mut ErrorAccumulator) {
-    let has_solver = ir.operations.iter().any(|op| matches!(op, Operation::SolverBid { .. }));
-    if !has_solver {
-        if has_cross_chain_operation(ir) {
-            acc.add_error(err("mainnet: missing solver bond declaration"));
-        }
-        return;
-    }
+    // Read the bond the program actually declares: `require solver_bond >= N`.
+    //
+    // This used to look for a lowered `SolverBid`, which `solver_market
+    // { mode, min_reputation }` produced by mapping a reputation threshold onto
+    // `bond`. That op is no longer fabricated (see `lowering.rs`), so the
+    // declaration the source writes is what gets checked.
+    let mut saw_bond = false;
     for op in &ir.operations {
-        if let Operation::SolverBid { solver, bond, .. } = op {
-            if *bond == 0 {
-                acc.add_error(err(format!(
-                    "mainnet: solver '{solver}' has zero bond — bond must be > 0"
-                )));
+        if let Operation::Require {
+            kind: crate::ir::RequireKind::SolverBond,
+            condition,
+            ..
+        } = op
+        {
+            saw_bond = true;
+            let declared = match condition {
+                Condition::Expression { expr } => expr.trim().parse::<u128>().ok(),
+                _ => None,
+            };
+            if declared == Some(0) {
+                acc.add_error(err("mainnet: solver bond must be greater than zero"));
             }
         }
+    }
+    if !saw_bond && has_cross_chain_operation(ir) {
+        acc.add_error(err(
+            "mainnet: missing solver bond declaration — add `require solver_bond >= <amount>`",
+        ));
     }
 }
 
@@ -1373,11 +1386,17 @@ pub fn compute_risk_score(ir: &X3IR) -> RiskScore {
         .count();
     score.bridge_risk = if unknown_adapters > 0 { 15 } else { 0 };
 
-    // Solver risk: no solver bond means risk
-    let has_solver_bond = ir
-        .operations
-        .iter()
-        .any(|op| matches!(op, Operation::SolverBid { bond, .. } if *bond > 0));
+    // Solver risk: no solver bond means risk. Read the guard the program
+    // writes, not the `SolverBid` op that `solver_market` used to fabricate.
+    let has_solver_bond = ir.operations.iter().any(|op| {
+        matches!(
+            op,
+            Operation::Require {
+                kind: crate::ir::RequireKind::SolverBond,
+                ..
+            }
+        )
+    });
     score.solver_risk = if has_solver_bond { 0 } else { 10 };
 
     // Relayer risk: quorum check

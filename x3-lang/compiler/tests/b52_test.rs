@@ -481,7 +481,14 @@ fn test_lowering_vm_decl_emits_adapter_call() {
 }
 
 #[test]
-fn test_lowering_solver_market_emits_bid() {
+fn test_lowering_solver_market_does_not_fabricate_a_bid() {
+    // `solver_market` configures the marketplace; it is not a bid, and there is
+    // nothing for the VM to execute. It used to lower into an executable
+    // SolverBid assembled from neighbouring fields — `solver: mode`, empty
+    // receive/deliver assets, an empty fee, and `bond: min_reputation`. A
+    // reputation threshold is not a bond, and the executor rightly refused the
+    // result ("solver bid: fee must be non-empty"), so a program that
+    // configured a solver market could not run at all.
     let src = r#"
         solver_market {
             mode automatic
@@ -491,10 +498,41 @@ fn test_lowering_solver_market_emits_bid() {
     let program = parse_source(src).expect("should parse");
     let ir = lower_program(&program, LowerCtx::new()).expect("should lower");
     assert!(
+        !ir.operations.iter().any(|op| matches!(op, Operation::SolverBid { .. })),
+        "a marketplace configuration must not become an executable bid: {:?}",
         ir.operations
-            .iter()
-            .any(|op| matches!(op, Operation::SolverBid { bond: 1000, .. })),
-        "expected SolverBid with bond 1000"
+    );
+}
+
+#[test]
+fn a_declared_solver_bond_is_carried_by_its_guard() {
+    // The bond a program relies on is the guard it writes, which is what the
+    // mainnet check and the risk scorer read now that the fabricated op is gone.
+    let src = r#"
+        intent t {
+            from ethereum.USDC amount 1 receiver 0x1
+            to solana.USDC receiver 0x2
+            route {
+                swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
+            }
+            require solver_bond >= 1000
+            require slippage <= 50
+            timeout 30s refund ethereum.USDC to sender
+            on_fail rollback
+        }
+    "#;
+    let program = parse_source(src).expect("should parse");
+    let ir = lower_program(&program, LowerCtx::new()).expect("should lower");
+    assert!(
+        ir.operations.iter().any(|op| matches!(
+            op,
+            Operation::Require {
+                kind: x3_lang_compiler::ir::RequireKind::SolverBond,
+                ..
+            }
+        )),
+        "the solver bond must be carried by the guard: {:?}",
+        ir.operations
     );
 }
 

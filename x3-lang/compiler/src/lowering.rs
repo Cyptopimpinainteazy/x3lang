@@ -371,15 +371,19 @@ pub fn lower_program_with_mode(
                     });
                 }
             }
-            Item::SolverMarket(market) => {
-                ir.push(Operation::SolverBid {
-                    solver: market.mode.as_str().to_string(),
-                    receive_asset: String::new(),
-                    deliver_asset: String::new(),
-                    fee: String::new(),
-                    bond: market.min_reputation as u128,
-                });
-            }
+            // `solver_market { mode, min_reputation }` configures the
+            // marketplace; it is not a bid, and there is nothing for the VM to
+            // execute.
+            //
+            // This used to lower into an executable `SolverBid` built entirely
+            // from neighbouring fields — `solver: mode`, empty receive/deliver
+            // assets, an empty fee, and `bond: min_reputation`. A reputation
+            // threshold is not a bond, and the executor rightly refused the
+            // result ("solver bid: fee must be non-empty"), which made every
+            // program that configured a solver market fail at run time. The
+            // bond a program actually relies on is the guard it writes,
+            // `require solver_bond >= N`, which `verify_solver_bond` reads.
+            Item::SolverMarket(_market) => {}
             Item::RelayerSwarm(swarm) => {
                 ir.push(Operation::RelayerAttest {
                     relayers: swarm.relayers.iter().map(|r| r.as_str().to_string()).collect(),
