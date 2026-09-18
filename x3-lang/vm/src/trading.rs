@@ -11,7 +11,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, TradingOperation, ValueRef};
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, InvariantKind, TradingOperation, ValueRef};
 
 /// Whether a capability manifest represents deterministic fixtures or a real
 /// production integration.
@@ -156,22 +156,45 @@ pub trait TradingHost {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TradingExecError {
     NonProductionCapability,
-    CapabilityChainMismatch { expected: String, actual: String },
-    CapabilityVersionMismatch { expected: u16, actual: String },
+    CapabilityChainMismatch {
+        expected: String,
+        actual: String,
+    },
+    CapabilityVersionMismatch {
+        expected: u16,
+        actual: String,
+    },
     PrivateSubmissionRequired,
     UnknownCapability(String),
     UnsupportedOperation(String),
     InvalidSequence(String),
     HostRejected(HostError),
     AssetMismatch(String),
-    OutputBelowMinOut { minimum: u128, actual: u128 },
+    OutputBelowMinOut {
+        minimum: u128,
+        actual: u128,
+    },
     StateCommitmentMismatch,
-    DeadlineExpired { current: u64, deadline: u64 },
-    FeeCeilingExceeded { ceiling_bps: u16, actual_bps: u128 },
+    DeadlineExpired {
+        current: u64,
+        deadline: u64,
+    },
+    FeeCeilingExceeded {
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
     OpenDebtAtCommit(String),
-    NetProfitBelowFloor { minimum: u128, actual: u128 },
+    NetProfitBelowFloor {
+        minimum: u128,
+        actual: u128,
+    },
     MissingReceipt,
     AccountingOverflow,
+    InvariantViolated {
+        kind: InvariantKind,
+        asset: AssetKey,
+        deficit: i128,
+    },
 }
 
 impl fmt::Display for TradingExecError {
@@ -215,6 +238,13 @@ impl fmt::Display for TradingExecError {
             }
             Self::MissingReceipt => write!(f, "borrowed-capital trade did not emit a receipt"),
             Self::AccountingOverflow => write!(f, "checked trading accounting overflowed"),
+            Self::InvariantViolated { kind, asset, deficit } => write!(
+                f,
+                "invariant '{}' violated: {} nets to a deficit of {}",
+                kind.as_str(),
+                asset.symbol,
+                -deficit
+            ),
         }
     }
 }
@@ -480,6 +510,22 @@ impl TradingVm {
                 TradingOperation::AssertAllDebtsClosed => {
                     if let Some((debt, _)) = self.trading_state.open_debts.iter().next() {
                         return Err(TradingExecError::OpenDebtAtCommit(debt.clone()));
+                    }
+                }
+                TradingOperation::AssertInvariant { kind } => {
+                    self.accrue_host_execution_costs(host)?;
+                    match kind {
+                        InvariantKind::Solvent => {
+                            if let Some((asset, deficit)) =
+                                self.trading_state.net_deltas.iter().find(|(_, delta)| **delta < 0)
+                            {
+                                return Err(TradingExecError::InvariantViolated {
+                                    kind: *kind,
+                                    asset: asset.clone(),
+                                    deficit: *deficit,
+                                });
+                            }
+                        }
                     }
                 }
                 TradingOperation::EmitTradeReceipt => {
@@ -864,6 +910,7 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 }
                 saw_all_debts_guard = true;
             }
+            TradingOperation::AssertInvariant { .. } => {}
             TradingOperation::EmitTradeReceipt => saw_receipt_emit = true,
             TradingOperation::CommitAtomicTrade => {}
             TradingOperation::AbortAtomicTrade => {

@@ -12,7 +12,7 @@
 //! converts lexer `TokenKind` items into its internal `Tok` enum.
 
 use x3_lang_ast::ast::*;
-use x3_lang_ast::{AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, DebtId, TradeRiskPolicy, TradeStmt};
+use x3_lang_ast::{AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, DebtId, InvariantKind, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::{BinOp as CBinOp, IntBase, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
 use x3_lang_lexer::token::{Keyword, Token, TokenKind};
 
@@ -1007,13 +1007,34 @@ impl<'a> Parser<'a> {
                     )),
                 }
             }
+            Tok::Ident(ref s) if s == "invariant" => {
+                self.advance();
+                let kind = self.parse_invariant_kind()?;
+                Ok(TradeStmt::AssertInvariant { kind })
+            }
             Tok::KwEmit => {
                 self.advance();
                 self.expect(Tok::Ident("receipt".into()), "expected 'receipt' after emit")?;
                 Ok(TradeStmt::EmitReceipt)
             }
             _ => Err(parse_err(
-                "expected a trading statement (borrow, swap, repay, require, or emit receipt)".into(),
+                "expected a trading statement (borrow, swap, repay, require, invariant, or emit receipt)".into(),
+                self.peek(),
+            )),
+        }
+    }
+
+    /// Parse the name after `invariant`. Deliberately closed: an
+    /// unrecognized name is a parse error rather than a silently-accepted
+    /// no-op, matching the plan's "unknown values ... fail closed" rule.
+    fn parse_invariant_kind(&mut self) -> Result<InvariantKind, X3Error> {
+        match self.peek() {
+            Tok::Ident(ref s) if s == "solvent" => {
+                self.advance();
+                Ok(InvariantKind::Solvent)
+            }
+            _ => Err(parse_err(
+                "expected a known invariant name ('solvent') after 'invariant'".into(),
                 self.peek(),
             )),
         }

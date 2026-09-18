@@ -133,5 +133,29 @@ pub enum TradeStmt {
         amount: AmountExpr,
     },
     RequireAllDebtsRepaid,
+    AssertInvariant {
+        kind: InvariantKind,
+    },
     EmitReceipt,
+}
+
+/// A named, formally-checked economic invariant. Deliberately closed: an
+/// unrecognized invariant name is a parse error, not a silently-accepted
+/// no-op — see `parser.rs`'s `parse_invariant_kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum InvariantKind {
+    /// Every asset touched by the trade nets to a non-negative delta at
+    /// commit time — the trade never ends up owing more of any asset than
+    /// it received. Broader than the settlement-asset profit floor: it
+    /// covers every asset the trade touched, not just the one named in
+    /// `require net_profit`.
+    Solvent,
+}
+
+impl InvariantKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InvariantKind::Solvent => "solvent",
+        }
+    }
 }

@@ -183,6 +183,46 @@ atomic trade NoVia using MainnetArb {
 }
 
 #[test]
+fn parses_invariant_solvent_statement() {
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+atomic trade WithInvariant using MainnetArb {
+    invariant solvent
+    require all_debts_repaid
+    emit receipt
+}
+"#;
+    let program = parse_source(source).expect("invariant statement must parse");
+    let (_, _, trade) = find_items(&program);
+    let trade = trade.expect("program must contain the atomic trade");
+    assert!(
+        matches!(
+            trade.body.first(),
+            Some(TradeStmt::AssertInvariant {
+                kind: x3_lang_ast::InvariantKind::Solvent
+            })
+        ),
+        "first statement must lower to AssertInvariant(Solvent), got: {:?}",
+        trade.body.first()
+    );
+}
+
+#[test]
+fn rejects_unknown_invariant_name() {
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+atomic trade BadInvariant using MainnetArb {
+    invariant made_up_property
+}
+"#;
+    let err = parse_source(source).expect_err("unknown invariant name must be a parser diagnostic");
+    assert!(
+        format!("{err}").to_lowercase().contains("invariant"),
+        "diagnostic should name the invalid invariant, got: {err}"
+    );
+}
+
+#[test]
 fn rejects_swap_without_min_out() {
     let err = parse_source(TRADING_INVALID_MISSING_MIN_OUT_SOURCE)
         .expect_err("swap without `min_out` must be a parser diagnostic");
