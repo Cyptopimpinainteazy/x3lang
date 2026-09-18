@@ -66,6 +66,7 @@ fn verify_atomic_trade_at_span(
     let mut has_net_profit_guard = false;
     let mut has_all_debts_guard = false;
     let mut has_receipt = false;
+    let mut seen_invariants = BTreeSet::new();
 
     for stmt in &trade.body {
         match stmt {
@@ -107,6 +108,18 @@ fn verify_atomic_trade_at_span(
             }
             TradeStmt::RequireMinNetProfit { .. } => has_net_profit_guard = true,
             TradeStmt::RequireAllDebtsRepaid => has_all_debts_guard = true,
+            TradeStmt::AssertInvariant { kind } => {
+                if !seen_invariants.insert(kind.as_str()) {
+                    errors.push(semantic_error(
+                        format!(
+                            "atomic trade '{}' declares invariant '{}' more than once",
+                            trade.name.as_str(),
+                            kind.as_str()
+                        ),
+                        span,
+                    ));
+                }
+            }
             TradeStmt::EmitReceipt => has_receipt = true,
             TradeStmt::Swap { .. } => {}
         }

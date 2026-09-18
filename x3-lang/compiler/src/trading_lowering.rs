@@ -128,6 +128,12 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
             TradeStmt::RequireAllDebtsRepaid => {
                 operations.push(Operation::Trading(TradingOperation::AssertAllDebtsClosed));
             }
+            TradeStmt::AssertInvariant { kind } => {
+                let ir_kind = match kind {
+                    x3_lang_ast::InvariantKind::Solvent => crate::ir::InvariantKind::Solvent,
+                };
+                operations.push(Operation::Trading(TradingOperation::AssertInvariant { kind: ir_kind }));
+            }
             TradeStmt::EmitReceipt => {
                 has_receipt = true;
                 operations.push(Operation::Trading(TradingOperation::EmitTradeReceipt));

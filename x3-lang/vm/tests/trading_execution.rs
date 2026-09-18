@@ -33,6 +33,11 @@ struct FixtureHost {
     borrow_fee: u128,
     commitment: [u8; 32],
     execution_cost: u128,
+    /// Asset the fixture-reported execution cost is denominated in.
+    /// Defaults to USDC (the settlement asset `ops()` already touches);
+    /// tests can point it at an asset the trade never otherwise credits
+    /// or debits, to prove costs there are still caught.
+    execution_cost_asset: Option<AssetKey>,
     began: bool,
     committed: bool,
     rolled_back: bool,
@@ -46,6 +51,7 @@ impl FixtureHost {
             borrow_fee: 0,
             commitment: COMMITMENT,
             execution_cost: 0,
+            execution_cost_asset: None,
             began: false,
             committed: false,
             rolled_back: false,
@@ -109,7 +115,7 @@ impl TradingHost for FixtureHost {
             return Ok(Vec::new());
         }
         Ok(vec![CommittedCost {
-            asset: asset("USDC"),
+            asset: self.execution_cost_asset.clone().unwrap_or_else(|| asset("USDC")),
             amount: self.execution_cost,
             kind: "gas".to_string(),
         }])
@@ -428,4 +434,61 @@ fn compiled_flash_fee_ceiling_cannot_be_relaxed_by_caller() {
         err,
         x3_lang_vm::trading::TradingExecError::FeeCeilingExceeded { ceiling_bps: 1, .. }
     ));
+}
+
+/// `ops()` with an `AssertInvariant { kind: Solvent }` inserted right after
+/// the existing guards, before the all-debts/receipt/commit tail.
+fn ops_with_solvent_invariant() -> Vec<TradingOperation> {
+    let mut operations = ops();
+    let insert_at = operations
+        .iter()
+        .position(|op| matches!(op, TradingOperation::AssertAllDebtsClosed))
+        .expect("ops() fixture must contain AssertAllDebtsClosed");
+    operations.insert(
+        insert_at,
+        TradingOperation::AssertInvariant {
+            kind: x3_lang_compiler::ir::InvariantKind::Solvent,
+        },
+    );
+    operations
+}
+
+#[test]
+fn solvent_invariant_passes_when_every_touched_asset_nets_non_negative() {
+    let operations = ops_with_solvent_invariant();
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+
+    vm.execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect("fully repaid, zero-fee trade must satisfy the solvent invariant");
+}
+
+#[test]
+fn solvent_invariant_catches_hidden_cost_in_an_asset_the_trade_never_touches() {
+    let operations = ops_with_solvent_invariant();
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    // Gas paid in ETH — an asset this trade never borrows, swaps, or repays,
+    // so nothing else would ever notice it went negative. The named
+    // settlement asset (USDC) still clears its own profit floor: this is
+    // exactly the gap a single-asset profit check can't see.
+    host.execution_cost = 5_000;
+    host.execution_cost_asset = Some(asset("ETH"));
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("a hidden cost in an untouched asset must violate the solvent invariant");
+
+    match err {
+        x3_lang_vm::trading::TradingExecError::InvariantViolated {
+            kind: x3_lang_compiler::ir::InvariantKind::Solvent,
+            asset,
+            deficit,
+        } => {
+            assert_eq!(asset.symbol, "ETH");
+            assert_eq!(deficit, -5_000);
+        }
+        other => panic!("expected InvariantViolated for ETH, got {other:?}"),
+    }
+    assert!(host.rolled_back, "insolvent trade must roll back the host transaction");
 }

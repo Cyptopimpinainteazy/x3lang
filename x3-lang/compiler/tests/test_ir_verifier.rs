@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use x3_lang_compiler::diagnostic::DiagnosticCode;
 use x3_lang_compiler::ir::{
-    AssetKey, CompiledTradingPolicy, FailureAction, Operation, ProgramMetadata, TradingOperation, ValueRef, X3IR,
+    AssetKey, CompiledTradingPolicy, FailureAction, InvariantKind, Operation, ProgramMetadata, TradingOperation,
+    ValueRef, X3IR,
 };
 use x3_lang_compiler::verify::verify_ir;
 
@@ -264,5 +265,70 @@ fn rejects_missing_all_debts_guard() {
 fn rejects_multiple_commits() {
     let mut ops = valid_trading_ops();
     ops.push(TradingOperation::CommitAtomicTrade);
+    assert!(verify_ir(&trading_ir(ops)).is_err());
+}
+
+#[test]
+fn accepts_invariant_guard_before_receipt() {
+    let mut ops = valid_trading_ops();
+    let receipt_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::EmitTradeReceipt))
+        .expect("fixture must emit a receipt");
+    ops.insert(
+        receipt_index,
+        TradingOperation::AssertInvariant {
+            kind: InvariantKind::Solvent,
+        },
+    );
+    assert!(verify_ir(&trading_ir(ops)).is_ok());
+}
+
+#[test]
+fn rejects_invariant_guard_after_receipt() {
+    let mut ops = valid_trading_ops();
+    let receipt_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::EmitTradeReceipt))
+        .expect("fixture must emit a receipt");
+    ops.insert(
+        receipt_index + 1,
+        TradingOperation::AssertInvariant {
+            kind: InvariantKind::Solvent,
+        },
+    );
+    assert_eq!(codes(&trading_ir(ops)), vec![DiagnosticCode::UnsafeIr]);
+}
+
+#[test]
+fn rejects_duplicate_invariant_guard() {
+    let mut ops = valid_trading_ops();
+    let receipt_index = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::EmitTradeReceipt))
+        .expect("fixture must emit a receipt");
+    ops.insert(
+        receipt_index,
+        TradingOperation::AssertInvariant {
+            kind: InvariantKind::Solvent,
+        },
+    );
+    ops.insert(
+        receipt_index,
+        TradingOperation::AssertInvariant {
+            kind: InvariantKind::Solvent,
+        },
+    );
+    assert_eq!(codes(&trading_ir(ops)), vec![DiagnosticCode::UnsafeIr]);
+}
+
+#[test]
+fn rejects_invariant_guard_before_trade_begins() {
+    let ops = vec![TradingOperation::AssertInvariant {
+        kind: InvariantKind::Solvent,
+    }];
+    // A lone invariant with no BeginAtomicTrade/CommitAtomicTrade trips more
+    // than one structural rule (unstarted trade, no terminal commit/abort);
+    // this test only cares that it's rejected, not the exact diagnostic count.
     assert!(verify_ir(&trading_ir(ops)).is_err());
 }

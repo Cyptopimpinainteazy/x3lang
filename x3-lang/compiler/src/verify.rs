@@ -356,6 +356,7 @@ struct TradingSequenceState {
     open_debts: BTreeMap<String, AssetKey>,
     closed_debts: BTreeSet<String>,
     bindings: BTreeMap<String, AssetKey>,
+    invariant_guards_seen: BTreeSet<crate::ir::InvariantKind>,
 }
 
 fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
@@ -534,6 +535,24 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                 }
                 state.all_debts_guard_seen = true;
             }
+            TradingOperation::AssertInvariant { kind } => {
+                require_trade_started(&state, &op_context, diagnostics);
+                if state.receipt_seen || state.committed {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: invariant '{}' must precede receipt/commit",
+                            kind.as_str()
+                        ),
+                    );
+                }
+                if !state.invariant_guards_seen.insert(*kind) {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: duplicate invariant guard '{}'", kind.as_str()),
+                    );
+                }
+            }
             TradingOperation::EmitTradeReceipt => {
                 require_trade_started(&state, &op_context, diagnostics);
                 if !state.profit_guard_seen || !state.all_debts_guard_seen {
@@ -681,6 +700,7 @@ fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnosti
             }
         }
         TradingOperation::AssertAllDebtsClosed
+        | TradingOperation::AssertInvariant { .. }
         | TradingOperation::EmitTradeReceipt
         | TradingOperation::CommitAtomicTrade
         | TradingOperation::AbortAtomicTrade => {}

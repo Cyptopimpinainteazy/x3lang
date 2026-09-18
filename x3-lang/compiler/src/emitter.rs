@@ -250,6 +250,7 @@ pub fn trading_opcode(op: &TradingOperation) -> u8 {
         TradingOperation::CloseDebt { .. } => TRADING_CLOSE_DEBT,
         TradingOperation::AssertMinNetProfit { .. } => TRADING_ASSERT_MIN_PROFIT,
         TradingOperation::AssertAllDebtsClosed => TRADING_ASSERT_ALL_DEBTS,
+        TradingOperation::AssertInvariant { .. } => TRADING_ASSERT_INVARIANT,
         TradingOperation::EmitTradeReceipt => TRADING_EMIT_RECEIPT,
         TradingOperation::CommitAtomicTrade => TRADING_COMMIT,
         TradingOperation::AbortAtomicTrade => TRADING_ABORT,
@@ -362,6 +363,7 @@ pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, 
                 | TRADING_EMIT_RECEIPT
                 | TRADING_COMMIT
                 | TRADING_ABORT
+                | TRADING_ASSERT_INVARIANT
         ) {
             operations.push(decode_trading_operation(opcode, payload)?);
         }
@@ -892,6 +894,7 @@ fn disassemble_op(opcode: u8, payload: &[u8]) -> String {
         0xB6 => format!("TRADING_EMIT_RECEIPT {payload_str}"),
         0xB7 => format!("TRADING_COMMIT {payload_str}"),
         0xB8 => format!("TRADING_ABORT {payload_str}"),
+        0xB9 => format!("TRADING_ASSERT_INVARIANT {payload_str}"),
         0xFF => "HALT".into(),
         other => format!("OP(0x{other:02x})"),
     }
@@ -899,7 +902,7 @@ fn disassemble_op(opcode: u8, payload: &[u8]) -> String {
 
 fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
     use x3_lang_common::{decode_asset_op_payload, decode_bridge_payload, decode_capability_payload};
-    if (TRADING_BEGIN..=TRADING_ABORT).contains(&opcode) {
+    if (TRADING_BEGIN..=TRADING_ASSERT_INVARIANT).contains(&opcode) {
         let op = decode_trading_operation(opcode, payload)?;
         return Ok(format!("{op:?}"));
     }
