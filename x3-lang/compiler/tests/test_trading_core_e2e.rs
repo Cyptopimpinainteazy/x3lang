@@ -14,8 +14,8 @@ use x3_lang_compiler::{
 };
 use x3_lang_vm::trading::{
     build_receipt, fixture_manifest, sign_receipt, verify_receipt_trusted, BorrowRequest, BorrowResult,
-    CapabilityManifest, CommittedCost, ExecutionMode, HostError, RepayRequest, RepayResult, SwapRequest, SwapResult,
-    TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
+    CapabilityManifest, CommittedCost, ExecutionMode, HostError, QuoteRequest, QuoteResult, RepayRequest, RepayResult,
+    SwapRequest, SwapResult, TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
 };
 
 const SOURCE: &str = include_str!("../../examples/trading_core_v1.x3");
@@ -51,6 +51,13 @@ impl TradingHost for FixtureVenueHost {
             fee: 0,
             state_commitment: COMMITMENT,
         })
+    }
+
+    fn quote(&self, request: QuoteRequest) -> Result<QuoteResult, HostError> {
+        // Slippage enforcement isn't what this E2E test exercises; a floor
+        // of 0 always satisfies `actual >= expected`, so it never fires.
+        let _ = request;
+        Ok(QuoteResult { expected_output: 0 })
     }
 
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
