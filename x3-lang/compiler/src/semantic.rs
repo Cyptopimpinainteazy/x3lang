@@ -289,6 +289,51 @@ fn err(message: impl Into<String>) -> X3Error {
     }
 }
 
+/// A `require invariant <name>` guard needs that invariant to be declared.
+///
+/// An invariant is checked because the program *declares* it — `invariant
+/// <name>` is the rule the invariants pass reads — so a guard naming one the
+/// program never declares asks for a check nothing provides. The same shape as
+/// `proof_complete` against `proofs required`, and decidable for the same reason:
+/// the claim is about the artifact's own configuration.
+pub fn verify_invariant_guards_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    let declared: Vec<&str> = program
+        .items
+        .iter()
+        .filter_map(|item| match &item.node {
+            Item::InvariantDecl(invariant) => Some(invariant.name.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::InvariantCheck {
+            continue;
+        }
+        let Some(named) = guard.subject.as_ref() else {
+            acc.add_error(err(format!(
+                "declaration '{owner}' requires `invariant` without naming it; there is nothing to have checked — write `require invariant <name>`"
+            )));
+            continue;
+        };
+        if !declared.iter().any(|name| *name == named.as_str()) {
+            acc.add_error(err(if declared.is_empty() {
+                format!(
+                    "declaration '{owner}' requires the invariant '{}', and the program declares no `invariant` at all — a guard names a rule the artifact has to state",
+                    named.as_str()
+                )
+            } else {
+                format!(
+                    "declaration '{owner}' requires the invariant '{}', and the program declares \
+                     {{{}}} — an invariant it never declares is one nothing checks",
+                    named.as_str(),
+                    declared.join(", ")
+                )
+            }));
+        }
+    }
+}
+
 /// A `require vm_supported <vm>` guard needs a declaration that uses that VM.
 ///
 /// The guard asserts the artifact runs on a VM family; a program says which
@@ -1450,7 +1495,7 @@ pub fn verify_solver_bond_declared(program: &Program, acc: &mut ErrorAccumulator
         // as though it were a floor would answer a question nobody asked.
         if !guard.comparison.is_some_and(|op| op.is_lower_bound()) {
             acc.add_error(err(format!(
-                "declaration '{owner}' states `require solver_bond` without a `>=` bound; a solver                  bond guard is a floor, and the check reads it as one"
+                "declaration '{owner}' states `require solver_bond` without a `>=` bound; a solver bond guard is a floor, and the check reads it as one"
             )));
             continue;
         }
@@ -1489,7 +1534,7 @@ pub fn verify_relayer_quorum_declared(program: &Program, acc: &mut ErrorAccumula
         }
         if !guard.comparison.is_some_and(|op| op.is_lower_bound()) {
             acc.add_error(err(format!(
-                "declaration '{owner}' states `require relayer_quorum` without a `>=` bound; a quorum                  guard is a floor, and the check reads it as one"
+                "declaration '{owner}' states `require relayer_quorum` without a `>=` bound; a quorum guard is a floor, and the check reads it as one"
             )));
             continue;
         }

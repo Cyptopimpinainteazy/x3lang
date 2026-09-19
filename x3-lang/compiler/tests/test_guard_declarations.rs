@@ -281,3 +281,48 @@ fn a_vm_guard_needs_a_declaration_that_uses_that_vm() {
         "{nameless:?}"
     );
 }
+
+#[test]
+fn an_invariant_guard_needs_a_declared_invariant() {
+    // An invariant is checked because the program declares it, so a guard naming
+    // one it does not declare asks for a check nothing provides.
+    fn errors(source: &str) -> Vec<String> {
+        match x3_lang_compiler::check_source_diagnostics(source) {
+            Ok((_, _, outcome)) => outcome.errors.iter().map(|error| error.to_string()).collect(),
+            Err(error) => vec![format!("{error}")],
+        }
+    }
+    let with_declaration = |declaration: &str, guard: &str| format!("{declaration}\n{}", program("", guard));
+
+    assert_eq!(
+        errors(&with_declaration(
+            "invariant no_double_claim",
+            "    require invariant no_double_claim"
+        )),
+        Vec::<String>::new(),
+        "the invariant is declared"
+    );
+
+    let refused = errors(&with_declaration(
+        "invariant no_double_claim",
+        "    require invariant no_double_refund",
+    ));
+    assert!(
+        refused
+            .iter()
+            .any(|error| error.contains("'no_double_refund'") && error.contains("no_double_claim")),
+        "the message must name the invariant and what is declared: {refused:?}"
+    );
+
+    let none = errors(&with_declaration("", "    require invariant total_shares"));
+    assert!(
+        none.iter().any(|error| error.contains("declares no `invariant`")),
+        "{none:?}"
+    );
+
+    let nameless = errors(&with_declaration("invariant a", "    require invariant"));
+    assert!(
+        nameless.iter().any(|error| error.contains("without naming it")),
+        "{nameless:?}"
+    );
+}
