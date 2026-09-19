@@ -828,7 +828,22 @@ fn guard_bounds_a_substitution(kind: &x3_lang_ast::ast::RequireKind) -> bool {
 /// same assets, is the resulting route valid?) happens in lowering, where the
 /// route's other steps are in scope.
 pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
-    fn walk(statements: &[x3_lang_ast::ast::Statement], acc: &mut ErrorAccumulator) {
+    // Declared venues, so a fallback's bounds have something to be checked
+    // against. Before the opportunity graph existed a venue was only a name, so
+    // `require slippage <= 7` inside a fallback bounded a quantity nothing
+    // knew: the number was read, checked to be a literal, and then had nothing
+    // to compare with. A venue that declares its slippage turns that bound into
+    // a real check.
+    let declared: Vec<(&str, u32)> = program
+        .items
+        .iter()
+        .filter_map(|item| match &item.node {
+            Item::VenueDecl(venue) => Some((venue.name.as_str(), venue.slippage_bps)),
+            _ => None,
+        })
+        .collect();
+
+    fn walk(statements: &[x3_lang_ast::ast::Statement], declared: &[(&str, u32)], acc: &mut ErrorAccumulator) {
         for statement in statements {
             match statement {
                 x3_lang_ast::ast::Statement::RouteFallback { replacements, requires } => {
@@ -856,6 +871,28 @@ pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
                             )));
                         }
                         seen.push(venue);
+
+                        // If the venue is declared, its own slippage must fit
+                        // inside the bound the fallback promises. Approving a
+                        // venue that declares more slippage than the block
+                        // allows would make the block a claim the program does
+                        // not satisfy.
+                        let bound = requires.iter().find_map(|guard| {
+                            (guard.kind == x3_lang_ast::ast::RequireKind::Slippage)
+                                .then(|| extract_int_from_expr(&guard.value))
+                                .flatten()
+                        });
+                        if let (Some(bound), Some((_, venue_slippage))) =
+                            (bound, declared.iter().find(|(name, _)| *name == venue).copied())
+                        {
+                            if u128::from(venue_slippage) > bound {
+                                acc.add_error(err(format!(
+                                    "fallback approves venue '{venue}', which declares {venue_slippage} \
+                                     bps of slippage, but the fallback bounds slippage at {bound} bps; \
+                                     the approval promises something the venue does not offer"
+                                )));
+                            }
+                        }
                     }
                     for guard in requires {
                         if !guard_bounds_a_substitution(&guard.kind) {
@@ -873,13 +910,13 @@ pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
                         }
                     }
                 }
-                x3_lang_ast::ast::Statement::Atomic(block) => walk(&block.body.stmts, acc),
+                x3_lang_ast::ast::Statement::Atomic(block) => walk(&block.body.stmts, declared, acc),
                 x3_lang_ast::ast::Statement::If {
                     then_block, else_block, ..
                 } => {
-                    walk(&then_block.stmts, acc);
+                    walk(&then_block.stmts, declared, acc);
                     if let Some(else_block) = else_block {
-                        walk(&else_block.stmts, acc);
+                        walk(&else_block.stmts, declared, acc);
                     }
                 }
                 _ => {}
@@ -889,11 +926,133 @@ pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
 
     for item in &program.items {
         match &item.node {
-            Item::IntentDecl(intent) => walk(&intent.body.stmts, acc),
-            Item::AtomicSwap(swap) => walk(&swap.body, acc),
-            Item::Strategy(strategy) => walk(&strategy.body, acc),
-            Item::Bridge(bridge) => walk(&bridge.body, acc),
+            Item::IntentDecl(intent) => walk(&intent.body.stmts, &declared, acc),
+            Item::AtomicSwap(swap) => walk(&swap.body, &declared, acc),
+            Item::Strategy(strategy) => walk(&strategy.body, &declared, acc),
+            Item::Bridge(bridge) => walk(&bridge.body, &declared, acc),
             _ => {}
+        }
+    }
+}
+
+/// Verify a `parallel` block is a set of legs the DAG can reason about.
+///
+/// The interesting decisions — which legs are independent, and which race — are
+/// made by the dependency DAG in lowering, because they need the legs' lowered
+/// operations rather than their source. What is checked here is what the source
+/// alone can settle: that there are legs to analyse, that they are distinct, and
+/// that each one is a body.
+pub fn verify_parallel_decls(program: &Program, acc: &mut ErrorAccumulator) {
+    for item in &program.items {
+        let Item::ParallelDecl(parallel) = &item.node else {
+            continue;
+        };
+        let name = parallel.name.as_str();
+        if parallel.legs.len() < 2 {
+            acc.add_error(err(format!(
+                "parallel '{name}' declares {} leg(s); a parallel block with one leg is not \
+                 parallel, and accepting it would make the artifact's claim of concurrent \
+                 execution false",
+                parallel.legs.len()
+            )));
+        }
+        if parallel.legs.len() > crate::dag::MAX_PARALLEL_LEGS {
+            acc.add_error(err(format!(
+                "parallel '{name}' declares {} legs, above the {}-leg production bound",
+                parallel.legs.len(),
+                crate::dag::MAX_PARALLEL_LEGS
+            )));
+        }
+        let mut seen: Vec<&str> = Vec::new();
+        for leg in &parallel.legs {
+            let leg_name = leg.name.as_str();
+            if seen.contains(&leg_name) {
+                acc.add_error(err(format!(
+                    "parallel '{name}' declares leg '{leg_name}' twice; the plan names legs, so a \
+                     duplicate makes the plan ambiguous"
+                )));
+            }
+            seen.push(leg_name);
+            if leg.body.is_empty() {
+                acc.add_error(err(format!(
+                    "parallel '{name}' leg '{leg_name}' is empty; it would contribute no dependencies \
+                     and no work"
+                )));
+            }
+        }
+    }
+}
+
+/// Verify every `venue` declaration is a node the graph can actually use.
+///
+/// A venue's declared attributes are what the planner reads, so a declaration
+/// that is internally inconsistent is worse than a missing one: it is a graph
+/// edge that looks traversable and is not.
+pub fn verify_venue_decls(program: &Program, acc: &mut ErrorAccumulator) {
+    use x3_lang_ast::ast::VenueKind;
+
+    let mut seen: Vec<&str> = Vec::new();
+    for item in &program.items {
+        let Item::VenueDecl(venue) = &item.node else {
+            continue;
+        };
+        let name = venue.name.as_str();
+        if seen.contains(&name) {
+            acc.add_error(err(format!(
+                "venue '{name}' is declared twice; the graph addresses venues by name, so a \
+                 duplicate makes an edge ambiguous"
+            )));
+        }
+        seen.push(name);
+
+        // `>=`, not `>`: 10_000 bps *is* the whole amount, so a fee that high is
+        // not a venue. The message said "at or above" while the code checked
+        // strictly above, which is how the boundary case went unchecked.
+        if venue.fee_bps >= 10_000 {
+            acc.add_error(err(format!(
+                "venue '{name}' declares a fee of {} bps; a fee at or above 10_000 bps is the whole \
+                 amount",
+                venue.fee_bps
+            )));
+        }
+        if venue.slippage_bps > 10_000 {
+            acc.add_error(err(format!(
+                "venue '{name}' declares {} bps of slippage, above 10_000 bps",
+                venue.slippage_bps
+            )));
+        }
+        if venue.risk > 100 {
+            acc.add_error(err(format!(
+                "venue '{name}' declares risk {}; the scale is 0 (safest) to 100",
+                venue.risk
+            )));
+        }
+        if venue.liquidity == 0 {
+            acc.add_error(err(format!(
+                "venue '{name}' declares zero liquidity; the graph would offer a route no size can \
+                 use"
+            )));
+        }
+
+        let asset_in = format!("{}.{}", venue.asset_in.chain.as_str(), venue.asset_in.name.as_str());
+        let asset_out = format!("{}.{}", venue.asset_out.chain.as_str(), venue.asset_out.name.as_str());
+        if asset_in == asset_out && venue.kind != VenueKind::Lending && venue.kind != VenueKind::Flash {
+            acc.add_error(err(format!(
+                "venue '{name}' takes in and gives out the same asset ({asset_in}); only a lending or \
+                 flash venue moves one asset, and a {} venue that does would be an edge from an asset \
+                 to itself, which no path can use",
+                venue.kind.as_str()
+            )));
+        }
+
+        // A venue that settles on a chain it does not trade on would put the
+        // path on a chain the graph never names.
+        let chain = venue.chain.as_str();
+        if asset_in.split('.').next() != Some(chain) && venue.kind != VenueKind::Bridge {
+            acc.add_error(err(format!(
+                "venue '{name}' trades {asset_in} but settles on chain '{chain}'; only a bridge \
+                 adapter moves an asset to another chain"
+            )));
         }
     }
 }
@@ -1993,6 +2152,7 @@ mod tests {
             Operation::Swap {
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
+                to_chain: "ethereum".to_string(),
                 to_asset: "ETH".into(),
                 input_amount: 1_000,
                 min_output: 500,
@@ -2022,6 +2182,7 @@ mod tests {
             Operation::Swap {
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
+                to_chain: "ethereum".to_string(),
                 to_asset: "ETH".into(),
                 input_amount: 1_000,
                 min_output: 500,

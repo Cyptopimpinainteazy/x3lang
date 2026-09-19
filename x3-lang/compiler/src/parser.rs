@@ -14,7 +14,7 @@
 use x3_lang_ast::ast::*;
 use x3_lang_ast::{
     AmountExpr, AssetDecl, AssetId, AtomicChoiceDecl, AtomicTradeDecl, ChoiceCriterion, ChoicePath, DebtId,
-    FallbackReplacement, InvariantKind, TradeEffect, TradeGuarantee, TradeRiskPolicy, TradeStmt,
+    FallbackReplacement, InvariantKind, TradeEffect, TradeGuarantee, TradeRiskPolicy, TradeStmt, VenueDecl, VenueKind,
 };
 use x3_lang_common::{BinOp as CBinOp, IntBase, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
 use x3_lang_lexer::token::{Keyword, Token, TokenKind};
@@ -300,6 +300,8 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "vm" => self.parse_vm_decl_item(),
             Tok::Ident(ref s) if s == "target" => self.parse_vm_target_item(),
             Tok::Ident(ref s) if s == "finality_policy" => self.parse_finality_policy_item(),
+            Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
+            Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "error" => self.parse_error_decl_item(),
             _ => Err(parse_err("expected top-level item".into(), self.peek())),
         }
@@ -1609,6 +1611,14 @@ impl<'a> Parser<'a> {
                 Ok(Statement::Require(g))
             }
             Tok::Ident(ref s) if s == "timeout" => self.parse_intent_timeout(),
+            Tok::Ident(ref s) if s == "allow" => {
+                self.advance();
+                let feature = self.expect_ident("allowed feature")?;
+                self.opt_semi();
+                Ok(Statement::Allow {
+                    feature: Symbol::new(&feature),
+                })
+            }
             Tok::Ident(ref s) if s == "on_fail" => self.parse_intent_onfail(),
             Tok::KwOnFail => self.parse_intent_onfail(),
             Tok::Ident(ref s) if s == "use" => self.parse_intent_use(),
@@ -1796,6 +1806,191 @@ impl<'a> Parser<'a> {
                 to: target,
             }),
         }
+    }
+
+    /// `parallel <name> { leg <name> { <route steps> } ... }`
+    ///
+    /// Legs are parsed in declaration order, whatever their dependencies turn
+    /// out to be: the plan is the compiler's conclusion, not the author's
+    /// claim, so the parser must not reorder or drop anything before the
+    /// dependency analysis sees it.
+    fn parse_parallel_decl(&mut self) -> Result<ParallelDecl, X3Error> {
+        self.advance(); // consume `parallel`
+        let name = self.expect_ident("parallel block name")?;
+        self.expect(Tok::LBrace, "expected '{' after the parallel block name")?;
+        let mut legs: Vec<ParallelLeg> = Vec::new();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "leg" => {
+                    self.advance();
+                    let leg_name = self.expect_ident("leg name")?;
+                    self.expect(Tok::LBrace, "expected '{' after the leg name")?;
+                    let mut body: Vec<Statement> = Vec::new();
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        match self.peek() {
+                            Tok::KwSwap | Tok::KwBridge | Tok::KwLock | Tok::KwMint | Tok::KwBurn | Tok::KwRelease => {
+                                body.push(self.parse_route_step()?)
+                            }
+                            Tok::Ident(ref s)
+                                if matches!(s.as_str(), "swap" | "bridge" | "lock" | "mint" | "burn" | "release") =>
+                            {
+                                body.push(self.parse_route_step()?)
+                            }
+                            // A leg that bridges must be able to declare its
+                            // expiry. Without this the verdict on a bridging leg
+                            // is "no refund path" — correct, and impossible for
+                            // the program to answer, because a leg had no way to
+                            // state a timeout. The intent clause parser is what
+                            // knows the `timeout <duration> refund <asset> to
+                            // <who>` form, so a leg borrows it rather than
+                            // growing a second spelling of the same statement.
+                            Tok::Ident(ref s) if s == "timeout" => body.push(self.parse_intent_timeout()?),
+                            _ => body.push(self.parse_statement()?),
+                        }
+                    }
+                    self.expect(Tok::RBrace, "expected '}' to close the leg")?;
+                    legs.push(ParallelLeg {
+                        name: Symbol::new(&leg_name),
+                        body,
+                    });
+                }
+                other => return Err(parse_err("expected `leg <name> { ... }` inside parallel".into(), other)),
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the parallel block")?;
+        Ok(ParallelDecl {
+            name: Symbol::new(&name),
+            legs,
+        })
+    }
+
+    /// `venue <name> { kind <kind> chain <chain> domain <vm> asset_in <A>
+    ///  asset_out <B> fee_bps <n> liquidity <n> slippage_bps <n>
+    ///  latency_ms <n> finality_blocks <n> risk <n> [proof <name>] }`
+    ///
+    /// Every field is required except `proof`. Defaults would be worse than
+    /// required fields here: a venue whose liquidity silently defaulted to zero
+    /// would be unreachable in the graph, and one whose fee silently defaulted
+    /// would be ranked as free — both are the kind of quiet wrong answer the
+    /// graph exists to avoid.
+    fn parse_venue_decl(&mut self) -> Result<VenueDecl, X3Error> {
+        self.advance(); // consume `venue`
+        let name = self.expect_ident("venue name")?;
+        self.expect(Tok::LBrace, "expected '{' after the venue name")?;
+
+        let mut kind: Option<VenueKind> = None;
+        let mut chain: Option<ChainRef> = None;
+        let mut domain: Option<Symbol> = None;
+        let mut asset_in: Option<AssetRef> = None;
+        let mut asset_out: Option<AssetRef> = None;
+        let mut fee_bps: Option<u32> = None;
+        let mut liquidity: Option<u128> = None;
+        let mut slippage_bps: Option<u32> = None;
+        let mut latency_ms: Option<u32> = None;
+        let mut finality_blocks: Option<u32> = None;
+        let mut risk: Option<u32> = None;
+        let mut proof: Option<Symbol> = None;
+        let mut seen_fields: Vec<String> = Vec::new();
+
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let field = self.expect_ident("venue field")?;
+            // A repeated field would silently overwrite the earlier one, so a
+            // program could declare a venue twice in one block and believe both
+            // lines. Refuse rather than pick.
+            if seen_fields.contains(&field) {
+                return Err(parse_err(
+                    format!("venue '{name}' declares `{field}` twice; one line would silently override the other"),
+                    self.peek(),
+                ));
+            }
+            seen_fields.push(field.clone());
+            match field.as_str() {
+                "kind" => {
+                    // `bridge` is a lexer keyword, so `kind bridge` arrives as
+                    // `Tok::KwBridge` rather than an identifier. The kind set is
+                    // the authority on which words are venue kinds; the token
+                    // class is an accident of where else the word is used.
+                    let wanted = match self.peek() {
+                        Tok::KwBridge => {
+                            self.advance();
+                            "bridge".to_string()
+                        }
+                        _ => self.expect_ident("venue kind")?,
+                    };
+                    kind = Some(VenueKind::parse(&wanted).ok_or_else(|| {
+                        let allowed: Vec<&str> = VenueKind::ALL.iter().map(|kind| kind.as_str()).collect();
+                        parse_err(
+                            format!("unknown venue kind '{wanted}'; expected one of: {}", allowed.join(", ")),
+                            self.peek(),
+                        )
+                    })?);
+                }
+                "chain" => chain = Some(self.parse_chain_ref()?),
+                "domain" => domain = Some(Symbol::new(&self.expect_ident("venue domain")?)),
+                "asset_in" => asset_in = Some(self.parse_asset_ref()?),
+                "asset_out" => asset_out = Some(self.parse_asset_ref()?),
+                "fee_bps" => fee_bps = Some(self.parse_venue_u32("fee_bps")?),
+                "liquidity" => {
+                    let amount = self.parse_expr()?;
+                    liquidity = Some(expr_to_u128(&amount).map_err(|_| {
+                        parse_err(
+                            "venue liquidity must be an integer literal; the graph compares it against \
+                             trade sizes, so it cannot be an expression the compiler defers"
+                                .into(),
+                            self.peek(),
+                        )
+                    })?);
+                }
+                "slippage_bps" => slippage_bps = Some(self.parse_venue_u32("slippage_bps")?),
+                "latency_ms" => latency_ms = Some(self.parse_venue_u32("latency_ms")?),
+                "finality_blocks" => finality_blocks = Some(self.parse_venue_u32("finality_blocks")?),
+                "risk" => risk = Some(self.parse_venue_u32("risk")?),
+                "proof" => proof = Some(Symbol::new(&self.expect_ident("proof name")?)),
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown venue field '{other}'; expected kind, chain, domain, asset_in, \
+                             asset_out, fee_bps, liquidity, slippage_bps, latency_ms, finality_blocks, \
+                             risk or proof"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the venue")?;
+
+        let missing = |field: &str| parse_err(format!("venue '{name}' is missing `{field}`"), Tok::Eof);
+        Ok(VenueDecl {
+            name: Symbol::new(&name),
+            kind: kind.ok_or_else(|| missing("kind"))?,
+            chain: chain.ok_or_else(|| missing("chain"))?,
+            domain: domain.ok_or_else(|| missing("domain"))?,
+            asset_in: asset_in.ok_or_else(|| missing("asset_in"))?,
+            asset_out: asset_out.ok_or_else(|| missing("asset_out"))?,
+            fee_bps: fee_bps.ok_or_else(|| missing("fee_bps"))?,
+            liquidity: liquidity.ok_or_else(|| missing("liquidity"))?,
+            slippage_bps: slippage_bps.ok_or_else(|| missing("slippage_bps"))?,
+            latency_ms: latency_ms.ok_or_else(|| missing("latency_ms"))?,
+            finality_blocks: finality_blocks.ok_or_else(|| missing("finality_blocks"))?,
+            risk: risk.ok_or_else(|| missing("risk"))?,
+            proof,
+        })
+    }
+
+    fn parse_venue_u32(&mut self, field: &str) -> Result<u32, X3Error> {
+        let expr = self.parse_expr()?;
+        let value = expr_to_u128(&expr).map_err(|_| {
+            parse_err(
+                format!("venue {field} must be an integer literal the compiler can evaluate"),
+                self.peek(),
+            )
+        })?;
+        if value > u32::MAX as u128 {
+            return Err(parse_err(format!("venue {field} {value} exceeds u32"), self.peek()));
+        }
+        Ok(value as u32)
     }
 
     /// `fallback { replace with <venue> [min_output <n>]; ... require <bound>; ... }`

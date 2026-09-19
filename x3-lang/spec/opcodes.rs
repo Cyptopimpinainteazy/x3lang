@@ -23,6 +23,23 @@ pub const ATOMIC_END: u8 = 0x51;
 pub const ATOMIC_ROLLBACK: u8 = 0x52;
 pub const ATOMIC_CHOICE: u8 = 0x53;
 pub const ROUTE_FALLBACK: u8 = 0x54;
+pub const PARALLEL_PLAN: u8 = 0x55;
+pub const FEATURE_ALLOW: u8 = 0x56;
+
+/// Feature codes for `FEATURE_ALLOW`.
+///
+/// The artifact records which execution modes the program consented to. Consent
+/// that only exists in the source cannot be shown to a runtime that is deciding
+/// whether it may net this intent against another.
+///
+/// A byte, not a `u16`, and that is a constraint of the frame rather than a
+/// preference: a fixed instruction here is three bytes, the reader takes the
+/// second as the flags byte and the *third* as the low half of the operand, so
+/// the third byte is where a small code can live. Writing the code as a `u16`
+/// puts it at bytes two and three, and the reader then sees flags = the code's
+/// low byte and operand = zero — which is how this instruction first failed to
+/// verify.
+pub const FEATURE_INTENT_FUSION: u8 = 1;
 
 pub const EMIT: u8 = 0x60;
 pub const CALL_HOST: u8 = 0x61;
@@ -144,7 +161,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
     (compiler_stream && matches!(opcode, LOCK | MINT | BURN | RELEASE | SWAP | BRIDGE))
         || matches!(
             opcode,
-            EMIT | CALL_HOST | ROUTE_FALLBACK
+            EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK | PARALLEL_PLAN
                 | GPU_DISPATCH..=SUB_EXEC
                 | ROUTE_SCORE..=REFUND_POLICY
                 | TRADING_BEGIN..=TRADING_BRIDGE

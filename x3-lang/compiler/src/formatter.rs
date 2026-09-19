@@ -66,6 +66,8 @@ impl X3Formatter {
             Item::Bridge(b) => self.format_bridge(b),
             Item::AtomicSwap(a) => self.format_atomic_swap(a),
             Item::AtomicChoice(c) => self.format_atomic_choice(c),
+            Item::VenueDecl(v) => self.format_venue_decl(v),
+            Item::ParallelDecl(p) => self.format_parallel_decl(p),
             Item::Strategy(s) => self.format_strategy(s),
             Item::Proposal(p) => self.format_proposal(p),
             Item::IntentDecl(i) => self.format_intent(i),
@@ -432,6 +434,80 @@ impl X3Formatter {
         self.indent();
         for stmt in &a.body {
             self.format_statement(stmt);
+        }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_parallel_decl(&mut self, p: &ParallelDecl) {
+        self.write("parallel ");
+        self.write(p.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        for leg in &p.legs {
+            self.write_indent();
+            self.write("leg ");
+            self.write(leg.name.as_str());
+            self.write(" {\n");
+            self.indent();
+            for statement in &leg.body {
+                self.format_statement(statement);
+            }
+            self.dedent();
+            self.write_indent();
+            self.write("}\n");
+        }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_venue_decl(&mut self, v: &VenueDecl) {
+        self.write("venue ");
+        self.write(v.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        self.write_indent();
+        self.write("kind ");
+        self.write(v.kind.as_str());
+        self.write("\n");
+        self.write_indent();
+        self.write("chain ");
+        self.write(v.chain.as_str());
+        self.write("\n");
+        self.write_indent();
+        self.write("domain ");
+        self.write(v.domain.as_str());
+        self.write("\n");
+        self.write_indent();
+        self.write("asset_in ");
+        self.format_asset_ref(&v.asset_in);
+        self.write("\n");
+        self.write_indent();
+        self.write("asset_out ");
+        self.format_asset_ref(&v.asset_out);
+        self.write("\n");
+        for (field, value) in [
+            ("fee_bps", v.fee_bps),
+            ("slippage_bps", v.slippage_bps),
+            ("latency_ms", v.latency_ms),
+            ("finality_blocks", v.finality_blocks),
+            ("risk", v.risk),
+        ] {
+            self.write_indent();
+            self.write(field);
+            self.write(" ");
+            self.write(&value.to_string());
+            self.write("\n");
+        }
+        self.write_indent();
+        self.write("liquidity ");
+        self.write(&v.liquidity.to_string());
+        self.write("\n");
+        if let Some(proof) = &v.proof {
+            self.write_indent();
+            self.write("proof ");
+            self.write(proof.as_str());
+            self.write("\n");
         }
         self.dedent();
         self.write("}\n");
@@ -885,6 +961,12 @@ impl X3Formatter {
                 }
                 self.write(" ");
                 self.format_expression(&guard.value);
+                self.write(";\n");
+            }
+            Statement::Allow { feature } => {
+                self.write_indent();
+                self.write("allow ");
+                self.write(feature.as_str());
                 self.write(";\n");
             }
             Statement::OnFail(action) => {

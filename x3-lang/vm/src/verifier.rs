@@ -65,6 +65,15 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                     return Err(VerifyError::JumpToNonBoundary(pc, target as usize));
                 }
             }
+            FEATURE_ALLOW => {
+                // A fixed three-byte frame whose operand is the feature code.
+                // The set is closed: consent to an unknown mode is not consent,
+                // and a byte that happens to decode as a feature must still name
+                // one the language defines.
+                if operand != u16::from(FEATURE_INTENT_FUSION) {
+                    return Err(VerifyError::InvalidOperand(pc));
+                }
+            }
             CALL => {
                 let target = operand as usize;
                 if target >= bytes.len() {
@@ -186,11 +195,17 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
             AssetOpPayload::Swap {
                 from_chain,
                 from_asset,
+                to_chain,
                 to_asset,
                 input_amount,
                 ..
             } => {
-                if from_chain.is_empty() || from_asset.is_empty() || to_asset.is_empty() || input_amount == 0 {
+                if from_chain.is_empty()
+                    || from_asset.is_empty()
+                    || to_chain.is_empty()
+                    || to_asset.is_empty()
+                    || input_amount == 0
+                {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
             }
@@ -223,6 +238,107 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         // been checked against its opcode.
         x3_lang_compiler::emitter::decode_trading_operation(opcode, payload)
             .map_err(|_| VerifyError::InvalidOperand(pc))?;
+        return Ok(());
+    }
+
+    if opcode == PARALLEL_PLAN {
+        // `legs=<n>;waves=a,b|c;edges=a->c`. The verifier checks the record is a
+        // plan that could have been built: at least two legs, no empty wave, a
+        // declared leg count that matches the waves, and no edge naming a leg
+        // outside them. Beyond that the artifact is trusted, because a plan is
+        // not executable state — it is the compiler's conclusion about which
+        // legs are independent, recorded so it can be reviewed.
+        let text = std::str::from_utf8(payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let field =
+            |name: &str| -> Option<&str> { text.split(';').find_map(|part| part.strip_prefix(&format!("{name}="))) };
+        let legs: usize = field("legs")
+            .and_then(|value| value.parse().ok())
+            .ok_or(VerifyError::InvalidOperand(pc))?;
+        let waves_field = field("waves").ok_or(VerifyError::InvalidOperand(pc))?;
+        let waves: Vec<&str> = waves_field.split('|').collect();
+        if legs < 2
+            || waves.is_empty()
+            || waves.iter().any(|wave| wave.is_empty())
+            || waves.iter().map(|wave| wave.split(',').count()).sum::<usize>() != legs
+        {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        let declared: Vec<&str> = waves.iter().flat_map(|wave| wave.split(',')).collect();
+        if declared.len() != legs || declared.iter().any(|leg| leg.is_empty()) {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        if let Some(edges) = field("edges") {
+            for edge in edges.split(',').filter(|edge| !edge.is_empty()) {
+                let Some((from, to)) = edge.split_once("->") else {
+                    return Err(VerifyError::InvalidOperand(pc));
+                };
+                if from == to || !declared.contains(&from) || !declared.contains(&to) {
+                    return Err(VerifyError::InvalidOperand(pc));
+                }
+            }
+        }
+        // Every leg must name the domain it executes on: a plan that does not
+        // say which VM runs a leg is not a multi-VM plan, it is a list of legs
+        // with a multi-VM claim attached.
+        let domains = field("domains").ok_or(VerifyError::InvalidOperand(pc))?;
+        let mut with_domain = 0usize;
+        for entry in domains.split(',').filter(|entry| !entry.is_empty()) {
+            let Some((leg, leg_domains)) = entry.split_once(':') else {
+                return Err(VerifyError::InvalidOperand(pc));
+            };
+            if !declared.contains(&leg) || leg_domains.is_empty() {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+            with_domain += 1;
+        }
+        if with_domain != legs {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        // The settlement section is what a coordinator acts on, so a plan
+        // without one, or with a record that does not line up with the waves,
+        // is refused rather than accepted as "no obligations".
+        let settle = field("settle").ok_or(VerifyError::InvalidOperand(pc))?;
+        let records: Vec<&str> = settle.split('|').collect();
+        if records.len() != waves.len() {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        for (index, record) in records.iter().enumerate() {
+            let parts: Vec<&str> = record.split(':').collect();
+            if parts.len() != 4 || parts[0].parse::<usize>().ok() != Some(index) {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+            if parts[1].is_empty() || !matches!(parts[3], "local" | "coordinated") {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+            // The rule the compiler enforces, checked again where it is read: a
+            // wave over more than one domain is not locally recoverable.
+            if parts[1] != "-" && parts[1].contains('+') && parts[3] == "local" {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+        }
+        return Ok(());
+    }
+
+    if opcode == ATOMIC_CHOICE {
+        // `criterion:paths:selected`. The verifier checks the record describes a
+        // branch set that could have been verified — a known criterion, at least
+        // two paths, and a selected index that names one — because a record that
+        // does not is a body whose provenance the artifact cannot state.
+        let text = std::str::from_utf8(payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let fields: Vec<&str> = text.split(':').collect();
+        if fields.len() != 3 {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        let criterion: u8 = fields[0].parse().map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let paths: u32 = fields[1].parse().map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let selected: u32 = fields[2].parse().map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let known_criterion = matches!(
+            criterion,
+            CHOICE_CRITERION_HIGHEST_NET_OUTPUT | CHOICE_CRITERION_FEWEST_HOPS
+        );
+        if !known_criterion || paths < 2 || selected >= paths {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
         return Ok(());
     }
 

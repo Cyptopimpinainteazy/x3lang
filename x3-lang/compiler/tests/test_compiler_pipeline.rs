@@ -136,6 +136,7 @@ fn test_ir_operation_types() {
     let _swap = Operation::Swap {
         from_chain: "eth".to_string(),
         from_asset: "USDC".to_string(),
+        to_chain: "ethereum".to_string(),
         to_asset: "ETH".to_string(),
         input_amount: 1000,
         min_output: 900,
@@ -326,6 +327,7 @@ fn test_swap_min_output_survives_ir_to_bytecode_roundtrip() {
     ir.push(Operation::Swap {
         from_chain: "ethereum".to_string(),
         from_asset: "USDC".to_string(),
+        to_chain: "ethereum".to_string(),
         to_asset: "ETH".to_string(),
         input_amount: 1000,
         min_output: 777,

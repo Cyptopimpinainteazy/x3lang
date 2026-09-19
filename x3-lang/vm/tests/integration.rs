@@ -82,6 +82,7 @@ fn compiler_asset_op_payloads_execute_with_real_fields() {
     ir.push(Operation::Swap {
         from_chain: "ethereum".into(),
         from_asset: "USDC".into(),
+        to_chain: "ethereum".to_string(),
         to_asset: "ETH".into(),
         input_amount: 1000,
         min_output: 777,
@@ -121,6 +122,7 @@ fn compiler_asset_op_payloads_execute_with_real_fields() {
             AssetOpPayload::Swap {
                 from_chain: "ethereum".into(),
                 from_asset: "USDC".into(),
+                to_chain: "ethereum".to_string(),
                 to_asset: "ETH".into(),
                 input_amount: 1000,
                 min_output: 777,

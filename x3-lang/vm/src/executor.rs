@@ -25,7 +25,8 @@
 //! Gas is never refunded and never goes negative. The VM checks
 //! `state.gas >= cost` before deducting.
 
-use crate::x3_lang_vm::{AtomicChoiceRecord, SubExecInfo, VmSnapshot, VM};
+use crate::x3_lang_vm::{AtomicChoiceRecord, ParallelPlanRecord, SubExecInfo, VmSnapshot, WaveSettlementRecord, VM};
+use std::collections::BTreeMap;
 use x3_lang_compiler::emitter::decode_trading_operation;
 // Import shared opcode constants
 use crate::spec::opcodes::*;
@@ -393,6 +394,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     trading_ops_len: vm.state.trading_ops.len(),
                     atomic_choices_len: vm.state.atomic_choices.len(),
                     route_fallbacks_len: vm.state.route_fallbacks.len(),
+                    parallel_plans_len: vm.state.parallel_plans.len(),
                     pc: pc_next,
                     call_stack: vm.state.call_stack.clone(),
                     instruction_count: vm.state.instruction_count,
@@ -437,6 +439,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.trading_ops.truncate(snapshot.trading_ops_len);
                 vm.state.atomic_choices.truncate(snapshot.atomic_choices_len);
                 vm.state.route_fallbacks.truncate(snapshot.route_fallbacks_len);
+                vm.state.parallel_plans.truncate(snapshot.parallel_plans_len);
                 // Note: We intentionally do NOT restore PC from the snapshot.
                 // Instead execution continues past the rollback instruction.
                 // This prevents infinite re-execution of the atomic scope.
@@ -578,7 +581,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             NOP => { // NOP
             }
             ATOMIC_CHOICE => {
-                // `[ATOMIC_CHOICE][criterion][paths << 8 | selected]`.
+                // `[ATOMIC_CHOICE][u16 len][criterion:paths:selected]`.
                 //
                 // The branch body has already been selected at compile time and
                 // is what follows in the instruction stream, so this instruction
@@ -587,9 +590,45 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 // how many branches were verified and which one it took, and the
                 // VM refuses a record that is internally inconsistent rather
                 // than executing a body whose provenance it cannot describe.
-                let criterion = _flags;
-                let paths = u32::from(operand >> 8);
-                let selected = u32::from(operand & 0x00FF);
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(payload) => payload.to_vec(),
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                let text = match std::str::from_utf8(&payload) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(
+                            "X3_CHOICE_RECORD_INVALID: the branch record is not UTF-8".to_string(),
+                        ));
+                    }
+                };
+                let fields: Vec<&str> = text.split(':').collect();
+                let parsed = (fields.len() == 3)
+                    .then(|| {
+                        Some((
+                            fields[0].parse::<u8>().ok()?,
+                            fields[1].parse::<u32>().ok()?,
+                            fields[2].parse::<u32>().ok()?,
+                        ))
+                    })
+                    .flatten();
+                let Some((criterion, paths, selected)) = parsed else {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_CHOICE_RECORD_INVALID: branch record {text:?} is not \
+                         `criterion:paths:selected`"
+                    )));
+                };
                 let known_criterion = matches!(
                     criterion,
                     CHOICE_CRITERION_HIGHEST_NET_OUTPUT | CHOICE_CRITERION_FEWEST_HOPS
@@ -608,6 +647,161 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     criterion,
                     selected,
                 });
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
+            }
+            FEATURE_ALLOW => {
+                // The program consented to an execution mode. Recording it is
+                // the whole effect: a runtime deciding whether it may net this
+                // intent against another has to be able to see the consent.
+                if _flags != 0 || operand != u16::from(FEATURE_INTENT_FUSION) {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_FEATURE_ALLOW_INVALID: feature code {operand} is not one the language defines"
+                    )));
+                }
+                vm.state.allowed_features.insert(FEATURE_INTENT_FUSION);
+            }
+            PARALLEL_PLAN => {
+                // `legs=<n>;waves=a,b|c;edges=a->c`.
+                //
+                // The legs' operations follow this record in wave order, and
+                // this VM runs them in that order: it is a single-threaded
+                // interpreter, so "parallel" is a claim the artifact makes
+                // about independence, and the only thing a sequential
+                // interpreter can do with it is honour the ordering and keep
+                // the claim. It refuses a record that is not a plan, because
+                // recording a malformed plan would put an unverifiable claim in
+                // the trace.
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(payload) => payload.to_vec(),
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                let text = match std::str::from_utf8(&payload) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(
+                            "X3_PARALLEL_PLAN_INVALID: the plan record is not UTF-8".to_string(),
+                        ));
+                    }
+                };
+                let field = |name: &str| -> Option<String> {
+                    text.split(';')
+                        .find_map(|part| part.strip_prefix(&format!("{name}=")).map(|value| value.to_string()))
+                };
+                let legs: usize = match field("legs").and_then(|value| value.parse().ok()) {
+                    Some(legs) => legs,
+                    None => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(format!(
+                            "X3_PARALLEL_PLAN_INVALID: plan {text:?} has no leg count"
+                        )));
+                    }
+                };
+                let waves: Vec<Vec<String>> = field("waves")
+                    .map(|waves| {
+                        waves
+                            .split('|')
+                            .map(|wave| wave.split(',').map(|leg| leg.to_string()).collect())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let declared: Vec<String> = waves.iter().flatten().cloned().collect();
+                let edges: Vec<(String, String)> = field("edges")
+                    .map(|edges| {
+                        edges
+                            .split(',')
+                            .filter(|edge| !edge.is_empty())
+                            .filter_map(|edge| edge.split_once("->"))
+                            .map(|(from, to)| (from.to_string(), to.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                // Which VM each leg runs on. Absent here is a refusal, not an
+                // empty set: a plan that does not say is not a multi-VM plan.
+                let domains: BTreeMap<String, Vec<String>> = field("domains")
+                    .map(|domains| {
+                        domains
+                            .split(',')
+                            .filter(|entry| !entry.is_empty())
+                            .filter_map(|entry| entry.split_once(':'))
+                            .map(|(leg, leg_domains)| {
+                                (
+                                    leg.to_string(),
+                                    leg_domains.split('+').map(|domain| domain.to_string()).collect(),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let settlement: Vec<WaveSettlementRecord> = field("settle")
+                    .map(|settle| {
+                        settle
+                            .split('|')
+                            .filter_map(|record| {
+                                let parts: Vec<&str> = record.split(':').collect();
+                                if parts.len() != 4 {
+                                    return None;
+                                }
+                                Some(WaveSettlementRecord {
+                                    wave: parts[0].parse().ok()?,
+                                    domains: if parts[1] == "-" {
+                                        Vec::new()
+                                    } else {
+                                        parts[1].split('+').map(|domain| domain.to_string()).collect()
+                                    },
+                                    outstanding_proofs: if parts[2] == "-" {
+                                        Vec::new()
+                                    } else {
+                                        parts[2].split('+').map(|proof| proof.to_string()).collect()
+                                    },
+                                    locally_recoverable: parts[3] == "local",
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if settlement.len() != waves.len() {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_PARALLEL_PLAN_INVALID: plan has {} wave(s) and {} settlement record(s); a \
+                         coordinator cannot be told what a wave owes if the plan does not say",
+                        waves.len(),
+                        settlement.len()
+                    )));
+                }
+                if legs < 2 || declared.len() != legs || domains.len() != legs {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_PARALLEL_PLAN_INVALID: plan declares {legs} leg(s) but names {}",
+                        declared.len()
+                    )));
+                }
+                vm.state.parallel_plans.push(ParallelPlanRecord {
+                    legs,
+                    waves,
+                    edges,
+                    domains,
+                    settlement,
+                });
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
             }
             ROUTE_FALLBACK => {
                 // `[ROUTE_FALLBACK][u16 len][venue,venue,...]`.
@@ -1711,6 +1905,7 @@ mod tests {
             trading_ops_len: 0,
             atomic_choices_len: 0,
             route_fallbacks_len: 0,
+            parallel_plans_len: 0,
             pc: 0,
             call_stack: vec![],
             instruction_count: 3,
