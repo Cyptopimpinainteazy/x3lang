@@ -2236,3 +2236,55 @@ fn cli_lanes_reports_each_declarations_lane_and_the_serving_order() {
         "the report must be in the order the policy serves: {stdout}"
     );
 }
+
+/// `x3bench` — spec PHASE 50's measurement harness has to actually run.
+///
+/// A benchmark harness that stops measuring is worse than none: the report would keep
+/// its numbers and nothing would say they were stale. This runs the binary at a tiny
+/// iteration count and asserts that every operation the phase names is measured — so
+/// a harness that quietly dropped one, or that could no longer set one up, fails here
+/// rather than in a report nobody re-ran.
+#[test]
+fn cli_x3bench_measures_every_operation_phase_50_names() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_x3bench"))
+        .arg("5")
+        .output()
+        .expect("run x3bench");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "every operation must be measurable: {stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for operation in [
+        "parsing",
+        "type checking",
+        "IR lowering",
+        "graph construction",
+        "route scoring",
+        "constraint solving",
+        "dependency scheduling",
+        "economic verification",
+        "receipt verification",
+        "economic replay",
+    ] {
+        assert!(
+            stdout.lines().any(|line| line.starts_with(&format!("| {operation} |"))),
+            "'{operation}' must be measured and given a row: {stdout}"
+        );
+    }
+    assert!(
+        stdout.contains("all 10 operations measured"),
+        "the run must report that every operation was measured: {stdout}"
+    );
+    assert!(
+        stdout.contains("nearest rank"),
+        "the percentile method must be stated, so a reader knows what the numbers are: {stdout}"
+    );
+    // The function each row times is named, so the claim is checkable.
+    assert!(
+        stdout.contains("parser::parse_source") && stdout.contains("dag::plan"),
+        "each row must name the function it exercises: {stdout}"
+    );
+}
