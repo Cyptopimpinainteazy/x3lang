@@ -127,6 +127,11 @@ pub(crate) fn run_pre_emission_layers_with_context(
     let ir = lower_program_with_mode(program, ctx, mode)?;
     errors.extend(ir_level_errors(&ir));
 
+    // A guard whose claim is about the program's own operations is decided here,
+    // where both the guards (from the AST) and the operations (from the flat IR)
+    // are in hand. See `semantic::verify_canonical_supply`.
+    errors.extend(semantic::verify_canonical_supply(program, &ir));
+
     let outcome = semantic::verify_collect(
         &ir,
         semantic::DEFAULT_MAX_ATOMIC_OPS,

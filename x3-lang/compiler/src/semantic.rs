@@ -289,6 +289,78 @@ fn err(message: impl Into<String>) -> X3Error {
     }
 }
 
+/// Evaluate `require canonical_supply <ASSET>` against what the program does.
+///
+/// The guard claims the canonical supply of an asset is preserved, and that is a
+/// claim about this program's *own* operations, so the compiler can decide it
+/// rather than record an assertion nothing evaluates. The IR is the source of
+/// truth for what the program does: it is flat, so a mint inside a nested
+/// `atomic` block or a choice path is the same operation as one at the top.
+///
+/// Preserved means *net* zero: a program that mints and burns the same amount of
+/// an asset has not changed its supply, and one that does either alone has. The
+/// guard is a statement about the artifact, so a program whose own operations
+/// contradict it is rejected — which is the compile-time answer for a guard kind
+/// that has no run-time quantity to compare against (TICKET-027).
+pub fn verify_canonical_supply(program: &Program, ir: &X3IR) -> Vec<X3Error> {
+    let mut errors = Vec::new();
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::CanonicalSupply {
+            continue;
+        }
+        let Some(asset) = guard.subject.as_ref() else {
+            errors.push(err(format!(
+                "declaration '{owner}' requires `canonical_supply` without naming the asset; there \
+                 is nothing to hold the supply of — write `require canonical_supply USDC`"
+            )));
+            continue;
+        };
+        let wanted = asset.as_str();
+        let (minted, burned) = supply_totals(ir, wanted);
+        if minted != burned {
+            errors.push(err(format!(
+                "declaration '{owner}' requires the canonical supply of {wanted} to be preserved, \
+                 but the program mints {minted} and burns {burned} of it; the guard is a claim the \
+                 program's own operations contradict"
+            )));
+        }
+    }
+    errors
+}
+
+/// What a program adds to and removes from circulation for one asset.
+fn supply_totals(ir: &X3IR, asset: &str) -> (u128, u128) {
+    let mut minted = 0u128;
+    let mut burned = 0u128;
+    for op in &ir.operations {
+        match op {
+            Operation::Mint {
+                asset: op_asset,
+                amount,
+                ..
+            } if same_asset(op_asset, asset) => minted = minted.saturating_add(*amount),
+            Operation::Burn {
+                asset: op_asset,
+                amount,
+                ..
+            } if same_asset(op_asset, asset) => burned = burned.saturating_add(*amount),
+            _ => {}
+        }
+    }
+    (minted, burned)
+}
+
+/// Whether an operation's asset is the asset a guard named.
+///
+/// A guard writes the asset's own name (`USDC`), while an operation carries what
+/// its statement wrote, which may be qualified (`ethereum.USDC`). Compared on the
+/// last segment, case-insensitively, which is the same rule the asset-move checks
+/// use.
+fn same_asset(operation_asset: &str, guard_asset: &str) -> bool {
+    let tail = |text: &str| text.rsplit('.').next().unwrap_or(text).to_ascii_uppercase();
+    tail(operation_asset) == tail(guard_asset)
+}
+
 fn verify_symbols(ir: &X3IR, acc: &mut ErrorAccumulator) {
     for op in &ir.operations {
         match op {
