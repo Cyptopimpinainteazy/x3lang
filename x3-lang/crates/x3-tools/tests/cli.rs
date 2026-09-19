@@ -1183,3 +1183,47 @@ fn cli_refuses_a_branch_no_reader_could_follow_instead_of_writing_one() {
     assert!(!build.status.success(), "build must refuse the branch: {build_output}");
     assert!(!out.exists(), "and no artifact may be written next to it");
 }
+
+/// The proof obligation is a *mainnet* requirement (TICKET-020/024).
+///
+/// A bridge whose lock is not proven is a bridge the destination fills against
+/// nothing, and every other rule of this shape in the language is an error in
+/// mainnet mode and tolerated in dev (`verify_mainnet_safe`). This asserts the
+/// same source in both modes, so the difference is the severity and nothing else.
+#[test]
+fn cli_refuses_a_bridging_program_without_its_proofs_on_mainnet() {
+    let src = write_fixture("cli_mainnet_proof_obligation.x3", WARN_SOURCE);
+
+    let dev = x3c().arg("check").arg(&src).output().expect("run x3c check");
+    let dev_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&dev.stdout),
+        String::from_utf8_lossy(&dev.stderr)
+    );
+    assert!(
+        dev.status.success(),
+        "dev mode tolerates it with a warning: {dev_output}"
+    );
+    assert!(dev_output.contains("source-lock proof"), "and says so: {dev_output}");
+
+    let mainnet = x3c()
+        .arg("check")
+        .arg("--mode")
+        .arg("mainnet")
+        .arg(&src)
+        .output()
+        .expect("run x3c check --mode mainnet");
+    let mainnet_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&mainnet.stdout),
+        String::from_utf8_lossy(&mainnet.stderr)
+    );
+    assert!(
+        !mainnet.status.success(),
+        "mainnet must refuse a bridge with no proof obligation: {mainnet_output}"
+    );
+    assert!(
+        mainnet_output.contains("mainnet:") && mainnet_output.contains("source-lock proof"),
+        "and the refusal must name the obligation as a mainnet requirement: {mainnet_output}"
+    );
+}

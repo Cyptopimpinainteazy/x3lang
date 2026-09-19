@@ -258,7 +258,7 @@ fn run_semantic_pass(pass: SemanticPass, ir: &X3IR, acc: &mut ErrorAccumulator, 
         SemanticPass::RefundPathExists => verify_refund_path_exists(ir, acc),
         SemanticPass::FinalityExplicit => verify_finality_explicit(ir, acc),
         SemanticPass::SlippageExplicit => verify_slippage_explicit(ir, acc),
-        SemanticPass::ProofRequirements => verify_proof_requirements(ir, acc),
+        SemanticPass::ProofRequirements => verify_proof_requirements(ir, context.mode, acc),
         SemanticPass::RouteScore => verify_route_score(ir, acc),
         SemanticPass::RiskScore => verify_risk_score_guards(ir, acc),
         SemanticPass::Invariants => verify_invariants_structured(ir, context.invariants, acc),
@@ -2069,7 +2069,7 @@ fn proof_category(name: &str) -> Option<ProofCategory> {
 /// so requiring the name was the same defect in a third place. What a release
 /// must *actually* prove — a destination fill, a receipt, a validator quorum —
 /// is a design question; see TICKET-018.
-pub fn verify_proof_requirements(ir: &X3IR, acc: &mut ErrorAccumulator) {
+pub fn verify_proof_requirements(ir: &X3IR, mode: Option<CompilationMode>, acc: &mut ErrorAccumulator) {
     let has_bridge = ir.operations.iter().any(|op| matches!(op, Operation::Bridge { .. }));
 
     let declared: HashSet<ProofCategory> = ir
@@ -2091,21 +2091,33 @@ pub fn verify_proof_requirements(ir: &X3IR, acc: &mut ErrorAccumulator) {
     // and nothing the program could do about it. That is the same defect the
     // vocabulary fix above addressed, one layer down: a warning a correct
     // program cannot act on trains its reader to ignore the check.
+    // Severity by mode, and the decision is written down because the two tickets
+    // that asked for it (TICKET-020, TICKET-024) said either answer is acceptable
+    // as long as it is stated. The obligation is real — a bridge whose lock is not
+    // proven is a bridge the destination fills against nothing — but it is a
+    // *mainnet* requirement, which is where every other rule of this shape lives
+    // (`verify_mainnet_safe` runs single-RPC, single-relayer, refund-path,
+    // finality, solver-bond and the rest as errors and only for mainnet). Tolerating
+    // it in dev keeps the warning actionable while a program is being written;
+    // tolerating it on mainnet would ship the hole. Every bridging program in the
+    // corpus declares both proofs already, so promotion costs the corpus nothing.
+    let report = |acc: &mut ErrorAccumulator, obligation: &str| {
+        let message = format!("Bridge operation present without {obligation}");
+        if mode == Some(CompilationMode::Mainnet) {
+            acc.add_error(err(format!("mainnet: {message}")));
+        } else {
+            acc.add_warning(X3Error::SemanticError { message, span: span() });
+        }
+    };
+
     if has_bridge && !declared.contains(&ProofCategory::SourceLock) {
-        acc.add_warning(X3Error::SemanticError {
-            message: "Bridge operation present without a source-lock proof — add `proofs required { \
-                      source_lock_proof }`"
-                .into(),
-            span: span(),
-        });
+        report(acc, "a source-lock proof — add `proofs required { source_lock_proof }`");
     }
     if has_bridge && !declared.contains(&ProofCategory::DestinationFill) {
-        acc.add_warning(X3Error::SemanticError {
-            message: "Bridge operation present without a destination-fill proof — add `proofs \
-                      required { destination_fill_proof }`"
-                .into(),
-            span: span(),
-        });
+        report(
+            acc,
+            "a destination-fill proof — add `proofs required { destination_fill_proof }`",
+        );
     }
 }
 
@@ -3360,6 +3372,50 @@ mod tests {
         assert!(
             messages.iter().any(|w| w.contains("destination-fill proof")),
             "a missing destination-fill proof must be reported, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn the_proof_obligation_is_an_error_on_mainnet_and_a_warning_elsewhere() {
+        // TICKET-020 and TICKET-024 asked for this decision to be made and
+        // written down. It is the same program in two modes, so the difference is
+        // the severity and nothing else.
+        let ir = cross_chain_with_proofs(&[]);
+
+        let dev = verify_collect(&ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS, None);
+        assert!(
+            dev.errors.iter().all(|error| !error.to_string().contains("lock proof")),
+            "a development build must not fail on a missing proof declaration: {:?}",
+            dev.errors
+        );
+        // The fixture is minimal, so it has other errors; this test is about the
+        // proof obligation's severity, and asks about that alone.
+        let warnings: Vec<String> = dev.warnings.iter().map(|warning| warning.to_string()).collect();
+        assert!(
+            warnings.iter().any(|warning| warning.contains("lock proof")),
+            "but it must still say so: {warnings:?}"
+        );
+
+        let mainnet = verify_collect(
+            &ir,
+            DEFAULT_MAX_ATOMIC_OPS,
+            DEFAULT_MAX_ROUTE_HOPS,
+            Some(CompilationMode::Mainnet),
+        );
+        let errors: Vec<String> = mainnet.errors.iter().map(|error| error.to_string()).collect();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("mainnet:") && error.contains("lock proof")),
+            "on mainnet the obligation is a requirement: {errors:?}"
+        );
+        assert!(
+            mainnet
+                .warnings
+                .iter()
+                .all(|warning| !warning.to_string().contains("lock proof")),
+            "and it is not also a warning there — one finding, one severity: {:?}",
+            mainnet.warnings
         );
     }
 
