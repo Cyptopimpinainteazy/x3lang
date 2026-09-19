@@ -200,7 +200,28 @@ pub fn analyse(program: &Program) -> Verdict {
     }
 
     if not_analysed.is_empty() {
-        Verdict::NotAnalysed("the program declares no intent to analyse".to_string())
+        // A program can be economic without an intent. An `atomic trade` declares a
+        // profit floor (`minimum_net_profit`) and cost *ceilings* (`max_gas`,
+        // `max_flash_fee`), and a ceiling is not a lower bound: a trade allowed to
+        // pay up to N may pay less, so nothing here can prove its floor unreachable
+        // at a declared minimum. Saying that is the honest answer; saying "no intent
+        // to analyse" would misdescribe the program.
+        let declares_trade = program
+            .items
+            .iter()
+            .any(|item| matches!(item.node, Item::AtomicTrade(_)));
+        if declares_trade {
+            Verdict::NotAnalysed(
+                "the program declares `atomic trade`s, whose policy states a profit floor with cost \
+                 *ceilings* (`max_gas`, `max_flash_fee`); a ceiling is not a lower bound on what a \
+                 trade will pay, so the floor cannot be shown unreachable from these declarations. \
+                 An intent's declared venue fee applied to a literal `min_output` is what this \
+                 analysis needs"
+                    .to_string(),
+            )
+        } else {
+            Verdict::NotAnalysed("the program declares no intent to analyse".to_string())
+        }
     } else {
         Verdict::NotAnalysed(not_analysed.join("; "))
     }

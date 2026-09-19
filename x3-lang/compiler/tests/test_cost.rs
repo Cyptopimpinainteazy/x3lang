@@ -57,3 +57,31 @@ fn the_estimate_counts_payload_bytes_and_host_facing_instructions() {
         "the bridge must appear in the histogram: {estimate:?}"
     );
 }
+
+/// A trading program is *not* silently skipped by the profitability analysis.
+///
+/// Its policy states a profit floor (`minimum_net_profit`) together with cost
+/// ceilings (`max_gas`, `max_flash_fee`), and a ceiling is not a lower bound on what
+/// a trade pays — so the analysis cannot claim anything about the floor, and it says
+/// so. The message must describe *that* program, not say it declares nothing.
+#[test]
+fn a_trading_program_is_described_rather_than_skipped() {
+    let source = "asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }\n\
+                  asset ETH = evm.ethereum.0x0000 { decimals: 18 }\n\n\
+                  risk policy P {\n    max_slippage: 30 bps\n    max_gas: 0.02 ETH\n    \
+                  max_flash_fee: 10 bps\n    deadline: 2 blocks\n    \
+                  require_private_submission: false\n}\n\n\
+                  atomic trade CostProbe using P {\n    let out = swap 100 USDC -> ETH via \
+                  uniswap_v3 min_out 1 ETH\n    require net_profit >= 1 USDC\n    \
+                  require all_debts_repaid\n    emit receipt\n}\n";
+    let program = x3_lang_compiler::parser::parse_source(source).expect("the trading fixture parses");
+    let x3_lang_compiler::profitability::Verdict::NotAnalysed(reason) =
+        x3_lang_compiler::profitability::analyse(&program)
+    else {
+        panic!("a trading program's ceilings are not floors");
+    };
+    assert!(
+        reason.contains("ceilings") && reason.contains("not a lower bound"),
+        "the analysis must say why it cannot compare: {reason}"
+    );
+}
