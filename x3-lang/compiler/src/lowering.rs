@@ -19,6 +19,28 @@ use x3_lang_common::Span;
 
 pub type LoweredInstr = Operation;
 
+/// The IR condition a guard states.
+///
+/// A guard with a value compares against it. A guard without one asserts a
+/// property, and what the property is *of* is its subject — or, when it names
+/// nothing at all (`require mainnet_safe`), the kind itself. Nothing is dropped
+/// either way: what must hold is recorded in the IR's own shape, and the readers
+/// that compare a value (`verify_mainnet_solver_bond`, `verify_slippage_safe`)
+/// only look at kinds the parser refuses to write without one.
+fn guard_condition(guard: &ast::RequireGuard) -> Result<Condition, x3_lang_common::X3Error> {
+    if let Some(value) = &guard.value {
+        return expression_to_condition(value);
+    }
+    let named = guard
+        .subject
+        .as_ref()
+        .map(|subject| subject.as_str())
+        .unwrap_or_else(|| guard.kind.as_str());
+    Ok(Condition::Expression {
+        expr: named.to_string(),
+    })
+}
+
 /// Context for lowering operations
 pub struct LowerCtx {
     /// Unique nonce for replay protection
@@ -410,7 +432,7 @@ pub fn lower_program_with_mode(
                     ir.push(Operation::Require {
                         kind: require_kind_to_ir(&require.kind),
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
-                        condition: expression_to_condition(&require.value)?,
+                        condition: guard_condition(require)?,
                         error_msg: None,
                         comparison: require.comparison,
                     });
@@ -485,7 +507,7 @@ pub fn lower_program_with_mode(
                     ir.push(Operation::Require {
                         kind: require_kind_to_ir(&require.kind),
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
-                        condition: expression_to_condition(&require.value)?,
+                        condition: guard_condition(require)?,
                         error_msg: None,
                         comparison: require.comparison,
                     });
@@ -569,7 +591,7 @@ pub fn lower_program_with_mode(
                     ir.push(Operation::Require {
                         kind: require_kind_to_ir(&require.kind),
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
-                        condition: expression_to_condition(&require.value)?,
+                        condition: guard_condition(require)?,
                         error_msg: None,
                         comparison: require.comparison,
                     });
@@ -686,7 +708,7 @@ pub fn lower_program_with_mode(
                     ir.push(Operation::Require {
                         kind: require_kind_to_ir(&req.kind),
                         subject: req.subject.as_ref().map(|s| s.as_str().to_string()),
-                        condition: expression_to_condition(&req.value)?,
+                        condition: guard_condition(req)?,
                         error_msg: None,
                         comparison: req.comparison,
                     });
@@ -864,12 +886,27 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             // the semantic verifier sees it. The value is the nonce
             // string the consumer is committing to.
             if matches!(guard.kind, RequireKind::Nonce) {
-                ir.metadata.nonce = Some(expression_to_string(&guard.value));
+                // `require nonce unused <id>` — the identifier is what the
+                // program commits to. The parser refuses a nonce guard without
+                // one; a hand-built AST that has none is refused here rather
+                // than recorded as a nonce of nothing.
+                match &guard.value {
+                    Some(value) => ir.metadata.nonce = Some(expression_to_string(value)),
+                    None => {
+                        return Err(x3_lang_common::X3Error::SemanticError {
+                            message: "a `nonce` guard must name the nonce it commits to \
+                                      (`require nonce unused <id>`); without one the replay-protection \
+                                      check has nothing to look for"
+                                .to_string(),
+                            span: Span::DUMMY,
+                        })
+                    }
+                }
             }
             ir.push(Operation::Require {
                 kind: require_kind_to_ir(&guard.kind),
                 subject: guard.subject.as_ref().map(|s| s.as_str().to_string()),
-                condition: expression_to_condition(&guard.value)?,
+                condition: guard_condition(guard)?,
                 error_msg: None,
                 comparison: guard.comparison,
             });

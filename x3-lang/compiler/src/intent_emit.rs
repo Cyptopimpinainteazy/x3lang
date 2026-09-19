@@ -210,14 +210,13 @@ pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
             x3_lang_ast::ast::Statement::Require(guard) => {
                 let kind = &guard.kind;
                 let subject = &guard.subject;
-                let value = &guard.value;
                 let constraint_str = match kind {
                     AstRequireKind::Finality => {
                         let chain_str = subject
                             .as_ref()
                             .map(|s| s.as_str().to_string())
                             .unwrap_or_else(|| "x3".to_string());
-                        let val_str = value_string_from_expr(value);
+                        let val_str = guard_value_string(guard);
                         draft = draft.with_constraint("finality", format!("{chain_str} >= {val_str}"));
                         continue;
                     }
@@ -229,7 +228,7 @@ pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
                     AstRequireKind::Nonce => "require_receiver_owner",
                     _ => continue,
                 };
-                let val_str = value_string_from_expr(value);
+                let val_str = guard_value_string(guard);
                 draft = draft.with_constraint(constraint_str, val_str);
             }
             x3_lang_ast::ast::Statement::Atomic(x3_lang_ast::ast::AtomicBlock {
@@ -275,6 +274,22 @@ fn expression_to_keyword_value(expr: &Expression) -> Option<(String, String)> {
 }
 
 /// Extract a string value from an expression (likely a literal or identifier).
+/// The value a guard states, or the name it asserts when it states none.
+///
+/// A property guard has no right-hand side: `require canonical_supply USDC`
+/// says something about USDC and nothing about a number, so the name is what the
+/// emitted constraint carries.
+fn guard_value_string(guard: &x3_lang_ast::ast::RequireGuard) -> String {
+    if let Some(value) = &guard.value {
+        return value_string_from_expr(value);
+    }
+    guard
+        .subject
+        .as_ref()
+        .map(|subject| subject.as_str().to_string())
+        .unwrap_or_default()
+}
+
 fn value_string_from_expr(expr: &Expression) -> String {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => value.to_string(),

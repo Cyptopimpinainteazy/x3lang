@@ -268,7 +268,7 @@ impl X3Linter {
                     RequireKind::Nonce => *has_nonce = true,
                     RequireKind::RefundPath => *has_refund_path = true,
                     RequireKind::Slippage => {
-                        if let Expression::Literal(LiteralExpr::Int { value, .. }) = &guard.value {
+                        if let Some(Expression::Literal(LiteralExpr::Int { value, .. })) = &guard.value {
                             slippage_values.push(*value as u64);
                         }
                     }
@@ -283,7 +283,7 @@ impl X3Linter {
                                 RequireKind::Nonce => *has_nonce = true,
                                 RequireKind::RefundPath => *has_refund_path = true,
                                 RequireKind::Slippage => {
-                                    if let Expression::Literal(LiteralExpr::Int { value, .. }) = &guard.value {
+                                    if let Some(Expression::Literal(LiteralExpr::Int { value, .. })) = &guard.value {
                                         slippage_values.push(*value as u64);
                                     }
                                 }

@@ -129,7 +129,7 @@ impl RiskScorer {
                             RequireKind::Nonce => has_nonce = true,
                             RequireKind::RouteScore => has_route_score = true,
                             RequireKind::Slippage => {
-                                if let Expression::Literal(LiteralExpr::Int { value, .. }) = &guard.value {
+                                if let Some(Expression::Literal(LiteralExpr::Int { value, .. })) = &guard.value {
                                     // This guard's literal is a whole percent (e.g. `require
                                     // slippage < 5` means 5%); normalize to basis points so it
                                     // shares a scale with trading-core-v1's native bps policy.

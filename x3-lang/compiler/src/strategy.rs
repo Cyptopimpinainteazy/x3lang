@@ -348,10 +348,11 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
             for statement in &statements {
                 if let Statement::Require(guard) = statement {
                     if guard.kind == x3_lang_ast::ast::RequireKind::Slippage {
-                        if let Some(bound) = guard
-                            .comparison
-                            .and_then(|op| op.is_upper_bound().then(|| expression_to_u128(&guard.value)).flatten())
-                        {
+                        if let Some(bound) = guard.comparison.and_then(|op| {
+                            op.is_upper_bound()
+                                .then(|| guard.value.as_ref().and_then(expression_to_u128))
+                                .flatten()
+                        }) {
                             if bound > u128::from(risk.max_slippage_bps) {
                                 acc.add_error(err(format!(
                                     "strategy '{name}' `execute` relies on `require slippage <= \

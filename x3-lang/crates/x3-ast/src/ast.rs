@@ -537,6 +537,56 @@ pub enum RequireKind {
     Custom(Symbol),
 }
 
+impl RequireKind {
+    /// Whether a guard of this kind *asserts a property* rather than stating a
+    /// bound.
+    ///
+    /// A bound is read as a number by something — the linter, the risk profile,
+    /// the mainnet gates, the nonce metadata — so it cannot be written without a
+    /// value: a reader that found none would take its "nothing to check" branch,
+    /// which is the one answer that makes a check disappear.
+    ///
+    /// A property guard names what must hold and needs no number:
+    /// `require proof_complete`, `require canonical_supply USDC`.
+    pub fn asserts_a_property(&self) -> bool {
+        matches!(
+            self,
+            RequireKind::CanonicalSupply
+                | RequireKind::ProofComplete
+                | RequireKind::RefundPath
+                | RequireKind::VmSupported
+                | RequireKind::MainnetSafe
+                | RequireKind::AuditGate
+                | RequireKind::InvariantCheck
+                | RequireKind::Custom(_)
+        )
+    }
+
+    /// The name this kind is written and reported as.
+    pub fn as_str(&self) -> &str {
+        match self {
+            RequireKind::Finality => "finality",
+            RequireKind::Slippage => "slippage",
+            RequireKind::Profit => "profit",
+            RequireKind::InvariantCheck => "invariant",
+            RequireKind::RiskScore => "risk",
+            RequireKind::Nonce => "nonce",
+            RequireKind::AuditGate => "audit_gate",
+            RequireKind::BridgeLiquidity => "bridge_liquidity",
+            RequireKind::CanonicalSupply => "canonical_supply",
+            RequireKind::RelayerQuorum => "relayer_quorum",
+            RequireKind::RouteScore => "route_score",
+            RequireKind::SolverBond => "solver_bond",
+            RequireKind::ProofComplete => "proof_complete",
+            RequireKind::RefundPath => "refund_path",
+            RequireKind::FinalityExplicit => "finality_explicit",
+            RequireKind::VmSupported => "vm_supported",
+            RequireKind::MainnetSafe => "mainnet_safe",
+            RequireKind::Custom(name) => name.as_str(),
+        }
+    }
+}
+
 /// A `require` guard inside a cross-chain declaration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequireGuard {
@@ -558,7 +608,14 @@ pub struct RequireGuard {
     #[serde(default)]
     pub comparison: Option<ComparisonOp>,
     /// The threshold or target expression (the RHS of the comparison).
-    pub value: Expression,
+    ///
+    /// `None` is a guard that names a property rather than comparing against a
+    /// number: `require canonical_supply USDC` says the canonical supply of
+    /// USDC must hold, and there is no right-hand side to compare it to. What it
+    /// names is its `subject`, so a guard with neither a value nor a subject is
+    /// refused by the parser — a `require` that names nothing asserts nothing.
+    #[serde(default)]
+    pub value: Option<Expression>,
 }
 
 /// The comparison a guard makes between the quantity it names and its value.

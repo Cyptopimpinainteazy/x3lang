@@ -884,7 +884,7 @@ pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
                         // slippage as a ceiling would invert the check.
                         let bound = requires.iter().find_map(|guard| {
                             (guard.kind == x3_lang_ast::ast::RequireKind::Slippage)
-                                .then(|| extract_int_from_expr(&guard.value))
+                                .then(|| guard.value.as_ref().and_then(extract_int_from_expr))
                                 .flatten()
                         });
                         for guard in requires {
@@ -917,7 +917,7 @@ pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
                                 format!("{:?}", guard.kind).to_lowercase()
                             )));
                         }
-                        if extract_int_from_expr(&guard.value).is_none() {
+                        if guard.value.as_ref().and_then(extract_int_from_expr).is_none() {
                             acc.add_error(err(
                                 "fallback bound is not an integer literal; a bound the compiler cannot \
                                  evaluate does not bound the runtime",
@@ -1152,7 +1152,7 @@ pub fn verify_solver_bond_declared(program: &Program, acc: &mut ErrorAccumulator
             )));
             continue;
         }
-        let required = extract_int_from_expr(&guard.value).unwrap_or(0);
+        let required = guard.value.as_ref().and_then(extract_int_from_expr).unwrap_or(0);
         match declared {
             None => acc.add_error(err(format!(
                 "declaration '{owner}' requires a solver bond of {required} but the program declares \
@@ -1191,7 +1191,7 @@ pub fn verify_relayer_quorum_declared(program: &Program, acc: &mut ErrorAccumula
             )));
             continue;
         }
-        let required = extract_int_from_expr(&guard.value).unwrap_or(0);
+        let required = guard.value.as_ref().and_then(extract_int_from_expr).unwrap_or(0);
         match declared {
             None => acc.add_error(err(format!(
                 "declaration '{owner}' requires a relayer quorum of {required} but the program \
@@ -1327,7 +1327,7 @@ fn validate_atomic_swap_require(require: &x3_lang_ast::ast::RequireGuard, acc: &
         }
         x3_lang_ast::ast::RequireKind::RelayerQuorum => {
             // relayer_quorum must be a positive integer
-            if let Some(n) = extract_int_from_expr(&require.value) {
+            if let Some(n) = require.value.as_ref().and_then(extract_int_from_expr) {
                 if n == 0 {
                     acc.add_error(err("require relayer_quorum must be positive"));
                 }
@@ -3282,11 +3282,11 @@ mod tests {
             kind: x3_lang_ast::ast::RequireKind::Finality,
             subject: None,
             comparison: None,
-            value: Expression::Literal(LiteralExpr::Int {
+            value: Some(Expression::Literal(LiteralExpr::Int {
                 value: 12,
                 base: x3_lang_common::IntBase::Decimal,
                 suffix: None,
-            }),
+            })),
         }];
         let mut acc = ErrorAccumulator::new();
         verify_atomic_swap_decls(&make_swap_program(decl), &mut acc);
@@ -3304,11 +3304,11 @@ mod tests {
             kind: x3_lang_ast::ast::RequireKind::RelayerQuorum,
             subject: None,
             comparison: None,
-            value: Expression::Literal(LiteralExpr::Int {
+            value: Some(Expression::Literal(LiteralExpr::Int {
                 value: 3,
                 base: x3_lang_common::IntBase::Decimal,
                 suffix: None,
-            }),
+            })),
         }];
         let mut acc = ErrorAccumulator::new();
         verify_atomic_swap_decls(&make_swap_program(decl), &mut acc);
@@ -3326,11 +3326,11 @@ mod tests {
             kind: x3_lang_ast::ast::RequireKind::RelayerQuorum,
             subject: None,
             comparison: None,
-            value: Expression::Literal(LiteralExpr::Int {
+            value: Some(Expression::Literal(LiteralExpr::Int {
                 value: 0,
                 base: x3_lang_common::IntBase::Decimal,
                 suffix: None,
-            }),
+            })),
         }];
         let mut acc = ErrorAccumulator::new();
         verify_atomic_swap_decls(&make_swap_program(decl), &mut acc);

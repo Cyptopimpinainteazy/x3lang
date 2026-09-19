@@ -4131,27 +4131,44 @@ impl<'a> Parser<'a> {
         let name = self.expect_ident("chain name")?;
         Ok(ChainRef(Symbol::new(&name)))
     }
-
+    /// `require <kind> [<subject>] [<cmp> <expr>] [<expr>]`.
+    ///
+    /// The grammar has six shapes, and the ambiguity between them is decided by
+    /// looking at what follows, never by guessing: a bare `<kind>` which is a
+    /// property on its own, `<kind> <name>` which is a property *of* that name,
+    /// `<kind> <expr>` which is a threshold, an explicit `<kind>.<subject>`, and
+    /// the two comparison forms `<kind> <subject> <cmp> <expr>` and
+    /// `<kind> <expr>`. The shapes are named rather than laid out as a block on
+    /// purpose: an indented block in a doc comment is a doctest, and a grammar
+    /// sketch is not Rust.
+    ///
+    /// The two-token form is the one that cannot be told apart by looking at the
+    /// first token alone, so it is decided by what the token *is*: a name is the
+    /// only thing that can be a subject, so `require canonical_supply USDC` is
+    /// the canonical supply of USDC and `require slippage 50` is a threshold of
+    /// 50. `require proof verified` used to be unparseable — the parser read
+    /// `verified` as the subject and then demanded a value that the program
+    /// never wrote (TICKET-045).
     fn parse_require_guard(&mut self) -> Result<RequireGuard, X3Error> {
         self.advance(); // 'require'
         let ident = self.expect_ident("require kind")?;
         // Special-case source_finality and dest_finality: kind=Finality, subject=ident
-        let (kind, subject) = match ident.as_str() {
+        let (kind, mut subject) = match ident.as_str() {
             "source_finality" => (RequireKind::Finality, Some(Symbol::new("source_finality"))),
             "dest_finality" => (RequireKind::Finality, Some(Symbol::new("dest_finality"))),
-            _ => {
-                let kind = require_kind_from_str(&ident)?;
-                let subject = if self.peek() == Tok::Dot {
-                    self.advance(); // '.'
-                    Some(Symbol::new(&self.expect_ident("require subject after '.'")?))
-                } else if matches!(self.peek(), Tok::Ident(_)) {
-                    Some(Symbol::new(&self.expect_ident("require subject")?))
-                } else {
-                    None
-                };
-                (kind, subject)
-            }
+            _ => (require_kind_from_str(&ident)?, None),
         };
+        // `require finality.sol == finalized` — the subject written explicitly,
+        // which is what makes it unambiguous when no comparison follows.
+        if subject.is_none() && self.peek() == Tok::Dot {
+            self.advance();
+            subject = Some(Symbol::new(&self.expect_ident("require subject after '.'")?));
+        }
+        // `require finality Ethereum >= 64` — a bare name in front of a
+        // comparison is a subject, which the one-token lookahead settles.
+        if subject.is_none() && matches!(self.peek(), Tok::Ident(_)) && self.next_is_comparison() {
+            subject = Some(Symbol::new(&self.expect_ident("require subject")?));
+        }
         // The comparison is part of the guard, not punctuation to step over:
         // `slippage <= 50` and `slippage >= 50` are opposite claims, and a check
         // that reads one as the other is reading a direction nobody wrote.
@@ -4167,14 +4184,104 @@ impl<'a> Parser<'a> {
         if comparison.is_some() {
             self.advance();
         }
-        let value = self.parse_expr()?;
+        let value = if comparison.is_some() {
+            // A comparison with no right-hand side is not a comparison.
+            Some(self.parse_expr()?)
+        } else if subject.is_some() {
+            // An explicit subject may stand alone (`require canonical_supply.USDC`).
+            if self.can_start_expression() {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            }
+        } else if !self.can_start_expression() {
+            None
+        } else {
+            let first = self.parse_expr()?;
+            match first {
+                // A name with nothing after it is the subject, not a value:
+                // there is no reading in which a bare name is a threshold.
+                Expression::Ident(name) => {
+                    subject = Some(name);
+                    // `require nonce unused <id>` is the one guard that names a
+                    // subject *and* a value, and `nonce` is the one kind whose
+                    // subject is a status rather than the thing itself. Gating
+                    // on it is what keeps a clause that follows a valueless
+                    // guard (`require proof_complete` then `amount 500`) from
+                    // being swallowed as that guard's subject and value.
+                    if kind == RequireKind::Nonce && self.can_start_expression() {
+                        Some(self.parse_expr()?)
+                    } else {
+                        None
+                    }
+                }
+                // A name followed by another expression is the subject of it:
+                // `require nonce unused <id>`.
+                other => Some(other),
+            }
+        };
         self.opt_semi();
+        if value.is_none() && subject.is_none() {
+            // `require mainnet_safe` asserts a property of the program and needs
+            // nothing else. `require slippage` asserts nothing at all: a bound
+            // with no bound in it.
+            if !kind.asserts_a_property() {
+                return Err(parse_err(
+                    format!(
+                        "`require {ident}` states no bound; write one (`require {ident} <= 50`) or, if \
+                         this is a property rather than a bound, use the property's own name"
+                    ),
+                    self.peek(),
+                ));
+            }
+        }
+        if !kind.asserts_a_property() && value.is_none() {
+            return Err(parse_err(
+                format!(
+                    "`require {ident}` is a bound and has no value to compare against; a check that \
+                     reads it would find nothing where it expected a number, so write `require \
+                     {ident}{} <value>`",
+                    subject
+                        .as_ref()
+                        .map(|subject| format!(".{}", subject.as_str()))
+                        .unwrap_or_default()
+                ),
+                self.peek(),
+            ));
+        }
         Ok(RequireGuard {
             kind,
             subject,
             comparison,
             value,
         })
+    }
+
+    /// Whether the token after the cursor is a comparison operator.
+    fn next_is_comparison(&self) -> bool {
+        matches!(
+            self.peek_n(1),
+            Tok::Ge | Tok::Gt | Tok::Le | Tok::Lt | Tok::EqEq | Tok::Ne
+        )
+    }
+
+    /// Whether the token at the cursor can begin an expression.
+    ///
+    /// Used only to decide whether a guard has a right-hand side or a second
+    /// name at all: a clause terminator, a keyword, or the end of the file
+    /// cannot begin one.
+    fn can_start_expression(&self) -> bool {
+        matches!(
+            self.peek(),
+            Tok::Int(_)
+                | Tok::Float(_)
+                | Tok::String_(_)
+                | Tok::Ident(_)
+                | Tok::LParen
+                | Tok::Minus
+                | Tok::KwTrue
+                | Tok::KwFalse
+        )
     }
 
     fn parse_require_stmt(&mut self) -> Result<Statement, X3Error> {

@@ -1873,8 +1873,13 @@ impl X3Formatter {
             self.write(" ");
             self.write(comparison.as_str());
         }
-        self.write(" ");
-        self.format_expression(&guard.value);
+        // A guard with no value names a property, and its subject is what it
+        // names: `require canonical_supply USDC` writes back as itself, which
+        // the parser reads as the same guard.
+        if let Some(value) = &guard.value {
+            self.write(" ");
+            self.format_expression(value);
+        }
     }
 
     /// What `on_fail` does next.
