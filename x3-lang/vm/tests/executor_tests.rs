@@ -7,6 +7,18 @@ use x3_lang_vm::{VMConfig, VM};
 fn b52_bytecode(opcode: u8, payload: &[u8]) -> Vec<u8> {
     let len = payload.len() as u16;
     let mut code = vec![0x01]; // version header
+                               // The version binding, because `verify` refuses a compiler stream that carries none
+                               // (PHASE 45) — and these streams go through `VM::execute`, which verifies first.
+    code.push(META_VERSIONS);
+    for version in [
+        LANGUAGE_VERSION,
+        COMPILER_FORMAT_VERSION,
+        IR_VERSION,
+        VM_VERSION,
+        POLICY_VERSION,
+    ] {
+        code.extend_from_slice(&version.to_le_bytes());
+    }
     code.push(opcode);
     code.extend_from_slice(&len.to_le_bytes());
     code.extend_from_slice(payload);

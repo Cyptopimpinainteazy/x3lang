@@ -52,6 +52,20 @@ pub fn emit_x3ir(ir: &X3IR) -> Result<Vec<u8>, X3Error> {
         bytecode.write_all(&chain_id.to_le_bytes())?;
     }
 
+    // The version binding (PHASE 45). Written before the operations so a loader can
+    // reject an artifact before it reads an instruction, and fixed-width so its walk is
+    // the same arithmetic everywhere.
+    bytecode.write_all(&[META_VERSIONS])?;
+    for version in [
+        LANGUAGE_VERSION,
+        COMPILER_FORMAT_VERSION,
+        IR_VERSION,
+        VM_VERSION,
+        POLICY_VERSION,
+    ] {
+        bytecode.write_all(&version.to_le_bytes())?;
+    }
+
     // Encode operations
     for op in &ir.operations {
         emit_operation(op, &mut bytecode)?;
@@ -626,33 +640,17 @@ pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, 
         let opcode = bytecode[pos];
         pos += 1;
 
-        if opcode == META_NONCE {
-            if pos + 2 > bytecode.len() {
+        if matches!(opcode, META_NONCE | META_CHAIN_ID | META_VERSIONS) {
+            // The tag has already been consumed, so the record is read from the byte
+            // before it: one walker for the whole set, rather than a `match` here that a
+            // new record can be left out of.
+            let Some((len, _, _)) = crate::spec::opcodes::metadata_record(bytecode, pos - 1) else {
                 return Err(X3Error::CodegenError {
-                    message: "truncated nonce metadata".to_string(),
+                    message: format!("truncated metadata record for opcode 0x{opcode:02x}"),
                     span: None,
                 });
-            }
-            let len = u16::from_le_bytes([bytecode[pos], bytecode[pos + 1]]) as usize;
-            pos += 2;
-            if pos + len > bytecode.len() {
-                return Err(X3Error::CodegenError {
-                    message: "truncated nonce metadata payload".to_string(),
-                    span: None,
-                });
-            }
-            pos += len;
-            continue;
-        }
-
-        if opcode == META_CHAIN_ID {
-            if pos + 8 > bytecode.len() {
-                return Err(X3Error::CodegenError {
-                    message: "truncated chain-id metadata".to_string(),
-                    span: None,
-                });
-            }
-            pos += 8;
+            };
+            pos = pos - 1 + len;
             continue;
         }
 
@@ -1182,13 +1180,15 @@ pub fn metadata_records(bytecode: &[u8]) -> Vec<MetadataRecord<'_>> {
         }
         match bytecode[pc] {
             META_NONCE => {
-                let len = u16::from_le_bytes([bytecode[pc + 1], bytecode[pc + 2]]) as usize;
-                let value = std::str::from_utf8(&bytecode[pc + 3..(pc + 3 + len).min(bytecode.len())])
-                    .unwrap_or("<invalid utf-8>");
-                let next_pc = pc + 3 + len;
+                // One walker for the whole set: a record added to `spec::opcodes` cannot be
+                // read as instructions here.
+                let Some((len, label, rendered)) = crate::spec::opcodes::metadata_record(bytecode, pc) else {
+                    return records;
+                };
+                let next_pc = pc + len;
                 records.push(MetadataRecord {
-                    label: "meta.nonce",
-                    rendered: format!("{value:?}"),
+                    label,
+                    rendered,
                     next_pc,
                     _marker: core::marker::PhantomData,
                 });
@@ -1212,6 +1212,34 @@ pub fn metadata_records(bytecode: &[u8]) -> Vec<MetadataRecord<'_>> {
                 records.push(MetadataRecord {
                     label: "meta.chain_id",
                     rendered: id.to_string(),
+                    next_pc,
+                    _marker: core::marker::PhantomData,
+                });
+                pc = next_pc;
+            }
+            META_VERSIONS => {
+                // The version binding (PHASE 45). Fixed-width, so this walker needs only
+                // its length — but it *is* a third place that names the metadata set, and
+                // an unknown tag ends the walk, so a reader that did not learn it would
+                // take the record's bytes for instructions.
+                if pc + VERSIONS_RECORD_LEN > bytecode.len() {
+                    return records;
+                }
+                let read = |offset: usize| -> u16 {
+                    let at = pc + 1 + offset * 2;
+                    u16::from_le_bytes([bytecode[at], bytecode[at + 1]])
+                };
+                let next_pc = pc + VERSIONS_RECORD_LEN;
+                records.push(MetadataRecord {
+                    label: "meta.versions",
+                    rendered: format!(
+                        "language {} compiler {} IR {} VM {} policy {}",
+                        read(0),
+                        read(1),
+                        read(2),
+                        read(3),
+                        read(4)
+                    ),
                     next_pc,
                     _marker: core::marker::PhantomData,
                 });
@@ -1473,7 +1501,9 @@ mod tests {
         ];
 
         let bytecode = emit_x3ir(&ir).expect("capability operations should emit");
-        let mut cursor = 1usize;
+        // Past the version byte and the version-binding record the emitter always writes
+        // (PHASE 45), which is where the first instruction starts.
+        let mut cursor = 1 + VERSIONS_RECORD_LEN;
         for expected in 0x80u8..=0x9A {
             assert_eq!(bytecode[cursor], expected);
             let len = u16::from_le_bytes([bytecode[cursor + 1], bytecode[cursor + 2]]) as usize;
@@ -1611,8 +1641,11 @@ mod tests {
         let ir = crate::compile_to_ir(&program).expect("source should lower");
         let bytecode = emit_x3ir(&ir).expect("should emit");
 
+        // The version binding sits between the version byte and the first instruction
+        // (PHASE 45), so the guard is the first *instruction* rather than the second byte.
         assert_eq!(
-            bytecode[1], REQUIRE,
+            bytecode[1 + VERSIONS_RECORD_LEN],
+            REQUIRE,
             "the fixture is only a regression test if the guard really is the first instruction"
         );
         let trace = disassemble(&bytecode).expect("should disassemble");

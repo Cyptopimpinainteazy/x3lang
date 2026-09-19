@@ -20,6 +20,35 @@ pub enum VerifyError {
     InvalidOperand(usize),
     JumpToNonBoundary(usize, usize),
     OutOfBounds(usize),
+    /// The artifact's version binding does not match this runtime's — spec PHASE 45.
+    ///
+    /// Its own variant rather than an `InvalidOperand` because the two say different
+    /// things: an operand that does not decode is a malformed artifact, and a version
+    /// that does not match is a *well-formed* artifact this runtime must not run. A
+    /// loader that could not tell them apart would report the wrong thing to whoever has
+    /// to fix it.
+    VersionMismatch {
+        field: &'static str,
+        bound: u16,
+        supported: u16,
+    },
+}
+
+impl std::fmt::Display for VerifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VerifyError::VersionMismatch {
+                field,
+                bound,
+                supported,
+            } => write!(
+                f,
+                "X3_VERSION_MISMATCH: the artifact binds {field} version {bound} and this runtime \
+                 supports {supported}, so it is not one this VM may execute"
+            ),
+            other => write!(f, "{other:?}"),
+        }
+    }
 }
 
 /// Validate that `code` is valid bytecode and return set of instruction boundaries.
@@ -32,6 +61,11 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
     let mut boundaries = HashSet::new();
     let bytes = code.as_slice();
     let compiler_stream = has_compiler_header(bytes);
+    // The version binding is checked before anything is read: an artifact this runtime
+    // must not execute is refused whether or not the rest of it decodes (PHASE 45).
+    if compiler_stream {
+        verify_version_binding(bytes)?;
+    }
     let mut pc = first_instruction_pc(bytes);
     while pc + 4 <= bytes.len() {
         if bytes[pc..].iter().all(|byte| *byte == 0) {
@@ -136,6 +170,35 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
     Ok(boundaries)
 }
 
+/// Read the version binding and refuse an artifact this runtime must not run.
+///
+/// Two rejections, and both are the fail-closed direction: an artifact whose language,
+/// IR or VM version is not this runtime's, and a *compiler stream with no binding at all*
+/// — which cannot be shown to be one this runtime may execute. The compiler's own format
+/// version and the policy version are carried and not compared: they say which build
+/// produced the artifact, and neither decides whether it may run.
+fn verify_version_binding(bytes: &[u8]) -> Result<(), VerifyError> {
+    let Some((language, _compiler, ir, vm, _policy)) = crate::spec::opcodes::version_binding(bytes) else {
+        // A compiler stream that binds to nothing cannot be shown to be one this runtime
+        // may execute, so it is refused rather than run on the assumption that it is.
+        return Err(VerifyError::InvalidOperand(0));
+    };
+    for (field, bound, supported) in [
+        ("language", language, LANGUAGE_VERSION),
+        ("IR", ir, IR_VERSION),
+        ("VM", vm, VM_VERSION),
+    ] {
+        if bound != supported {
+            return Err(VerifyError::VersionMismatch {
+                field,
+                bound,
+                supported,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn first_instruction_pc(bytes: &[u8]) -> usize {
     if has_compiler_header(bytes) {
         // The compiler-stream header is 0x01 followed by an arbitrary
@@ -149,33 +212,13 @@ fn first_instruction_pc(bytes: &[u8]) -> usize {
 }
 
 fn skip_compiler_metadata(bytes: &[u8]) -> usize {
+    // One walker for the whole set (`spec::opcodes::metadata_record`), so a tag added there
+    // cannot be read as instructions here.
     let mut pc = 1usize;
-    loop {
-        if pc + 3 > bytes.len() {
-            return pc;
-        }
-        match bytes[pc] {
-            META_NONCE => {
-                // nonce metadata: 2-byte length followed by UTF-8 nonce.
-                let len = u16::from_le_bytes([bytes[pc + 1], bytes[pc + 2]]) as usize;
-                // Deliberately no alignment. `emit_x3ir` writes this record
-                // unpadded and the executor's own `first_instruction_pc` walks
-                // it unpadded, so the verifier has to agree with both. It used
-                // to round up to a 4-byte boundary, which desynchronised the
-                // walk for any nonce whose record length was 1 or 3 bytes short
-                // of a multiple of four: the validator then read metadata bytes
-                // as opcodes and rejected bytecode the executor runs fine.
-                pc += 3 + len;
-            }
-            META_CHAIN_ID => {
-                // chain_id metadata: an 8-byte u64 payload, so the record is
-                // nine bytes. This read a u32 and advanced five, which put the
-                // cursor three bytes into the next instruction.
-                pc += 9;
-            }
-            _ => return pc,
-        }
+    while let Some((len, _, _)) = crate::spec::opcodes::metadata_record(bytes, pc) {
+        pc += len;
     }
+    pc
 }
 
 fn has_compiler_header(bytes: &[u8]) -> bool {
@@ -598,7 +641,20 @@ mod tests {
     /// `ATOMIC_BEGIN` encodes as `[opcode][u16 0]` padded to four bytes, so the
     /// expected first boundary is the metadata length.
     fn compiler_stream_with(nonce: Option<&str>, chain_id: Option<u64>) -> (InstructionStream, usize) {
+        // The version binding comes first, because `verify` refuses a compiler stream that
+        // carries none (PHASE 45) — and a hand-built stream is exactly the case that rule
+        // is about.
         let mut bytes = vec![BYTECODE_VERSION_1];
+        bytes.push(META_VERSIONS);
+        for version in [
+            LANGUAGE_VERSION,
+            COMPILER_FORMAT_VERSION,
+            IR_VERSION,
+            VM_VERSION,
+            POLICY_VERSION,
+        ] {
+            bytes.extend_from_slice(&version.to_le_bytes());
+        }
         if let Some(nonce) = nonce {
             bytes.push(META_NONCE);
             bytes.extend_from_slice(&(nonce.len() as u16).to_le_bytes());
@@ -625,7 +681,11 @@ mod tests {
         // start reading the metadata's last byte as an opcode, which is how a
         // stream the executor runs fine could fail validation.
         let (code, expected) = compiler_stream_with(Some("simple_swap_001"), None);
-        assert_eq!(expected, 19, "the record must be 18 bytes plus the version byte");
+        assert_eq!(
+            expected,
+            1 + VERSIONS_RECORD_LEN + 18,
+            "the version byte, the binding, then the record's 18 bytes"
+        );
 
         let boundaries = verify(&code).expect("a stream the executor runs must verify");
         assert!(
@@ -639,11 +699,60 @@ mod tests {
     }
 
     #[test]
+    fn an_artifact_that_binds_another_version_is_refused() {
+        // PHASE 45's requirement, and the reason it is fail-closed: an artifact this runtime
+        // must not execute has to be refused whether or not the rest of it decodes.
+        let (code, _) = compiler_stream_with(Some("nonce_1"), None);
+        let mut bytes = code.as_slice().to_vec();
+        // The binding is the first record: tag, then language, compiler, IR, VM, policy.
+        // Patch the VM version (offset 1 + tag + 3 u16s).
+        let vm_version_at = 1 + 1 + 3 * 2;
+        bytes[vm_version_at] = VM_VERSION.wrapping_add(1) as u8;
+        bytes[vm_version_at + 1] = 0;
+
+        let error = verify(&InstructionStream::new(bytes)).expect_err("a wrong VM version must be refused");
+        match error {
+            VerifyError::VersionMismatch {
+                field,
+                bound,
+                supported,
+            } => {
+                assert_eq!(field, "VM");
+                assert_eq!(supported, VM_VERSION);
+                assert_ne!(bound, supported, "the artifact bound a version this runtime is not");
+            }
+            other => panic!("the refusal must name the version, got {other:?}"),
+        }
+        // And the message says which artifact this is and what the runtime supports, so a
+        // human can act on it.
+        let rendered = format!("{error}");
+        assert!(
+            rendered.contains("X3_VERSION_MISMATCH") && rendered.contains("VM version"),
+            "the refusal must name the field and the code: {rendered}"
+        );
+    }
+
+    #[test]
+    fn a_compiler_stream_that_binds_no_version_is_refused() {
+        // Fail closed: an artifact that binds to nothing cannot be shown to be one this
+        // runtime may execute, so it is refused rather than run on the assumption that it is.
+        let mut bytes = vec![BYTECODE_VERSION_1, ATOMIC_BEGIN, 0, 0, 0];
+        while bytes.len() % 4 != 0 {
+            bytes.push(0);
+        }
+        verify(&InstructionStream::new(bytes)).expect_err("a compiler stream with no binding must be refused");
+    }
+
+    #[test]
     fn chain_id_metadata_is_walked_as_nine_bytes() {
         // The record is `[0x11][u64]`; reading it as a u32 advanced only five
         // bytes and put the cursor three bytes into the next instruction.
         let (code, expected) = compiler_stream_with(Some("nonce_1"), Some(0x0123_4567_89AB_CDEF));
-        assert_eq!(expected, 1 + 10 + 9, "nonce record then nine bytes of chain id");
+        assert_eq!(
+            expected,
+            1 + VERSIONS_RECORD_LEN + 10 + 9,
+            "the binding, then the nonce record, then nine bytes of chain id"
+        );
 
         let boundaries = verify(&code).expect("a stream with a chain id must verify");
         assert!(

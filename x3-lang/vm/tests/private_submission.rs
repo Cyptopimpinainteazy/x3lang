@@ -10,7 +10,9 @@
 use x3_lang_common::capability::CapabilityPayload;
 use x3_lang_common::encode_capability_payload;
 use x3_lang_vm::executor::ExecError;
-use x3_lang_vm::spec::opcodes::MODE_CHECK;
+use x3_lang_vm::spec::opcodes::{
+    COMPILER_FORMAT_VERSION, IR_VERSION, LANGUAGE_VERSION, META_VERSIONS, MODE_CHECK, POLICY_VERSION, VM_VERSION,
+};
 use x3_lang_vm::{VMConfig, VM};
 
 /// `[MODE_CHECK][u16 len][payload]`, padded to four bytes, then HALT.
@@ -21,6 +23,18 @@ fn mode_check_bytecode(mode: &str, restriction: &str) -> Vec<u8> {
     })
     .expect("the payload must encode");
     let mut code = vec![0x01]; // version header
+                               // The version binding, because `verify` refuses a compiler stream that carries none
+                               // (PHASE 45) — and these streams go through `VM::execute`, which verifies first.
+    code.push(META_VERSIONS);
+    for version in [
+        LANGUAGE_VERSION,
+        COMPILER_FORMAT_VERSION,
+        IR_VERSION,
+        VM_VERSION,
+        POLICY_VERSION,
+    ] {
+        code.extend_from_slice(&version.to_le_bytes());
+    }
     code.push(MODE_CHECK);
     code.extend_from_slice(&(payload.len() as u16).to_le_bytes());
     code.extend_from_slice(&payload);

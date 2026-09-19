@@ -136,6 +136,31 @@ pub const SUB: u8 = 0x02;
 pub const BYTECODE_VERSION_1: u8 = 0x01;
 pub const META_NONCE: u8 = 0x10;
 pub const META_CHAIN_ID: u8 = 0x11;
+/// The record that binds an artifact to the versions that produced and run it — spec
+/// PHASE 45.
+///
+/// Five `u16`s after the tag: language, compiler, IR, VM, economic policy. The first,
+/// third and fourth decide **compatibility**, and `verify` rejects an artifact whose
+/// versions are not the ones this runtime supports; the compiler and policy numbers are
+/// carried so a reader can say which build produced the artifact without guessing from
+/// its shape.
+///
+/// A missing record is a rejection too, and that is the fail-closed direction: an
+/// artifact that binds to nothing cannot be shown to be one this runtime may execute.
+pub const META_VERSIONS: u8 = 0x12;
+/// The language version this compiler emits and this VM accepts.
+pub const LANGUAGE_VERSION: u16 = 1;
+/// The compiler's own format version. Carried, not compared: it does not decide whether
+/// an artifact may run.
+pub const COMPILER_FORMAT_VERSION: u16 = 1;
+/// The X3IR version.
+pub const IR_VERSION: u16 = 1;
+/// The VM version an artifact requires.
+pub const VM_VERSION: u16 = 1;
+/// The economic policy schema version.
+pub const POLICY_VERSION: u16 = 1;
+/// The bytes a versions record occupies: the tag and five `u16`s.
+pub const VERSIONS_RECORD_LEN: usize = 11;
 pub const HALT: u8 = 0xFF;
 
 /// Comparison codes for `REQUIRE`, carried in the instruction's flags byte.
@@ -374,6 +399,7 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
         0x02 => "SUB",
         META_NONCE => "META_NONCE",
         META_CHAIN_ID => "META_CHAIN_ID",
+        META_VERSIONS => "META_VERSIONS",
         LOCK => "LOCK",
         MINT => "MINT",
         BURN => "BURN",
@@ -478,6 +504,7 @@ pub const fn base_gas_cost(opcode: u8) -> u128 {
         0x0A => 50,
         ADD | SUB => 1,
         META_NONCE | META_CHAIN_ID => 5,
+        META_VERSIONS => 11,
         LOCK | MINT => 1,
         BRIDGE => 100,
         IF | LOOP => 2,
@@ -518,4 +545,85 @@ pub const fn base_gas_cost(opcode: u8) -> u128 {
         HALT => 0,
         _ => 1,
     }
+}
+
+/// The metadata record at `pc`, as `(bytes it occupies, label, rendered value)`.
+///
+/// **One walker, because five places used to parse this set and all five drifted.** The
+/// verifier's metadata skip, the executor's, the disassembler's and the trading decoder's
+/// each had their own `match` on the tags, and adding one meant finding all of them:
+/// `META_VERSIONS` was read as instructions by three of the four on the day it was added,
+/// which the compiler's own tests caught only because they assert agreement between the
+/// writer's boundaries and the readers'.
+///
+/// `None` means the byte is not a metadata tag, which is where the header ends and the
+/// instructions begin.
+pub fn metadata_record(bytes: &[u8], pc: usize) -> Option<(usize, &'static str, String)> {
+    let tag = *bytes.get(pc)?;
+    match tag {
+        META_NONCE => {
+            let len = u16::from_le_bytes([*bytes.get(pc + 1)?, *bytes.get(pc + 2)?]) as usize;
+            let end = pc.checked_add(3 + len)?;
+            if end > bytes.len() {
+                return None;
+            }
+            let value = String::from_utf8_lossy(&bytes[pc + 3..end]).to_string();
+            Some((3 + len, "meta.nonce", format!("{value:?}")))
+        }
+        META_CHAIN_ID => {
+            let end = pc.checked_add(9)?;
+            if end > bytes.len() {
+                return None;
+            }
+            let mut eight = [0u8; 8];
+            eight.copy_from_slice(&bytes[pc + 1..pc + 9]);
+            Some((9, "meta.chain_id", u64::from_le_bytes(eight).to_string()))
+        }
+        META_VERSIONS => {
+            let end = pc.checked_add(VERSIONS_RECORD_LEN)?;
+            if end > bytes.len() {
+                return None;
+            }
+            let read = |offset: usize| -> u16 {
+                let at = pc + 1 + offset * 2;
+                u16::from_le_bytes([bytes[at], bytes[at + 1]])
+            };
+            Some((
+                VERSIONS_RECORD_LEN,
+                "meta.versions",
+                format!(
+                    "language {} compiler {} IR {} VM {} policy {}",
+                    read(0),
+                    read(1),
+                    read(2),
+                    read(3),
+                    read(4)
+                ),
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// The versions an artifact binds, as `(language, compiler, IR, VM, policy)`.
+///
+/// `None` when the stream is not a compiler stream or carries no binding — which
+/// `vm/src/verifier.rs` refuses, because an artifact that binds to nothing cannot be shown
+/// to be one this runtime may execute.
+pub fn version_binding(bytes: &[u8]) -> Option<(u16, u16, u16, u16, u16)> {
+    if bytes.first() != Some(&BYTECODE_VERSION_1) {
+        return None;
+    }
+    let mut pc = 1usize;
+    while let Some((len, label, _)) = metadata_record(bytes, pc) {
+        if label == "meta.versions" {
+            let read = |offset: usize| -> u16 {
+                let at = pc + 1 + offset * 2;
+                u16::from_le_bytes([bytes[at], bytes[at + 1]])
+            };
+            return Some((read(0), read(1), read(2), read(3), read(4)));
+        }
+        pc += len;
+    }
+    None
 }

@@ -989,18 +989,12 @@ fn first_instruction_pc(bytes: &[u8]) -> ExecResult<usize> {
         return Ok(0);
     }
 
+    // One walker for the whole set (`spec::opcodes::metadata_record`). This used to be a
+    // `match` on the tags, which meant every new record had to be added here as well —
+    // and `META_VERSIONS` was not, so the executor walked into the middle of it.
     let mut pc = 1usize;
-    while pc < bytes.len() {
-        match bytes[pc] {
-            META_NONCE => {
-                let len = read_u16_le(bytes, pc + 1).ok_or(ExecError::InvalidOperand)? as usize;
-                pc = pc.checked_add(3 + len).ok_or(ExecError::InvalidOperand)?;
-            }
-            META_CHAIN_ID => {
-                pc = pc.checked_add(9).ok_or(ExecError::InvalidOperand)?;
-            }
-            _ => return Ok(pc),
-        }
+    while let Some((len, _, _)) = crate::spec::opcodes::metadata_record(bytes, pc) {
+        pc = pc.checked_add(len).ok_or(ExecError::InvalidOperand)?;
     }
 
     Ok(pc)

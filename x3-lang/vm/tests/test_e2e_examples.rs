@@ -360,16 +360,19 @@ fn a_guard_first_program_verifies_and_runs() {
     let bytecode = x3_lang_compiler::compile_program(&program).expect("program should compile");
 
     assert_eq!(bytecode[0], 0x01, "a compiler stream starts with the version byte");
+    // The version binding follows the version byte (PHASE 45), so the guard is the first
+    // *instruction* rather than the second byte.
+    let first_instruction = 1 + x3_lang_vm::spec::opcodes::VERSIONS_RECORD_LEN;
     assert_eq!(
-        bytecode[1], 0x40,
-        "and its first instruction is the policy's guard, so the version byte is not followed by \
-         a NOP: {bytecode:?}"
+        bytecode[first_instruction], 0x40,
+        "its first instruction is the policy's guard, so the metadata is not followed by a NOP: \
+         {bytecode:?}"
     );
 
     let verifier_boundaries =
         verify(&InstructionStream::new(bytecode.clone())).expect("the verifier must accept what the executor runs");
     assert!(
-        verifier_boundaries.contains(&1),
+        verifier_boundaries.contains(&first_instruction),
         "the first instruction's offset is a verified boundary: {verifier_boundaries:?}"
     );
 
@@ -405,10 +408,18 @@ fn the_readers_visit_exactly_the_instructions_the_writer_wrote() {
         emitted,
         "the verifier's boundaries must be the writer's instructions, no more and no fewer: {boundaries:?}"
     );
+    // The version binding sits between the version byte and the first instruction
+    // (PHASE 45), so the guard is at `1 + binding` and the instruction after its four
+    // bytes and three bytes of padding is seven later.
+    let guard_at = 1 + x3_lang_vm::spec::opcodes::VERSIONS_RECORD_LEN;
+    // The guard is a four-byte frame, and the writer pads to the next multiple of four:
+    // with the binding in front it lands on a boundary already, so there is no padding.
+    // Computed rather than written down, so the assertion cannot drift from the writer.
+    let after_the_guard = (guard_at + 4 + 3) & !3;
     assert!(
-        boundaries.contains(&1) && boundaries.contains(&8),
-        "the guard is at 1 and the instruction after its four bytes and three bytes of padding is at \
-         8: {boundaries:?}"
+        boundaries.contains(&guard_at) && boundaries.contains(&after_the_guard),
+        "the guard is at {guard_at} and the instruction after its four bytes, padded, is at \
+         {after_the_guard}: {boundaries:?}"
     );
 
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);

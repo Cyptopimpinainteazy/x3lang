@@ -736,7 +736,9 @@ fn disassembly_lists_every_emitted_instruction() {
             trimmed.len() >= 4 && trimmed.as_bytes()[..4].iter().all(|byte| byte.is_ascii_digit())
         })
         .count();
-    let header_records = usize::from(ir.metadata.nonce.is_some()) + usize::from(ir.metadata.chain_id.is_some());
+    // The version binding is always written (PHASE 45), and the nonce and chain id only
+    // when the program carries them.
+    let header_records = 1 + usize::from(ir.metadata.nonce.is_some()) + usize::from(ir.metadata.chain_id.is_some());
 
     assert!(
         ir.operations.len() > 20,
