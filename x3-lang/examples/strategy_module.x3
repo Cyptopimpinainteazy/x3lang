@@ -54,9 +54,24 @@
 // labels what is implemented. `encrypted true` is refused, since the executor
 // reads that flag as `encrypted: _` and nothing here provides encryption —
 // declaring it would be a guarantee the artifact could not keep.
+//
+// `x3c metadata` is item 25 (PHASE 26) and turns these declarations into a
+// document a marketplace can read without reading the source:
+//
+//   x3c metadata examples/strategy_module.x3
+//     strategy_id, artifact_hash (sha256 over the bytecode this command
+//     compiles), compiler_version, risk_class with the basis it was derived
+//     from, supported_chains, capital minimum and maximum, effects, required
+//     permissions, licence terms — and, explicitly null, artifact_signature and
+//     receipt_references, with `notes` saying why: a compiler is not a signing
+//     authority and a freshly compiled artifact has no history.
+//
+// `max` on the input is what makes the capital maximum real rather than
+// invented; without it the document reports a null maximum and says it is
+// unstated.
 
 strategy TriDexArb {
-    input ethereum.USDC amount 25_000_000
+    input ethereum.USDC amount 25_000_000 max 50_000_000
     output ethereum.ETH
     effects [swap]
     guarantees [min_profit]

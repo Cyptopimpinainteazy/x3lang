@@ -21,6 +21,7 @@ pub mod intent_emit;
 pub mod ir;
 pub mod linter;
 pub mod lowering;
+pub mod metadata;
 pub mod numeric;
 pub mod opportunity;
 pub mod optimizer;

@@ -2079,6 +2079,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "sha2",
  "x3-lang-ast",
  "x3-lang-common",
  "x3-lang-lexer",

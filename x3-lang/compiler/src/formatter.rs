@@ -569,6 +569,10 @@ impl X3Formatter {
                 self.write(" amount ");
                 self.format_expression(amount);
             }
+            if let Some(max) = &input.max_amount {
+                self.write(" max ");
+                self.format_expression(max);
+            }
             self.write("\n");
         }
         for output in &s.outputs {

@@ -183,6 +183,13 @@ enum Cmd {
     /// Find rings of intents that could settle against each other instead of
     /// each taking external liquidity.
     Fusion { input: PathBuf },
+    /// Print a compiled strategy's marketplace metadata: what it is, what it
+    /// needs, and what it does not expose.
+    Metadata {
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
     /// Compute route/risk score for an intent.
     Score { input: PathBuf },
     /// Generate and run tests for an intent.
@@ -344,6 +351,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             max_slippage_bps,
         } => cmd_optimize(&input, &from, &to, &objective, max_hops, max_slippage_bps),
         Cmd::Fusion { input } => cmd_fusion(&input),
+        Cmd::Metadata { input, out } => cmd_metadata(&input, out.as_ref(), mode),
         Cmd::Score { input } => cmd_score(&input, mode),
         Cmd::Test {
             input,
@@ -461,6 +469,47 @@ fn cmd_check(input: &PathBuf, out: Option<&PathBuf>, mode_str: &str, deny_warnin
         }
         Ok(ExitCode::from(1))
     }
+}
+
+/// `x3c metadata` — describe a compiled strategy without exposing its source.
+///
+/// The artifact hash is computed over the bytecode this command compiles, so the
+/// document identifies the artifact rather than the file it came from. The two
+/// fields PHASE 26 lists that a compiler cannot fill — a signature and a receipt
+/// history — are null and the document says why, because metadata that looks
+/// complete and is not is worse than metadata that is explicit about its gaps.
+fn cmd_metadata(input: &PathBuf, out: Option<&PathBuf>, mode_str: &str) -> Result<ExitCode, String> {
+    use x3_lang_compiler::metadata::strategy_metadata;
+
+    let source = read_source(input)?;
+    let comp_mode = parse_mode(mode_str)?;
+    // Verify first: publishing metadata for a program the compiler rejects would
+    // describe an artifact nobody can build.
+    let (program, _, outcome) =
+        check_source_diagnostics_with_mode(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?;
+    if !outcome.errors.is_empty() {
+        for error in &outcome.errors {
+            print_error(&format!("{error}"));
+        }
+        return Ok(ExitCode::from(1));
+    }
+    let (bytecode, _) = compile_with_mode_diagnostics(&source, comp_mode).map_err(|e| format!("compile error: {e}"))?;
+
+    let Some(metadata) = strategy_metadata(&program, &bytecode) else {
+        return Err(format!(
+            "{input:?} declares no strategy module; metadata describes a module, and this program \
+             has none"
+        ));
+    };
+    let json = serde_json::to_string_pretty(&metadata).map_err(|e| format!("serialization failed: {e}"))?;
+    write_output(out, &json)?;
+    println!(
+        "x3c metadata: {} — {} bytes of artifact hashed as {}",
+        metadata.strategy_id,
+        bytecode.len(),
+        metadata.artifact_hash
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `x3c fusion` — report every ring of intents that could settle internally.

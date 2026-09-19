@@ -1009,6 +1009,12 @@ pub struct StrategyInput {
     /// verifier refuses: a capital figure nobody bounded is a capital figure
     /// nobody agreed to.
     pub amount: Option<Expression>,
+    /// The most the module will take of this asset, when it says.
+    ///
+    /// Optional because a module may genuinely be indifferent above its
+    /// minimum; absent means "unstated", which the metadata reports as a null
+    /// maximum rather than inventing one.
+    pub max_amount: Option<Expression>,
 }
 
 /// A module's declared risk profile.

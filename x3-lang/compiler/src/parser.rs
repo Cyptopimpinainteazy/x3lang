@@ -1458,14 +1458,29 @@ impl<'a> Parser<'a> {
                 "input" => {
                     let asset = self.parse_asset_ref()?;
                     let mut amount = None;
-                    if let Tok::Ident(ref keyword) = self.peek() {
-                        if keyword == "amount" {
-                            self.advance();
-                            amount = Some(self.parse_expr()?);
+                    let mut max_amount = None;
+                    loop {
+                        let Tok::Ident(ref keyword) = self.peek() else {
+                            break;
+                        };
+                        match keyword.as_str() {
+                            "amount" => {
+                                self.advance();
+                                amount = Some(self.parse_expr()?);
+                            }
+                            "max" => {
+                                self.advance();
+                                max_amount = Some(self.parse_expr()?);
+                            }
+                            _ => break,
                         }
                     }
                     self.opt_semi();
-                    inputs.push(StrategyInput { asset, amount });
+                    inputs.push(StrategyInput {
+                        asset,
+                        amount,
+                        max_amount,
+                    });
                 }
                 "output" => {
                     outputs.push(self.parse_asset_ref()?);
