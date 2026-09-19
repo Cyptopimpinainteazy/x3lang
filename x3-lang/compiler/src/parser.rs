@@ -2194,13 +2194,13 @@ impl<'a> Parser<'a> {
         self.advance(); // consume `objective`
         let name = if let Tok::Ident(candidate) = self.peek() {
             if candidate.as_str() == "maximize" || candidate.as_str() == "minimize" {
-                "objective"
+                crate::objective::ANONYMOUS_OBJECTIVE_NAME
             } else {
                 self.advance();
                 return self.parse_objective_body(candidate);
             }
         } else {
-            "objective"
+            crate::objective::ANONYMOUS_OBJECTIVE_NAME
         };
         self.parse_objective_body(name.to_string())
     }
@@ -2209,6 +2209,10 @@ impl<'a> Parser<'a> {
         self.expect(Tok::LBrace, "expected '{' after objective")?;
         let mut metric: Option<ObjectiveMetric> = None;
         let mut constraints = ObjectiveConstraints::default();
+        // One clause per constraint. A repeated one would silently replace the
+        // first, leaving a ceiling the program wrote on the page in force
+        // nowhere.
+        let mut seen: Vec<String> = Vec::new();
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             let section = self.expect_ident("objective section")?;
             match section.as_str() {
@@ -2257,7 +2261,7 @@ impl<'a> Parser<'a> {
                 "constraints" => {
                     self.expect(Tok::LBrace, "expected '{' after constraints")?;
                     while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
-                        self.parse_objective_constraint(&mut constraints)?;
+                        self.parse_objective_constraint(&mut constraints, &mut seen)?;
                     }
                     self.expect(Tok::RBrace, "expected '}' to close constraints")?;
                 }
@@ -2283,7 +2287,11 @@ impl<'a> Parser<'a> {
     }
 
     /// One `name <= value` line inside `constraints`, or one of the two flags.
-    fn parse_objective_constraint(&mut self, constraints: &mut ObjectiveConstraints) -> Result<(), X3Error> {
+    fn parse_objective_constraint(
+        &mut self,
+        constraints: &mut ObjectiveConstraints,
+        seen: &mut Vec<String>,
+    ) -> Result<(), X3Error> {
         let key = self.peek_word().ok_or_else(|| {
             parse_err(
                 "expected a constraint name; the set is capital, hops, chains, risk, execution_time, \
@@ -2293,6 +2301,16 @@ impl<'a> Parser<'a> {
             )
         })?;
         self.advance();
+        if seen.contains(&key) {
+            return Err(parse_err(
+                format!(
+                    "objective declares a ceiling on '{key}' twice; the second would replace the \
+                     first, so one of them would not be in force"
+                ),
+                self.peek(),
+            ));
+        }
+        seen.push(key.clone());
         match key.as_str() {
             "private" => {
                 constraints.private = true;
@@ -2372,34 +2390,78 @@ impl<'a> Parser<'a> {
 
     /// An integer inside `constraints`, with the unit the field is measured in.
     ///
-    /// The unit is optional and written for the reader — the field's name is
-    /// what fixes the meaning (`execution_time` is milliseconds, `fees` and
-    /// `slippage` are basis points, `finality` is blocks). So the accepted unit
-    /// is consumed and any other word is left where it is, which makes
-    /// `slippage <= 30 seconds` an unknown clause rather than a silently
-    /// different number.
+    /// The unit is optional — the field's name is what fixes the meaning
+    /// (`execution_time` is milliseconds, `fees` and `slippage` are basis
+    /// points, `finality` is blocks) — and it may be written separately
+    /// (`200 ms`) or attached (`200ms`), because the lexer joins a number to a
+    /// following word and PHASE 15's own example writes the attached form. An
+    /// attached suffix is read rather than dropped: `2_000s` for `execution_time` is a mistake
+    /// about units, and stripping the digits would silently store a number the
+    /// program never wrote. A suffix on a field that counts (`hops <= 4x`) is
+    /// refused for the same reason. A *separate* unknown word is left where it
+    /// is, so it becomes an unknown clause rather than a different number.
     fn parse_constraint_number(&mut self, field: &str, unit: Option<&str>) -> Result<u32, X3Error> {
-        // `2000ms` is one word to the lexer rather than a number and a unit, so
-        // it arrives here as an identifier. The alternative message would be
-        // about an integer literal the program believes it wrote.
+        // `200ms` is one word to the lexer rather than a number and a unit, so
+        // the attached spelling arrives here as an identifier.
         if let Tok::Ident(word) = self.peek() {
-            let text = word.as_str();
-            let digits = text.trim_end_matches(|ch: char| ch.is_ascii_alphabetic());
+            let text = word.as_str().to_string();
+            let digits = text.trim_end_matches(|ch: char| ch.is_ascii_alphabetic()).to_string();
             if !digits.is_empty() && digits.len() != text.len() {
-                let digits = digits.trim_end_matches('_');
-                let hint = match unit {
-                    Some(unit) => format!("{digits} {unit}"),
-                    None => digits.to_string(),
-                };
-                return Err(parse_err(
-                    format!(
-                        "objective constraint '{field}' is written '{text}'; a number and its unit \
-                         have to be separate words, so write '{hint}'"
-                    ),
-                    self.peek(),
-                ));
+                let written = &text[digits.len()..];
+                match unit {
+                    Some(unit) if written != unit => {
+                        return Err(parse_err(
+                            format!(
+                                "objective constraint '{field}' is measured in {unit}, and \
+                                 '{digits}{written}' says {written}; write '{digits} {unit}'"
+                            ),
+                            self.peek(),
+                        ))
+                    }
+                    None => {
+                        return Err(parse_err(
+                            format!(
+                                "objective constraint '{field}' counts, so it has no unit; write \
+                                 '{digits}' rather than '{text}'"
+                            ),
+                            self.peek(),
+                        ))
+                    }
+                    Some(_) => {}
+                }
+                if digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+                    return Err(parse_err(
+                        format!(
+                            "objective constraint '{field}' is written '{text}', which is not a \
+                             well-formed integer and its unit"
+                        ),
+                        self.peek(),
+                    ));
+                }
+                self.advance();
+                let plain: String = digits.chars().filter(|ch| *ch != '_').collect();
+                let value: u128 = plain.parse().map_err(|_| {
+                    parse_err(
+                        format!(
+                            "objective constraint '{field}' is written '{text}', and '{digits}' is \
+                             not an integer"
+                        ),
+                        self.peek(),
+                    )
+                })?;
+                return u32::try_from(value).map_err(|_| {
+                    parse_err(
+                        format!(
+                            "objective constraint '{field}' is {value}, above the largest value the \
+                             planner compares ({})",
+                            u32::MAX
+                        ),
+                        self.peek(),
+                    )
+                });
             }
         }
+
         let expr = self.parse_expr()?;
         let value = expr_to_u128(&expr).map_err(|_| {
             parse_err(

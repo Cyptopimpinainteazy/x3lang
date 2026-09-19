@@ -56,6 +56,22 @@ pub fn criterion_for(metric: ObjectiveMetric) -> Result<Objective, &'static str>
     }
 }
 
+/// The name an `objective { … }` declaration without one gets.
+///
+/// PHASE 15's example is anonymous, and a declaration still needs something for
+/// a diagnostic to point at — so the parser names it, and the messages here
+/// recognise that name rather than printing `objective 'objective'`.
+pub const ANONYMOUS_OBJECTIVE_NAME: &str = "objective";
+
+/// How a diagnostic refers to an objective.
+fn label(name: &str) -> String {
+    if name == ANONYMOUS_OBJECTIVE_NAME {
+        "the objective".to_string()
+    } else {
+        format!("objective '{name}'")
+    }
+}
+
 /// The program's objective declaration.
 ///
 /// `None` when there is none and when there is more than one: two declarations
@@ -110,7 +126,10 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
     }
     for (index, objective) in objectives.iter().enumerate() {
         let name = objective.name.as_str();
-        if objectives[..index].iter().any(|seen| seen.name.as_str() == name) {
+        // Two anonymous declarations share the name the parser gave them, and
+        // the count above has already said what is wrong with that; reporting a
+        // duplicate name as well would name the same mistake twice.
+        if name != ANONYMOUS_OBJECTIVE_NAME && objectives[..index].iter().any(|seen| seen.name.as_str() == name) {
             acc.add_error(err(format!(
                 "objective '{name}' is declared twice; two declarations with one name cannot be \
                  told apart in a diagnostic"
@@ -133,7 +152,8 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
 
         if let Err(reason) = criterion_for(objective.metric) {
             acc.add_error(err(format!(
-                "objective '{name}' cannot rank '{}': {reason}",
+                "{} cannot rank '{}': {reason}",
+                label(name),
                 objective.metric.as_str()
             )));
         }
@@ -142,7 +162,8 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
         for (field, value) in [("hops", constraints.max_hops), ("chains", constraints.max_chains)] {
             if value == Some(0) {
                 acc.add_error(err(format!(
-                    "objective '{name}' bounds {field} at zero; a route with no {field} is not a route"
+                    "{} bounds {field} at zero; a route with no {field} is not a route",
+                    label(name)
                 )));
             }
         }
@@ -152,7 +173,8 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
         ] {
             if value.is_some_and(|value| value > 10_000) {
                 acc.add_error(err(format!(
-                    "objective '{name}' bounds {field} above 10,000 bps, which is the whole amount"
+                    "{} bounds {field} above 10,000 bps, which is the whole amount",
+                    label(name)
                 )));
             }
         }
@@ -161,8 +183,9 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
                 x3_lang_ast::ast::Expression::Literal(x3_lang_ast::ast::LiteralExpr::Int { value, .. })
                     if *value > 0 => {}
                 _ => acc.add_error(err(format!(
-                    "objective '{name}' requires capital in {} but states no positive integer amount, \
-                     so no size can be checked against it",
+                    "{} requires capital in {} but states no positive integer amount, so no size can \
+                     be checked against it",
+                    label(name),
                     capital.asset.as_str()
                 ))),
             }
@@ -180,9 +203,10 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
             })
         {
             acc.add_error(err(format!(
-                "objective '{name}' requires `private` execution and no strategy declares a \
-                 submission policy that provides it; add `submission {{ private = required }}` to the \
-                 module the objective applies to"
+                "{} requires `private` execution and no strategy declares a submission policy that \
+                 provides it; add `submission {{ private = required }}` to the module the objective \
+                 applies to",
+                label(name)
             )));
         }
 
@@ -196,13 +220,15 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
                 .collect();
             match declaring.len() {
                 0 => acc.add_error(err(format!(
-                    "objective '{name}' bounds risk by `strategy.policy` and no strategy declares a \
-                     risk profile; there is no policy to bound it by"
+                    "{} bounds risk by `strategy.policy` and no strategy declares a risk profile; \
+                     there is no policy to bound it by",
+                    label(name)
                 ))),
                 1 => {}
                 _ => acc.add_error(err(format!(
-                    "objective '{name}' bounds risk by `strategy.policy`, which is ambiguous: {} \
-                     strategy modules declare risk profiles",
+                    "{} bounds risk by `strategy.policy`, which is ambiguous: {} strategy modules \
+                     declare risk profiles",
+                    label(name),
                     declaring.len()
                 ))),
             }

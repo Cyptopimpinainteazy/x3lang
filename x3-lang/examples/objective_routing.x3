@@ -3,6 +3,10 @@
 // What to rank, and the ceilings the ranking must respect, declared in the
 // program instead of repeated on every command line:
 //
+// The shape is PHASE 15's own: an optional name, `maximize`/`minimize`, a metric,
+// and a `constraints` block whose clauses are semicolon-separated and whose units
+// may be attached (`2_000ms`) or separate (`64 blocks`).
+//
 //   x3c optimize examples/objective_routing.x3 \
 //       --from ethereum.USDC --to solana.SOL
 //
@@ -55,17 +59,18 @@ strategy RoutePolicy {
 }
 
 objective cheapest_route {
-    minimize fees
+    minimize fees;
+
     constraints {
-        hops <= 3
-        chains <= 2
-        risk <= strategy.policy
-        execution_time <= 2_000 ms
-        fees <= 100 bps
-        slippage <= 100 bps
-        finality <= 64 blocks
-        capital <= 25_000 USDC
-        atomic
+        hops <= 3;
+        chains <= 2;
+        risk <= strategy.policy;
+        execution_time <= 2_000ms;
+        fees <= 100bps;
+        slippage <= 100bps;
+        finality <= 64 blocks;
+        capital <= 25_000 USDC;
+        atomic;
     }
 }
 

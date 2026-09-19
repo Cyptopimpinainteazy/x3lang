@@ -675,7 +675,7 @@ impl ObjectiveMetric {
     /// than an unknown word.
     pub fn name(self) -> &'static str {
         match self {
-            ObjectiveMetric::MaximizeProfit => "profit",
+            ObjectiveMetric::MaximizeProfit => "net_profit",
             ObjectiveMetric::MaximizeOutput => "output",
             ObjectiveMetric::MinimizeFees => "fees",
             ObjectiveMetric::MinimizeSlippage => "slippage",
@@ -690,7 +690,7 @@ impl ObjectiveMetric {
     /// The phrase the spec and the diagnostics use.
     pub fn as_str(self) -> &'static str {
         match self {
-            ObjectiveMetric::MaximizeProfit => "maximize profit",
+            ObjectiveMetric::MaximizeProfit => "maximize net_profit",
             ObjectiveMetric::MaximizeOutput => "maximize output",
             ObjectiveMetric::MinimizeFees => "minimize fees",
             ObjectiveMetric::MinimizeSlippage => "minimize slippage",
@@ -717,7 +717,17 @@ impl ObjectiveMetric {
     /// The metric a bare name denotes, ignoring whether it is maximised or
     /// minimised. The caller checks the direction, so it can say *why* a name
     /// and a direction do not go together.
+    ///
+    /// `profit` and `net_profit` are one metric: PHASE 15's example writes
+    /// `maximize net_profit` in the declaration and lists `maximize profit`
+    /// among the objectives, and a program following either spelling is asking
+    /// for the same thing. Accepting the second spelling matters because the
+    /// metric is one the graph cannot rank — without it the spec's own example
+    /// would report an unknown word instead of the reason it cannot be ranked.
     pub fn by_name(name: &str) -> Option<ObjectiveMetric> {
+        if name == "profit" {
+            return Some(ObjectiveMetric::MaximizeProfit);
+        }
         ObjectiveMetric::ALL
             .iter()
             .copied()

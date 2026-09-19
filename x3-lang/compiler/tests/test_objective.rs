@@ -297,13 +297,110 @@ fn capital_becomes_a_floor_on_what_each_venue_can_absorb() {
 }
 
 #[test]
-fn an_attached_unit_is_refused_rather_than_read_as_a_number() {
-    // `2000ms` is one word to the lexer. Reading the digits and dropping the
-    // suffix would silently change what the program said, so the message names
-    // the spelling instead.
-    let source = program("    minimize fees\n    constraints {\n        execution_time <= 2_000ms\n    }");
+fn an_attached_unit_is_read_as_the_unit_the_field_uses() {
+    // `2000ms` is one word to the lexer, and PHASE 15 writes the unit that way,
+    // so the suffix is read and checked rather than dropped: the value is in
+    // milliseconds exactly as the field's name says.
+    let source = program(
+        "    minimize fees\n    constraints {\n        execution_time <= 2_000ms\n        fees <= 30bps\n        \
+         finality <= 64blocks\n    }",
+    );
+    assert_eq!(
+        errors(&source),
+        Vec::<String>::new(),
+        "the attached spelling must be understood"
+    );
+    let program = parse(&source);
+    let declaration = x3_lang_compiler::objective::declaration_of(&program).expect("one objective");
+    let constraints = constraints_for(&declaration.constraints, &program);
+    assert_eq!(constraints.max_latency_ms, Some(2_000));
+    assert_eq!(constraints.max_fee_bps, Some(30));
+    assert_eq!(constraints.max_finality_blocks, Some(64));
+}
+
+#[test]
+fn a_unit_that_does_not_go_with_the_field_is_refused() {
+    // The suffix is the program saying what it thinks the number means. Reading
+    // the digits and discarding the rest would store a number nobody wrote.
+    let seconds = program("    minimize fees\n    constraints {\n        execution_time <= 2_000s\n    }");
+    let second_errors = errors(&seconds);
+    assert!(
+        has(&second_errors, "measured in ms") && has(&second_errors, "write '2_000 ms'"),
+        "got: {second_errors:?}"
+    );
+
+    let counted = program("    minimize fees\n    constraints {\n        hops <= 4x\n    }");
+    let counted_errors = errors(&counted);
+    assert!(
+        has(&counted_errors, "counts, so it has no unit"),
+        "got: {counted_errors:?}"
+    );
+}
+
+#[test]
+fn a_repeated_clause_is_refused() {
+    // The second clause would replace the first, so one of the two ceilings the
+    // program wrote would be in force nowhere.
+    let source = program("    minimize fees\n    constraints {\n        hops <= 3\n        hops <= 5\n    }");
     let errors = errors(&source);
-    assert!(has(&errors, "separate words"), "got: {errors:?}");
+    assert!(has(&errors, "ceiling on 'hops' twice"), "got: {errors:?}");
+}
+
+#[test]
+fn the_specs_own_example_is_understood_and_refused_for_its_reason() {
+    // PHASE 15's example verbatim: anonymous objective, semicolon-separated
+    // clauses, `capital <= 25_000_000 USDC`, `maximize net_profit`, and the
+    // attached `200ms`. It has to *parse* — a program written to the spec that
+    // failed with "unknown metric" would mean the surface and the spec had
+    // drifted apart.
+    let source = format!(
+        "{}{}{}",
+        strategy("RoutePolicy", risk_profile(), "    submission { private = required }\n"),
+        r#"objective {
+    maximize net_profit;
+
+    constraints {
+        capital <= 25_000_000 USDC;
+        hops <= 10;
+        chains <= 4;
+        risk <= strategy.policy;
+        execution_time <= 200ms;
+        private;
+        atomic;
+    }
+}
+"#,
+        VENUES
+    );
+    let errors = errors(&source);
+    assert_eq!(
+        errors.len(),
+        1,
+        "the spec's example verifies apart from its metric: {errors:?}"
+    );
+    assert!(
+        has(&errors, "cannot rank 'maximize net_profit'") && has(&errors, "PHASE 15 forbids"),
+        "the refusal has to be the phase's own determinism requirement: {errors:?}"
+    );
+    // An anonymous declaration is referred to as "the objective", not
+    // `objective 'objective'`.
+    assert!(has(&errors, "the objective cannot rank"), "got: {errors:?}");
+}
+
+#[test]
+fn both_spellings_of_the_profit_metric_reach_the_same_refusal() {
+    // The example writes `net_profit`; the phase's list of objectives writes
+    // `profit`. One metric, one reason it cannot be ranked.
+    for spelling in ["maximize net_profit", "maximize profit"] {
+        let source = program(&format!(
+            "    {spelling}\n    constraints {{\n        hops <= 3\n    }}"
+        ));
+        let errors = errors(&source);
+        assert!(
+            has(&errors, "cannot rank") && has(&errors, "ranking them would fall to a solver"),
+            "'{spelling}' must reach the refusal, not an unknown word: {errors:?}"
+        );
+    }
 }
 
 #[test]
