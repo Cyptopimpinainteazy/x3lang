@@ -207,10 +207,18 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
                 let input_amount = field_amount(step, "amount").unwrap_or(running_amount);
                 let min_output = field_amount(step, "min_output").unwrap_or(0);
                 let dex = field_string(step, "dex");
+                // `Operation::Swap` carries the destination chain explicitly
+                // (`ethereum.DAI -> solana.SOL` is a cross-chain swap, and a
+                // reader that only knew `from_chain` could not tell). Same
+                // derivation as the bridge step below.
+                let to_chain = field_nested_chain(step, "to_ref")
+                    .or_else(|| field_string(step, "to_chain"))
+                    .unwrap_or_else(|| intent.to.chain.to_ascii_lowercase());
                 running_amount = input_amount;
                 ir.push(Operation::Swap {
                     from_chain: from_chain.to_ascii_lowercase(),
                     from_asset,
+                    to_chain: to_chain.to_ascii_lowercase(),
                     to_asset,
                     input_amount,
                     min_output,
@@ -268,6 +276,7 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
             subject: requirement.chain.clone(),
             condition: requirement_to_condition(requirement),
             error_msg: None,
+            comparison: requirement_comparison(requirement),
         });
     }
 
@@ -357,6 +366,24 @@ fn requirement_to_condition(requirement: &Requirement) -> crate::ir::Condition {
         .unwrap_or_default();
     crate::ir::Condition::Expression {
         expr: format!("{op} {value}").trim().to_string(),
+    }
+}
+
+/// The IR carries the comparison a guard makes, because `slippage <= 50` and
+/// `slippage >= 50` are opposite claims and a check that reads one as the other
+/// is reading a direction nobody wrote. The intent JSON states the operator as a
+/// string; map it onto the same enum the parsed form uses so intent-built guards
+/// get the same direction checks as hand-written `.x3` ones.
+fn requirement_comparison(requirement: &Requirement) -> Option<crate::ir::ComparisonOp> {
+    use crate::ir::ComparisonOp;
+    match requirement.op.as_deref()?.trim() {
+        "<" => Some(ComparisonOp::Less),
+        "<=" => Some(ComparisonOp::LessOrEqual),
+        ">" => Some(ComparisonOp::Greater),
+        ">=" => Some(ComparisonOp::GreaterOrEqual),
+        "==" | "=" => Some(ComparisonOp::Equal),
+        "!=" => Some(ComparisonOp::NotEqual),
+        _ => None,
     }
 }
 
@@ -532,5 +559,66 @@ mod tests {
         let ir = to_ir(&intent).expect("lowers to ir");
         let errors = crate::check_ir(&ir).expect_err("missing nonce should fail semantic check");
         assert!(errors.iter().any(|e| e.to_string().contains("nonce")));
+    }
+
+    /// A swap lowered from intent JSON must carry the destination chain, and a
+    /// guard must carry the comparison it makes: `slippage <= 50` and
+    /// `slippage >= 50` are opposite claims, and the IR used to be built with
+    /// `comparison: None` because the field did not exist yet.
+    #[test]
+    fn swap_carries_to_chain_and_guards_carry_their_comparison() {
+        let mut value: Value = serde_json::from_str(valid_json()).unwrap();
+        value["path"] = serde_json::json!([{
+            "type": "swap",
+            "from_ref": {"chain": "ethereum", "asset": "DAI"},
+            "to_ref": {"chain": "solana", "asset": "SOL"},
+            "from": "DAI",
+            "to": "SOL",
+            "amount": "10",
+            "min_output": "9"
+        }]);
+        value["requires"] = serde_json::json!([
+            {"kind": "nonce", "chain": "solana", "op": "==", "value": "n1"},
+            {"kind": "slippage", "chain": "ethereum", "op": "<=", "value": "50"}
+        ]);
+        let intent =
+            parse_validated_intent_json(&value.to_string()).expect("valid envelope");
+        let ir = to_ir(&intent).expect("lowers to ir");
+
+        let swap = ir
+            .operations
+            .iter()
+            .find_map(|op| match op {
+                Operation::Swap {
+                    from_chain,
+                    to_chain,
+                    to_asset,
+                    ..
+                } => Some((from_chain.clone(), to_chain.clone(), to_asset.clone())),
+                _ => None,
+            })
+            .expect("swap op");
+        assert_eq!(swap.0, "ethereum");
+        assert_eq!(swap.1, "solana", "the destination chain must not be dropped");
+        assert_eq!(swap.2, "SOL");
+
+        let comparison = ir
+            .operations
+            .iter()
+            .find_map(|op| match op {
+                Operation::Require {
+                    kind,
+                    comparison,
+                    ..
+                } if matches!(kind, RequireKind::SlippageTolerance) => *comparison,
+                _ => None,
+            })
+            .expect("slippage guard with a comparison");
+        assert_eq!(
+            comparison,
+            crate::ir::ComparisonOp::LessOrEqual,
+            "`<=` must not be read as `>=`"
+        );
+        assert!(comparison.is_upper_bound());
     }
 }
