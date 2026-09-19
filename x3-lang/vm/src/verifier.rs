@@ -254,6 +254,45 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         return Ok(());
     }
 
+    if opcode == STRATEGY_LICENSE {
+        // The distribution reads this record, so the rule the compiler enforces
+        // is enforced again where it is read: a split that does not total 10,000
+        // is refused rather than distributed on a best-effort basis.
+        let text = std::str::from_utf8(payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let field =
+            |name: &str| -> Option<&str> { text.split(';').find_map(|part| part.strip_prefix(&format!("{name}="))) };
+        let creator = field("creator").ok_or(VerifyError::InvalidOperand(pc))?;
+        let royalty: u32 = field("royalty_bps")
+            .and_then(|value| value.parse().ok())
+            .ok_or(VerifyError::InvalidOperand(pc))?;
+        if royalty > 10_000 {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        // A royalty paid to nobody is the only way an empty creator is wrong; a
+        // module may split its profit without being licensed.
+        if royalty > 0 && creator.is_empty() {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        let split = field("split").ok_or(VerifyError::InvalidOperand(pc))?;
+        let mut total = 0u32;
+        let mut shares = 0usize;
+        for entry in split.split(',').filter(|entry| !entry.is_empty()) {
+            let Some((recipient, bps)) = entry.split_once(':') else {
+                return Err(VerifyError::InvalidOperand(pc));
+            };
+            let bps: u32 = bps.parse().map_err(|_| VerifyError::InvalidOperand(pc))?;
+            if recipient.is_empty() || bps == 0 {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+            total = total.saturating_add(bps);
+            shares += 1;
+        }
+        if shares == 0 || total != 10_000 {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        return Ok(());
+    }
+
     if opcode == PARALLEL_PLAN {
         // `legs=<n>;waves=a,b|c;edges=a->c`. The verifier checks the record is a
         // plan that could have been built: at least two legs, no empty wave, a

@@ -880,6 +880,78 @@ pub struct CrossChainStrategy {
     pub domains: Vec<Symbol>,
     /// `risk { ... }` — the bounds the module accepts.
     pub risk: Option<StrategyRisk>,
+    /// `license { ... }` — who wrote the module and what its use earns them.
+    ///
+    /// Optional: a module need not be licensed. When it is, the royalty is
+    /// checked against the profit split, because a royalty that the split does
+    /// not pay is a promise the artifact does not keep.
+    pub license: Option<StrategyLicense>,
+    /// `split profit { ... }` — how net profit is distributed.
+    pub split: Option<ProfitSplit>,
+}
+
+/// `license { creator <who> profit_share <N>% [executions <N>] [expires_block <N>] }`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StrategyLicense {
+    /// Who the licence is granted to and by — an opaque handle, as written.
+    pub creator: Symbol,
+    /// The author's share of net profit, in basis points.
+    ///
+    /// Basis points rather than a float: PHASE 42 forbids floating-point
+    /// ambiguity in anything that moves money, and a share is money.
+    pub profit_share_bps: u32,
+    /// Per-execution entitlement, if the licence is sold by execution count.
+    pub executions: Option<u128>,
+    /// Block at which the licence expires, if it is time-limited.
+    pub expires_block: Option<u64>,
+}
+
+/// `split profit { 70% -> trader ... }` — the distribution of net profit.
+///
+/// Every share is in basis points and the shares must total exactly 10,000: a
+/// split that does not add up is distributing something it does not have, or
+/// quietly leaving part of the profit unassigned.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfitSplit {
+    pub shares: Vec<(SplitRecipient, u32)>,
+}
+
+/// Who a profit share is paid to.
+///
+/// A closed set. The alternative — free-form recipient handles — would make the
+/// royalty check impossible, because "does the author get paid" would depend on
+/// whether a name in the split happens to match a name in the licence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum SplitRecipient {
+    Trader,
+    LiquidityProvider,
+    ValidatorPool,
+    StrategyAuthor,
+}
+
+impl SplitRecipient {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SplitRecipient::Trader => "trader",
+            SplitRecipient::LiquidityProvider => "liquidity_provider",
+            SplitRecipient::ValidatorPool => "validator_pool",
+            SplitRecipient::StrategyAuthor => "strategy_author",
+        }
+    }
+
+    pub const ALL: [SplitRecipient; 4] = [
+        SplitRecipient::Trader,
+        SplitRecipient::LiquidityProvider,
+        SplitRecipient::ValidatorPool,
+        SplitRecipient::StrategyAuthor,
+    ];
+
+    pub fn parse(name: &str) -> Option<SplitRecipient> {
+        SplitRecipient::ALL
+            .iter()
+            .copied()
+            .find(|recipient| recipient.as_str() == name)
+    }
 }
 
 /// One `input` of a strategy module.

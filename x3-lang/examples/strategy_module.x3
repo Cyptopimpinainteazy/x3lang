@@ -22,6 +22,24 @@
 // clause is refused by the parser — omitting it says the same thing more
 // clearly — and the compiler still checks that the body does nothing it did not
 // declare.
+//
+// Licensing is item 23 (PHASE 24/25) and lives in the same block. `license`
+// records who holds the module and what its use earns them; `split profit` says
+// where net profit goes. The two are checked against each other: the royalty the
+// licence grants has to be a share the split actually pays, and the split has to
+// total exactly 100% — one that does not add up is distributing something it
+// does not have.
+//
+// Shares are basis points internally, because a share is money and PHASE 42
+// forbids floating-point ambiguity in anything that moves money; the surface
+// takes whole percentages, and `99.5%` is refused with a message saying a share
+// finer than one percent is not expressible yet rather than being rounded.
+//
+// PHASE 24 also requires that licensing never compromise deterministic
+// execution, and that is a property of the encoding rather than of care: the
+// licence lowers to a *record* that no instruction tests, so the executable
+// stream is byte-identical with and without it. `test_licensing.rs` asserts
+// exactly that.
 
 strategy TriDexArb {
     input ethereum.USDC amount 25_000_000
@@ -30,6 +48,17 @@ strategy TriDexArb {
     guarantees [min_profit]
     domains [ethereum]
     risk { max_slippage_bps 50 max_total_fee_bps 8 }
+    license {
+        creator x3_strategy_author
+        profit_share 3%
+        executions 10_000
+        expires_block 88_000_000
+    }
+    split profit {
+        92% -> trader
+        5% -> liquidity_provider
+        3% -> strategy_author
+    }
     bounds { max_steps 10 max_gas 200_000 }
     execute {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1_000 min_output 1

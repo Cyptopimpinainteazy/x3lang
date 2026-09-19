@@ -82,6 +82,51 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 }
                 let _ = criterion;
             }
+            Operation::StrategyLicense {
+                creator,
+                royalty_bps,
+                split,
+                ..
+            } => {
+                // The compiler already checked these; the IR verifier states
+                // them again because this record is what a distribution reads,
+                // and a record that does not add up is worse than no record.
+                // A module may split its profit without being licensed, so an
+                // empty creator is only wrong when a royalty is claimed: that is
+                // a payment to nobody.
+                if *royalty_bps > 0 && creator.is_empty() {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: a strategy licence claims a royalty but names no creator"),
+                    );
+                }
+                if *royalty_bps > 10_000 {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: strategy licence royalty {royalty_bps} bps exceeds 10,000"),
+                    );
+                }
+                if split.is_empty() {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: a strategy licence with an empty profit split"),
+                    );
+                } else {
+                    let total: u32 = split.iter().map(|(_, bps)| *bps).sum();
+                    if total != 10_000 {
+                        push_unsafe(
+                            diagnostics,
+                            format!("{op_context}: the profit split totals {total} bps, not 10,000"),
+                        );
+                    }
+                    if split.iter().any(|(recipient, _)| recipient.is_empty()) {
+                        push_unsafe(
+                            diagnostics,
+                            format!("{op_context}: the profit split names an empty recipient"),
+                        );
+                    }
+                }
+            }
             Operation::FeatureAllow { feature, name } => {
                 // The set of features is closed, and this is where the closure
                 // is enforced on the IR side: an unknown code means the artifact

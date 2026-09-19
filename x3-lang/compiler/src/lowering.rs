@@ -518,6 +518,39 @@ pub fn lower_program_with_mode(
                 ir.push(Operation::AtomicEnd);
             }
             Item::Strategy(strategy) => {
+                // The licence is a record, and it is pushed before the body so a
+                // reader meets the terms before the work.
+                if strategy.license.is_some() || strategy.split.is_some() {
+                    let (creator, royalty_bps, executions, expires_block) = strategy
+                        .license
+                        .as_ref()
+                        .map(|license| {
+                            (
+                                license.creator.as_str().to_string(),
+                                license.profit_share_bps,
+                                license.executions,
+                                license.expires_block,
+                            )
+                        })
+                        .unwrap_or_else(|| (String::new(), 0, None, None));
+                    ir.push(Operation::StrategyLicense {
+                        creator,
+                        royalty_bps,
+                        executions,
+                        expires_block,
+                        split: strategy
+                            .split
+                            .as_ref()
+                            .map(|split| {
+                                split
+                                    .shares
+                                    .iter()
+                                    .map(|(recipient, bps)| (recipient.as_str().to_string(), *bps))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    });
+                }
                 // Lower strategy as constrained execution
                 ir.push(Operation::AtomicBegin);
 

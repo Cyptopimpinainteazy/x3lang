@@ -246,6 +246,38 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             // any offset.
             bytecode.write_all(&[FEATURE_ALLOW, 0, *feature])?;
         }
+        // `[STRATEGY_LICENSE][u16 len][creator=..;royalty_bps=..;executions=..;expires_block=..;split=a:1,b:2]`
+        Operation::StrategyLicense {
+            creator,
+            royalty_bps,
+            executions,
+            expires_block,
+            split,
+        } => {
+            let split_text = split
+                .iter()
+                .map(|(recipient, bps)| format!("{recipient}:{bps}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let payload = format!(
+                "creator={creator};royalty_bps={royalty_bps};executions={};expires_block={};split={split_text}",
+                executions
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                expires_block
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            );
+            if payload.len() > u16::MAX as usize {
+                return Err(X3Error::CodegenError {
+                    message: format!("strategy licence payload too large: {} bytes", payload.len()),
+                    span: None,
+                });
+            }
+            bytecode.write_all(&[STRATEGY_LICENSE])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
         Operation::ParallelPlan {
             waves,
             edges,
@@ -1093,6 +1125,7 @@ fn disassemble_op(opcode: u8, payload: &[u8], _flags: u8, _operand: u16) -> Stri
         0x53 => format!("ATOMIC_CHOICE [{payload_str}]"),
         0x54 => format!("ROUTE_FALLBACK approved [{payload_str}]"),
         0x55 => format!("PARALLEL_PLAN     {payload_str}"),
+        0x57 => format!("STRATEGY_LICENSE  {payload_str}"),
         0x60 => format!("EMIT     {payload_str}"),
         0x66 => format!("CALL_HOST  {payload_str}"),
         0x70..=0x7F => format!("VECTOR   {payload_str}"),

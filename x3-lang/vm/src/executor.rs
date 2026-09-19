@@ -399,6 +399,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     atomic_choices_len: vm.state.atomic_choices.len(),
                     route_fallbacks_len: vm.state.route_fallbacks.len(),
                     parallel_plans_len: vm.state.parallel_plans.len(),
+                    strategy_licenses_len: vm.state.strategy_licenses.len(),
                     pc: pc_next,
                     call_stack: vm.state.call_stack.clone(),
                     instruction_count: vm.state.instruction_count,
@@ -444,6 +445,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.atomic_choices.truncate(snapshot.atomic_choices_len);
                 vm.state.route_fallbacks.truncate(snapshot.route_fallbacks_len);
                 vm.state.parallel_plans.truncate(snapshot.parallel_plans_len);
+                vm.state.strategy_licenses.truncate(snapshot.strategy_licenses_len);
                 // Note: We intentionally do NOT restore PC from the snapshot.
                 // Instead execution continues past the rollback instruction.
                 // This prevents infinite re-execution of the atomic scope.
@@ -667,6 +669,36 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     )));
                 }
                 vm.state.allowed_features.insert(FEATURE_INTENT_FUSION);
+            }
+            STRATEGY_LICENSE => {
+                // A licence is a record, not an action: nothing here can fail a
+                // program, which is how PHASE 24's "licensing must never
+                // compromise deterministic execution" holds by construction. The
+                // VM refuses a record that is not a distribution plan, and
+                // records the one it was handed.
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(payload) => payload.to_vec(),
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                let text = match std::str::from_utf8(&payload) {
+                    Ok(text) => text.to_string(),
+                    Err(_) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(
+                            "X3_STRATEGY_LICENSE_INVALID: the licence record is not UTF-8".to_string(),
+                        ));
+                    }
+                };
+                vm.state.strategy_licenses.push(text);
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
             }
             PARALLEL_PLAN => {
                 // `legs=<n>;waves=a,b|c;edges=a->c`.
@@ -1910,6 +1942,7 @@ mod tests {
             atomic_choices_len: 0,
             route_fallbacks_len: 0,
             parallel_plans_len: 0,
+            strategy_licenses_len: 0,
             pc: 0,
             call_stack: vec![],
             instruction_count: 3,

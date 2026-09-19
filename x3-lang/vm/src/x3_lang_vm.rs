@@ -51,6 +51,7 @@ pub struct VmSnapshot {
     pub atomic_choices_len: usize,
     pub route_fallbacks_len: usize,
     pub parallel_plans_len: usize,
+    pub strategy_licenses_len: usize,
     pub pc: usize,
     pub call_stack: Vec<usize>,
     pub instruction_count: u128,
@@ -93,6 +94,12 @@ pub struct VMState {
     pub parallel_plans: Vec<ParallelPlanRecord>,
     /// Execution modes the program opted into, by feature code.
     pub allowed_features: std::collections::BTreeSet<u8>,
+    /// Strategy licence records the program carried, in order.
+    ///
+    /// Kept as the decoded text the artifact stated: the distribution reads it,
+    /// and re-encoding it would be a second place for a split to be transcribed
+    /// wrongly.
+    pub strategy_licenses: Vec<String>,
     pub paused: bool,
     /// Atomic scope rollback snapshot (set by ATOMIC_BEGIN, consumed by ATOMIC_ROLLBACK).
     pub atomic_snapshot: Option<VmSnapshot>,
@@ -125,6 +132,7 @@ impl VMState {
             route_fallbacks: Vec::new(),
             parallel_plans: Vec::new(),
             allowed_features: std::collections::BTreeSet::new(),
+            strategy_licenses: Vec::new(),
             paused: false,
             atomic_snapshot: None,
             failure_handlers: Vec::new(),

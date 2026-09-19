@@ -1445,6 +1445,8 @@ impl<'a> Parser<'a> {
         let mut permissions: Vec<StrategyPermission> = Vec::new();
         let mut domains: Vec<Symbol> = Vec::new();
         let mut risk: Option<StrategyRisk> = None;
+        let mut license: Option<StrategyLicense> = None;
+        let mut split: Option<ProfitSplit> = None;
         let mut max_steps: Option<Expression> = None;
         let mut max_gas: Option<Expression> = None;
         let mut body: Vec<Statement> = Vec::new();
@@ -1538,6 +1540,23 @@ impl<'a> Parser<'a> {
                     }
                     self.expect(Tok::RBrace, "expected '}' to close bounds")?;
                 }
+                "license" => {
+                    license = Some(self.parse_strategy_license()?);
+                }
+                "split" => {
+                    // `split profit { ... }` — the noun is required so a future
+                    // `split` of something else cannot be read as a profit split.
+                    let noun = self.expect_ident("split target")?;
+                    if noun != "profit" {
+                        return Err(parse_err(
+                            format!(
+                                "unknown split target '{noun}'; the only split the language defines is `split profit`"
+                            ),
+                            self.peek(),
+                        ));
+                    }
+                    split = Some(self.parse_profit_split()?);
+                }
                 "execute" => {
                     self.expect(Tok::LBrace, "expected '{' after execute")?;
                     while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
@@ -1595,7 +1614,150 @@ impl<'a> Parser<'a> {
             permissions,
             domains,
             risk,
+            license,
+            split,
         }))
+    }
+
+    /// `license { creator <who> profit_share <N>% [executions <N>] [expires_block <N>] }`
+    ///
+    /// `creator` and `profit_share` are required: a licence that does not say who
+    /// holds it, or what it earns them, is a heading rather than a licence.
+    fn parse_strategy_license(&mut self) -> Result<StrategyLicense, X3Error> {
+        self.expect(Tok::LBrace, "expected '{' after license")?;
+        let mut creator: Option<Symbol> = None;
+        let mut profit_share_bps: Option<u32> = None;
+        let mut executions: Option<u128> = None;
+        let mut expires_block: Option<u64> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let key = self.expect_ident("license field")?;
+            match key.as_str() {
+                "creator" => {
+                    // A handle, written either bare or quoted: an identity is
+                    // opaque to the compiler, so it does not get to insist on a
+                    // spelling the outside world must match.
+                    let who = match self.advance() {
+                        Tok::Ident(name) => name,
+                        Tok::String_(name) => name,
+                        other => {
+                            return Err(parse_err(
+                                "license creator must be a name or a string".into(),
+                                other,
+                            ))
+                        }
+                    };
+                    creator = Some(Symbol::new(&who));
+                }
+                "profit_share" => profit_share_bps = Some(self.parse_whole_percent_bps("profit_share")?),
+                "executions" => {
+                    let value = self.parse_expr()?;
+                    executions = Some(expr_to_u128(&value).map_err(|_| {
+                        parse_err("license executions must be an integer".into(), self.peek())
+                    })?);
+                }
+                "expires_block" => {
+                    let value = self.parse_expr()?;
+                    let block = expr_to_u128(&value)
+                        .map_err(|_| parse_err("license expires_block must be an integer".into(), self.peek()))?;
+                    if block > u64::MAX as u128 {
+                        return Err(parse_err(format!("license expires_block {block} exceeds u64"), self.peek()));
+                    }
+                    expires_block = Some(block as u64);
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown license field '{other}'; expected creator, profit_share,                              executions or expires_block"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        self.expect(Tok::RBrace, "expected '}' to close license")?;
+        Ok(StrategyLicense {
+            creator: creator.ok_or_else(|| parse_err("license is missing creator".into(), self.peek()))?,
+            profit_share_bps: profit_share_bps
+                .ok_or_else(|| parse_err("license is missing profit_share".into(), self.peek()))?,
+            executions,
+            expires_block,
+        })
+    }
+
+    /// `split profit { <N>% -> <recipient> ... }`
+    fn parse_profit_split(&mut self) -> Result<ProfitSplit, X3Error> {
+        self.expect(Tok::LBrace, "expected '{' after `split profit`")?;
+        let mut shares: Vec<(SplitRecipient, u32)> = Vec::new();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let share = self.parse_whole_percent_bps("profit split share")?;
+            self.expect(Tok::Arrow, "expected '->' after a profit share")?;
+            let recipient = self.expect_ident("split recipient")?;
+            let recipient = SplitRecipient::parse(&recipient).ok_or_else(|| {
+                let allowed: Vec<&str> = SplitRecipient::ALL.iter().map(|r| r.as_str()).collect();
+                parse_err(
+                    format!(
+                        "unknown split recipient '{recipient}'; the set is closed: {}",
+                        allowed.join(", ")
+                    ),
+                    self.peek(),
+                )
+            })?;
+            self.opt_semi();
+            shares.push((recipient, share));
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the profit split")?;
+        Ok(ProfitSplit { shares })
+    }
+
+    /// A share written as a whole percentage, returned in basis points.
+    ///
+    /// Basis points internally, because a share is money and PHASE 42 forbids
+    /// floating-point ambiguity in anything that moves money. The surface takes
+    /// whole percentages, which is the granularity it can express without a
+    /// fractional literal; finer shares would need one.
+    fn parse_whole_percent_bps(&mut self, field: &str) -> Result<u32, X3Error> {
+        // A whole percentage and a fractional one reach here as different
+        // tokens: `70%` is an integer followed by `%`, while `0.5%` is a single
+        // percentage literal whose text still carries the sign. Both are the
+        // same construct to an author, so both are handled here rather than
+        // making the spelling depend on whether the number has a point.
+        let percent: u32 = if let Tok::Int(value) = self.peek() {
+            if self.peek_n(1) == Tok::Percent {
+                self.advance(); // the integer
+                self.advance(); // the '%'
+                if value > u32::MAX as u128 {
+                    return Err(parse_err(format!("{field} {value}% is out of range"), self.peek()));
+                }
+                value as u32
+            } else {
+                return Err(parse_err(
+                    format!("{field} must be a percentage, written as a number followed by '%'"),
+                    self.peek(),
+                ));
+            }
+        } else {
+            let expr = self.parse_expr()?;
+            let Expression::Literal(LiteralExpr::Percentage { value }) = &expr else {
+                return Err(parse_err(
+                    format!("{field} must be a percentage, written as a number followed by '%'"),
+                    self.peek(),
+                ));
+            };
+            let text = value.as_str().trim_end_matches('%');
+            let whole: u32 = text.parse().map_err(|_| {
+                parse_err(
+                    format!(
+                        "{field} '{text}%' is not a whole number of percent; a share finer than one percent is not expressible yet"
+                    ),
+                    self.peek(),
+                )
+            })?;
+            whole
+        };
+        percent
+            .checked_mul(100)
+            .ok_or_else(|| parse_err(format!("{field} {percent}% exceeds the basis-point range"), self.peek()))
     }
 
     /// `risk { max_slippage_bps <n> max_total_fee_bps <n> }` — a module's

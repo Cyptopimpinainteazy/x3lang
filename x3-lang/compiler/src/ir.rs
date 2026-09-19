@@ -167,6 +167,21 @@ pub enum Operation {
     /// "these legs may run concurrently" is a claim about their independence,
     /// and a reader who cannot see the waves cannot check that claim. The legs'
     /// operations follow in wave order.
+    /// A strategy module's licence and profit split.
+    ///
+    /// Carried in the artifact because PHASE 25's distribution is an action
+    /// somebody has to take after settlement, and a split that only the source
+    /// knows cannot be taken. It records; it does not execute, which is what
+    /// keeps PHASE 24's "licensing must never compromise deterministic
+    /// execution" true by construction rather than by care.
+    StrategyLicense {
+        creator: String,
+        royalty_bps: u32,
+        executions: Option<u128>,
+        expires_block: Option<u64>,
+        /// `(recipient, basis points)`, summing to 10,000.
+        split: Vec<(String, u32)>,
+    },
     /// An execution mode the program opted into, as `FEATURE_*`.
     FeatureAllow {
         feature: u8,

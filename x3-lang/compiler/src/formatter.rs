@@ -612,6 +612,38 @@ impl X3Formatter {
             self.write(&risk.max_total_fee_bps.to_string());
             self.write(" }\n");
         }
+        if let Some(license) = &s.license {
+            // The licence and the split are part of the module, so the formatter
+            // prints them: dropping them would turn a licensed module into an
+            // unlicensed one, which is a materially different artifact.
+            self.write_indent();
+            self.write("license { creator ");
+            self.write(license.creator.as_str());
+            self.write(" profit_share ");
+            self.write(&format!("{}%", license.profit_share_bps / 100));
+            if let Some(executions) = license.executions {
+                self.write(" executions ");
+                self.write(&executions.to_string());
+            }
+            if let Some(block) = license.expires_block {
+                self.write(" expires_block ");
+                self.write(&block.to_string());
+            }
+            self.write(" }\n");
+        }
+        if let Some(split) = &s.split {
+            self.write_indent();
+            self.write("split profit {\n");
+            self.indent();
+            for (recipient, bps) in &split.shares {
+                self.write_indent();
+                self.write(&format!("{}% -> {}", bps / 100, recipient.as_str()));
+                self.write("\n");
+            }
+            self.dedent();
+            self.write_indent();
+            self.write("}\n");
+        }
         self.write_indent();
         self.write("bounds { ");
         if let Some(max_steps) = &s.max_steps {

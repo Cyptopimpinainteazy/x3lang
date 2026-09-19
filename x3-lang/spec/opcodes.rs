@@ -25,6 +25,7 @@ pub const ATOMIC_CHOICE: u8 = 0x53;
 pub const ROUTE_FALLBACK: u8 = 0x54;
 pub const PARALLEL_PLAN: u8 = 0x55;
 pub const FEATURE_ALLOW: u8 = 0x56;
+pub const STRATEGY_LICENSE: u8 = 0x57;
 
 /// Feature codes for `FEATURE_ALLOW`.
 ///
@@ -188,7 +189,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
     (compiler_stream && matches!(opcode, LOCK | MINT | BURN | RELEASE | SWAP | BRIDGE))
         || matches!(
             opcode,
-            EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK | PARALLEL_PLAN
+            EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK | PARALLEL_PLAN | STRATEGY_LICENSE
                 | GPU_DISPATCH..=SUB_EXEC
                 | ROUTE_SCORE..=REFUND_POLICY
                 | TRADING_BEGIN..=TRADING_BRIDGE

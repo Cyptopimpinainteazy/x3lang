@@ -34,7 +34,7 @@
 
 use std::collections::BTreeSet;
 
-use x3_lang_ast::ast::{Statement, StrategyPermission};
+use x3_lang_ast::ast::{SplitRecipient, Statement, StrategyPermission};
 use x3_lang_common::{ErrorAccumulator, X3Error};
 
 use x3_lang_ast::ast::{Item, Program};
@@ -241,6 +241,104 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
                     "strategy '{name}' `execute` touches chain '{chain}' but the module's domains do \
                      not include it; a module that reaches a chain it never listed has not declared \
                      its requirements"
+                )));
+            }
+        }
+
+        // ── the licence, the split, and the royalty between them ───────────
+        //
+        // PHASE 24's constraint is that licensing must never compromise
+        // deterministic execution. The licence lowers to a *record*, not to an
+        // instruction that can fail, so it cannot change what a program does —
+        // and the check that it pays the author is a compile-time comparison of
+        // two declared numbers rather than a run-time branch.
+        if let Some(split) = &module.split {
+            let total: u32 = split.shares.iter().map(|(_, bps)| *bps).sum();
+            if total != 10_000 {
+                acc.add_error(err(format!(
+                    "strategy '{name}' profit split totals {total} bps, not 10_000; a split that does \
+                     not add up is distributing something it does not have, or leaving part of the \
+                     profit unassigned"
+                )));
+            }
+            let mut seen: Vec<&str> = Vec::new();
+            for (recipient, bps) in &split.shares {
+                if seen.contains(&recipient.as_str()) {
+                    acc.add_error(err(format!(
+                        "strategy '{name}' profit split names '{}' twice; the shares would be \
+                         ambiguous",
+                        recipient.as_str()
+                    )));
+                }
+                seen.push(recipient.as_str());
+                if *bps == 0 {
+                    acc.add_error(err(format!(
+                        "strategy '{name}' profit split gives '{}' nothing; leave the recipient out \
+                         rather than writing a zero share",
+                        recipient.as_str()
+                    )));
+                }
+            }
+
+            // PHASE 25: distribution happens after final net profit is known, so
+            // a split needs a profit floor to distribute. Without one there is no
+            // "net profit" the split applies to.
+            let has_floor = statements.iter().any(|statement| match statement {
+                Statement::Require(guard) => {
+                    guard.kind == x3_lang_ast::ast::RequireKind::Profit
+                        && guard.comparison.is_some_and(|op| op.is_lower_bound())
+                }
+                _ => false,
+            });
+            if !has_floor {
+                acc.add_error(err(format!(
+                    "strategy '{name}' splits profit but asserts no profit floor; distribution \
+                     happens after final net profit is known, so the body has to say what that is \
+                     (`require profit >= <amount>`)"
+                )));
+            }
+
+            // The royalty the licence promises must be a share the split pays.
+            // A royalty the split does not pay is a promise the artifact does
+            // not keep.
+            if let Some(license) = &module.license {
+                let paid = split
+                    .shares
+                    .iter()
+                    .find(|(recipient, _)| *recipient == SplitRecipient::StrategyAuthor)
+                    .map(|(_, bps)| *bps)
+                    .unwrap_or(0);
+                if paid < license.profit_share_bps {
+                    acc.add_error(err(format!(
+                        "strategy '{name}' licence grants the author {} bps of profit but the split \
+                         pays {} bps; the royalty has to be a share the split actually pays",
+                        license.profit_share_bps, paid
+                    )));
+                }
+            }
+        } else if let Some(license) = &module.license {
+            // A licence that grants a profit share and no split to pay it from
+            // is the same unkept promise, one step earlier.
+            if license.profit_share_bps > 0 {
+                acc.add_error(err(format!(
+                    "strategy '{name}' licence grants the author {} bps of profit but the module \
+                     declares no `split profit`; there is nothing for the royalty to be paid from",
+                    license.profit_share_bps
+                )));
+            }
+        }
+
+        if let Some(license) = &module.license {
+            if license.profit_share_bps > MAX_BPS {
+                acc.add_error(err(format!(
+                    "strategy '{name}' licence share {} bps exceeds {MAX_BPS}",
+                    license.profit_share_bps
+                )));
+            }
+            if license.executions == Some(0) {
+                acc.add_error(err(format!(
+                    "strategy '{name}' licence grants zero executions; that is not a licence to run \
+                     the module"
                 )));
             }
         }
