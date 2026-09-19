@@ -1891,3 +1891,160 @@ fn cli_refuses_a_venue_that_claims_atomic_settlement_off_chain() {
         "`compensating` is a true description of an off-chain leg: {output}"
     );
 }
+
+/// The key `opportunity_packet_json` signs with. Fixed and non-secret on
+/// purpose: the test asserts the CLI's trust decision, not the key's quality.
+fn packet_solver_key() -> ed25519_dalek::SigningKey {
+    ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])
+}
+
+fn hex_encode_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// A signed opportunity packet, optionally with one term edited after signing
+/// so the packet's own hash no longer covers it.
+fn opportunity_packet_json(tamper: bool) -> String {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use x3_lang_compiler::opportunity::Opportunity;
+    use x3_lang_vm::opportunity_packet::{sign_packet, OpportunityPacket, OPPORTUNITY_PACKET_VERSION};
+
+    let packet = OpportunityPacket {
+        version: OPPORTUNITY_PACKET_VERSION,
+        strategy_id: "cli-tri-arb".to_string(),
+        artifact_hash: [3u8; 32],
+        state_roots: BTreeMap::from([("ethereum".to_string(), [9u8; 32])]),
+        route: Opportunity {
+            venues: vec!["uniswap-v3".to_string(), "raydium".to_string()],
+            assets: vec!["USDC".to_string(), "WETH".to_string(), "USDC".to_string()],
+            fee_bps: 30,
+            slippage_bps: 20,
+            max_risk: 1,
+            latency_ms: 400,
+            finality_blocks: 12,
+            min_liquidity: 1_000_000,
+        },
+        required_capital: 100_000,
+        max_capital: 500_000,
+        expected_output: 520_000,
+        minimum_profit: 5_000,
+        maximum_fee: 2_000,
+        maximum_slippage_bps: 50,
+        deadline_blocks: 500,
+        proof_requirements: BTreeSet::from(["state".to_string()]),
+        execution_commitment: [0u8; 32],
+        packet_hash: [0u8; 32],
+        signature: None,
+    };
+    let mut packet = sign_packet(packet, "cli-solver", &packet_solver_key()).expect("packet signs");
+    if tamper {
+        packet.expected_output += 1;
+    }
+    serde_json::to_string_pretty(&packet).expect("packet serializes")
+}
+
+#[test]
+fn packet_verify_admits_a_signed_packet_and_names_why_it_refuses_the_others() {
+    let trusted = format!(
+        "cli-solver={}",
+        hex_encode_bytes(&packet_solver_key().verifying_key().to_bytes())
+    );
+
+    let signed = write_fixture("cli_packet_signed.json", &opportunity_packet_json(false));
+    let verify = x3c()
+        .args(["packet", "verify"])
+        .arg(&signed)
+        .args(["--block", "100", "--trusted", &trusted])
+        .output()
+        .expect("x3c packet verify");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&verify.stdout),
+        String::from_utf8_lossy(&verify.stderr)
+    );
+    assert!(verify.status.success(), "a signed packet must verify: {output}");
+    assert!(
+        output.contains("packet verified") && output.contains("cli-tri-arb"),
+        "the report must name the strategy it admitted: {output}"
+    );
+
+    let inspect = x3c()
+        .args(["packet", "inspect"])
+        .arg(&signed)
+        .output()
+        .expect("x3c packet inspect");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&inspect.stdout),
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    assert!(inspect.status.success(), "inspect must succeed: {output}");
+    assert!(
+        output.contains("packet_hash: ") && output.contains("execution_commitment: "),
+        "inspect must print both commitments: {output}"
+    );
+
+    // One term edited after signing: the hash no longer covers the packet.
+    let tampered = write_fixture("cli_packet_tampered.json", &opportunity_packet_json(true));
+    let verify = x3c()
+        .args(["packet", "verify"])
+        .arg(&tampered)
+        .args(["--block", "100", "--trusted", &trusted])
+        .output()
+        .expect("x3c packet verify");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&verify.stdout),
+        String::from_utf8_lossy(&verify.stderr)
+    );
+    assert!(!verify.status.success(), "an edited packet must not verify: {output}");
+    assert!(
+        output.contains("execution commitment") && output.contains("does not cover its terms"),
+        "the refusal must name the commitment that caught the edit: {output}"
+    );
+
+    // The same packet admitted at its deadline.
+    let verify = x3c()
+        .args(["packet", "verify"])
+        .arg(&signed)
+        .args(["--block", "500", "--trusted", &trusted])
+        .output()
+        .expect("x3c packet verify");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&verify.stdout),
+        String::from_utf8_lossy(&verify.stderr)
+    );
+    assert!(
+        !verify.status.success(),
+        "a packet at its deadline must not verify: {output}"
+    );
+    assert!(
+        output.contains("expired at block 500"),
+        "the refusal must name the block: {output}"
+    );
+
+    // A key the operator does not trust, even though the packet names it.
+    let verify = x3c()
+        .args(["packet", "verify"])
+        .arg(&signed)
+        .args([
+            "--block",
+            "100",
+            "--trusted",
+            "cli-solver=0000000000000000000000000000000000000000000000000000000000000000",
+        ])
+        .output()
+        .expect("x3c packet verify");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&verify.stdout),
+        String::from_utf8_lossy(&verify.stderr)
+    );
+    assert!(!verify.status.success(), "an untrusted key must not verify: {output}");
+    assert!(
+        output.contains("signer 'cli-solver' is not trusted"),
+        "the refusal must name the signer: {output}"
+    );
+}

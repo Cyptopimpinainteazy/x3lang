@@ -296,6 +296,38 @@ enum Cmd {
         #[command(subcommand)]
         action: ReceiptAction,
     },
+    /// Inspect or verify a solver's opportunity packet (PHASE 29).
+    Packet {
+        #[command(subcommand)]
+        action: PacketAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum PacketAction {
+    /// Print a packet as JSON, followed by the hashes it commits to.
+    ///
+    /// This prints the packet as it was read: it recomputes nothing, so a
+    /// packet whose terms do not match its commitments shows both figures
+    /// rather than a "corrected" one. `verify` is the check.
+    Inspect { input: PathBuf },
+    /// Verify a packet's structure, commitments, deadline and signature.
+    ///
+    /// Refuses the packet unless every one of those holds against the keys the
+    /// operator names, so `--trusted` is required: a signature checked against
+    /// a key that arrived inside the packet is not a check, it is a restatement
+    /// of the packet's own claim.
+    Verify {
+        input: PathBuf,
+        /// Block height the packet is being admitted at, checked against its
+        /// `deadline_blocks`.
+        #[arg(long, default_value_t = 0)]
+        block: u64,
+        /// Trusted signer as `<key_id>=<64-hex ed25519 public key>`. Repeatable,
+        /// so a rotation or a marketplace of solvers is one invocation.
+        #[arg(long = "trusted", value_name = "KEY_ID=HEX", required = true)]
+        trusted: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -420,6 +452,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 block,
                 key_hex,
             } => cmd_receipt_execute(&input, out.as_ref(), mode, block, key_hex.as_deref(), cli.deny_warnings),
+        },
+        Cmd::Packet { action } => match action {
+            PacketAction::Inspect { input } => cmd_packet_inspect(&input),
+            PacketAction::Verify { input, block, trusted } => cmd_packet_verify(&input, block, &trusted),
         },
     }
 }
@@ -2762,4 +2798,61 @@ fn cmd_receipt_verify(input: &PathBuf) -> Result<ExitCode, String> {
 fn read_receipt(input: &PathBuf) -> Result<x3_lang_vm::trading::TradeReceipt, String> {
     let body = std::fs::read_to_string(input).map_err(|e| format!("read {input:?}: {e}"))?;
     serde_json::from_str(&body).map_err(|e| format!("parse receipt {input:?}: {e}"))
+}
+
+fn cmd_packet_inspect(input: &PathBuf) -> Result<ExitCode, String> {
+    let packet = read_packet(input)?;
+    let body = serde_json::to_string_pretty(&packet).map_err(|e| format!("encode packet {input:?}: {e}"))?;
+    println!("{body}");
+    println!("packet_hash: {}", hex_encode(&packet.packet_hash));
+    println!("execution_commitment: {}", hex_encode(&packet.execution_commitment));
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_packet_verify(input: &PathBuf, block: u64, trusted_specs: &[String]) -> Result<ExitCode, String> {
+    let packet = read_packet(input)?;
+    let trusted = parse_trusted_keys(trusted_specs)?;
+    match x3_lang_vm::opportunity_packet::verify_packet(&packet, &trusted, block) {
+        Ok(()) => {
+            println!(
+                "packet verified: strategy '{}', {} venue(s), expires at block {}",
+                packet.strategy_id,
+                packet.route.venues.len(),
+                packet.deadline_blocks
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(error) => {
+            eprintln!("x3c: packet verification failed: {error}");
+            Ok(ExitCode::from(1))
+        }
+    }
+}
+
+fn read_packet(input: &PathBuf) -> Result<x3_lang_vm::opportunity_packet::OpportunityPacket, String> {
+    let body = std::fs::read_to_string(input).map_err(|e| format!("read {input:?}: {e}"))?;
+    serde_json::from_str(&body).map_err(|e| format!("parse packet {input:?}: {e}"))
+}
+
+/// Parse `--trusted key_id=<64-hex>` specifications into the map
+/// `verify_packet` looks signers up in.
+fn parse_trusted_keys(specs: &[String]) -> Result<BTreeMap<String, [u8; 32]>, String> {
+    let mut keys = BTreeMap::new();
+    for spec in specs {
+        let (key_id, hex) = spec
+            .split_once('=')
+            .ok_or_else(|| format!("trusted key '{spec}' is not <key_id>=<64-hex public key>"))?;
+        if key_id.trim().is_empty() {
+            return Err(format!("trusted key '{spec}' names no key id"));
+        }
+        let bytes = hex_decode(hex)?;
+        let public_key: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+            format!(
+                "trusted key '{key_id}' must be 32 bytes of hex, got {} bytes",
+                bytes.len()
+            )
+        })?;
+        keys.insert(key_id.to_string(), public_key);
+    }
+    Ok(keys)
 }
