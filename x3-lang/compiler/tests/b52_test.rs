@@ -583,7 +583,12 @@ fn test_lowering_rpc_quorum_emits_consensus() {
 }
 
 #[test]
-fn test_lowering_risk_policy_emits_score() {
+fn test_lowering_risk_policy_emits_a_slippage_bound() {
+    // `max_slippage` used to lower to a `RiskScore`, whose range is 0..=100: a
+    // policy of 500 (a percentage bound, which is what the guards write) became a
+    // risk score the VM refuses, and the program stopped running. It is a
+    // slippage ceiling, in the same unit and kind as `require slippage <= n`, and
+    // the mainnet check reads exactly this operation.
     let src = r#"
         risk_policy {
             max_slippage 500
@@ -592,10 +597,22 @@ fn test_lowering_risk_policy_emits_score() {
     let program = parse_source(src).expect("should parse");
     let ir = lower_program(&program, LowerCtx::new()).expect("should lower");
     assert!(
+        ir.operations.iter().any(|op| matches!(
+            op,
+            Operation::Require {
+                kind: x3_lang_compiler::ir::RequireKind::SlippageTolerance,
+                condition: x3_lang_compiler::ir::Condition::Expression { expr },
+                comparison: Some(x3_lang_compiler::ir::ComparisonOp::LessOrEqual),
+                ..
+            } if expr == "500"
+        )),
+        "a slippage policy is a ceiling in its own unit: {:?}",
         ir.operations
-            .iter()
-            .any(|op| matches!(op, Operation::RiskScore { score: 500, .. })),
-        "expected RiskScore with score 500"
+    );
+    assert!(
+        !ir.operations.iter().any(|op| matches!(op, Operation::RiskScore { .. })),
+        "a slippage bound is not a risk score: {:?}",
+        ir.operations
     );
 }
 

@@ -289,6 +289,49 @@ fn err(message: impl Into<String>) -> X3Error {
     }
 }
 
+/// A `risk_policy { max_slippage M }` is a ceiling the guards must respect.
+///
+/// The policy says "no route of mine slips more than M percent"; a guard says
+/// "this operation must slip no more than N percent". A guard looser than the
+/// policy therefore permits what the policy forbids, and the program has said two
+/// different things about the same quantity. Compared in one unit, which is the
+/// whole point of the field: `max_slippage` and the guard's literal are both
+/// percentages (the linter normalises a guard literal to basis points with the
+/// same reading).
+///
+/// A policy of zero is "unstated": the field is not optional in the AST, so zero
+/// is the absence, and a program with no policy cannot contradict one.
+pub fn verify_risk_policy_bounds_guards(program: &Program, acc: &mut ErrorAccumulator) {
+    let max_slippage = program.items.iter().find_map(|item| match &item.node {
+        Item::RiskPolicy(policy) if policy.max_slippage > 0 => Some(policy.max_slippage),
+        _ => None,
+    });
+    let Some(policy) = max_slippage else {
+        return;
+    };
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::Slippage {
+            continue;
+        }
+        // A ceiling is the claim the policy makes. A guard written with a floor
+        // is a different claim, and the existing strategy check already refuses
+        // it where it matters; comparing it here would compare two directions.
+        if !guard.comparison.is_some_and(|op| op.is_upper_bound()) {
+            continue;
+        }
+        let Some(bound) = guard.value.as_ref().and_then(extract_int_from_expr) else {
+            continue;
+        };
+        if bound > u128::from(policy) {
+            acc.add_error(err(format!(
+                "declaration '{owner}' permits a slippage of {bound} while the risk policy accepts \
+                 at most {policy}; the guard allows what the policy forbids"
+            )));
+        }
+    }
+}
+
 /// A `require route_score >= N` guard needs a score to compare against.
 ///
 /// The guard is a claim about the route; `risk_policy { min_route_score M }` is

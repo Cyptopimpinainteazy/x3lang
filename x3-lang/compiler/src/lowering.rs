@@ -652,10 +652,27 @@ pub fn lower_program_with_mode(
                 });
             }
             Item::RiskPolicy(policy) => {
-                ir.push(Operation::RiskScore {
-                    score: policy.max_slippage as u32,
-                    category: "slippage".to_string(),
-                });
+                // A slippage bound is a slippage bound. This used to emit
+                // `RiskScore { score: max_slippage }` — a *different* quantity
+                // whose own range is 0..=100, so `risk_policy { max_slippage 120 }`
+                // (a 120% slippage bound, which is what the corpus's guards write)
+                // became a risk score the VM refuses and the program stopped
+                // running. As a requirement it is (a) the same kind as
+                // `require slippage <= n`, so the policy and the guard are in one
+                // unit, and (b) visible to the mainnet ceiling, which reads
+                // exactly this operation and could not see the policy at all
+                // before. (TICKET-052.)
+                if policy.max_slippage > 0 {
+                    ir.push(Operation::Require {
+                        kind: ir::RequireKind::SlippageTolerance,
+                        subject: None,
+                        condition: Condition::Expression {
+                            expr: policy.max_slippage.to_string(),
+                        },
+                        error_msg: None,
+                        comparison: Some(ir::ComparisonOp::LessOrEqual),
+                    });
+                }
             }
             Item::PrivacyBlock(privacy) => {
                 ir.push(Operation::PrivacyCommit {
