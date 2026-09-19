@@ -146,19 +146,6 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 span: None,
             });
         }
-        Operation::Hedge { asset, .. } => {
-            // Refused rather than written, and refused here as well as in the IR
-            // verifier because `emit_x3ir` is public: a hedge's net is decided
-            // (`hedge::verify`) but a perp leg needs a venue adapter this VM does not
-            // have, so the record would describe a position nothing can open.
-            return Err(X3Error::CodegenError {
-                message: format!(
-                    "cannot emit the hedge on '{asset}': a perp leg needs a venue adapter this VM does \
-                     not have, so the artifact would carry a position nothing can open (PHASE 9)"
-                ),
-                span: None,
-            });
-        }
         Operation::If {
             condition,
             then_ops,
@@ -478,6 +465,7 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
             bytecode.write_all(payload.as_bytes())?;
         }
+        Operation::VenueOrder { .. } => emit_payload_op(VENUE_ORDER, op, bytecode)?,
         Operation::GpuDispatch { .. } => emit_payload_op(GPU_DISPATCH, op, bytecode)?,
         Operation::Simulate { .. } => emit_payload_op(SIMULATE, op, bytecode)?,
         Operation::ScheduledDispatch { .. } => emit_payload_op(SCHEDULED_DISPATCH, op, bytecode)?,
@@ -848,6 +836,17 @@ fn operation_to_asset_payload(op: &Operation) -> Result<AssetOpPayload, X3Error>
 
 fn operation_to_payload(op: &Operation) -> Result<CapabilityPayload, X3Error> {
     let payload = match op {
+        Operation::VenueOrder {
+            action,
+            subject,
+            asset,
+            quantity,
+        } => CapabilityPayload::VenueOrder {
+            action: action.clone(),
+            subject: subject.clone(),
+            asset: asset.clone(),
+            quantity: *quantity,
+        },
         Operation::GpuDispatch { kernel, args, is_simd } => CapabilityPayload::GpuDispatch {
             kernel: kernel.clone(),
             args: args.clone(),

@@ -118,6 +118,16 @@ pub enum CapabilityPayload {
         amount: u128,
         condition: String,
     },
+    /// An order to a venue — see `spec::opcodes::VENUE_ORDER`.
+    ///
+    /// `subject` is what the action is *about*: a position reference for a liquidation,
+    /// and empty when the action names an asset rather than a position.
+    VenueOrder {
+        action: String,
+        subject: String,
+        asset: String,
+        quantity: u128,
+    },
     SubExec {
         /// The bytecode hash of the sub-program to execute.
         bytecode_hash: String,
@@ -368,6 +378,17 @@ pub fn encode_capability_payload(payload: &CapabilityPayload) -> Result<Vec<u8>,
         CapabilityPayload::Bounty { amount, condition } => {
             write_u128(&mut out, *amount);
             write_string(&mut out, condition)?;
+        }
+        CapabilityPayload::VenueOrder {
+            action,
+            subject,
+            asset,
+            quantity,
+        } => {
+            write_string(&mut out, action)?;
+            write_string(&mut out, subject)?;
+            write_string(&mut out, asset)?;
+            write_u128(&mut out, *quantity);
         }
         CapabilityPayload::SubExec {
             bytecode_hash,
@@ -719,6 +740,12 @@ pub fn decode_capability_payload(opcode: u8, bytes: &[u8]) -> Result<CapabilityP
         0x9A => CapabilityPayload::Bounty {
             amount: reader.read_u128()?,
             condition: reader.read_string()?,
+        },
+        0x9D => CapabilityPayload::VenueOrder {
+            action: reader.read_string()?,
+            subject: reader.read_string()?,
+            asset: reader.read_string()?,
+            quantity: reader.read_u128()?,
         },
         0x9B => CapabilityPayload::SubExec {
             bytecode_hash: reader.read_string()?,

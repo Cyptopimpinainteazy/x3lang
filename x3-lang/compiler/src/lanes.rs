@@ -123,7 +123,7 @@ pub fn classify(ir: &X3IR) -> Lane {
             Operation::Liquidation { .. } => {
                 lanes.insert(Lane::Liquidation);
             }
-            Operation::Hedge { .. }
+            Operation::VenueOrder { .. }
             | Operation::Swap { .. }
             | Operation::AtomicChoice { .. }
             | Operation::RouteFallback { .. }

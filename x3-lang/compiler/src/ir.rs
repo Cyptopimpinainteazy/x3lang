@@ -169,16 +169,27 @@ pub enum Operation {
     /// operation today: a perp leg needs a venue adapter this VM does not have, so the
     /// IR verifier refuses it (see `verify.rs`), and `x3c lower` is where the decided
     /// net is visible.
-    Hedge {
-        /// `chain.ASSET`, the identity both legs share.
+    /// An order to a venue (spec PHASE 9's hedge legs, and PHASE 10's liquidation
+    /// calls).
+    ///
+    /// The instruction a hedge and a liquidation need in order to execute at all. A
+    /// hedge's legs name a *kind* — spot or perp — rather than a venue, and a
+    /// liquidation's calls name a position, so neither is expressible as a swap: what
+    /// they need is a host that can act on a venue, asked in a form the artifact can
+    /// check. `Operation::Call` would have carried it as an untyped host call, and the
+    /// VM routes `CALL_HOST` to `BridgeAdapter::svm_call`, so a perp short on Ethereum
+    /// would arrive at a host as an SVM call.
+    VenueOrder {
+        /// What the venue is asked to do, from the closed vocabulary the compiler owns:
+        /// `spot_buy`, `spot_sell`, `perp_long`, `perp_short`, `liquidate`,
+        /// `receive_collateral`.
+        action: String,
+        /// What the action is *about*: a position reference for a liquidation, and empty
+        /// when the action names an asset rather than a position.
+        subject: String,
+        /// `chain.ASSET` the quantity is denominated in.
         asset: String,
-        long: u128,
-        short: u128,
-        /// `|long − short| × 10_000 / long`: what is left open, in basis points of
-        /// the notional being hedged.
-        delta_bps: u128,
-        /// The bound the hedge's own guard states, when it states one.
-        delta_bound_bps: Option<u32>,
+        quantity: u128,
     },
 
     // ===== Control Flow =====

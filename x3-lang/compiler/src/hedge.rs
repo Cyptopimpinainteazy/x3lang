@@ -330,3 +330,69 @@ mod format_tests {
         );
     }
 }
+
+/// One order a hedge's plan makes, with its size resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HedgeOrder {
+    /// From the closed vocabulary the compiler owns: `spot_buy`, `spot_sell`,
+    /// `perp_long`, `perp_short`. The action names the market *and* the direction,
+    /// because a hedge leg's venue is a kind rather than a venue's name.
+    pub action: &'static str,
+    /// `chain.ASSET` the quantity is denominated in.
+    pub asset: String,
+    pub quantity: u128,
+}
+
+impl HedgeOrder {
+    /// What the action is *about*.
+    ///
+    /// Empty for a hedge leg: the action names an asset rather than a position, and a
+    /// position reference only exists for a liquidation's calls. The field is shared
+    /// with that shape rather than being invented twice.
+    pub fn subject(&self) -> &'static str {
+        ""
+    }
+}
+
+/// The orders a hedge's plan makes, with every size resolved.
+///
+/// A leg written as `equivalent` takes the other side's written size, which is the same
+/// resolution [`exposure`] makes for the net — stated once here rather than again there,
+/// so the plan and the delta cannot disagree about what was hedged.
+pub fn orders(decl: &AtomicHedgeDecl) -> Result<(HedgeExposure, Vec<HedgeOrder>), String> {
+    let exposure = exposure(decl)?;
+    let written = |side: HedgeSide| -> u128 {
+        decl.legs
+            .iter()
+            .filter(|leg| leg.side == side)
+            .filter_map(|leg| match leg.quantity {
+                HedgeQuantity::Amount(amount) => Some(amount),
+                HedgeQuantity::Equivalent => None,
+            })
+            .fold(0u128, u128::saturating_add)
+    };
+
+    let mut orders = Vec::with_capacity(decl.legs.len());
+    for leg in &decl.legs {
+        let quantity = match leg.quantity {
+            HedgeQuantity::Amount(amount) => amount,
+            // The other side's number, which is what `equivalent` means.
+            HedgeQuantity::Equivalent => match leg.side {
+                HedgeSide::Long => written(HedgeSide::Short),
+                HedgeSide::Short => written(HedgeSide::Long),
+            },
+        };
+        let action = match (leg.venue, leg.side) {
+            (HedgeVenue::Spot, HedgeSide::Long) => "spot_buy",
+            (HedgeVenue::Spot, HedgeSide::Short) => "spot_sell",
+            (HedgeVenue::Perp, HedgeSide::Long) => "perp_long",
+            (HedgeVenue::Perp, HedgeSide::Short) => "perp_short",
+        };
+        orders.push(HedgeOrder {
+            action,
+            asset: leg_key(leg),
+            quantity,
+        });
+    }
+    Ok((exposure, orders))
+}

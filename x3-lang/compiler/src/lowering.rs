@@ -922,18 +922,45 @@ pub fn lower_program_with_mode(
                 });
             }
             Item::AtomicHedge(hedge_decl) => {
-                // The legs are already known to net: `hedge::verify` runs over the
-                // AST before lowering and refuses a hedge that does not. Resolving
-                // them here again is what carries the *checked* net into the
-                // artifact, not a second opinion about it.
-                let exposure = hedge::exposure(hedge_decl).map_err(|reason| semantic(&reason))?;
-                ir.push(Operation::Hedge {
-                    asset: exposure.asset.clone(),
-                    long: exposure.long,
-                    short: exposure.short,
-                    delta_bps: exposure.delta_bps(),
-                    delta_bound_bps: hedge_decl.delta_bound_bps,
-                });
+                // The declaration lowers to the *orders*: one atomic block asking a venue
+                // for each leg, with the net the verifier checked and the bound it checked
+                // it against. The legs are already known to net (`hedge::verify` runs over
+                // the AST before lowering and refuses a hedge that does not), so resolving
+                // them here carries the *checked* figures into the artifact rather than
+                // stating a second opinion about them.
+                let (exposure, orders) = hedge::orders(hedge_decl).map_err(|reason| semantic(&reason))?;
+
+                ir.push(Operation::AtomicBegin);
+                for order in &orders {
+                    ir.push(Operation::VenueOrder {
+                        action: order.action.to_string(),
+                        subject: order.subject().to_string(),
+                        asset: order.asset.clone(),
+                        quantity: order.quantity,
+                    });
+                }
+                // The bound travels as a guard. It is a *constraint* rather than a
+                // post-condition: the delta is computed from the legs the program
+                // declared, and whether the venue filled what was asked is a question the
+                // artifact cannot answer without the venue reporting a size — which is
+                // TICKET-068's host half.
+                if let Some(bound) = hedge_decl.delta_bound_bps {
+                    let guard = arb::Guard {
+                        kind: ast::RequireKind::Custom(x3_lang_common::Symbol::new("delta")),
+                        comparison: ast::ComparisonOp::LessOrEqual,
+                        bps: u16::try_from(bound)
+                            .map_err(|_| semantic("a hedge's delta bound does not fit the guard's operand"))?,
+                    };
+                    ir.push(Operation::Require {
+                        kind: require_kind_to_ir(&guard.kind),
+                        subject: Some(exposure.asset.clone()),
+                        condition: guard_condition(&bps_guard(&guard))?,
+                        error_msg: None,
+                        measured: false,
+                        comparison: Some(guard.comparison),
+                    });
+                }
+                ir.push(Operation::AtomicEnd);
             }
             // Every item that generates no operations, named rather than caught by a
             // wildcard. The wildcard was a trap: a *new* declaration added to `Item`

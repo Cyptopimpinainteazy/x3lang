@@ -571,7 +571,12 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.pc = align4(vm.state.pc + 3 + data.len());
                 continue;
             }
-            GPU_DISPATCH..=SUB_EXEC | NONCE_UNUSED => {
+            // The range is the *set*, and it has drifted from `is_payload_opcode`
+            // before: an opcode the framing function called a payload opcode reached no
+            // arm here and was refused as invalid, which is what the payload-opcode test
+            // below exists to catch. `VENUE_ORDER` is the newest member, so the range ends
+            // there and `NONCE_UNUSED` (0x9C) is inside it now rather than beside it.
+            GPU_DISPATCH..=VENUE_ORDER => {
                 let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
                     Ok(p) => p.to_vec(),
                     Err(e) => {
@@ -1180,6 +1185,20 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
         }
         CapabilityPayload::MultiHopSwap { path, amount } => {
             let reply = bridge_result(vm.bridge.multi_hop_swap(path.join("\0").as_bytes(), amount))?;
+            record_measurement(vm, &reply);
+            Ok(reply)
+        }
+        CapabilityPayload::VenueOrder {
+            action,
+            subject,
+            asset,
+            quantity,
+        } => {
+            // The host is asked in a form it can act on, and its reply is recorded the way
+            // any capability's is: a measured guard after this order is judged against what
+            // the host measured, and refuses when it measured nothing.
+            let order = format!("{action}\u{1f}{subject}\u{1f}{asset}\u{1f}{quantity}");
+            let reply = bridge_result(vm.bridge.venue_order(order.as_bytes()))?;
             record_measurement(vm, &reply);
             Ok(reply)
         }

@@ -489,25 +489,57 @@ fn rejects_bridge_with_empty_receiver() {
 }
 
 #[test]
-fn a_hedge_operation_is_refused_as_unexecutable() {
-    // PHASE 9's exposure is decided on the AST (`hedge::verify`), and this layer says
-    // what the *VM* can do with the result: nothing, because a perp leg needs a venue
-    // adapter it does not have. The refusal is the feature's honest end, and it is
-    // here rather than only in the emitter so `check` and `build` agree.
-    let ir = ir_with(vec![Operation::Hedge {
+fn the_orders_a_hedge_lowers_to_pass_the_structural_verifier() {
+    // PHASE 9's hedge used to be refused at this layer: a perp leg needs a venue adapter,
+    // so the exposure was decided and the execution was not pretended. The legs now lower
+    // to venue orders, so what has to hold is the other direction — the plan is one this
+    // layer accepts, and it carries what the hedge decided.
+    let ir = ir_with(vec![
+        Operation::AtomicBegin,
+        Operation::VenueOrder {
+            action: "spot_buy".to_owned(),
+            subject: String::new(),
+            asset: "ethereum.ETH".to_owned(),
+            quantity: 1_000,
+        },
+        Operation::VenueOrder {
+            action: "perp_short".to_owned(),
+            subject: String::new(),
+            asset: "ethereum.ETH".to_owned(),
+            quantity: 1_000,
+        },
+        Operation::Require {
+            kind: RequireKind::Custom("delta".to_owned()),
+            subject: Some("ethereum.ETH".to_owned()),
+            condition: Condition::Expression { expr: "1".to_owned() },
+            error_msg: None,
+            measured: false,
+            comparison: Some(ComparisonOp::LessOrEqual),
+        },
+        Operation::AtomicEnd,
+    ]);
+    let verified = verify_ir(&ir);
+    assert!(
+        verified.is_ok(),
+        "a hedge's orders must be a plan this layer accepts: {verified:?}"
+    );
+}
+
+#[test]
+fn a_venue_order_for_nothing_is_refused() {
+    // Non-vacuous: the rules the new instruction brought with it are checked, not just
+    // declared.
+    let ir = ir_with(vec![Operation::VenueOrder {
+        action: "perp_short".to_owned(),
+        subject: String::new(),
         asset: "ethereum.ETH".to_owned(),
-        long: 1_000,
-        short: 1_000,
-        delta_bps: 0,
-        delta_bound_bps: Some(1),
+        quantity: 0,
     }]);
-    let diagnostics = verify_ir(&ir).expect_err("a hedge cannot be executed here");
+    let diagnostics = verify_ir(&ir).expect_err("an order for zero opens nothing");
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert!(
-        diagnostics[0].message.contains("cannot be executed")
-            && diagnostics[0].message.contains("venue adapter")
-            && !diagnostics[0].message.contains("  "),
-        "the refusal must name the missing venue, with no spacing artefacts: {diagnostics:?}"
+        diagnostics[0].message.contains("nothing to open or close"),
+        "the refusal must say what a zero order is: {diagnostics:?}"
     );
 }
 

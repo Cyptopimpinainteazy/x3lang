@@ -73,6 +73,15 @@ pub const DOC_EMBED: u8 = 0x98;
 pub const GAS_ADAPTIVE: u8 = 0x99;
 pub const BOUNTY: u8 = 0x9A;
 pub const SUB_EXEC: u8 = 0x9B;
+/// An order to a venue: open a spot or perp leg, liquidate a position, receive its
+/// collateral.
+///
+/// The instruction a hedge and a liquidation need to execute at all. `Operation::Call`
+/// would have carried it as an untyped host call, and the VM routes `CALL_HOST` to
+/// `BridgeAdapter::svm_call` — so a perp short on Ethereum would arrive at a host as an
+/// SVM call and be refused for a reason that has nothing to do with it. A venue order
+/// says what it is, with a quantity the artifact can check.
+pub const VENUE_ORDER: u8 = 0x9D;
 
 /// Whether a nonce has been used, and the recording of it.
 ///
@@ -280,7 +289,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
             opcode,
             EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK | PARALLEL_PLAN | STRATEGY_LICENSE
                 | NONCE_UNUSED
-                | GPU_DISPATCH..=SUB_EXEC
+                | GPU_DISPATCH..=VENUE_ORDER
                 | ROUTE_SCORE..=REFUND_POLICY
                 | TRADING_BEGIN..=TRADING_BRIDGE
         )
@@ -396,6 +405,7 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
         CHAIN_METRIC => "CHAIN_METRIC",
         EVENT_PROVENANCE => "EVENT_PROVENANCE",
         MULTI_HOP_SWAP => "MULTI_HOP_SWAP",
+        VENUE_ORDER => "VENUE_ORDER",
         VECTOR_MATH => "VECTOR_MATH",
         ROLE_CHECK => "ROLE_CHECK",
         MULTISIG_CHECK => "MULTISIG_CHECK",
@@ -483,6 +493,7 @@ pub const fn base_gas_cost(opcode: u8) -> u128 {
         CHAIN_METRIC => 10,
         EVENT_PROVENANCE => 20,
         MULTI_HOP_SWAP => 200,
+        VENUE_ORDER => 200,
         VECTOR_MATH => 5,
         ROLE_CHECK | MULTISIG_CHECK | VERSION_META | STORAGE_NAMESPACE | ABI_EXPORT | DOC_EMBED => 10,
         GAS_ADAPTIVE => 50,

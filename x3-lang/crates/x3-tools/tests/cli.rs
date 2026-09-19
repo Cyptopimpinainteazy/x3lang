@@ -1459,13 +1459,15 @@ fn cli_warns_when_a_declared_floor_is_below_the_declared_fees() {
     );
 }
 
-/// PHASE 9 — a hedge's exposure is decided, and its *execution* is not pretended.
+/// PHASE 9 — a hedge lowers to orders, and it runs.
 ///
-/// The two halves are visible in the two verdicts: a hedge whose legs net is told
-/// that this VM has no venue for a perp leg, and one whose legs do not net is told
-/// what the delta is — with the figures, before the venue question is reached.
+/// The legs used to be resolved and refused: a perp leg needs a venue adapter, so the
+/// exposure was decided and the execution was not pretended. They lower to **venue orders**
+/// now — an action from a vocabulary the compiler owns, an asset and a quantity — so the
+/// whole path holds, and the artifact carries what the hedge decided. The other half is
+/// unchanged: a hedge whose legs do not net is refused with the delta, before any of this.
 #[test]
-fn cli_decides_a_hedges_exposure_and_refuses_to_pretend_it_runs() {
+fn cli_lowers_a_hedge_to_venue_orders_and_runs_it() {
     let balanced = write_fixture(
         "cli_hedge_balanced.x3",
         "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short equivalent ethereum.ETH perp;\n\n    \
@@ -1477,38 +1479,85 @@ fn cli_decides_a_hedges_exposure_and_refuses_to_pretend_it_runs() {
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
-    assert!(!check.status.success(), "a hedge cannot be built here: {output}");
-    assert!(
-        output.contains("a perp leg needs a venue adapter"),
-        "the refusal must name the missing venue: {output}"
-    );
+    assert!(check.status.success(), "a hedge must check now: {output}");
     assert!(
         !output.contains("leaves a delta"),
         "a balanced hedge has no exposure to complain about: {output}"
     );
 
-    let unbalanced = write_fixture(
-        "cli_hedge_unbalanced.x3",
-        "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short 900 ethereum.ETH perp;\n\n    \
-         require delta <= 0.01%;\n}\n",
-    );
-    let check = x3c().arg("check").arg(&unbalanced).output().expect("x3c check");
-    let output = format!(
+    let out = std::env::temp_dir().join("cli_hedge_balanced.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&balanced)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    let text = format!(
         "{}{}",
-        String::from_utf8_lossy(&check.stdout),
-        String::from_utf8_lossy(&check.stderr)
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.status.success(), "the hedge's orders must build: {text}");
+
+    // The artifact carries both legs as orders, the `equivalent` leg resolved to the
+    // other side's size, the bound as a guard, and the whole thing atomic.
+    let explain = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let disassembly = format!(
+        "{}{}",
+        String::from_utf8_lossy(&explain.stdout),
+        String::from_utf8_lossy(&explain.stderr)
     );
     assert!(
-        output.contains("leaves a delta of 1000 bps"),
-        "the exposure must be reported with its figure: {output}"
+        disassembly.contains("ATOMIC_BEGIN") && disassembly.contains("ATOMIC_END"),
+        "a hedge's legs must be one atomic plan: {disassembly}"
+    );
+    assert_eq!(
+        disassembly.matches("VENUE_ORDER").count(),
+        2,
+        "one order per leg: {disassembly}"
     );
     assert!(
-        output.contains("bound of 1 bps") && output.contains("long 1000") && output.contains("short 900"),
-        "and with the legs that produced it: {output}"
+        disassembly.contains("spot_buy") && disassembly.contains("perp_short"),
+        "the actions must say which market and which direction: {disassembly}"
     );
     assert!(
-        !output.contains("venue adapter"),
-        "the exposure is decided before the venue question is reached: {output}"
+        disassembly.contains("REQUIRE"),
+        "the delta bound must travel as a guard: {disassembly}"
+    );
+
+    // The quantities live in the payload, which `explain` prints as bytes — so the
+    // resolution of `equivalent` is checked where it is legible: the lowered IR.
+    let ir_out = std::env::temp_dir().join("cli_hedge_balanced.json");
+    let lower = x3c()
+        .arg("lower")
+        .arg(&balanced)
+        .arg("--out")
+        .arg(&ir_out)
+        .output()
+        .expect("x3c lower");
+    assert!(lower.status.success(), "the hedge must lower");
+    let ir = std::fs::read_to_string(&ir_out).expect("the IR document");
+    let orders: Vec<&str> = ir.match_indices("VenueOrder").map(|(i, _)| &ir[i..]).collect();
+    assert_eq!(orders.len(), 2, "both legs lower to orders: {ir}");
+    assert!(
+        orders[0].contains("\"quantity\": 1000") && orders[1].contains("\"quantity\": 1000"),
+        "the `equivalent` leg takes the other side's written size, so both are 1000: {ir}"
+    );
+    assert!(
+        orders[0].contains("spot_buy") && orders[1].contains("perp_short"),
+        "and each says which market and which direction: {ir}"
+    );
+
+    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
+    let run_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        run.status.success() && run_text.contains("x3c run: ok"),
+        "the hedge's orders must run against the fixture host: {run_text}"
     );
 }
 
@@ -2649,5 +2698,29 @@ fn cli_enforces_a_plans_floor_against_a_measured_outcome() {
     assert!(
         output.status.success() && text.contains("x3c run: ok"),
         "a program's own guard is a compile-time constraint and must still run unmeasured: {text}"
+    );
+}
+
+/// PHASE 9's other verdict: a hedge whose legs do not net is refused with the delta.
+#[test]
+fn cli_refuses_a_hedge_whose_legs_do_not_net() {
+    let unbalanced = write_fixture(
+        "cli_hedge_unbalanced.x3",
+        "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short 900 ethereum.ETH perp;\n\n    \
+         require delta <= 0.01%;\n}\n",
+    );
+    let check = x3c().arg("check").arg(&unbalanced).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        !check.status.success(),
+        "a hedge that does not net is not a hedge: {output}"
+    );
+    assert!(
+        output.contains("leaves a delta") && output.contains("1000 bps"),
+        "the refusal must give the delta it computed: {output}"
     );
 }

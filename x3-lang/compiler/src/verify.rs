@@ -336,14 +336,21 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                      the accounting is decided and the execution is not pretended"
                 ),
             ),
-            Operation::Hedge { asset, .. } => push_unsafe(
-                diagnostics,
-                format!(
-                    "{op_context}: the hedge on '{asset}' cannot be executed — a perp leg needs a \
-                     venue adapter this VM does not have, so the exposure is decided and the \
-                     execution is not pretended"
-                ),
-            ),
+            Operation::VenueOrder {
+                action,
+                asset,
+                quantity,
+                ..
+            } => {
+                require_non_empty(diagnostics, &op_context, "action", action);
+                require_non_empty(diagnostics, &op_context, "asset", asset);
+                if *quantity == 0 {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: a venue order for zero has nothing to open or close"),
+                    );
+                }
+            }
             Operation::If { .. } => push_unsafe(
                 diagnostics,
                 format!(

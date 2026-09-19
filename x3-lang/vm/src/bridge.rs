@@ -2867,6 +2867,15 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
             message: "multi-hop swaps require a DEX aggregation backend with connected liquidity sources".into(),
         }))
     }
+    fn venue_order(&self, order: &[u8]) -> BridgeResult {
+        let _ = order;
+        // The refusal a hedge's plan gets from a host with no venue wired: it names what
+        // is missing rather than reaching an unrelated backend.
+        Err(Box::new(BridgeError {
+            code: "X3_BACKEND_REQUIRED",
+            message: "a venue order needs a venue adapter this host has not configured".into(),
+        }))
+    }
     fn bridge_transfer(
         &self,
         via: &str,
@@ -3044,6 +3053,14 @@ pub trait BridgeAdapter {
     fn chain_metric(&self, metric: u8) -> BridgeResult;
     fn event_provenance(&self, event_type: &[u8], data: &[u8]) -> BridgeResult;
     fn multi_hop_swap(&self, path: &[u8], amount: u128) -> BridgeResult;
+    /// Ask a venue to act: open a spot or perp leg, liquidate a position, receive its
+    /// collateral.
+    ///
+    /// The order is `action\x1fsubject\x1fasset\x1fquantity`, and a host that has not
+    /// wired a venue answers with a refusal that says so. This exists so a hedge and a
+    /// liquidation have *something* to call: neither is a swap, and routing them through
+    /// `CALL_HOST` would ask a host's SVM bridge to open a perp position.
+    fn venue_order(&self, order: &[u8]) -> BridgeResult;
     fn bridge_transfer(
         &self,
         via: &str,
@@ -3077,6 +3094,13 @@ impl BridgeAdapter for UnconfiguredBridge {
             code: "X3_BACKEND_REQUIRED",
             message: "production SVM bridge backend is not configured".into(),
         }))
+    }
+    fn venue_order(&self, order: &[u8]) -> BridgeResult {
+        let _ = order;
+        // The refusal a hedge's plan gets from a host with no venue wired. It names what
+        // is missing rather than reaching an unrelated backend, which is what routing the
+        // same order through `CALL_HOST` would do.
+        backend_required("venue order")
     }
     fn gpu_dispatch(&self, _kernel: &str, _args: &[u8]) -> BridgeResult {
         backend_required("GPU dispatch")
@@ -3259,6 +3283,12 @@ impl BridgeAdapter for DryRunBridge {
     }
     fn event_provenance(&self, event_type: &[u8], data: &[u8]) -> BridgeResult {
         Ok([b"dry-run-event_provenance:".as_slice(), event_type, b":", data].concat())
+    }
+    fn venue_order(&self, order: &[u8]) -> BridgeResult {
+        // What a dry run can say about an order: what it was asked to do. It reports no
+        // measurement, because a dry run has no prices — so a hedge's delta bound, a
+        // compile-time constraint, stays a record and nothing pretends to have measured it.
+        Ok([b"dry-run-venue_order:".as_slice(), order].concat())
     }
     fn multi_hop_swap(&self, path: &[u8], amount: u128) -> BridgeResult {
         // A stated measurement is what the trade reports; without one the reply is an
