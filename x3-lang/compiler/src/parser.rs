@@ -3335,10 +3335,19 @@ impl<'a> Parser<'a> {
         let name = Symbol::new(&self.expect_ident("invariant name")?);
         let assert_expr = if self.peek() == Tok::LBrace {
             self.advance();
-            let _assert_kw = self.expect_ident("expected 'assert' in invariant body")?;
+            let assert_kw = self.expect_ident("expected 'assert' in invariant body")?;
+            if assert_kw != "assert" {
+                return Err(parse_err(
+                    format!("expected 'assert' in the invariant body, found '{assert_kw}'"),
+                    self.peek(),
+                ));
+            }
             let expr = self.parse_expr()?;
             self.expect(Tok::RBrace, "expected '}' after invariant body")?;
-            Symbol::new(&format!("{:?}", expr))
+            // The source form, not a Rust value tree: the body reaches the IR as a
+            // string, and the formatter has to be able to write it back
+            // (TICKET-044).
+            Symbol::new(&crate::formatter::expression_to_source(&expr))
         } else {
             name.clone()
         };

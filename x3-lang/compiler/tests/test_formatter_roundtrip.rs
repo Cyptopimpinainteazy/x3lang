@@ -194,3 +194,35 @@ fn formatting_keeps_the_comments_it_can_place() {
         "and formatting it again changes nothing"
     );
 }
+
+#[test]
+fn an_invariant_body_is_source_text_and_survives_formatting() {
+    // The body reaches the IR as a string, and the parser used to store
+    // `format!("{:?}", expr)` — a Rust value tree. The formatter could not write it
+    // back (its own printer would have emitted `profit Ge 5`, since the binary arm
+    // used `{:?}` for the operator too, which the parser refuses). Both are source
+    // now, and this asserts the pair: the stored text is what the program wrote, and
+    // formatting the declaration produces a program.
+    use x3_lang_compiler::formatter::X3Formatter;
+    let source = "invariant profit_floor { assert profit >= 5 }\n\nintent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    require slippage <= 50\n    on_fail refund ethereum.USDC to sender\n}\n";
+    let program = parse(source).expect("the fixture must parse");
+
+    let stored = program
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::InvariantDecl(invariant) => Some(invariant.assert_expr.as_str().to_string()),
+            _ => None,
+        })
+        .expect("the fixture declares an invariant");
+    assert_eq!(stored, "profit >= 5", "the body is the source the program wrote");
+
+    let formatted = X3Formatter::new().format_program(&program);
+    assert!(formatted.contains("assert profit >= 5"), "{formatted}");
+    let reparsed = parse(&formatted).expect("what the formatter writes must parse");
+    assert_eq!(
+        x3_lang_compiler::compile_program(&program).expect("compiles"),
+        x3_lang_compiler::compile_program(&reparsed).expect("compiles"),
+        "and mean the same thing"
+    );
+}

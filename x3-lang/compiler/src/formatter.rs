@@ -7,6 +7,19 @@ use x3_lang_ast::ast::*;
 use x3_lang_ast::{AssetDecl, AtomicTradeDecl, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::Spanned;
 
+/// An expression as source text.
+///
+/// Read by the parser for the one declaration that keeps its expression as text —
+/// `invariant <name> { assert <expr> }`, whose body reaches the IR as a string — and
+/// by anything that needs the source form of an expression rather than its Rust
+/// `Debug`. It used to be `format!("{:?}", expr)`, so the stored text was a Rust
+/// value tree and the formatter could not write the body back at all (TICKET-044).
+pub fn expression_to_source(expr: &Expression) -> String {
+    let mut formatter = X3Formatter::new();
+    formatter.format_expression(expr);
+    formatter.output
+}
+
 /// Whether a clause's expression is the literal zero `from <asset>` fills in
 /// when the amount is not stated.
 fn is_zero_literal(expression: &Expression) -> bool {
@@ -1615,8 +1628,12 @@ impl X3Formatter {
             Expression::Literal(lit) => self.format_literal(lit),
             Expression::Ident(name) => self.write(name.as_str()),
             Expression::Binary { op, lhs, rhs } => {
+                // `{op}` and not `{op:?}`: `BinOp` implements `Display` with the
+                // operator as the language writes it, and `Debug` gives the variant's
+                // name — `Ge`, `Plus` — which is not a program. A formatter that
+                // writes one produces text the parser refuses.
                 self.format_expression(lhs);
-                self.write(&format!(" {:?} ", op));
+                self.write(&format!(" {op} "));
                 self.format_expression(rhs);
             }
             Expression::Unary { op, expr: inner } => {
