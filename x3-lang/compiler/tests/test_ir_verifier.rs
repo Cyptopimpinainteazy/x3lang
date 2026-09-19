@@ -537,3 +537,24 @@ fn a_liquidation_operation_is_refused_as_unexecutable() {
         "the refusal must name the position and the missing adapter, with no spacing artefacts: {diagnostics:?}"
     );
 }
+
+#[test]
+fn a_rebalance_operation_is_refused_until_the_graph_can_be_generated() {
+    // PHASE 11's weights are decided on the AST (`rebalance::verify`); what is missing
+    // is the plan that reaches them, and the phase says that part is eventual. A record
+    // with no legs would be a plan that does nothing, so this layer refuses it.
+    let ir = ir_with(vec![Operation::Rebalance {
+        name: "portfolio".to_owned(),
+        weights: vec![("unknown.BTC".to_owned(), 40), ("unknown.ETH".to_owned(), 60)],
+        criterion: "fees".to_owned(),
+    }]);
+    let diagnostics = verify_ir(&ir).expect_err("no graph can be generated yet");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        diagnostics[0].message.contains("cannot be executed")
+            && diagnostics[0].message.contains("generate the transaction graph")
+            && diagnostics[0].message.contains("portfolio")
+            && !diagnostics[0].message.contains("  "),
+        "the refusal must name the rebalance and what is missing: {diagnostics:?}"
+    );
+}

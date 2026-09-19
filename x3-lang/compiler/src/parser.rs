@@ -302,6 +302,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "finality_policy" => self.parse_finality_policy_item(),
             Tok::Ident(ref s) if s == "atomic_hedge" => self.parse_atomic_hedge_item(),
             Tok::Ident(ref s) if s == "atomic_liquidation" => self.parse_atomic_liquidation_item(),
+            Tok::Ident(ref s) if s == "rebalance" => self.parse_rebalance_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
@@ -3436,6 +3437,140 @@ impl<'a> Parser<'a> {
         }
         self.expect(Tok::RBrace, "expected '}' after target body")?;
         Ok(Item::VmTarget(VmTarget { vm, adapter, contract }))
+    }
+
+    /// `rebalance <name> { <ASSET> = <pct>; … minimize { <metric>; … } atomic; }`
+    ///
+    /// A target portfolio. The weights are percentages and the `minimize` set names
+    /// metrics the optimizer knows; `atomic` is required, because a rebalance that
+    /// can half-execute leaves the portfolio off-target (PHASE 11).
+    fn parse_rebalance_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let name = Symbol::new(&self.expect_ident("rebalance name")?);
+        self.expect(Tok::LBrace, "expected '{' after the rebalance name")?;
+        let mut weights: Vec<(AssetRef, u32)> = Vec::new();
+        let mut minimize: Vec<ObjectiveMetric> = Vec::new();
+        let mut atomic = false;
+
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            if self.peek() == Tok::KwAtomic {
+                self.advance();
+                self.opt_semi();
+                atomic = true;
+                continue;
+            }
+            let clause = self
+                .peek_word()
+                .ok_or_else(|| parse_err("expected a weight, `minimize { … }` or `atomic;`".into(), self.peek()))?;
+            if clause == "minimize" {
+                self.advance();
+                self.expect(Tok::LBrace, "expected '{' after `minimize`")?;
+                while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                    // The metric vocabulary is the objective's: one place says which
+                    // metrics exist and which direction each has.
+                    let metric = self.parse_metric_name("minimize")?;
+                    self.opt_semi();
+                    minimize.push(metric);
+                }
+                self.expect(Tok::RBrace, "expected '}' after the minimize set")?;
+                self.opt_semi();
+                continue;
+            }
+
+            // `<ASSET> = <pct>` — the asset is an identifier or `chain.ASSET`.
+            let asset = self.parse_hedge_asset()?;
+            self.expect(Tok::Eq, "expected '=' after the asset in a rebalance weight")?;
+            let percent = match self.peek() {
+                Tok::Int(value) => {
+                    self.advance();
+                    u32::try_from(value).map_err(|_| {
+                        parse_err(
+                            "a portfolio weight is a percentage between 0 and 100".into(),
+                            self.peek(),
+                        )
+                    })?
+                }
+                Tok::Float(value) => {
+                    return Err(parse_err(
+                        format!(
+                            "the weight '{value}' is fractional; weights are whole percentages, and a \
+                             share finer than one percent is not representable yet rather than rounded"
+                        ),
+                        self.peek(),
+                    ))
+                }
+                _ => {
+                    return Err(parse_err(
+                        "a portfolio weight is a percentage: write `<ASSET> = <n>%`".into(),
+                        self.peek(),
+                    ))
+                }
+            };
+            // `40%` is an integer and the `%` operator token; the sign is written
+            // because the weight is a share of the portfolio, not a count.
+            if self.peek() == Tok::Percent {
+                self.advance();
+            } else {
+                return Err(parse_err(
+                    "a portfolio weight is a percentage: write `<ASSET> = <n>%`".into(),
+                    self.peek(),
+                ));
+            }
+            self.opt_semi();
+            weights.push((asset, percent));
+        }
+        self.expect(Tok::RBrace, "expected '}' after the rebalance")?;
+
+        if !atomic {
+            return Err(parse_err(
+                "a `rebalance` has to say `atomic;`: a partially executed rebalance leaves the \
+                 portfolio off-target, which is the state the declaration exists to reach"
+                    .into(),
+                self.peek(),
+            ));
+        }
+        Ok(Item::Rebalance(RebalanceDecl {
+            name,
+            weights,
+            minimize,
+        }))
+    }
+
+    /// A metric name, read through the objective's table so the two constructs cannot
+    /// disagree about which metrics exist or which way each points.
+    fn parse_metric_name(&mut self, direction: &str) -> Result<ObjectiveMetric, X3Error> {
+        let Some(wanted) = self.peek_word() else {
+            return Err(parse_err(
+                format!("expected a metric name after `{direction}`"),
+                self.peek(),
+            ));
+        };
+        self.advance();
+        let found = ObjectiveMetric::by_name(&wanted).ok_or_else(|| {
+            let allowed: Vec<String> = ObjectiveMetric::ALL
+                .iter()
+                .map(|metric| format!("{} {}", metric.direction(), metric.name()))
+                .collect();
+            parse_err(
+                format!(
+                    "unknown '{}' target '{wanted}'; the metrics the optimizer knows are: {}",
+                    direction,
+                    allowed.join(", ")
+                ),
+                self.peek(),
+            )
+        })?;
+        if found.direction() != direction {
+            return Err(parse_err(
+                format!(
+                    "'{wanted}' is a metric to {}, not to {direction}; the direction is part of the \
+                     metric",
+                    found.direction()
+                ),
+                self.peek(),
+            ));
+        }
+        Ok(found)
     }
 
     /// `atomic_liquidation { liquidate <n> <ASSET> of <ref>; receive <n> <ASSET> collateral;

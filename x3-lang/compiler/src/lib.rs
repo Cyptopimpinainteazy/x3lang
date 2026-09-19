@@ -32,6 +32,7 @@ pub mod opportunity;
 pub mod optimizer;
 pub mod parser;
 pub mod profitability;
+pub mod rebalance;
 pub mod regalloc;
 pub mod risk;
 pub mod semantic;
@@ -209,6 +210,9 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     // A liquidation's own figures have to repay its capital and leave no
     // position unaccounted for (PHASE 10).
     liquidation::verify(program, &mut acc);
+    // A target portfolio's weights have to be a whole, and its criterion has to be
+    // one the optimizer can rank (PHASE 11).
+    rebalance::verify(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 
     // Layer 1 of the pipeline described at the top of this file. It was

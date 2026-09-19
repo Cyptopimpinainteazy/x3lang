@@ -118,6 +118,22 @@ pub enum Operation {
         transfer_proof: Vec<u8>,
     },
 
+    /// A target portfolio and the criterion a plan for it would be ranked by
+    /// (spec PHASE 11).
+    ///
+    /// The decided weights travel so `x3c lower` shows the portfolio the verifier
+    /// checked. No artifact is emitted with this operation today: the phase's own
+    /// last sentence — the compiler generating the transaction graph — is not
+    /// implemented, so a record without legs would be a plan that does nothing
+    /// (TICKET-070).
+    Rebalance {
+        name: String,
+        /// `chain.ASSET` and its weight in percent, in the order written.
+        weights: Vec<(String, u32)>,
+        /// The first `minimize` target's name: the metric an optimizer would rank by.
+        criterion: String,
+    },
+
     /// A liquidation: the capital advanced, the collateral seized, and what the
     /// conversion's own bound leaves after the repayment (spec PHASE 10).
     ///

@@ -63,6 +63,8 @@ pub enum Item {
     AtomicHedge(AtomicHedgeDecl),
     /// `atomic_liquidation { … }` — spec PHASE 10.
     AtomicLiquidation(AtomicLiquidationDecl),
+    /// `rebalance <name> { … }` — spec PHASE 11.
+    Rebalance(RebalanceDecl),
     ParallelDecl(ParallelDecl),
     ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
@@ -1646,4 +1648,29 @@ pub struct LiquidationSwap {
     pub from: AssetRef,
     pub to: AssetRef,
     pub min_output: u128,
+}
+/// `rebalance <name> { <ASSET> = <pct>; … minimize { <metric>; … } atomic; }` —
+/// spec PHASE 11.
+///
+/// The declaration is a target portfolio and the things the plan would minimise.
+/// Two things are decided from it (`compiler/src/rebalance.rs`): the weights are a
+/// whole portfolio (at least two assets, none of them zero, summing to 100%), and
+/// every `minimize` target is one the optimizer can actually rank — a target it
+/// cannot rank is refused with the reason rather than recorded as a label nothing
+/// acts on.
+///
+/// `atomic;` is required and not carried: a rebalance that is not atomic leaves the
+/// portfolio off-target after a partial execution, so there is no non-atomic form to
+/// represent. The phase's "compiler should *eventually* be able to generate the
+/// transaction graph automatically" is not implemented, so no artifact is emitted
+/// for a declaration today (TICKET-070).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RebalanceDecl {
+    pub name: Symbol,
+    /// `BTC = 40%` — the target weight of each asset, in percent.
+    pub weights: Vec<(AssetRef, u32)>,
+    /// `minimize { fees; slippage; }` — in the order written. The first is the
+    /// criterion the compiler would rank a plan by; the rest are recorded targets,
+    /// because the optimizer ranks one metric (PHASE 15).
+    pub minimize: Vec<ObjectiveMetric>,
 }

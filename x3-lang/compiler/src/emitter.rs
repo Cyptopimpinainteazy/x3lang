@@ -122,6 +122,16 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&[ATOMIC_END])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
+        Operation::Rebalance { name, .. } => {
+            return Err(X3Error::CodegenError {
+                message: format!(
+                    "cannot emit the rebalance '{name}': it states target weights and the compiler \
+                     cannot yet generate the transaction graph that reaches them, so the artifact \
+                     would carry a plan that does nothing (PHASE 11)"
+                ),
+                span: None,
+            });
+        }
         Operation::Liquidation { position, .. } => {
             // Refused here as well as in the IR verifier, because `emit_x3ir` is
             // public: the accounting is decided, and the calls it plans need an

@@ -317,6 +317,17 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
             // `liquidate` and `receive` are calls into a lending protocol it has no
             // adapter for. Same shape as the hedge above, same reason for refusing
             // here rather than only in the emitter.
+            // The weights are decided (`rebalance::verify`); what is missing is the plan
+            // that reaches them. Refusing here rather than emitting a record with no
+            // legs is the same rule the hedge and liquidation follow.
+            Operation::Rebalance { name, .. } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: the rebalance '{name}' cannot be executed — it states target \
+                     weights and the compiler cannot yet generate the transaction graph that reaches \
+                     them, so the portfolio is decided and the plan is not pretended"
+                ),
+            ),
             Operation::Liquidation { position, .. } => push_unsafe(
                 diagnostics,
                 format!(

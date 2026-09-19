@@ -11,6 +11,7 @@ use crate::ir::{
     SerialFormat, StorageKind, VectorOp, X3IR,
 };
 use crate::liquidation;
+use crate::rebalance;
 use crate::semantic::CompilationMode;
 use crate::trading_lowering;
 use crate::trading_semantic;
@@ -747,6 +748,17 @@ pub fn lower_program_with_mode(
                 for strategy in &agent.strategies {
                     lower_function_body(&strategy.node.body, &mut ir)?;
                 }
+            }
+            Item::Rebalance(rebalance_decl) => {
+                // The decided portfolio travels in the operation: `x3c lower` is where
+                // the targets and the criterion are visible today, because no plan can
+                // be generated for them yet.
+                let portfolio = rebalance::portfolio(rebalance_decl).map_err(|reason| semantic(&reason))?;
+                ir.push(Operation::Rebalance {
+                    name: portfolio.name.clone(),
+                    weights: portfolio.weights.clone(),
+                    criterion: portfolio.criterion.name().to_string(),
+                });
             }
             Item::AtomicLiquidation(liquidation_decl) => {
                 // The `ledger` call repeats nothing the verifier decided: it is what

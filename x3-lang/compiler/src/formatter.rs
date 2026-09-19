@@ -178,6 +178,7 @@ impl X3Formatter {
             Item::FinalityPolicy(f) => self.format_finality_policy(f),
             Item::AtomicHedge(hedge) => self.format_atomic_hedge(hedge),
             Item::AtomicLiquidation(liquidation) => self.format_atomic_liquidation(liquidation),
+            Item::Rebalance(rebalance) => self.format_rebalance(rebalance),
             Item::ProofsRequired(p) => self.format_proofs_required(p),
             Item::VmTarget(t) => self.format_vm_target(t),
             Item::AssetDecl(decl) => self.format_asset_decl(decl),
@@ -1236,6 +1237,33 @@ impl X3Formatter {
         self.write("error ");
         self.write(e.name.as_str());
         self.write("\n");
+    }
+
+    /// `rebalance <name> { <ASSET> = <pct>; … minimize { <metric>; … } atomic; }`
+    fn format_rebalance(&mut self, rebalance: &RebalanceDecl) {
+        self.write("rebalance ");
+        self.write(rebalance.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        for (asset, percent) in &rebalance.weights {
+            self.write_indent();
+            self.format_asset_ref(asset);
+            self.write(&format!(" = {percent}%;\n"));
+        }
+        self.write_indent();
+        self.write("minimize {\n");
+        self.indent();
+        for metric in &rebalance.minimize {
+            self.write_indent();
+            self.write(&format!("{};\n", metric.name()));
+        }
+        self.dedent();
+        self.write_indent();
+        self.write("}\n");
+        self.write_indent();
+        self.write("atomic;\n");
+        self.dedent();
+        self.write("}\n");
     }
 
     /// `atomic_liquidation { liquidate …; receive …; swap …; repay …; require net_profit …; }`

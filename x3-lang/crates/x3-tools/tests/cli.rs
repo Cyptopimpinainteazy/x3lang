@@ -1555,3 +1555,58 @@ fn cli_decides_a_liquidations_accounting_and_refuses_its_calls() {
         "the accounting is decided before the adapter question is reached: {output}"
     );
 }
+
+/// PHASE 11 — a target portfolio's weights are decided, and the plan is not pretended.
+#[test]
+fn cli_decides_a_rebalances_weights_and_refuses_to_pretend_it_plans() {
+    let sound = "rebalance portfolio {\n    BTC = 40%;\n    ETH = 25%;\n    SOL = 15%;\n    X3 = \
+                 10%;\n    USDC = 10%;\n\n    minimize {\n        fees;\n        slippage;\n    }\n\n    \
+                 atomic;\n}\n";
+    let fixture = write_fixture("cli_rebalance_sound.x3", sound);
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(!check.status.success(), "no plan can be generated yet: {output}");
+    assert!(
+        output.contains("cannot yet generate the transaction graph"),
+        "the refusal must say what is missing: {output}"
+    );
+    assert!(
+        !output.contains("sums to") && !output.contains("cannot rank"),
+        "a portfolio that adds up has no weight or criterion to complain about: {output}"
+    );
+
+    let unbalanced = write_fixture("cli_rebalance_unbalanced.x3", &sound.replace("SOL = 15%", "SOL = 5%"));
+    let check = x3c().arg("check").arg(&unbalanced).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        output.contains("sums to 90%, not 100%") && output.contains("BTC 40%"),
+        "the weights must be reported with their figures: {output}"
+    );
+    assert!(
+        !output.contains("transaction graph"),
+        "the weights are decided before the plan question is reached: {output}"
+    );
+
+    let unrankable = write_fixture(
+        "cli_rebalance_unrankable.x3",
+        &sound.replace("        fees;", "        external_liquidity;"),
+    );
+    let check = x3c().arg("check").arg(&unrankable).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        output.contains("cannot rank") && output.contains("does not distinguish liquidity the ring supplies"),
+        "an unrankable target must carry the objective's own reason: {output}"
+    );
+}
