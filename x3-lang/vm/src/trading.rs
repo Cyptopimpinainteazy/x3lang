@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
+use crate::profit::Profit;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, CostKind, InvariantKind, TradingOperation, ValueRef};
@@ -300,9 +301,27 @@ pub enum TradingExecError {
         ceiling_blocks: u64,
     },
     OpenDebtAtCommit(String),
+    /// A compiled policy declares a minimum net profit and does not say which
+    /// asset it is denominated in.
+    ///
+    /// The floor cannot be checked against an unnamed asset, and checking it
+    /// against "whichever asset did best" is what the missing field used to
+    /// cause.
+    NetProfitFloorWithoutAsset,
+    /// The assembled profit decomposition and the recorded net delta disagree.
+    ///
+    /// They are two computations of one quantity — `net = credits - debits -
+    /// costs` is an identity of this accounting — so a disagreement means a
+    /// movement or a cost was recorded in one place and not the other, and any
+    /// profit figure taken from either side would be a guess.
+    ProfitReconciliationMismatch {
+        asset: AssetKey,
+        assembled: i128,
+        recorded: i128,
+    },
     NetProfitBelowFloor {
-        minimum: u128,
-        actual: u128,
+        minimum: i128,
+        actual: i128,
     },
     MissingReceipt,
     AccountingOverflow,
@@ -409,6 +428,22 @@ impl fmt::Display for TradingExecError {
                 "venue quote is {age_blocks} blocks old, exceeding the compiled quote_freshness ceiling of {ceiling_blocks} blocks"
             ),
             Self::OpenDebtAtCommit(debt) => write!(f, "debt '{debt}' is still open at commit"),
+            Self::NetProfitFloorWithoutAsset => write!(
+                f,
+                "compiled policy declares a minimum net profit with no asset; the floor cannot be \
+                 checked against an asset it does not name"
+            ),
+            Self::ProfitReconciliationMismatch {
+                asset,
+                assembled,
+                recorded,
+            } => write!(
+                f,
+                "profit decomposition for {}::{} is {assembled} but the recorded net delta is \
+                 {recorded}; the two are different computations of the same quantity, so one of them \
+                 is missing a movement or a cost",
+                asset.chain, asset.symbol
+            ),
             Self::NetProfitBelowFloor { minimum, actual } => {
                 write!(f, "realized net profit {actual} is below floor {minimum}")
             }
@@ -476,6 +511,15 @@ pub struct TradingState {
     /// `kind: "committed"` for every cost, which made `allowed_cost_kinds`
     /// structurally unverifiable after the fact.
     pub cost_ledger: Vec<CommittedCost>,
+    /// Everything credited to each asset, and everything debited from it.
+    ///
+    /// Recorded so the profit decomposition can be assembled from the parts and
+    /// then reconciled against `net_deltas`: `net = credits - debits - costs` is
+    /// an identity of this accounting, and a profit figure that disagrees with
+    /// the recorded delta means a movement or a cost was written in one place and
+    /// not the other.
+    pub credits: BTreeMap<AssetKey, u128>,
+    pub debits: BTreeMap<AssetKey, u128>,
     pub net_deltas: BTreeMap<AssetKey, i128>,
     pub receipt_emitted: bool,
     pub committed: bool,
@@ -855,12 +899,10 @@ impl TradingVm {
                     minimum,
                 } => {
                     self.accrue_host_execution_costs(host)?;
-                    let actual = self.net_profit(settlement_asset);
-                    if actual < *minimum {
-                        return Err(TradingExecError::NetProfitBelowFloor {
-                            minimum: *minimum,
-                            actual,
-                        });
+                    let actual = self.net_profit(settlement_asset)?;
+                    let minimum = i128::try_from(*minimum).map_err(|_| TradingExecError::AccountingOverflow)?;
+                    if actual < minimum {
+                        return Err(TradingExecError::NetProfitBelowFloor { minimum, actual });
                     }
                 }
                 TradingOperation::AssertAllDebtsClosed => {
@@ -924,19 +966,19 @@ impl TradingVm {
         }
         self.accrue_host_execution_costs(host)?;
         if let Some(minimum) = self.compiled_policy().minimum_net_profit {
-            // The settlement asset is checked by AssertMinNetProfit; this is
-            // only a defence-in-depth check when a policy carries a floor.
-            let best = self
-                .trading_state
-                .net_deltas
-                .values()
-                .copied()
-                .max()
-                .unwrap_or(0)
-                .max(0);
-            let best = u128::try_from(best).map_err(|_| TradingExecError::AccountingOverflow)?;
-            if best < minimum {
-                return Err(TradingExecError::NetProfitBelowFloor { minimum, actual: best });
+            // The floor is denominated in the policy's settlement asset, so the
+            // check reads that asset. It used to take the *maximum* delta across
+            // every asset, which passed a trade that lost on the settlement asset
+            // whenever some side asset happened to gain.
+            let asset = self
+                .compiled_policy()
+                .minimum_net_profit_asset
+                .clone()
+                .ok_or(TradingExecError::NetProfitFloorWithoutAsset)?;
+            let actual = self.net_profit(&asset)?;
+            let minimum = i128::try_from(minimum).map_err(|_| TradingExecError::AccountingOverflow)?;
+            if actual < minimum {
+                return Err(TradingExecError::NetProfitBelowFloor { minimum, actual });
             }
         }
         if let (Some(ceiling), Some(asset)) = (
@@ -1171,6 +1213,10 @@ impl TradingVm {
     fn credit(&mut self, asset: &AssetKey, amount: u128) -> Result<(), TradingExecError> {
         let entry = self.trading_state.balances.entry(asset.clone()).or_insert(0);
         *entry = entry.checked_add(amount).ok_or(TradingExecError::AccountingOverflow)?;
+        let credited = self.trading_state.credits.entry(asset.clone()).or_insert(0);
+        *credited = credited
+            .checked_add(amount)
+            .ok_or(TradingExecError::AccountingOverflow)?;
         let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
         *delta = delta
             .checked_add(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
@@ -1181,6 +1227,10 @@ impl TradingVm {
     fn debit(&mut self, asset: &AssetKey, amount: u128) -> Result<(), TradingExecError> {
         let entry = self.trading_state.balances.entry(asset.clone()).or_insert(0);
         *entry = entry.checked_sub(amount).ok_or(TradingExecError::AccountingOverflow)?;
+        let debited = self.trading_state.debits.entry(asset.clone()).or_insert(0);
+        *debited = debited
+            .checked_add(amount)
+            .ok_or(TradingExecError::AccountingOverflow)?;
         let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
         *delta = delta
             .checked_sub(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
@@ -1220,8 +1270,50 @@ impl TradingVm {
         Ok(())
     }
 
-    pub fn net_profit(&self, asset: &AssetKey) -> u128 {
-        self.trading_state.net_deltas.get(asset).copied().unwrap_or(0).max(0) as u128
+    /// Assemble the profit decomposition for one asset from the ledger.
+    ///
+    /// `gross` is what was credited to the asset and `principal` what was
+    /// debited from it — in this accounting those are the proceeds and the
+    /// capital committed. The safety buffer is zero because the policy declares
+    /// none: the spec lists one, the language has no field for it, and a
+    /// non-zero figure here would be invented.
+    ///
+    /// The result is reconciled against the recorded net delta before it is
+    /// returned. The two must agree, and a mismatch is an error rather than a
+    /// preference for one of them.
+    pub fn profit(&self, asset: &AssetKey) -> Result<Profit, TradingExecError> {
+        let costs: Vec<crate::profit::LedgerCost> = self
+            .trading_state
+            .cost_ledger
+            .iter()
+            .filter(|cost| &cost.asset == asset)
+            .map(|cost| crate::profit::LedgerCost {
+                amount: cost.amount,
+                kind: cost.kind.clone(),
+            })
+            .collect();
+        let profit = Profit::from_ledger(
+            self.trading_state.credits.get(asset).copied().unwrap_or(0),
+            self.trading_state.debits.get(asset).copied().unwrap_or(0),
+            0,
+            &costs,
+        )
+        .map_err(|unknown| TradingExecError::UnknownCostKind(unknown.0))?;
+
+        let recorded = self.trading_state.net_deltas.get(asset).copied().unwrap_or(0);
+        if profit.net != recorded {
+            return Err(TradingExecError::ProfitReconciliationMismatch {
+                asset: asset.clone(),
+                assembled: profit.net,
+                recorded,
+            });
+        }
+        Ok(profit)
+    }
+
+    /// The realised net profit for an asset, signed: a loss is negative.
+    pub fn net_profit(&self, asset: &AssetKey) -> Result<i128, TradingExecError> {
+        Ok(self.profit(asset)?.net)
     }
 }
 

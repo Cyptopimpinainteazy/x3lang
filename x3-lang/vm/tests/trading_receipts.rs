@@ -36,6 +36,7 @@ fn operations() -> Vec<TradingOperation> {
                 deadline_blocks: 10,
                 require_private_submission: false,
                 minimum_net_profit: None,
+                minimum_net_profit_asset: None,
                 quote_freshness_blocks: Some(10),
                 submission_profile: SubmissionProfile::Public,
                 state_binding: StateBindingMode::Exact,

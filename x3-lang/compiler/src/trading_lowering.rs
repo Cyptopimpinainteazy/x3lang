@@ -65,9 +65,12 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
 
     let max_gas = literal_amount(&policy.max_gas, symbols, "policy max_gas")?;
     let max_gas_asset = asset_key(&policy.max_gas.asset, symbols)?;
-    let minimum_net_profit = match &policy.min_profit {
-        Some(amount) => Some(literal_amount(amount, symbols, "policy min_profit")?),
-        None => None,
+    let (minimum_net_profit, minimum_net_profit_asset) = match &policy.min_profit {
+        Some(amount) => (
+            Some(literal_amount(amount, symbols, "policy min_profit")?),
+            Some(asset_key(&amount.asset, symbols)?),
+        ),
+        None => (None, None),
     };
     let (max_cumulative_loss, max_cumulative_loss_asset) = match &policy.max_cumulative_loss {
         Some(amount) => (
@@ -89,6 +92,7 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         deadline_blocks,
         require_private_submission: policy.require_private_submission,
         minimum_net_profit,
+        minimum_net_profit_asset,
         quote_freshness_blocks: policy.quote_freshness,
         submission_profile: if policy.require_private_submission {
             SubmissionProfile::Private

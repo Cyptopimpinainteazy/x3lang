@@ -3,6 +3,7 @@ pub mod btc_adapter;
 pub mod economic;
 pub mod executor;
 pub mod jit;
+pub mod profit;
 pub mod trading;
 pub mod spec {
     pub mod opcodes {

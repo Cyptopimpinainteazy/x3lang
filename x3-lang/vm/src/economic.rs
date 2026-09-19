@@ -62,7 +62,12 @@ pub struct EconomicPolicy {
     pub policy_id: String,
     pub chain: String,
     pub settlement_asset: AssetKey,
-    pub minimum_net_profit: u128,
+    /// The floor the policy declares, or `None` when it declares none.
+    ///
+    /// Flattening this to `0` made "no floor" and "a floor of zero" the same
+    /// policy, and with a signed net the difference matters: a floor of zero
+    /// refuses a losing trade, and no floor does not.
+    pub minimum_net_profit: Option<u128>,
     pub max_slippage_bps: u16,
     /// Maximum age in blocks of the venue quote a swap may be priced from.
     /// `None` means the policy requires no freshness bound.
@@ -92,7 +97,7 @@ impl EconomicPolicy {
             policy_id: compiled.policy_id.clone(),
             chain: compiled.chain.clone(),
             settlement_asset,
-            minimum_net_profit: compiled.minimum_net_profit.unwrap_or(0),
+            minimum_net_profit: compiled.minimum_net_profit,
             max_slippage_bps: compiled.max_slippage_bps,
             quote_freshness_blocks: compiled.quote_freshness_blocks,
             deadline_blocks: compiled.deadline_blocks,

@@ -547,6 +547,14 @@ pub struct CompiledTradingPolicy {
     /// Legacy migration field. It must agree with `submission_profile`.
     pub require_private_submission: bool,
     pub minimum_net_profit: Option<u128>,
+    /// Asset `minimum_net_profit` is denominated in.
+    ///
+    /// The same reason `max_gas_asset` exists: without it the floor is an
+    /// unenforceable bare number, and the check that consumed it took the
+    /// *maximum* delta across every asset — passing a trade that lost on the
+    /// settlement asset whenever a side asset gained.
+    #[serde(default)]
+    pub minimum_net_profit_asset: Option<AssetKey>,
     /// Maximum age, in blocks, of the venue quote a swap is allowed to have
     /// been taken at. `None` means no freshness requirement — the same opt-in
     /// shape as `max_oracle_deviation_bps`.
