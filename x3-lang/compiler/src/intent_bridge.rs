@@ -235,8 +235,7 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
                 let to_chain = field_nested_chain(step, "to_ref")
                     .or_else(|| field_string(step, "to_chain"))
                     .unwrap_or_else(|| intent.to.chain.to_ascii_lowercase());
-                let asset = field_string(step, "asset")
-                    .unwrap_or_else(|| intent.from.asset.clone());
+                let asset = field_string(step, "asset").unwrap_or_else(|| intent.from.asset.clone());
                 let to_asset = field_string(step, "to_asset").unwrap_or_else(|| asset.clone());
                 let amount = field_amount(step, "amount")?.unwrap_or(running_amount);
                 let receiver = field_string(step, "receiver")
@@ -256,7 +255,9 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
                 });
             }
             other => {
-                return Err(semantic_error(format!("path[{index}] has unsupported step type {other}")));
+                return Err(semantic_error(format!(
+                    "path[{index}] has unsupported step type {other}"
+                )));
             }
         }
     }
@@ -359,11 +360,7 @@ fn requirement_kind_to_ir(kind: &str) -> RequireKind {
 
 fn requirement_to_condition(requirement: &Requirement) -> crate::ir::Condition {
     let op = requirement.op.as_deref().unwrap_or(">=");
-    let value = requirement
-        .value
-        .as_ref()
-        .map(value_to_string)
-        .unwrap_or_default();
+    let value = requirement.value.as_ref().map(value_to_string).unwrap_or_default();
     crate::ir::Condition::Expression {
         expr: format!("{op} {value}").trim().to_string(),
     }
@@ -601,8 +598,7 @@ mod tests {
             {"kind": "nonce", "chain": "solana", "op": "==", "value": "n1"},
             {"kind": "slippage", "chain": "ethereum", "op": "<=", "value": "50"}
         ]);
-        let intent =
-            parse_validated_intent_json(&value.to_string()).expect("valid envelope");
+        let intent = parse_validated_intent_json(&value.to_string()).expect("valid envelope");
         let ir = to_ir(&intent).expect("lowers to ir");
 
         let swap = ir
@@ -627,10 +623,10 @@ mod tests {
             .iter()
             .find_map(|op| match op {
                 Operation::Require {
-                    kind,
+                    kind: RequireKind::SlippageTolerance,
                     comparison,
                     ..
-                } if matches!(kind, RequireKind::SlippageTolerance) => *comparison,
+                } => *comparison,
                 _ => None,
             })
             .expect("slippage guard with a comparison");

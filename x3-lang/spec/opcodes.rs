@@ -109,6 +109,12 @@ pub const TRADING_ASSERT_INVARIANT: u8 = 0xB9;
 pub const TRADING_BRIDGE: u8 = 0xBA;
 
 pub const NOP: u8 = 0x00;
+
+/// The two arithmetic opcodes have no named constant of their own because nothing
+/// in `opcodes.yaml` declares them; they are here so the cost table below can name
+/// every code it prices (the table used to be a list of bare hex).
+pub const ADD: u8 = 0x01;
+pub const SUB: u8 = 0x02;
 pub const BYTECODE_VERSION_1: u8 = 0x01;
 pub const META_NONCE: u8 = 0x10;
 pub const META_CHAIN_ID: u8 = 0x11;
@@ -352,5 +358,68 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
         TRADING_BRIDGE => "TRADING_BRIDGE",
         HALT => "HALT",
         _ => "UNKNOWN",
+    }
+}
+
+/// The weight this VM charges to fetch and execute one instruction, before any
+/// operand-dependent surcharge.
+///
+/// This table *is* the charge: `vm/src/executor.rs` reads it rather than keeping a
+/// copy, so a compile-time estimate (PHASE 35) can never disagree with what a run
+/// costs. It used to live in the executor as a list of bare hex codes, which is a
+/// second statement of the opcode catalogue and drifts from it silently — the
+/// comments there had to explain what `0x0A` and `0x70` were, and no opcode in this
+/// file has ever had those values, so both are kept only because this is a move of
+/// the table rather than a redesign of what the VM charges.
+///
+/// The numbers are consensus-relevant: changing one changes what a program costs.
+/// What the estimate report prints as the basis of its weight figure: the charge
+/// and the estimate are the same table, so the two cannot disagree.
+pub const BASE_WEIGHT_TABLE_IS_THE_CHARGE: &str = "the table vm/src/executor.rs charges from";
+
+pub const fn base_gas_cost(opcode: u8) -> u128 {
+    match opcode {
+        // 0x0A: no instruction in this catalogue. Kept so the table is the VM's
+        // own, unchanged.
+        0x0A => 50,
+        ADD | SUB => 1,
+        META_NONCE | META_CHAIN_ID => 5,
+        LOCK | MINT => 1,
+        BRIDGE => 100,
+        IF | LOOP => 2,
+        CALL | RET => 5,
+        REQUIRE => 10,
+        ATOMIC_BEGIN | ATOMIC_END => 250,
+        EMIT | CALL_HOST => 100,
+        // 0x70: no instruction in this catalogue, for the same reason as 0x0A.
+        0x70 => 2,
+        GPU_DISPATCH => 500,
+        SIMULATE => 200,
+        SCHEDULED_DISPATCH => 100,
+        INTENT_RESOLVE => 150,
+        CRDT_OP => 10,
+        PROOF_VERIFY => 500,
+        STORAGE_OP => 50,
+        PATHFIND => 100,
+        MEMPOOL_SCAN | ORACLE_REQUEST => 50,
+        EMERGENCY_CONTROL => 10,
+        LIFECYCLE => 500,
+        SERIALIZE | DESERIALIZE => 20,
+        GAS_ESTIMATE => 30,
+        CHAIN_METRIC => 10,
+        EVENT_PROVENANCE => 20,
+        MULTI_HOP_SWAP => 200,
+        VECTOR_MATH => 5,
+        ROLE_CHECK | MULTISIG_CHECK | VERSION_META | STORAGE_NAMESPACE | ABI_EXPORT | DOC_EMBED => 10,
+        GAS_ADAPTIVE => 50,
+        BOUNTY => 50,
+        SUB_EXEC => 50,
+        // A nonce test is a membership check and a recording: a scan over the run's
+        // nonces, priced like the other cheap capabilities.
+        NONCE_UNUSED => 50,
+        ROUTE_SCORE..=REFUND_POLICY => 50,
+        TRADING_BEGIN..=TRADING_BRIDGE => 50,
+        HALT => 0,
+        _ => 1,
     }
 }

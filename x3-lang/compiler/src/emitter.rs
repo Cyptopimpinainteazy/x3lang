@@ -1034,42 +1034,98 @@ fn vector_op_id(op: &VectorOp) -> u8 {
     }
 }
 
-/// Disassemble X3 bytecode into a human-readable trace.
+/// One instruction a compiler stream contains, as a reader sees it.
 ///
-/// This is the "explain" subcommand of the x3c CLI: a reviewer can run
-/// `x3c explain program.x3b` and see per-instruction pseudo-code without
-/// reading raw bytes.
-pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
+/// The framing rules — which opcodes carry a payload, how wide a fixed frame is,
+/// where the padding sits — come from `spec/opcodes.rs`. Two readers that walk the
+/// same bytes have to agree, so `disassemble` and the cost estimate (PHASE 35) both
+/// walk through here rather than each stepping the cursor itself.
+pub struct StreamInstruction<'a> {
+    pub pc: usize,
+    pub opcode: u8,
+    pub flags: u8,
+    pub operand: u16,
+    pub payload: &'a [u8],
+    /// Where the next instruction starts.
+    pub next_pc: usize,
+}
+
+/// Walk a compiler stream into its instructions.
+pub fn instructions(bytecode: &[u8]) -> Result<Vec<StreamInstruction<'_>>, X3Error> {
     if bytecode.is_empty() {
         return Err(X3Error::CodegenError {
             message: "bytecode is empty".to_string(),
             span: None,
         });
     }
-    let mut out = String::new();
-    out.push_str(&format!("; x3-lang bytecode v0x{:02x}\n", bytecode[0]));
+    let mut found = Vec::new();
+    let mut pc = first_instruction_offset(bytecode);
+    while pc + 4 <= bytecode.len() {
+        if bytecode[pc..pc + 4].iter().all(|byte| *byte == 0) {
+            pc += 4;
+            continue;
+        }
+        let opcode = bytecode[pc];
+        let payload_len = u16::from_le_bytes([bytecode[pc + 1], bytecode[pc + 2]]) as usize;
+        let payload_end = align4(pc + 3 + payload_len);
+        let safe_end = payload_end.min(bytecode.len());
+        let payload = &bytecode[pc + 3..safe_end.min(pc + 3 + payload_len)];
+        let next_pc = if is_payload_opcode(opcode, true) {
+            payload_end
+        } else {
+            align4(pc + fixed_frame_content_len(opcode))
+        };
+        found.push(StreamInstruction {
+            pc,
+            opcode,
+            flags: bytecode[pc + 1],
+            operand: u16::from_le_bytes([bytecode[pc + 2], bytecode[pc + 3]]),
+            payload,
+            next_pc,
+        });
+        pc = next_pc;
+    }
+    Ok(found)
+}
+
+/// A metadata record at the head of a compiler stream.
+pub struct MetadataRecord<'a> {
+    pub label: &'static str,
+    /// A rendered value: the nonce as a string, the chain id as digits.
+    pub rendered: String,
+    pub next_pc: usize,
+    pub _marker: core::marker::PhantomData<&'a ()>,
+}
+
+/// The metadata records at the head of a compiler stream, in order.
+///
+/// One matcher for the block, because the writer leaves it unpadded and a second
+/// reader that aligned it started one byte late (see the note on `disassemble`).
+pub fn metadata_records(bytecode: &[u8]) -> Vec<MetadataRecord<'_>> {
+    let mut records = Vec::new();
     let mut pc = 1usize;
-    let mut idx = 0u32;
-    let mut saw_metadata = false;
-    // Walk optional metadata: any leading 0x10/0x11 byte is metadata; the
-    // first non-metadata byte is the start of the operation stream. The widths
-    // here must mirror `emit_x3ir` exactly — `chain_id` is a u64, not a u32 —
-    // and the block is padded to a 4-byte boundary afterwards, because that is
-    // where the writer puts the padding.
     loop {
-        if pc >= bytecode.len() {
-            break;
+        if pc + 3 > bytecode.len() {
+            return records;
         }
         match bytecode[pc] {
-            0x10 => {
+            META_NONCE => {
                 let len = u16::from_le_bytes([bytecode[pc + 1], bytecode[pc + 2]]) as usize;
-                let value = std::str::from_utf8(&bytecode[pc + 3..pc + 3 + len]).unwrap_or("<invalid utf-8>");
-                out.push_str(&format!("  {idx:04}  meta.nonce   = {value:?}\n"));
-                idx += 1;
-                pc += 3 + len;
-                saw_metadata = true;
+                let value = std::str::from_utf8(&bytecode[pc + 3..(pc + 3 + len).min(bytecode.len())])
+                    .unwrap_or("<invalid utf-8>");
+                let next_pc = pc + 3 + len;
+                records.push(MetadataRecord {
+                    label: "meta.nonce",
+                    rendered: format!("{value:?}"),
+                    next_pc,
+                    _marker: core::marker::PhantomData,
+                });
+                pc = next_pc;
             }
-            0x11 => {
+            META_CHAIN_ID => {
+                if pc + 9 > bytecode.len() {
+                    return records;
+                }
                 let id = u64::from_le_bytes([
                     bytecode[pc + 1],
                     bytecode[pc + 2],
@@ -1080,56 +1136,63 @@ pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
                     bytecode[pc + 7],
                     bytecode[pc + 8],
                 ]);
-                out.push_str(&format!("  {idx:04}  meta.chain_id = {id}\n"));
-                idx += 1;
-                pc += 9;
-                saw_metadata = true;
+                let next_pc = pc + 9;
+                records.push(MetadataRecord {
+                    label: "meta.chain_id",
+                    rendered: id.to_string(),
+                    next_pc,
+                    _marker: core::marker::PhantomData,
+                });
+                pc = next_pc;
             }
-            _ => break,
+            _ => return records,
         }
     }
-    // The writer pads the metadata block to a 4-byte boundary, and only when it
-    // wrote one; a stream without metadata starts its instructions at offset 1.
-    // NOTE: deliberately no `align4` here. The metadata block is written by
-    // `emit_x3ir` with no padding, so aligning the cursor here started the walk
-    // one byte late and turned payload bytes into opcodes — `x3c explain`
-    // printed garbage for any program with a nonce. The reader has to mirror
-    // the writer. The VM's `first_instruction_pc` *does* align, so the writer
-    // and the VM disagree about this block; that is a separate, coordinated
-    // format fix (see TICKET-023), not something to paper over here.
-    let _ = saw_metadata;
-    while pc + 4 <= bytecode.len() {
-        if bytecode[pc..pc + 4].iter().all(|b| *b == 0) {
-            pc += 4;
-            continue;
-        }
-        let opcode = bytecode[pc];
-        let payload_len = u16::from_le_bytes([bytecode[pc + 1], bytecode[pc + 2]]) as usize;
-        let payload_end = align4(pc + 3 + payload_len);
-        let safe_end = payload_end.min(bytecode.len());
-        let payload = &bytecode[pc + 3..safe_end.min(pc + 3 + payload_len)];
-        // A fixed-frame instruction's meaning lives in its flags byte and its
-        // operand, not in `payload` — for those the bytes after the opcode are
-        // the operand, and reading them as a length is how a trace prints
-        // garbage. Pass them explicitly.
-        let flags = bytecode[pc + 1];
-        let operand = u16::from_le_bytes([bytecode[pc + 2], bytecode[pc + 3]]);
-        let entry = disassemble_op(opcode, payload, flags, operand);
-        out.push_str(&format!("  {idx:04}  0x{opcode:02x}  {entry}\n"));
+}
+
+/// The offset of the instruction stream: past the version byte and the metadata
+/// block, which the writer leaves unpadded.
+pub fn first_instruction_offset(bytecode: &[u8]) -> usize {
+    metadata_records(bytecode)
+        .last()
+        .map(|record| record.next_pc)
+        .unwrap_or(1)
+}
+
+/// Disassemble X3 bytecode into a human-readable trace.
+///
+/// This is the "explain" subcommand of the x3c CLI: a reviewer can run
+/// `x3c explain program.x3b` and see per-instruction pseudo-code without
+/// reading raw bytes.
+pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
+    let mut out = String::new();
+    out.push_str(&format!("; x3-lang bytecode v0x{:02x}\n", bytecode[0]));
+    let mut idx = 0u32;
+
+    // The metadata block is written by `emit_x3ir` with no padding, so the reader
+    // mirrors the writer: aligning the cursor here started the walk one byte late
+    // and turned payload bytes into opcodes, which is how `x3c explain` printed
+    // garbage for any program with a nonce. The VM's `first_instruction_pc` *does*
+    // align, so the writer and the VM disagree about this block; that is a
+    // separate, coordinated format fix (TICKET-023), not something to paper over
+    // here. The matcher is `metadata_records`, shared with `first_instruction_offset`.
+    for record in metadata_records(bytecode) {
+        out.push_str(&format!("  {idx:04}  {} = {}\n", record.label, record.rendered));
         idx += 1;
-        // Advance by what the writer wrote, then by the padding it added:
-        // `align4(pc + content_len)`. A fixed frame is three bytes, or four for
-        // `REQUIRE`, and the two widths round to different boundaries when the
-        // frame sits at an offset congruent to one mod four — which is where
-        // the first instruction of a stream without metadata sits. Advancing a
-        // fixed frame by four regardless walked one byte into a leading guard's
-        // operand and then onto its padding, which this pass printed as opcodes.
-        // The widths come from `spec/opcodes.rs`, the table the VM reads too.
-        if is_payload_opcode(opcode, true) {
-            pc = payload_end;
-        } else {
-            pc = align4(pc + fixed_frame_content_len(opcode));
-        }
+    }
+
+    // One walk, shared with the cost estimate: which opcodes carry a payload, how
+    // wide a fixed frame is and where the padding sits all come from
+    // `spec/opcodes.rs`.
+    for instruction in instructions(bytecode)? {
+        let entry = disassemble_op(
+            instruction.opcode,
+            instruction.payload,
+            instruction.flags,
+            instruction.operand,
+        );
+        out.push_str(&format!("  {idx:04}  0x{:02x}  {entry}\n", instruction.opcode));
+        idx += 1;
     }
     Ok(out)
 }

@@ -161,6 +161,11 @@ enum Cmd {
     },
     /// Run static analysis linter.
     Lint { input: PathBuf },
+    /// Estimate what a program's artifact will cost: instructions, the VM's own
+    /// weight for them, payload bytes, host-facing calls and proof bytes — each
+    /// with its basis, and an explicit list of what this compiler will not guess
+    /// (EVM gas, SVM compute, latency, fees). PHASE 35.
+    Estimate { input: PathBuf },
     /// Build the opportunity graph from a program's `venue` declarations and
     /// search it for routes between two assets.
     Graph {
@@ -357,6 +362,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         // B-52 commands
         Cmd::Fmt { input, check } => cmd_fmt(&input, check),
         Cmd::Lint { input } => cmd_lint(&input, mode),
+        Cmd::Estimate { input } => cmd_estimate(&input),
         Cmd::Graph {
             input,
             from,
@@ -868,6 +874,25 @@ fn cmd_graph(
             }
         }
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `x3c estimate` — the PHASE 35 cost report.
+///
+/// The estimate is taken from the artifact the compiler just emitted, so its
+/// weight figure is the VM's own table applied to the same instructions the VM
+/// will see. Nothing here is a projection of market prices: what cannot be
+/// measured is listed as unestimated with the reason.
+fn cmd_estimate(input: &PathBuf) -> Result<ExitCode, String> {
+    let source = read_source(input)?;
+    let (bytecode, outcome) = compile_with_mode_diagnostics(&source, x3_lang_compiler::CompilationMode::Dev)
+        .map_err(|e| format!("compile error: {e}"))?;
+    for warning in &outcome.warnings {
+        eprintln!("x3c warning: {warning}");
+    }
+    let estimate = x3_lang_compiler::cost::estimate_artifact(&bytecode).map_err(|e| format!("estimate failed: {e}"))?;
+    println!("x3c estimate: {}", input.display());
+    print!("{}", estimate.report());
     Ok(ExitCode::SUCCESS)
 }
 

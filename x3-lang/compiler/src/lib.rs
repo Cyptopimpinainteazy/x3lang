@@ -12,13 +12,14 @@
 //!    allow-lists, refund paths, explicit finality/proofs, route scores,
 //!    invariant rules, compile-mode gating, and risk scoring).
 
+pub mod cost;
 pub mod dag;
 pub mod diagnostic;
 pub mod emitter;
 pub mod formatter;
 pub mod fusion;
-pub mod intent_emit;
 pub mod intent_bridge;
+pub mod intent_emit;
 pub mod ir;
 pub mod linter;
 pub mod lowering;
@@ -412,6 +413,10 @@ pub fn compile_to_ir(program: &Program) -> Result<X3IR, X3Error> {
     lower_program(program, LowerCtx::new())
 }
 
+pub use intent_bridge::{
+    parse_validated_intent_json, to_intent_spec_draft, to_ir, validate_validated_intent, ValidatedIntentV1,
+    VALIDATED_INTENT_SCHEMA_VERSION,
+};
 /// Re-export the cross-chain intent adapter boundary.
 ///
 /// `x3-lang` does not depend on the cross-chain intent crate (no
@@ -423,10 +428,6 @@ pub fn compile_to_ir(program: &Program) -> Result<X3IR, X3Error> {
 /// a fully-validated `CrossChainIntent` and stamps the canonical
 /// hash.
 pub use intent_emit::{IntentSpecDraft, SourceConstraint};
-pub use intent_bridge::{
-    parse_validated_intent_json, to_intent_spec_draft, to_ir, validate_validated_intent,
-    ValidatedIntentV1, VALIDATED_INTENT_SCHEMA_VERSION,
-};
 
 /// Verify bytecode is properly formed (basic checks)
 fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {

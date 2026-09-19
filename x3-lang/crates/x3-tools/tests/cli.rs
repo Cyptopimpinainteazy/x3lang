@@ -1321,3 +1321,63 @@ fn hex_lower(bytes: &[u8]) -> String {
     }
     out
 }
+
+/// PHASE 35 — the cost report, with the basis of every figure and the gaps named.
+///
+/// The weight it prints is the VM's own table applied to the artifact the compiler
+/// would write, so "what a run costs" and "what the compiler estimates" cannot
+/// disagree. What the compiler cannot know is listed as unestimated rather than
+/// filled with a plausible number.
+#[test]
+fn cli_estimate_reports_the_cost_of_the_artifact_it_would_write() {
+    let source = "intent cost_cli {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        \
+                  swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    require \
+                  slippage <= 50\n    on_fail refund ethereum.USDC to sender\n}\n";
+    let fixture = write_fixture("cli_estimate.x3", source);
+    let output = x3c().arg("estimate").arg(&fixture).output().expect("run x3c estimate");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "estimate must succeed: {stdout}");
+    for expected in [
+        "instructions",
+        "base weight",
+        "the table vm/src/executor.rs charges from",
+        "payload bytes",
+        "host-facing",
+        "proof bytes carried",
+        "Not estimated, and why",
+        "EVM gas",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "the report must contain {expected:?}: {stdout}"
+        );
+    }
+
+    // The weight is not a constant: a program with an extra instruction weighs
+    // more, which is the property that makes the figure an estimate rather than a
+    // number in a template.
+    let longer = write_fixture(
+        "cli_estimate_longer.x3",
+        &source.replace(
+            "    on_fail refund ethereum.USDC to sender\n",
+            "    require profit >= 1\n    on_fail refund ethereum.USDC to sender\n",
+        ),
+    );
+    let second = x3c().arg("estimate").arg(&longer).output().expect("run x3c estimate");
+    let second_stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(second.status.success(), "{second_stdout}");
+    let weight_of = |text: &str| -> u128 {
+        text.lines()
+            .find(|line| line.contains("base weight"))
+            .and_then(|line| line.split_whitespace().nth(2))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| panic!("no weight in {text}"))
+    };
+    assert!(
+        weight_of(&second_stdout) > weight_of(&stdout),
+        "an extra guard must weigh more: {} vs {}",
+        weight_of(&second_stdout),
+        weight_of(&stdout)
+    );
+}

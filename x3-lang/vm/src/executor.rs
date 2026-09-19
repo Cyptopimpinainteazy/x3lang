@@ -1023,47 +1023,10 @@ fn apply_asset_payload(vm: &mut VM, payload: AssetOpPayload) {
 }
 
 fn gas_cost_for_opcode(opcode: u8) -> u128 {
-    match opcode {
-        0x0A => 50,
-        0x01 | 0x02 => 1,
-        0x10 | 0x11 => 5,
-        0x20 | 0x21 => 1,
-        BRIDGE => 100,
-        0x30 | 0x31 => 2,
-        0x32 | 0x33 => 5,
-        0x40 => 10,
-        0x50 | 0x51 => 250,
-        0x60 | 0x61 => 100,
-        0x70 => 2,
-        0x80 => 500,
-        0x81 => 200,
-        0x82 => 100,
-        0x83 => 150,
-        0x84 => 10,
-        0x85 => 500,
-        0x86 => 50,
-        0x87 => 100,
-        0x88 | 0x89 => 50,
-        0x8A => 10,
-        0x8B => 500,
-        0x8C | 0x8D => 20,
-        0x8E => 30,
-        0x8F => 10,
-        0x90 => 20,
-        0x91 => 200,
-        0x92 => 5,
-        0x93 | 0x94 | 0x95 | 0x96 | 0x97 | 0x98 => 10,
-        0x99 => 50,
-        0x9A => 50,
-        0x9B => 50,
-        // A nonce test is a membership check and a recording: a scan over the
-        // run's nonces, priced like the other cheap capabilities.
-        0x9C => 50,
-        0xA0..=0xAB => 50,
-        0xB0..=0xB8 => 50,
-        0xFF => 0,
-        _ => 1,
-    }
+    // One table, in the file the compiler includes too: a compile-time estimate
+    // (PHASE 35) and the run-time charge must be the same numbers, and a table
+    // written twice is a table that drifts.
+    base_gas_cost(opcode)
 }
 
 /// Additional gas cost based on operand-dependent factors (payload size,
