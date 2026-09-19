@@ -1103,6 +1103,7 @@ fn capability_opcode_name(opcode: u8) -> &'static str {
         GAS_ADAPTIVE => "GAS_ADAPTIVE",
         BOUNTY => "BOUNTY",
         SUB_EXEC => "SUB_EXEC",
+        NONCE_UNUSED => "NONCE_UNUSED",
         ROUTE_SCORE => "ROUTE_SCORE",
         SOLVER_BID => "SOLVER_BID",
         RELAYER_ATTEST => "RELAYER_ATTEST",
@@ -2082,27 +2083,82 @@ mod tests {
         assert_eq!(vm.state.sub_exec_ops[0].gas_limit, 1);
     }
 
+    /// Every opcode that carries a length-prefixed payload, from the one place
+    /// that says which those are.
+    ///
+    /// This test used to walk the range `GPU_DISPATCH..=SUB_EXEC` and assert each
+    /// opcode had a name — the same assumption as the bug it should have caught:
+    /// the *executor's* dispatch was written as that range, so an instruction
+    /// added to `is_payload_opcode` and not to the range was a payload opcode to
+    /// the verifier and an invalid one here. The nonce instruction did exactly
+    /// that (`InvalidOpcode(156)`), and this test passed throughout, because a
+    /// range literal cannot notice an opcode outside it. Driving the walk from the
+    /// predicate is what makes the two agree. (TICKET-055.)
+    fn payload_opcodes() -> Vec<u8> {
+        (0u8..=u8::MAX)
+            .filter(|opcode| is_payload_opcode(*opcode, true))
+            .collect()
+    }
+
     #[test]
-    fn all_capability_opcodes_reach_dispatcher() {
-        let opcodes: Vec<u8> = (GPU_DISPATCH..=SUB_EXEC).collect();
-        for opcode in &opcodes {
-            let name = capability_opcode_name(*opcode);
-            assert!(
-                *opcode >= GPU_DISPATCH && *opcode <= SUB_EXEC,
-                "opcode 0x{opcode:02x} ({name}) is in capability range"
-            );
-            // Each opcode must have a name (not UNKNOWN_CAPABILITY)
-            assert!(
-                name != "UNKNOWN_CAPABILITY",
-                "opcode 0x{opcode:02x} must have a known name, got {name}"
-            );
+    fn every_payload_opcode_is_recognised_by_the_executor() {
+        let opcodes = payload_opcodes();
+        assert!(
+            opcodes.len() >= 40,
+            "the payload set should cover the asset, capability and trading ranges: {opcodes:?}"
+        );
+        for opcode in opcodes {
+            // Only the *dispatch* is asserted here. A payload opcode's name is not
+            // necessarily a capability name — the asset ops and the atomic and
+            // trading instructions carry payloads and have machine names of their
+            // own — and the capability names have their own test.
+            //
+            // An empty payload is not a valid payload for most of these, and that
+            // is fine: what is asserted is that the opcode is *recognised*, so any
+            // failure is about its content rather than about reaching no arm at
+            // all. That is exactly the difference the drifting range hid.
+            let mut vm = VM::new(capability_bytecode(opcode, &[]), VMConfig::default(), 1_000_000);
+            match execute(&mut vm) {
+                Ok(()) => {}
+                Err(ExecError::InvalidOpcode(other)) => panic!(
+                    "payload opcode 0x{opcode:02x} reached no arm: the executor refused it as \
+                     invalid ({other:#04x})"
+                ),
+                Err(_) => {}
+            }
         }
-        assert_eq!(opcodes.len(), 28, "must cover all 28 capability opcodes (0x80..=0x9B)");
+    }
+
+    #[test]
+    fn every_payload_opcode_frames_the_same_for_the_verifier() {
+        // The other half: a payload opcode whose frame the verifier does not
+        // recognise desynchronises the walk rather than failing, which is how the
+        // verifier's own drift showed up before.
+        use crate::verifier::verify;
+        use crate::x3_lang_vm::InstructionStream;
+        for opcode in payload_opcodes() {
+            let code = capability_bytecode(opcode, &[]);
+            if let Err(error) = verify(&InstructionStream::new(code)) {
+                let named = format!("{error:?}");
+                assert!(
+                    !named.contains("OutOfBounds"),
+                    "the verifier's walk desynchronised on payload opcode 0x{opcode:02x}: {named}"
+                );
+                assert!(
+                    !named.contains("InvalidOpcode"),
+                    "the verifier refused payload opcode 0x{opcode:02x} as an invalid instruction: \
+                     {named}"
+                );
+            }
+        }
     }
 
     #[test]
     fn capability_opcode_names_cover_all_defined() {
         assert_eq!(capability_opcode_name(GPU_DISPATCH), "GPU_DISPATCH");
+        // The instruction added for the nonce guard: a capability payload like
+        // its neighbours, and named so a disassembly says what it is.
+        assert_eq!(capability_opcode_name(NONCE_UNUSED), "NONCE_UNUSED");
         assert_eq!(capability_opcode_name(SIMULATE), "SIMULATE");
         assert_eq!(capability_opcode_name(SCHEDULED_DISPATCH), "SCHEDULED_DISPATCH");
         assert_eq!(capability_opcode_name(INTENT_RESOLVE), "INTENT_RESOLVE");
