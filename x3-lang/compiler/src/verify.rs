@@ -328,6 +328,21 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                      them, so the portfolio is decided and the plan is not pretended"
                 ),
             ),
+            // An `arb` block's bounds are decided against the program's own graph
+            // (`arbitrage::contract`), and this layer says what the VM can do with the
+            // result: nothing, because the generator that would turn the constraints into
+            // a plan does not exist. Same shape as the rebalance above, same reason for
+            // refusing here rather than only in the emitter.
+            Operation::ArbPlan { max_hops, admitted, .. } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: the `arb` plan cannot be executed — its bounds admit {} venue(s) \
+                     within {max_hops} hop(s), and the compiler cannot yet generate the plan that \
+                     would use them, so the constraints are decided and the plan is not pretended \
+                     (PHASE 37)",
+                    admitted.len()
+                ),
+            ),
             Operation::Liquidation { position, .. } => push_unsafe(
                 diagnostics,
                 format!(

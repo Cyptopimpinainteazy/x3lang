@@ -303,6 +303,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "atomic_hedge" => self.parse_atomic_hedge_item(),
             Tok::Ident(ref s) if s == "atomic_liquidation" => self.parse_atomic_liquidation_item(),
             Tok::Ident(ref s) if s == "rebalance" => self.parse_rebalance_item(),
+            Tok::Ident(ref s) if s == "arb" => self.parse_arb_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
@@ -3478,7 +3479,7 @@ impl<'a> Parser<'a> {
             }
 
             // `<ASSET> = <pct>` — the asset is an identifier or `chain.ASSET`.
-            let asset = self.parse_hedge_asset()?;
+            let asset = self.parse_asset_name_or_ref()?;
             self.expect(Tok::Eq, "expected '=' after the asset in a rebalance weight")?;
             let percent = match self.peek() {
                 Tok::Int(value) => {
@@ -3534,6 +3535,422 @@ impl<'a> Parser<'a> {
             weights,
             minimize,
         }))
+    }
+
+    /// `arb { discover { … } capital { … } execution { … } risk { … } }` — spec PHASE 37.
+    ///
+    /// Reads what is written and decides nothing: an omitted clause stays `None`, and
+    /// `arbitrage::contract` is the one place that says whether what was written is a
+    /// plan contract. Filling a default here would put that decision in two places and
+    /// make "the author stated no ceiling" indistinguishable from "the compiler chose
+    /// one", which is the difference between a refusal and an invented bound.
+    ///
+    /// A clause written twice is refused rather than overwritten, here and in every
+    /// section: the second copy would silently replace the first, so the bound that
+    /// survived would be one the author may not have meant.
+    fn parse_arb_item(&mut self) -> Result<Item, X3Error> {
+        self.advance(); // `arb`
+        self.expect(Tok::LBrace, "expected '{' after `arb`")?;
+        let mut discover: Option<ArbDiscover> = None;
+        let mut capital: Option<ArbCapital> = None;
+        let mut execution: Option<ArbExecution> = None;
+        let mut risk: Option<ArbRisk> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let section = self.peek_word().ok_or_else(|| {
+                parse_err(
+                    "expected `discover`, `capital`, `execution` or `risk`".into(),
+                    self.peek(),
+                )
+            })?;
+            self.advance();
+            self.expect(Tok::LBrace, &format!("expected '{{' after `{section}`"))?;
+            match section.as_str() {
+                "discover" => {
+                    self.arb_once(discover.is_some(), "discover", self.peek())?;
+                    let mut chains: Vec<ChainRef> = Vec::new();
+                    let mut max_hops: Option<u32> = None;
+                    let mut liquidity_min: Option<(AssetRef, u128)> = None;
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        let clause = self.arb_clause("discover")?;
+                        match clause.as_str() {
+                            "chains" => {
+                                self.arb_once(!chains.is_empty(), "chains", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `chains`")?;
+                                chains = self
+                                    .parse_bracketed_ident_list("chains")?
+                                    .into_iter()
+                                    .map(|name| ChainRef::new(Symbol::new(&name)))
+                                    .collect();
+                            }
+                            "max_hops" => {
+                                self.arb_once(max_hops.is_some(), "max_hops", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `max_hops`")?;
+                                let hops = self.expect_uint("max_hops")?;
+                                max_hops = Some(u32::try_from(hops).map_err(|_| {
+                                    parse_err(
+                                        format!(
+                                            "max_hops is {hops}, which does not fit in the 32 bits a hop \
+                                             bound is carried in"
+                                        ),
+                                        self.peek(),
+                                    )
+                                })?);
+                            }
+                            "liquidity_min" => {
+                                self.arb_once(liquidity_min.is_some(), "liquidity_min", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `liquidity_min`")?;
+                                liquidity_min = Some(self.parse_arb_amount("liquidity_min")?);
+                            }
+                            other => {
+                                return Err(parse_err(
+                                    format!(
+                                        "unknown clause '{other}' in `discover`; the clauses are chains, \
+                                         max_hops and liquidity_min"
+                                    ),
+                                    self.peek(),
+                                ))
+                            }
+                        }
+                        self.opt_semi();
+                    }
+                    self.expect(Tok::RBrace, "expected '}' after `discover`")?;
+                    discover = Some(ArbDiscover {
+                        chains,
+                        max_hops,
+                        liquidity_min,
+                    });
+                }
+                "capital" => {
+                    self.arb_once(capital.is_some(), "capital", self.peek())?;
+                    let mut flash: Option<bool> = None;
+                    let mut max: Option<(AssetRef, u128)> = None;
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        let clause = self.arb_clause("capital")?;
+                        match clause.as_str() {
+                            "flash" => {
+                                self.arb_once(flash.is_some(), "flash", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `flash`")?;
+                                flash = Some(self.parse_arb_switch("flash")?);
+                            }
+                            "max" => {
+                                self.arb_once(max.is_some(), "max", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `max`")?;
+                                max = Some(self.parse_arb_amount("max")?);
+                            }
+                            other => {
+                                return Err(parse_err(
+                                    format!("unknown clause '{other}' in `capital`; the clauses are flash and max"),
+                                    self.peek(),
+                                ))
+                            }
+                        }
+                        self.opt_semi();
+                    }
+                    self.expect(Tok::RBrace, "expected '}' after `capital`")?;
+                    capital = Some(ArbCapital { flash, max });
+                }
+                "execution" => {
+                    self.arb_once(execution.is_some(), "execution", self.peek())?;
+                    let mut atomic: Option<bool> = None;
+                    let mut parallel: Option<bool> = None;
+                    let mut private: Option<bool> = None;
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        // `atomic` is lexed as a keyword, so the clause name comes from
+                        // `peek_word` rather than from an identifier match.
+                        let clause = self.arb_clause("execution")?;
+                        match clause.as_str() {
+                            "atomic" => {
+                                self.arb_once(atomic.is_some(), "atomic", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `atomic`")?;
+                                atomic = Some(self.parse_arb_bool("atomic")?);
+                            }
+                            "parallel" => {
+                                self.arb_once(parallel.is_some(), "parallel", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `parallel`")?;
+                                parallel = Some(self.parse_arb_bool("parallel")?);
+                            }
+                            "private" => {
+                                self.arb_once(private.is_some(), "private", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `private`")?;
+                                private = Some(self.parse_arb_bool("private")?);
+                            }
+                            other => {
+                                return Err(parse_err(
+                                    format!(
+                                        "unknown clause '{other}' in `execution`; the clauses are atomic, \
+                                         parallel and private"
+                                    ),
+                                    self.peek(),
+                                ))
+                            }
+                        }
+                        self.opt_semi();
+                    }
+                    self.expect(Tok::RBrace, "expected '}' after `execution`")?;
+                    execution = Some(ArbExecution {
+                        atomic,
+                        parallel,
+                        private,
+                    });
+                }
+                "risk" => {
+                    self.arb_once(risk.is_some(), "risk", self.peek())?;
+                    let mut min_profit_bps: Option<u32> = None;
+                    let mut max_slippage_bps: Option<u32> = None;
+                    let mut max_total_fee_bps: Option<u32> = None;
+                    let mut deadline_ms: Option<u32> = None;
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        let clause = self.arb_clause("risk")?;
+                        match clause.as_str() {
+                            "min_profit" => {
+                                self.arb_once(min_profit_bps.is_some(), "min_profit", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `min_profit`")?;
+                                min_profit_bps = Some(self.parse_arb_bps("min_profit")?);
+                            }
+                            "max_slippage" => {
+                                self.arb_once(max_slippage_bps.is_some(), "max_slippage", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `max_slippage`")?;
+                                max_slippage_bps = Some(self.parse_arb_bps("max_slippage")?);
+                            }
+                            "max_total_fee" => {
+                                self.arb_once(max_total_fee_bps.is_some(), "max_total_fee", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `max_total_fee`")?;
+                                max_total_fee_bps = Some(self.parse_arb_bps("max_total_fee")?);
+                            }
+                            "deadline" => {
+                                self.arb_once(deadline_ms.is_some(), "deadline", self.peek())?;
+                                self.expect(Tok::Eq, "expected '=' after `deadline`")?;
+                                deadline_ms = Some(self.parse_arb_deadline()?);
+                            }
+                            other => {
+                                return Err(parse_err(
+                                    format!(
+                                        "unknown clause '{other}' in `risk`; the clauses are min_profit, \
+                                         max_slippage, max_total_fee and deadline"
+                                    ),
+                                    self.peek(),
+                                ))
+                            }
+                        }
+                        self.opt_semi();
+                    }
+                    self.expect(Tok::RBrace, "expected '}' after `risk`")?;
+                    risk = Some(ArbRisk {
+                        min_profit_bps,
+                        max_slippage_bps,
+                        max_total_fee_bps,
+                        deadline_ms,
+                    });
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown section '{other}' in `arb`; the sections are discover, capital, \
+                             execution and risk"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        self.expect(Tok::RBrace, "expected '}' after `arb`")?;
+        Ok(Item::Arb(ArbDecl {
+            discover,
+            capital,
+            execution,
+            risk,
+        }))
+    }
+
+    /// The name of the next clause inside an `arb` section, consumed.
+    fn arb_clause(&mut self, section: &str) -> Result<String, X3Error> {
+        let clause = self.peek_word().ok_or_else(|| {
+            parse_err(
+                format!("expected a clause in `{section}`, or '}}' to close it"),
+                self.peek(),
+            )
+        })?;
+        self.advance();
+        Ok(clause)
+    }
+
+    /// Refuse a section or clause written twice.
+    ///
+    /// The second copy would silently replace the first, the same defect the
+    /// rebalance weights refuse: a bound that was overwritten is a bound nobody wrote.
+    fn arb_once(&mut self, written: bool, what: &str, found: Tok) -> Result<(), X3Error> {
+        if written {
+            return Err(parse_err(
+                format!("`{what}` is written twice; the second would replace the first"),
+                found,
+            ));
+        }
+        Ok(())
+    }
+
+    /// `<n> <ASSET>` — an amount in an `arb` clause.
+    ///
+    /// The asset may be bare (`USDC`) or chained (`ethereum.USDC`), read through the
+    /// same reader the hedge legs and rebalance weights use. A bare asset resolves to
+    /// the chain `unknown`, and `arbitrage::contract` matches it by symbol against the
+    /// venues the program declares rather than pretending it named a domain.
+    fn parse_arb_amount(&mut self, clause: &str) -> Result<(AssetRef, u128), X3Error> {
+        let amount = match self.peek() {
+            Tok::Int(value) => {
+                self.advance();
+                value
+            }
+            _ => {
+                return Err(parse_err(
+                    format!("{clause} is an amount and an asset, like `500_000 USDC`"),
+                    self.peek(),
+                ))
+            }
+        };
+        let asset = self.parse_asset_name_or_ref()?;
+        Ok((asset, amount))
+    }
+
+    /// `enabled` or `disabled` after `=`.
+    fn parse_arb_switch(&mut self, clause: &str) -> Result<bool, X3Error> {
+        let word = self
+            .peek_word()
+            .ok_or_else(|| parse_err(format!("{clause} is `enabled` or `disabled`"), self.peek()))?;
+        self.advance();
+        match word.as_str() {
+            "enabled" => Ok(true),
+            "disabled" => Ok(false),
+            other => Err(parse_err(
+                format!("{clause} is `enabled` or `disabled`, not '{other}'"),
+                self.peek(),
+            )),
+        }
+    }
+
+    /// `true` or `false` after `=`.
+    fn parse_arb_bool(&mut self, clause: &str) -> Result<bool, X3Error> {
+        match self.peek() {
+            Tok::KwTrue => {
+                self.advance();
+                Ok(true)
+            }
+            Tok::KwFalse => {
+                self.advance();
+                Ok(false)
+            }
+            _ => Err(parse_err(format!("{clause} is `true` or `false`"), self.peek())),
+        }
+    }
+
+    /// `<n>bps` — a rate in the `risk` section.
+    ///
+    /// The unit is required. A bare number here would mean basis points in this clause
+    /// and blocks in a timeout, and this language has spent several tickets removing
+    /// exactly that kind of doubling (TICKET-033): the reader says which quantity it
+    /// wants instead of guessing from position.
+    fn parse_arb_bps(&mut self, clause: &str) -> Result<u32, X3Error> {
+        let (text, digits, suffix) = match self.peek() {
+            Tok::Int(value) => {
+                return Err(parse_err(
+                    format!(
+                        "{clause} is {value} — a rate needs its unit, because a bare number is a count \
+                         of blocks elsewhere in this language; write `{value}bps`"
+                    ),
+                    self.peek(),
+                ))
+            }
+            Tok::Ident(word) => {
+                let text = word.as_str().to_string();
+                let digits = text.trim_end_matches(|ch: char| ch.is_ascii_alphabetic()).to_string();
+                let suffix = text[digits.len()..].to_string();
+                (text, digits, suffix)
+            }
+            _ => {
+                return Err(parse_err(
+                    format!("{clause} is a whole number of basis points, like `20bps`"),
+                    self.peek(),
+                ))
+            }
+        };
+        if digits.is_empty() || suffix.is_empty() {
+            return Err(parse_err(
+                format!("{clause} is a whole number of basis points, like `20bps`"),
+                self.peek(),
+            ));
+        }
+        if suffix != "bps" {
+            return Err(parse_err(
+                format!("{clause} is stated in basis points; write `{digits}bps`, not `{text}`"),
+                self.peek(),
+            ));
+        }
+        let value: u64 = digits
+            .trim_end_matches('_')
+            .replace('_', "")
+            .parse()
+            .map_err(|_| parse_err(format!("{clause} '{text}' has no number in it"), self.peek()))?;
+        self.advance();
+        u32::try_from(value).map_err(|_| {
+            parse_err(
+                format!("{clause} is {value} bps, which does not fit in the 32 bits a rate is carried in"),
+                self.peek(),
+            )
+        })
+    }
+
+    /// `deadline = <duration>` — the wall-clock budget for the plan.
+    ///
+    /// The duration reader is the language's one duration reader (`220ms`, `3s`,
+    /// `2m`), and a bare number is refused rather than read: a bare number is a count
+    /// of blocks in every other time clause, so accepting it here would make
+    /// `deadline = 220` mean two different windows depending on which clause read it.
+    fn parse_arb_deadline(&mut self) -> Result<u32, X3Error> {
+        let expr = self.parse_duration_expr("the arb deadline")?;
+        let (value, unit) = match expr {
+            Expression::Literal(LiteralExpr::Duration { value, unit }) => (value, unit),
+            Expression::Literal(LiteralExpr::Int { value, .. }) => {
+                return Err(parse_err(
+                    format!(
+                        "the arb deadline is `{value}` — a bare number is a count of blocks in this \
+                         language and this field is a wall-clock budget; write `{value}ms` or `{value}s`"
+                    ),
+                    self.peek(),
+                ))
+            }
+            _ => {
+                return Err(parse_err(
+                    "the arb deadline is a duration with a unit, like `220ms`".into(),
+                    self.peek(),
+                ))
+            }
+        };
+        let millis: u64 = match unit {
+            x3_lang_common::DurationUnit::Milliseconds => value,
+            x3_lang_common::DurationUnit::Seconds => value.saturating_mul(1_000),
+            x3_lang_common::DurationUnit::Minutes => value.saturating_mul(60_000),
+            x3_lang_common::DurationUnit::Hours => value.saturating_mul(3_600_000),
+            x3_lang_common::DurationUnit::Days => value.saturating_mul(86_400_000),
+            x3_lang_common::DurationUnit::Microseconds | x3_lang_common::DurationUnit::Nanoseconds => {
+                return Err(parse_err(
+                    format!(
+                        "the arb deadline is {value} of a sub-millisecond unit — no venue this language \
+                         can describe could meet it, because a venue's latency is stated in whole \
+                         milliseconds"
+                    ),
+                    self.peek(),
+                ))
+            }
+        };
+        u32::try_from(millis).map_err(|_| {
+            parse_err(
+                format!(
+                    "the arb deadline is {millis}ms, which does not fit in the 32 bits a deadline is \
+                     carried in"
+                ),
+                self.peek(),
+            )
+        })
     }
 
     /// A metric name, read through the objective's table so the two constructs cannot
@@ -3615,7 +4032,7 @@ impl<'a> Parser<'a> {
                 }
                 self.advance();
                 let amount = self.expect_uint("net_profit floor")?;
-                let asset = self.parse_hedge_asset()?;
+                let asset = self.parse_asset_name_or_ref()?;
                 self.opt_semi();
                 profit_floor = Some((amount, asset));
                 continue;
@@ -3625,9 +4042,9 @@ impl<'a> Parser<'a> {
             if self.peek() == Tok::KwSwap {
                 self.advance();
                 let amount = self.expect_uint("swap amount")?;
-                let from = self.parse_hedge_asset()?;
+                let from = self.parse_asset_name_or_ref()?;
                 self.expect(Tok::Arrow, "expected `-> <ASSET>` in the liquidation's swap")?;
-                let to = self.parse_hedge_asset()?;
+                let to = self.parse_asset_name_or_ref()?;
                 self.expect(
                     Tok::Ident("min_output".into()),
                     "expected `min_output <n>`: a liquidation that does not bound what the collateral \
@@ -3651,7 +4068,7 @@ impl<'a> Parser<'a> {
                 "liquidate" => {
                     self.advance();
                     let amount = self.expect_uint("liquidate amount")?;
-                    let asset = self.parse_hedge_asset()?;
+                    let asset = self.parse_asset_name_or_ref()?;
                     self.expect(Tok::Ident("of".into()), "expected `of <position>` after the amount")?;
                     // `borrower.position`: a dotted reference, carried verbatim so the
                     // artifact names whose position was liquidated. It is not resolved
@@ -3670,7 +4087,7 @@ impl<'a> Parser<'a> {
                 "receive" => {
                     self.advance();
                     let amount = self.expect_uint("collateral amount")?;
-                    let asset = self.parse_hedge_asset()?;
+                    let asset = self.parse_asset_name_or_ref()?;
                     self.expect(
                         Tok::Ident("collateral".into()),
                         "expected the word `collateral` after the amount, so what is being received is \
@@ -3682,7 +4099,7 @@ impl<'a> Parser<'a> {
                 "repay" => {
                     self.advance();
                     let amount = self.expect_uint("repay amount")?;
-                    let asset = self.parse_hedge_asset()?;
+                    let asset = self.parse_asset_name_or_ref()?;
                     self.opt_semi();
                     repaid = Some((amount, asset));
                 }
@@ -3783,7 +4200,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
             };
-            let asset = self.parse_hedge_asset()?;
+            let asset = self.parse_asset_name_or_ref()?;
             let venue = match self.peek_word().as_deref() {
                 Some("spot") => HedgeVenue::Spot,
                 Some("perp") => HedgeVenue::Perp,
@@ -3826,14 +4243,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// An asset reference in a hedge leg: `chain.ASSET`, or a bare asset name whose
-    /// chain is `unknown` — a hedge nets by asset, and two spellings of the same
-    /// asset are still two different references, which `hedge::verify` reports.
-    fn parse_hedge_asset(&mut self) -> Result<AssetRef, X3Error> {
-        let first = self.expect_ident("hedge asset")?;
+    /// An asset reference where the chain may be left implicit: `chain.ASSET`, or a
+    /// bare asset name whose chain is `unknown`.
+    ///
+    /// One reader for the three constructs that take an asset this way — the hedge
+    /// legs, the rebalance weights and the `arb` block's amounts. A bare name and a
+    /// chained name stay two different references even when the symbol matches, so
+    /// each caller decides whether that is a mistake: a hedge nets by asset and
+    /// refuses two spellings, and an `arb` block matches a bare name by symbol
+    /// against the venues the program declares.
+    fn parse_asset_name_or_ref(&mut self) -> Result<AssetRef, X3Error> {
+        let first = self.expect_ident("asset")?;
         if self.peek() == Tok::Dot {
             self.advance();
-            let name = self.expect_ident("hedge asset name")?;
+            let name = self.expect_ident("asset name")?;
             return Ok(AssetRef::new(ChainRef::new(Symbol::new(&first)), Symbol::new(&name)));
         }
         Ok(AssetRef::new(

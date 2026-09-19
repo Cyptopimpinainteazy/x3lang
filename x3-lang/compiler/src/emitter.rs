@@ -132,6 +132,18 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 span: None,
             });
         }
+        Operation::ArbPlan { admitted, max_hops, .. } => {
+            return Err(X3Error::CodegenError {
+                message: format!(
+                    "cannot emit the `arb` plan: its bounds admit {} venue(s) within {max_hops} \
+                     hop(s) and the compiler cannot yet generate the plan that would use them, so \
+                     the artifact would carry constraints no runtime would follow (PHASE 37, \
+                     TICKET-071)",
+                    admitted.len()
+                ),
+                span: None,
+            });
+        }
         Operation::Liquidation { position, .. } => {
             // Refused here as well as in the IR verifier, because `emit_x3ir` is
             // public: the accounting is decided, and the calls it plans need an

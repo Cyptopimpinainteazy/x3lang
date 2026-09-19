@@ -179,6 +179,7 @@ impl X3Formatter {
             Item::AtomicHedge(hedge) => self.format_atomic_hedge(hedge),
             Item::AtomicLiquidation(liquidation) => self.format_atomic_liquidation(liquidation),
             Item::Rebalance(rebalance) => self.format_rebalance(rebalance),
+            Item::Arb(arb) => self.format_arb(arb),
             Item::ProofsRequired(p) => self.format_proofs_required(p),
             Item::VmTarget(t) => self.format_vm_target(t),
             Item::AssetDecl(decl) => self.format_asset_decl(decl),
@@ -1264,6 +1265,117 @@ impl X3Formatter {
         self.write("atomic;\n");
         self.dedent();
         self.write("}\n");
+    }
+
+    /// `arb { discover { … } capital { … } execution { … } risk { … } }` — spec PHASE 37.
+    ///
+    /// Only the sections and clauses that were written are emitted, in the order the
+    /// parser reads them. Writing a default for an absent clause here would turn "the
+    /// author declared nothing" into a declaration on the way through the formatter,
+    /// which is exactly the difference `arbitrage::contract` refuses on.
+    fn format_arb(&mut self, arb: &ArbDecl) {
+        self.write("arb {\n");
+        self.indent();
+        if let Some(discover) = &arb.discover {
+            self.write_indent();
+            self.write("discover {\n");
+            self.indent();
+            if !discover.chains.is_empty() {
+                let names: Vec<&str> = discover.chains.iter().map(|chain| chain.as_str()).collect();
+                self.write_indent();
+                self.write(&format!("chains = [{}];\n", names.join(", ")));
+            }
+            if let Some(hops) = discover.max_hops {
+                self.write_indent();
+                self.write(&format!("max_hops = {hops};\n"));
+            }
+            if let Some((asset, amount)) = &discover.liquidity_min {
+                self.write_indent();
+                self.write("liquidity_min = ");
+                self.write(&amount.to_string());
+                self.write(" ");
+                self.format_bare_or_chained_asset(asset);
+                self.write(";\n");
+            }
+            self.dedent();
+            self.write_indent();
+            self.write("}\n");
+        }
+        if let Some(capital) = &arb.capital {
+            self.write_indent();
+            self.write("capital {\n");
+            self.indent();
+            if let Some(flash) = capital.flash {
+                self.write_indent();
+                self.write(&format!("flash = {};\n", if flash { "enabled" } else { "disabled" }));
+            }
+            if let Some((asset, amount)) = &capital.max {
+                self.write_indent();
+                self.write("max = ");
+                self.write(&amount.to_string());
+                self.write(" ");
+                self.format_bare_or_chained_asset(asset);
+                self.write(";\n");
+            }
+            self.dedent();
+            self.write_indent();
+            self.write("}\n");
+        }
+        if let Some(execution) = &arb.execution {
+            self.write_indent();
+            self.write("execution {\n");
+            self.indent();
+            for (clause, value) in [
+                ("atomic", execution.atomic),
+                ("parallel", execution.parallel),
+                ("private", execution.private),
+            ] {
+                if let Some(value) = value {
+                    self.write_indent();
+                    self.write(&format!("{clause} = {};\n", if value { "true" } else { "false" }));
+                }
+            }
+            self.dedent();
+            self.write_indent();
+            self.write("}\n");
+        }
+        if let Some(risk) = &arb.risk {
+            self.write_indent();
+            self.write("risk {\n");
+            self.indent();
+            for (clause, value) in [
+                ("min_profit", risk.min_profit_bps),
+                ("max_slippage", risk.max_slippage_bps),
+                ("max_total_fee", risk.max_total_fee_bps),
+            ] {
+                if let Some(value) = value {
+                    self.write_indent();
+                    self.write(&format!("{clause} = {value}bps;\n"));
+                }
+            }
+            if let Some(deadline) = risk.deadline_ms {
+                self.write_indent();
+                self.write(&format!("deadline = {deadline}ms;\n"));
+            }
+            self.dedent();
+            self.write_indent();
+            self.write("}\n");
+        }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    /// An asset written the way an `arb` clause allows: `chain.ASSET`, or the bare
+    /// symbol when the chain was left implicit.
+    ///
+    /// A bare name parses back to the chain `unknown`, so writing `unknown.USDC` would
+    /// be the formatter inventing a domain the author did not name.
+    fn format_bare_or_chained_asset(&mut self, asset: &AssetRef) {
+        if asset.chain.as_str() == "unknown" {
+            self.write(asset.name.as_str());
+        } else {
+            self.format_asset_ref(asset);
+        }
     }
 
     /// `atomic_liquidation { liquidate …; receive …; swap …; repay …; require net_profit …; }`

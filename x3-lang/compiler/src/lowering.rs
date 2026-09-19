@@ -4,6 +4,7 @@
 //! which is a semantic representation suitable for verification, optimization,
 //! and code generation.
 
+use crate::arbitrage;
 use crate::hedge;
 use crate::intent_emit;
 use crate::ir::{
@@ -758,6 +759,25 @@ pub fn lower_program_with_mode(
                     name: portfolio.name.clone(),
                     weights: portfolio.weights.clone(),
                     criterion: portfolio.criterion.name().to_string(),
+                });
+            }
+            Item::Arb(arb_decl) => {
+                // `contract` runs the same filter the search runs, so calling it here
+                // repeats no decision: it is what carries the decided bounds and the
+                // venues they admit into the artifact, where `x3c lower` shows them.
+                let contract = arbitrage::contract(program, arb_decl).map_err(|reason| semantic(&reason))?;
+                ir.push(Operation::ArbPlan {
+                    chains: contract.chains.clone(),
+                    max_hops: contract.max_hops,
+                    depth_floor: contract.committed_depth.clone(),
+                    flash_max: contract.flash_max.clone(),
+                    parallel: contract.parallel,
+                    private: contract.private,
+                    min_profit_bps: contract.min_profit_bps,
+                    max_slippage_bps: contract.max_slippage_bps,
+                    max_total_fee_bps: contract.max_total_fee_bps,
+                    deadline_ms: contract.deadline_ms,
+                    admitted: contract.admitted.clone(),
                 });
             }
             Item::AtomicLiquidation(liquidation_decl) => {

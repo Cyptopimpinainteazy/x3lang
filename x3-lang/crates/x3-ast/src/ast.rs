@@ -65,6 +65,8 @@ pub enum Item {
     AtomicLiquidation(AtomicLiquidationDecl),
     /// `rebalance <name> { … }` — spec PHASE 11.
     Rebalance(RebalanceDecl),
+    /// `arb { discover { … } capital { … } execution { … } risk { … } }` — spec PHASE 37.
+    Arb(ArbDecl),
     ParallelDecl(ParallelDecl),
     ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
@@ -1673,4 +1675,93 @@ pub struct RebalanceDecl {
     /// criterion the compiler would rank a plan by; the rest are recorded targets,
     /// because the optimizer ranks one metric (PHASE 15).
     pub minimize: Vec<ObjectiveMetric>,
+}
+
+/// `arb { discover { … } capital { … } execution { … } risk { … } }` — spec PHASE 37.
+///
+/// The block is the *search and its bounds*, not the strategy: the universe to
+/// discover over, the capital the plan may use, what has to hold of its execution,
+/// and the bounds a candidate route must satisfy to be admitted. Every clause is
+/// optional in the grammar and nothing is defaulted: a section or a bound the
+/// compiler needs to check a plan is refused when it is absent rather than
+/// invented, because a plan built on a bound nobody stated is a plan nobody
+/// constrained (`compiler/src/arbitrage.rs`).
+///
+/// Four things are decided from the declaration itself, against the venues the
+/// program already declares:
+///
+/// - **the declared chains are ones the graph can route on**, and the hop bound is
+///   one the graph can fill — a hop bound above the number of declared venues
+///   promises a search space that does not exist;
+/// - **the declared filters leave something to rank**: at least one venue on the
+///   declared chains has to survive `max_slippage` and `max_total_fee`, and at
+///   least one has to settle inside `deadline`;
+/// - **flash capital is a ceiling the graph can supply**: `flash = enabled` needs a
+///   declared flash venue whose depth covers `max`;
+/// - **the amounts and rates are quantities**: floors above zero, rates below
+///   10 000 bps, a deadline with an explicit unit (a bare number is a count of
+///   blocks everywhere else in this language, so it cannot also mean milliseconds).
+///
+/// The phase's lowering chain — Opportunity Graph → Candidate Routes → Filter →
+/// Dependency DAG → Risk Verification → Execution Plan → Atomic Settlement — is not
+/// implemented as a generator: every stage exists as a separate artefact
+/// (`opportunity.rs`, `optimizer.rs`, `dag.rs`, `risk.rs`), but nothing consumes an
+/// `arb` declaration to run them in order. The decided contract therefore travels in
+/// `Operation::ArbPlan` and no artifact is emitted for it (TICKET-071).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbDecl {
+    pub discover: Option<ArbDiscover>,
+    pub capital: Option<ArbCapital>,
+    pub execution: Option<ArbExecution>,
+    pub risk: Option<ArbRisk>,
+}
+
+/// `discover { chains = [..]; max_hops = <n>; liquidity_min = <n> <ASSET>; }`.
+///
+/// The clauses are `Option`s because the parser must be able to say "the program did
+/// not write this" rather than filling in a default: the difference between "the
+/// author set no floor" and "the author set the floor this compiler chose" is the
+/// difference between a refusal and an invented bound.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbDiscover {
+    /// Chains discovery may use, as written. Empty means the clause was absent or
+    /// empty, both of which `arbitrage::contract` refuses.
+    pub chains: Vec<ChainRef>,
+    pub max_hops: Option<u32>,
+    /// `500_000 USDC` — the depth a venue must declare to be admitted.
+    pub liquidity_min: Option<(AssetRef, u128)>,
+}
+
+/// `capital { flash = enabled|disabled; max = <n> <ASSET>; }`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbCapital {
+    /// `Some(true)` for `flash = enabled`, `Some(false)` for `disabled`, `None`
+    /// when the clause was not written.
+    pub flash: Option<bool>,
+    /// The capital ceiling the plan may commit.
+    pub max: Option<(AssetRef, u128)>,
+}
+
+/// `execution { atomic = true; parallel = true; private = true; }`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbExecution {
+    pub atomic: Option<bool>,
+    pub parallel: Option<bool>,
+    pub private: Option<bool>,
+}
+
+/// `risk { min_profit = <n>bps; max_slippage = <n>bps; max_total_fee = <n>bps;
+/// deadline = <n>ms; }`.
+///
+/// The rates are whole basis points and the deadline is a duration with a unit: the
+/// parser refuses a bare number for the deadline for the same reason it refuses a
+/// bare number for a timeout — a count of blocks and a wall-clock budget are
+/// different quantities, and one spelling for both is how a deadline of 220 blocks
+/// came to read as 220 milliseconds (TICKET-033).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbRisk {
+    pub min_profit_bps: Option<u32>,
+    pub max_slippage_bps: Option<u32>,
+    pub max_total_fee_bps: Option<u32>,
+    pub deadline_ms: Option<u32>,
 }

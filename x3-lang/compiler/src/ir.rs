@@ -134,6 +134,38 @@ pub enum Operation {
         criterion: String,
     },
 
+    /// A decided arbitrage plan contract: the constraints a search would run under and
+    /// the venues they admit (spec PHASE 37).
+    ///
+    /// The contract travels so `x3c lower` shows what the verifier checked against the
+    /// program's own graph — the chains discovery may use, every bound it declared, and
+    /// which venues survive them. No artifact is emitted with this operation today: the
+    /// generator that would drive graph → routes → filter → DAG → risk → plan →
+    /// settlement does not exist, so the constraints are decided and the plan is not
+    /// pretended (TICKET-071).
+    ArbPlan {
+        /// The chains discovery may use, lowercased.
+        chains: Vec<String>,
+        max_hops: u32,
+        /// The depth a venue must declare to be admitted — the tighter of the declared
+        /// `liquidity_min` and the flash ceiling, since both are floors. The asset is
+        /// written as the declaration wrote it (`chain.ASSET`, or a bare symbol).
+        depth_floor: (String, u128),
+        /// The flash ceiling, when the plan may borrow, in the asset as written.
+        flash_max: Option<(String, u128)>,
+        parallel: bool,
+        private: bool,
+        /// The declared profit floor, in basis points. It is carried rather than
+        /// checked because a profit needs amounts and prices, which the graph does not
+        /// model — the generator that could compare it is what is missing.
+        min_profit_bps: u32,
+        max_slippage_bps: u32,
+        max_total_fee_bps: u32,
+        deadline_ms: u32,
+        /// Venues the declared bounds admit, in declaration order.
+        admitted: Vec<String>,
+    },
+
     /// A liquidation: the capital advanced, the collateral seized, and what the
     /// conversion's own bound leaves after the repayment (spec PHASE 10).
     ///

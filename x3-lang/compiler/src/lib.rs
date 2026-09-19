@@ -12,6 +12,7 @@
 //!    allow-lists, refund paths, explicit finality/proofs, route scores,
 //!    invariant rules, compile-mode gating, and risk scoring).
 
+pub mod arbitrage;
 pub mod cost;
 pub mod dag;
 pub mod diagnostic;
@@ -213,6 +214,10 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     // A target portfolio's weights have to be a whole, and its criterion has to be
     // one the optimizer can rank (PHASE 11).
     rebalance::verify(program, &mut acc);
+    // An `arb` block's bounds have to be bounds the program's own graph can satisfy:
+    // discovery over a chain with no venue, or under a filter that admits no venue,
+    // is a declaration that says no opportunity exists (PHASE 37).
+    arbitrage::verify(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 
     // Layer 1 of the pipeline described at the top of this file. It was
