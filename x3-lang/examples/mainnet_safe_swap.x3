@@ -87,6 +87,10 @@ intent safe_cross_vm_swap {
     require finality.solana >= 32
     require relayer_quorum >= 3
     require solver_bond >= 10000
+    // The name of this program is a claim, so it states the claim and the
+    // compiler runs the mainnet checks to honour it — in every mode, not only
+    // under `--mode mainnet`, which is where a program being written lives.
+    require mainnet_safe
 
     timeout 3600s
     on_fail refund arbitrum.USDC to sender

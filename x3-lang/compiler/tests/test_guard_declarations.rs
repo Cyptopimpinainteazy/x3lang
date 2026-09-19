@@ -79,19 +79,18 @@ fn a_guard_kind_the_compiler_does_not_know_is_refused() {
 }
 
 #[test]
-fn a_known_kind_with_no_checker_yet_is_not_refused_here() {
-    // This check is about *unknown* kinds. `audit_gate` is a known kind whose
-    // evaluation is still missing (TICKET-049: nothing declares an audit for it to
-    // be about), and refusing it *here* would be a different change than the one
-    // this test is about — the ledger says so, and this test keeps the two from
-    // being confused. `route_score` and then `bridge_liquidity` were this test's
-    // examples until they gained checkers; the kind used has to be one that has
-    // none.
-    let source = program("", "    require audit_gate iso_27001");
-    let errors = errors(&source);
+fn an_audit_gate_guard_is_refused_because_nothing_can_back_it() {
+    // This kind was "known but unchecked" until the last of TICKET-049: the name
+    // parsed, the guard lowered, and the artifact recorded a condition nothing
+    // read. It is refused by name now. An audit is evidence about the delivery
+    // process rather than a property of the artifact, so no clause in a program
+    // can state one and no pass can read one — recording the guard would make the
+    // artifact assert something that is true because nothing looked.
+    let found = errors(&program("", "    require audit_gate iso_27001"));
+    assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        !errors.iter().any(|error| error.contains("not a guard kind")),
-        "a known kind is not an unknown kind: {errors:?}"
+        found[0].contains("cannot back") && found[0].contains("nothing looked"),
+        "the diagnostic must say why the kind has no checker and what that would mean: {found:?}"
     );
 }
 
@@ -581,4 +580,127 @@ fn a_declared_depth_is_written_back_by_the_formatter() {
             .len(),
         "formatting must not change the program"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The last three kinds of TICKET-049: `risk`, `mainnet_safe` and `audit_gate`.
+// ---------------------------------------------------------------------------
+
+/// The IR a program lowers to, whether or not the semantic checks refused it.
+fn ir_of(source: &str) -> x3_lang_compiler::X3IR {
+    let (_program, ir, _outcome) =
+        x3_lang_compiler::check_source_diagnostics(source).expect("the program must parse and lower");
+    ir
+}
+
+fn errors_in_mode(source: &str, mode: x3_lang_compiler::CompilationMode) -> Vec<String> {
+    match x3_lang_compiler::check_source_diagnostics_with_mode(source, mode) {
+        Ok((_, _, outcome)) => outcome.errors.iter().map(|error| error.to_string()).collect(),
+        Err(error) => vec![format!("{error}")],
+    }
+}
+
+#[test]
+fn a_risk_guard_is_decided_against_the_program_s_computed_score() {
+    // `require risk <= N` names a quantity no clause declares: the score is
+    // computed from the program's own operations, the same shape as
+    // `canonical_supply`. The test computes the score rather than hardcoding one,
+    // so it cannot drift away from the scorer — a number in the test would still
+    // pass while the guard was being checked against something else.
+    let base = program("", "");
+    let score = x3_lang_compiler::semantic::compute_risk_score(&ir_of(&base)).total;
+    assert!(
+        score > 0,
+        "the fixture must have some risk for a ceiling to be about: {score}"
+    );
+
+    let at_the_score = program("", &format!("    require risk <= {score}"));
+    assert_eq!(
+        errors(&at_the_score),
+        Vec::<String>::new(),
+        "a ceiling equal to the computed score is satisfiable"
+    );
+
+    let below_the_score = errors(&program("", &format!("    require risk <= {}", score - 1)));
+    assert_eq!(below_the_score.len(), 1, "{below_the_score:?}");
+    assert!(
+        below_the_score[0].contains(&format!("at most {}", score - 1))
+            && below_the_score[0].contains(&format!("computed score is {score}")),
+        "the diagnostic must carry the claimed ceiling and the computed score: {below_the_score:?}"
+    );
+}
+
+#[test]
+fn a_risk_guard_written_as_a_floor_is_refused() {
+    // The score is a risk, so its bound is a ceiling. A floor compared against a
+    // score below it is a guard that cannot fail while reading as a constraint.
+    let found = errors(&program("", "    require risk >= 10"));
+    assert!(
+        found.iter().any(|error| error.contains("without a ceiling")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_risk_guard_whose_bound_is_not_a_number_is_refused() {
+    let found = errors(&program("", "    require risk <= threshold"));
+    assert!(
+        found.iter().any(|error| error.contains("cannot read as a number")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_mainnet_safe_guard_runs_the_mainnet_checks_in_any_mode() {
+    // The guard is a request for the mainnet checks rather than a claim about a
+    // mode: honouring it means running them, which is what makes the guard's claim
+    // true instead of recorded. This fixture breaks three of those rules, so in
+    // dev mode the three errors are the proof the checks ran.
+    let found = errors_in_mode(
+        &program("", "    require mainnet_safe"),
+        x3_lang_compiler::CompilationMode::Dev,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|error| error.contains("mainnet: no RPC consensus declared")),
+        "the RPC rule must have run: {found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .any(|error| error.contains("mainnet: missing solver bond declaration")),
+        "the solver-bond rule must have run: {found:?}"
+    );
+}
+
+#[test]
+fn the_mainnet_checks_do_not_run_without_the_guard_or_the_mode() {
+    // The pair to the test above: without the guard, and compiling for dev, the
+    // same program reports none of those errors — so it is the guard, and not
+    // something else in the pipeline, that put the checks on the path.
+    let found = errors(&program("", ""));
+    assert!(
+        !found.iter().any(|error| error.contains("mainnet:")),
+        "no mainnet rule should run here: {found:?}"
+    );
+}
+
+#[test]
+fn the_mainnet_safe_example_declares_a_property_the_compiler_confirms() {
+    // End to end on a real corpus file: `examples/mainnet_safe_swap.x3` is named
+    // for the property, writes `require mainnet_safe`, and passes every mainnet
+    // rule — in dev mode, where the guard is what asked for them. A guard that was
+    // only honoured under `--mode mainnet` would have left this file's own name
+    // unchecked.
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("examples");
+    let source = std::fs::read_to_string(directory.join("mainnet_safe_swap.x3")).expect("the example must be readable");
+    assert!(
+        source.contains("require mainnet_safe"),
+        "the example states the claim this test is about"
+    );
+    let found = errors_in_mode(&source, x3_lang_compiler::CompilationMode::Dev);
+    assert_eq!(found, Vec::<String>::new(), "{found:?}");
 }

@@ -213,6 +213,8 @@ enum SemanticPass {
     SlippageExplicit,
     ProofRequirements,
     RouteScore,
+    /// Decided against the program's computed risk score (`compute_risk_score`).
+    RiskScore,
     Invariants,
     MainnetSafe,
 }
@@ -238,6 +240,7 @@ const SEMANTIC_PASSES: &[(&str, SemanticPass)] = &[
     ("verify_slippage_explicit", SemanticPass::SlippageExplicit),
     ("verify_proof_requirements", SemanticPass::ProofRequirements),
     ("verify_route_score", SemanticPass::RouteScore),
+    ("verify_risk_score_guards", SemanticPass::RiskScore),
     ("verify_invariants_structured", SemanticPass::Invariants),
     ("verify_mainnet_safe", SemanticPass::MainnetSafe),
 ];
@@ -257,9 +260,16 @@ fn run_semantic_pass(pass: SemanticPass, ir: &X3IR, acc: &mut ErrorAccumulator, 
         SemanticPass::SlippageExplicit => verify_slippage_explicit(ir, acc),
         SemanticPass::ProofRequirements => verify_proof_requirements(ir, acc),
         SemanticPass::RouteScore => verify_route_score(ir, acc),
+        SemanticPass::RiskScore => verify_risk_score_guards(ir, acc),
         SemanticPass::Invariants => verify_invariants_structured(ir, context.invariants, acc),
         SemanticPass::MainnetSafe => {
-            if context.mode == Some(CompilationMode::Mainnet) {
+            // Two reasons to run the checks: the build is for mainnet, or the
+            // program asks for them with `require mainnet_safe`. The second is
+            // what makes that guard a claim rather than a comment — a guard that
+            // was only honoured under `--mode mainnet` could never be written by a
+            // program under development, and one that was recorded without the
+            // checks running would assert something nothing established.
+            if context.mode == Some(CompilationMode::Mainnet) || claims_mainnet_safe(ir) {
                 verify_mainnet_safe(ir, acc);
             }
         }
@@ -695,28 +705,45 @@ fn guard_word(expr: &Expression) -> Option<&str> {
     }
 }
 
-/// Refuse a guard whose kind the compiler does not know.
+/// Refuse a guard kind the compiler cannot decide.
 ///
-/// `require_kind_from_str` carries an unknown word as `Custom`, which is how
-/// `require proof verified` parses — and a `Custom` guard is a condition nothing
-/// can check: no declaration to compare against, no run-time quantity, no
-/// verifier reading it. It lowers to a `REQUIRE` the executor treats as true.
+/// Two kinds of guard are refused here, and the set is closed by name rather than
+/// by accident:
 ///
-/// The language's own rule everywhere else is that a construct the compiler does
-/// not understand is one it cannot check ("permissions" are a closed set for
-/// exactly this reason), so a guard kind is closed too: the word has to be one of
-/// `REQUIRE_KIND_NAMES`, and the diagnostic lists them.
-pub fn verify_guard_kinds_are_known(program: &Program, acc: &mut ErrorAccumulator) {
+/// - **an unknown word.** `require_kind_from_str` carries it as `Custom`, which is
+///   how `require proof verified` parses — a condition nothing can check: no
+///   declaration to compare against, no run-time quantity, no verifier reading it.
+///   The language's rule everywhere else is that a construct the compiler does not
+///   understand is one it cannot check ("permissions" are a closed set for exactly
+///   this reason), so the word has to be one of `REQUIRE_KIND_NAMES` and the
+///   diagnostic lists them.
+/// - **`audit_gate`.** A known *name* behind which there is nothing: an audit is
+///   evidence about the delivery process, not a property of the artifact, so no
+///   clause in a program can state one and no pass can read one. Recording the
+///   guard would make the artifact assert a condition that is true because nothing
+///   looked, which is the defect this whole family of checks exists to remove.
+///
+/// Every other name in `REQUIRE_KIND_NAMES` is decided by a pass — against a
+/// declaration the program writes, against the program's own operations, or, for
+/// `nonce`, at run time against the VM's nonce registry.
+pub fn verify_guard_kinds_are_checkable(program: &Program, acc: &mut ErrorAccumulator) {
     for (owner, guard) in require_guards(program) {
-        if !matches!(guard.kind, x3_lang_ast::ast::RequireKind::Custom(_)) {
-            continue;
+        match &guard.kind {
+            x3_lang_ast::ast::RequireKind::Custom(_) => acc.add_error(err(format!(
+                "declaration '{owner}' requires `{}`, which is not a guard kind this compiler knows, \
+                 so nothing would ever check it. The kinds it knows are: {}",
+                guard.kind.as_str(),
+                crate::parser::REQUIRE_KIND_NAMES.join(", ")
+            ))),
+            x3_lang_ast::ast::RequireKind::AuditGate => acc.add_error(err(format!(
+                "declaration '{owner}' requires `audit_gate`, which this language cannot back: no \
+                 clause in a program declares that an audit ran, so the guard would be recorded as a \
+                 condition that is true because nothing looked. An audit is evidence about the \
+                 delivery process rather than a property of the artifact — keep it where it can be \
+                 verified, and remove the guard"
+            ))),
+            _ => {}
         }
-        acc.add_error(err(format!(
-            "declaration '{owner}' requires `{}`, which is not a guard kind this compiler knows, \
-             so nothing would ever check it. The kinds it knows are: {}",
-            guard.kind.as_str(),
-            crate::parser::REQUIRE_KIND_NAMES.join(", ")
-        )));
     }
 }
 
@@ -2383,7 +2410,102 @@ pub fn verify_route_score(ir: &X3IR, acc: &mut ErrorAccumulator) {
     }
 }
 
+/// `require risk <= N` is decided against the score this compiler computes for
+/// the program itself.
+///
+/// The guard names a quantity no clause declares: `compute_risk_score` reads the
+/// program's own operations, so the check has the same shape as
+/// `canonical_supply` — evaluated against what the program does rather than
+/// compared against a declaration — and a program that under-states its own risk
+/// is refused with the parts that produced the number.
+///
+/// The bound is a ceiling. `require risk >= N` says the program must be at least
+/// that risky, which is not a property to ask a program to satisfy, and comparing
+/// a floor against a score below it is how a guard meant as a ceiling becomes one
+/// that cannot fail.
+pub fn verify_risk_score_guards(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let mut guards: Vec<(Option<crate::ir::ComparisonOp>, Option<u128>)> = Vec::new();
+    for op in &ir.operations {
+        if let Operation::Require {
+            kind: crate::ir::RequireKind::RiskScore,
+            condition,
+            comparison,
+            ..
+        } = op
+        {
+            let value = match condition {
+                Condition::Expression { expr } => expr.trim().parse::<u128>().ok(),
+                _ => None,
+            };
+            guards.push((*comparison, value));
+        }
+    }
+    if guards.is_empty() {
+        return;
+    }
+
+    let score = compute_risk_score(ir);
+    for (comparison, limit) in guards {
+        if !comparison.is_some_and(|op| op.is_upper_bound()) {
+            acc.add_error(err(format!(
+                "`require risk` states a risk score without a ceiling; the score is a risk, so the \
+                 bound is an upper one — write `require risk <= {}`",
+                limit
+                    .map(|limit| limit.to_string())
+                    .unwrap_or_else(|| "<n>".to_string())
+            )));
+            continue;
+        }
+        let Some(limit) = limit else {
+            acc.add_error(err(
+                "`require risk` states a bound the compiler cannot read as a number; the score it is \
+                 checked against is computed, so the guard has to state an integer"
+                    .to_string(),
+            ));
+            continue;
+        };
+        if u128::from(score.total) > limit {
+            acc.add_error(err(format!(
+                "`require risk <= {limit}` claims a risk score of at most {limit}, but this program's \
+                 computed score is {} (chain {}, bridge {}, solver {}, relayer {}, rpc {}, liquidity \
+                 {}, finality {}, mev {}, timeout {}, refund {})",
+                score.total,
+                score.chain_risk,
+                score.bridge_risk,
+                score.solver_risk,
+                score.relayer_risk,
+                score.rpc_risk,
+                score.liquidity_risk,
+                score.finality_risk,
+                score.mev_risk,
+                score.timeout_risk,
+                score.refund_risk
+            )));
+        }
+    }
+}
+
 // ───── Mainnet safety checks ─────────────────────────────────────────────
+
+/// Whether the program claims `mainnet_safe`.
+///
+/// The guard is a *request for the mainnet checks* rather than a claim about a
+/// compilation mode, and the pass below honours it by running them. That is what
+/// makes the guard's claim true rather than recorded: refusing it outside mainnet
+/// mode would make it unusable where programs are actually written, and recording
+/// it while the checks did not run would make the artifact assert something no run
+/// established — the defect this family of checks exists to remove.
+fn claims_mainnet_safe(ir: &X3IR) -> bool {
+    ir.operations.iter().any(|op| {
+        matches!(
+            op,
+            Operation::Require {
+                kind: crate::ir::RequireKind::MainnetSafe,
+                ..
+            }
+        )
+    })
+}
 
 /// Run all mainnet-specific safety checks. Rejects the program if any
 /// production-safety rule is violated.

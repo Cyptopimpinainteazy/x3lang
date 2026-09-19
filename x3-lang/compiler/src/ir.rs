@@ -770,6 +770,15 @@ pub enum RequireKind {
     Finality,
     /// Check route score meets threshold
     RouteScore,
+    /// Check the program's computed risk score is within a ceiling.
+    ///
+    /// Unlike the other kinds this one has no declaration to compare against:
+    /// `compute_risk_score` reads the program's own operations, so the guard is
+    /// evaluated rather than checked against the source. It is a real variant
+    /// rather than a `Custom("risk_score")` string so that the pass which decides
+    /// it cannot be reached by a program that happens to write that name as an
+    /// unknown guard.
+    RiskScore,
     /// Check solver bond is sufficient
     SolverBond,
     /// Check relayer quorum met

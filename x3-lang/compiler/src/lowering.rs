@@ -1382,7 +1382,7 @@ fn require_kind_to_ir(kind: &ast::RequireKind) -> ir::RequireKind {
         ast::RequireKind::Finality => ir::RequireKind::Finality,
         ast::RequireKind::Custom(name) => ir::RequireKind::Custom(name.as_str().to_string()),
         ast::RequireKind::InvariantCheck => ir::RequireKind::Custom("invariant".to_string()),
-        ast::RequireKind::RiskScore => ir::RequireKind::Custom("risk_score".to_string()),
+        ast::RequireKind::RiskScore => ir::RequireKind::RiskScore,
         ast::RequireKind::AuditGate => ir::RequireKind::Custom("audit_gate".to_string()),
         ast::RequireKind::RelayerQuorum => ir::RequireKind::RelayerQuorum,
         ast::RequireKind::RouteScore => ir::RequireKind::RouteScore,
