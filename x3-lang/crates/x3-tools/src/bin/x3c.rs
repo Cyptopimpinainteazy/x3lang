@@ -1089,8 +1089,19 @@ fn cmd_fmt(input: &PathBuf, check: bool) -> Result<ExitCode, String> {
             Ok(ExitCode::from(1))
         }
     } else {
+        let comments = x3_lang_compiler::formatter::comment_count(&source);
         std::fs::write(input, &formatted).map_err(|e| format!("write {input:?}: {e}"))?;
         println!("x3c fmt: formatted {}", input.display());
+        if comments > 0 {
+            // A formatter that deletes documentation without saying so is worse
+            // than one that cannot keep it: the file is rewritten either way,
+            // and only this line distinguishes "reformatted" from "reformatted,
+            // and your comments are gone".
+            print_warning(&format!(
+                "{comments} comment(s) were not carried over: the lexer treats a comment as \
+                 whitespace, so nothing the formatter walks holds one"
+            ));
+        }
         Ok(ExitCode::SUCCESS)
     }
 }

@@ -3111,6 +3111,15 @@ impl<'a> Parser<'a> {
                     require_numerator = n;
                     require_denominator = m;
                 }
+                // `require` is a keyword, so the arm above can never fire for
+                // the shorthand the examples are documented with. The arm that
+                // reads it is this one.
+                Tok::KwRequire => {
+                    self.advance();
+                    let (n, m) = self.parse_n_of_m()?;
+                    require_numerator = n;
+                    require_denominator = m;
+                }
                 Tok::Ident(ref s) if s == "require_numerator" => {
                     self.advance();
                     let expr = self.parse_expr()?;
@@ -3328,14 +3337,27 @@ impl<'a> Parser<'a> {
         let mut requirement = Symbol::new("finalized");
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             match self.peek() {
-                // Parse: <chain_name> require <mode>
-                Tok::Ident(ref s) if s != "require" => {
+                // The clause form the examples are written in:
+                // `chain <name>` and `requirement <mode>`. Reading these as the
+                // terse form below is what made `finality_policy strict { chain
+                // ethereum requirement finalized }` store the word
+                // "requirement" as the chain and lose `ethereum` — which then
+                // became the *subject* of the finality requirement in the IR.
+                Tok::Ident(ref s) if s == "chain" => {
+                    self.advance();
                     chain = Symbol::new(&self.expect_ident("finality chain name")?);
-                    // Expect `require`
+                }
+                Tok::Ident(ref s) if s == "requirement" || s == "require" => {
+                    self.advance();
+                    requirement = Symbol::new(&self.expect_ident("finality requirement")?);
+                }
+                // The terse form: `<chain_name> require <mode>`.
+                Tok::Ident(_) => {
+                    chain = Symbol::new(&self.expect_ident("finality chain name")?);
                     if matches!(self.peek(), Tok::Ident(ref r) if r == "require") {
                         self.advance();
+                        requirement = Symbol::new(&self.expect_ident("finality requirement")?);
                     }
-                    requirement = Symbol::new(&self.expect_ident("finality requirement")?);
                 }
                 _ => break,
             }

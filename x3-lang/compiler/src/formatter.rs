@@ -7,6 +7,95 @@ use x3_lang_ast::ast::*;
 use x3_lang_ast::{AssetDecl, AtomicTradeDecl, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::Spanned;
 
+/// How many comments a source has.
+///
+/// The lexer treats a comment as whitespace, so no comment reaches the AST and
+/// the formatter has none to write back. That means `x3c fmt` deletes every
+/// comment in a file, which is a real loss for a language whose programs explain
+/// themselves in place — so the command counts them from the text and says so,
+/// rather than rewriting the file quietly.
+///
+/// This is a scan, not the language's own rule, and it is deliberately narrow:
+/// it knows string literals (a `//` inside one is not a comment) and the two
+/// comment forms, and it does not try to be a lexer.
+pub fn comment_count(source: &str) -> usize {
+    let mut count = 0usize;
+    let mut chars = source.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '"' => {
+                // A string literal, up to its closing quote or the end of the
+                // file; an escaped quote does not close it.
+                let mut escaped = false;
+                for inner in chars.by_ref() {
+                    if escaped {
+                        escaped = false;
+                    } else if inner == '\\' {
+                        escaped = true;
+                    } else if inner == '"' {
+                        break;
+                    }
+                }
+            }
+            '/' => match chars.peek() {
+                Some('/') => {
+                    count += 1;
+                    for inner in chars.by_ref() {
+                        if inner == '\n' {
+                            break;
+                        }
+                    }
+                }
+                Some('*') => {
+                    count += 1;
+                    let mut previous = '\0';
+                    for inner in chars.by_ref() {
+                        if previous == '*' && inner == '/' {
+                            break;
+                        }
+                        previous = inner;
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    count
+}
+
+/// Whether a clause's expression is the literal zero `from <asset>` fills in
+/// when the amount is not stated.
+fn is_zero_literal(expression: &Expression) -> bool {
+    matches!(expression, Expression::Literal(LiteralExpr::Int { value: 0, .. }))
+}
+
+/// Whether a clause's receiver is the `"sender"` an omitted `receiver` fills in.
+fn is_sender_default(expression: &Expression) -> bool {
+    matches!(
+        expression,
+        Expression::Literal(LiteralExpr::String(text)) if text.as_str() == "sender"
+    )
+}
+
+/// The `chain.ASSET:receiver` a `refund <asset> to <receiver>` clause was
+/// folded into, split back into its two parts.
+///
+/// `None` when the expression is not that shape, which is every refund written
+/// as an expression rather than as an asset and a receiver.
+fn refund_target(expression: &Expression) -> Option<(String, String)> {
+    let Expression::Literal(LiteralExpr::String(text)) = expression else {
+        return None;
+    };
+    let (asset, receiver) = text.as_str().split_once(':')?;
+    // An asset carries its chain, so the guard is what distinguishes the folded
+    // form from a string that merely contains a colon.
+    if !asset.contains('.') {
+        return None;
+    }
+    Some((asset.to_string(), receiver.to_string()))
+}
+
 pub struct X3Formatter {
     output: String,
     indent_level: usize,
@@ -433,6 +522,54 @@ impl X3Formatter {
         self.format_asset_ref(&a.to_asset);
         self.write(" {\n");
         self.indent();
+        // Every clause the parser reads has to be written back. Emitting only
+        // the statement body turned a swap with an amount, a hashlock and two
+        // deadlines into a swap with none of them — which still parsed, and so
+        // passed any test that only asked whether the output was valid.
+        if let Some(amount) = &a.amount {
+            self.write_indent();
+            self.write("amount ");
+            self.format_expression(amount);
+            self.write("\n");
+        }
+        if let Some(receiver) = &a.receiver {
+            self.write_indent();
+            self.write("receiver ");
+            self.format_expression(receiver);
+            self.write("\n");
+        }
+        if let Some(hashlock) = &a.hashlock {
+            self.write_indent();
+            self.write("hashlock ");
+            self.write(hashlock.hash_fn.as_str());
+            self.write("(");
+            self.format_expression(&hashlock.secret);
+            self.write(")\n");
+        }
+        if let Some(timeout) = &a.timeout_source {
+            self.write_indent();
+            self.write("timeout source ");
+            self.format_expression(timeout);
+            self.write("\n");
+        }
+        if let Some(timeout) = &a.timeout_destination {
+            self.write_indent();
+            self.write("timeout destination ");
+            self.format_expression(timeout);
+            self.write("\n");
+        }
+        for guard in &a.requires {
+            self.write_indent();
+            self.write("require ");
+            self.format_require_guard(guard);
+            self.write("\n");
+        }
+        if let Some(action) = &a.on_fail {
+            self.write_indent();
+            self.write("on_fail ");
+            self.format_failure_action(action);
+            self.write("\n");
+        }
         for stmt in &a.body {
             self.format_statement(stmt);
         }
@@ -482,9 +619,7 @@ impl X3Formatter {
         if let Some(capital) = &c.capital {
             self.write_indent();
             self.write("capital <= ");
-            self.format_expression(&capital.value);
-            self.write(" ");
-            self.write(capital.asset.as_str());
+            self.format_amount_expr(capital);
             self.write("\n");
         }
         if c.private {
@@ -776,10 +911,119 @@ impl X3Formatter {
             self.write("]\n");
         }
         for stmt in &i.body.stmts {
-            self.format_statement(stmt);
+            self.format_intent_statement(stmt);
         }
         self.dedent();
         self.write("}\n");
+    }
+
+    /// One statement inside an `intent` body, in the intent's own dialect.
+    ///
+    /// An intent body is not a block of statements: `from`, `to` and `route` are
+    /// clauses that *lower* to `lock`, `release` and `atomic`, and the parser
+    /// reads the clauses back. Printing the lowered form is what made `x3c fmt`
+    /// write text no intent can contain — the parser there accepts `from`, `to`,
+    /// `route`, `require`, `timeout`, `on_fail`, `allow`, `use` and `on`, and
+    /// nothing else.
+    fn format_intent_statement(&mut self, stmt: &Statement) {
+        match stmt {
+            // `from <chain.ASSET> [amount <n>] [receiver <r>]`. The parser
+            // fills in zero and `"sender"` when the clause omits them, so those
+            // are the two values that are written only when they were stated.
+            Statement::Lock {
+                chain,
+                asset,
+                amount,
+                from,
+            } => {
+                self.write_indent();
+                self.write("from ");
+                self.write(chain.as_str());
+                self.write(".");
+                self.write(asset.name.as_str());
+                if !is_zero_literal(amount) {
+                    self.write(" amount ");
+                    self.format_expression(amount);
+                }
+                if !is_sender_default(from) {
+                    self.write(" receiver ");
+                    self.format_expression(from);
+                }
+                self.write("\n");
+            }
+            Statement::Release { chain, asset, to } => {
+                self.write_indent();
+                self.write("to ");
+                self.write(chain.as_str());
+                self.write(".");
+                self.write(asset.name.as_str());
+                if !is_sender_default(to) {
+                    self.write(" receiver ");
+                    self.format_expression(to);
+                }
+                self.write("\n");
+            }
+            Statement::Atomic(atomic) if atomic.meta.is_none() => {
+                self.write_indent();
+                self.write("route {\n");
+                self.indent();
+                for step in &atomic.body.stmts {
+                    self.format_statement(step);
+                }
+                self.dedent();
+                self.write_indent();
+                self.write("}\n");
+            }
+            // `timeout <n> [refund <asset> to <receiver>]`. The duration is
+            // stored in blocks, which is what a bare number means.
+            Statement::OnTimeout { duration, action } => {
+                self.write_indent();
+                self.write("timeout ");
+                self.format_expression(duration);
+                if !matches!(action, FailureAction::Rollback) {
+                    self.write(" ");
+                    self.format_failure_action(action);
+                }
+                self.write("\n");
+            }
+            // `use <target> <config>` and `on <event> <action>` parse into a
+            // call so that lowering has one shape to walk; the clause is what the
+            // intent surface accepts, so the call is written back as one.
+            Statement::Expr(Expression::Call { callee, args })
+                if matches!(&**callee, Expression::Ident(name) if name.as_str() == "use" || name.as_str() == "on")
+                    && args.len() == 2 =>
+            {
+                let Expression::Ident(clause) = &**callee else {
+                    unreachable!("matched above")
+                };
+                self.write_indent();
+                self.write(clause.as_str());
+                self.write(" ");
+                self.format_expression(&args[0]);
+                self.write(" ");
+                self.format_expression(&args[1]);
+                self.write("\n");
+            }
+            Statement::Require(guard) => {
+                self.write_indent();
+                self.write("require ");
+                self.format_require_guard(guard);
+                self.write("\n");
+            }
+            Statement::OnFail(action) => {
+                self.write_indent();
+                self.write("on_fail ");
+                self.format_failure_action(action);
+                self.write("\n");
+            }
+            Statement::Allow { feature } => {
+                self.write_indent();
+                self.write("allow ");
+                self.write(feature.as_str());
+                self.write("\n");
+            }
+            other => self.format_statement(other),
+        }
     }
 
     fn format_gpu(&mut self, g: &GpuBlock) {
@@ -822,115 +1066,216 @@ impl X3Formatter {
     }
 
     fn format_vm(&mut self, v: &VmDecl) {
-        self.write("vm ");
+        // `vm { chain <c> adapter <a> finality <f> }` — the parser reads clauses,
+        // not a chain name in the header followed by a field list.
+        self.write("vm {\n");
+        self.indent();
+        self.write_indent();
+        self.write("chain ");
         self.write(v.chain.as_str());
-        self.write(" { adapter: ");
+        self.write("\n");
+        self.write_indent();
+        self.write("adapter ");
         self.write(v.adapter.as_str());
+        self.write("\n");
         if let Some(f) = &v.finality {
-            self.write(", finality: ");
+            self.write_indent();
+            self.write("finality ");
             self.write(f.as_str());
+            self.write("\n");
         }
-        self.write(" };\n");
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_solver_market(&mut self, m: &SolverMarket) {
-        self.write("solver_market ");
+        self.write("solver_market {\n");
+        self.indent();
+        self.write_indent();
+        self.write("mode ");
         self.write(m.mode.as_str());
-        self.write(" { min_reputation: ");
+        self.write("\n");
+        self.write_indent();
+        self.write("min_reputation ");
         self.write(&m.min_reputation.to_string());
-        self.write(" };\n");
+        self.write("\n");
+        if let Some(bond) = &m.bond {
+            self.write_indent();
+            self.write("bond ");
+            self.format_amount_expr(bond);
+            self.write("\n");
+        }
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_relayer_swarm(&mut self, r: &RelayerSwarm) {
-        self.write("relayers { quorum: ");
+        self.write("relayers {\n");
+        self.indent();
+        self.write_indent();
+        self.write("quorum_numerator ");
         self.write(&r.quorum_numerator.to_string());
-        self.write("_of_");
+        self.write("\n");
+        self.write_indent();
+        self.write("quorum_denominator ");
         self.write(&r.quorum_denominator.to_string());
-        self.write(", relayers: [");
+        self.write("\n");
+        self.write_indent();
+        self.write("relayers [");
         for (i, rel) in r.relayers.iter().enumerate() {
             if i > 0 {
                 self.write(", ");
             }
             self.write(rel.as_str());
         }
-        self.write("] };\n");
+        self.write("]\n");
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_rpc_quorum(&mut self, q: &RpcQuorum) {
-        self.write("rpc_quorum ");
+        // `rpc_quorum { source <chain> require <n>_of_<m> reject_on [ … ] }` —
+        // the chain is a clause inside the block, not a name in the header.
+        self.write("rpc_quorum {\n");
+        self.indent();
+        self.write_indent();
+        self.write("source ");
         self.write(q.source.as_str());
-        self.write(" { require: ");
+        self.write("\n");
+        // The two field names rather than `require <n>_of_<m>`: `require` is a
+        // keyword, and the shorthand arm that reads it was unreachable until it
+        // was given a token to match, so the explicit form is the one every
+        // program that parses today was written in.
+        self.write_indent();
+        self.write("require_numerator ");
         self.write(&q.require_numerator.to_string());
-        self.write("_of_");
+        self.write("\n");
+        self.write_indent();
+        self.write("require_denominator ");
         self.write(&q.require_denominator.to_string());
-        self.write(" };\n");
+        self.write("\n");
+        if !q.reject_on.is_empty() {
+            self.write_indent();
+            self.write("reject_on [");
+            for (index, reason) in q.reject_on.iter().enumerate() {
+                if index > 0 {
+                    self.write(", ");
+                }
+                self.write(reason.as_str());
+            }
+            self.write("]\n");
+        }
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_risk_policy(&mut self, p: &RiskPolicy) {
-        self.write("risk_policy { max_slippage: ");
+        // Clauses, one per line: the parser reads `max_slippage <n>`, and a
+        // colon is not a token either clause can step over.
+        self.write("risk_policy {\n");
+        self.indent();
+        self.write_indent();
+        self.write("max_slippage ");
         self.write(&p.max_slippage.to_string());
-        if let Some(pos) = &p.max_position {
-            self.write(", max_position: ");
-            self.write(&pos.to_string());
+        self.write("\n");
+        if let Some(position) = &p.max_position {
+            self.write_indent();
+            self.write("max_position ");
+            self.write(&position.to_string());
+            self.write("\n");
         }
-        self.write(" };\n");
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_privacy_block(&mut self, p: &PrivacyBlock) {
-        self.write("privacy { hide_route_until_commit: ");
+        self.write("privacy {\n");
+        self.indent();
+        self.write_indent();
+        self.write("hide_route_until_commit ");
         self.write(if p.hide_route_until_commit { "true" } else { "false" });
-        self.write(", reveal_on: ");
+        self.write("\n");
+        self.write_indent();
+        self.write("reveal_on ");
         self.write(p.reveal_on.as_str());
-        self.write(", encrypted: ");
+        self.write("\n");
+        self.write_indent();
+        self.write("encrypted ");
         self.write(if p.encrypted { "true" } else { "false" });
-        self.write(" };\n");
+        self.write("\n");
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_invariant(&mut self, i: &InvariantDecl) {
+        // The parser stores the name as the assertion when the declaration has
+        // no body, so an `invariant <name>` written back with a body would
+        // assert the name against the text of the name.
         self.write("invariant ");
         self.write(i.name.as_str());
-        self.write(": ");
-        self.write(i.assert_expr.as_str());
-        self.write(";\n");
+        if i.assert_expr.as_str() != i.name.as_str() {
+            self.write(" { assert ");
+            self.write(i.assert_expr.as_str());
+            self.write(" }");
+        }
+        self.write("\n");
     }
 
     fn format_error(&mut self, e: &ErrorDecl) {
+        // `error <name>` is a whole item with no terminator; a trailing `;` is
+        // the next top-level token, and the item loop has no case for it.
         self.write("error ");
         self.write(e.name.as_str());
-        self.write(";\n");
+        self.write("\n");
     }
 
     fn format_finality_policy(&mut self, f: &FinalityPolicy) {
         self.write("finality_policy ");
         self.write(f.mode.as_str());
-        self.write(" { chain: ");
+        self.write(" {\n");
+        self.indent();
+        self.write_indent();
+        self.write("chain ");
         self.write(f.chain.as_str());
-        self.write(", require: ");
+        self.write("\n");
+        self.write_indent();
+        self.write("requirement ");
         self.write(f.requirement.as_str());
-        self.write(" };\n");
+        self.write("\n");
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_proofs_required(&mut self, p: &ProofsRequired) {
-        self.write("proofs required { ");
-        for (i, proof) in p.proofs.iter().enumerate() {
-            if i > 0 {
-                self.write(", ");
-            }
+        // One name per line, no commas: the list is a block of names.
+        self.write("proofs required {\n");
+        self.indent();
+        for proof in &p.proofs {
+            self.write_indent();
             self.write(proof.as_str());
+            self.write("\n");
         }
-        self.write(" };\n");
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_vm_target(&mut self, t: &VmTarget) {
         self.write("target ");
         self.write(t.vm.as_str());
-        self.write(" { adapter: ");
+        self.write(" {\n");
+        self.indent();
+        self.write_indent();
+        self.write("adapter ");
         self.write(t.adapter.as_str());
+        self.write("\n");
         if let Some(c) = &t.contract {
-            self.write(", contract: ");
+            self.write_indent();
+            self.write("contract ");
             self.write(c.as_str());
+            self.write("\n");
         }
-        self.write(" };\n");
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_block(&mut self, block: &Block, _braces_same_line: bool) {
@@ -1091,11 +1436,14 @@ impl X3Formatter {
                 dex,
             } => {
                 self.write_indent();
+                // `swap <venue> <from> -> <to> …` — the parser reads the venue
+                // immediately after `swap`, so writing it first would make the
+                // venue the verb's object and the asset the venue.
+                self.write("swap ");
                 if let Some(Expression::Literal(LiteralExpr::String(s))) = dex {
                     self.write(s.as_str());
                     self.write(" ");
                 }
-                self.write("swap ");
                 self.format_asset_ref(from);
                 self.write(" -> ");
                 self.format_asset_ref(to);
@@ -1130,30 +1478,10 @@ impl X3Formatter {
                 self.format_expression(receiver);
                 self.write(";\n");
             }
-            Statement::Require(guard) if guard.comparison.is_some() => {
-                self.write_indent();
-                self.write("require ");
-                self.format_require_kind(&guard.kind);
-                if let Some(subject) = &guard.subject {
-                    self.write(".");
-                    self.write(subject.as_str());
-                }
-                self.write(" ");
-                self.write(guard.comparison.expect("matched on Some").as_str());
-                self.write(" ");
-                self.format_expression(&guard.value);
-                self.write(";\n");
-            }
             Statement::Require(guard) => {
                 self.write_indent();
                 self.write("require ");
-                self.format_require_kind(&guard.kind);
-                if let Some(subject) = &guard.subject {
-                    self.write(" ");
-                    self.write(subject.as_str());
-                }
-                self.write(" ");
-                self.format_expression(&guard.value);
+                self.format_require_guard(guard);
                 self.write(";\n");
             }
             Statement::Allow { feature } => {
@@ -1165,16 +1493,8 @@ impl X3Formatter {
             Statement::OnFail(action) => {
                 self.write_indent();
                 self.write("on_fail ");
-                match action {
-                    FailureAction::Rollback => self.write("rollback;\n"),
-                    FailureAction::Refund(expr) => {
-                        self.write("refund ");
-                        self.format_expression(expr);
-                        self.write(";\n");
-                    }
-                    FailureAction::Halt => self.write("halt;\n"),
-                    FailureAction::Quarantine => self.write("quarantine;\n"),
-                }
+                self.format_failure_action(action);
+                self.write(";\n");
             }
             Statement::RouteFallback { replacements, requires } => {
                 self.write_indent();
@@ -1193,9 +1513,11 @@ impl X3Formatter {
                 for guard in requires {
                     self.write_indent();
                     self.write("require ");
-                    self.format_require_kind(&guard.kind);
-                    self.write(" ");
-                    self.format_expression(&guard.value);
+                    // The comparison is part of the guard. Writing only the kind
+                    // and the value turned `require slippage <= 7` into
+                    // `require slippage 7`, which the fallback check reads as
+                    // "not a ceiling" and refuses.
+                    self.format_require_guard(guard);
                     self.write(";\n");
                 }
                 self.dedent();
@@ -1520,10 +1842,67 @@ impl X3Formatter {
         }
     }
 
+    /// `<amount> <ASSET>` — an amount and the asset it is denominated in.
+    fn format_amount_expr(&mut self, amount: &x3_lang_ast::trading::AmountExpr) {
+        self.format_expression(&amount.value);
+        self.write(" ");
+        self.write(amount.asset.as_str());
+    }
+
     fn format_asset_ref(&mut self, asset: &AssetRef) {
         self.write(asset.chain.as_str());
         self.write(".");
         self.write(asset.name.as_str());
+    }
+
+    /// `require`'s contents: `kind[.subject] [comparison] value`.
+    ///
+    /// The caller writes the keyword and the terminator, so the same shape is
+    /// used by a statement, an `atomic swap` clause and a choice path — a guard
+    /// written by one and read by the other cannot drift.
+    fn format_require_guard(&mut self, guard: &RequireGuard) {
+        self.format_require_kind(&guard.kind);
+        if let Some(subject) = &guard.subject {
+            // The dot form when a comparison follows, because
+            // `require finality arbitrum >= 32` and `require finality.arbitrum >= 32`
+            // are the same guard but only one reads as a property of a chain.
+            self.write(if guard.comparison.is_some() { "." } else { " " });
+            self.write(subject.as_str());
+        }
+        if let Some(comparison) = guard.comparison {
+            self.write(" ");
+            self.write(comparison.as_str());
+        }
+        self.write(" ");
+        self.format_expression(&guard.value);
+    }
+
+    /// What `on_fail` does next.
+    fn format_failure_action(&mut self, action: &FailureAction) {
+        match action {
+            FailureAction::Rollback => self.write("rollback"),
+            FailureAction::Halt => self.write("halt"),
+            FailureAction::Quarantine => self.write("quarantine"),
+            FailureAction::Refund(expression) => {
+                self.write("refund ");
+                // Two producers, two shapes. An intent's `on_fail refund
+                // <chain.ASSET> to <receiver>` clause folds the asset and the
+                // receiver into one string; the generic action keeps whatever
+                // expression it was handed. Writing the folded form back as an
+                // expression prints a quoted string that the clause parser reads
+                // as *not* an asset, and the refund silently becomes a rollback.
+                match refund_target(expression) {
+                    Some((asset, receiver)) => {
+                        self.write(&asset);
+                        if receiver != "sender" {
+                            self.write(" to ");
+                            self.write(&receiver);
+                        }
+                    }
+                    None => self.format_expression(expression),
+                }
+            }
+        }
     }
 
     fn format_require_kind(&mut self, kind: &RequireKind) {
