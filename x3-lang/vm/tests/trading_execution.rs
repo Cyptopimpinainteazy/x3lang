@@ -6,9 +6,10 @@ use x3_lang_compiler::ir::{
     AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation, ValueRef,
 };
 use x3_lang_vm::trading::{
-    fixture_manifest, BorrowRequest, BorrowResult, BridgeRequest, BridgeTransferResult, CapabilityManifest,
-    CapabilityMode, CommittedCost, ExecutionMode, HostError, PriceSource, QuoteRequest, QuoteResult, RepayRequest,
-    RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost, TradingVm,
+    build_receipt, finalize_receipt, fixture_manifest, verify_receipt_economics, BorrowRequest, BorrowResult,
+    BridgeRequest, BridgeTransferResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode, HostError,
+    PriceSource, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext,
+    TradeOutcome, TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [7u8; 32];
@@ -1579,4 +1580,130 @@ fn a_quote_from_a_higher_block_is_not_treated_as_stale() {
     let operations = with_quote_freshness(ops(), Some(2));
     vm.execute_atomic(&operations, &mut host, context_at(5))
         .expect("a quote block ahead of current_block must not read as stale");
+}
+
+// ───── Quote freshness at replay (TICKET-017) ─────────────────────────────
+//
+// Execution refuses a stale quote before it asks the host to move value. Replay
+// is the other half: a receipt is checked against the compiled policy rather than
+// against the run that produced it, and `quote_freshness` bounds an *age*, which
+// is only checkable from the two blocks it is the difference of. The receipt
+// carries them now.
+
+/// A receipt from a real execution of `ops()`: two swap legs, both priced at
+/// block 0 and executed at block 5, against a ceiling of 10 blocks.
+fn receipt_from_a_successful_trade() -> x3_lang_vm::trading::TradeReceipt {
+    let operations = ops();
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let execution = vm
+        .execute_atomic(&operations, &mut host, context_at(5))
+        .expect("the fixture trade must commit");
+    let state = execution.committed_state;
+    build_receipt(
+        "test",
+        [1u8; 32],
+        "T",
+        "P",
+        COMMITMENT,
+        &operations,
+        &state,
+        Some(&asset("USDC")),
+        TradeOutcome::Success,
+    )
+    .expect("receipt must build")
+}
+
+#[test]
+fn a_receipt_carries_the_quote_window_of_every_leg() {
+    let receipt = receipt_from_a_successful_trade();
+    assert_eq!(
+        receipt.legs,
+        vec![
+            x3_lang_vm::trading::LegQuoteWindow {
+                venue: "uniswap_v3".to_string(),
+                quote_block: 0,
+                executed_at_block: 5,
+            },
+            x3_lang_vm::trading::LegQuoteWindow {
+                venue: "uniswap_v3".to_string(),
+                quote_block: 0,
+                executed_at_block: 5,
+            },
+        ],
+        "one window per swap leg, in execution order"
+    );
+    assert_eq!(receipt.format_version, 2, "the shape of a receipt is versioned");
+    assert_eq!(
+        receipt.legs[0].age_blocks(),
+        5,
+        "the age the ceiling bounds is the difference of the two blocks"
+    );
+    verify_receipt_economics(&receipt).expect("a receipt within its ceiling replays");
+}
+
+#[test]
+fn replay_refuses_a_receipt_whose_leg_was_priced_outside_the_ceiling() {
+    // The forgery is self-consistent: the window is edited and the receipt is
+    // re-hashed, so the hash check has nothing to say about it. It fails on the
+    // economics alone, which is the property that matters — a verifier that only
+    // checked the hash would accept a receipt proving its own leg was stale.
+    let mut receipt = receipt_from_a_successful_trade();
+    receipt.legs[0].executed_at_block = 40; // age 40 > the ceiling of 10
+    let receipt = finalize_receipt(receipt).expect("re-hashing a forged receipt must succeed");
+    assert_eq!(
+        receipt.receipt_hash,
+        x3_lang_vm::trading::compute_receipt_hash(&receipt).expect("hash must be consistent"),
+        "the forged receipt is internally consistent"
+    );
+
+    let err = verify_receipt_economics(&receipt).expect_err("a stale leg must fail replay");
+    let message = format!("{err:?}");
+    assert!(
+        message.contains("priced 40 blocks before it executed") && message.contains("ceiling of 10"),
+        "the diagnostic must carry the age and the ceiling: {message}"
+    );
+}
+
+#[test]
+fn replay_refuses_a_receipt_that_dropped_a_leg_window() {
+    // An age nothing records cannot be checked. A receipt that dropped the window
+    // would otherwise replay as though that leg had no quote to be stale.
+    let mut receipt = receipt_from_a_successful_trade();
+    receipt.legs.clear();
+    let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
+    let err = verify_receipt_economics(&receipt).expect_err("a missing window must fail replay");
+    assert!(
+        format!("{err:?}").contains("records no quote window for the executed leg on venue 'uniswap_v3'"),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn replay_refuses_a_receipt_with_a_window_no_leg_belongs_to() {
+    let mut receipt = receipt_from_a_successful_trade();
+    receipt.legs.push(x3_lang_vm::trading::LegQuoteWindow {
+        venue: "curve".to_string(),
+        quote_block: 0,
+        executed_at_block: 5,
+    });
+    let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
+    let err = verify_receipt_economics(&receipt).expect_err("an unmatched window must fail replay");
+    assert!(format!("{err:?}").contains("no executed leg to age"), "{err:?}");
+}
+
+#[test]
+fn a_policy_without_a_ceiling_imposes_no_bound_on_replay() {
+    // `quote_freshness` absent means no bound: the windows are informational, and
+    // a stale age is not a violation of a policy that states no ceiling.
+    let mut receipt = receipt_from_a_successful_trade();
+    let mut operations = receipt.operations.clone();
+    let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] else {
+        panic!("the fixture must begin with BeginAtomicTrade");
+    };
+    policy.quote_freshness_blocks = None;
+    receipt.operations = operations;
+    receipt.legs[0].executed_at_block = 40;
+    let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
+    verify_receipt_economics(&receipt).expect("no ceiling, no violation");
 }

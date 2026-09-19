@@ -521,6 +521,11 @@ pub struct TradingState {
     pub credits: BTreeMap<AssetKey, u128>,
     pub debits: BTreeMap<AssetKey, u128>,
     pub net_deltas: BTreeMap<AssetKey, i128>,
+    /// The quote window each executed swap leg was priced in, in execution order.
+    ///
+    /// This is what a receipt carries, so an independent verifier can re-derive
+    /// the age `quote_freshness` bounds instead of trusting a conclusion.
+    pub leg_quote_windows: Vec<LegQuoteWindow>,
     pub receipt_emitted: bool,
     pub committed: bool,
 }
@@ -787,6 +792,15 @@ impl TradingVm {
                     self.credit(to, result.output)?;
                     self.accrue_cost(&result.fee_asset, result.fee, CostKind::LiquidityFee)?;
                     self.trading_state.bindings.insert(binding.clone(), to.clone());
+                    // The window this leg was priced in, recorded with the
+                    // accounting rather than after it: the receipt is assembled
+                    // from this state, and an age that only exists inside this
+                    // function is one a receipt cannot carry (TICKET-017).
+                    self.trading_state.leg_quote_windows.push(LegQuoteWindow {
+                        venue: venue.clone(),
+                        quote_block: quote.quote_block,
+                        executed_at_block: context.current_block,
+                    });
                 }
                 TradingOperation::Bridge {
                     via,
@@ -1363,6 +1377,34 @@ pub struct DebtReceipt {
     pub repaid: bool,
 }
 
+/// The block a swap leg was priced from, and the block its swap executed at.
+///
+/// Both numbers are recorded because the quantity `quote_freshness` bounds is
+/// their difference: a receipt carrying only an age would state the conclusion and
+/// leave nothing to re-derive it from. Both are inside the receipt hash, so the
+/// window a receipt claims cannot be edited without invalidating it, and
+/// `verify_receipt_economics` re-checks the age against the compiled policy — which
+/// it could not do while the receipt did not carry the window (TICKET-017).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LegQuoteWindow {
+    /// The venue the leg traded on. Carried so a window can be matched to the
+    /// executed swap rather than to a position in a list.
+    pub venue: String,
+    pub quote_block: u64,
+    pub executed_at_block: u64,
+}
+
+impl LegQuoteWindow {
+    /// How old the quote was when the leg executed.
+    ///
+    /// Saturating, for the reason `enforce_quote_freshness` gives: a quote block
+    /// *ahead* of the execution block is an ordinary cross-chain reading rather
+    /// than evidence of staleness, so it saturates to zero instead of wrapping.
+    pub fn age_blocks(&self) -> u64 {
+        self.executed_at_block.saturating_sub(self.quote_block)
+    }
+}
+
 /// Deterministic, tamper-evident trading receipt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TradeReceipt {
@@ -1376,6 +1418,14 @@ pub struct TradeReceipt {
     pub costs: Vec<CommittedCost>,
     pub debts: Vec<DebtReceipt>,
     pub deltas: Vec<AssetDelta>,
+    /// The quote window of every swap leg in `operations`, in the same order.
+    ///
+    /// Carried because `quote_freshness` bounds the age of the price a leg traded
+    /// against, and an age is only checkable from the two blocks it is the
+    /// difference of. Absent for a policy that declares no ceiling, and then
+    /// informational — `verify_receipt_economics` refuses a receipt whose leg was
+    /// priced outside the ceiling (TICKET-017).
+    pub legs: Vec<LegQuoteWindow>,
     pub realized_net_profit: Option<TypedReceiptAmount>,
     pub outcome: TradeOutcome,
     pub receipt_hash: [u8; 32],
@@ -1577,6 +1627,50 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
         return Err(ReceiptError::EconomicReplayMismatch(
             "receipt operation sequence is missing required final guards/receipt emission".to_string(),
         ));
+    }
+
+    // Quote freshness, re-derived rather than trusted. The receipt carries the two
+    // blocks each leg was priced between and the compiled policy carries the
+    // ceiling, so a receipt whose leg was priced outside the ceiling is refused
+    // here even though execution let it through — which is the point of replay: a
+    // receipt is checked against the policy, not against the run that produced it.
+    //
+    // The windows are matched to the `ExecuteSwap` operations in order, and the
+    // counts have to agree in both directions. A receipt that dropped a window
+    // would otherwise be replayed as though that leg had no quote to age.
+    if let Some(ceiling_blocks) = compiled_policy.quote_freshness_blocks {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no quote window for the executed leg on venue '{venue}', so the \
+                     age the compiled quote_freshness ceiling of {ceiling_blocks} blocks bounds \
+                     cannot be re-derived"
+                )));
+            };
+            if &window.venue != venue {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt's quote window names venue '{}' where the executed leg is on '{venue}'",
+                    window.venue
+                )));
+            }
+            let age_blocks = window.age_blocks();
+            if age_blocks > ceiling_blocks {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' was priced {age_blocks} blocks before it executed, \
+                     exceeding the compiled quote_freshness ceiling of {ceiling_blocks} blocks"
+                )));
+            }
+        }
+        if let Some(unused) = windows.next() {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt carries a quote window for venue '{}' with no executed leg to age",
+                unused.venue
+            )));
+        }
     }
 
     let mut expected_debts: BTreeMap<String, (&AssetKey, u128)> = BTreeMap::new();
@@ -1831,7 +1925,10 @@ pub fn build_receipt(
     };
 
     finalize_receipt(TradeReceipt {
-        format_version: 1,
+        // 2: the receipt carries the quote window of every swap leg, which is what
+        // makes `quote_freshness` re-derivable at replay (TICKET-017). A reader of
+        // version 1 sees no windows.
+        format_version: 2,
         compiler_version: compiler_version.to_string(),
         artifact_hash,
         trade_id: trade_id.to_string(),
@@ -1841,6 +1938,7 @@ pub fn build_receipt(
         costs,
         debts,
         deltas,
+        legs: state.leg_quote_windows.clone(),
         realized_net_profit,
         outcome,
         receipt_hash: [0u8; 32],
