@@ -922,7 +922,69 @@ pub fn lower_program_with_mode(
                     delta_bound_bps: hedge_decl.delta_bound_bps,
                 });
             }
-            _ => {} // Other items (types, imports, ErrorDecl, etc.) don't generate operations
+            // Every item that generates no operations, named rather than caught by a
+            // wildcard. The wildcard was a trap: a *new* declaration added to `Item`
+            // fell into it silently, so `x3c lower` and `x3c build` both succeeded and
+            // the declaration was simply absent from the artifact — a program whose
+            // plan is invisible in the very document a reader checks it against. PHASE
+            // 38 hit it: `Item::Hyperarb` would have vanished that way, and the explicit
+            // arm above is why it did not. With the list written out, adding a variant
+            // fails to compile until somebody decides what it lowers to (TICKET-078).
+            //
+            // Each entry says why it has nothing to lower, because "it lowers to
+            // nothing" is a decision and not an observation.
+            Item::Function(_) => {}
+            // Type and module machinery: the compiler reads it, the artifact runs
+            // operations.
+            Item::Struct(_) | Item::Enum(_) | Item::Use(_) | Item::Mod(_) | Item::Import(_) => {}
+            // A constant is evaluated where it is used; the artifact carries the value
+            // rather than the name.
+            Item::Const(_) => {}
+            // A GPU block is a host dispatch, and it lowers where it is *used*
+            // (`Operation::GpuDispatch`), not where it is declared.
+            Item::GpuBlock(_) => {}
+            // A simulation declaration describes a dry run of a body the program also
+            // contains, so the body lowers and the declaration does not.
+            Item::SimulateDecl(_) => {}
+            // A scheduled task describes *when* a body runs; the scheduler is outside
+            // the artifact.
+            Item::ScheduledTask(_) => {}
+            // Capability configuration: each of these is read by the verifier as a
+            // ceiling on what the program may do, and none of them is an operation.
+            Item::VmDecl(_)
+            | Item::SolverMarket(_)
+            | Item::RelayerSwarm(_)
+            | Item::RpcQuorum(_)
+            | Item::RiskPolicy(_)
+            | Item::ProofsRequired(_)
+            | Item::VmTarget(_)
+            | Item::AssetDecl(_)
+            | Item::TradeRiskPolicy(_)
+            | Item::VenueDecl(_)
+            | Item::PrivacyBlock(_)
+            | Item::InvariantDecl(_)
+            | Item::FinalityPolicy(_) => {}
+            // An error declaration is a name a program may raise; raising it is a
+            // `Statement`, which lowers.
+            Item::ErrorDecl(_) => {}
+            // `agent` and `strategy` bodies are lowered where they appear (the arms
+            // above); the declaration itself is a container.
+            Item::Agent(_) | Item::Strategy(_) => {}
+            // A proposal is a governance object: it is decided by the chain's
+            // governance, not by an artifact.
+            Item::Proposal(_) => {}
+            // A subscription charges on a schedule; `SubscriptionDecl` lowers its body
+            // above and the schedule is the chain's.
+            Item::SubscriptionDecl(_) => {}
+            // `objective` states what the optimizer should rank by, and the ranking
+            // happens at compile time.
+            Item::ObjectiveDecl(_) => {}
+            // `atomic trade` lowers its body above; its risk policy is a ceiling the
+            // verifier reads.
+            Item::AtomicTrade(_) => {}
+            // `requirements` on a hedge or liquidation are decided by their own
+            // verifiers and carried in the operation those arms emit.
+            Item::Bridge(_) | Item::AtomicSwap(_) | Item::AtomicChoice(_) => {}
         }
     }
 
