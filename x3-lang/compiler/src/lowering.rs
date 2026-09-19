@@ -863,8 +863,15 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 from_asset: from.name.as_str().to_string(),
                 to_chain: chain_to_string(&to.chain),
                 to_asset: to.name.as_str().to_string(),
-                input_amount: route.as_ref().and_then(expression_to_u128_opt).unwrap_or(0),
-                min_output: min_output.as_ref().and_then(expression_to_u128_opt).unwrap_or(0),
+                // The *erroring* conversion: `expression_to_u128_opt` swallowed
+                // the refusal a fractional amount gets and wrote 0, so
+                // `min_output 0.09` reached the verifier as "min_output must be
+                // greater than zero" — a report about a zero, three passes after
+                // the literal that caused it, naming neither the literal nor the
+                // reason. A missing amount is still 0 (nothing was written); an
+                // amount that cannot be converted is an error.
+                input_amount: route.as_ref().map(expression_to_u128).transpose()?.unwrap_or(0),
+                min_output: min_output.as_ref().map(expression_to_u128).transpose()?.unwrap_or(0),
                 dex: dex.as_ref().map(expression_to_string),
             });
         }
@@ -1678,9 +1685,6 @@ fn expression_to_u128(expr: &Expression) -> Result<u128, x3_lang_common::X3Error
             .parse::<u128>()
             .map_err(|_| semantic("expected numeric expression")),
     }
-}
-fn expression_to_u128_opt(expr: &Expression) -> Option<u128> {
-    expression_to_u128(expr).ok()
 }
 fn chain_to_string(chain: &ChainRef) -> String {
     chain.as_str().to_ascii_lowercase()
