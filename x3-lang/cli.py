@@ -169,17 +169,62 @@ def _parse_route_step(ln: SourceLine) -> Dict[str, Any]:
     raise X3ParseError("X3_PARSE_OPERATION", f"unsupported route operation {op!r}", ln.no, "route")
 
 
+def _intent_line_index(lines: List[SourceLine]) -> int:
+    """Index of the `intent` line, skipping the declarations written above it.
+
+    The intent is not always the first thing in a file: `risk_policy`,
+    `finality_policy`, `proofs required`, `relayers`, `solver_market` and `venue`
+    blocks all sit above it in the corpus. Requiring line 0 to be
+    `intent <name> {` made every such file unreadable — one example gaining a
+    `finality_policy` block failed thirteen tests, none of which were about
+    finality.
+
+    A declaration is skipped as a *whole* — its header line plus a brace-balanced
+    body — rather than line by line, so a body that is never closed is an error
+    here instead of silently eating the intent. `error <Name>` is the one
+    brace-less top-level declaration the corpus writes, and it is matched
+    explicitly: a line that is neither a declaration nor the intent is left for
+    the caller to refuse, so a misspelled declaration still fails loudly.
+    """
+    index = 0
+    while index < len(lines):
+        text = lines[index].text
+        if re.match(r"intent\s+[A-Za-z_]", text):
+            return index
+        if re.match(r"error\s+[A-Za-z_][A-Za-z0-9_]*$", text):
+            index += 1
+            continue
+        if not re.match(r"[A-Za-z_][A-Za-z0-9_-]*(\s+[A-Za-z_][A-Za-z0-9_.-]*)*\s*\{", text):
+            return index
+        header = lines[index]
+        depth = 0
+        while index < len(lines):
+            depth += lines[index].text.count("{") - lines[index].text.count("}")
+            index += 1
+            if depth <= 0:
+                break
+        if depth > 0:
+            raise X3ParseError(
+                "X3_PARSE_DECLARATION",
+                f"declaration {header.text!r} is never closed",
+                header.no,
+                "declaration",
+            )
+    return index
+
+
 def parse_file(path):
     lines = _clean_lines(path)
     if not lines:
         raise X3ParseError("X3_PARSE_EMPTY", "input file is empty")
-    first = lines[0].text
+    start = _intent_line_index(lines)
+    first = lines[start].text
     m = re.match(r"intent\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{?", first)
     if not m:
-        raise X3ParseError("X3_PARSE_INTENT", "expected intent <name> {", lines[0].no, "intent")
+        raise X3ParseError("X3_PARSE_INTENT", "expected intent <name> {", lines[start].no, "intent")
     result: Dict[str, Any] = {"intent": m.group(1), "from": {}, "to": {}, "route": [], "path": [], "requires": [], "constraints": {}, "policies": {}}
 
-    i = 1
+    i = start + 1
     while i < len(lines):
         ln = lines[i]
         text = ln.text
