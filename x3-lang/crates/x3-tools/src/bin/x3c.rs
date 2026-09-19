@@ -215,6 +215,9 @@ enum Cmd {
     /// Report the execution lane of every declaration in a program, and the order
     /// the lanes are served in.
     Lanes { input: PathBuf },
+    /// Report what may be dispatched to a GPU, what may not, and whether the CPU's
+    /// results have been shown to match.
+    Gpu,
     /// Print a compiled strategy's marketplace metadata: what it is, what it
     /// needs, and what it does not expose.
     Metadata {
@@ -419,6 +422,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Fusion { input } => cmd_fusion(&input),
         Cmd::Netting { input } => cmd_netting(&input),
         Cmd::Lanes { input } => cmd_lanes(&input),
+        Cmd::Gpu => cmd_gpu(),
         Cmd::Metadata { input, out } => cmd_metadata(&input, out.as_ref(), mode),
         Cmd::Score { input } => cmd_score(&input, mode),
         Cmd::Test {
@@ -652,6 +656,66 @@ fn cmd_fusion(input: &PathBuf) -> Result<ExitCode, String> {
                  wants, and nobody closes the loop",
                 flow.name
             );
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `x3c gpu` — what may be accelerated, and what has been proven (spec PHASE 51).
+///
+/// The report is the whole of the phase's testable content: each candidate's
+/// classification with its reason, which backends exist, whether the CPU's results have
+/// been shown to match an accelerator's, and which backend each computation may run on.
+/// It takes no input because the answer does not depend on a program — it is a property
+/// of this runtime.
+fn cmd_gpu() -> Result<ExitCode, String> {
+    use x3_lang_vm::gpu::{self, Dispatch, Equality, GpuCandidate};
+
+    println!("x3c gpu: PHASE 51 — what may be accelerated, and what has been proven");
+    println!();
+    println!("| candidate | consensus | why |");
+    println!("|---|---|---|");
+    for classification in gpu::classifications() {
+        println!(
+            "| {} | {} | {} |",
+            classification.candidate.as_str(),
+            match classification.consensus {
+                gpu::Consensus::Critical => "critical",
+                gpu::Consensus::NotCritical => "not critical",
+            },
+            classification.reason
+        );
+    }
+    println!();
+    let backends: Vec<&str> = gpu::available_backends()
+        .into_iter()
+        .map(|backend| backend.as_str())
+        .collect();
+    println!("available backends: {}", backends.join(", "));
+    match gpu::gpu_backend_probe() {
+        Ok(()) => println!("gpu probe: a backend answered"),
+        Err(reason) => println!("gpu probe: no backend — {reason}"),
+    }
+
+    // The equality harness, run over a real input set rather than reported as a
+    // constant, so the verdict rests on bytes that were actually compared.
+    let inputs: Vec<(i128, i128, i128)> = (1..=64).map(|i| (i, i * 2, 900_000 + i * 1_000)).collect();
+    let run = gpu::run_equality(GpuCandidate::RouteCandidateScoring, &inputs);
+    println!(
+        "equality over {} sample(s): {}",
+        run.samples,
+        match &run.verdict {
+            Equality::Proven { samples } => format!("proven over {samples} sample(s)"),
+            Equality::Unproven(reason) => format!("UNPROVEN — {reason}"),
+        }
+    );
+    println!();
+    for candidate in GpuCandidate::ALL {
+        match gpu::select(candidate) {
+            Dispatch::Allowed { backend, reason } => {
+                println!("  {}: {} — {reason}", candidate.as_str(), backend.as_str())
+            }
+            Dispatch::Refused(reason) => println!("  {}: REFUSED — {reason}", candidate.as_str()),
         }
     }
     Ok(ExitCode::SUCCESS)

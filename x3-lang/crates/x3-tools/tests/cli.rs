@@ -2288,3 +2288,62 @@ fn cli_x3bench_measures_every_operation_phase_50_names() {
         "each row must name the function it exercises: {stdout}"
     );
 }
+
+/// `x3c gpu` — spec PHASE 51.
+///
+/// The VM module has its own tests (`vm/tests/gpu_acceleration.rs`), but those call
+/// `gpu::run_equality` and `gpu::select` directly. This is the reachability: the
+/// classification, the probe's answer and the equality verdict have to reach the
+/// binary, because a classification nobody can read is a comment with extra steps.
+#[test]
+fn cli_gpu_reports_the_classification_the_probe_and_an_unproven_equality() {
+    let output = x3c().arg("gpu").output().expect("run x3c gpu");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "gpu must exit 0: {stdout}");
+    for candidate in [
+        "route candidate scoring",
+        "signature verification",
+        "hash batches",
+        "graph scoring",
+        "simulation batches",
+        "opportunity filtering",
+    ] {
+        assert!(
+            stdout.contains(&format!("| {candidate} |")),
+            "'{candidate}' must be classified with a reason: {stdout}"
+        );
+    }
+    assert!(
+        stdout.contains("| signature verification | critical |"),
+        "a signature check decides validity and must be classified as critical: {stdout}"
+    );
+    assert!(
+        stdout.contains("| simulation batches | not critical |"),
+        "a dry run settles nothing: {stdout}"
+    );
+
+    // The probe's answer is the host's own, not a string this report invented.
+    assert!(
+        stdout.contains("X3_BACKEND_REQUIRED") || stdout.contains("X3_FEATURE_NOT_AVAILABLE"),
+        "the probe must report what the host path answered: {stdout}"
+    );
+
+    // And equality is unproven rather than passing on one backend.
+    assert!(
+        stdout.contains("UNPROVEN"),
+        "equality must not be claimed without a second implementation: {stdout}"
+    );
+    assert!(
+        !stdout.contains("proven over"),
+        "no row may claim proven equality while no GPU backend exists: {stdout}"
+    );
+    assert!(
+        stdout.lines().all(|line| !line.contains("equality over 0 sample")),
+        "the harness must run over a real input set: {stdout}"
+    );
+    assert!(
+        stdout.contains("the CPU is the only backend available, not a fallback"),
+        "the report must not present the CPU as a fallback: {stdout}"
+    );
+}

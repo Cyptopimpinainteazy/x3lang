@@ -2,6 +2,7 @@ pub mod bridge;
 pub mod btc_adapter;
 pub mod economic;
 pub mod executor;
+pub mod gpu;
 pub mod jit;
 pub mod opportunity_packet;
 pub mod profit;
