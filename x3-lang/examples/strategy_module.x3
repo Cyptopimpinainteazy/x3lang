@@ -1,0 +1,40 @@
+// Strategy modules — spec build-order item 22, PHASE 23.
+//
+// A reusable economic module declares all eight things the phase requires:
+// inputs, outputs, effects, guarantees, permissions, required domains, a risk
+// profile and resource bounds. Eight required lines would be decoration if
+// nothing read them, so each one is checked against the body:
+//
+// - `effects [swap]` must be discharged by `execute` — a module that claims to
+//   swap and does not is claiming work it does not do.
+// - `guarantees [min_profit]` needs a *floor* in the body (`require profit >= 5`).
+//   Written as a ceiling it would say the opposite, and the check reads the
+//   operator, not just the number.
+// - `domains [ethereum]` must cover every chain the body touches.
+// - the risk profile must bound what the body accepts: a body relying on
+//   `require slippage <= 900` while the module declares `max_slippage_bps 50`
+//   contradicts its own declaration.
+// - `permissions` are a ceiling on the body, not a wish list: touching more than
+//   one chain needs `cross_domain`, and opting into netting needs
+//   `intent_fusion`.
+//
+// Note what is *absent*: `permissions`, because this module uses none. An empty
+// clause is refused by the parser — omitting it says the same thing more
+// clearly — and the compiler still checks that the body does nothing it did not
+// declare.
+
+strategy TriDexArb {
+    input ethereum.USDC amount 25_000_000
+    output ethereum.ETH
+    effects [swap]
+    guarantees [min_profit]
+    domains [ethereum]
+    risk { max_slippage_bps 50 max_total_fee_bps 8 }
+    bounds { max_steps 10 max_gas 200_000 }
+    execute {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1_000 min_output 1
+        require slippage <= 50
+        require profit >= 5
+        on_fail refund ethereum.USDC to sender
+    }
+}

@@ -1551,6 +1551,19 @@ impl<'a> Parser<'a> {
                                 body.push(self.parse_route_step()?)
                             }
                             Tok::Ident(ref s) if s == "timeout" => body.push(self.parse_intent_timeout()?),
+                            // A module's body can opt into a mode, and the
+                            // permission it must declare for doing so is part of
+                            // PHASE 23's list. Without this arm the line parses
+                            // as an expression statement and the opt-in vanishes
+                            // — the same way a leg's timeout did.
+                            Tok::Ident(ref s) if s == "allow" => {
+                                self.advance();
+                                let feature = self.expect_ident("allowed feature")?;
+                                self.opt_semi();
+                                body.push(Statement::Allow {
+                                    feature: Symbol::new(&feature),
+                                });
+                            }
                             _ => body.push(self.parse_statement()?),
                         }
                     }
@@ -1979,6 +1992,19 @@ impl<'a> Parser<'a> {
                             // <who>` form, so a leg borrows it rather than
                             // growing a second spelling of the same statement.
                             Tok::Ident(ref s) if s == "timeout" => body.push(self.parse_intent_timeout()?),
+                            // A module's body can opt into a mode, and the
+                            // permission it must declare for doing so is part of
+                            // PHASE 23's list. Without this arm the line parses
+                            // as an expression statement and the opt-in vanishes
+                            // — the same way a leg's timeout did.
+                            Tok::Ident(ref s) if s == "allow" => {
+                                self.advance();
+                                let feature = self.expect_ident("allowed feature")?;
+                                self.opt_semi();
+                                body.push(Statement::Allow {
+                                    feature: Symbol::new(&feature),
+                                });
+                            }
                             _ => body.push(self.parse_statement()?),
                         }
                     }

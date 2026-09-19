@@ -28,6 +28,7 @@ pub mod parser;
 pub mod regalloc;
 pub mod risk;
 pub mod semantic;
+pub mod strategy;
 pub mod trading_lowering;
 pub mod trading_semantic;
 pub mod trading_verify;
@@ -171,6 +172,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_atomic_choice_decls(program, &mut acc);
     verify_route_fallbacks(program, &mut acc);
     verify_venue_decls(program, &mut acc);
+    strategy::verify_strategy_modules(program, &mut acc);
     verify_parallel_decls(program, &mut acc);
     verify_solver_bond_declared(program, &mut acc);
     verify_relayer_quorum_declared(program, &mut acc);
