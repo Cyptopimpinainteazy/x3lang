@@ -71,10 +71,30 @@ impl fmt::Display for Token {
     }
 }
 
+/// The two ways a comment is written.
+///
+/// The distinction is kept because a formatter writes them back differently, and
+/// because a block comment is the one that can be unterminated — which the lexer
+/// reports rather than swallowing the rest of the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CommentKind {
+    /// `// …` to the end of the line.
+    Line,
+    /// `/* … */`.
+    Block,
+}
+
 /// The kind of token.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TokenKind {
     // ===== Identifiers and Literals =====
+    /// A comment, kept so a formatter can put it back.
+    ///
+    /// This used to be whitespace to the lexer, which is what made the parser
+    /// work and what made `x3c fmt` delete every comment in a file: nothing the
+    /// formatter walks ever held one. The text is the source slice the span
+    /// covers, so nothing is duplicated here.
+    Comment(CommentKind),
     /// An identifier (variable name, function name, etc.)
     Ident(Symbol),
     /// A literal value (number, string, etc.)
@@ -138,6 +158,7 @@ pub enum TokenKind {
 impl fmt::Debug for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            TokenKind::Comment(kind) => write!(f, "Comment({kind:?})"),
             TokenKind::Ident(s) => write!(f, "Ident({:?})", s.as_str()),
             TokenKind::Literal(lit) => write!(f, "{:?}", lit),
             TokenKind::Keyword(kw) => write!(f, "Keyword({:?})", kw),
@@ -170,6 +191,7 @@ impl fmt::Debug for TokenKind {
 impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            TokenKind::Comment(_) => write!(f, "comment"),
             TokenKind::Ident(s) => write!(f, "{}", s),
             TokenKind::Literal(lit) => write!(f, "{}", lit),
             TokenKind::Keyword(kw) => write!(f, "{}", kw),

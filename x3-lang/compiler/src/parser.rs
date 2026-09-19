@@ -4920,12 +4920,45 @@ fn tokenize(source: &str) -> Vec<ParserToken> {
         .collect()
 }
 
+/// A comment, with the text and where it starts.
+///
+/// Read from the same lexer the parser reads, so the two agree about what a
+/// comment is and where it ends — the formatter used to scan the source text
+/// itself, with its own rules for strings and both comment forms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceComment {
+    pub text: String,
+    pub start: usize,
+}
+
+/// Every comment in a source, in the order they appear.
+pub fn source_comments(source: &str) -> Vec<SourceComment> {
+    let lexer = x3_lang_lexer::Lexer::new(source, 0);
+    lexer
+        .filter_map(|token| match token.kind {
+            x3_lang_lexer::token::TokenKind::Comment(_) => {
+                let start = token.span.start.as_usize();
+                let end = token.span.end.as_usize();
+                Some(SourceComment {
+                    text: source.get(start..end).unwrap_or_default().to_string(),
+                    start,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Convert a lexer token to the parser's Tok enum.
 fn lexer_token_to_tok(token: Token) -> Option<Tok> {
     Some(match token.kind {
         TokenKind::Eof => Tok::Eof,
         TokenKind::Newline => return None,
         TokenKind::Unknown(_c) => return None,
+        // A comment is not part of the grammar, so the parser steps over it —
+        // but the lexer keeps it, and `source_comments` reads the same stream, so a
+        // formatter has something to put back.
+        TokenKind::Comment(_) => return None,
 
         TokenKind::Ident(sym) => ident_to_tok(sym.as_str()),
         TokenKind::Keyword(kw) => keyword_to_tok(kw).unwrap_or_else(|| Tok::Ident(kw.as_str().to_string())),

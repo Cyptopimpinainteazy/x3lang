@@ -1078,7 +1078,10 @@ fn cmd_fmt(input: &PathBuf, check: bool) -> Result<ExitCode, String> {
     let source = read_source(input)?;
     let program = x3_lang_compiler::parser::parse_source(&source).map_err(|e| format!("parse error: {e}"))?;
 
-    let formatted = x3_lang_compiler::formatter::X3Formatter::new().format_program(&program);
+    // The comments come from the same lexer the parser reads, and the formatter puts
+    // them back before the declaration each precedes.
+    let comments = x3_lang_compiler::parser::source_comments(&source);
+    let formatted = x3_lang_compiler::formatter::X3Formatter::new().format_program_with_comments(&program, &comments);
 
     if check {
         if source == formatted {
@@ -1089,17 +1092,18 @@ fn cmd_fmt(input: &PathBuf, check: bool) -> Result<ExitCode, String> {
             Ok(ExitCode::from(1))
         }
     } else {
-        let comments = x3_lang_compiler::formatter::comment_count(&source);
         std::fs::write(input, &formatted).map_err(|e| format!("write {input:?}: {e}"))?;
         println!("x3c fmt: formatted {}", input.display());
-        if comments > 0 {
-            // A formatter that deletes documentation without saying so is worse
-            // than one that cannot keep it: the file is rewritten either way,
-            // and only this line distinguishes "reformatted" from "reformatted,
-            // and your comments are gone".
+        if !comments.is_empty() {
+            // The comments are kept, but the AST has no place to keep them: each is
+            // written before the declaration it precedes, so one that was written
+            // *inside* a declaration moves to that declaration's boundary. Saying so
+            // is the difference between "reformatted" and "reformatted, and I moved
+            // your comments".
             print_warning(&format!(
-                "{comments} comment(s) were not carried over: the lexer treats a comment as \
-                 whitespace, so nothing the formatter walks holds one"
+                "{} comment(s) were placed at declaration boundaries: the formatter has nowhere \
+                 else to put one, so a comment written inside a declaration moves to the line above it",
+                comments.len()
             ));
         }
         Ok(ExitCode::SUCCESS)

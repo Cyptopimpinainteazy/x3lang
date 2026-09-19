@@ -7,63 +7,6 @@ use x3_lang_ast::ast::*;
 use x3_lang_ast::{AssetDecl, AtomicTradeDecl, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::Spanned;
 
-/// How many comments a source has.
-///
-/// The lexer treats a comment as whitespace, so no comment reaches the AST and
-/// the formatter has none to write back. That means `x3c fmt` deletes every
-/// comment in a file, which is a real loss for a language whose programs explain
-/// themselves in place — so the command counts them from the text and says so,
-/// rather than rewriting the file quietly.
-///
-/// This is a scan, not the language's own rule, and it is deliberately narrow:
-/// it knows string literals (a `//` inside one is not a comment) and the two
-/// comment forms, and it does not try to be a lexer.
-pub fn comment_count(source: &str) -> usize {
-    let mut count = 0usize;
-    let mut chars = source.chars().peekable();
-    while let Some(character) = chars.next() {
-        match character {
-            '"' => {
-                // A string literal, up to its closing quote or the end of the
-                // file; an escaped quote does not close it.
-                let mut escaped = false;
-                for inner in chars.by_ref() {
-                    if escaped {
-                        escaped = false;
-                    } else if inner == '\\' {
-                        escaped = true;
-                    } else if inner == '"' {
-                        break;
-                    }
-                }
-            }
-            '/' => match chars.peek() {
-                Some('/') => {
-                    count += 1;
-                    for inner in chars.by_ref() {
-                        if inner == '\n' {
-                            break;
-                        }
-                    }
-                }
-                Some('*') => {
-                    count += 1;
-                    let mut previous = '\0';
-                    for inner in chars.by_ref() {
-                        if previous == '*' && inner == '/' {
-                            break;
-                        }
-                        previous = inner;
-                    }
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-    count
-}
-
 /// Whether a clause's expression is the literal zero `from <asset>` fills in
 /// when the amount is not stated.
 fn is_zero_literal(expression: &Expression) -> bool {
@@ -107,6 +50,51 @@ impl X3Formatter {
             output: String::new(),
             indent_level: 0,
         }
+    }
+
+    /// Format a program, putting its comments back.
+    ///
+    /// Each comment is placed before the top-level declaration it precedes — the
+    /// finest association available, because the AST holds no comments (the lexer
+    /// keeps them, the parser steps over them). A comment *inside* a declaration
+    /// therefore moves to that declaration's boundary rather than staying on the
+    /// line it was written on: moving is better than deleting, which is what this
+    /// used to do, but the caller is told so it can review.
+    pub fn format_program_with_comments(
+        &mut self,
+        program: &Program,
+        comments: &[crate::parser::SourceComment],
+    ) -> String {
+        self.output.clear();
+        self.indent_level = 0;
+        let mut next = 0usize;
+        for item in &program.items {
+            let boundary = item.span.start.as_usize();
+            while next < comments.len() && comments[next].start < boundary {
+                self.write_comment(&comments[next].text);
+                next += 1;
+            }
+            self.format_item(&item.node);
+            self.output.push('\n');
+        }
+        // What remains sits after the last declaration.
+        while next < comments.len() {
+            self.write_comment(&comments[next].text);
+            next += 1;
+        }
+        self.output.clone()
+    }
+
+    /// A comment's own line, at the current indent.
+    fn write_comment(&mut self, text: &str) {
+        for (index, line) in text.lines().enumerate() {
+            if index > 0 {
+                self.output.push('\n');
+            }
+            self.write_indent();
+            self.write(line.trim_end());
+        }
+        self.output.push('\n');
     }
 
     pub fn format_program(&mut self, program: &Program) -> String {

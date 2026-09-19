@@ -119,32 +119,78 @@ fn formatting_an_example_preserves_its_meaning() {
 }
 
 #[test]
-fn the_comment_count_says_what_the_formatter_would_drop() {
-    use x3_lang_compiler::formatter::comment_count;
+fn the_lexers_comment_reader_agrees_with_what_it_drops() {
+    use x3_lang_compiler::parser::source_comments;
 
-    assert_eq!(comment_count("intent a { }"), 0);
-    assert_eq!(comment_count("// one\nintent a { }\n"), 1);
-    assert_eq!(comment_count("intent a { // why\n}\n// and this\n"), 2);
-    assert_eq!(comment_count("/* block\n   spanning lines */\nintent a { }\n"), 1);
+    assert_eq!(source_comments("intent a { }").len(), 0);
+    assert_eq!(source_comments("// one\nintent a { }\n").len(), 1);
+    assert_eq!(source_comments("intent a { // why\n}\n// and this\n").len(), 2);
+    assert_eq!(
+        source_comments("/* block\n   spanning lines */\nintent a { }\n").len(),
+        1
+    );
     // A `//` inside a string is part of the string, and a formatter that counted
     // it would claim to have dropped something it never had.
-    assert_eq!(comment_count("intent a { use x \"http://example\" }"), 0);
-    assert_eq!(comment_count("intent a { use x \"/* not a comment */\" }"), 0);
+    assert_eq!(source_comments("intent a { use x \"http://example\" }").len(), 0);
+    assert_eq!(source_comments("intent a { use x \"/* not a comment */\" }").len(), 0);
 }
 
 #[test]
-fn formatting_an_example_would_drop_its_comments_and_that_is_not_silent() {
-    // The formatter cannot write a comment back — the lexer discards them before
-    // the AST exists — so the honest thing is that `x3c fmt` says so. This test
-    // holds the CLI's message to the count, and the count to the corpus.
+fn the_corpus_is_documentation_heavy() {
+    // The corpus's comments are its documentation, so the count matters: it is what
+    // `x3c fmt` reports and what the formatter now places rather than deletes.
     let commented: Vec<String> = examples()
         .into_iter()
-        .filter(|(_, source)| x3_lang_compiler::formatter::comment_count(source) > 0)
+        .filter(|(_, source)| !x3_lang_compiler::parser::source_comments(source).is_empty())
         .map(|(name, _)| name)
         .collect();
     assert!(
         commented.len() >= 10,
         "the corpus is documentation-heavy and this test is meant to notice when it stops being: \
          {commented:?}"
+    );
+}
+
+#[test]
+fn formatting_keeps_the_comments_it_can_place() {
+    use x3_lang_compiler::formatter::X3Formatter;
+
+    let source = "// A header comment about the program.\n//\n// Two lines of it.\n\nintent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    require slippage <= 50\n    on_fail refund ethereum.USDC to sender\n}\n\n// A trailing note.\n";
+    let program = parse(source).expect("the fixture must parse");
+    let comments = x3_lang_compiler::parser::source_comments(source);
+    assert_eq!(
+        comments.len(),
+        4,
+        "three header lines, one of them bare, and a trailing note: {comments:?}"
+    );
+
+    let formatted = X3Formatter::new().format_program_with_comments(&program, &comments);
+    assert!(
+        formatted.contains("// A header comment about the program."),
+        "the header stays:\n{formatted}"
+    );
+    assert!(
+        formatted.contains("// Two lines of it."),
+        "including its second line:\n{formatted}"
+    );
+    assert!(
+        formatted.contains("// A trailing note."),
+        "and a note after the last item:\n{formatted}"
+    );
+    assert!(
+        formatted.find("// A header comment").unwrap() < formatted.find("intent probe").unwrap(),
+        "the header is above the declaration it was written above"
+    );
+    // And the result is still the same program.
+    let reparsed = parse(&formatted).expect("the formatted text must parse");
+    assert_eq!(
+        x3_lang_compiler::compile_program(&program).expect("compiles"),
+        x3_lang_compiler::compile_program(&reparsed).expect("compiles"),
+        "comments do not change what the program does"
+    );
+    assert_eq!(
+        X3Formatter::new().format_program_with_comments(&reparsed, &comments),
+        formatted,
+        "and formatting it again changes nothing"
     );
 }

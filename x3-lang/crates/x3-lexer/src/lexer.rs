@@ -1,4 +1,4 @@
-use crate::token::{BinOp, Delimiter, IntBase, Keyword, Literal, Token, TokenKind, UnOp};
+use crate::token::{BinOp, CommentKind, Delimiter, IntBase, Keyword, Literal, Token, TokenKind, UnOp};
 use x3_lang_common::{BytePos, Span, Symbol};
 
 pub struct Lexer<'a> {
@@ -158,6 +158,7 @@ impl<'a> Lexer<'a> {
                 // below, or `//` would lex as two division operators and
                 // `/*` as division followed by multiply.
                 '/' if source[i..].starts_with('/') => {
+                    let comment_start = start;
                     // Line comment: `//` to end of line. The terminating
                     // newline is deliberately left unconsumed so the Newline
                     // token that ends the logical line is still produced —
@@ -171,6 +172,7 @@ impl<'a> Lexer<'a> {
                         }
                         i += next.len_utf8();
                     }
+                    tokens.push(token(TokenKind::Comment(CommentKind::Line), comment_start, i, file_id));
                 }
                 '/' if source[i..].starts_with('*') => {
                     // Block comment: `/* ... */`. Newlines inside the comment
@@ -196,6 +198,8 @@ impl<'a> Lexer<'a> {
                         // comment as whitespace to end of file would discard
                         // the rest of the program and still report success.
                         tokens.push(token(TokenKind::Unknown('/'), start, start + 1, file_id));
+                    } else {
+                        tokens.push(token(TokenKind::Comment(CommentKind::Block), start, i, file_id));
                     }
                 }
                 '/' => tokens.push(token(TokenKind::BinOp(BinOp::Slash), start, i, file_id)),
@@ -306,11 +310,15 @@ mod tests {
     }
 
     #[test]
-    fn line_comment_at_start_of_file_is_skipped() {
+    fn line_comment_at_start_of_file_is_a_comment() {
         // Regression: `//` used to lex as two `Slash` operators, so a file
         // beginning with a comment failed the parser with "expected top-level
         // item". Six of the shipped `examples/*.x3` files were unparseable
         // for exactly this reason.
+        //
+        // The comment is now a token of its own rather than whitespace — which is
+        // what lets a formatter put it back — and the property this test is about is
+        // that it is *a* comment rather than two operators.
         let tokens = kinds("// leading comment\nintent a {\n}\n");
         assert!(
             !has_unknown(&tokens),
