@@ -6,7 +6,7 @@
 //! X3IR is generated from AST lowering and consumed by the emitter.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// How an `atomic_choice` ranked its paths.
 ///
@@ -317,7 +317,18 @@ pub enum Operation {
     /// Emit a named event
     Emit {
         name: String,
-        data: HashMap<String, String>,
+        /// The event's payload, keyed by argument name.
+        ///
+        /// A `BTreeMap` and not a `HashMap`, because this map reaches the artifact's
+        /// **bytes**: the emitter renders it with `{:?}`, and a `HashMap`'s `Debug` prints
+        /// in iteration order, which for `RandomState` differs between two maps built from
+        /// the same entries in the same process. Measured before the fix: twelve
+        /// identical compiles of one source produced **six** distinct artifacts, and the
+        /// only difference was this field's order
+        /// (`{"arg2": …, "arg1": …, "arg0": …}` against `{"arg1": …, "arg2": …, "arg0": …}`).
+        /// A `BTreeMap` gives the bytes an order that comes from the program rather than
+        /// from a per-instance seed (PHASE 42).
+        data: BTreeMap<String, String>,
     },
     /// Call external function
     Call {
@@ -442,7 +453,14 @@ pub enum Operation {
     /// Route scoring with strategy name and weight map
     RouteScore {
         strategy: String,
-        weights: HashMap<String, u32>,
+        /// The weights, keyed by the property being scored.
+        ///
+        /// A `BTreeMap` for the reason `Emit::data` gives: the emitter collects this map
+        /// into the payload it writes, so its iteration order is the artifact's byte
+        /// order. `verify_route_score` also iterates it to name every overweight key, so
+        /// with a `HashMap` the same source could produce a different *diagnostic* as well
+        /// (PHASE 42).
+        weights: BTreeMap<String, u32>,
     },
     /// Solver bid with fee, bond, and asset pair
     SolverBid {

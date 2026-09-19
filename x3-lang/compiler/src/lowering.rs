@@ -1123,7 +1123,10 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             ir.push(Operation::AtomicEnd);
         }
         Statement::Emit(event) => {
-            let mut data = std::collections::HashMap::new();
+            // `BTreeMap`: this is one of the two maps in the IR that reach the artifact's
+            // bytes, so its order has to come from the program rather than from a
+            // per-instance hash seed (PHASE 42).
+            let mut data = std::collections::BTreeMap::new();
             for (i, arg) in event.payload.iter().enumerate() {
                 data.insert(format!("arg{}", i), format!("{:?}", arg));
             }

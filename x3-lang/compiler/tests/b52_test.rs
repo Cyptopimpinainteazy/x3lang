@@ -285,12 +285,12 @@ fn parse_roundtrip_ir_bytecode() {
 
 #[test]
 fn ir_operations_roundtrip() {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use x3_lang_compiler::ir::{Operation, X3IR};
 
     let mut ir = X3IR::new();
 
-    let mut weights = HashMap::new();
+    let mut weights = BTreeMap::new();
     weights.insert("gas_price".to_string(), 30u32);
     weights.insert("liquidity".to_string(), 70u32);
     ir.push(Operation::RouteScore {

@@ -4425,7 +4425,7 @@ mod tests {
     #[test]
     fn route_score_weights_sum_to_100() {
         let mut ir = empty_ir();
-        let mut weights = std::collections::HashMap::new();
+        let mut weights = std::collections::BTreeMap::new();
         weights.insert("speed".to_string(), 50);
         weights.insert("cost".to_string(), 50);
         ir.operations = atomic(vec![
@@ -4445,7 +4445,7 @@ mod tests {
     #[test]
     fn route_score_weights_wrong_total_rejected() {
         let mut ir = empty_ir();
-        let mut weights = std::collections::HashMap::new();
+        let mut weights = std::collections::BTreeMap::new();
         weights.insert("speed".to_string(), 30);
         ir.operations = atomic(vec![
             Operation::RouteScore {
@@ -4672,7 +4672,7 @@ mod tests {
     #[test]
     fn risk_score_safe_intent_is_low() {
         let mut ir = empty_ir();
-        let mut weights = std::collections::HashMap::new();
+        let mut weights = std::collections::BTreeMap::new();
         weights.insert("speed".to_string(), 50);
         weights.insert("cost".to_string(), 50);
         ir.operations = atomic(vec![

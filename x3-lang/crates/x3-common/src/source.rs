@@ -175,9 +175,21 @@ impl SourceMap {
         Some((file.clone(), range))
     }
 
-    /// Get all source files.
+    /// Get all source files, in the order they were added.
+    ///
+    /// Ordered by `id` rather than by the map's iteration order. Ids are assigned in
+    /// insertion order (`next_id`), so this is the order a reader of a multi-file
+    /// compilation expects, and two calls return the same list (PHASE 42).
+    ///
+    /// The map is an `FxHashMap`, whose iteration order is a deterministic function of
+    /// the keys and the insertion history — reproducible, but not *canonical*:
+    /// reproducible by accident is not what the phase asks for, and the first caller to
+    /// list files would have got an order nothing in the program chose. This function
+    /// has no callers today, which is exactly when it is cheap to make it not a trap.
     pub fn files(&self) -> impl Iterator<Item = &Arc<SourceFile>> {
-        self.files.values()
+        let mut ordered: Vec<&Arc<SourceFile>> = self.files.values().collect();
+        ordered.sort_by_key(|file| file.id);
+        ordered.into_iter()
     }
 
     /// Get the number of files.
@@ -189,6 +201,43 @@ impl SourceMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `SourceMap::files` lists in the order the files were added, not in the map's
+    /// iteration order.
+    ///
+    /// Eight files rather than two: a hash order and an insertion order agree by chance
+    /// often enough with a small map that a two-file version of this test would pass
+    /// against `values()`. Selecting them so the insertion order is *reverse*
+    /// alphabetical makes an accidental agreement even less likely.
+    #[test]
+    fn files_lists_in_insertion_order_rather_than_map_order() {
+        let mut map = SourceMap::new();
+        let added = ["h.x3", "g.x3", "f.x3", "e.x3", "d.x3", "c.x3", "b.x3", "a.x3"];
+        for path in added {
+            map.add_file(path, format!("// {path}\n"));
+        }
+
+        let listed: Vec<(u32, String)> = map
+            .files()
+            .map(|file| (file.id, file.path.display().to_string()))
+            .collect();
+        assert_eq!(
+            listed.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            (0..8).collect::<Vec<_>>(),
+            "ids are assigned in insertion order, so listing by id is insertion order"
+        );
+        assert_eq!(
+            listed.iter().map(|(_, path)| path.as_str()).collect::<Vec<_>>(),
+            added.to_vec(),
+            "and the listing is the order the caller added them"
+        );
+
+        // Two calls agree: the point is that the order is the program's, not the map's.
+        assert_eq!(
+            map.files().map(|file| file.id).collect::<Vec<_>>(),
+            map.files().map(|file| file.id).collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn test_line_col_conversion() {

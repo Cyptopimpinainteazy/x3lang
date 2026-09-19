@@ -197,3 +197,56 @@ fn the_same_source_compiles_to_the_same_artifact_every_time() {
         );
     }
 }
+
+/// The same property for the program shape that first broke it: an `emit` whose payload
+/// map is rendered into the artifact.
+///
+/// This is the reproduction, kept as a test. Measured before the fix — twelve identical
+/// compiles of this source produced **six** distinct artifacts, differing only in the
+/// payload's key order:
+///
+/// ```text
+/// EMIT trade_seen:{"arg2": "…", "arg1": "…", "arg0": "…"}
+/// EMIT trade_seen:{"arg1": "…", "arg2": "…", "arg0": "…"}
+/// ```
+///
+/// The cause was `Operation::Emit::data` being a `HashMap`: `RandomState` is seeded per
+/// map instance, so two maps built from the same entries in the same process iterate in
+/// different orders, and the emitter writes that order into the bytes. A one-entry map
+/// has no order to disagree about, which is why the property test beside this one
+/// (`property_tests.rs`, one weight) never saw it.
+#[test]
+fn an_emits_payload_map_does_not_reach_the_artifacts_byte_order() {
+    const SOURCE: &str = "strategy EmitterProbe {\n    \
+        input ethereum.USDC amount 25_000_000 max 50_000_000\n    \
+        output ethereum.ETH\n    effects [swap]\n    guarantees [min_profit]\n    \
+        domains [ethereum]\n    risk { max_slippage_bps 50 max_total_fee_bps 8 }\n    \
+        split profit {\n        100% -> trader\n    }\n    \
+        bounds { max_steps 10 max_gas 200_000 }\n    \
+        execute {\n        emit trade_seen(1, 2, 3)\n        \
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1_000 min_output 1\n        \
+        require slippage <= 50\n        require profit >= 5\n        \
+        on_fail refund ethereum.USDC to sender\n    }\n}\n";
+
+    let program = x3_lang_compiler::parser::parse_source(SOURCE).expect("the fixture must parse");
+    let first = x3_lang_compiler::compile_program(&program).expect("the fixture must compile");
+
+    // The payload really is in the artifact, so the byte-identity below is about this
+    // map rather than about the compiler ignoring it.
+    let rendered = String::from_utf8_lossy(&first).into_owned();
+    assert!(
+        rendered.contains("arg0") && rendered.contains("arg1") && rendered.contains("arg2"),
+        "the emit's payload must reach the artifact for this test to mean anything"
+    );
+
+    // Sixteen compiles: the failure rate before the fix was about one in two, so a
+    // single comparison could have passed by luck.
+    for attempt in 0..16 {
+        let again = x3_lang_compiler::compile_program(&program).expect("the fixture must compile");
+        assert_eq!(
+            again, first,
+            "compile {attempt} of the same source produced different bytes; a program's \
+             payload map must not reach the artifact's byte order (PHASE 42)"
+        );
+    }
+}

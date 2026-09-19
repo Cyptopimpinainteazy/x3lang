@@ -1,17 +1,31 @@
 use proptest::prelude::*;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use x3_lang_compiler::emitter::emit_x3ir;
 use x3_lang_compiler::ir::{Operation, X3IR};
 
 proptest! {
+    /// IR emission is deterministic for a weight map with **more than one** entry.
+    ///
+    /// This test generated one entry, and a one-entry map has no order to disagree
+    /// about — which is why it passed while the emitter was rendering a `HashMap` with
+    /// `{:?}` and twelve identical compiles of a real program produced six distinct
+    /// artifacts (PHASE 42, measured this round). The second and third entries are the
+    /// point of the test, not decoration: with the field back to a `HashMap` this
+    /// fails, and with one entry it did not.
     #[test]
     fn prop_ir_operations_deterministic(
         strategy in "[a-z]{3,10}",
         score in 0u32..100,
+        other in "[a-z]{3,10}",
+        second in 0u32..100,
+        third in "[a-z]{3,10}",
+        third_score in 0u32..100,
     ) {
         let mut ir = X3IR::new();
-        let mut weights = HashMap::new();
+        let mut weights = BTreeMap::new();
         weights.insert(strategy.clone(), score);
+        weights.insert(other, second);
+        weights.insert(third, third_score);
         ir.push(Operation::RouteScore { strategy, weights });
 
         let bc1 = emit_x3ir(&ir).expect("emit 1");
