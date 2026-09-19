@@ -941,6 +941,19 @@ pub struct VenueDecl {
     pub finality_blocks: u32,
     /// Declared risk score, 0 (safest) to 100.
     pub risk: u32,
+    /// How a leg on this venue finally settles (spec PHASE 39).
+    ///
+    /// Required by `semantic::verify_venue_decls` for an `orderbook` venue and
+    /// refused as `atomic` there: a venue that matches off-chain does not expose
+    /// enforceable settlement semantics, so an `atomic` claim about it would be
+    /// false. The other kinds may say `atomic`, because the VM is what enforces
+    /// both-sides-or-nothing for an on-chain leg.
+    ///
+    /// `#[serde(default)]` because an AST serialized before this clause existed
+    /// carries no guarantee, and "nothing was written" is the answer for it —
+    /// the same treatment TICKET-067 gave the renamed swap field.
+    #[serde(default)]
+    pub settlement: Option<SettlementGuarantee>,
     /// Proof a claim against this venue must carry, if any.
     pub proof: Option<Symbol>,
 }
@@ -1803,4 +1816,74 @@ pub struct ArbRisk {
     /// A duration expression, converted to blocks by the same reader every other
     /// duration in the language uses.
     pub deadline: Option<Expression>,
+}
+
+/// How a leg on a venue finally settles — spec PHASE 39.
+///
+/// PHASE 39 is the phase about not lying: "Do not claim atomic CEX execution
+/// unless the external venue exposes enforceable settlement semantics." So the
+/// shapes a leg can take are a closed set, and the two that matter are the two
+/// ends of it. `Atomic` is the claim that the venue itself enforces both sides or
+/// neither — true of a leg this VM executes, false of one an off-chain venue
+/// fills. The other five are the honest ways an off-chain interaction can be
+/// described: something trusted, something held, something pre-committed,
+/// something attested, or something made whole afterwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettlementGuarantee {
+    /// The venue enforces both sides or neither. Only claimable where the VM
+    /// executes the leg.
+    Atomic,
+    /// A connector holds the obligation and is trusted to honour it.
+    TrustedAdapter,
+    /// A third party holds the funds until both sides are satisfied.
+    Escrow,
+    /// The account is funded before the trade, so the trade cannot fail for lack
+    /// of funds — the capital is at risk, not the settlement.
+    PreFunded,
+    /// The venue's execution is attested by something the program trusts.
+    Attested,
+    /// The trade is made whole by a later action if the other side fails.
+    Compensating,
+}
+
+impl SettlementGuarantee {
+    /// Every shape, in the order the phase lists them.
+    pub const ALL: [SettlementGuarantee; 6] = [
+        SettlementGuarantee::Atomic,
+        SettlementGuarantee::TrustedAdapter,
+        SettlementGuarantee::Escrow,
+        SettlementGuarantee::PreFunded,
+        SettlementGuarantee::Attested,
+        SettlementGuarantee::Compensating,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SettlementGuarantee::Atomic => "atomic",
+            SettlementGuarantee::TrustedAdapter => "trusted_adapter",
+            SettlementGuarantee::Escrow => "escrow",
+            SettlementGuarantee::PreFunded => "pre_funded",
+            SettlementGuarantee::Attested => "attested",
+            SettlementGuarantee::Compensating => "compensating",
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<SettlementGuarantee> {
+        SettlementGuarantee::ALL
+            .into_iter()
+            .find(|guarantee| guarantee.as_str() == word)
+    }
+
+    /// Whether this shape claims the venue itself enforces both sides or neither.
+    pub fn is_atomic(self) -> bool {
+        matches!(self, SettlementGuarantee::Atomic)
+    }
+
+    /// Whether the shape puts the guarantee somewhere other than the venue: a
+    /// party that is trusted, funds that are held, capital that is committed, an
+    /// attestation, or a later action. Each of these is a trust assumption a
+    /// reader has to be able to see, which is the point of the declaration.
+    pub fn is_off_chain(self) -> bool {
+        !self.is_atomic()
+    }
 }

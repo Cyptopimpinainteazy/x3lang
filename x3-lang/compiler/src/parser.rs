@@ -2560,7 +2560,8 @@ impl<'a> Parser<'a> {
 
     /// `venue <name> { kind <kind> chain <chain> domain <vm> asset_in <A>
     ///  asset_out <B> fee_bps <n> liquidity <n> slippage_bps <n>
-    ///  latency_ms <n> finality_blocks <n> risk <n> [proof <name>] }`
+    ///  latency_ms <n> finality_blocks <n> risk <n> [settlement <shape>]
+    ///  [proof <name>] }`
     ///
     /// Every field is required except `proof`. Defaults would be worse than
     /// required fields here: a venue whose liquidity silently defaulted to zero
@@ -2584,6 +2585,7 @@ impl<'a> Parser<'a> {
         let mut finality_blocks: Option<u32> = None;
         let mut risk: Option<u32> = None;
         let mut proof: Option<Symbol> = None;
+        let mut settlement: Option<SettlementGuarantee> = None;
         let mut seen_fields: Vec<String> = Vec::new();
 
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
@@ -2640,12 +2642,45 @@ impl<'a> Parser<'a> {
                 "finality_blocks" => finality_blocks = Some(self.parse_venue_u32("finality_blocks")?),
                 "risk" => risk = Some(self.parse_venue_u32("risk")?),
                 "proof" => proof = Some(Symbol::new(&self.expect_ident("proof name")?)),
+                "settlement" => {
+                    // The vocabulary is the enum's, so the set of honest shapes is
+                    // stated once and an unknown one is refused with the list.
+                    //
+                    // The word is read with `peek_word` rather than `expect_ident`
+                    // because `atomic` is a keyword token everywhere else in the
+                    // language, and `settlement atomic` is exactly the clause this
+                    // rule exists to adjudicate.
+                    let Some(wanted) = self.peek_word() else {
+                        return Err(parse_err(
+                            "expected a settlement guarantee: atomic, trusted_adapter, escrow, \
+                             pre_funded, attested or compensating"
+                                .into(),
+                            self.peek(),
+                        ));
+                    };
+                    self.advance();
+                    settlement = Some(SettlementGuarantee::parse(&wanted).ok_or_else(|| {
+                        let allowed: Vec<&str> = SettlementGuarantee::ALL
+                            .iter()
+                            .map(|guarantee| guarantee.as_str())
+                            .collect();
+                        parse_err(
+                            format!(
+                                "unknown settlement guarantee '{wanted}'; the honest shapes are: {}. \
+                                 `atomic` means the venue itself enforces both sides or neither, so it \
+                                 is only claimable where this VM executes the leg",
+                                allowed.join(", ")
+                            ),
+                            self.peek(),
+                        )
+                    })?);
+                }
                 other => {
                     return Err(parse_err(
                         format!(
                             "unknown venue field '{other}'; expected kind, chain, domain, asset_in, \
                              asset_out, fee_bps, liquidity, slippage_bps, latency_ms, finality_blocks, \
-                             risk or proof"
+                             risk, settlement or proof"
                         ),
                         self.peek(),
                     ))
@@ -2669,6 +2704,7 @@ impl<'a> Parser<'a> {
             latency_ms: latency_ms.ok_or_else(|| missing("latency_ms"))?,
             finality_blocks: finality_blocks.ok_or_else(|| missing("finality_blocks"))?,
             risk: risk.ok_or_else(|| missing("risk"))?,
+            settlement,
             proof,
         })
     }

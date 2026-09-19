@@ -1842,3 +1842,52 @@ fn cli_lower_shows_the_decided_arb_scope() {
         "60s must have been read as ten blocks: {json}"
     );
 }
+
+/// `x3c check` on a venue that trades off-chain — spec PHASE 39.
+///
+/// `semantic::verify_venue_decls` is what enforces the rule, and the compiler
+/// module has its own tests for it (`compiler/tests/test_settlement_guarantees.rs`).
+/// This is the reachability the *user-facing* rule needs: a program that claims
+/// atomic settlement on an off-chain venue has to be refused by the binary, with
+/// the reason, or the phase is a comment in a module nobody runs.
+#[test]
+fn cli_refuses_a_venue_that_claims_atomic_settlement_off_chain() {
+    let venue = |settlement: &str| {
+        format!(
+            "venue binance_spot {{\n    kind orderbook\n    chain ethereum\n    domain evm\n    \
+             asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 5\n    liquidity \
+             1_000_000\n    slippage_bps 8\n    latency_ms 12\n    finality_blocks 12\n    risk \
+             2\n{settlement}}}\n"
+        )
+    };
+
+    let atomic = write_fixture("cli_venue_atomic.x3", &venue("    settlement atomic\n"));
+    let check = x3c().arg("check").arg(&atomic).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        !check.status.success(),
+        "an off-chain venue does not settle atomically: {output}"
+    );
+    assert!(
+        output.contains("claims `settlement atomic`") && output.contains("would be false"),
+        "the refusal must say the claim is false: {output}"
+    );
+
+    // The same venue saying what actually guarantees the trade is accepted, so the
+    // rule rejects the lie rather than the venue.
+    let honest = write_fixture("cli_venue_compensating.x3", &venue("    settlement compensating\n"));
+    let check = x3c().arg("check").arg(&honest).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        check.status.success(),
+        "`compensating` is a true description of an off-chain leg: {output}"
+    );
+}

@@ -1688,6 +1688,28 @@ pub fn verify_venue_decls(program: &Program, acc: &mut ErrorAccumulator) {
             )));
         }
 
+        // An off-chain venue has no enforceable settlement, so a leg on it has to
+        // say where the guarantee actually comes from. This is PHASE 39's whole
+        // point: "Do not claim atomic CEX execution unless the external venue
+        // exposes enforceable settlement semantics."
+        if venue.kind == VenueKind::Orderbook {
+            match venue.settlement {
+                None => acc.add_error(err(format!(
+                    "venue '{name}' is an `orderbook` venue and declares no `settlement`; a venue \
+                     that matches off-chain does not settle both sides or neither by itself, so the \
+                     program has to say what does: one of trusted_adapter, escrow, pre_funded, \
+                     attested or compensating"
+                ))),
+                Some(guarantee) if guarantee.is_atomic() => acc.add_error(err(format!(
+                    "venue '{name}' is an `orderbook` venue and claims `settlement atomic`; an \
+                     off-chain venue does not expose enforceable settlement semantics, so the claim \
+                     would be false. Say where the guarantee really comes from: trusted_adapter, \
+                     escrow, pre_funded, attested or compensating"
+                ))),
+                Some(_) => {}
+            }
+        }
+
         let asset_in = format!("{}.{}", venue.asset_in.chain.as_str(), venue.asset_in.name.as_str());
         let asset_out = format!("{}.{}", venue.asset_out.chain.as_str(), venue.asset_out.name.as_str());
         if asset_in == asset_out && venue.kind != VenueKind::Lending && venue.kind != VenueKind::Flash {

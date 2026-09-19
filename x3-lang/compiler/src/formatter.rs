@@ -707,6 +707,12 @@ impl X3Formatter {
         self.write("liquidity ");
         self.write(&v.liquidity.to_string());
         self.write("\n");
+        if let Some(guarantee) = &v.settlement {
+            self.write_indent();
+            self.write("settlement ");
+            self.write(guarantee.as_str());
+            self.write("\n");
+        }
         if let Some(proof) = &v.proof {
             self.write_indent();
             self.write("proof ");
