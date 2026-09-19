@@ -1950,7 +1950,7 @@ impl<'a> Parser<'a> {
             stmts.push(self.parse_intent_clause()?);
         }
         self.expect(Tok::RBrace, "expected '}' to close intent body")?;
-        fill_route_bridge_amounts(&mut stmts);
+        fill_route_step_amounts(&mut stmts);
         Ok(Item::IntentDecl(IntentDecl {
             name: Symbol::new(&name),
             constraints: Vec::new(),
@@ -6089,7 +6089,19 @@ fn expr_to_u64(e: &Expression) -> u64 {
     }
 }
 
-fn fill_route_bridge_amounts(stmts: &mut [Statement]) {
+/// Fill a route step's amount from the intent's source endpoint when the step states none.
+///
+/// Named for the *step*, not for the bridge: `Statement::Bridge` was the first statement
+/// this handled and the name outlived the fact, so a reader looking for the rule the
+/// parser's own comment describes on a body-level swap would not have found it here —
+/// the swap arm was missing for as long as the name said it only filled bridges
+/// (TICKET-088).
+///
+/// The source amounts come from the route's `Lock` steps, so this only reaches a step
+/// whose `from` is the intent's own source asset. A later leg's input is what the
+/// previous leg returns, which is a market outcome rather than a constant, and is left
+/// alone — `lowering` refuses it rather than writing a zero.
+fn fill_route_step_amounts(stmts: &mut [Statement]) {
     let source_amounts: Vec<(String, String, Expression)> = stmts
         .iter()
         .filter_map(|stmt| match stmt {
@@ -6106,12 +6118,12 @@ fn fill_route_bridge_amounts(stmts: &mut [Statement]) {
 
     for stmt in stmts {
         if let Statement::Atomic(atomic) = stmt {
-            fill_route_bridge_amounts_in_block(&mut atomic.body, &source_amounts);
+            fill_route_step_amounts_in_block(&mut atomic.body, &source_amounts);
         }
     }
 }
 
-fn fill_route_bridge_amounts_in_block(block: &mut Block, source_amounts: &[(String, String, Expression)]) {
+fn fill_route_step_amounts_in_block(block: &mut Block, source_amounts: &[(String, String, Expression)]) {
     for stmt in &mut block.stmts {
         match stmt {
             Statement::Bridge { from, amount, .. } if expression_is_zero(amount) => {
@@ -6121,8 +6133,28 @@ fn fill_route_bridge_amounts_in_block(block: &mut Block, source_amounts: &[(Stri
                     *amount = source_amount.clone();
                 }
             }
+            // A route **swap** follows the same rule `bridge` does — the comment on the
+            // body-level swap at `parse_route_step` says so in as many words — but this
+            // pass only ever filled bridges. A swap whose `from` is the intent's source
+            // endpoint and which states no `amount` therefore lowered to zero and was
+            // refused two passes later with "swap input_amount must be greater than
+            // zero": a report about a zero that names neither the step nor the reason
+            // (TICKET-088). This pass is not named after bridges because bridges are the
+            // only thing that can be filled from an endpoint; that was an accident of
+            // which statement was handled first.
+            //
+            // A step whose `from` is *not* a source endpoint still has nothing to fill
+            // from and stays at zero, which is correct: its input is what the previous
+            // leg returns, and that is a market outcome rather than a constant.
+            Statement::Swap { from, amount, .. } if amount.as_ref().is_none_or(expression_is_zero) => {
+                if let Some((_, _, source_amount)) = source_amounts.iter().find(|(source_chain, source_asset, _)| {
+                    *source_chain == from.chain.as_str().to_ascii_lowercase() && source_asset == from.name.as_str()
+                }) {
+                    *amount = Some(source_amount.clone());
+                }
+            }
             Statement::Atomic(atomic) => {
-                fill_route_bridge_amounts_in_block(&mut atomic.body, source_amounts);
+                fill_route_step_amounts_in_block(&mut atomic.body, source_amounts);
             }
             _ => {}
         }

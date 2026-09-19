@@ -1195,7 +1195,27 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 // the literal that caused it, naming neither the literal nor the
                 // reason. A missing amount is still 0 (nothing was written); an
                 // amount that cannot be converted is an error.
-                input_amount: amount.as_ref().map(expression_to_u128).transpose()?.unwrap_or(0),
+                // A step that reaches lowering with no amount has nothing to be filled
+                // from — the pass that fills from the intent's source endpoint
+                // (`parser::fill_route_bridge_amounts`) has already run — so this is a
+                // step that states no amount whose `from` is not the source. It used to
+                // write 0 and let two later passes report "swap input_amount must be
+                // greater than zero", which names neither the step nor the reason. Same
+                // principle as the conversion comment above: a report about a zero should
+                // be made where the zero was written, and this one is not a conversion
+                // failure at all.
+                input_amount: match amount.as_ref() {
+                    Some(expr) => expression_to_u128(expr)?,
+                    None => {
+                        return Err(semantic(
+                            "this route step states no `amount` and the compiler cannot infer one: \
+                             a step takes the intent's source amount only when its `from` is that \
+                             source asset, and any other step's input is what the previous leg \
+                             returns — a market outcome rather than a constant. Write `amount <n>` \
+                             on this step.",
+                        ))
+                    }
+                },
                 min_output: min_output.as_ref().map(expression_to_u128).transpose()?.unwrap_or(0),
                 dex: dex.as_ref().map(expression_to_string),
             });

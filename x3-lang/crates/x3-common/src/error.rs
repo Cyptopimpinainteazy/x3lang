@@ -67,6 +67,36 @@ pub enum X3Error {
 }
 
 impl X3Error {
+    /// The pipeline stage this error came from, as a phrase a caller can prefix with.
+    ///
+    /// Every variant already renders its own kind ("Parser error: …"), so the phrase and
+    /// the message agree by construction. Hard-coding the phrase at a call site does not:
+    /// `x3c check` reported a syntax error as
+    /// `lowering failed: Parser error: expected top-level item`, where the message names
+    /// one stage and the prefix names another, and **the prefix is what a grep finds**
+    /// (TICKET-084). A caller that wants a stage asks the error rather than assuming one.
+    pub fn stage(&self) -> &'static str {
+        match self {
+            X3Error::LexerError { .. } => "lexing failed",
+            X3Error::ParseError { .. } => "parsing failed",
+            X3Error::TypeError { .. } => "type check failed",
+            X3Error::NameError { .. } => "name resolution failed",
+            X3Error::SemanticError { .. } => "semantic check failed",
+            X3Error::CodegenError { .. } => "code generation failed",
+            X3Error::IoError { .. } => "io failed",
+            X3Error::InternalError { .. } => "internal compiler error",
+            X3Error::AgentError { .. } => "agent lowering failed",
+            X3Error::AtomicError { .. } => "atomic lowering failed",
+            X3Error::CrossChainError { .. } => "cross-chain lowering failed",
+            X3Error::MevError { .. } => "MEV lowering failed",
+        }
+    }
+
+    /// `"<stage>: <error>"` — the form a command line wants.
+    pub fn staged(&self) -> String {
+        format!("{}: {self}", self.stage())
+    }
+
     pub fn span(&self) -> Option<Span> {
         match self {
             X3Error::LexerError { span, .. } => Some(*span),

@@ -539,7 +539,10 @@ fn cmd_check(input: &PathBuf, out: Option<&PathBuf>, mode_str: &str, deny_warnin
     let source = read_source(input)?;
     let comp_mode = parse_mode(mode_str)?;
     let (program, ir, outcome) =
-        check_source_diagnostics_with_mode(&source, comp_mode).map_err(|e| format!("lowering failed: {e}"))?;
+        // The stage comes from the error rather than from this call site: a syntax error
+        // reported as "lowering failed" sends the reader to the wrong pass, and the inner
+        // message already said "Parser error" (TICKET-084).
+        check_source_diagnostics_with_mode(&source, comp_mode).map_err(|e| e.staged())?;
     let errs = &outcome.errors;
     let warnings = &outcome.warnings;
     let program_summary = program_summary(&program);
@@ -2276,7 +2279,7 @@ fn cmd_audit(input: &PathBuf, mode_str: &String, out: Option<&PathBuf>) -> Resul
     // Run semantic checks with mode
     let (program, _ir, semantic_errors) = match check_source_with_mode(&source, comp_mode) {
         Ok(triple) => triple,
-        Err(e) => return Err(format!("lowering failed: {e}")),
+        Err(e) => return Err(e.staged()),
     };
 
     // Run linter with mode

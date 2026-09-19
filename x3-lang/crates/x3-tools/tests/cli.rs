@@ -2995,3 +2995,56 @@ fn cli_simulates_against_a_state_snapshot_and_explains_the_economics() {
         "the refusal must name the venue and the approved list: {report}"
     );
 }
+
+/// TICKET-084: `x3c check` names the stage that failed.
+///
+/// It reported a syntax error as `lowering failed: Parser error: expected top-level item`
+/// — the message named one stage and the prefix named another, and **the prefix is what a
+/// grep finds**, so a reader looking for the defect was sent to the wrong pass.
+#[test]
+fn check_names_the_failing_stage_rather_than_assuming_one() {
+    let run = |name: &str, body: &str| {
+        let fixture = write_fixture(name, body);
+        let output = x3c().arg("check").arg(&fixture).output().expect("x3c check");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (output.status.success(), text)
+    };
+
+    // A syntax error. The old dialect is the shortest way to one: the parser no longer
+    // accepts `contract … { fn … }` at all.
+    let (ok, text) = run("cli_stage_parse.x3", "contract NotThisDialect {\n    fn f() {}\n}\n");
+    assert!(!ok, "the old dialect must not check: {text}");
+    assert!(
+        text.contains("parsing failed"),
+        "a syntax error must be reported as a parse failure: {text}"
+    );
+    assert!(
+        !text.contains("lowering failed"),
+        "a syntax error must not be reported as a lowering failure: {text}"
+    );
+
+    // A semantic error, from the same shape the older test used: two swap legs and no
+    // slippage bound, which parses and then fails a semantic pass.
+    let (ok, text) = run(
+        "cli_stage_semantic.x3",
+        "proofs required {\n    source_lock_proof\n    destination_fill_proof\n}\n\n\
+         intent stage_probe {\n    from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111\n    \
+         to Ethereum.USDC receiver 0x2222222222222222222222222222222222222222\n    \
+         route {\n        swap Uniswap Ethereum.USDC -> Ethereum.ETH amount 100 min_output 1\n        \
+         swap Uniswap Ethereum.ETH -> Ethereum.USDC amount 1 min_output 100\n    }\n    \
+         timeout 45s refund Ethereum.USDC to sender\n}\n",
+    );
+    assert!(!ok, "a swap leg with no slippage bound must not check: {text}");
+    assert!(
+        text.contains("semantic check failed"),
+        "a semantic error must be reported as a semantic failure: {text}"
+    );
+    assert!(
+        !text.contains("lowering failed"),
+        "a semantic error must not be reported as a lowering failure: {text}"
+    );
+}
