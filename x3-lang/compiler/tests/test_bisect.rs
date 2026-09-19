@@ -1,16 +1,21 @@
 use x3_lang_compiler::parser::parse_source;
 
-fn try_parse(label: &str, src: &str) {
+/// Parse `src`, or fail with the parser's diagnostic.
+///
+/// This helper used to `println!("OK"/"FAIL")` and return nothing, so the test
+/// passed whether the program parsed or not — a bisection aid that had been left
+/// in the suite. Both samples are full programs with six top-level sections; the
+/// count is asserted so a section that silently stops lowering is not silent.
+fn parse_items(label: &str, src: &str) -> usize {
     match parse_source(src) {
-        Ok(p) => println!("OK [{}]: {} items", label, p.items.len()),
-        Err(e) => println!("FAIL [{}]: {:?}", label, e),
+        Ok(p) => p.items.len(),
+        Err(e) => panic!("[{label}] expected the program to parse, got {e:?}"),
     }
 }
 
 #[test]
-fn bisect() {
-    // Add timeout
-    try_parse(
+fn both_bisection_samples_parse_with_every_section() {
+    let with_timeout = parse_items(
         "with timeout",
         r#"
 vm {
@@ -88,9 +93,12 @@ intent safe_cross_vm_swap {
 }
 "#,
     );
+    assert!(
+        with_timeout >= 6,
+        "the sample declares six sections, parsed {with_timeout} items"
+    );
 
-    // Add on_fail
-    try_parse(
+    let full_intent = parse_items(
         "full intent",
         r#"
 vm {
@@ -168,5 +176,9 @@ intent safe_cross_vm_swap {
     on_fail refund arbitrum.USDC to sender
 }
 "#,
+    );
+    assert!(
+        full_intent >= 6,
+        "the sample declares six sections, parsed {full_intent} items"
     );
 }
