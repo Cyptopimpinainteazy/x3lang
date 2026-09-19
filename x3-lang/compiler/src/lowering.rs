@@ -10,6 +10,7 @@ use crate::ir::{
     self, ChainMetricKind, Condition, CrdtKind as IrCrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind,
     SerialFormat, StorageKind, VectorOp, X3IR,
 };
+use crate::liquidation;
 use crate::semantic::CompilationMode;
 use crate::trading_lowering;
 use crate::trading_semantic;
@@ -746,6 +747,22 @@ pub fn lower_program_with_mode(
                 for strategy in &agent.strategies {
                     lower_function_body(&strategy.node.body, &mut ir)?;
                 }
+            }
+            Item::AtomicLiquidation(liquidation_decl) => {
+                // The `ledger` call repeats nothing the verifier decided: it is what
+                // carries the decided figures into the artifact, so a replayer can
+                // re-check the plan from it.
+                let ledger = liquidation::ledger(liquidation_decl).map_err(|reason| semantic(&reason))?;
+                ir.push(Operation::Liquidation {
+                    position: ledger.position.clone(),
+                    debt_asset: ledger.debt_asset.clone(),
+                    collateral_asset: ledger.collateral_asset.clone(),
+                    capital: ledger.capital,
+                    collateral: ledger.collateral,
+                    min_output: ledger.min_output,
+                    repaid: ledger.repaid,
+                    profit_floor: ledger.profit_floor,
+                });
             }
             Item::AtomicHedge(hedge_decl) => {
                 // The legs are already known to net: `hedge::verify` runs over the

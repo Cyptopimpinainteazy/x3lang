@@ -61,6 +61,8 @@ pub enum Item {
     VenueDecl(VenueDecl),
     /// `atomic_hedge { … }` — spec PHASE 9.
     AtomicHedge(AtomicHedgeDecl),
+    /// `atomic_liquidation { … }` — spec PHASE 10.
+    AtomicLiquidation(AtomicLiquidationDecl),
     ParallelDecl(ParallelDecl),
     ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
@@ -1606,4 +1608,42 @@ pub enum HedgeQuantity {
 pub enum HedgeVenue {
     Spot,
     Perp,
+}
+/// `atomic_liquidation { … }` — spec PHASE 10.
+///
+/// The step's five clauses are an accounting: capital advanced to repay a
+/// borrower's debt, collateral seized, the swap that turns collateral into what is
+/// repaid, the repayment itself, and the profit floor the caller claims. The
+/// verifier (`compiler/src/liquidation.rs`) decides that the swap's minimum covers
+/// the repayment, that the floor is met, and that no collateral is left
+/// unaccounted for — which is the phase's "repayment and valid final position".
+///
+/// Amounts are required rather than optional. The spec's sketch writes
+/// `liquidate borrower.position;` with no figure, and a verifier asked to check
+/// repayment without knowing what was advanced has nothing to check — the same
+/// reason a hedge leg states its size.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtomicLiquidationDecl {
+    /// `of <ident>(.<ident>)*` — whose position this is, recorded verbatim so the
+    /// artifact says what was liquidated rather than only that something was.
+    pub position: Symbol,
+    /// The capital advanced to repay the debt: `liquidate <n> <ASSET> of …`.
+    pub capital: (u128, AssetRef),
+    /// The collateral seized: `receive <n> <ASSET> collateral`.
+    pub collateral: (u128, AssetRef),
+    /// `swap <n> <ASSET> -> <ASSET> min_output <n>`.
+    pub swap: LiquidationSwap,
+    /// `repay <n> <ASSET>`.
+    pub repaid: (u128, AssetRef),
+    /// `require net_profit >= <n> <ASSET>`.
+    pub profit_floor: Option<(u128, AssetRef)>,
+}
+
+/// The conversion a liquidation performs on the collateral it seized.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiquidationSwap {
+    pub amount: u128,
+    pub from: AssetRef,
+    pub to: AssetRef,
+    pub min_output: u128,
 }

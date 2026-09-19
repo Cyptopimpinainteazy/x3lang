@@ -118,6 +118,25 @@ pub enum Operation {
         transfer_proof: Vec<u8>,
     },
 
+    /// A liquidation: the capital advanced, the collateral seized, and what the
+    /// conversion's own bound leaves after the repayment (spec PHASE 10).
+    ///
+    /// The decided figures travel so `x3c lower` shows what the verifier checked:
+    /// that the swap's minimum covers the repayment and that nothing was left
+    /// unaccounted for. No artifact is emitted with this operation today — the
+    /// `liquidate` and `receive` calls need a lending-protocol adapter this VM does
+    /// not have, so the IR verifier refuses it (TICKET-069).
+    Liquidation {
+        position: String,
+        debt_asset: String,
+        collateral_asset: String,
+        capital: u128,
+        collateral: u128,
+        min_output: u128,
+        repaid: u128,
+        profit_floor: Option<u128>,
+    },
+
     /// A hedge: two directional legs on one asset, and the net they leave open
     /// (spec PHASE 9).
     ///

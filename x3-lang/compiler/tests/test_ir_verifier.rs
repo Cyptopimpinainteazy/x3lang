@@ -510,3 +510,30 @@ fn a_hedge_operation_is_refused_as_unexecutable() {
         "the refusal must name the missing venue, with no spacing artefacts: {diagnostics:?}"
     );
 }
+
+#[test]
+fn a_liquidation_operation_is_refused_as_unexecutable() {
+    // PHASE 10's accounting is decided on the AST (`liquidation::verify`); this layer
+    // says what the VM can do with it: nothing, because `liquidate` and `receive` are
+    // calls into a lending protocol it has no adapter for. Refusing here (and not
+    // only in the emitter) keeps `check` and `build` in agreement.
+    let ir = ir_with(vec![Operation::Liquidation {
+        position: "borrower.position".to_owned(),
+        debt_asset: "ethereum.USDC".to_owned(),
+        collateral_asset: "ethereum.ETH".to_owned(),
+        capital: 1_000,
+        collateral: 1_200,
+        min_output: 1_100,
+        repaid: 1_000,
+        profit_floor: Some(100),
+    }]);
+    let diagnostics = verify_ir(&ir).expect_err("a liquidation cannot be executed here");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        diagnostics[0].message.contains("cannot be executed")
+            && diagnostics[0].message.contains("lending protocol")
+            && diagnostics[0].message.contains("borrower.position")
+            && !diagnostics[0].message.contains("  "),
+        "the refusal must name the position and the missing adapter, with no spacing artefacts: {diagnostics:?}"
+    );
+}

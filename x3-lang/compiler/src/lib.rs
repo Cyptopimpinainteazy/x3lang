@@ -23,6 +23,7 @@ pub mod intent_bridge;
 pub mod intent_emit;
 pub mod ir;
 pub mod linter;
+pub mod liquidation;
 pub mod lowering;
 pub mod metadata;
 pub mod numeric;
@@ -205,6 +206,9 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     // A hedge's legs are only a hedge if they net: the exposure is computed here,
     // before anything is lowered (PHASE 9).
     hedge::verify(program, &mut acc);
+    // A liquidation's own figures have to repay its capital and leave no
+    // position unaccounted for (PHASE 10).
+    liquidation::verify(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 
     // Layer 1 of the pipeline described at the top of this file. It was

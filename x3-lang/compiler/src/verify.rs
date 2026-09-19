@@ -312,6 +312,19 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
             // this VM does not have. Refusing in this layer — and not only in the
             // emitter — is what keeps `x3c check` from accepting what `x3c build`
             // then refuses, the split this session keeps finding.
+            // A liquidation's figures are decided (`liquidation::verify`), and this
+            // layer says what the VM can do with the result: nothing, because
+            // `liquidate` and `receive` are calls into a lending protocol it has no
+            // adapter for. Same shape as the hedge above, same reason for refusing
+            // here rather than only in the emitter.
+            Operation::Liquidation { position, .. } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: the liquidation of '{position}' cannot be executed — liquidate \
+                     and receive are calls into a lending protocol this VM has no adapter for, so \
+                     the accounting is decided and the execution is not pretended"
+                ),
+            ),
             Operation::Hedge { asset, .. } => push_unsafe(
                 diagnostics,
                 format!(

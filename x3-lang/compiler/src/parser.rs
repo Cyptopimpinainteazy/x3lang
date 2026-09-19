@@ -301,6 +301,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "target" => self.parse_vm_target_item(),
             Tok::Ident(ref s) if s == "finality_policy" => self.parse_finality_policy_item(),
             Tok::Ident(ref s) if s == "atomic_hedge" => self.parse_atomic_hedge_item(),
+            Tok::Ident(ref s) if s == "atomic_liquidation" => self.parse_atomic_liquidation_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
@@ -3437,6 +3438,143 @@ impl<'a> Parser<'a> {
         Ok(Item::VmTarget(VmTarget { vm, adapter, contract }))
     }
 
+    /// `atomic_liquidation { liquidate <n> <ASSET> of <ref>; receive <n> <ASSET> collateral;
+    /// swap <n> <ASSET> -> <ASSET> min_output <n>; repay <n> <ASSET>;
+    /// require net_profit >= <n> <ASSET>; }`
+    ///
+    /// One of each clause, and every amount required: the verifier's job is to check
+    /// that the swap covers the repayment and that nothing is left over, and a
+    /// missing figure would leave it nothing to check (PHASE 10).
+    fn parse_atomic_liquidation_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        self.expect(Tok::LBrace, "expected '{' after atomic_liquidation")?;
+        let mut position: Option<Symbol> = None;
+        let mut capital: Option<(u128, AssetRef)> = None;
+        let mut collateral: Option<(u128, AssetRef)> = None;
+        let mut swap: Option<LiquidationSwap> = None;
+        let mut repaid: Option<(u128, AssetRef)> = None;
+        let mut profit_floor: Option<(u128, AssetRef)> = None;
+
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            // `require` is a keyword token; the other clauses are identifiers.
+            if self.peek() == Tok::KwRequire {
+                self.advance();
+                let kind = self.expect_ident("require kind")?;
+                if kind != "net_profit" {
+                    return Err(parse_err(
+                        format!(
+                            "an `atomic_liquidation` guard is about the money left after repaying: \
+                             write `require net_profit >= <n> <ASSET>`, not `require {kind}`"
+                        ),
+                        self.peek(),
+                    ));
+                }
+                let is_floor = matches!(self.peek(), Tok::Ge | Tok::Gt);
+                if !is_floor {
+                    return Err(parse_err(
+                        "a liquidation's net_profit guard is a floor — write `require net_profit >= <n> \
+                         <ASSET>`"
+                            .into(),
+                        self.peek(),
+                    ));
+                }
+                self.advance();
+                let amount = self.expect_uint("net_profit floor")?;
+                let asset = self.parse_hedge_asset()?;
+                self.opt_semi();
+                profit_floor = Some((amount, asset));
+                continue;
+            }
+
+            // `swap` is a keyword token too, so it cannot come through `peek_word`.
+            if self.peek() == Tok::KwSwap {
+                self.advance();
+                let amount = self.expect_uint("swap amount")?;
+                let from = self.parse_hedge_asset()?;
+                self.expect(Tok::Arrow, "expected `-> <ASSET>` in the liquidation's swap")?;
+                let to = self.parse_hedge_asset()?;
+                self.expect(
+                    Tok::Ident("min_output".into()),
+                    "expected `min_output <n>`: a liquidation that does not bound what the collateral \
+                     converts to cannot be checked against the repayment",
+                )?;
+                let min_output = self.expect_uint("swap min_output")?;
+                self.opt_semi();
+                swap = Some(LiquidationSwap {
+                    amount,
+                    from,
+                    to,
+                    min_output,
+                });
+                continue;
+            }
+
+            let clause = self
+                .peek_word()
+                .ok_or_else(|| parse_err("expected a liquidation clause".into(), self.peek()))?;
+            match clause.as_str() {
+                "liquidate" => {
+                    self.advance();
+                    let amount = self.expect_uint("liquidate amount")?;
+                    let asset = self.parse_hedge_asset()?;
+                    self.expect(Tok::Ident("of".into()), "expected `of <position>` after the amount")?;
+                    // `borrower.position`: a dotted reference, carried verbatim so the
+                    // artifact names whose position was liquidated. It is not resolved
+                    // against a data model — this language has none — and saying so is
+                    // better than silently keeping only its first word.
+                    let mut name = self.expect_ident("position reference")?;
+                    while self.peek() == Tok::Dot {
+                        self.advance();
+                        name.push('.');
+                        name.push_str(&self.expect_ident("position reference")?);
+                    }
+                    self.opt_semi();
+                    capital = Some((amount, asset));
+                    position = Some(Symbol::new(&name));
+                }
+                "receive" => {
+                    self.advance();
+                    let amount = self.expect_uint("collateral amount")?;
+                    let asset = self.parse_hedge_asset()?;
+                    self.expect(
+                        Tok::Ident("collateral".into()),
+                        "expected the word `collateral` after the amount, so what is being received is \
+                         not left to the reader",
+                    )?;
+                    self.opt_semi();
+                    collateral = Some((amount, asset));
+                }
+                "repay" => {
+                    self.advance();
+                    let amount = self.expect_uint("repay amount")?;
+                    let asset = self.parse_hedge_asset()?;
+                    self.opt_semi();
+                    repaid = Some((amount, asset));
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "expected `liquidate`, `receive`, `swap`, `repay` or a `require \
+                             net_profit` guard, found '{other}'"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' after the liquidation")?;
+
+        let missing = |what: &str| parse_err(format!("the liquidation states no {what}"), self.peek());
+        Ok(Item::AtomicLiquidation(AtomicLiquidationDecl {
+            position: position.ok_or_else(|| missing("`liquidate <n> <ASSET> of <position>` clause"))?,
+            capital: capital.ok_or_else(|| missing("`liquidate` amount"))?,
+            collateral: collateral.ok_or_else(|| missing("`receive … collateral` clause"))?,
+            swap: swap.ok_or_else(|| missing("`swap … min_output …` clause"))?,
+            repaid: repaid.ok_or_else(|| missing("`repay <n> <ASSET>` clause"))?,
+            profit_floor,
+        }))
+    }
+
     /// `atomic_hedge { buy <n> <ASSET> spot; short equivalent <ASSET> perp; require delta <= <pct>; }`
     ///
     /// The legs are two statements about one asset inside one plan: a long and a
@@ -3535,6 +3673,22 @@ impl<'a> Parser<'a> {
         }
         self.expect(Tok::RBrace, "expected '}' after the hedge")?;
         Ok(Item::AtomicHedge(AtomicHedgeDecl { legs, delta_bound_bps }))
+    }
+
+    /// An integer literal, for a clause whose value has to be a number the compiler
+    /// can evaluate — a hedge leg's size, a liquidation's amount. A value it would
+    /// have to read at run time leaves the verifier nothing to check.
+    fn expect_uint(&mut self, what: &str) -> Result<u128, X3Error> {
+        match self.peek() {
+            Tok::Int(value) => {
+                self.advance();
+                Ok(value)
+            }
+            _ => Err(parse_err(
+                format!("expected {what} as an integer, not a value the compiler cannot evaluate"),
+                self.peek(),
+            )),
+        }
     }
 
     /// An asset reference in a hedge leg: `chain.ASSET`, or a bare asset name whose

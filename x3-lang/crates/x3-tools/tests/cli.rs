@@ -1511,3 +1511,47 @@ fn cli_decides_a_hedges_exposure_and_refuses_to_pretend_it_runs() {
         "the exposure is decided before the venue question is reached: {output}"
     );
 }
+
+/// PHASE 10 — a liquidation's accounting is decided, and its calls are not pretended.
+#[test]
+fn cli_decides_a_liquidations_accounting_and_refuses_its_calls() {
+    let sound = "atomic_liquidation {\n    liquidate 1_000 ethereum.USDC of borrower.position;\n    \
+                 receive 1_200 ethereum.ETH collateral;\n    swap 1_200 ethereum.ETH -> \
+                 ethereum.USDC min_output 1_100;\n    repay 1_000 ethereum.USDC;\n    require \
+                 net_profit >= 100 ethereum.USDC;\n}\n";
+    let fixture = write_fixture("cli_liquidation_sound.x3", sound);
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(!check.status.success(), "a liquidation cannot be built here: {output}");
+    assert!(
+        output.contains("liquidate and receive are calls into a lending protocol"),
+        "the refusal must name the missing adapter: {output}"
+    );
+    assert!(
+        !output.contains("cannot repay its capital") && !output.contains("unaccounted"),
+        "a sound liquidation has no accounting to complain about: {output}"
+    );
+
+    let underfunded = fixture.with_file_name("cli_liquidation_underfunded.x3");
+    std::fs::write(&underfunded, sound.replace("min_output 1_100", "min_output 900")).expect("write");
+    let check = x3c().arg("check").arg(&underfunded).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        output.contains("cannot repay its capital")
+            && output.contains("minimum output is 900")
+            && output.contains("shortfall is 100"),
+        "the repayment must be reported with its figures: {output}"
+    );
+    assert!(
+        !output.contains("lending protocol"),
+        "the accounting is decided before the adapter question is reached: {output}"
+    );
+}

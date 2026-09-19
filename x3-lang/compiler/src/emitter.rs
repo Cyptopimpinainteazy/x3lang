@@ -122,6 +122,19 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&[ATOMIC_END])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
+        Operation::Liquidation { position, .. } => {
+            // Refused here as well as in the IR verifier, because `emit_x3ir` is
+            // public: the accounting is decided, and the calls it plans need an
+            // adapter the VM does not have.
+            return Err(X3Error::CodegenError {
+                message: format!(
+                    "cannot emit the liquidation of '{position}': liquidate and receive need a \
+                     lending-protocol adapter this VM does not have, so the artifact would carry \
+                     calls nothing can make (PHASE 10)"
+                ),
+                span: None,
+            });
+        }
         Operation::Hedge { asset, .. } => {
             // Refused rather than written, and refused here as well as in the IR
             // verifier because `emit_x3ir` is public: a hedge's net is decided

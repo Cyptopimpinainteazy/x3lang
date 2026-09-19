@@ -177,6 +177,7 @@ impl X3Formatter {
             Item::ErrorDecl(e) => self.format_error(e),
             Item::FinalityPolicy(f) => self.format_finality_policy(f),
             Item::AtomicHedge(hedge) => self.format_atomic_hedge(hedge),
+            Item::AtomicLiquidation(liquidation) => self.format_atomic_liquidation(liquidation),
             Item::ProofsRequired(p) => self.format_proofs_required(p),
             Item::VmTarget(t) => self.format_vm_target(t),
             Item::AssetDecl(decl) => self.format_asset_decl(decl),
@@ -1235,6 +1236,38 @@ impl X3Formatter {
         self.write("error ");
         self.write(e.name.as_str());
         self.write("\n");
+    }
+
+    /// `atomic_liquidation { liquidate …; receive …; swap …; repay …; require net_profit …; }`
+    fn format_atomic_liquidation(&mut self, liquidation: &AtomicLiquidationDecl) {
+        self.write("atomic_liquidation {\n");
+        self.indent();
+        self.write_indent();
+        self.write(&format!("liquidate {} ", liquidation.capital.0));
+        self.format_asset_ref(&liquidation.capital.1);
+        self.write(&format!(" of {}\n", liquidation.position.as_str()));
+        self.write_indent();
+        self.write(&format!("receive {} ", liquidation.collateral.0));
+        self.format_asset_ref(&liquidation.collateral.1);
+        self.write(" collateral\n");
+        self.write_indent();
+        self.write(&format!("swap {} ", liquidation.swap.amount));
+        self.format_asset_ref(&liquidation.swap.from);
+        self.write(" -> ");
+        self.format_asset_ref(&liquidation.swap.to);
+        self.write(&format!(" min_output {}\n", liquidation.swap.min_output));
+        self.write_indent();
+        self.write(&format!("repay {} ", liquidation.repaid.0));
+        self.format_asset_ref(&liquidation.repaid.1);
+        self.write("\n");
+        if let Some((floor, asset)) = &liquidation.profit_floor {
+            self.write_indent();
+            self.write(&format!("require net_profit >= {floor} "));
+            self.format_asset_ref(asset);
+            self.write("\n");
+        }
+        self.dedent();
+        self.write("}\n");
     }
 
     /// `atomic_hedge { buy … spot; short … perp; require delta <= <pct>; }`
