@@ -1112,71 +1112,20 @@ fn align4(value: usize) -> usize {
 }
 
 fn disassemble_op(opcode: u8, payload: &[u8], _flags: u8, _operand: u16) -> String {
+    // The name comes from the one table both crates include, and whether the
+    // instruction carries a payload comes from the one predicate that says so.
+    // This function used to hold its own name table *and* its own idea of which
+    // opcodes carry payloads — including a `VECTOR` arm for `0x70..=0x7F`, a range
+    // no instruction has ever been emitted in.
+    let name = opcode_name(opcode);
+    if !is_payload_opcode(opcode, true) {
+        return name.to_string();
+    }
     let payload_str = match decode_payload(opcode, payload) {
         Ok(s) => s,
         Err(_) => format!("<raw {} bytes>", payload.len()),
     };
-    match opcode {
-        0x01 => "ADD".into(),
-        0x02 => "SUB".into(),
-        0x10 => "META_NONCE".into(),
-        0x11 => "META_CHAIN_ID".into(),
-        0x20 => format!("LOCK     {payload_str}"),
-        0x21 => format!("MINT     {payload_str}"),
-        0x22 => format!("BURN     {payload_str}"),
-        0x23 => format!("RELEASE  {payload_str}"),
-        0x24 => format!("SWAP     {payload_str}"),
-        0x25 => format!("BRIDGE   {payload_str}"),
-        0x30 => "IF".into(),
-        0x31 => "LOOP".into(),
-        0x32 => "CALL".into(),
-        0x33 => "RET".into(),
-        0x40 => "REQUIRE".into(),
-        0x41 => "ON_FAIL".into(),
-        0x42 => "ON_TIMEOUT".into(),
-        0x50 => "ATOMIC_BEGIN".into(),
-        0x51 => "ATOMIC_END".into(),
-        0x52 => "ATOMIC_ROLLBACK".into(),
-        // The record is the interesting part of this instruction, so the trace
-        // decodes it rather than printing the opcode name alone: a reader
-        // should be able to see how many branches were verified and which one
-        // the body under it belongs to.
-        0x53 => format!("ATOMIC_CHOICE [{payload_str}]"),
-        0x54 => format!("ROUTE_FALLBACK approved [{payload_str}]"),
-        0x55 => format!("PARALLEL_PLAN     {payload_str}"),
-        0x57 => format!("STRATEGY_LICENSE  {payload_str}"),
-        0x60 => format!("EMIT     {payload_str}"),
-        0x66 => format!("CALL_HOST  {payload_str}"),
-        0x70..=0x7F => format!("VECTOR   {payload_str}"),
-        0x80..=0x9A => format!("CAP      {payload_str}"),
-        0x9B => "SUB_EXEC".into(),
-        0x9C => "NONCE_UNUSED".into(),
-        0xA0 => format!("ROUTE_SCORE  {payload_str}"),
-        0xA1 => format!("SOLVER_BID   {payload_str}"),
-        0xA2 => format!("RELAYER_ATTEST {payload_str}"),
-        0xA3 => format!("RPC_CONSENSUS {payload_str}"),
-        0xA4 => format!("RISK_SCORE   {payload_str}"),
-        0xA5 => format!("INVARIANT_CHECK {payload_str}"),
-        0xA6 => format!("PRIVACY_COMMIT {payload_str}"),
-        0xA7 => format!("PROOF_REQUIRED {payload_str}"),
-        0xA8 => format!("VM_ADAPTER_CALL {payload_str}"),
-        0xA9 => format!("MODE_CHECK   {payload_str}"),
-        0xAA => format!("PACKAGE_IMPORT {payload_str}"),
-        0xAB => format!("REFUND_POLICY {payload_str}"),
-        0xB0 => format!("TRADING_BEGIN {payload_str}"),
-        0xB1 => format!("TRADING_OPEN_DEBT {payload_str}"),
-        0xB2 => format!("TRADING_EXECUTE_SWAP {payload_str}"),
-        0xB3 => format!("TRADING_CLOSE_DEBT {payload_str}"),
-        0xB4 => format!("TRADING_ASSERT_MIN_PROFIT {payload_str}"),
-        0xB5 => format!("TRADING_ASSERT_ALL_DEBTS {payload_str}"),
-        0xB6 => format!("TRADING_EMIT_RECEIPT {payload_str}"),
-        0xB7 => format!("TRADING_COMMIT {payload_str}"),
-        0xB8 => format!("TRADING_ABORT {payload_str}"),
-        0xB9 => format!("TRADING_ASSERT_INVARIANT {payload_str}"),
-        0xBA => format!("TRADING_BRIDGE {payload_str}"),
-        0xFF => "HALT".into(),
-        other => format!("OP(0x{other:02x})"),
-    }
+    format!("{name:<24} {payload_str}")
 }
 
 fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
@@ -1199,7 +1148,7 @@ fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
         })?;
         return Ok(format!("{p:?}"));
     }
-    if (0x80..=0x9B).contains(&opcode) || (0xA0..=0xAB).contains(&opcode) {
+    if (0x80..=0x9C).contains(&opcode) || (0xA0..=0xAB).contains(&opcode) {
         let p = decode_capability_payload(opcode, payload).map_err(|_| X3Error::CodegenError {
             message: "bad capability payload".into(),
             span: None,

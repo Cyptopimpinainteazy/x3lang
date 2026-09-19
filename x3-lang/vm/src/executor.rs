@@ -1084,54 +1084,6 @@ fn read_len_payload(bytes: &[u8], pc: usize) -> ExecResult<&[u8]> {
     Ok(&bytes[start..end])
 }
 
-#[cfg(test)]
-fn capability_opcode_name(opcode: u8) -> &'static str {
-    match opcode {
-        GPU_DISPATCH => "GPU_DISPATCH",
-        SIMULATE => "SIMULATE",
-        SCHEDULED_DISPATCH => "SCHEDULED_DISPATCH",
-        INTENT_RESOLVE => "INTENT_RESOLVE",
-        CRDT_OP => "CRDT_OP",
-        PROOF_VERIFY => "PROOF_VERIFY",
-        STORAGE_OP => "STORAGE_OP",
-        PATHFIND => "PATHFIND",
-        MEMPOOL_SCAN => "MEMPOOL_SCAN",
-        ORACLE_REQUEST => "ORACLE_REQUEST",
-        EMERGENCY_CONTROL => "EMERGENCY_CONTROL",
-        LIFECYCLE => "LIFECYCLE",
-        SERIALIZE => "SERIALIZE",
-        DESERIALIZE => "DESERIALIZE",
-        GAS_ESTIMATE => "GAS_ESTIMATE",
-        CHAIN_METRIC => "CHAIN_METRIC",
-        EVENT_PROVENANCE => "EVENT_PROVENANCE",
-        MULTI_HOP_SWAP => "MULTI_HOP_SWAP",
-        VECTOR_MATH => "VECTOR_MATH",
-        ROLE_CHECK => "ROLE_CHECK",
-        MULTISIG_CHECK => "MULTISIG_CHECK",
-        VERSION_META => "VERSION_META",
-        STORAGE_NAMESPACE => "STORAGE_NAMESPACE",
-        ABI_EXPORT => "ABI_EXPORT",
-        DOC_EMBED => "DOC_EMBED",
-        GAS_ADAPTIVE => "GAS_ADAPTIVE",
-        BOUNTY => "BOUNTY",
-        SUB_EXEC => "SUB_EXEC",
-        NONCE_UNUSED => "NONCE_UNUSED",
-        ROUTE_SCORE => "ROUTE_SCORE",
-        SOLVER_BID => "SOLVER_BID",
-        RELAYER_ATTEST => "RELAYER_ATTEST",
-        RPC_CONSENSUS => "RPC_CONSENSUS",
-        RISK_SCORE => "RISK_SCORE",
-        INVARIANT_CHECK => "INVARIANT_CHECK",
-        PRIVACY_COMMIT => "PRIVACY_COMMIT",
-        PROOF_REQUIRED => "PROOF_REQUIRED",
-        VM_ADAPTER_CALL => "VM_ADAPTER_CALL",
-        MODE_CHECK => "MODE_CHECK",
-        PACKAGE_IMPORT => "PACKAGE_IMPORT",
-        REFUND_POLICY => "REFUND_POLICY",
-        _ => "UNKNOWN_CAPABILITY",
-    }
-}
-
 fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<Vec<u8>> {
     let decoded = decode_capability_payload(opcode, payload).map_err(|_| ExecError::InvalidOperand)?;
     let result = match decoded {
@@ -2120,7 +2072,15 @@ mod tests {
             "the payload set should cover the asset, capability and trading ranges: {opcodes:?}"
         );
         for opcode in opcodes {
-            // Only the *dispatch* is asserted here. A payload opcode's name is not
+            // Every payload opcode is *named*, from the one table both crates
+            // include: an instruction whose payload the executor reads and whose
+            // trace says `UNKNOWN` is an instruction a reader cannot identify.
+            assert_ne!(
+                opcode_name(opcode),
+                "UNKNOWN",
+                "payload opcode 0x{opcode:02x} has no name"
+            );
+            // Only the *dispatch* is asserted below. A payload opcode's name is not
             // necessarily a capability name — the asset ops and the atomic and
             // trading instructions carry payloads and have machine names of their
             // own — and the capability names have their own test.
@@ -2167,43 +2127,43 @@ mod tests {
 
     #[test]
     fn capability_opcode_names_cover_all_defined() {
-        assert_eq!(capability_opcode_name(GPU_DISPATCH), "GPU_DISPATCH");
+        assert_eq!(opcode_name(GPU_DISPATCH), "GPU_DISPATCH");
         // The instruction added for the nonce guard: a capability payload like
         // its neighbours, and named so a disassembly says what it is.
-        assert_eq!(capability_opcode_name(NONCE_UNUSED), "NONCE_UNUSED");
-        assert_eq!(capability_opcode_name(SIMULATE), "SIMULATE");
-        assert_eq!(capability_opcode_name(SCHEDULED_DISPATCH), "SCHEDULED_DISPATCH");
-        assert_eq!(capability_opcode_name(INTENT_RESOLVE), "INTENT_RESOLVE");
-        assert_eq!(capability_opcode_name(CRDT_OP), "CRDT_OP");
-        assert_eq!(capability_opcode_name(PROOF_VERIFY), "PROOF_VERIFY");
-        assert_eq!(capability_opcode_name(STORAGE_OP), "STORAGE_OP");
-        assert_eq!(capability_opcode_name(PATHFIND), "PATHFIND");
-        assert_eq!(capability_opcode_name(MEMPOOL_SCAN), "MEMPOOL_SCAN");
-        assert_eq!(capability_opcode_name(ORACLE_REQUEST), "ORACLE_REQUEST");
-        assert_eq!(capability_opcode_name(EMERGENCY_CONTROL), "EMERGENCY_CONTROL");
-        assert_eq!(capability_opcode_name(LIFECYCLE), "LIFECYCLE");
-        assert_eq!(capability_opcode_name(SERIALIZE), "SERIALIZE");
-        assert_eq!(capability_opcode_name(DESERIALIZE), "DESERIALIZE");
-        assert_eq!(capability_opcode_name(GAS_ESTIMATE), "GAS_ESTIMATE");
-        assert_eq!(capability_opcode_name(CHAIN_METRIC), "CHAIN_METRIC");
-        assert_eq!(capability_opcode_name(EVENT_PROVENANCE), "EVENT_PROVENANCE");
-        assert_eq!(capability_opcode_name(MULTI_HOP_SWAP), "MULTI_HOP_SWAP");
-        assert_eq!(capability_opcode_name(VECTOR_MATH), "VECTOR_MATH");
-        assert_eq!(capability_opcode_name(ROLE_CHECK), "ROLE_CHECK");
-        assert_eq!(capability_opcode_name(MULTISIG_CHECK), "MULTISIG_CHECK");
-        assert_eq!(capability_opcode_name(VERSION_META), "VERSION_META");
-        assert_eq!(capability_opcode_name(STORAGE_NAMESPACE), "STORAGE_NAMESPACE");
-        assert_eq!(capability_opcode_name(ABI_EXPORT), "ABI_EXPORT");
-        assert_eq!(capability_opcode_name(DOC_EMBED), "DOC_EMBED");
-        assert_eq!(capability_opcode_name(GAS_ADAPTIVE), "GAS_ADAPTIVE");
-        assert_eq!(capability_opcode_name(BOUNTY), "BOUNTY");
-        assert_eq!(capability_opcode_name(SUB_EXEC), "SUB_EXEC");
+        assert_eq!(opcode_name(NONCE_UNUSED), "NONCE_UNUSED");
+        assert_eq!(opcode_name(SIMULATE), "SIMULATE");
+        assert_eq!(opcode_name(SCHEDULED_DISPATCH), "SCHEDULED_DISPATCH");
+        assert_eq!(opcode_name(INTENT_RESOLVE), "INTENT_RESOLVE");
+        assert_eq!(opcode_name(CRDT_OP), "CRDT_OP");
+        assert_eq!(opcode_name(PROOF_VERIFY), "PROOF_VERIFY");
+        assert_eq!(opcode_name(STORAGE_OP), "STORAGE_OP");
+        assert_eq!(opcode_name(PATHFIND), "PATHFIND");
+        assert_eq!(opcode_name(MEMPOOL_SCAN), "MEMPOOL_SCAN");
+        assert_eq!(opcode_name(ORACLE_REQUEST), "ORACLE_REQUEST");
+        assert_eq!(opcode_name(EMERGENCY_CONTROL), "EMERGENCY_CONTROL");
+        assert_eq!(opcode_name(LIFECYCLE), "LIFECYCLE");
+        assert_eq!(opcode_name(SERIALIZE), "SERIALIZE");
+        assert_eq!(opcode_name(DESERIALIZE), "DESERIALIZE");
+        assert_eq!(opcode_name(GAS_ESTIMATE), "GAS_ESTIMATE");
+        assert_eq!(opcode_name(CHAIN_METRIC), "CHAIN_METRIC");
+        assert_eq!(opcode_name(EVENT_PROVENANCE), "EVENT_PROVENANCE");
+        assert_eq!(opcode_name(MULTI_HOP_SWAP), "MULTI_HOP_SWAP");
+        assert_eq!(opcode_name(VECTOR_MATH), "VECTOR_MATH");
+        assert_eq!(opcode_name(ROLE_CHECK), "ROLE_CHECK");
+        assert_eq!(opcode_name(MULTISIG_CHECK), "MULTISIG_CHECK");
+        assert_eq!(opcode_name(VERSION_META), "VERSION_META");
+        assert_eq!(opcode_name(STORAGE_NAMESPACE), "STORAGE_NAMESPACE");
+        assert_eq!(opcode_name(ABI_EXPORT), "ABI_EXPORT");
+        assert_eq!(opcode_name(DOC_EMBED), "DOC_EMBED");
+        assert_eq!(opcode_name(GAS_ADAPTIVE), "GAS_ADAPTIVE");
+        assert_eq!(opcode_name(BOUNTY), "BOUNTY");
+        assert_eq!(opcode_name(SUB_EXEC), "SUB_EXEC");
     }
 
     #[test]
     fn dry_run_bridge_executes_all_capability_opcodes_without_silent_noop() {
         for opcode in GPU_DISPATCH..=SUB_EXEC {
-            let name = capability_opcode_name(opcode);
+            let name = opcode_name(opcode);
             let payload = capability_minimal_payload(opcode);
             let code = capability_bytecode(opcode, &payload);
             let mut vm = VM::new(code, VMConfig::default(), 500_000);
@@ -2323,7 +2283,7 @@ mod tests {
             assert!(
                 decoded.is_ok(),
                 "minimal payload for opcode 0x{opcode:02x} ({}) must decode: {decoded:?}",
-                capability_opcode_name(opcode)
+                opcode_name(opcode)
             );
         }
     }

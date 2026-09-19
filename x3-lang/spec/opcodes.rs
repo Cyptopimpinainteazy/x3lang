@@ -205,3 +205,101 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
                 | TRADING_BEGIN..=TRADING_BRIDGE
         )
 }
+
+/// The name of an instruction, as the disassembler, the executor's diagnostics and
+/// any tooling should print it.
+///
+/// One table, in the file both crates include, because it used to be two: the
+/// compiler's disassembler had one and the executor's diagnostics had another, and
+/// an instruction added to one was missing from the other. The nonce instruction
+/// was, and only a test noticed — which is what a table written twice buys.
+///
+/// `UNKNOWN` is the only value that means "no instruction here"; a caller that
+/// needs its own spelling of that maps it.
+pub const fn opcode_name(opcode: u8) -> &'static str {
+    match opcode {
+        // The two arithmetic opcodes have no named constant of their own; every
+        // other arm is written with the constant so the value and the name cannot
+        // drift apart.
+        0x01 => "ADD",
+        0x02 => "SUB",
+        META_NONCE => "META_NONCE",
+        META_CHAIN_ID => "META_CHAIN_ID",
+        LOCK => "LOCK",
+        MINT => "MINT",
+        BURN => "BURN",
+        RELEASE => "RELEASE",
+        SWAP => "SWAP",
+        BRIDGE => "BRIDGE",
+        IF => "IF",
+        LOOP => "LOOP",
+        CALL => "CALL",
+        RET => "RET",
+        REQUIRE => "REQUIRE",
+        ON_FAIL => "ON_FAIL",
+        ON_TIMEOUT => "ON_TIMEOUT",
+        ATOMIC_BEGIN => "ATOMIC_BEGIN",
+        ATOMIC_END => "ATOMIC_END",
+        ATOMIC_ROLLBACK => "ATOMIC_ROLLBACK",
+        ATOMIC_CHOICE => "ATOMIC_CHOICE",
+        ROUTE_FALLBACK => "ROUTE_FALLBACK",
+        PARALLEL_PLAN => "PARALLEL_PLAN",
+        STRATEGY_LICENSE => "STRATEGY_LICENSE",
+        EMIT => "EMIT",
+        CALL_HOST => "CALL_HOST",
+        GPU_DISPATCH => "GPU_DISPATCH",
+        SIMULATE => "SIMULATE",
+        SCHEDULED_DISPATCH => "SCHEDULED_DISPATCH",
+        INTENT_RESOLVE => "INTENT_RESOLVE",
+        CRDT_OP => "CRDT_OP",
+        PROOF_VERIFY => "PROOF_VERIFY",
+        STORAGE_OP => "STORAGE_OP",
+        PATHFIND => "PATHFIND",
+        MEMPOOL_SCAN => "MEMPOOL_SCAN",
+        ORACLE_REQUEST => "ORACLE_REQUEST",
+        EMERGENCY_CONTROL => "EMERGENCY_CONTROL",
+        LIFECYCLE => "LIFECYCLE",
+        SERIALIZE => "SERIALIZE",
+        DESERIALIZE => "DESERIALIZE",
+        GAS_ESTIMATE => "GAS_ESTIMATE",
+        CHAIN_METRIC => "CHAIN_METRIC",
+        EVENT_PROVENANCE => "EVENT_PROVENANCE",
+        MULTI_HOP_SWAP => "MULTI_HOP_SWAP",
+        VECTOR_MATH => "VECTOR_MATH",
+        ROLE_CHECK => "ROLE_CHECK",
+        MULTISIG_CHECK => "MULTISIG_CHECK",
+        VERSION_META => "VERSION_META",
+        STORAGE_NAMESPACE => "STORAGE_NAMESPACE",
+        ABI_EXPORT => "ABI_EXPORT",
+        DOC_EMBED => "DOC_EMBED",
+        GAS_ADAPTIVE => "GAS_ADAPTIVE",
+        BOUNTY => "BOUNTY",
+        SUB_EXEC => "SUB_EXEC",
+        NONCE_UNUSED => "NONCE_UNUSED",
+        ROUTE_SCORE => "ROUTE_SCORE",
+        SOLVER_BID => "SOLVER_BID",
+        RELAYER_ATTEST => "RELAYER_ATTEST",
+        RPC_CONSENSUS => "RPC_CONSENSUS",
+        RISK_SCORE => "RISK_SCORE",
+        INVARIANT_CHECK => "INVARIANT_CHECK",
+        PRIVACY_COMMIT => "PRIVACY_COMMIT",
+        PROOF_REQUIRED => "PROOF_REQUIRED",
+        VM_ADAPTER_CALL => "VM_ADAPTER_CALL",
+        MODE_CHECK => "MODE_CHECK",
+        PACKAGE_IMPORT => "PACKAGE_IMPORT",
+        REFUND_POLICY => "REFUND_POLICY",
+        TRADING_BEGIN => "TRADING_BEGIN",
+        TRADING_OPEN_DEBT => "TRADING_OPEN_DEBT",
+        TRADING_EXECUTE_SWAP => "TRADING_EXECUTE_SWAP",
+        TRADING_CLOSE_DEBT => "TRADING_CLOSE_DEBT",
+        TRADING_ASSERT_MIN_PROFIT => "TRADING_ASSERT_MIN_PROFIT",
+        TRADING_ASSERT_ALL_DEBTS => "TRADING_ASSERT_ALL_DEBTS",
+        TRADING_EMIT_RECEIPT => "TRADING_EMIT_RECEIPT",
+        TRADING_COMMIT => "TRADING_COMMIT",
+        TRADING_ABORT => "TRADING_ABORT",
+        TRADING_ASSERT_INVARIANT => "TRADING_ASSERT_INVARIANT",
+        TRADING_BRIDGE => "TRADING_BRIDGE",
+        HALT => "HALT",
+        _ => "UNKNOWN",
+    }
+}
