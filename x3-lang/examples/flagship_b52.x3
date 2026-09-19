@@ -26,6 +26,7 @@ rpc_quorum {
 risk_policy {
     max_slippage 50
     max_position 500000
+    min_route_score 90
 }
 
 privacy {

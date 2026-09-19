@@ -1,3 +1,7 @@
+risk_policy {
+    min_route_score 90
+}
+
 intent simple_swap {
     from arbitrum.USDC amount 500
     to solana.SOL receiver wallet

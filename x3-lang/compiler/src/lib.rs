@@ -51,7 +51,7 @@ use semantic::verify_with_config as verify_semantics;
 use semantic::{
     verify_atomic_choice_decls, verify_guard_kinds_are_known, verify_parallel_decls, verify_privacy_decls,
     verify_proof_complete_declared, verify_relayer_quorum_declared, verify_route_fallbacks,
-    verify_solver_bond_declared, verify_venue_decls,
+    verify_route_score_declared, verify_solver_bond_declared, verify_venue_decls,
 };
 use x3_lang_ast::ast::Program;
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
@@ -187,6 +187,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_solver_bond_declared(program, &mut acc);
     verify_relayer_quorum_declared(program, &mut acc);
     verify_proof_complete_declared(program, &mut acc);
+    verify_route_score_declared(program, &mut acc);
     verify_guard_kinds_are_known(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 

@@ -1184,6 +1184,12 @@ impl X3Formatter {
             self.write(&position.to_string());
             self.write("\n");
         }
+        if let Some(score) = &p.min_route_score {
+            self.write_indent();
+            self.write("min_route_score ");
+            self.write(&score.to_string());
+            self.write("\n");
+        }
         self.dedent();
         self.write("}\n");
     }

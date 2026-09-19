@@ -17,6 +17,10 @@
 // looks like it constrains the runtime while constraining nothing is worse than
 // no block at all.
 
+risk_policy {
+    min_route_score 90
+}
+
 intent rebalance_with_fallback {
     from ethereum.USDC amount 5_000 receiver 0x1111111111111111111111111111111111111111
     to ethereum.ETH receiver 0x1111111111111111111111111111111111111111

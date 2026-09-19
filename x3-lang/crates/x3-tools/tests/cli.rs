@@ -232,6 +232,10 @@ relayers {
     relayers [relayer_a, relayer_b, relayer_c, relayer_d, relayer_e]
 }
 
+risk_policy {
+    min_route_score 90
+}
+
 rpc_quorum {
     source arbitrum
     require_numerator 2

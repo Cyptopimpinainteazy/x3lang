@@ -120,10 +120,10 @@ fn a_guard_that_names_no_asset_is_refused() {
 fn a_program_that_claims_nothing_may_mint() {
     // The guard is what makes the supply a promise; without it, minting is
     // simply what the program does.
-    let source = intent(
-        "        mint solana.USDC amount 5 to wallet",
-        "require route_score >= 1",
-    );
+    // No filler guard: the helper already writes `require slippage <= 50`, and a
+    // guard nothing backs (`route_score` without a `min_route_score`) would fail
+    // this test for a reason that has nothing to do with supply.
+    let source = intent("        mint solana.USDC amount 5 to wallet", "");
     assert_eq!(
         errors(&source),
         Vec::<String>::new(),

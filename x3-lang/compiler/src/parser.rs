@@ -3232,12 +3232,18 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// `risk_policy { max_slippage <pct> max_fee <pct> max_route_risk <level> min_liquidity <int> ... }`
+    /// `risk_policy { max_slippage <pct> max_position <int> min_route_score <n> }`
+    ///
+    /// An unknown field is refused by name rather than skipped. The comment here
+    /// used to advertise `max_fee`, `max_route_risk` and `min_liquidity`, none of
+    /// which the parser read: a program that wrote one of them declared a bound
+    /// that was dropped without a word (TICKET-050).
     fn parse_risk_policy_item(&mut self) -> Result<Item, X3Error> {
         self.advance();
         self.expect(Tok::LBrace, "expected '{' after risk_policy")?;
         let mut max_slippage: u64 = 0;
         let mut max_position: Option<u128> = None;
+        let mut min_route_score: Option<u32> = None;
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             match self.peek() {
                 Tok::Ident(ref s) if s == "max_slippage" => {
@@ -3250,9 +3256,25 @@ impl<'a> Parser<'a> {
                     let expr = self.parse_expr()?;
                     max_position = expr_to_u128(&expr).ok();
                 }
-                _ => {
-                    // Skip unknown config fields
+                Tok::Ident(ref s) if s == "min_route_score" => {
                     self.advance();
+                    let expr = self.parse_expr()?;
+                    min_route_score = Some(expr_to_u32(&expr).unwrap_or(0));
+                }
+                Tok::Ident(ref field) => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown risk_policy field '{field}'; the fields are max_slippage, \
+                             max_position and min_route_score"
+                        ),
+                        self.peek(),
+                    ))
+                }
+                other => {
+                    return Err(parse_err(
+                        format!("expected a risk_policy field, found {other:?}"),
+                        other,
+                    ))
                 }
             }
         }
@@ -3260,6 +3282,7 @@ impl<'a> Parser<'a> {
         Ok(Item::RiskPolicy(RiskPolicy {
             max_slippage,
             max_position,
+            min_route_score,
         }))
     }
 

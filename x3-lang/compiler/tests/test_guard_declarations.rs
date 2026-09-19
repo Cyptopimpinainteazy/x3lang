@@ -80,11 +80,13 @@ fn a_guard_kind_the_compiler_does_not_know_is_refused() {
 
 #[test]
 fn a_known_kind_with_no_checker_yet_is_not_refused_here() {
-    // This check is about *unknown* kinds. `route_score` is a known kind whose
-    // evaluation is still missing (TICKET-049), and refusing it here would be a
-    // different change than the one this test is about — the ledger says so, and
-    // this test keeps the two from being confused.
-    let source = program("", "    require route_score >= 90");
+    // This check is about *unknown* kinds. `bridge_liquidity` is a known kind
+    // whose evaluation is still missing (TICKET-049: nothing declares the
+    // liquidity a route must have), and refusing it *here* would be a different
+    // change than the one this test is about — the ledger says so, and this test
+    // keeps the two from being confused. `route_score` was this test's example
+    // until it gained a checker; the kind used has to be one that has none.
+    let source = program("", "    require bridge_liquidity >= 1_000");
     let errors = errors(&source);
     assert!(
         !errors.iter().any(|error| error.contains("not a guard kind")),
@@ -127,4 +129,95 @@ fn a_refund_path_guard_needs_a_refund_path() {
             .any(|error| error.contains("require refund_path") && error.contains("has none")),
         "the guard demands what the program does not have: {errors:?}"
     );
+}
+
+#[test]
+fn a_route_score_guard_needs_a_declared_score() {
+    // Six corpus programs required `route_score >= 85..90` with nothing anywhere
+    // declaring a score, so the guard was a claim no configuration backed. The
+    // declaration is `risk_policy { min_route_score <n> }`, and the check reads it
+    // as a floor.
+    let declared = program(
+        "risk_policy {\n    min_route_score 90\n}\n\n",
+        "    require route_score >= 90",
+    );
+    assert_eq!(errors(&declared), Vec::<String>::new(), "90 is what it declares");
+
+    let lower = program(
+        "risk_policy {\n    min_route_score 80\n}\n\n",
+        "    require route_score >= 90",
+    );
+    let lower_errors = errors(&lower);
+    assert!(
+        lower_errors
+            .iter()
+            .any(|error| error.contains("requires a route score of 90") && error.contains("80")),
+        "the message must name both figures: {lower_errors:?}"
+    );
+
+    let undeclared = program("", "    require route_score >= 90");
+    let undeclared_errors = errors(&undeclared);
+    assert!(
+        undeclared_errors
+            .iter()
+            .any(|error| error.contains("no `risk_policy { min_route_score")),
+        "{undeclared_errors:?}"
+    );
+
+    let ceiling = program(
+        "risk_policy {\n    min_route_score 90\n}\n\n",
+        "    require route_score <= 90",
+    );
+    let ceiling_errors = errors(&ceiling);
+    assert!(
+        ceiling_errors
+            .iter()
+            .any(|error| error.contains("without a `>=` bound")),
+        "{ceiling_errors:?}"
+    );
+}
+
+#[test]
+fn an_unknown_risk_policy_field_is_refused_by_name() {
+    // The parser used to end its match with "skip unknown config fields" while
+    // its own doc comment advertised `max_route_risk`, `max_fee` and
+    // `min_liquidity` — none of which it read. A declared bound that is dropped
+    // without a word is the same defect as a timeout unit that is ignored.
+    let source = program(
+        "risk_policy {\n    max_route_risk 3\n}\n\n",
+        "    require route_score >= 90",
+    );
+    let errors = errors(&source);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("unknown risk_policy field 'max_route_risk'")
+                && error.contains("min_route_score")),
+        "the message must name the field and the fields that exist: {errors:?}"
+    );
+}
+
+#[test]
+fn every_example_that_requires_a_route_score_declares_one() {
+    // The corpus invariant this change restored: a guard's claim must be backed
+    // by the program that writes it, in every example the repo ships.
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../examples");
+    let mut checked = 0usize;
+    for entry in std::fs::read_dir(&dir).expect("the examples must be readable") {
+        let path = entry.expect("a readable entry").path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("x3") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("a readable example");
+        if !source.contains("require route_score") {
+            continue;
+        }
+        checked += 1;
+        assert!(
+            source.contains("min_route_score"),
+            "{} requires a route score without declaring one",
+            path.display()
+        );
+    }
+    assert_eq!(checked, 6, "six examples require a route score; found {checked}");
 }

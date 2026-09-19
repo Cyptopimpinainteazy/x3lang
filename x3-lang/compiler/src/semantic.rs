@@ -289,6 +289,51 @@ fn err(message: impl Into<String>) -> X3Error {
     }
 }
 
+/// A `require route_score >= N` guard needs a score to compare against.
+///
+/// The guard is a claim about the route; `risk_policy { min_route_score M }` is
+/// where a program states the score it accepts. So a guard demanding more than
+/// the declared score claims something the configuration never does, and a guard
+/// with no policy at all claims something nothing backs — the same shape as the
+/// solver bond and the relayer quorum. Six corpus programs required
+/// `route_score >= 85..90` with no declaration anywhere, which is what closed this
+/// as a hole rather than a formality.
+pub fn verify_route_score_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    let declared = program.items.iter().find_map(|item| match &item.node {
+        Item::RiskPolicy(policy) => policy.min_route_score,
+        _ => None,
+    });
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::RouteScore {
+            continue;
+        }
+        // `route_score >= N` is a floor. Written as a ceiling it says the route
+        // may not score *well*, and comparing that against a declared minimum
+        // would answer a question nobody asked.
+        if !guard.comparison.is_some_and(|op| op.is_lower_bound()) {
+            acc.add_error(err(format!(
+                "declaration '{owner}' states `require route_score` without a `>=` bound; a route \
+                 score guard is a floor, and the check reads it as one"
+            )));
+            continue;
+        }
+        let required = guard.value.as_ref().and_then(extract_int_from_expr).unwrap_or(0);
+        match declared {
+            None => acc.add_error(err(format!(
+                "declaration '{owner}' requires a route score of {required} but the program declares \
+                 no `risk_policy {{ min_route_score <n> }}` — the guard has nothing to compare \
+                 against"
+            ))),
+            Some(declared) if required > u128::from(declared) => acc.add_error(err(format!(
+                "declaration '{owner}' requires a route score of {required}, but the declared \
+                 minimum is {declared}"
+            ))),
+            Some(_) => {}
+        }
+    }
+}
+
 /// Refuse a guard whose kind the compiler does not know.
 ///
 /// `require_kind_from_str` carries an unknown word as `Custom`, which is how

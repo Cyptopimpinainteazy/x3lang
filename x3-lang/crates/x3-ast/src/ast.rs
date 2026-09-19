@@ -1331,6 +1331,15 @@ pub struct RpcQuorum {
 pub struct RiskPolicy {
     pub max_slippage: u64,
     pub max_position: Option<u128>,
+    /// `min_route_score <n>` — the score a route must reach for this program's
+    /// `require route_score >= n` guard to have something to compare against.
+    ///
+    /// The guard is a claim about the route; this is where the program states the
+    /// score it accepts. Without it the guard was a claim nothing backed: no
+    /// declaration, no run-time quantity, and an executor instruction that treats
+    /// it as true.
+    #[serde(default)]
+    pub min_route_score: Option<u32>,
 }
 
 /// `privacy { hide_route_until_commit ... }` — privacy configuration.

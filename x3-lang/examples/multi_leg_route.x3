@@ -1,3 +1,7 @@
+risk_policy {
+    min_route_score 90
+}
+
 intent multi_leg_portfolio {
     from polygon.USDC amount 1000
 
