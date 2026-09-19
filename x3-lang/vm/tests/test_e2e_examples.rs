@@ -340,3 +340,39 @@ fn b52_simple_executes_through_vm() {
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000u128);
     vm.execute().expect("simple_swap VM execution should succeed");
 }
+
+#[test]
+fn a_guard_first_program_verifies_and_runs() {
+    // The walk the verifier makes has to be the walk the executor makes. In a
+    // compiler stream the first instruction sits at offset 1 (the version byte is
+    // byte 0), and the emitter pads each instruction to the next *absolute*
+    // multiple of four; a verifier that advanced fixed frames by `pc + 4`
+    // instead of `align4(pc + 3)` read padding bytes as opcodes and refused an
+    // artifact the executor runs. Measured on a program whose first item is
+    // `risk_policy` — its guard is the first instruction, so the stream is
+    // `[0x01][REQUIRE][flags][00 00]` followed by padding — where the walk
+    // desynchronised and reported `X3_VERIFY_FAILED: OutOfBounds(73)`.
+    let source = "risk_policy {\n    max_slippage 120\n}\n\nintent guard_first {\n    from \
+                  ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        swap uniswap \
+                  ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    require slippage <= \
+                  120\n    on_fail refund ethereum.USDC to sender\n}\n";
+    let program = x3_lang_compiler::parser::parse_source(source).expect("source should parse");
+    let bytecode = x3_lang_compiler::compile_program(&program).expect("program should compile");
+
+    assert_eq!(bytecode[0], 0x01, "a compiler stream starts with the version byte");
+    assert_eq!(
+        bytecode[1], 0x40,
+        "and its first instruction is the policy's guard, so the version byte is not followed by \
+         a NOP: {bytecode:?}"
+    );
+
+    let verifier_boundaries =
+        verify(&InstructionStream::new(bytecode.clone())).expect("the verifier must accept what the executor runs");
+    assert!(
+        verifier_boundaries.contains(&1),
+        "the first instruction's offset is a verified boundary: {verifier_boundaries:?}"
+    );
+
+    let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
+    vm.execute().expect("the executor must run it");
+}

@@ -99,7 +99,21 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
             RET => { /* RET - valid */ }
             _ => {}
         }
-        pc += 4;
+        // The same advance the executor makes, for the same reason: in a
+        // compiler stream the first instruction sits at offset 1 (the version
+        // byte is byte 0), so the next instruction is the next *absolute*
+        // multiple of four — which is what the emitter pads for. `pc + 4` is
+        // that only when `pc` is a multiple of four itself, so a program whose
+        // bytecode is a compiler stream with an op at offset 1 walked out of
+        // step: the verifier read padding bytes as opcodes and refused an
+        // artifact the executor runs. Measured on a program whose first item is
+        // `risk_policy` — `[0x01][REQUIRE][flags][00 00]` then padding — where
+        // the walk desynchronised at `pc` 73 and reported a payload length that
+        // ran off the end (`X3_VERIFY_FAILED: OutOfBounds(73)`).
+        //
+        // For raw bytecode, which starts at offset 0, `align4(pc + 3)` and
+        // `pc + 4` are the same number, so this changes nothing there.
+        pc = align4(pc + 3);
     }
     Ok(boundaries)
 }
