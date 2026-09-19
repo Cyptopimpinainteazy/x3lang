@@ -576,7 +576,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             // arm here and was refused as invalid, which is what the payload-opcode test
             // below exists to catch. `VENUE_ORDER` is the newest member, so the range ends
             // there and `NONCE_UNUSED` (0x9C) is inside it now rather than beside it.
-            GPU_DISPATCH..=VENUE_ORDER => {
+            GPU_DISPATCH..=REBALANCE_TARGET => {
                 let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
                     Ok(p) => p.to_vec(),
                     Err(e) => {
@@ -1185,6 +1185,24 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
         }
         CapabilityPayload::MultiHopSwap { path, amount } => {
             let reply = bridge_result(vm.bridge.multi_hop_swap(path.join("\0").as_bytes(), amount))?;
+            record_measurement(vm, &reply);
+            Ok(reply)
+        }
+        CapabilityPayload::RebalanceTarget {
+            portfolio,
+            weights,
+            criterion,
+        } => {
+            // The target and the criterion, asked of a host that knows the account's current
+            // holdings. A rebalance's *trades* depend on that state, which the compiler does
+            // not have, so the instruction is what the language can honestly carry.
+            let flattened = weights
+                .iter()
+                .map(|(asset, percent)| format!("{asset}:{percent}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let order = format!("{portfolio}\u{1f}{flattened}\u{1f}{criterion}");
+            let reply = bridge_result(vm.bridge.rebalance_target(order.as_bytes()))?;
             record_measurement(vm, &reply);
             Ok(reply)
         }

@@ -1671,9 +1671,16 @@ fn cli_lowers_a_liquidation_to_its_calls_and_runs_it() {
     );
 }
 
-/// PHASE 11 — a target portfolio's weights are decided, and the plan is not pretended.
+/// PHASE 11 — a target portfolio's weights are decided, and the target is what the artifact
+/// carries.
+///
+/// The trades that reach the target depend on the account's *current* holdings, which nothing
+/// in the language or the compiler holds — so the honest artifact is the target itself, as an
+/// instruction a host acts on, and the compiler does not pretend to have generated a graph it
+/// cannot compute (TICKET-070). The other verdicts are unchanged: a portfolio that does not add
+/// up, or a criterion the optimizer cannot rank, is refused with its figures.
 #[test]
-fn cli_decides_a_rebalances_weights_and_refuses_to_pretend_it_plans() {
+fn cli_decides_a_rebalances_weights_and_carries_the_target() {
     let sound = "rebalance portfolio {\n    BTC = 40%;\n    ETH = 25%;\n    SOL = 15%;\n    X3 = \
                  10%;\n    USDC = 10%;\n\n    minimize {\n        fees;\n        slippage;\n    }\n\n    \
                  atomic;\n}\n";
@@ -1684,14 +1691,48 @@ fn cli_decides_a_rebalances_weights_and_refuses_to_pretend_it_plans() {
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
-    assert!(!check.status.success(), "no plan can be generated yet: {output}");
-    assert!(
-        output.contains("cannot yet generate the transaction graph"),
-        "the refusal must say what is missing: {output}"
-    );
+    assert!(check.status.success(), "a portfolio that adds up must check: {output}");
     assert!(
         !output.contains("sums to") && !output.contains("cannot rank"),
         "a portfolio that adds up has no weight or criterion to complain about: {output}"
+    );
+
+    // The target travels in the artifact, with the criterion it was ranked by.
+    let out = std::env::temp_dir().join("cli_rebalance_sound.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.status.success(), "the target must build: {text}");
+
+    let explain = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let disassembly = format!(
+        "{}{}",
+        String::from_utf8_lossy(&explain.stdout),
+        String::from_utf8_lossy(&explain.stderr)
+    );
+    assert!(
+        disassembly.contains("REBALANCE_TARGET"),
+        "the target must be an instruction in the artifact: {disassembly}"
+    );
+
+    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
+    let run_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        run.status.success() && run_text.contains("x3c run: ok"),
+        "the target must reach the host: {run_text}"
     );
 
     let unbalanced = write_fixture("cli_rebalance_unbalanced.x3", &sound.replace("SOL = 15%", "SOL = 5%"));

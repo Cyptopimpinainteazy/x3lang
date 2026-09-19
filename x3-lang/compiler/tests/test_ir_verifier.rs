@@ -591,23 +591,35 @@ fn the_operations_a_liquidation_lowers_to_pass_the_structural_verifier() {
 }
 
 #[test]
-fn a_rebalance_operation_is_refused_until_the_graph_can_be_generated() {
-    // PHASE 11's weights are decided on the AST (`rebalance::verify`); what is missing
-    // is the plan that reaches them, and the phase says that part is eventual. A record
-    // with no legs would be a plan that does nothing, so this layer refuses it.
+fn the_operations_a_rebalance_lowers_to_pass_the_structural_verifier() {
+    // PHASE 11's target portfolio used to be refused at this layer: the weights were decided
+    // and the transaction graph that reaches them was not, because the trades depend on the
+    // account's current holdings — which nothing here holds. The target is now an
+    // instruction, so what has to hold is that this layer accepts it and refuses the empties.
     let ir = ir_with(vec![Operation::Rebalance {
         name: "portfolio".to_owned(),
         weights: vec![("unknown.BTC".to_owned(), 40), ("unknown.ETH".to_owned(), 60)],
         criterion: "fees".to_owned(),
     }]);
-    let diagnostics = verify_ir(&ir).expect_err("no graph can be generated yet");
+    let verified = verify_ir(&ir);
+    assert!(
+        verified.is_ok(),
+        "a target portfolio must be a plan this layer accepts: {verified:?}"
+    );
+}
+
+#[test]
+fn a_target_portfolio_with_no_weights_is_refused() {
+    let ir = ir_with(vec![Operation::Rebalance {
+        name: "portfolio".to_owned(),
+        weights: vec![],
+        criterion: "fees".to_owned(),
+    }]);
+    let diagnostics = verify_ir(&ir).expect_err("a target with nothing to reach is not a plan");
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert!(
-        diagnostics[0].message.contains("cannot be executed")
-            && diagnostics[0].message.contains("generate the transaction graph")
-            && diagnostics[0].message.contains("portfolio")
-            && !diagnostics[0].message.contains("  "),
-        "the refusal must name the rebalance and what is missing: {diagnostics:?}"
+        diagnostics[0].message.contains("carries no weights"),
+        "the refusal must say what is missing: {diagnostics:?}"
     );
 }
 

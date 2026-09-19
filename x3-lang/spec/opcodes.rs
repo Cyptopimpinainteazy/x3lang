@@ -82,6 +82,15 @@ pub const SUB_EXEC: u8 = 0x9B;
 /// SVM call and be refused for a reason that has nothing to do with it. A venue order
 /// says what it is, with a quantity the artifact can check.
 pub const VENUE_ORDER: u8 = 0x9D;
+/// A target portfolio: move this account to these weights, ranked by this criterion.
+///
+/// What a `rebalance` can honestly be. The declaration decides the target and the criterion
+/// — a portfolio whose weights sum to exactly 100%, and a target the optimizer can rank —
+/// and neither the language nor the compiler holds the *current* portfolio, which every
+/// trade that reaches the target depends on. So the artifact carries the target as an
+/// instruction a host acts on, with its own current holdings, and the compiler does not
+/// pretend to have generated the trades it cannot compute (TICKET-070).
+pub const REBALANCE_TARGET: u8 = 0x9E;
 
 /// Whether a nonce has been used, and the recording of it.
 ///
@@ -289,7 +298,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
             opcode,
             EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK | PARALLEL_PLAN | STRATEGY_LICENSE
                 | NONCE_UNUSED
-                | GPU_DISPATCH..=VENUE_ORDER
+                | GPU_DISPATCH..=REBALANCE_TARGET
                 | ROUTE_SCORE..=REFUND_POLICY
                 | TRADING_BEGIN..=TRADING_BRIDGE
         )
@@ -406,6 +415,7 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
         EVENT_PROVENANCE => "EVENT_PROVENANCE",
         MULTI_HOP_SWAP => "MULTI_HOP_SWAP",
         VENUE_ORDER => "VENUE_ORDER",
+        REBALANCE_TARGET => "REBALANCE_TARGET",
         VECTOR_MATH => "VECTOR_MATH",
         ROLE_CHECK => "ROLE_CHECK",
         MULTISIG_CHECK => "MULTISIG_CHECK",
@@ -494,6 +504,7 @@ pub const fn base_gas_cost(opcode: u8) -> u128 {
         EVENT_PROVENANCE => 20,
         MULTI_HOP_SWAP => 200,
         VENUE_ORDER => 200,
+        REBALANCE_TARGET => 200,
         VECTOR_MATH => 5,
         ROLE_CHECK | MULTISIG_CHECK | VERSION_META | STORAGE_NAMESPACE | ABI_EXPORT | DOC_EMBED => 10,
         GAS_ADAPTIVE => 50,

@@ -123,16 +123,6 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&[ATOMIC_END])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
-        Operation::Rebalance { name, .. } => {
-            return Err(X3Error::CodegenError {
-                message: format!(
-                    "cannot emit the rebalance '{name}': it states target weights and the compiler \
-                     cannot yet generate the transaction graph that reaches them, so the artifact \
-                     would carry a plan that does nothing (PHASE 11)"
-                ),
-                span: None,
-            });
-        }
         Operation::If {
             condition,
             then_ops,
@@ -453,6 +443,7 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(payload.as_bytes())?;
         }
         Operation::VenueOrder { .. } => emit_payload_op(VENUE_ORDER, op, bytecode)?,
+        Operation::Rebalance { .. } => emit_payload_op(REBALANCE_TARGET, op, bytecode)?,
         Operation::GpuDispatch { .. } => emit_payload_op(GPU_DISPATCH, op, bytecode)?,
         Operation::Simulate { .. } => emit_payload_op(SIMULATE, op, bytecode)?,
         Operation::ScheduledDispatch { .. } => emit_payload_op(SCHEDULED_DISPATCH, op, bytecode)?,
@@ -823,6 +814,18 @@ fn operation_to_asset_payload(op: &Operation) -> Result<AssetOpPayload, X3Error>
 
 fn operation_to_payload(op: &Operation) -> Result<CapabilityPayload, X3Error> {
     let payload = match op {
+        Operation::Rebalance {
+            name,
+            weights,
+            criterion,
+        } => CapabilityPayload::RebalanceTarget {
+            portfolio: name.clone(),
+            weights: weights
+                .iter()
+                .map(|(asset, percent)| (asset.clone(), *percent))
+                .collect(),
+            criterion: criterion.clone(),
+        },
         Operation::VenueOrder {
             action,
             subject,

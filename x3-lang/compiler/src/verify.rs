@@ -288,46 +288,24 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     atomic_depth -= 1;
                 }
             }
-            // A nested branch is refused rather than walked.
-            //
-            // The VM branches on a *register* and skips a fixed number of
-            // four-byte instructions, while a compiler stream frames instructions
-            // with a width that varies (`3 + payload_len`, four for `REQUIRE`) and
-            // pads each one to the next absolute multiple of four. Nothing
-            // evaluates a condition into a register either — the compiler emits no
-            // arithmetic at all. So an emitted branch is an instruction whose
-            // operands no reader can follow and no executor can act on: measured on
-            // `strategy TriDexArb { execute { if 1 > 0 { require profit >= 5 } } }`,
-            // the artifact built, `x3c explain` printed the condition as opcodes,
-            // and `x3c run` failed with `X3_VERIFY_FAILED: OutOfBounds(292)`.
-            //
-            // Refusing here is the fail-closed half of the feature rather than the
-            // feature: TICKET-058 carries the work (an explicit branch target in
-            // the record, a reader rule for it in `spec/opcodes.rs`, and expression
-            // codegen for the condition). Refusing it in this layer and not only in
-            // the emitter is what keeps `x3c check` from accepting what `x3c build`
-            // then has to refuse.
-            // A hedge is *decided*, not executed: its net is checked
-            // (`hedge::verify`) and recorded, but a perp leg needs a venue adapter
-            // this VM does not have. Refusing in this layer — and not only in the
-            // emitter — is what keeps `x3c check` from accepting what `x3c build`
-            // then refuses, the split this session keeps finding.
-            // A liquidation's figures are decided (`liquidation::verify`), and this
-            // layer says what the VM can do with the result: nothing, because
-            // `liquidate` and `receive` are calls into a lending protocol it has no
-            // adapter for. Same shape as the hedge above, same reason for refusing
-            // here rather than only in the emitter.
-            // The weights are decided (`rebalance::verify`); what is missing is the plan
-            // that reaches them. Refusing here rather than emitting a record with no
-            // legs is the same rule the hedge and liquidation follow.
-            Operation::Rebalance { name, .. } => push_unsafe(
-                diagnostics,
-                format!(
-                    "{op_context}: the rebalance '{name}' cannot be executed — it states target \
-                     weights and the compiler cannot yet generate the transaction graph that reaches \
-                     them, so the portfolio is decided and the plan is not pretended"
-                ),
-            ),
+            Operation::Rebalance {
+                name,
+                weights,
+                criterion,
+            } => {
+                // A target portfolio is an instruction, not a graph: nothing in the language
+                // or the compiler holds the *current* portfolio, and every trade that reaches
+                // the target depends on it. So what is checked here is what the instruction
+                // says, and what it says is refused when it is empty.
+                require_non_empty(diagnostics, &op_context, "portfolio", name);
+                require_non_empty(diagnostics, &op_context, "criterion", criterion);
+                if weights.is_empty() {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: the rebalance '{name}' carries no weights to reach"),
+                    );
+                }
+            }
             Operation::VenueOrder {
                 action,
                 asset,

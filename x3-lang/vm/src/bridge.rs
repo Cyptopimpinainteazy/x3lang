@@ -2587,6 +2587,12 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
     fn svm_call(&self, data: &[u8]) -> BridgeResult {
         Ok(self.backend.call_svm(data)?)
     }
+    fn rebalance_target(&self, target: &[u8]) -> BridgeResult {
+        // A production host that has not wired a portfolio rebalancer cannot answer this,
+        // and says so by name rather than reaching a backend that has nothing to do with it.
+        let _ = target;
+        backend_required("portfolio rebalance")
+    }
     fn gpu_dispatch(&self, _kernel: &str, _args: &[u8]) -> BridgeResult {
         Err(Box::new(BridgeError {
             code: "X3_FEATURE_NOT_AVAILABLE",
@@ -3061,6 +3067,12 @@ pub trait BridgeAdapter {
     /// liquidation have *something* to call: neither is a swap, and routing them through
     /// `CALL_HOST` would ask a host's SVM bridge to open a perp position.
     fn venue_order(&self, order: &[u8]) -> BridgeResult;
+    /// Move an account to a target portfolio.
+    ///
+    /// `portfolio\x1fasset:percent,…\x1fcriterion`. The compiler decides the target and
+    /// the criterion; the trades that reach them depend on the account's current holdings,
+    /// which only the host has.
+    fn rebalance_target(&self, target: &[u8]) -> BridgeResult;
     fn bridge_transfer(
         &self,
         via: &str,
@@ -3101,6 +3113,10 @@ impl BridgeAdapter for UnconfiguredBridge {
         // is missing rather than reaching an unrelated backend, which is what routing the
         // same order through `CALL_HOST` would do.
         backend_required("venue order")
+    }
+    fn rebalance_target(&self, target: &[u8]) -> BridgeResult {
+        let _ = target;
+        backend_required("portfolio rebalance")
     }
     fn gpu_dispatch(&self, _kernel: &str, _args: &[u8]) -> BridgeResult {
         backend_required("GPU dispatch")
@@ -3283,6 +3299,12 @@ impl BridgeAdapter for DryRunBridge {
     }
     fn event_provenance(&self, event_type: &[u8], data: &[u8]) -> BridgeResult {
         Ok([b"dry-run-event_provenance:".as_slice(), event_type, b":", data].concat())
+    }
+    fn rebalance_target(&self, target: &[u8]) -> BridgeResult {
+        // A dry run has no holdings and no prices, so it cannot rebalance anything: it
+        // answers with the target it was given and reports no measurement, which leaves a
+        // plan's floors to refuse rather than pass on a number nobody took.
+        Ok([b"dry-run-rebalance_target:".as_slice(), target].concat())
     }
     fn venue_order(&self, order: &[u8]) -> BridgeResult {
         // What a dry run can say about an order: what it was asked to do. It reports no

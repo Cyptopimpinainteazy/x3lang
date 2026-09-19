@@ -138,6 +138,13 @@ pub enum CapabilityPayload {
     },
 
     // ===== B-52 Feature Lock Payloads =====
+    /// A target portfolio and the criterion it is ranked by — see
+    /// `spec::opcodes::REBALANCE_TARGET`.
+    RebalanceTarget {
+        portfolio: String,
+        weights: Vec<(String, u32)>,
+        criterion: String,
+    },
     RouteScore {
         strategy: String,
         weights: Vec<(String, u32)>,
@@ -401,6 +408,19 @@ pub fn encode_capability_payload(payload: &CapabilityPayload) -> Result<Vec<u8>,
         }
 
         // ===== B-52 Feature Lock encode =====
+        CapabilityPayload::RebalanceTarget {
+            portfolio,
+            weights,
+            criterion,
+        } => {
+            write_string(&mut out, portfolio)?;
+            write_u16(&mut out, weights.len() as u16);
+            for (key, percent) in weights {
+                write_string(&mut out, key)?;
+                write_u32(&mut out, *percent);
+            }
+            write_string(&mut out, criterion)?;
+        }
         CapabilityPayload::RouteScore { strategy, weights } => {
             write_string(&mut out, strategy)?;
             write_u16(&mut out, weights.len() as u16);
@@ -753,6 +773,20 @@ pub fn decode_capability_payload(opcode: u8, bytes: &[u8]) -> Result<CapabilityP
             gas_limit: reader.read_u64()?,
         },
         // ===== B-52 Feature Lock decode =====
+        0x9E => CapabilityPayload::RebalanceTarget {
+            portfolio: reader.read_string()?,
+            weights: {
+                let wlen = reader.read_u16()? as usize;
+                let mut w = Vec::with_capacity(wlen);
+                for _ in 0..wlen {
+                    let k = reader.read_string()?;
+                    let v = reader.read_u32()?;
+                    w.push((k, v));
+                }
+                w
+            },
+            criterion: reader.read_string()?,
+        },
         0xA0 => CapabilityPayload::RouteScore {
             strategy: reader.read_string()?,
             weights: {
