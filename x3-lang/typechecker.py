@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 import importlib.util
 import os
+from numeric import NumericParseError, parse_decimal, parse_positive_decimal
 
 
 def load_registry():
@@ -68,9 +69,8 @@ def typecheck(intent: dict) -> Tuple[bool, List[Any]]:
         _check_receiver(errors, chain, val.get('receiver'), endpoint + '.receiver')
         if endpoint == 'from' and val.get('amount') is not None:
             try:
-                if float(str(val.get('amount'))) <= 0:
-                    raise ValueError()
-            except Exception:
+                parse_positive_decimal(val.get('amount'))
+            except NumericParseError:
                 _err(errors, 'X3_INVALID_AMOUNT', 'amount must be positive numeric', endpoint + '.amount', val.get('amount'))
 
     route = intent.get('route') or intent.get('path')
@@ -122,8 +122,27 @@ def typecheck(intent: dict) -> Tuple[bool, List[Any]]:
             seen_nonce = True
 
     policies = intent.get('policies', {})
+    if policies is None:
+        policies = {}
+    if not isinstance(policies, dict):
+        _err(errors, 'X3_INVALID_POLICIES', 'policies must be an object', 'policies', policies)
+        policies = {}
+    constraints = intent.get('constraints', {})
+    if constraints is not None and not isinstance(constraints, dict):
+        _err(errors, 'X3_INVALID_CONSTRAINTS', 'constraints must be an object', 'constraints', constraints)
+    elif isinstance(constraints, dict):
+        for key in ('min_profit', 'max_slippage'):
+            if constraints.get(key) is not None:
+                try:
+                    parse_decimal(constraints[key], allow_unit_suffix=True)
+                except NumericParseError:
+                    _err(errors, 'X3_INVALID_CONSTRAINT', f'{key} must be numeric', f'constraints.{key}', constraints[key])
     for key in ('timeout', 'on_fail'):
-        action = policies.get(key, {}).get('action') if key == 'timeout' else policies.get(key)
+        policy = policies.get(key, {})
+        if key == 'timeout' and policy is not None and not isinstance(policy, dict):
+            _err(errors, 'X3_INVALID_POLICY', 'timeout policy must be an object', f'policies.{key}', policy)
+            continue
+        action = policy.get('action') if key == 'timeout' and isinstance(policy, dict) else policy
         if isinstance(action, dict) and action.get('type') == 'refund':
             _check_asset(errors, action.get('chain'), action.get('asset'), f'policies.{key}.asset')
             _check_receiver(errors, action.get('chain'), action.get('to'), f'policies.{key}.to')

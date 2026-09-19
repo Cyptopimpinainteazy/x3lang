@@ -18,6 +18,7 @@ pub mod emitter;
 pub mod formatter;
 pub mod fusion;
 pub mod intent_emit;
+pub mod intent_bridge;
 pub mod ir;
 pub mod linter;
 pub mod lowering;
@@ -422,6 +423,10 @@ pub fn compile_to_ir(program: &Program) -> Result<X3IR, X3Error> {
 /// a fully-validated `CrossChainIntent` and stamps the canonical
 /// hash.
 pub use intent_emit::{IntentSpecDraft, SourceConstraint};
+pub use intent_bridge::{
+    parse_validated_intent_json, to_intent_spec_draft, to_ir, validate_validated_intent,
+    ValidatedIntentV1, VALIDATED_INTENT_SCHEMA_VERSION,
+};
 
 /// Verify bytecode is properly formed (basic checks)
 fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
