@@ -2761,7 +2761,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::Swap {
             from,
             to,
-            route: amount,
+            amount,
             min_output,
             dex: dex_expr,
         })
@@ -3841,14 +3841,12 @@ impl<'a> Parser<'a> {
             Tok::KwSwap => {
                 self.advance();
                 let from = self.parse_asset_ref()?;
-                let route: Option<Expression> = if self.peek() == Tok::Arrow {
-                    // skip arrow between assets, e.g., eth.USDC -> sol.USDC
+                // A body-level swap has no `amount` clause: the arrow between the
+                // assets is all that is read here, and the amount comes from the
+                // matching endpoint (the same rule `bridge` follows below).
+                if self.peek() == Tok::Arrow {
                     self.advance();
-                    None
-                } else {
-                    None
-                };
-                let _route_expr = route;
+                }
                 let to = self.parse_asset_ref()?;
                 let dex = if matches!(self.peek(), Tok::Ident(ref s) if s == "dex") {
                     self.advance();
@@ -3866,7 +3864,7 @@ impl<'a> Parser<'a> {
                 Ok(Statement::Swap {
                     from,
                     to,
-                    route: None,
+                    amount: None,
                     min_output,
                     dex,
                 })

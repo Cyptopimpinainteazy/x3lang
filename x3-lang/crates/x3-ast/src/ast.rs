@@ -258,11 +258,20 @@ pub enum Statement {
         asset: AssetRef,
         to: Expression,
     },
-    /// `swap from.ASSET -> to.ASSET [route <expr>] [min_output <expr>] [dex <expr>]`
+    /// `swap <venue> from.ASSET -> to.ASSET [amount <expr>] [min_output <expr>]`
     Swap {
         from: AssetRef,
         to: AssetRef,
-        route: Option<Expression>,
+        /// The step's input amount, from `amount <expr>`.
+        ///
+        /// It used to be called `route`, which is what the parser wrote the amount
+        /// *into*: three readers (the lowering, the formatter, the profitability
+        /// check) treated it as the amount, and the name said otherwise — a reader
+        /// of the field had to check which of the two meanings the producers used.
+        /// The old name is still accepted when an AST is deserialized, so a stored
+        /// artifact does not stop loading (TICKET-067).
+        #[serde(default, alias = "route")]
+        amount: Option<Expression>,
         min_output: Option<Expression>,
         dex: Option<Expression>,
     },

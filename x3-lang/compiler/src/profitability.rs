@@ -105,7 +105,7 @@ pub fn analyse(program: &Program) -> Verdict {
             let Statement::Swap {
                 from,
                 to,
-                route,
+                amount,
                 dex,
                 min_output,
             } = statement
@@ -121,11 +121,9 @@ pub fn analyse(program: &Program) -> Verdict {
             let Some(minimum) = min_output.as_ref().and_then(literal_int) else {
                 continue;
             };
-            // The step's input amount. The parser stores it in `Statement::Swap`'s
-            // `route` field, whose name is wrong — the field holds `amount <expr>`
-            // (see the ticket on the field) — so it is read here with that said out
-            // loud rather than silently.
-            let Some(spent) = route.as_ref().and_then(literal_int) else {
+            // The step's input amount, `amount <expr>` — the field is named for what
+            // it holds (it used to be called `route`, TICKET-067).
+            let Some(spent) = amount.as_ref().and_then(literal_int) else {
                 continue;
             };
             // Same-asset legs only: comparing what is spent with what is returned

@@ -857,7 +857,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
         Statement::Swap {
             from,
             to,
-            route,
+            amount,
             min_output,
             dex,
         } => {
@@ -874,7 +874,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 // the literal that caused it, naming neither the literal nor the
                 // reason. A missing amount is still 0 (nothing was written); an
                 // amount that cannot be converted is an error.
-                input_amount: route.as_ref().map(expression_to_u128).transpose()?.unwrap_or(0),
+                input_amount: amount.as_ref().map(expression_to_u128).transpose()?.unwrap_or(0),
                 min_output: min_output.as_ref().map(expression_to_u128).transpose()?.unwrap_or(0),
                 dex: dex.as_ref().map(expression_to_string),
             });
@@ -1518,13 +1518,13 @@ fn substituted_route(statements: &[Statement], venue: &str) -> Vec<Statement> {
             Statement::Swap {
                 from,
                 to,
-                route,
+                amount,
                 min_output,
                 ..
             } => Some(Statement::Swap {
                 from: from.clone(),
                 to: to.clone(),
-                route: route.clone(),
+                amount: amount.clone(),
                 min_output: min_output.clone(),
                 dex: Some(Expression::Literal(LiteralExpr::String(x3_lang_common::Symbol::new(
                     venue,

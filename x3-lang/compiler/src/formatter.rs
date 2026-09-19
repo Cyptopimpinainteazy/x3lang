@@ -1442,7 +1442,7 @@ impl X3Formatter {
             Statement::Swap {
                 from,
                 to,
-                route,
+                amount,
                 min_output,
                 dex,
             } => {
@@ -1458,7 +1458,7 @@ impl X3Formatter {
                 self.format_asset_ref(from);
                 self.write(" -> ");
                 self.format_asset_ref(to);
-                if let Some(amt) = route {
+                if let Some(amt) = amount {
                     self.write(" amount ");
                     self.format_expression(amt);
                 }
