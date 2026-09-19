@@ -209,10 +209,10 @@ fn the_pipeline_stage_map_names_modules_that_are_really_there() {
             root.display()
         );
     }
-    assert_eq!(
-        arb::missing_stages(),
-        vec!["Execution Plan", "Atomic Settlement"],
-        "the stages with no implementation are named, and there are two of them"
+    assert!(
+        arb::missing_stages().is_empty(),
+        "every stage of the phase's pipeline is now owned by a module: {:?}",
+        arb::missing_stages()
     );
 }
 
@@ -685,5 +685,205 @@ fn the_standings_name_the_bound_that_removed_each_venue() {
             .iter()
             .any(|(_, standing)| matches!(standing, arb::VenueStanding::Survives)),
         "none of the three survives its own bound: {reasons:?}"
+    );
+}
+
+/// Two venues that form a round trip in one asset, so the search has a cycle to find.
+///
+/// An arbitrage returns to the asset it started in, so a scope whose venues only ever
+/// move value one way has no cycle — and `arb::plan` refuses it with the venues that
+/// leave the base asset rather than planning nothing.
+const ROUND_TRIP: &str = "\
+venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 3\n    liquidity 1_000_000\n    \
+slippage_bps 8\n    latency_ms 12\n    finality_blocks 12\n    risk 2\n}\n\
+venue eth_to_usdc {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.ETH\n    asset_out ethereum.USDC\n    fee_bps 2\n    liquidity 900_000\n    \
+slippage_bps 6\n    latency_ms 12\n    finality_blocks 12\n    risk 2\n}\n";
+
+/// The guarded trade whose `require profit` enforces the scope's floor.
+const GUARDED_TRADE: &str = "\
+intent spread_trade {\n    from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
+to ethereum.USDC receiver 0xA2\n    require profit >= 20\n    require slippage <= 50\n    \
+timeout 30s refund ethereum.USDC to sender\n    on_fail rollback\n}\n";
+
+/// The declaration the cycle tests plan.
+const ARB: &str = "arb spread {\n    discover { chains = [ethereum]; max_hops = 4; liquidity_min = \
+                   500_000 ethereum.USDC; }\n    capital { flash = disabled; max = 25_000_000 \
+                   ethereum.USDC; }\n    execution { atomic = true; parallel = true; private = \
+                   false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; max_total_fee = \
+                   6bps; deadline = 220ms; }\n}\n";
+
+fn cycle_program(venues: &str) -> String {
+    format!("{GUARDED_TRADE}{venues}{ARB}")
+}
+
+fn planned(source: &str) -> arb::ArbPlan {
+    let parsed = parse(source);
+    let mut acc = x3_lang_common::ErrorAccumulator::new();
+    arb::verify(&parsed, &mut acc);
+    assert!(!acc.has_errors(), "the fixture must be sound: {:?}", acc.errors());
+    let decl = parsed
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::Arb(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the program declares an arb");
+    arb::plan(&parsed, decl).expect("a scope with a cycle plans")
+}
+
+#[test]
+fn a_scope_with_a_round_trip_plans_the_cycle_and_the_floors() {
+    let plan = planned(&cycle_program(ROUND_TRIP));
+    assert_eq!(plan.name, "spread");
+    assert_eq!(
+        plan.cycle.venues,
+        vec!["usdc_to_eth".to_string(), "eth_to_usdc".to_string()],
+        "the cycle is the venues in hop order"
+    );
+    assert_eq!(
+        plan.cycle.assets,
+        vec![
+            "ethereum.USDC".to_string(),
+            "ethereum.ETH".to_string(),
+            "ethereum.USDC".to_string(),
+        ],
+        "and it starts and ends in the asset the capital is committed in"
+    );
+    assert_eq!(plan.cycle.hops(), 2);
+    assert_eq!(plan.cycle.declared_fee_bps, 5, "3 + 2 declared basis points");
+    assert_eq!(
+        plan.capital,
+        (25_000_000, "ethereum.USDC".to_string()),
+        "the plan's amount is the capital the declaration states"
+    );
+    assert_eq!(
+        plan.candidates, 1,
+        "one round trip was found, so the compiler chose nothing"
+    );
+    assert_eq!(
+        plan.criterion,
+        x3_lang_ast::ast::ChoiceCriterion::LowestDeclaredFee,
+        "the criterion is named for what it computes: declared fees, never profit"
+    );
+    assert_eq!(plan.guards.len(), 2, "a profit floor and a slippage ceiling");
+    assert_eq!(plan.guards[0].bps, 20);
+    assert_eq!(plan.guards[1].bps, 8);
+}
+
+#[test]
+fn the_plan_ranks_by_declared_fee_and_records_that_it_chose() {
+    // A second round trip through a pricier pair, so there are two candidates and the
+    // choice is real.
+    let pricier = "\
+venue usdc_to_dai {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.USDC\n    asset_out ethereum.DAI\n    fee_bps 4\n    liquidity 1_200_000\n    \
+slippage_bps 7\n    latency_ms 15\n    finality_blocks 12\n    risk 2\n}\n\
+venue dai_to_usdc {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.DAI\n    asset_out ethereum.USDC\n    fee_bps 2\n    liquidity 1_100_000\n    \
+slippage_bps 7\n    latency_ms 15\n    finality_blocks 12\n    risk 2\n}\n";
+    let plan = planned(&cycle_program(&format!("{ROUND_TRIP}{pricier}")));
+    assert_eq!(plan.candidates, 2, "two round trips were found and ranked");
+    assert_eq!(
+        plan.cycle.declared_fee_bps, 5,
+        "the cheaper of the two by declared fee wins: {plan:?}"
+    );
+    assert_eq!(plan.cycle.venues[0], "usdc_to_eth");
+}
+
+#[test]
+fn a_scope_whose_venues_never_return_to_the_base_asset_is_refused_with_them_named() {
+    // One-way venues only: value leaves the base asset and nothing brings it back, so
+    // there is no cycle to plan.
+    let one_way = "\
+venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 3\n    liquidity 1_000_000\n    \
+slippage_bps 8\n    latency_ms 12\n    finality_blocks 12\n    risk 2\n}\n";
+    let source = cycle_program(one_way);
+    let parsed = parse(&source);
+    let decl = parsed
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::Arb(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the program declares an arb");
+    let refusal = arb::plan(&parsed, decl).expect_err("there is no cycle to plan");
+    assert!(
+        refusal.contains("found no cycle from 'ethereum.USDC'"),
+        "the refusal must name the asset it searched from: {refusal}"
+    );
+    assert!(
+        refusal.contains("usdc_to_eth") && refusal.contains("ethereum.USDC -> ethereum.ETH"),
+        "and the venues that leave it, so the author can see where it stops: {refusal}"
+    );
+    assert!(
+        refusal.contains("min_profit 20bps"),
+        "and the bounds that were applied: {refusal}"
+    );
+}
+
+#[test]
+fn a_cycle_longer_than_the_declared_hop_bound_is_not_planned() {
+    // The same round trip with `max_hops = 1`: a cycle needs at least two hops, so
+    // nothing is admissible and the declaration is refused rather than planned short.
+    let source = cycle_program(ROUND_TRIP)
+        .replace("max_hops = 4", "max_hops = 2")
+        .replace("max_hops = 2", "max_hops = 1");
+    let parsed = parse(&source);
+    let decl = parsed
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::Arb(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the program declares an arb");
+    let refusal = arb::plan(&parsed, decl).expect_err("a one-hop bound admits no cycle");
+    assert!(
+        refusal.contains("in at most 1 hop(s)"),
+        "the refusal must give the bound it applied: {refusal}"
+    );
+}
+
+#[test]
+fn a_cycle_whose_declared_fees_exceed_the_ceiling_is_not_planned() {
+    // The round trip declares 5 bps of fee; a 2 bps ceiling removes it, and the graph's
+    // own rejection is what says so.
+    let source = cycle_program(ROUND_TRIP).replace("max_total_fee = 6bps", "max_total_fee = 2bps");
+    let parsed = parse(&source);
+    let decl = parsed
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::Arb(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the program declares an arb");
+    let refusal = arb::plan(&parsed, decl).expect_err("5 bps of fee is above a 2 bps ceiling");
+    assert!(
+        refusal.contains("max_total_fee 2bps"),
+        "the refusal must give the ceiling that removed it: {refusal}"
+    );
+}
+
+#[test]
+fn the_plan_is_a_function_of_the_graph_and_not_of_the_declaration_order() {
+    // The same venues written the other way round plan to the same cycle, because the
+    // ranking sorts rather than following the search's order.
+    let reversed = "\
+venue eth_to_usdc {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.ETH\n    asset_out ethereum.USDC\n    fee_bps 2\n    liquidity 900_000\n    \
+slippage_bps 6\n    latency_ms 12\n    finality_blocks 12\n    risk 2\n}\n\
+venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 3\n    liquidity 1_000_000\n    \
+slippage_bps 8\n    latency_ms 12\n    finality_blocks 12\n    risk 2\n}\n";
+    assert_eq!(
+        planned(&cycle_program(ROUND_TRIP)).cycle,
+        planned(&cycle_program(reversed)).cycle,
+        "the plan must not depend on which venue was declared first"
     );
 }

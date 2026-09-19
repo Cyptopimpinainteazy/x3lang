@@ -1316,6 +1316,19 @@ pub fn verify_atomic_choice_decls(program: &Program, acc: &mut ErrorAccumulator)
             )));
         }
 
+        // `lowest_declared_fee` ranks a venue chain, and an `atomic_choice`'s paths
+        // are bodies plus optional asset hops — a hop does not say *which* venue
+        // serves it, so the declared fee of a path is not computable from the path
+        // alone. The criterion is the one an `arb` scope's generated plan uses, where
+        // the venues are resolved; here it is refused with that reason rather than
+        // ranked by a number the declaration never contained.
+        if choice.criterion == x3_lang_ast::ast::ChoiceCriterion::LowestDeclaredFee {
+            acc.add_error(err(format!(
+                "atomic_choice '{name}' chooses by `lowest_declared_fee`, which ranks the venues a                  plan resolves a route to; a path body names hops, not venues, so its declared fee                  is not computable here. Write `fewest_hops` or `highest_net_output`, or let an \
+                 `arb` scope rank its cycles"
+            )));
+        }
+
         let mut seen: Vec<&str> = Vec::new();
         let mut outputs: Vec<(&str, &str)> = Vec::new();
         for path in &choice.paths {

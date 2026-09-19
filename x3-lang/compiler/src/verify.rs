@@ -342,28 +342,17 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     transfers.len()
                 ),
             ),
-            // An arbitrage scope's bounds are decided (`arb::verify`); what is missing is
-            // the pipeline that would turn the scope into legs. Naming the missing stages
-            // here rather than saying "not implemented" is the point: the phase's own
-            // pipeline is mostly implemented, and a refusal that said otherwise would
-            // read as though none of it existed.
-            Operation::Arb { name, .. } => push_unsafe(
-                diagnostics,
-                format!(
-                    "{op_context}: the arb '{name}' cannot be executed — its scope and risk bounds are decided, and the pipeline that turns them into legs has no implementation for: {}",
-                    crate::arb::missing_stages().join(", ")
-                ),
-            ),
-            // A hyperarb's plan is decided (`hyperarb::analyse`); the pipeline that
-            // would turn its legs into a settlement is the same one the arb scope
-            // needs, and the same two stages of it are missing.
+            // A hyperarb's legs are resolved (`hyperarb::analyse`) and the generator that
+            // turns them into operations is not written — its sibling `arb` has one
+            // (`arb::plan`), and this is the next piece rather than a stage of the shared
+            // pipeline. Refused here and in the emitter with that reason.
             Operation::Hyperarb { name, legs, .. } => push_unsafe(
                 diagnostics,
                 format!(
                     "{op_context}: the hyperarb '{name}' cannot be executed — it resolves {} leg(s) \
-                     and the pipeline that turns them into a settlement has no implementation for: {}",
-                    legs.len(),
-                    crate::arb::missing_stages().join(", ")
+                     and the generator that turns resolved legs into a settled plan is not written, \
+                     so the legs are decided and no artifact claims otherwise",
+                    legs.len()
                 ),
             ),
             Operation::Liquidation { position, .. } => push_unsafe(

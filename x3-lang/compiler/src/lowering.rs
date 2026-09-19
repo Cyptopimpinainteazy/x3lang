@@ -789,19 +789,48 @@ pub fn lower_program_with_mode(
                 });
             }
             Item::Arb(arb_decl) => {
-                // The decided scope travels in the operation: `x3c lower` is where the
-                // chain list, the hop bound and the risk bounds are visible today.
-                let decided = arb::policy(arb_decl).map_err(|reason| semantic(&reason))?;
-                ir.push(Operation::Arb {
-                    name: decided.name.clone(),
-                    chains: decided.chains.clone(),
-                    max_hops: decided.max_hops,
-                    min_profit_bps: decided.min_profit_bps,
-                    max_slippage_bps: decided.max_slippage_bps,
-                    max_total_fee_bps: decided.max_total_fee_bps,
-                    deadline_blocks: decided.deadline_blocks,
-                    parallel: decided.parallel,
+                // The declaration lowers to the *plan*: an atomic block holding the asset
+                // cycle the search found, the venues it may use, and the floors the
+                // runtime enforces. There is no marker operation, because the plan is
+                // what a reader needs — the scope's job was to filter, and the filter's
+                // result is the cycle.
+                let planned = arb::plan(program, arb_decl).map_err(|reason| semantic(&reason))?;
+
+                ir.push(Operation::AtomicBegin);
+                // A choice is recorded only when there was one: with a single candidate
+                // the compiler decided nothing, and an `AtomicChoice` over one path
+                // would be the verifier's "a choice with fewer than two paths is not a
+                // choice".
+                if planned.candidates > 1 {
+                    ir.push(Operation::AtomicChoice {
+                        paths: planned.candidates as u32,
+                        criterion: planned.criterion,
+                        selected: 0,
+                    });
+                }
+                // The input amount is the one the declaration states; the per-hop outputs
+                // are the host's, because every intermediate amount depends on a price
+                // this compiler does not have.
+                ir.push(Operation::MultiHopSwap {
+                    path: planned.cycle.assets.clone(),
+                    amount: planned.capital.0,
                 });
+                // The venues the compiler approved for this route, carried rather than
+                // implied: a runtime can only restrict itself to the compiler's
+                // approvals if the approvals are in the artifact.
+                ir.push(Operation::RouteFallback {
+                    approved: planned.cycle.venues.clone(),
+                });
+                for guard in &planned.guards {
+                    ir.push(Operation::Require {
+                        kind: require_kind_to_ir(&guard.kind),
+                        subject: None,
+                        condition: guard_condition(&bps_guard(guard))?,
+                        error_msg: None,
+                        comparison: Some(guard.comparison),
+                    });
+                }
+                ir.push(Operation::AtomicEnd);
             }
             // Explicit rather than left to the catch-all below: `Item` has an arm
             // for "other items generate no operations", and a declaration that fell
@@ -1480,6 +1509,24 @@ fn expression_to_condition(expr: &Expression) -> Result<Condition, x3_lang_commo
 }
 
 /// Convert AST RequireKind to IR RequireKind
+/// A guard the compiler generated, as the AST guard the rest of the pipeline reads.
+///
+/// The scope's floors travel the same path a written `require` does, so the condition
+/// they become is produced by one converter rather than by a second that could disagree
+/// about what `profit >= 20` means.
+fn bps_guard(guard: &arb::Guard) -> ast::RequireGuard {
+    ast::RequireGuard {
+        kind: guard.kind.clone(),
+        subject: None,
+        comparison: Some(guard.comparison),
+        value: Some(Expression::Literal(LiteralExpr::Int {
+            value: u128::from(guard.bps),
+            base: x3_lang_common::IntBase::Decimal,
+            suffix: None,
+        })),
+    }
+}
+
 fn require_kind_to_ir(kind: &ast::RequireKind) -> ir::RequireKind {
     match kind {
         ast::RequireKind::CanonicalSupply => ir::RequireKind::CanonicalSupply,
@@ -1540,6 +1587,12 @@ fn select_choice_path(choice: &x3_lang_ast::ast::AtomicChoiceDecl) -> Option<usi
             .enumerate()
             .filter_map(|(index, path)| crate::semantic::path_hop_count(path).map(|hops| (index, u128::from(hops))))
             .collect(),
+        // Refused by `verify_atomic_choice_decls` before lowering is reached, because
+        // the criterion needs the venue chain a plan resolves to and a path body does
+        // not carry one. Ranking nothing here leaves `ranked.len() != paths.len()`,
+        // so a caller that somehow got past the verifier is refused rather than
+        // given path 0.
+        ChoiceCriterion::LowestDeclaredFee => Vec::new(),
     };
 
     // A criterion that could only rank some of the paths has not ranked the
@@ -1551,6 +1604,9 @@ fn select_choice_path(choice: &x3_lang_ast::ast::AtomicChoiceDecl) -> Option<usi
     let better = |candidate: u128, incumbent: u128| match choice.criterion {
         ChoiceCriterion::HighestNetOutput => candidate > incumbent,
         ChoiceCriterion::FewestHops => candidate < incumbent,
+        // Unreachable: the arm above ranks no path, so `ranked` is empty and this is
+        // never called. Stated so the direction is not silently wrong if it ever is.
+        ChoiceCriterion::LowestDeclaredFee => false,
     };
 
     let mut best: Option<(usize, u128)> = None;

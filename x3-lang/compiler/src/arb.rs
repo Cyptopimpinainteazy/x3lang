@@ -70,6 +70,33 @@
 //! a compiler that reported it as an empty search would be reporting a typo as a
 //! result.
 //!
+//! ## The execution plan, and the number the compiler does not have
+//!
+//! [`plan`] turns a decided scope into the operations that would run: the asset cycle
+//! the search found, the venues it may use, and the floors as runtime guards.
+//!
+//! It reaches "Execution Plan" and "Atomic Settlement" — the two stages this module
+//! used to report as missing — **without prices**, and that is worth stating plainly
+//! because a profitable cycle cannot be computed from this graph. The graph holds venue
+//! *attributes* (fee, slippage, liquidity, latency, finality, risk) and no prices, which
+//! is why the language already refuses `maximize profit` for an objective rather than
+//! guessing. So the generator does not pick the most profitable cycle; it cannot. It
+//! picks the cycle with the lowest **declared** fee among those the declaration's own
+//! bounds admit, which is the strongest ranking computable from what a program
+//! declares, and it names that criterion `lowest_declared_fee` rather than borrowing
+//! `highest_net_output` for a ranking that never looked at an output.
+//!
+//! The profit floor is therefore a **runtime** guard, not a compile-time choice:
+//! `require profit >= <n>bps` travels in the artifact and the runtime refuses to settle
+//! below it. That is the honest division of labour — the compiler bounds the trade, the
+//! runtime measures it — and it is why the plan carries guards rather than a projected
+//! profit.
+//!
+//! The amounts follow the same rule. [`MultiHopSwap`](crate::ir::Operation::MultiHopSwap)
+//! takes the *input* amount, which the declaration states, and leaves the per-hop
+//! outputs to the host: no intermediate amount is invented, because every intermediate
+//! amount depends on a price the compiler does not have.
+//!
 //! ## On the second implementation of this phase
 //!
 //! A second `arb` implementation exists (`compiler/src/arbitrage.rs`, preserved
@@ -84,7 +111,7 @@
 
 use std::collections::BTreeSet;
 
-use x3_lang_ast::ast::{ArbDecl, Expression, Item, Program, RequireKind};
+use x3_lang_ast::ast::{ArbDecl, Expression, Item, Program, RequireKind, VenueDecl};
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
 
 use crate::lowering;
@@ -108,8 +135,14 @@ pub const STAGES: [(&str, Option<&str>); 7] = [
         "Risk Verification",
         Some("compiler/src/profitability.rs and the semantic guard checks (PHASE 36)"),
     ),
-    ("Execution Plan", None),
-    ("Atomic Settlement", None),
+    (
+        "Execution Plan",
+        Some("compiler/src/arb.rs (the generator below) and Operation::MultiHopSwap"),
+    ),
+    (
+        "Atomic Settlement",
+        Some("compiler/src/lowering.rs (the atomic block each plan is wrapped in) and Operation::Require"),
+    ),
 ];
 
 /// The stages of the phase's pipeline that no module implements.
@@ -403,15 +436,7 @@ pub fn venue_standings(program: &Program, policy: &ArbPolicy) -> Vec<(String, Ve
         // of its assets lives on, is declared. A cross-domain venue touches more
         // than one chain and the author should not have to list all of them for
         // the venue to be visible.
-        let touches: [&str; 3] = [
-            venue.chain.as_str(),
-            venue.asset_in.chain.as_str(),
-            venue.asset_out.chain.as_str(),
-        ];
-        if !touches
-            .iter()
-            .any(|chain| policy.chains.iter().any(|declared| declared == chain))
-        {
+        if !venue_in_scope(policy, venue) {
             standings.push((
                 name,
                 VenueStanding::Removed(format!(
@@ -593,4 +618,301 @@ fn semantic_error(message: impl Into<String>) -> X3Error {
         message: message.into(),
         span: Span::DUMMY,
     }
+}
+
+/// How many search nodes the cycle hunt may expand.
+///
+/// Bounded for the same reason the route search is bounded: an unbounded cycle hunt on
+/// a graph a program controls is not an analysis, it is a hang. Exceeding it is a
+/// refusal that names the bound rather than a truncated answer presented as a complete
+/// one.
+pub const MAX_ARB_EXPANSIONS: usize = 4096;
+
+/// One cycle the search found: the venues that serve it and the assets it passes
+/// through.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cycle {
+    /// Venues in hop order.
+    pub venues: Vec<String>,
+    /// `chain.ASSET` along the way, starting and ending at the same asset.
+    pub assets: Vec<String>,
+    /// The sum of the venues' declared fees, in basis points.
+    pub declared_fee_bps: u32,
+}
+
+impl Cycle {
+    /// The asset the cycle starts and ends in.
+    pub fn base_asset(&self) -> &str {
+        self.assets.first().map(String::as_str).unwrap_or("")
+    }
+
+    /// Hops taken: one less than the assets passed through.
+    pub fn hops(&self) -> usize {
+        self.assets.len().saturating_sub(1)
+    }
+}
+
+/// A floor the plan carries into the artifact as a runtime guard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Guard {
+    pub kind: x3_lang_ast::ast::RequireKind,
+    pub comparison: x3_lang_ast::ast::ComparisonOp,
+    pub bps: u16,
+}
+
+/// The execution plan an `arb` declaration lowers to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArbPlan {
+    pub name: String,
+    /// The winning cycle.
+    pub cycle: Cycle,
+    /// How many cycles the search found and ranked. One means no choice was made, and
+    /// the artifact says so by carrying no choice operation.
+    pub candidates: usize,
+    /// The criterion the winner was ranked by.
+    pub criterion: x3_lang_ast::ast::ChoiceCriterion,
+    /// The capital committed: its amount and `chain.ASSET`.
+    pub capital: (u128, String),
+    /// The floors the runtime enforces.
+    pub guards: Vec<Guard>,
+}
+
+/// Turn a decided `arb` declaration into the operations that would run.
+///
+/// The search is the graph's own: every edge is admitted by
+/// [`opportunity::reject_reason`](crate::opportunity::reject_reason) and every candidate
+/// by [`path_reject_reason`](crate::opportunity::path_reject_reason), so a cycle this
+/// returns cannot be one the route search would refuse for the same bound. The venue
+/// fee sum is `opportunity::path_fee_bps`, for the same reason: one place adds fees.
+pub fn plan(program: &Program, decl: &ArbDecl) -> Result<ArbPlan, String> {
+    let policy = policy(decl)?;
+    graph_grounding(program, &policy)?;
+
+    let graph = crate::opportunity::OpportunityGraph::from_program(program);
+    let constraints = crate::opportunity::OpportunityConstraints {
+        max_hops: policy.max_hops as usize,
+        max_chains: None,
+        max_fee_bps: Some(u32::from(policy.max_total_fee_bps)),
+        max_slippage_bps: Some(u32::from(policy.max_slippage_bps)),
+        min_liquidity: Some(policy.liquidity_min.0),
+        max_latency_ms: None,
+        max_finality_blocks: None,
+        max_risk: None,
+        require_proof: false,
+    };
+
+    // The trade commits capital in one asset and returns to it, so the cycle starts
+    // where the capital is.
+    let base = policy.capital_max.1.clone();
+    let mut candidates = enumerate_cycles(program, &graph, &policy, &constraints, &base)?;
+    if candidates.is_empty() {
+        return Err(no_cycle_reason(&graph, &policy, &constraints, &base));
+    }
+
+    // Rank: lowest declared fee, then fewest hops, then the venue names themselves, so
+    // the winner is a function of the graph rather than of the search's order.
+    candidates.sort_by(|left, right| {
+        left.declared_fee_bps
+            .cmp(&right.declared_fee_bps)
+            .then(left.hops().cmp(&right.hops()))
+            .then(left.venues.cmp(&right.venues))
+    });
+    let found = candidates.len();
+    if found as u32 > crate::semantic::MAX_ATOMIC_CHOICE_PATHS {
+        return Err(format!(
+            "the arb '{}' found {found} candidate cycles and the artifact's choice operation carries \
+             at most {}; a plan that recorded more would be refused by the verifier, so the scope is \
+             refused here with the count rather than emitting a plan that cannot be built",
+            policy.name,
+            crate::semantic::MAX_ATOMIC_CHOICE_PATHS
+        ));
+    }
+    let winner = candidates.swap_remove(0);
+
+    Ok(ArbPlan {
+        name: policy.name.clone(),
+        cycle: winner,
+        candidates: found,
+        criterion: x3_lang_ast::ast::ChoiceCriterion::LowestDeclaredFee,
+        capital: policy.capital_max.clone(),
+        guards: vec![
+            Guard {
+                kind: x3_lang_ast::ast::RequireKind::Profit,
+                comparison: x3_lang_ast::ast::ComparisonOp::GreaterOrEqual,
+                bps: policy.min_profit_bps,
+            },
+            Guard {
+                kind: x3_lang_ast::ast::RequireKind::Slippage,
+                comparison: x3_lang_ast::ast::ComparisonOp::LessOrEqual,
+                bps: policy.max_slippage_bps,
+            },
+        ],
+    })
+}
+
+/// Every cycle the declaration's bounds admit, from `base` back to `base`.
+fn enumerate_cycles(
+    program: &Program,
+    graph: &crate::opportunity::OpportunityGraph,
+    policy: &ArbPolicy,
+    constraints: &crate::opportunity::OpportunityConstraints,
+    base: &str,
+) -> Result<Vec<Cycle>, String> {
+    // The admitted venues, by name, from the same scope rule `venue_standings` applies,
+    // so a venue the standings called out of scope cannot be one the search walks
+    // through.
+    let admitted: std::collections::BTreeSet<String> = program
+        .items
+        .iter()
+        .filter_map(|item| match &item.node {
+            Item::VenueDecl(venue) => Some(venue),
+            _ => None,
+        })
+        .filter(|venue| venue_in_scope(policy, venue))
+        .map(|venue| venue.name.as_str().to_string())
+        .collect();
+
+    let mut found: Vec<Cycle> = Vec::new();
+    let mut expansions = 0usize;
+    let mut venues: Vec<String> = Vec::new();
+    let mut assets: Vec<String> = vec![base.to_string()];
+    walk_cycles(
+        graph,
+        policy,
+        constraints,
+        &admitted,
+        base,
+        &mut venues,
+        &mut assets,
+        &mut found,
+        &mut expansions,
+    )?;
+    Ok(found)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk_cycles(
+    graph: &crate::opportunity::OpportunityGraph,
+    policy: &ArbPolicy,
+    constraints: &crate::opportunity::OpportunityConstraints,
+    admitted: &std::collections::BTreeSet<String>,
+    base: &str,
+    venues: &mut Vec<String>,
+    assets: &mut Vec<String>,
+    found: &mut Vec<Cycle>,
+    expansions: &mut usize,
+) -> Result<(), String> {
+    if venues.len() >= policy.max_hops as usize {
+        return Ok(());
+    }
+    let Some(current) = assets.last().cloned() else {
+        return Ok(());
+    };
+
+    for edge in graph.edges_from(&current) {
+        *expansions += 1;
+        if *expansions > MAX_ARB_EXPANSIONS {
+            return Err(format!(
+                "the cycle search from '{base}' expanded more than {MAX_ARB_EXPANSIONS} nodes without finishing; the scope's venues admit too many paths to rank, so the declaration is refused rather than answered from a truncated search"
+            ));
+        }
+        // The scope says where the search may look — by venue, because the edge carries
+        // the venue's domain rather than its chain — and the graph's own rejection
+        // decides whether the hop is admissible at all.
+        if !admitted.contains(&edge.venue) {
+            continue;
+        }
+        if crate::opportunity::reject_reason(edge, constraints).is_some() {
+            continue;
+        }
+        let target = edge.to.clone();
+        // Repeating an asset would make the "cycle" a path with a loop in it, and the hop
+        // count would no longer describe the route.
+        if assets.contains(&target) && target != base {
+            continue;
+        }
+
+        venues.push(edge.venue.clone());
+        assets.push(target.clone());
+
+        if target == base && venues.len() >= 2 {
+            // The whole-path check, so a cycle is judged by the same function that judges
+            // any other route.
+            if crate::opportunity::path_reject_reason(venues, assets, graph, constraints).is_none() {
+                found.push(Cycle {
+                    declared_fee_bps: crate::opportunity::path_fee_bps(venues, graph),
+                    venues: venues.clone(),
+                    assets: assets.clone(),
+                });
+            }
+        } else {
+            walk_cycles(
+                graph,
+                policy,
+                constraints,
+                admitted,
+                base,
+                venues,
+                assets,
+                found,
+                expansions,
+            )?;
+        }
+
+        venues.pop();
+        assets.pop();
+    }
+    Ok(())
+}
+
+/// Whether a venue is inside the declared scope.
+///
+/// The rule is stated once and used twice — by `venue_standings` when it judges each
+/// declared venue, and by the cycle search when it filters an edge.
+fn venue_in_scope(policy: &ArbPolicy, venue: &VenueDecl) -> bool {
+    [
+        venue.chain.as_str(),
+        venue.asset_in.chain.as_str(),
+        venue.asset_out.chain.as_str(),
+    ]
+    .iter()
+    .any(|chain| policy.chains.iter().any(|declared| declared == chain))
+}
+
+/// Why the search found nothing, naming what it looked at.
+fn no_cycle_reason(
+    graph: &crate::opportunity::OpportunityGraph,
+    policy: &ArbPolicy,
+    constraints: &crate::opportunity::OpportunityConstraints,
+    base: &str,
+) -> String {
+    let leaving: Vec<String> = graph
+        .edges_from(base)
+        .into_iter()
+        .map(|edge| {
+            let why = crate::opportunity::reject_reason(edge, constraints)
+                .map(|reason| format!("{reason:?}"))
+                .unwrap_or_else(|| "admitted".to_string());
+            format!("{} ({} -> {}, {why})", edge.venue, edge.from, edge.to)
+        })
+        .collect();
+
+    if leaving.is_empty() {
+        return format!(
+            "the arb '{}' commits {} and no venue in the declared scope takes it as an input, so no cycle can start: the scope is {}",
+            policy.name,
+            base,
+            policy.chains.join(", ")
+        );
+    }
+    format!(
+        "the arb '{}' found no cycle from '{base}' back to '{base}' in at most {} hop(s) that satisfies its own bounds (min_profit {}bps, max_slippage {}bps, max_total_fee {}bps, liquidity_min {}). The venues leaving '{base}' are: {}",
+        policy.name,
+        policy.max_hops,
+        policy.min_profit_bps,
+        policy.max_slippage_bps,
+        policy.max_total_fee_bps,
+        policy.liquidity_min.0,
+        leaving.join("; ")
+    )
 }

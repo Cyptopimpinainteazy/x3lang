@@ -103,6 +103,7 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             let criterion_code = match criterion {
                 ChoiceCriterion::HighestNetOutput => CHOICE_CRITERION_HIGHEST_NET_OUTPUT,
                 ChoiceCriterion::FewestHops => CHOICE_CRITERION_FEWEST_HOPS,
+                ChoiceCriterion::LowestDeclaredFee => CHOICE_CRITERION_LOWEST_DECLARED_FEE,
             };
             if *selected >= *paths {
                 return Err(X3Error::CodegenError {
@@ -141,18 +142,6 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                      and a party in a book is a name rather than an account, so the artifact would \
                      carry a residual nothing can settle (PHASE 22, TICKET-071)",
                     transfers.len()
-                ),
-                span: None,
-            });
-        }
-        Operation::Arb { name, .. } => {
-            // Refused here as well as in the IR verifier, because `emit_x3ir` is
-            // public: the scope is decided, and the pipeline that would turn it into
-            // legs does not exist.
-            return Err(X3Error::CodegenError {
-                message: format!(
-                    "cannot emit the arb '{name}': its scope and risk bounds are decided and the pipeline that turns them into legs has no implementation for {}. An artifact carrying a scope with no legs would be a plan that does nothing (PHASE 37, TICKET-073)",
-                    crate::arb::missing_stages().join(", ")
                 ),
                 span: None,
             });

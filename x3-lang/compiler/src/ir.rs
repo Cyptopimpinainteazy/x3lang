@@ -147,25 +147,6 @@ pub enum Operation {
         transfers: Vec<(String, String, String, u128)>,
     },
 
-    /// An arbitrage scope and the policy its trade must satisfy (spec PHASE 37).
-    ///
-    /// The decided scope and bounds travel so `x3c lower` shows what the verifier
-    /// checked. No artifact is emitted with this operation: the phase's pipeline
-    /// has stages with no implementation at all (`arb::missing_stages`), so the
-    /// IR verifier and the emitter both refuse it rather than emit a plan nothing
-    /// could follow (TICKET-073).
-    Arb {
-        name: String,
-        /// The chains the search may look at, in the order written.
-        chains: Vec<String>,
-        max_hops: u32,
-        min_profit_bps: u16,
-        max_slippage_bps: u16,
-        max_total_fee_bps: u16,
-        deadline_blocks: u32,
-        parallel: bool,
-    },
-
     /// The multi-leg, multi-domain arbitrage primitive (spec PHASE 38).
     ///
     /// The decided plan travels so `x3c lower` shows what the verifier resolved:

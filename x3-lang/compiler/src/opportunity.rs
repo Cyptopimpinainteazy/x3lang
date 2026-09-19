@@ -484,7 +484,7 @@ pub fn path_reject_reason(
 /// A total is a property of the path, not of any edge, which is why it is here
 /// rather than in [`reject_reason`]: a bound on the total cannot be checked one
 /// venue at a time.
-fn path_fee_bps(venues: &[String], graph: &OpportunityGraph) -> u32 {
+pub(crate) fn path_fee_bps(venues: &[String], graph: &OpportunityGraph) -> u32 {
     venues
         .iter()
         .filter_map(|venue| graph.venue(venue))

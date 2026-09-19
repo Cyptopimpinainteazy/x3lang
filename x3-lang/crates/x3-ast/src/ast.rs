@@ -1043,6 +1043,16 @@ pub enum ChoiceCriterion {
     HighestNetOutput,
     /// Take the path with the fewest hops.
     FewestHops,
+    /// Take the path whose venues' **declared** fees sum lowest.
+    ///
+    /// The word `declared` is doing work: the sum is over the `fee_bps` each venue
+    /// declares, not over any fee that was charged, and it says nothing about
+    /// output. A criterion that ranked by profit would need prices, and the
+    /// opportunity graph holds venue attributes rather than prices — which is why
+    /// the compiler refuses `maximize profit` for the objective with that reason
+    /// rather than guessing. This is the strongest ranking that *is* computable
+    /// from what a program declares, and it is named for exactly what it computes.
+    LowestDeclaredFee,
 }
 
 impl ChoiceCriterion {
@@ -1050,12 +1060,17 @@ impl ChoiceCriterion {
         match self {
             ChoiceCriterion::HighestNetOutput => "highest_net_output",
             ChoiceCriterion::FewestHops => "fewest_hops",
+            ChoiceCriterion::LowestDeclaredFee => "lowest_declared_fee",
         }
     }
 
     /// The criteria the language accepts. Used both by the parser and by the
     /// error message for an unknown one, so the two cannot list different sets.
-    pub const ALL: &'static [ChoiceCriterion] = &[ChoiceCriterion::HighestNetOutput, ChoiceCriterion::FewestHops];
+    pub const ALL: &'static [ChoiceCriterion] = &[
+        ChoiceCriterion::HighestNetOutput,
+        ChoiceCriterion::FewestHops,
+        ChoiceCriterion::LowestDeclaredFee,
+    ];
 
     pub fn parse(name: &str) -> Option<ChoiceCriterion> {
         ChoiceCriterion::ALL.iter().copied().find(|c| c.as_str() == name)

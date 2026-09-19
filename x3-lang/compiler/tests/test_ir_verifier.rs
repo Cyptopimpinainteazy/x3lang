@@ -2,8 +2,8 @@ use std::collections::{BTreeSet, HashMap};
 
 use x3_lang_compiler::diagnostic::DiagnosticCode;
 use x3_lang_compiler::ir::{
-    AssetKey, CompiledTradingPolicy, CostKind, FailureAction, InvariantKind, Operation, ProgramMetadata,
-    StateBindingMode, SubmissionProfile, TradingOperation, ValueRef, X3IR,
+    AssetKey, ComparisonOp, CompiledTradingPolicy, Condition, CostKind, FailureAction, InvariantKind, Operation,
+    ProgramMetadata, RequireKind, StateBindingMode, SubmissionProfile, TradingOperation, ValueRef, X3IR,
 };
 use x3_lang_compiler::verify::verify_ir;
 
@@ -582,39 +582,51 @@ fn a_netting_book_is_refused_until_something_can_settle_the_residual() {
 }
 
 #[test]
-fn an_arb_scope_is_refused_naming_the_pipeline_stages_that_do_not_exist() {
-    // PHASE 37's scope and risk bounds are decided on the AST (`arb::verify`); what
-    // is missing is the pipeline that turns a scope into legs. Six of the phase's
-    // seven stages are implemented elsewhere in this compiler, so the refusal names
-    // the two that are not rather than saying "not implemented" and reading as
-    // though none of it existed.
-    let ir = ir_with(vec![Operation::Arb {
-        name: "spread".to_owned(),
-        chains: vec!["x3".to_owned(), "ethereum".to_owned()],
-        max_hops: 4,
-        min_profit_bps: 20,
-        max_slippage_bps: 8,
-        max_total_fee_bps: 6,
-        deadline_blocks: 1,
-        parallel: true,
-    }]);
-    let diagnostics = verify_ir(&ir).expect_err("no pipeline can turn the scope into legs");
-    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+fn the_operations_an_arb_scope_lowers_to_pass_the_structural_verifier() {
+    // PHASE 37's stage table used to report "Execution Plan" and "Atomic Settlement" as
+    // the two stages with no implementation, and this layer refused the scope over them.
+    // Both are now owned by the generator (`arb::plan`), so what has to hold is the other
+    // direction: the plan it emits is a plan this layer accepts.
+    let ir = ir_with(vec![
+        Operation::AtomicBegin,
+        Operation::MultiHopSwap {
+            path: vec![
+                "ethereum.USDC".to_owned(),
+                "ethereum.ETH".to_owned(),
+                "ethereum.USDC".to_owned(),
+            ],
+            amount: 25_000_000,
+        },
+        Operation::RouteFallback {
+            approved: vec!["uniswap_v3".to_owned(), "curve_v2".to_owned()],
+        },
+        Operation::Require {
+            kind: RequireKind::ProfitThreshold,
+            subject: None,
+            condition: Condition::BalanceGte {
+                chain: "ethereum".to_owned(),
+                asset: "USDC".to_owned(),
+                account: "sender".to_owned(),
+                amount: 20,
+            },
+            error_msg: None,
+            comparison: Some(ComparisonOp::GreaterOrEqual),
+        },
+        Operation::AtomicEnd,
+    ]);
+    let verified = verify_ir(&ir);
     assert!(
-        diagnostics[0].message.contains("cannot be executed")
-            && diagnostics[0].message.contains("spread")
-            && diagnostics[0].message.contains("Execution Plan")
-            && diagnostics[0].message.contains("Atomic Settlement")
-            && !diagnostics[0].message.contains("  "),
-        "the refusal must name the arb and the missing stages: {diagnostics:?}"
+        verified.is_ok(),
+        "a planned arb must be a plan this layer accepts: {verified:?}"
     );
 }
 
 #[test]
-fn a_hyperarb_is_refused_until_the_pipeline_can_settle_its_legs() {
-    // PHASE 38's clauses are resolved on the AST (`hyperarb::analyse`); what is
-    // missing is the same pipeline the arb scope needs, and the refusal names the
-    // same two stages rather than saying "not implemented".
+fn a_hyperarb_is_refused_until_its_own_generator_exists() {
+    // PHASE 38's clauses are resolved on the AST (`hyperarb::analyse`), and the
+    // generator that turns resolved legs into operations is not written — its sibling
+    // `arb` has one (`arb::plan`). The refusal says that rather than blaming a pipeline
+    // stage, because the shared pipeline is now fully owned.
     let ir = ir_with(vec![Operation::Hyperarb {
         name: "triangular".to_owned(),
         capital: (25_000_000, "ethereum.USDC".to_owned()),
@@ -633,9 +645,7 @@ fn a_hyperarb_is_refused_until_the_pipeline_can_settle_its_legs() {
         diagnostics[0].message.contains("cannot be executed")
             && diagnostics[0].message.contains("triangular")
             && diagnostics[0].message.contains("2 leg(s)")
-            && diagnostics[0].message.contains("Execution Plan")
-            && diagnostics[0].message.contains("Atomic Settlement")
-            && !diagnostics[0].message.contains("  "),
+            && diagnostics[0].message.contains("generator that turns resolved legs"),
         "the refusal must name the plan, the legs and the missing stages: {diagnostics:?}"
     );
 }

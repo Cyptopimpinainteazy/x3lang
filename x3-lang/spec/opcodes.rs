@@ -174,6 +174,10 @@ pub const fn require_guard_operator(flags: u8) -> u8 {
 /// unrecognised one cannot be interpreted as some default.
 pub const CHOICE_CRITERION_HIGHEST_NET_OUTPUT: u8 = 0;
 pub const CHOICE_CRITERION_FEWEST_HOPS: u8 = 1;
+/// The path whose venues' declared fees sum lowest. Named for what it computes:
+/// declared fees from venue attributes, never profit — a profit ranking would need
+/// prices the opportunity graph does not hold (`compiler/src/arb.rs`).
+pub const CHOICE_CRITERION_LOWEST_DECLARED_FEE: u8 = 2;
 
 /// Maximum approved substitutions a route `fallback` may declare.
 ///

@@ -1737,63 +1737,42 @@ fn cli_check_refuses_a_netting_book_because_nothing_settles_the_residual() {
 /// says whether a program can run has to refuse it with the stages that are
 /// missing rather than with silence.
 #[test]
-fn cli_refuses_an_arb_scope_and_names_the_pipeline_stages_that_are_missing() {
-    // The venues are what the scope is judged against: a declaration with no graph
-    // to search is refused at the AST layer, before the pipeline question is
-    // reached, so this test needs venues to get to the refusal it is about.
-    let source = "intent spread_trade {\n    \
-                      from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
-                      to solana.USDC receiver 0xA2\n    \
-                      route {\n        \
-                          swap uniswap ethereum.USDC -> solana.USDC amount 1_000_000 min_output \
-                          1_001_000\n    \
-                      }\n    \
-                      require profit >= 20\n    \
-                      require slippage <= 50\n    \
-                      timeout 30s refund ethereum.USDC to sender\n    \
-                      on_fail rollback\n\
-                  }\n\
-                  venue uniswap_v3 {\n    \
-                      kind pool\n    chain ethereum\n    domain evm\n    \
-                      asset_in ethereum.USDC\n    asset_out solana.USDC\n    \
-                      fee_bps 5\n    liquidity 1_000_000\n    slippage_bps 8\n    \
-                      latency_ms 12\n    finality_blocks 12\n    risk 2\n\
-                  }\n\
-                  arb spread {\n    \
-                      discover { chains = [x3, ethereum, solana]; max_hops = 4; liquidity_min = \
-                      500_000 ethereum.USDC; }\n    \
-                      capital { flash = disabled; max = 50_000_000 ethereum.USDC; }\n    \
-                      execution { atomic = true; parallel = true; private = false; }\n    \
-                      risk { min_profit = 20bps; max_slippage = 8bps; max_total_fee = 6bps; \
-                      deadline = 220ms; }\n\
-                  }\n";
-    let fixture = write_fixture("cli_arb_sound.x3", source);
-
+fn cli_plans_an_arb_scope_builds_it_and_runs_it() {
+    // PHASE 37's scope used to be refused at the IR layer over the two pipeline stages
+    // with no implementation. `arb::plan` owns them now, so what has to hold is the
+    // whole path: the scope checks, the plan lowers to a cycle and its floors, the
+    // artifact builds, and the trade runs against a host.
+    let source = "intent spread_trade {\n    from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
+                  to ethereum.USDC receiver 0xA2\n    require profit >= 20\n    require \
+                  slippage <= 50\n    timeout 30s refund ethereum.USDC to sender\n    on_fail \
+                  rollback\n}\n\
+                  venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 3\n    \
+                  liquidity 1_000_000\n    slippage_bps 8\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  venue eth_to_usdc {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.ETH\n    asset_out ethereum.USDC\n    fee_bps 2\n    \
+                  liquidity 900_000\n    slippage_bps 6\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  arb spread {\n    discover { chains = [ethereum]; max_hops = 4; liquidity_min = \
+                  500_000 ethereum.USDC; }\n    capital { flash = disabled; max = 25_000_000 \
+                  ethereum.USDC; }\n    execution { atomic = true; parallel = true; private = \
+                  false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; max_total_fee = \
+                  6bps; deadline = 220ms; }\n}\n";
+    let fixture = write_fixture("cli_arb_planned.x3", source);
     let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
     let output = format!(
         "{}{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
+    assert!(check.status.success(), "an arb scope with a cycle must check: {output}");
     assert!(
-        !check.status.success(),
-        "no pipeline can turn the scope into legs: {output}"
-    );
-    assert!(
-        output.contains("Execution Plan") && output.contains("Atomic Settlement"),
-        "the refusal must name the stages with no implementation: {output}"
-    );
-    let refusal = output
-        .lines()
-        .find(|line| line.contains("cannot be executed"))
-        .expect("the refusal must be in the output");
-    assert!(
-        !refusal.trim().contains("  "),
-        "the refusal must not carry spacing artefacts from the literal: {refusal}"
+        !output.contains("cannot be executed"),
+        "nothing about a planned arb scope is unexecutable: {output}"
     );
 
-    // `build` must give the same answer, so check and build cannot disagree.
-    let out = std::env::temp_dir().join("cli_arb_sound.x3b");
+    let out = std::env::temp_dir().join("cli_arb_planned.x3b");
     let build = x3c()
         .arg("build")
         .arg(&fixture)
@@ -1806,25 +1785,69 @@ fn cli_refuses_an_arb_scope_and_names_the_pipeline_stages_that_are_missing() {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
-    assert!(!build.status.success(), "the artifact must not be emitted: {text}");
+    assert!(build.status.success(), "the plan must build: {text}");
+
+    // The artifact must carry the plan, not merely accept it: the cycle as a host call
+    // and the approved venues beside it.
+    let explain = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let disassembly = format!(
+        "{}{}",
+        String::from_utf8_lossy(&explain.stdout),
+        String::from_utf8_lossy(&explain.stderr)
+    );
     assert!(
-        text.contains("spread") && text.contains("Execution Plan"),
-        "the emitter must give the same reason: {text}"
+        disassembly.contains("MULTI_HOP_SWAP"),
+        "the plan's host call must be in the artifact: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("ethereum.ETH") && disassembly.contains("25000000"),
+        "the cycle and the committed amount must be in the artifact: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("ROUTE_FALLBACK") && disassembly.contains("usdc_to_eth"),
+        "the venues the compiler approved must be in the artifact: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("ATOMIC_BEGIN")
+            && disassembly.contains("ATOMIC_END")
+            && disassembly.find("ATOMIC_BEGIN") < disassembly.find("MULTI_HOP_SWAP"),
+        "the whole plan must sit inside one atomic block: {disassembly}"
+    );
+
+    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
+    let run_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        run.status.success() && run_text.contains("x3c run: ok"),
+        "the planned trade must run against the fixture host: {run_text}"
     );
 }
 
 /// `x3c lower` shows what the arb's verifier decided.
 #[test]
-fn cli_lower_shows_the_decided_arb_scope() {
-    let source = "venue uniswap_v3 {\n    kind pool\n    chain ethereum\n    domain evm\n    \
-                  asset_in ethereum.USDC\n    asset_out solana.USDC\n    fee_bps 5\n    \
+fn cli_lower_shows_the_planned_arb_cycle_and_its_floors() {
+    // The artifact carries what the generator decided: the asset cycle, the venues the
+    // compiler approved, and the floors the runtime measures.
+    let source = "intent spread_trade {\n    from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
+                  to ethereum.USDC receiver 0xA2\n    require profit >= 20\n    require \
+                  slippage <= 50\n    timeout 30s refund ethereum.USDC to sender\n    on_fail \
+                  rollback\n}\n\
+                  venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 3\n    \
                   liquidity 1_000_000\n    slippage_bps 8\n    latency_ms 12\n    \
                   finality_blocks 12\n    risk 2\n}\n\
-                  arb spread {\n    discover { chains = [x3, ethereum]; max_hops = 3; \
-                  liquidity_min = 500_000 ethereum.USDC; }\n    capital { flash = disabled; max \
-                  = 50_000_000 ethereum.USDC; }\n    execution { atomic = true; parallel = true; \
-                  private = false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; \
-                  max_total_fee = 6bps; deadline = 60s; }\n}\n";
+                  venue eth_to_usdc {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.ETH\n    asset_out ethereum.USDC\n    fee_bps 2\n    \
+                  liquidity 900_000\n    slippage_bps 6\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  arb spread {\n    discover { chains = [ethereum]; max_hops = 4; liquidity_min = \
+                  500_000 ethereum.USDC; }\n    capital { flash = disabled; max = 25_000_000 \
+                  ethereum.USDC; }\n    execution { atomic = true; parallel = true; private = \
+                  false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; max_total_fee = \
+                  6bps; deadline = 220ms; }\n}\n";
     let fixture = write_fixture("cli_arb_lower.x3", source);
     let out = std::env::temp_dir().join("cli_arb_lower.json");
     let lower = x3c()
@@ -1843,16 +1866,24 @@ fn cli_lower_shows_the_decided_arb_scope() {
 
     let json = std::fs::read_to_string(&out).expect("the IR document");
     assert!(
-        json.contains("\"chains\"") && json.contains("\"ethereum\""),
-        "the decided scope must be in the IR: {json}"
+        json.contains("\"MultiHopSwap\"") && json.contains("\"ethereum.ETH\""),
+        "the plan's cycle must be in the IR: {json}"
     );
     assert!(
-        json.contains("\"min_profit_bps\": 20") && json.contains("\"max_hops\": 3"),
-        "the decided bounds must be in the IR: {json}"
+        json.contains("\"usdc_to_eth\"") && json.contains("\"eth_to_usdc\""),
+        "the venues the compiler approved must travel in the artifact: {json}"
     );
     assert!(
-        json.contains("\"deadline_blocks\": 10"),
-        "60s must have been read as ten blocks: {json}"
+        json.contains("\"ProfitThreshold\"") && json.contains("\"SlippageTolerance\""),
+        "the floors must be guards, because the runtime is what measures them: {json}"
+    );
+    assert!(
+        json.contains("\"AtomicBegin\"") && json.contains("\"AtomicEnd\""),
+        "the whole plan must be inside one atomic block: {json}"
+    );
+    assert!(
+        !json.contains("\"AtomicChoice\""),
+        "one candidate is not a choice, so no choice may be recorded: {json}"
     );
 }
 
@@ -2179,10 +2210,10 @@ fn cli_refuses_a_hyperarb_leg_that_names_nothing_and_lowers_the_one_that_does() 
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
-    assert!(!check.status.success(), "no pipeline settles the legs: {output}");
+    assert!(!check.status.success(), "no generator settles the legs: {output}");
     assert!(
-        output.contains("Execution Plan") && output.contains("2 leg(s)"),
-        "the refusal must name the stages and the leg count: {output}"
+        output.contains("2 leg(s)") && output.contains("generator that turns resolved legs"),
+        "the refusal must say what is missing and what was decided: {output}"
     );
 }
 
