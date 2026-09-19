@@ -745,6 +745,23 @@ pub enum Condition {
     NonceEq { account: String, expected: u64 },
     /// Proof verification: verify_proof(proof_data, expected_hash)
     ProofValid { proof: String, expected_hash: String },
+    /// A `finality_policy` declaration: the word a chain must reach, and the depth
+    /// the program requires of it.
+    ///
+    /// Carried as a typed value rather than as `Expression { expr: "strict
+    /// finalized" }` so the depth can reach the artifact: the emitter writes it
+    /// into the `REQUIRE` operand, which is what lets a replayer re-check the
+    /// guard-versus-declaration relationship the compiler decided (TICKET-059). A
+    /// string would have to be re-parsed by whoever wants the number, and a value
+    /// nothing parses is a claim nothing can check (the shape of TICKET-044).
+    FinalityPolicy {
+        /// The policy's own name (`strict`, `relaxed`, …), as written.
+        name: String,
+        /// The word the chain must reach (`finalized`, `safe`, …).
+        requirement: String,
+        /// The depth the program requires, in blocks, when it states one.
+        blocks: Option<u32>,
+    },
     /// Boolean expression evaluation
     Expression { expr: String },
     /// Always true

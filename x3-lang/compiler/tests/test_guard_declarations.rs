@@ -704,3 +704,64 @@ fn the_mainnet_safe_example_declares_a_property_the_compiler_confirms() {
     let found = errors_in_mode(&source, x3_lang_compiler::CompilationMode::Dev);
     assert_eq!(found, Vec::<String>::new(), "{found:?}");
 }
+
+// ---------------------------------------------------------------------------
+// The declared depth reaches the artifact (TICKET-059).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_artifact_carries_the_declared_finality_depth() {
+    // A replayer that reads only the artifact has to be able to re-check what the
+    // compiler decided: the guard says `>= 32`, and the policy's `blocks 32` is the
+    // number that decision was made against. It travels in the `REQUIRE` operand
+    // (a `FinalityExplicit` record), so `x3c explain` shows it.
+    let with_depth = format!(
+        "{}{}",
+        "finality_policy strict {\n    chain solana\n    requirement finalized\n    blocks 32\n}\n\n",
+        program("", "    require finality.solana >= 32")
+    );
+    let bytecode = x3_lang_compiler::compile_source(&with_depth).expect("the program must compile");
+    let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("it must disassemble");
+    assert!(
+        trace.contains("REQUIRE static 32"),
+        "the declaration's depth must be in the artifact: {trace}"
+    );
+
+    // A policy that states no depth carries zero there, which is why the parser
+    // refuses `blocks 0`: a missing depth and a zero one cannot be the same number.
+    let without_depth = format!(
+        "{}{}",
+        "finality_policy strict {\n    chain solana\n    requirement finalized\n}\n\n",
+        program("", "    require finality.solana == finalized")
+    );
+    let bytecode = x3_lang_compiler::compile_source(&without_depth).expect("the program must compile");
+    let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("it must disassemble");
+    assert!(
+        trace.contains("REQUIRE static 0"),
+        "a declaration that states no depth carries zero: {trace}"
+    );
+}
+
+#[test]
+fn a_finality_depth_of_zero_or_beyond_the_operand_is_refused() {
+    // `blocks 0` states nothing, and the artifact's operand cannot hold a depth
+    // above `u16::MAX`; both are refusals rather than a silently reduced number.
+    let zero = errors(&format!(
+        "{}{}",
+        "finality_policy strict {\n    chain solana\n    requirement finalized\n    blocks 0\n}\n\n",
+        program("", "    require finality.solana >= 1")
+    ));
+    assert!(zero.iter().any(|error| error.contains("states no depth")), "{zero:?}");
+
+    let too_deep = errors(&format!(
+        "{}{}",
+        "finality_policy strict {\n    chain solana\n    requirement finalized\n    blocks 70000\n}\n\n",
+        program("", "    require finality.solana >= 32")
+    ));
+    assert!(
+        too_deep
+            .iter()
+            .any(|error| error.contains("largest depth the artifact can carry")),
+        "{too_deep:?}"
+    );
+}

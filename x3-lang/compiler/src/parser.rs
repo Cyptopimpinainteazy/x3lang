@@ -3508,16 +3508,33 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Tok::Ident(ref unit) if unit == "blocks") {
             self.advance();
         }
-        u32::try_from(value).map_err(|_| {
-            parse_err(
-                format!(
-                    "finality_policy `blocks` {value} is above the largest count this format holds \
-                     ({})",
-                    u32::MAX
-                ),
+        // Zero is not a depth: `blocks 0` would be a policy that requires the
+        // chain to be no blocks deep, which states nothing, and the artifact
+        // carries "no depth stated" as a zero operand — so the two would be the
+        // same number (TICKET-059).
+        if value == 0 {
+            return Err(parse_err(
+                "finality_policy `blocks 0` states no depth; omit the clause when the policy states \
+                 none, so that a missing depth and a zero one cannot be read as each other"
+                    .into(),
                 self.peek(),
-            )
-        })
+            ));
+        }
+        // The artifact carries the depth in a `u16` operand, so the bound is the
+        // format's rather than a preference.
+        u32::try_from(value)
+            .ok()
+            .filter(|value| *value <= u32::from(u16::MAX))
+            .ok_or_else(|| {
+                parse_err(
+                    format!(
+                        "finality_policy `blocks` {value} is above the largest depth the artifact can \
+                     carry ({})",
+                        u16::MAX
+                    ),
+                    self.peek(),
+                )
+            })
     }
 
     /// `error <name>`

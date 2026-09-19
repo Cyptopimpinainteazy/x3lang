@@ -215,6 +215,26 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 }
             ) {
                 (REQUIRE_COMPARE_GE, 1u16)
+            } else if let Operation::Require {
+                condition: crate::ir::Condition::FinalityPolicy { blocks, .. },
+                ..
+            } = op
+            {
+                // A finality policy's depth travels in the operand, which is what
+                // makes it re-checkable from the artifact: a replayer can compare
+                // the guards it reads against the number the declaration states
+                // (TICKET-059). Zero means the declaration states no depth — the
+                // parser refuses `blocks 0`, so the two cannot be confused — and a
+                // depth the operand cannot hold is refused rather than truncated.
+                let blocks = blocks.unwrap_or(0);
+                let threshold = u16::try_from(blocks).map_err(|_| X3Error::CodegenError {
+                    message: format!(
+                        "finality depth {blocks} does not fit the instruction's operand ({})",
+                        u16::MAX
+                    ),
+                    span: None,
+                })?;
+                (REQUIRE_COMPARE_STATIC, threshold)
             } else {
                 (REQUIRE_COMPARE_STATIC, 0u16)
             };
@@ -1123,13 +1143,26 @@ fn align4(value: usize) -> usize {
     (value + 3) & !3
 }
 
-fn disassemble_op(opcode: u8, payload: &[u8], _flags: u8, _operand: u16) -> String {
+fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String {
     // The name comes from the one table both crates include, and whether the
     // instruction carries a payload comes from the one predicate that says so.
     // This function used to hold its own name table *and* its own idea of which
     // opcodes carry payloads — including a `VECTOR` arm for `0x70..=0x7F`, a range
     // no instruction has ever been emitted in.
     let name = opcode_name(opcode);
+    // `REQUIRE` is the one fixed frame whose operand is read: a finality policy
+    // declaration carries the depth it requires there, so printing it is what
+    // makes the number visible to whoever reads the artifact — a guard's own
+    // threshold is not carried (`REQUIRE static 0`), and a run-time comparison
+    // says which mode it is in (`REQUIRE ge 1`, the nonce guard).
+    if opcode == REQUIRE {
+        let mode = match flags & REQUIRE_COMPARE_MASK {
+            REQUIRE_COMPARE_STATIC => "static",
+            REQUIRE_COMPARE_GE => "ge",
+            _ => "?",
+        };
+        return format!("{name} {mode} {operand}");
+    }
     if !is_payload_opcode(opcode, true) {
         return name.to_string();
     }

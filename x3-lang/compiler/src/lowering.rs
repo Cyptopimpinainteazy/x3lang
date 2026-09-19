@@ -690,8 +690,12 @@ pub fn lower_program_with_mode(
                 ir.push(Operation::Require {
                     kind: ir::RequireKind::FinalityExplicit,
                     subject: Some(fp.chain.as_str().to_string()),
-                    condition: ir::Condition::Expression {
-                        expr: format!("{} {}", fp.mode.as_str(), fp.requirement.as_str()),
+                    // Typed rather than a rendered string, so the depth the
+                    // declaration states reaches the artifact (TICKET-059).
+                    condition: ir::Condition::FinalityPolicy {
+                        name: fp.mode.as_str().to_string(),
+                        requirement: fp.requirement.as_str().to_string(),
+                        blocks: fp.blocks,
                     },
                     error_msg: None,
                     comparison: None,
