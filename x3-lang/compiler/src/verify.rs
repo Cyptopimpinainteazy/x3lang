@@ -328,14 +328,6 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                      them, so the portfolio is decided and the plan is not pretended"
                 ),
             ),
-            Operation::Liquidation { position, .. } => push_unsafe(
-                diagnostics,
-                format!(
-                    "{op_context}: the liquidation of '{position}' cannot be executed — liquidate \
-                     and receive are calls into a lending protocol this VM has no adapter for, so \
-                     the accounting is decided and the execution is not pretended"
-                ),
-            ),
             Operation::VenueOrder {
                 action,
                 asset,

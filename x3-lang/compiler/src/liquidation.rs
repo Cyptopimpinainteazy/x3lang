@@ -51,6 +51,16 @@ impl LiquidationLedger {
     pub fn net_at_minimum(&self) -> u128 {
         self.min_output.saturating_sub(self.repaid)
     }
+
+    /// The seized asset as `(chain, ASSET)`, for the swap that converts it.
+    pub fn collateral_parts(&self) -> (String, String) {
+        parts_of(&self.collateral_asset)
+    }
+
+    /// The debt asset as `(chain, ASSET)` — what the swap produces and what is repaid.
+    pub fn debt_parts(&self) -> (String, String) {
+        parts_of(&self.debt_asset)
+    }
 }
 
 /// Decide a liquidation from its own figures.
@@ -155,6 +165,14 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
 }
 
 /// `chain.ASSET`, the identity the clauses have to agree on.
+/// A `chain.ASSET` key split back into its parts.
+fn parts_of(key: &str) -> (String, String) {
+    match key.split_once('.') {
+        Some((chain, asset)) => (chain.to_string(), asset.to_string()),
+        None => (key.to_string(), String::new()),
+    }
+}
+
 fn key(asset: &AssetRef) -> String {
     format!("{}.{}", asset.chain.as_str(), asset.name.as_str())
 }

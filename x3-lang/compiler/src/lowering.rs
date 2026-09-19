@@ -906,20 +906,89 @@ pub fn lower_program_with_mode(
                 ir.push(Operation::AtomicEnd);
             }
             Item::AtomicLiquidation(liquidation_decl) => {
-                // The `ledger` call repeats nothing the verifier decided: it is what
-                // carries the decided figures into the artifact, so a replayer can
-                // re-check the plan from it.
+                // The declaration lowers to the *plan*: the two venue calls, the conversion
+                // with the floor the declaration states, and the net-profit guard. Every
+                // figure comes from the ledger the verifier decided, so a replayer can
+                // re-check the plan from the artifact.
+                //
+                // Unlike a hedge's legs, the conversion's amounts are known: the declaration
+                // states the swap's input and its `min_output`, which is what makes this a
+                // `Swap` rather than a route the compiler would have to resolve. The venue is
+                // not named, and `dex: None` says so — picking one would be choosing a market
+                // the program never wrote down.
                 let ledger = liquidation::ledger(liquidation_decl).map_err(|reason| semantic(&reason))?;
-                ir.push(Operation::Liquidation {
-                    position: ledger.position.clone(),
-                    debt_asset: ledger.debt_asset.clone(),
-                    collateral_asset: ledger.collateral_asset.clone(),
-                    capital: ledger.capital,
-                    collateral: ledger.collateral,
-                    min_output: ledger.min_output,
-                    repaid: ledger.repaid,
-                    profit_floor: ledger.profit_floor,
+
+                // The conversion is a swap, and `verify_slippage_explicit` refuses a swap leg
+                // in an artifact with no explicit slippage bound. A liquidation states a
+                // profit floor and no ceiling, so the ceiling has to come from the program —
+                // refused here with the rule named rather than emitted into an artifact the
+                // next layer rejects (the same shape as a hyperarb's plan).
+                let bounded = crate::semantic::require_guards(program)
+                    .into_iter()
+                    .any(|(_, guard)| guard.kind == ast::RequireKind::Slippage);
+                if !bounded {
+                    return Err(semantic(&format!(
+                        "the liquidation of '{}' plans a conversion and this program declares no \
+                         `require slippage <= <n>` bound; a swap without an explicit ceiling is a \
+                         leg whose price is unconstrained, so write the bound where the trade is \
+                         bounded",
+                        ledger.position
+                    )));
+                }
+
+                let (collateral_chain, collateral_name) = ledger.collateral_parts();
+                let (debt_chain, debt_name) = ledger.debt_parts();
+
+                ir.push(Operation::AtomicBegin);
+                // The two calls the VM has no native form for, asked of a host in the one
+                // shape that can carry them: an action, what it is about (the position), the
+                // asset, and the quantity.
+                ir.push(Operation::VenueOrder {
+                    action: "liquidate".to_string(),
+                    subject: ledger.position.clone(),
+                    asset: ledger.debt_asset.clone(),
+                    quantity: ledger.capital,
                 });
+                ir.push(Operation::VenueOrder {
+                    action: "receive_collateral".to_string(),
+                    subject: ledger.position.clone(),
+                    asset: ledger.collateral_asset.clone(),
+                    quantity: ledger.collateral,
+                });
+                ir.push(Operation::Swap {
+                    from_chain: collateral_chain,
+                    from_asset: collateral_name,
+                    to_chain: debt_chain,
+                    to_asset: debt_name,
+                    input_amount: ledger.swapped_in,
+                    min_output: ledger.min_output,
+                    dex: None,
+                });
+                // The floor travels as a *constraint* rather than a measured guard, and the
+                // difference is the conversion: a plan's measured floors follow a host call
+                // whose reply carries a measurement, and a `Swap` is an asset-op *record* —
+                // it never reaches the host, so no reply could carry one. What the floor is
+                // derived from is the swap's declared `min_output` against the repayment,
+                // which `liquidation::verify` already checks at compile time. Enforcing the
+                // realised net instead needs the conversion to report an output, which the
+                // asset-op path does not do (TICKET-069).
+                if let Some(floor) = ledger.profit_floor {
+                    let guard = arb::Guard {
+                        kind: ast::RequireKind::Profit,
+                        comparison: ast::ComparisonOp::GreaterOrEqual,
+                        bps: u16::try_from(floor)
+                            .map_err(|_| semantic("a liquidation's profit floor does not fit the guard's operand"))?,
+                    };
+                    ir.push(Operation::Require {
+                        kind: require_kind_to_ir(&guard.kind),
+                        subject: Some(ledger.debt_asset.clone()),
+                        condition: guard_condition(&bps_guard(&guard))?,
+                        error_msg: None,
+                        measured: false,
+                        comparison: Some(guard.comparison),
+                    });
+                }
+                ir.push(Operation::AtomicEnd);
             }
             Item::AtomicHedge(hedge_decl) => {
                 // The declaration lowers to the *orders*: one atomic block asking a venue

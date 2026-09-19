@@ -159,15 +159,11 @@ fn a_liquidation_is_in_the_liquidation_lane_even_though_it_also_swaps() {
             min_output: 90,
             dex: Some("uniswap".to_owned()),
         },
-        Operation::Liquidation {
-            position: "borrower.position".to_owned(),
-            debt_asset: "ethereum.USDC".to_owned(),
-            collateral_asset: "ethereum.ETH".to_owned(),
-            capital: 1_000,
-            collateral: 1_100,
-            min_output: 1_000,
-            repaid: 1_000,
-            profit_floor: Some(1),
+        Operation::VenueOrder {
+            action: "liquidate".to_owned(),
+            subject: "borrower.position".to_owned(),
+            asset: "ethereum.USDC".to_owned(),
+            quantity: 1_000,
         },
     ]);
     assert_eq!(lane, Lane::Liquidation);

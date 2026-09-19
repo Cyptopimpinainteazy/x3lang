@@ -120,11 +120,19 @@ pub fn classify(ir: &X3IR) -> Lane {
 
     for operation in &ir.operations {
         match operation {
-            Operation::Liquidation { .. } => {
-                lanes.insert(Lane::Liquidation);
+            // A venue order's lane is decided by *what it asks for*, which the action
+            // names: closing a position on a lending protocol is the liquidation lane, and
+            // every other order is a trading action. Reading the action rather than the
+            // declaration is the same rule the rest of this module follows — the lane is a
+            // property of what the program does.
+            Operation::VenueOrder { action, .. } => {
+                if action == "liquidate" || action == "receive_collateral" {
+                    lanes.insert(Lane::Liquidation);
+                } else {
+                    lanes.insert(Lane::Trading);
+                }
             }
-            Operation::VenueOrder { .. }
-            | Operation::Swap { .. }
+            Operation::Swap { .. }
             | Operation::AtomicChoice { .. }
             | Operation::RouteFallback { .. }
             | Operation::Rebalance { .. }

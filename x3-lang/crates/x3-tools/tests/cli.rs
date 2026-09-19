@@ -1561,10 +1561,24 @@ fn cli_lowers_a_hedge_to_venue_orders_and_runs_it() {
     );
 }
 
-/// PHASE 10 — a liquidation's accounting is decided, and its calls are not pretended.
+/// PHASE 10 — a liquidation lowers to its calls and its conversion, and it runs.
+///
+/// The two calls used to be refused: `liquidate` and `receive` need a lending-protocol
+/// adapter, so the accounting was decided and the execution was not pretended. They are
+/// **venue orders** now — an action, the position it is about, the asset and the quantity —
+/// and the conversion is a swap whose amounts the declaration itself states. The other
+/// verdict is unchanged: a liquidation whose swap cannot repay is refused with the
+/// shortfall, before any of this is reached.
 #[test]
-fn cli_decides_a_liquidations_accounting_and_refuses_its_calls() {
-    let sound = "atomic_liquidation {\n    liquidate 1_000 ethereum.USDC of borrower.position;\n    \
+fn cli_lowers_a_liquidation_to_its_calls_and_runs_it() {
+    // The plan's conversion is a swap, and a swap needs an explicit slippage bound
+    // (`verify_slippage_explicit`). A liquidation states a profit floor and no ceiling, so
+    // the ceiling comes from the program.
+    let sound = "intent bounds {\n    from ethereum.USDC amount 1 receiver 0xA1\n    to \
+                 ethereum.ETH receiver 0xA2\n    require slippage <= 50\n    require nonce \
+                 unused bounds_nonce\n    timeout 30s refund ethereum.USDC to sender\n    \
+                 on_fail rollback\n}\n\
+                 atomic_liquidation {\n    liquidate 1_000 ethereum.USDC of borrower.position;\n    \
                  receive 1_200 ethereum.ETH collateral;\n    swap 1_200 ethereum.ETH -> \
                  ethereum.USDC min_output 1_100;\n    repay 1_000 ethereum.USDC;\n    require \
                  net_profit >= 100 ethereum.USDC;\n}\n";
@@ -1575,33 +1589,85 @@ fn cli_decides_a_liquidations_accounting_and_refuses_its_calls() {
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
-    assert!(!check.status.success(), "a liquidation cannot be built here: {output}");
-    assert!(
-        output.contains("liquidate and receive are calls into a lending protocol"),
-        "the refusal must name the missing adapter: {output}"
-    );
+    assert!(check.status.success(), "a sound liquidation must check: {output}");
     assert!(
         !output.contains("cannot repay its capital") && !output.contains("unaccounted"),
         "a sound liquidation has no accounting to complain about: {output}"
     );
 
-    let underfunded = fixture.with_file_name("cli_liquidation_underfunded.x3");
-    std::fs::write(&underfunded, sound.replace("min_output 1_100", "min_output 900")).expect("write");
-    let check = x3c().arg("check").arg(&underfunded).output().expect("x3c check");
-    let output = format!(
+    let out = std::env::temp_dir().join("cli_liquidation_sound.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    let text = format!(
         "{}{}",
-        String::from_utf8_lossy(&check.stdout),
-        String::from_utf8_lossy(&check.stderr)
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.status.success(), "the liquidation must build: {text}");
+
+    // The artifact carries both calls with the position they are about, the conversion with
+    // the declaration's own amounts, the floor as a guard, and the whole thing atomic.
+    let explain = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let disassembly = format!(
+        "{}{}",
+        String::from_utf8_lossy(&explain.stdout),
+        String::from_utf8_lossy(&explain.stderr)
+    );
+    assert_eq!(
+        disassembly.matches("VENUE_ORDER").count(),
+        2,
+        "one call to liquidate and one to receive: {disassembly}"
     );
     assert!(
-        output.contains("cannot repay its capital")
-            && output.contains("minimum output is 900")
-            && output.contains("shortfall is 100"),
-        "the repayment must be reported with its figures: {output}"
+        disassembly.contains("liquidate") && disassembly.contains("receive_collateral"),
+        "the actions must say what the lending protocol is asked for: {disassembly}"
     );
     assert!(
-        !output.contains("lending protocol"),
-        "the accounting is decided before the adapter question is reached: {output}"
+        disassembly.contains("borrower.position"),
+        "and what they are about: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("ATOMIC_BEGIN") && disassembly.contains("ATOMIC_END"),
+        "the whole plan must be atomic: {disassembly}"
+    );
+
+    let ir_out = std::env::temp_dir().join("cli_liquidation_sound.json");
+    let lower = x3c()
+        .arg("lower")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&ir_out)
+        .output()
+        .expect("x3c lower");
+    assert!(lower.status.success(), "the liquidation must lower");
+    let ir = std::fs::read_to_string(&ir_out).expect("the IR document");
+    assert!(
+        ir.contains("\"input_amount\": 1200") && ir.contains("\"min_output\": 1100"),
+        "the conversion carries the amounts the declaration states: {ir}"
+    );
+    assert!(
+        ir.contains("\"ProfitThreshold\""),
+        "the net-profit floor must travel as a guard: {ir}"
+    );
+
+    // The floor is a *constraint* here rather than a measured guard, because the plan's
+    // conversion is a `Swap` — an asset-op record that never reaches the host, so no reply
+    // could carry a measurement. It derives from the declared `min_output` the verifier
+    // already checked against the repayment, so the plan runs with nothing to measure.
+    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
+    let run_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        run.status.success() && run_text.contains("x3c run: ok"),
+        "the liquidation's plan must run: {run_text}"
     );
 }
 

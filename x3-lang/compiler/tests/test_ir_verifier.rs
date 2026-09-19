@@ -544,29 +544,49 @@ fn a_venue_order_for_nothing_is_refused() {
 }
 
 #[test]
-fn a_liquidation_operation_is_refused_as_unexecutable() {
-    // PHASE 10's accounting is decided on the AST (`liquidation::verify`); this layer
-    // says what the VM can do with it: nothing, because `liquidate` and `receive` are
-    // calls into a lending protocol it has no adapter for. Refusing here (and not
-    // only in the emitter) keeps `check` and `build` in agreement.
-    let ir = ir_with(vec![Operation::Liquidation {
-        position: "borrower.position".to_owned(),
-        debt_asset: "ethereum.USDC".to_owned(),
-        collateral_asset: "ethereum.ETH".to_owned(),
-        capital: 1_000,
-        collateral: 1_200,
-        min_output: 1_100,
-        repaid: 1_000,
-        profit_floor: Some(100),
-    }]);
-    let diagnostics = verify_ir(&ir).expect_err("a liquidation cannot be executed here");
-    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+fn the_operations_a_liquidation_lowers_to_pass_the_structural_verifier() {
+    // PHASE 10's ledger used to be refused at this layer: `liquidate` and `receive` are
+    // calls into a lending protocol with no adapter, so the accounting was decided and the
+    // execution was not pretended. The plan is now the two calls, the conversion the
+    // declaration's own amounts describe, and the net-profit floor — and this layer has to
+    // accept it.
+    let ir = ir_with(vec![
+        Operation::AtomicBegin,
+        Operation::VenueOrder {
+            action: "liquidate".to_owned(),
+            subject: "borrower.position".to_owned(),
+            asset: "ethereum.USDC".to_owned(),
+            quantity: 1_000,
+        },
+        Operation::VenueOrder {
+            action: "receive_collateral".to_owned(),
+            subject: "borrower.position".to_owned(),
+            asset: "ethereum.ETH".to_owned(),
+            quantity: 1_100,
+        },
+        Operation::Swap {
+            from_chain: "ethereum".to_owned(),
+            from_asset: "ETH".to_owned(),
+            to_chain: "ethereum".to_owned(),
+            to_asset: "USDC".to_owned(),
+            input_amount: 1_100,
+            min_output: 1_000,
+            dex: None,
+        },
+        Operation::Require {
+            kind: RequireKind::ProfitThreshold,
+            subject: Some("ethereum.USDC".to_owned()),
+            condition: Condition::Expression { expr: "30".to_owned() },
+            error_msg: None,
+            measured: true,
+            comparison: Some(ComparisonOp::GreaterOrEqual),
+        },
+        Operation::AtomicEnd,
+    ]);
+    let verified = verify_ir(&ir);
     assert!(
-        diagnostics[0].message.contains("cannot be executed")
-            && diagnostics[0].message.contains("lending protocol")
-            && diagnostics[0].message.contains("borrower.position")
-            && !diagnostics[0].message.contains("  "),
-        "the refusal must name the position and the missing adapter, with no spacing artefacts: {diagnostics:?}"
+        verified.is_ok(),
+        "a liquidation's plan must be one this layer accepts: {verified:?}"
     );
 }
 
