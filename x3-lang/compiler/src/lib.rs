@@ -29,6 +29,7 @@ pub mod objective;
 pub mod opportunity;
 pub mod optimizer;
 pub mod parser;
+pub mod profitability;
 pub mod regalloc;
 pub mod risk;
 pub mod semantic;
@@ -145,11 +146,13 @@ pub(crate) fn run_pre_emission_layers_with_context(
     );
     errors.extend(outcome.errors);
 
-    Ok(PreEmission {
-        ir,
-        errors,
-        warnings: outcome.warnings,
-    })
+    // A warning, not an error: the phase's own text says a static estimate must not
+    // be read as a guarantee of runtime profitability, and this comparison is of the
+    // program's declarations with each other (PHASE 36).
+    let mut warnings = outcome.warnings;
+    warnings.extend(profitability::warnings(program));
+
+    Ok(PreEmission { ir, errors, warnings })
 }
 
 /// Report a batch of pipeline errors as one error carrying every message.
