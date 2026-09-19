@@ -1621,6 +1621,7 @@ fn cli_decides_a_rebalances_weights_and_refuses_to_pretend_it_plans() {
 #[test]
 fn cli_netting_offsets_a_book_and_measures_what_it_removed() {
     let source = "netting book_a {\n    consent alice;\n    consent bob;\n    consent carol;\n    \
+                  account alice = 0xA1;\n    account bob = 0xB1;\n    account carol = 0xC1;\n    \
                   alice owes 500 ethereum.USDC to bob;\n    bob owes 300 ethereum.USDC to \
                   alice;\n    carol owes 120 ethereum.USDC to alice;\n    alice owes 40 \
                   ethereum.USDC to carol;\n}\n";
@@ -1651,8 +1652,9 @@ fn cli_netting_offsets_a_book_and_measures_what_it_removed() {
 fn cli_netting_names_the_pairs_it_refused_to_combine() {
     // Two ledgers, same asset name. A report that listed only what it netted would
     // let a reader assume this pair was netted too.
-    let source = "netting book_b {\n    consent alice;\n    consent bob;\n    alice owes 5 \
-                  ethereum.USDC to bob;\n    bob owes 5 x3.USDC to alice;\n}\n";
+    let source = "netting book_b {\n    consent alice;\n    consent bob;\n    account alice = \
+                  0xA1;\n    account bob = 0xB1;\n    alice owes 5 ethereum.USDC to bob;\n    bob \
+                  owes 5 x3.USDC to alice;\n}\n";
     let fixture = write_fixture("cli_netting_ledgers.x3", source);
     let output = x3c().arg("netting").arg(&fixture).output().expect("run x3c netting");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1693,26 +1695,30 @@ fn cli_netting_refuses_a_book_that_nets_a_party_that_did_not_consent() {
 }
 
 #[test]
-fn cli_check_refuses_a_netting_book_because_nothing_settles_the_residual() {
-    // The offsets are decided, and the command that says whether the program can run
-    // says it cannot — with the reason, not with silence.
-    let source = "netting book_a {\n    consent alice;\n    consent bob;\n    alice owes 500 \
-                  ethereum.USDC to bob;\n    bob owes 300 ethereum.USDC to alice;\n}\n";
-    let fixture = write_fixture("cli_netting_check.x3", source);
+fn cli_settles_a_netting_book_builds_it_and_runs_it() {
+    // The book used to be refused at the IR layer: a party was a name and there was
+    // nothing to debit. It binds each party to an account now, so the whole path has to
+    // hold — the offsets are decided, the residual lowers to locks and releases, the
+    // artifact builds, and it runs.
+    let source = "netting book_a {\n    consent alice;\n    consent bob;\n    consent carol;\n    \
+                  account alice = 0xA1;\n    account bob = 0xB1;\n    account carol = 0xC1;\n    \
+                  alice owes 500 ethereum.USDC to bob;\n    bob owes 300 ethereum.USDC to \
+                  alice;\n    carol owes 120 ethereum.USDC to alice;\n    alice owes 40 \
+                  ethereum.USDC to carol;\n}\n";
+    let fixture = write_fixture("cli_netting_settled.x3", source);
     let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
     let output = format!(
         "{}{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
-    assert!(!check.status.success(), "nothing settles the residual yet: {output}");
+    assert!(check.status.success(), "a bound book must check: {output}");
     assert!(
-        output.contains("book_a") && output.contains("name rather than an account"),
-        "the refusal must name the book and the missing settler: {output}"
+        !output.contains("cannot be executed"),
+        "nothing about a bound book is unexecutable: {output}"
     );
 
-    // And the same answer from `build`, so `check` and `build` cannot disagree.
-    let out = std::env::temp_dir().join("cli_netting_check.x3b");
+    let out = std::env::temp_dir().join("cli_netting_settled.x3b");
     let build = x3c()
         .arg("build")
         .arg(&fixture)
@@ -1725,8 +1731,66 @@ fn cli_check_refuses_a_netting_book_because_nothing_settles_the_residual() {
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
-    assert!(!build.status.success(), "the artifact must not be emitted: {text}");
-    assert!(text.contains("book_a"), "the emitter must give the same reason: {text}");
+    assert!(build.status.success(), "the settlement must build: {text}");
+
+    // The artifact carries the residual as locks and releases against the accounts the
+    // book bound, inside one atomic block — not a count of them.
+    let explain = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let disassembly = format!(
+        "{}{}",
+        String::from_utf8_lossy(&explain.stdout),
+        String::from_utf8_lossy(&explain.stderr)
+    );
+    assert!(
+        disassembly.contains("ATOMIC_BEGIN") && disassembly.contains("ATOMIC_END"),
+        "the residual must settle atomically: {disassembly}"
+    );
+    assert_eq!(
+        disassembly.matches("LOCK").count(),
+        2,
+        "two transfers were left standing, so two locks: {disassembly}"
+    );
+    assert_eq!(
+        disassembly.matches("RELEASE").count(),
+        2,
+        "and one release per lock: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("alice") || disassembly.contains("0xA1"),
+        "the debtor's account must be in the artifact: {disassembly}"
+    );
+
+    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
+    let run_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        run.status.success() && run_text.contains("x3c run: ok"),
+        "the settlement must run: {run_text}"
+    );
+}
+
+#[test]
+fn cli_refuses_a_book_whose_party_has_no_account() {
+    // The other end of the same rule: a residual with nowhere to go is refused with the
+    // party named, rather than lowered into a plan with a hole in it.
+    let source = "netting book_a {\n    consent alice;\n    consent bob;\n    account alice = \
+                  0xA1;\n    alice owes 500 ethereum.USDC to bob;\n    bob owes 300 \
+                  ethereum.USDC to alice;\n}\n";
+    let fixture = write_fixture("cli_netting_unbound.x3", source);
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(!check.status.success(), "an unbound party is a hole: {output}");
+    assert!(
+        output.contains("leaves 'bob' without an account"),
+        "the refusal must name the party: {output}"
+    );
 }
 
 /// `x3c check` on an `arb` — spec PHASE 37.

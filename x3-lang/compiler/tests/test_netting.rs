@@ -56,6 +56,29 @@ fn positions(analysed: &netting::Book) -> Vec<(String, i128)> {
     found
 }
 
+/// A book with every party bound to an account, so it can settle.
+fn bound_book(obligations: &[(&str, &str, u128, &str)]) -> String {
+    let mut parties: Vec<&str> = Vec::new();
+    for (debtor, creditor, _, _) in obligations {
+        for party in [debtor, creditor] {
+            if !parties.contains(party) {
+                parties.push(party);
+            }
+        }
+    }
+    parties.sort_unstable();
+    let mut source = String::from("netting book_a {\n");
+    for (index, party) in parties.iter().enumerate() {
+        source.push_str(&format!("    consent {party};\n"));
+        source.push_str(&format!("    account {party} = 0x{}1;\n", index + 1));
+    }
+    for (debtor, creditor, amount, asset) in obligations {
+        source.push_str(&format!("    {debtor} owes {amount} {asset} to {creditor};\n"));
+    }
+    source.push_str("}\n");
+    source
+}
+
 /// The error `netting::verify` reports for a book, as one string.
 fn refusal(source: &str) -> String {
     let program = x3_lang_compiler::parser::parse_source(source).expect("a book must parse");
@@ -370,5 +393,98 @@ fn an_obligation_missing_its_creditor_is_refused_by_the_parser() {
     assert!(
         message.contains("to <creditor>") || message.contains("`to`"),
         "the refusal must show the shape the clause needs: {message}"
+    );
+}
+
+#[test]
+fn a_bound_book_settles_to_transfers_against_the_accounts_it_names() {
+    // The residual, resolved to the accounts the book binds. This is what the artifact
+    // carries: one lock and one release per transfer.
+    let source = bound_book(&[
+        ("alice", "bob", 500, "ethereum.USDC"),
+        ("bob", "alice", 300, "ethereum.USDC"),
+        ("carol", "alice", 120, "ethereum.USDC"),
+        ("alice", "carol", 40, "ethereum.USDC"),
+    ]);
+    let program = x3_lang_compiler::parser::parse_source(&source).expect("it parses");
+    let decl = program
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::Netting(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the program declares a book");
+    let settled = netting::settlement(decl).expect("a bound book settles");
+    assert_eq!(settled.transfers.len(), 2, "{:?}", settled.transfers);
+
+    let alice = &settled.transfers[0];
+    assert_eq!(alice.debtor, "alice");
+    assert_eq!(alice.amount, 120);
+    assert_eq!(alice.creditor, "bob");
+    assert_eq!(alice.domain, "ethereum");
+    assert_eq!(alice.asset, "USDC");
+    assert!(
+        alice.debtor_account.starts_with("0x") && alice.creditor_account.starts_with("0x"),
+        "both ends of a transfer need an account: {alice:?}"
+    );
+    assert_ne!(
+        alice.debtor_account, alice.creditor_account,
+        "a transfer to the same account is not a transfer"
+    );
+
+    // The residual preserves every party's net position, which is the property the
+    // whole analysis rests on — checked again here on the *settled* transfers, because
+    // this is the form the artifact carries.
+    let mut net: std::collections::BTreeMap<String, i128> = std::collections::BTreeMap::new();
+    for transfer in &settled.transfers {
+        *net.entry(transfer.debtor.clone()).or_default() -= transfer.amount as i128;
+        *net.entry(transfer.creditor.clone()).or_default() += transfer.amount as i128;
+    }
+    assert_eq!(net.get("alice").copied().unwrap_or(0), -120);
+    assert_eq!(net.get("bob").copied().unwrap_or(0), 200);
+    assert_eq!(net.get("carol").copied().unwrap_or(0), -80);
+}
+
+#[test]
+fn a_party_without_an_account_is_refused_with_its_name() {
+    // A residual transfer moves value between two accounts, so an unbound party is a
+    // hole in the plan rather than a detail.
+    let source = book(&[
+        ("alice", "bob", 500, "ethereum.USDC"),
+        ("bob", "alice", 300, "ethereum.USDC"),
+    ]);
+    let message = refusal(&source);
+    assert!(
+        message.contains("leaves 'alice' without an account"),
+        "the refusal must name the party: {message}"
+    );
+    assert!(
+        message.contains("`account alice = <address>;`"),
+        "and say what to write: {message}"
+    );
+}
+
+#[test]
+fn an_account_for_a_party_with_no_obligation_is_refused() {
+    let source = bound_book(&[("alice", "bob", 500, "ethereum.USDC")])
+        .replace("    consent alice;\n", "    consent alice;\n    account dave = 0x99;\n");
+    let message = refusal(&source);
+    assert!(
+        message.contains("binds an account for 'dave'") && message.contains("owes and is owed nothing"),
+        "a bind for a party with no residual is a typo worth reporting: {message}"
+    );
+}
+
+#[test]
+fn binding_one_party_to_two_accounts_is_refused() {
+    let source = bound_book(&[("alice", "bob", 500, "ethereum.USDC")]).replace(
+        "    account alice = 0x11;\n",
+        "    account alice = 0x11;\n    account alice = 0x22;\n",
+    );
+    let message = refusal(&source);
+    assert!(
+        message.contains("binds 'alice' to two accounts"),
+        "a residual would depend on which line was read first: {message}"
     );
 }

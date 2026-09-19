@@ -140,12 +140,6 @@ pub enum Operation {
     /// because nothing executes it: the parties in a book are symbols rather than
     /// accounts, so there is no balance for the VM to debit. The IR verifier and the
     /// emitter both refuse it for that reason (TICKET-071).
-    Netting {
-        book: String,
-        /// `(debtor, creditor, domain.ASSET, amount)` — the residual transfers, in
-        /// the deterministic order the analysis produced.
-        transfers: Vec<(String, String, String, u128)>,
-    },
 
     /// The multi-leg, multi-domain arbitrage primitive (spec PHASE 38).
     ///

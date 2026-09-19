@@ -3593,13 +3593,14 @@ impl<'a> Parser<'a> {
         let name = Symbol::new(&self.expect_ident("netting name")?);
         self.expect(Tok::LBrace, "expected '{' after the netting name")?;
         let mut consent: Vec<Symbol> = Vec::new();
+        let mut accounts: Vec<(Symbol, Expression)> = Vec::new();
         let mut obligations: Vec<ObligationDecl> = Vec::new();
 
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             let clause = self.peek_word().ok_or_else(|| {
                 parse_err(
-                    "expected `consent <party>` or `<debtor> owes <amount> <chain.ASSET> to \
-                     <creditor>`"
+                    "expected `consent <party>`, `account <party> = <address>` or `<debtor> owes \
+                     <amount> <chain.ASSET> to <creditor>`"
                         .into(),
                     self.peek(),
                 )
@@ -3610,6 +3611,19 @@ impl<'a> Parser<'a> {
                 let party = Symbol::new(&self.expect_ident("the party consenting to netting")?);
                 self.opt_semi();
                 consent.push(party);
+                continue;
+            }
+
+            if clause == "account" {
+                self.advance();
+                let party = Symbol::new(&self.expect_ident("the party whose account this is")?);
+                self.expect(Tok::Eq, "expected '=' after the party in an `account` clause")?;
+                // An address is an expression for the same reason a lock's payer is
+                // (`lock … from <expr>`): the language has hexadecimal literals and
+                // string literals for addresses, and one reader serves both.
+                let address = self.parse_expr()?;
+                self.opt_semi();
+                accounts.push((party, address));
                 continue;
             }
 
@@ -3677,6 +3691,7 @@ impl<'a> Parser<'a> {
         Ok(Item::Netting(NettingDecl {
             name,
             consent,
+            accounts,
             obligations,
         }))
     }

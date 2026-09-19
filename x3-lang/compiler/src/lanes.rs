@@ -128,7 +128,6 @@ pub fn classify(ir: &X3IR) -> Lane {
             | Operation::AtomicChoice { .. }
             | Operation::RouteFallback { .. }
             | Operation::Rebalance { .. }
-            | Operation::Netting { .. }
             | Operation::MultiHopSwap { .. }
             | Operation::Hyperarb { .. } => {
                 lanes.insert(Lane::Trading);

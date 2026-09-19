@@ -560,25 +560,61 @@ fn a_rebalance_operation_is_refused_until_the_graph_can_be_generated() {
 }
 
 #[test]
-fn a_netting_book_is_refused_until_something_can_settle_the_residual() {
-    // PHASE 22's offsets are decided on the AST (`netting::book`); what is missing is
-    // anything that can move the residual. A party in a book is a name rather than an
-    // account, so there is no balance to debit, and an artifact carrying a residual
-    // nothing settles would be the fake this repository forbids.
-    let ir = ir_with(vec![Operation::Netting {
-        book: "book_a".to_owned(),
-        transfers: vec![("alice".to_owned(), "bob".to_owned(), "ethereum.USDC".to_owned(), 200)],
-    }]);
-    let diagnostics = verify_ir(&ir).expect_err("nothing settles the residual yet");
-    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+fn the_operations_a_netting_book_lowers_to_pass_the_structural_verifier() {
+    // PHASE 22's residual used to be refused at this layer: a party in a book was a name
+    // and there was nothing to debit. The book now binds each party to an account and
+    // lowers to locks and releases, so what has to hold is the other direction — the
+    // transfers it emits are transfers this layer accepts, and they balance.
+    let ir = ir_with(vec![
+        Operation::AtomicBegin,
+        Operation::Lock {
+            chain: "ethereum".to_owned(),
+            asset: "USDC".to_owned(),
+            amount: 120,
+            from: "0xA1".to_owned(),
+        },
+        Operation::Release {
+            chain: "ethereum".to_owned(),
+            asset: "USDC".to_owned(),
+            to: "0xB1".to_owned(),
+        },
+        Operation::Lock {
+            chain: "ethereum".to_owned(),
+            asset: "USDC".to_owned(),
+            amount: 80,
+            from: "0xC1".to_owned(),
+        },
+        Operation::Release {
+            chain: "ethereum".to_owned(),
+            asset: "USDC".to_owned(),
+            to: "0xB1".to_owned(),
+        },
+        Operation::AtomicEnd,
+    ]);
+    let verified = verify_ir(&ir);
     assert!(
-        diagnostics[0].message.contains("cannot be executed")
-            && diagnostics[0].message.contains("book_a")
-            && diagnostics[0].message.contains("1 transfer(s)")
-            && diagnostics[0].message.contains("account")
-            && !diagnostics[0].message.contains("  "),
-        "the refusal must name the book, the residual and what is missing: {diagnostics:?}"
+        verified.is_ok(),
+        "a settled book must be a plan this layer accepts: {verified:?}"
     );
+    // And the residual balances: what leaves the debtors is what reaches the creditor.
+    let out: u128 = ir
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Lock { amount, .. } => Some(*amount),
+            _ => None,
+        })
+        .sum();
+    let inn: u128 = ir
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Release { .. } => Some(0u128),
+            _ => None,
+        })
+        .count() as u128;
+    assert_eq!(out, 200, "the locks are the residual");
+    assert_eq!(inn, 2, "and there is one release per lock");
 }
 
 #[test]

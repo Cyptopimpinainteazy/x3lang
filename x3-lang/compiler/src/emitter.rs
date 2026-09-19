@@ -133,19 +133,6 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 span: None,
             });
         }
-        Operation::Netting { book, transfers } => {
-            // Refused here as well as in the IR verifier, because `emit_x3ir` is
-            // public: the offsets are decided, and the residual set has no settler.
-            return Err(X3Error::CodegenError {
-                message: format!(
-                    "cannot emit the netting book '{book}': its obligations reduce to {} transfer(s) \
-                     and a party in a book is a name rather than an account, so the artifact would \
-                     carry a residual nothing can settle (PHASE 22, TICKET-071)",
-                    transfers.len()
-                ),
-                span: None,
-            });
-        }
         Operation::Hyperarb { name, .. } => {
             // Refused here as well as in the IR verifier, because `emit_x3ir` is
             // public: the plan is decided and the legs cannot be settled.

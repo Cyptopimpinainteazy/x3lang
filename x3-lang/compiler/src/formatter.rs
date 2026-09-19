@@ -1410,6 +1410,12 @@ impl X3Formatter {
             self.write_indent();
             self.write(&format!("consent {};\n", party.as_str()));
         }
+        for (party, address) in &netting.accounts {
+            self.write_indent();
+            self.write(&format!("account {} = ", party.as_str()));
+            self.format_expression(address);
+            self.write(";\n");
+        }
         for obligation in &netting.obligations {
             self.write_indent();
             self.write(&format!("{} owes {} ", obligation.debtor.as_str(), obligation.amount));

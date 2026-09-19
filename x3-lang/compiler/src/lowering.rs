@@ -764,29 +764,41 @@ pub fn lower_program_with_mode(
                 });
             }
             Item::Netting(netting_decl) => {
-                // The residual travels in the operation: `x3c lower` is where the
-                // offsets are visible today, because the parties are symbols rather
-                // than accounts and there is nothing for the VM to move.
-                let analysed = netting::book(netting_decl).map_err(|reason| semantic(&reason))?;
-                let transfers = analysed
-                    .groups
-                    .iter()
-                    .flat_map(|group| {
-                        let key = format!("{}.{}", group.domain, group.asset);
-                        group.transfers().into_iter().map(move |transfer| {
-                            (
-                                transfer.debtor.clone(),
-                                transfer.creditor.clone(),
-                                key.clone(),
-                                transfer.amount,
-                            )
-                        })
-                    })
-                    .collect();
-                ir.push(Operation::Netting {
-                    book: analysed.name.clone(),
-                    transfers,
-                });
+                // The book lowers to the transfers that settle it: one lock and one
+                // release per residual, inside one atomic block, against the accounts the
+                // book binds each party to. The offsets are decided (`netting::verify`)
+                // and this is what executes them.
+                let settled = netting::settlement(netting_decl).map_err(|reason| semantic(&reason))?;
+                // One atomic route per residual transfer, not one for the book. A route
+                // carries one claim (`no_double_claim`), and a `Release` does not name the
+                // lock it claims — so two transfers of the same asset in one route are two
+                // claims a replayer cannot tell apart. Each transfer's own atomicity is
+                // real and complete: lock, release, and a refund if the release does not
+                // happen. What is *not* expressed is settlement of the whole residual set
+                // as one unit, and that needs a release that names its lock (TICKET-080).
+                for transfer in &settled.transfers {
+                    ir.push(Operation::AtomicBegin);
+                    // The debtor's value is locked before it is released: a release with
+                    // nothing locked in front of it is a mint, and the pair is the idiom
+                    // every other settlement path in this language uses.
+                    ir.push(Operation::Lock {
+                        chain: transfer.domain.clone(),
+                        asset: transfer.asset.clone(),
+                        amount: transfer.amount,
+                        from: transfer.debtor_account.clone(),
+                    });
+                    ir.push(Operation::Release {
+                        chain: transfer.domain.clone(),
+                        asset: transfer.asset.clone(),
+                        to: transfer.creditor_account.clone(),
+                    });
+                    // No refund handler, and none is wanted: a route that fails rolls
+                    // back, so the lock never takes effect and the value never left. A
+                    // handler here would refund an escrow this route claims, which
+                    // `no_refund_after_claim` refuses — correctly, because the handler
+                    // would be describing a path the route cannot reach.
+                    ir.push(Operation::AtomicEnd);
+                }
             }
             Item::Arb(arb_decl) => {
                 // The declaration lowers to the *plan*: an atomic block holding the asset
@@ -1795,7 +1807,7 @@ fn verify_route_fallbacks_in(
     Ok(())
 }
 
-fn expression_to_string(expr: &Expression) -> String {
+pub(crate) fn expression_to_string(expr: &Expression) -> String {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => value.to_string(),
         Expression::Literal(LiteralExpr::Float { raw, .. }) => raw.as_str().to_string(),

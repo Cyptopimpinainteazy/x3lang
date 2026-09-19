@@ -515,6 +515,99 @@ fn split_key(key: &str) -> (String, String) {
     }
 }
 
+/// One residual transfer with both parties' accounts resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettledTransfer {
+    pub debtor: String,
+    pub debtor_account: String,
+    pub creditor: String,
+    pub creditor_account: String,
+    pub domain: String,
+    pub asset: String,
+    pub amount: u128,
+}
+
+/// A book and the transfers that would settle it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settlement {
+    pub book: Book,
+    pub transfers: Vec<SettledTransfer>,
+}
+
+/// Every party's account, refusing the binds that are not binds.
+///
+/// An account is what makes a residual payable: a transfer moves value between two
+/// accounts, so a party the book has no account for is a hole in the plan rather than a
+/// detail. Refused rather than defaulted, because a default address is a transfer to
+/// somebody the author never named.
+pub fn accounts(decl: &NettingDecl) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let book = book(decl)?;
+    let parties: std::collections::BTreeSet<&str> = book.parties.iter().map(String::as_str).collect();
+
+    let mut found: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for (party, address) in &decl.accounts {
+        let name = party.as_str();
+        if !parties.contains(name) {
+            return Err(format!(
+                "the netting book '{}' binds an account for '{name}', which owes and is owed \
+                 nothing in it, so there is no residual of theirs to settle",
+                decl.name.as_str()
+            ));
+        }
+        let rendered = crate::lowering::expression_to_string(address);
+        if rendered.trim().is_empty() {
+            return Err(format!(
+                "the netting book '{}' binds '{name}' to an empty address; a settlement needs \
+                 somewhere to send the residual",
+                decl.name.as_str()
+            ));
+        }
+        if let Some(existing) = found.get(name) {
+            return Err(format!(
+                "the netting book '{}' binds '{name}' to two accounts ('{existing}' and '{rendered}'); \
+                 a residual would then depend on which line was read first",
+                decl.name.as_str()
+            ));
+        }
+        found.insert(name.to_string(), rendered);
+    }
+
+    for party in &book.parties {
+        if !found.contains_key(party) {
+            return Err(format!(
+                "the netting book '{}' leaves '{party}' without an account; a residual transfer moves \
+                 value between two accounts, so write `account {party} = <address>;` or the plan has \
+                 a hole where that party's settlement should be",
+                decl.name.as_str()
+            ));
+        }
+    }
+    Ok(found)
+}
+
+/// Decide the book and resolve every residual transfer to the accounts that settle it.
+pub fn settlement(decl: &NettingDecl) -> Result<Settlement, String> {
+    let book = book(decl)?;
+    let resolved = accounts(decl)?;
+    let mut transfers = Vec::new();
+    for group in &book.groups {
+        for transfer in group.transfers() {
+            let debtor_account = resolved.get(&transfer.debtor).cloned().unwrap_or_default();
+            let creditor_account = resolved.get(&transfer.creditor).cloned().unwrap_or_default();
+            transfers.push(SettledTransfer {
+                debtor: transfer.debtor,
+                debtor_account,
+                creditor: transfer.creditor,
+                creditor_account,
+                domain: group.domain.clone(),
+                asset: group.asset.clone(),
+                amount: transfer.amount,
+            });
+        }
+    }
+    Ok(Settlement { book, transfers })
+}
+
 /// Report every book in a program, or an error naming the first thing that is not
 /// an obligation book.
 pub fn books(program: &Program) -> Result<Vec<Book>, String> {
@@ -534,7 +627,11 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
         let Item::Netting(decl) = &item.node else {
             continue;
         };
-        if let Err(reason) = book(decl) {
+        // Both halves, and the account binds before the book's own arithmetic is
+        // reported: a party without an account is the thing an author has to fix
+        // first, and reporting it after a weight error would bury it.
+        let verdict = accounts(decl).and_then(|_| book(decl).map(|_| ()));
+        if let Err(reason) = verdict {
             acc.add_error(X3Error::SemanticError {
                 message: reason,
                 span: Span::DUMMY,

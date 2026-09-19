@@ -1939,17 +1939,25 @@ fn validate_atomic_swap_require(require: &x3_lang_ast::ast::RequireGuard, acc: &
     }
 }
 
-/// Verify that every cross-chain operation (Bridge, Swap, Lock) has a
-/// corresponding refund path via OnFail with a Refund action or OnTimeout.
+/// Verify that value which leaves the program's control has a way back.
+///
+/// Two mechanisms count, and they are not interchangeable: an explicit
+/// `OnFail`/`OnTimeout` with a `Refund`, which is the only thing that can bring value
+/// back from another chain; and the atomic rollback for a `Lock` whose escrow the same
+/// route claims, which means the lock never took effect. Requiring a handler there as
+/// well was not stricter, it was contradictory — a handler refunding an escrow the same
+/// route claims is refused by `no_refund_after_claim`, so a same-asset
+/// lock-and-release, which is what settling a netting book is, could not be written.
 pub fn verify_refund_path_exists(ir: &X3IR, acc: &mut ErrorAccumulator) {
-    let mut has_bridge = false;
+    let mut has_cross_chain = false;
+    let mut has_lock = false;
     let mut has_refund = false;
     for op in &ir.operations {
-        if matches!(
-            op,
-            Operation::Bridge { .. } | Operation::Swap { .. } | Operation::Lock { .. }
-        ) {
-            has_bridge = true;
+        if matches!(op, Operation::Bridge { .. } | Operation::Swap { .. }) {
+            has_cross_chain = true;
+        }
+        if matches!(op, Operation::Lock { .. }) {
+            has_lock = true;
         }
         if let Operation::OnFail { action } = op {
             if matches!(action, FailureAction::Refund { .. }) {
@@ -1962,9 +1970,21 @@ pub fn verify_refund_path_exists(ir: &X3IR, acc: &mut ErrorAccumulator) {
             }
         }
     }
-    if has_bridge && !has_refund {
+    // The rollback is a refund path for a lock whose escrow the same route claims:
+    // `AtomicBegin` snapshots and a failed route truncates the recorded asset
+    // operations (`vm/src/executor.rs`), so the lock never takes effect. It is *not*
+    // a path back from another chain, which is why bridges and swaps still need an
+    // explicit handler — a rollback restores this VM's state and cannot reach a
+    // bridge's far side.
+    let rollback_covers_locks = escrows_claimed_in_their_own_route(ir);
+    if has_cross_chain && !has_refund {
         acc.add_error(err(
             "cross-chain operation present without a refund path — add an OnFail or OnTimeout with Refund action",
+        ));
+    }
+    if has_lock && !has_refund && !rollback_covers_locks {
+        acc.add_error(err(
+            "a `Lock` leaves the program's control with no way back — add an OnFail or OnTimeout              with a Refund action, or release the escrow inside the same atomic route, where a              failed route's rollback means the lock never took effect",
         ));
     }
     // A `require refund_path` guard makes the same claim this pass makes about
@@ -2279,6 +2299,40 @@ fn refund_lock(op: &Operation) -> Option<(&str, &str)> {
     }
 }
 
+/// Whether some atomic route locks an escrow and claims it again inside itself.
+///
+/// That route's refund path is its own rollback, which is a real mechanism and not an
+/// exemption: a route that fails records no asset operations at all.
+fn escrows_claimed_in_their_own_route(ir: &X3IR) -> bool {
+    let mut locks: Vec<(&str, &str)> = Vec::new();
+    let mut claims: Vec<(&str, &str)> = Vec::new();
+    let mut depth = 0usize;
+    for op in &ir.operations {
+        match op {
+            Operation::AtomicBegin => {
+                depth += 1;
+                locks.clear();
+                claims.clear();
+            }
+            Operation::AtomicEnd => {
+                if locks.iter().any(|lock| claims.contains(lock)) {
+                    return true;
+                }
+                depth = depth.saturating_sub(1);
+                locks.clear();
+                claims.clear();
+            }
+            _ if depth > 0 => match op {
+                Operation::Lock { chain, asset, .. } => locks.push((chain.as_str(), asset.as_str())),
+                Operation::Release { chain, asset, .. } => claims.push((chain.as_str(), asset.as_str())),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    false
+}
+
 /// The lock a claim releases, as `(chain, asset)`.
 fn release_lock(op: &Operation) -> Option<(&str, &str)> {
     match op {
@@ -2347,12 +2401,44 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
             name: "no_double_claim".into(),
             description: "No claim operation may execute twice for the same lock".into(),
             check_fn: |ir| {
-                let claims: Vec<&Operation> = atomic_scoped_operations(ir)
-                    .into_iter()
-                    .filter(|op| matches!(op, Operation::Release { .. }))
-                    .collect();
-                if claims.len() > 1 {
-                    return Err("multiple Release (claim) operations execute inside the same atomic route".into());
+                // Counted **per lock, within one route**, which is what the rule's own
+                // description says ("twice for the same lock"). It used to count every
+                // `Release` in the program, so a program with two routes was reported as
+                // one lock claimed twice — the defect `no_double_refund` below was fixed
+                // for, with the same reason: two claims against two locks are not one
+                // lock claimed twice. The `release_lock` helper that names a claim's lock
+                // already existed for this.
+                //
+                // Per route rather than per program because a route is the unit that
+                // settles: claims in two routes are two settlements, not one claim made
+                // twice.
+                let mut claims: Vec<(&str, &str)> = Vec::new();
+                let mut depth = 0usize;
+                for op in &ir.operations {
+                    match op {
+                        Operation::AtomicBegin => {
+                            depth += 1;
+                            claims.clear();
+                        }
+                        Operation::AtomicEnd => {
+                            depth = depth.saturating_sub(1);
+                            claims.clear();
+                        }
+                        _ if depth > 0 => {
+                            let Some(lock) = release_lock(op) else {
+                                continue;
+                            };
+                            if claims.contains(&lock) {
+                                return Err(format!(
+                                    "multiple Release (claim) operations found for the same lock \
+                                     ({}.{}) inside one atomic route",
+                                    lock.0, lock.1
+                                ));
+                            }
+                            claims.push(lock);
+                        }
+                        _ => {}
+                    }
                 }
                 Ok(())
             },
@@ -4668,6 +4754,123 @@ mod tests {
             score.total >= 50,
             "expected risky intent total >= 50, got {}",
             score.total
+        );
+    }
+}
+
+#[cfg(test)]
+mod refund_path_tests {
+    use super::*;
+
+    fn violations(operations: Vec<Operation>) -> Vec<String> {
+        // Built here rather than through the `tests` module's helper, which is private
+        // to that module.
+        let ir = crate::ir::X3IR {
+            operations,
+            metadata: crate::ir::ProgramMetadata {
+                nonce: Some("nonce-1".to_owned()),
+                chain_id: Some(1),
+                timeout_blocks: Some(10),
+            },
+        };
+        let mut acc = ErrorAccumulator::new();
+        verify_refund_path_exists(&ir, &mut acc);
+        acc.errors().iter().map(|error| format!("{error}")).collect()
+    }
+
+    /// A route that locks an escrow and claims it again has its refund path in its own
+    /// rollback: a failed route records no asset operations, so the lock never took
+    /// effect. Requiring a handler there as well is not stricter, it is contradictory —
+    /// a handler refunding an escrow the same route claims is refused by
+    /// `no_refund_after_claim`.
+    #[test]
+    fn a_lock_claimed_inside_its_own_route_needs_no_refund_handler() {
+        let found = violations(vec![
+            Operation::AtomicBegin,
+            Operation::Lock {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                amount: 120,
+                from: "0xA1".into(),
+            },
+            Operation::Release {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                to: "0xB1".into(),
+            },
+            Operation::AtomicEnd,
+        ]);
+        assert!(found.is_empty(), "the rollback is the refund path: {found:?}");
+    }
+
+    /// Non-vacuous: the exemption is for a lock *claimed in its own route*, and a lock
+    /// that is neither handled nor claimed is still refused — it leaves the program's
+    /// control with nothing to bring it back.
+    #[test]
+    fn a_lock_with_neither_handler_nor_claim_in_its_route_is_still_refused() {
+        let found = violations(vec![
+            Operation::AtomicBegin,
+            Operation::Lock {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                amount: 120,
+                from: "0xA1".into(),
+            },
+            Operation::AtomicEnd,
+        ]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("no way back") && found[0].contains("Refund"),
+            "the refusal must say what to add: {found:?}"
+        );
+    }
+
+    /// A release in a *different* asset is not a claim of this lock, so the lock is
+    /// still unclaimed and still needs a way back.
+    #[test]
+    fn a_release_of_another_asset_does_not_cover_the_lock() {
+        let found = violations(vec![
+            Operation::AtomicBegin,
+            Operation::Lock {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                amount: 120,
+                from: "0xA1".into(),
+            },
+            Operation::Release {
+                chain: "ethereum".into(),
+                asset: "ETH".into(),
+                to: "0xB1".into(),
+            },
+            Operation::AtomicEnd,
+        ]);
+        assert_eq!(found.len(), 1, "a different escrow is a different escrow: {found:?}");
+    }
+
+    /// A bridge's far side is another chain's state and a rollback cannot reach it, so
+    /// the explicit handler is still required. This is the half of the rule the
+    /// rollback must not absorb.
+    #[test]
+    fn a_bridge_still_needs_an_explicit_refund_handler() {
+        let found = violations(vec![
+            Operation::AtomicBegin,
+            Operation::Bridge {
+                via: "X3".into(),
+                from_chain: "ethereum".into(),
+                from_asset: "USDC".into(),
+                to_chain: "solana".into(),
+                to_asset: "USDC".into(),
+                amount: 120,
+                receiver: "0xB1".into(),
+                source_finality_proof: vec![],
+                transfer_proof: vec![],
+            },
+            Operation::AtomicEnd,
+        ]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("cross-chain operation present without a refund path"),
+            "the refusal must be the cross-chain one: {found:?}"
         );
     }
 }

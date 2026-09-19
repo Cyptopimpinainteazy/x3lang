@@ -1744,6 +1744,15 @@ pub struct NettingDecl {
     /// `consent <party>;` — the parties that agreed to have their obligations
     /// offset against each other, in the order written.
     pub consent: Vec<Symbol>,
+    /// `account <party> = <address>;` — where each party's residual is settled.
+    ///
+    /// Required, and required *here* rather than left to a host: a residual transfer
+    /// has to move value between two accounts, and a book whose parties are names has
+    /// nothing to debit. The compiler refuses a party it has no account for rather
+    /// than emitting a plan with a hole, which is what the executor this replaced was
+    /// waiting on (TICKET-071).
+    #[serde(default)]
+    pub accounts: Vec<(Symbol, Expression)>,
     /// The obligations, in the order written.
     pub obligations: Vec<ObligationDecl>,
 }
