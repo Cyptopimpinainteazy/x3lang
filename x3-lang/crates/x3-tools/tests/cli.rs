@@ -1458,3 +1458,56 @@ fn cli_warns_when_a_declared_floor_is_below_the_declared_fees() {
         "a floor above the declared fees must pass silently: {output}"
     );
 }
+
+/// PHASE 9 — a hedge's exposure is decided, and its *execution* is not pretended.
+///
+/// The two halves are visible in the two verdicts: a hedge whose legs net is told
+/// that this VM has no venue for a perp leg, and one whose legs do not net is told
+/// what the delta is — with the figures, before the venue question is reached.
+#[test]
+fn cli_decides_a_hedges_exposure_and_refuses_to_pretend_it_runs() {
+    let balanced = write_fixture(
+        "cli_hedge_balanced.x3",
+        "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short equivalent ethereum.ETH perp;\n\n    \
+         require delta <= 0.01%;\n}\n",
+    );
+    let check = x3c().arg("check").arg(&balanced).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(!check.status.success(), "a hedge cannot be built here: {output}");
+    assert!(
+        output.contains("a perp leg needs a venue adapter"),
+        "the refusal must name the missing venue: {output}"
+    );
+    assert!(
+        !output.contains("leaves a delta"),
+        "a balanced hedge has no exposure to complain about: {output}"
+    );
+
+    let unbalanced = write_fixture(
+        "cli_hedge_unbalanced.x3",
+        "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short 900 ethereum.ETH perp;\n\n    \
+         require delta <= 0.01%;\n}\n",
+    );
+    let check = x3c().arg("check").arg(&unbalanced).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        output.contains("leaves a delta of 1000 bps"),
+        "the exposure must be reported with its figure: {output}"
+    );
+    assert!(
+        output.contains("bound of 1 bps") && output.contains("long 1000") && output.contains("short 900"),
+        "and with the legs that produced it: {output}"
+    );
+    assert!(
+        !output.contains("venue adapter"),
+        "the exposure is decided before the venue question is reached: {output}"
+    );
+}

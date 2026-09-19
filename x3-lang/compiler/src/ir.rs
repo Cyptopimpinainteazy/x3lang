@@ -118,6 +118,27 @@ pub enum Operation {
         transfer_proof: Vec<u8>,
     },
 
+    /// A hedge: two directional legs on one asset, and the net they leave open
+    /// (spec PHASE 9).
+    ///
+    /// The *checked* net travels with the operation, so the record says what the guard
+    /// was checked against rather than only that something was checked — the rule the
+    /// finality depth follows (TICKET-059). No artifact is emitted with this
+    /// operation today: a perp leg needs a venue adapter this VM does not have, so the
+    /// IR verifier refuses it (see `verify.rs`), and `x3c lower` is where the decided
+    /// net is visible.
+    Hedge {
+        /// `chain.ASSET`, the identity both legs share.
+        asset: String,
+        long: u128,
+        short: u128,
+        /// `|long − short| × 10_000 / long`: what is left open, in basis points of
+        /// the notional being hedged.
+        delta_bps: u128,
+        /// The bound the hedge's own guard states, when it states one.
+        delta_bound_bps: Option<u32>,
+    },
+
     // ===== Control Flow =====
     /// Conditional execution
     If {

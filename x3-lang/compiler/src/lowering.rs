@@ -4,6 +4,7 @@
 //! which is a semantic representation suitable for verification, optimization,
 //! and code generation.
 
+use crate::hedge;
 use crate::intent_emit;
 use crate::ir::{
     self, ChainMetricKind, Condition, CrdtKind as IrCrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind,
@@ -745,6 +746,20 @@ pub fn lower_program_with_mode(
                 for strategy in &agent.strategies {
                     lower_function_body(&strategy.node.body, &mut ir)?;
                 }
+            }
+            Item::AtomicHedge(hedge_decl) => {
+                // The legs are already known to net: `hedge::verify` runs over the
+                // AST before lowering and refuses a hedge that does not. Resolving
+                // them here again is what carries the *checked* net into the
+                // artifact, not a second opinion about it.
+                let exposure = hedge::exposure(hedge_decl).map_err(|reason| semantic(&reason))?;
+                ir.push(Operation::Hedge {
+                    asset: exposure.asset.clone(),
+                    long: exposure.long,
+                    short: exposure.short,
+                    delta_bps: exposure.delta_bps(),
+                    delta_bound_bps: hedge_decl.delta_bound_bps,
+                });
             }
             _ => {} // Other items (types, imports, ErrorDecl, etc.) don't generate operations
         }

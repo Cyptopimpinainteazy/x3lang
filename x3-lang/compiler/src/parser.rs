@@ -300,6 +300,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "vm" => self.parse_vm_decl_item(),
             Tok::Ident(ref s) if s == "target" => self.parse_vm_target_item(),
             Tok::Ident(ref s) if s == "finality_policy" => self.parse_finality_policy_item(),
+            Tok::Ident(ref s) if s == "atomic_hedge" => self.parse_atomic_hedge_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
@@ -3434,6 +3435,122 @@ impl<'a> Parser<'a> {
         }
         self.expect(Tok::RBrace, "expected '}' after target body")?;
         Ok(Item::VmTarget(VmTarget { vm, adapter, contract }))
+    }
+
+    /// `atomic_hedge { buy <n> <ASSET> spot; short equivalent <ASSET> perp; require delta <= <pct>; }`
+    ///
+    /// The legs are two statements about one asset inside one plan: a long and a
+    /// short, on a spot or a perp venue, and the guard is the claim their net has to
+    /// satisfy. The asset may be written as `chain.ASSET` or bare — a hedge nets by
+    /// asset, and `hedge::verify` refuses to net two different ones.
+    fn parse_atomic_hedge_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        self.expect(Tok::LBrace, "expected '{' after atomic_hedge")?;
+        let mut legs = Vec::new();
+        let mut delta_bound_bps = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            // `require` is a keyword token, so it cannot come through `peek_word`
+            // (which reads identifiers) — matching the token is what makes the guard
+            // part of the block rather than a parse error.
+            if self.peek() == Tok::KwRequire {
+                self.advance();
+                let kind = self.expect_ident("require kind")?;
+                if kind != "delta" {
+                    return Err(parse_err(
+                        format!(
+                            "an `atomic_hedge` guard is about the net exposure: write `require delta \
+                             <= <pct>`, not `require {kind}`"
+                        ),
+                        self.peek(),
+                    ));
+                }
+                let is_ceiling = matches!(self.peek(), Tok::Le | Tok::Lt);
+                if !is_ceiling {
+                    return Err(parse_err(
+                        "a hedge's delta guard is a ceiling — write `require delta <= <pct>`".into(),
+                        self.peek(),
+                    ));
+                }
+                self.advance();
+                let value = self.parse_expr()?;
+                delta_bound_bps = Some(crate::semantic::bound_bps_from_expr(&value).ok_or_else(|| {
+                    parse_err(
+                        "the delta bound must be a percentage (`0.01%`) or a count of basis points".into(),
+                        self.peek(),
+                    )
+                })?);
+                self.opt_semi();
+                continue;
+            }
+
+            let side = match self.peek() {
+                Tok::Ident(ref word) if word == "buy" => HedgeSide::Long,
+                Tok::Ident(ref word) if word == "short" => HedgeSide::Short,
+                _ => {
+                    return Err(parse_err(
+                        "expected a hedge leg (`buy … spot`, `short … perp`) or a `require delta` guard".into(),
+                        self.peek(),
+                    ))
+                }
+            };
+            self.advance();
+            let quantity = match self.peek() {
+                Tok::Int(value) => {
+                    self.advance();
+                    HedgeQuantity::Amount(value)
+                }
+                Tok::Ident(ref word) if word == "equivalent" => {
+                    self.advance();
+                    HedgeQuantity::Equivalent
+                }
+                _ => {
+                    return Err(parse_err(
+                        "a hedge leg needs a size: write `<n>` or `equivalent`".into(),
+                        self.peek(),
+                    ))
+                }
+            };
+            let asset = self.parse_hedge_asset()?;
+            let venue = match self.peek_word().as_deref() {
+                Some("spot") => HedgeVenue::Spot,
+                Some("perp") => HedgeVenue::Perp,
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "a hedge leg names its venue: `spot` or `perp`, not {}",
+                            other.unwrap_or("nothing")
+                        ),
+                        self.peek(),
+                    ))
+                }
+            };
+            self.advance();
+            self.opt_semi();
+            legs.push(HedgeLeg {
+                side,
+                quantity,
+                asset,
+                venue,
+            });
+        }
+        self.expect(Tok::RBrace, "expected '}' after the hedge")?;
+        Ok(Item::AtomicHedge(AtomicHedgeDecl { legs, delta_bound_bps }))
+    }
+
+    /// An asset reference in a hedge leg: `chain.ASSET`, or a bare asset name whose
+    /// chain is `unknown` — a hedge nets by asset, and two spellings of the same
+    /// asset are still two different references, which `hedge::verify` reports.
+    fn parse_hedge_asset(&mut self) -> Result<AssetRef, X3Error> {
+        let first = self.expect_ident("hedge asset")?;
+        if self.peek() == Tok::Dot {
+            self.advance();
+            let name = self.expect_ident("hedge asset name")?;
+            return Ok(AssetRef::new(ChainRef::new(Symbol::new(&first)), Symbol::new(&name)));
+        }
+        Ok(AssetRef::new(
+            ChainRef::new(Symbol::new("unknown")),
+            Symbol::new(&first),
+        ))
     }
 
     /// `finality_policy <name> { [chain <c>] [requirement <mode>] [blocks <n>] }`

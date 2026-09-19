@@ -134,9 +134,7 @@ impl RiskScorer {
                                 // `require slippage <= 50` — the corpus's most common bound,
                                 // and 0.5% — arrived as 5000 bps and was scored and reported
                                 // as `high slippage (5000bps / 50.00%)`.
-                                if let Some(bps) =
-                                    guard.value.as_ref().and_then(crate::semantic::slippage_bps_from_expr)
-                                {
+                                if let Some(bps) = guard.value.as_ref().and_then(crate::semantic::bound_bps_from_expr) {
                                     slippage_bps = u64::from(bps);
                                 }
                             }

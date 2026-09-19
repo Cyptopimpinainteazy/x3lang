@@ -307,6 +307,19 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
             // codegen for the condition). Refusing it in this layer and not only in
             // the emitter is what keeps `x3c check` from accepting what `x3c build`
             // then has to refuse.
+            // A hedge is *decided*, not executed: its net is checked
+            // (`hedge::verify`) and recorded, but a perp leg needs a venue adapter
+            // this VM does not have. Refusing in this layer — and not only in the
+            // emitter — is what keeps `x3c check` from accepting what `x3c build`
+            // then refuses, the split this session keeps finding.
+            Operation::Hedge { asset, .. } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: the hedge on '{asset}' cannot be executed — a perp leg needs a \
+                     venue adapter this VM does not have, so the exposure is decided and the \
+                     execution is not pretended"
+                ),
+            ),
             Operation::If { .. } => push_unsafe(
                 diagnostics,
                 format!(

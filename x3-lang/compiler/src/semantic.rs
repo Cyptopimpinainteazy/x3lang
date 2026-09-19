@@ -502,7 +502,7 @@ pub fn verify_risk_policy_bounds_guards(program: &Program, acc: &mut ErrorAccumu
         if !guard.comparison.is_some_and(|op| op.is_upper_bound()) {
             continue;
         }
-        let Some(bound) = guard.value.as_ref().and_then(slippage_bps_from_expr) else {
+        let Some(bound) = guard.value.as_ref().and_then(bound_bps_from_expr) else {
             continue;
         };
         // Both sides in basis points: the policy's field is a bare number in the
@@ -2748,11 +2748,13 @@ const SLIPPAGE_CEILING_BPS: u32 = 500;
 /// This used to parse to `f64` and compare against `5.0`. The comparison decides
 /// whether a program is rejected on mainnet, and a floating-point comparison
 /// that decides a rejection is the ambiguity PHASE 43 asks us not to have.
-/// The slippage a guard states, in basis points.
+/// The bound a guard states, in basis points — the unit rule every bound shares.
 ///
-/// One quantity, one unit, and the two ways of writing it *agree*: a bare number
-/// is **basis points** (`require slippage <= 50` is 0.5%) and a percent literal is
-/// a **percentage** (`<= 0.5%` is also 50 bps). The readers did not agree — the
+/// Used by slippage guards (`require slippage <= 50`) and by a hedge's delta guard
+/// (`require delta <= 0.01%`): the quantity differs, the unit rule does not. One
+/// quantity, one unit, and the two ways of writing it *agree*: a bare number is
+/// **basis points** (`<= 50` is 0.5%) and a percent literal is a **percentage**
+/// (`<= 0.5%` is also 50 bps). The readers did not agree — the
 /// mainnet gate read a bare number as bps, the risk scorer multiplied it by 100 as
 /// though it were a percent, and the strategy check compared it against a
 /// `max_slippage_bps` field directly — so the corpus's most common bound,
@@ -2761,7 +2763,7 @@ const SLIPPAGE_CEILING_BPS: u32 = 500;
 ///
 /// The rule matches the field name every declaration already uses
 /// (`max_slippage_bps`), so a guard and the policy it sits under are in one unit.
-pub fn slippage_bps_from_expr(expr: &Expression) -> Option<u32> {
+pub fn bound_bps_from_expr(expr: &Expression) -> Option<u32> {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => u32::try_from(*value).ok(),
         Expression::Literal(LiteralExpr::Percentage { value }) => percent_to_bps(value.as_str().trim_end_matches('%')),

@@ -487,3 +487,26 @@ fn rejects_bridge_with_empty_receiver() {
     }
     assert!(verify_ir(&trading_ir(ops)).is_err());
 }
+
+#[test]
+fn a_hedge_operation_is_refused_as_unexecutable() {
+    // PHASE 9's exposure is decided on the AST (`hedge::verify`), and this layer says
+    // what the *VM* can do with the result: nothing, because a perp leg needs a venue
+    // adapter it does not have. The refusal is the feature's honest end, and it is
+    // here rather than only in the emitter so `check` and `build` agree.
+    let ir = ir_with(vec![Operation::Hedge {
+        asset: "ethereum.ETH".to_owned(),
+        long: 1_000,
+        short: 1_000,
+        delta_bps: 0,
+        delta_bound_bps: Some(1),
+    }]);
+    let diagnostics = verify_ir(&ir).expect_err("a hedge cannot be executed here");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        diagnostics[0].message.contains("cannot be executed")
+            && diagnostics[0].message.contains("venue adapter")
+            && !diagnostics[0].message.contains("  "),
+        "the refusal must name the missing venue, with no spacing artefacts: {diagnostics:?}"
+    );
+}

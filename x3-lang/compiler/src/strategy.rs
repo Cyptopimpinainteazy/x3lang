@@ -377,7 +377,7 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
                                     guard
                                         .value
                                         .as_ref()
-                                        .and_then(crate::semantic::slippage_bps_from_expr)
+                                        .and_then(crate::semantic::bound_bps_from_expr)
                                         .map(u128::from)
                                 })
                                 .flatten()

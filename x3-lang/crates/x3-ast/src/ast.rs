@@ -59,6 +59,8 @@ pub enum Item {
     AssetDecl(AssetDecl),
     TradeRiskPolicy(TradeRiskPolicy),
     VenueDecl(VenueDecl),
+    /// `atomic_hedge { … }` — spec PHASE 9.
+    AtomicHedge(AtomicHedgeDecl),
     ParallelDecl(ParallelDecl),
     ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
@@ -1558,3 +1560,50 @@ impl Program {
 }
 
 // Keep the AST minimal, deterministic, and deterministic-friendly for serialization.
+/// `atomic_hedge { buy … spot; short … perp; require delta <= 0.01%; }` — spec
+/// PHASE 9.
+///
+/// A hedge is two directional legs on one asset inside one atomic plan, and the
+/// guard is a claim about the *net* of them: `require delta <= 0.01%` says the
+/// position left open after both legs is at most that fraction of the notional being
+/// hedged. The verifier computes that net (`compiler/src/hedge.rs`); the type names
+/// the phase suggests (`Exposure`, `Delta`, `HedgeRatio`) are what it computes
+/// rather than syntax the language has to carry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtomicHedgeDecl {
+    pub legs: Vec<HedgeLeg>,
+    /// The bound from `require delta <= <pct>`, in basis points: `0.01%` is 1.
+    pub delta_bound_bps: Option<u32>,
+}
+
+/// One side of a hedge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HedgeLeg {
+    pub side: HedgeSide,
+    pub quantity: HedgeQuantity,
+    pub asset: AssetRef,
+    pub venue: HedgeVenue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HedgeSide {
+    /// `buy … spot` / `buy … perp` — a long position.
+    Long,
+    /// `short … spot` / `short … perp` — a short position.
+    Short,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HedgeQuantity {
+    /// A written size.
+    Amount(u128),
+    /// `equivalent` — the size of the leg on the other side, which is how a hedge
+    /// says "short the same notional I am long" without repeating the number.
+    Equivalent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HedgeVenue {
+    Spot,
+    Perp,
+}

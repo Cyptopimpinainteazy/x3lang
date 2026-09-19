@@ -122,6 +122,19 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&[ATOMIC_END])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
+        Operation::Hedge { asset, .. } => {
+            // Refused rather than written, and refused here as well as in the IR
+            // verifier because `emit_x3ir` is public: a hedge's net is decided
+            // (`hedge::verify`) but a perp leg needs a venue adapter this VM does not
+            // have, so the record would describe a position nothing can open.
+            return Err(X3Error::CodegenError {
+                message: format!(
+                    "cannot emit the hedge on '{asset}': a perp leg needs a venue adapter this VM does \
+                     not have, so the artifact would carry a position nothing can open (PHASE 9)"
+                ),
+                span: None,
+            });
+        }
         Operation::If {
             condition,
             then_ops,

@@ -176,6 +176,7 @@ impl X3Formatter {
             Item::InvariantDecl(i) => self.format_invariant(i),
             Item::ErrorDecl(e) => self.format_error(e),
             Item::FinalityPolicy(f) => self.format_finality_policy(f),
+            Item::AtomicHedge(hedge) => self.format_atomic_hedge(hedge),
             Item::ProofsRequired(p) => self.format_proofs_required(p),
             Item::VmTarget(t) => self.format_vm_target(t),
             Item::AssetDecl(decl) => self.format_asset_decl(decl),
@@ -1234,6 +1235,35 @@ impl X3Formatter {
         self.write("error ");
         self.write(e.name.as_str());
         self.write("\n");
+    }
+
+    /// `atomic_hedge { buy … spot; short … perp; require delta <= <pct>; }`
+    fn format_atomic_hedge(&mut self, hedge: &AtomicHedgeDecl) {
+        self.write("atomic_hedge {\n");
+        self.indent();
+        for leg in &hedge.legs {
+            self.write_indent();
+            self.write(match leg.side {
+                HedgeSide::Long => "buy ",
+                HedgeSide::Short => "short ",
+            });
+            match leg.quantity {
+                HedgeQuantity::Amount(amount) => self.write(&amount.to_string()),
+                HedgeQuantity::Equivalent => self.write("equivalent"),
+            }
+            self.write(" ");
+            self.format_asset_ref(&leg.asset);
+            self.write(match leg.venue {
+                HedgeVenue::Spot => " spot\n",
+                HedgeVenue::Perp => " perp\n",
+            });
+        }
+        if let Some(bound) = hedge.delta_bound_bps {
+            self.write_indent();
+            self.write(&format!("require delta <= {bound} bps;\n"));
+        }
+        self.dedent();
+        self.write("}\n");
     }
 
     fn format_finality_policy(&mut self, f: &FinalityPolicy) {

@@ -18,6 +18,7 @@ pub mod diagnostic;
 pub mod emitter;
 pub mod formatter;
 pub mod fusion;
+pub mod hedge;
 pub mod intent_bridge;
 pub mod intent_emit;
 pub mod ir;
@@ -201,6 +202,9 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_invariant_guards_declared(program, &mut acc);
     verify_bridge_liquidity_declared(program, &mut acc);
     verify_guard_kinds_are_checkable(program, &mut acc);
+    // A hedge's legs are only a hedge if they net: the exposure is computed here,
+    // before anything is lowered (PHASE 9).
+    hedge::verify(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 
     // Layer 1 of the pipeline described at the top of this file. It was

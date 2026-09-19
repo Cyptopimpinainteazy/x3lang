@@ -11,7 +11,7 @@
 use x3_lang_ast::ast::{Expression, LiteralExpr};
 use x3_lang_common::Symbol;
 use x3_lang_compiler::risk::RiskScorer;
-use x3_lang_compiler::semantic::{slippage_bps_from_expr, slippage_bps_from_text, CompilationMode};
+use x3_lang_compiler::semantic::{bound_bps_from_expr, slippage_bps_from_text, CompilationMode};
 
 #[test]
 fn a_bare_number_is_basis_points_and_a_percent_is_a_percentage() {
@@ -44,11 +44,11 @@ fn the_expression_form_reads_the_same_way() {
     let percent = Expression::Literal(LiteralExpr::Percentage {
         value: Symbol::new("0.5%"),
     });
-    assert_eq!(slippage_bps_from_expr(&int), Some(50));
-    assert_eq!(slippage_bps_from_expr(&percent), Some(50));
+    assert_eq!(bound_bps_from_expr(&int), Some(50));
+    assert_eq!(bound_bps_from_expr(&percent), Some(50));
     assert_eq!(
-        slippage_bps_from_expr(&int),
-        slippage_bps_from_expr(&percent),
+        bound_bps_from_expr(&int),
+        bound_bps_from_expr(&percent),
         "one bound, two spellings"
     );
 }
