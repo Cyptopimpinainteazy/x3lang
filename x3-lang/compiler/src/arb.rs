@@ -52,6 +52,35 @@
 //! - **`execution { atomic = false }`.** An arbitrage whose legs may settle
 //!   separately is not one trade, it is a set of positions — and a half-settled
 //!   cross-domain arbitrage is the failure the atomicity exists to prevent.
+//!
+//! ## The declaration is judged against the graph, not only against itself
+//!
+//! The checks above are arithmetic. They are necessary and not sufficient: an
+//! `arb` whose `chains` name nothing, or whose `liquidity_min` no declared venue
+//! can absorb, or whose fee and slippage ceilings every declared venue exceeds, is
+//! a perfectly consistent declaration that can never find anything. So every
+//! declared venue is judged against the declaration's own bounds
+//! ([`venue_standings`]) using the same numbers the opportunity graph carries, and
+//! a declaration no venue survives is refused with **every venue and the bound
+//! that removed it**.
+//!
+//! The weakest claim the graph can support is that one declared venue survives the
+//! declared bounds as a one-hop candidate. Refusing below that is what makes this
+//! check worth having: a scope with no candidates returns nothing at run time, and
+//! a compiler that reported it as an empty search would be reporting a typo as a
+//! result.
+//!
+//! ## On the second implementation of this phase
+//!
+//! A second `arb` implementation exists (`compiler/src/arbitrage.rs`, preserved
+//! unrebased on `wip/x3lang-preserve-packets-and-arbitrage-20260919`). It is not
+//! merged, and this module is the surviving surface (TICKET-076). Its
+//! graph-grounded validation is carried over here as [`venue_standings`], because
+//! judging the clauses against `opportunity.rs` rather than beside it is the better
+//! design. Its treatment of `capital { flash = enabled }` is **not** carried over:
+//! it allows flash when a declared flash venue covers the ceiling, and spec PHASE 20
+//! says flash collateral must not ship before a formal safety proof, so allowing it
+//! would be permitting a claim the phase forbids.
 
 use std::collections::BTreeSet;
 
@@ -343,6 +372,97 @@ pub fn enforcement(program: &Program, floor_bps: u16) -> Enforcement {
     unreadable.unwrap_or(Enforcement::Unguarded)
 }
 
+/// Where one declared venue stands against an `arb` declaration's own bounds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VenueStanding {
+    /// The venue satisfies every bound the declaration states, so it is a
+    /// one-hop candidate for the search.
+    Survives,
+    /// The venue cannot lie on any path the declaration describes, and this is
+    /// the bound that removed it.
+    Removed(String),
+}
+
+/// Judge every declared venue against the declaration's own bounds.
+///
+/// The numbers are the ones the opportunity graph carries (`fee_bps`, `liquidity`,
+/// `slippage_bps`, and the chain the venue settles on), so a venue this says
+/// survives cannot be one the search would refuse for the same bound. The reasons
+/// are worded here rather than in the graph because the graph's filters answer a
+/// different question — "may this edge be used at all" — and this one is "does the
+/// scope the author wrote leave anything to rank".
+pub fn venue_standings(program: &Program, policy: &ArbPolicy) -> Vec<(String, VenueStanding)> {
+    let mut standings = Vec::new();
+    for item in &program.items {
+        let Item::VenueDecl(venue) = &item.node else {
+            continue;
+        };
+        let name = venue.name.as_str().to_string();
+
+        // A venue is in the scope when the chain it settles on, or a chain either
+        // of its assets lives on, is declared. A cross-domain venue touches more
+        // than one chain and the author should not have to list all of them for
+        // the venue to be visible.
+        let touches: [&str; 3] = [
+            venue.chain.as_str(),
+            venue.asset_in.chain.as_str(),
+            venue.asset_out.chain.as_str(),
+        ];
+        if !touches
+            .iter()
+            .any(|chain| policy.chains.iter().any(|declared| declared == chain))
+        {
+            standings.push((
+                name,
+                VenueStanding::Removed(format!(
+                    "it settles on '{}' and its assets live on '{}' and '{}', and none of those is \
+                     in `chains` ({})",
+                    venue.chain.as_str(),
+                    venue.asset_in.chain.as_str(),
+                    venue.asset_out.chain.as_str(),
+                    policy.chains.join(", ")
+                )),
+            ));
+            continue;
+        }
+
+        let (floor, floor_asset) = &policy.liquidity_min;
+        if venue.liquidity < *floor {
+            standings.push((
+                name,
+                VenueStanding::Removed(format!(
+                    "it declares {} of liquidity and `liquidity_min` is {floor} {floor_asset}",
+                    venue.liquidity
+                )),
+            ));
+            continue;
+        }
+        if venue.fee_bps > u32::from(policy.max_total_fee_bps) {
+            standings.push((
+                name,
+                VenueStanding::Removed(format!(
+                    "it charges {}bps and `max_total_fee` is {}bps, so one hop already spends the \
+                     whole fee ceiling",
+                    venue.fee_bps, policy.max_total_fee_bps
+                )),
+            ));
+            continue;
+        }
+        if venue.slippage_bps > u32::from(policy.max_slippage_bps) {
+            standings.push((
+                name,
+                VenueStanding::Removed(format!(
+                    "it declares {}bps of slippage and `max_slippage` is {}bps",
+                    venue.slippage_bps, policy.max_slippage_bps
+                )),
+            ));
+            continue;
+        }
+        standings.push((name, VenueStanding::Survives));
+    }
+    standings
+}
+
 /// Check every `arb` declaration in a program, in the same layer as the hedge,
 /// liquidation, rebalance and netting checks — before anything is lowered.
 pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
@@ -350,9 +470,16 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
         let Item::Arb(decl) = &item.node else {
             continue;
         };
-        match policy(decl) {
-            Err(reason) => acc.add_error(semantic_error(reason)),
-            Ok(decided) => match enforcement(program, decided.min_profit_bps) {
+        let decided = match policy(decl) {
+            Err(reason) => {
+                acc.add_error(semantic_error(reason));
+                continue;
+            }
+            Ok(decided) => decided,
+        };
+        {
+            let decided = &decided;
+            match enforcement(program, decided.min_profit_bps) {
                 Enforcement::Guarded { .. } => {}
                 Enforcement::Contradicted { owner, bound_bps } => acc.add_error(semantic_error(format!(
                     "the arb '{}' declares `min_profit = {}bps` and the guard in '{owner}' permits \
@@ -371,9 +498,53 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
                      nothing enforcing it is the defect PHASE 15's own comment names",
                     decided.name, decided.min_profit_bps
                 ))),
-            },
+            }
+        }
+        if let Err(reason) = graph_grounding(program, &decided) {
+            acc.add_error(semantic_error(reason));
         }
     }
+}
+
+/// Whether the declared scope leaves anything for the search to rank.
+///
+/// The declaration is consistent on its own terms and can still describe a search
+/// with no candidates: `chains` naming nowhere a venue lives, a floor deeper than
+/// every pool, ceilings every venue exceeds. The weakest claim the graph can support
+/// is that one declared venue survives the declared bounds as a one-hop candidate,
+/// and below that the refusal names every venue and the bound that removed it, so
+/// the author can see which line to change.
+pub fn graph_grounding(program: &Program, policy: &ArbPolicy) -> Result<usize, String> {
+    let standings = venue_standings(program, policy);
+    if standings.is_empty() {
+        return Err(format!(
+            "the arb '{}' declares a discovery scope and the program declares no `venue`, so there \
+             is no graph to search: a scope describes which of a program's venues may be used, and \
+             with none declared every path is empty by construction",
+            policy.name
+        ));
+    }
+    let surviving = standings
+        .iter()
+        .filter(|(_, standing)| matches!(standing, VenueStanding::Survives))
+        .count();
+    if surviving > 0 {
+        return Ok(surviving);
+    }
+    let mut reasons: Vec<String> = standings
+        .iter()
+        .map(|(name, standing)| match standing {
+            VenueStanding::Survives => format!("'{name}' survives"),
+            VenueStanding::Removed(reason) => format!("'{name}' — {reason}"),
+        })
+        .collect();
+    reasons.sort();
+    Err(format!(
+        "the arb '{}' declares bounds no declared venue survives, so every search under it returns \
+         nothing: {}",
+        policy.name,
+        reasons.join("; ")
+    ))
 }
 
 fn require_chain_in_scope(arb: &str, chains: &[String], chain: &str, field: &str) -> Result<(), String> {

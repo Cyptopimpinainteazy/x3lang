@@ -1738,6 +1738,9 @@ fn cli_check_refuses_a_netting_book_because_nothing_settles_the_residual() {
 /// missing rather than with silence.
 #[test]
 fn cli_refuses_an_arb_scope_and_names_the_pipeline_stages_that_are_missing() {
+    // The venues are what the scope is judged against: a declaration with no graph
+    // to search is refused at the AST layer, before the pipeline question is
+    // reached, so this test needs venues to get to the refusal it is about.
     let source = "intent spread_trade {\n    \
                       from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
                       to solana.USDC receiver 0xA2\n    \
@@ -1749,7 +1752,13 @@ fn cli_refuses_an_arb_scope_and_names_the_pipeline_stages_that_are_missing() {
                       require slippage <= 50\n    \
                       timeout 30s refund ethereum.USDC to sender\n    \
                       on_fail rollback\n\
-                  }\n\n\
+                  }\n\
+                  venue uniswap_v3 {\n    \
+                      kind pool\n    chain ethereum\n    domain evm\n    \
+                      asset_in ethereum.USDC\n    asset_out solana.USDC\n    \
+                      fee_bps 5\n    liquidity 1_000_000\n    slippage_bps 8\n    \
+                      latency_ms 12\n    finality_blocks 12\n    risk 2\n\
+                  }\n\
                   arb spread {\n    \
                       discover { chains = [x3, ethereum, solana]; max_hops = 4; liquidity_min = \
                       500_000 ethereum.USDC; }\n    \
@@ -1807,7 +1816,11 @@ fn cli_refuses_an_arb_scope_and_names_the_pipeline_stages_that_are_missing() {
 /// `x3c lower` shows what the arb's verifier decided.
 #[test]
 fn cli_lower_shows_the_decided_arb_scope() {
-    let source = "arb spread {\n    discover { chains = [x3, ethereum]; max_hops = 3; \
+    let source = "venue uniswap_v3 {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out solana.USDC\n    fee_bps 5\n    \
+                  liquidity 1_000_000\n    slippage_bps 8\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  arb spread {\n    discover { chains = [x3, ethereum]; max_hops = 3; \
                   liquidity_min = 500_000 ethereum.USDC; }\n    capital { flash = disabled; max \
                   = 50_000_000 ethereum.USDC; }\n    execution { atomic = true; parallel = true; \
                   private = false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; \
@@ -2046,5 +2059,41 @@ fn packet_verify_admits_a_signed_packet_and_names_why_it_refuses_the_others() {
     assert!(
         output.contains("signer 'cli-solver' is not trusted"),
         "the refusal must name the signer: {output}"
+    );
+}
+
+/// `x3c check` on an `arb` scope the graph cannot satisfy — spec PHASE 37.
+///
+/// The declaration's own arithmetic can be consistent while the search it
+/// describes has no candidates: a chain list nothing is declared on, a floor no
+/// pool can absorb, ceilings every venue exceeds. The binary has to name every
+/// venue it judged and the bound that removed it, or the author is left guessing
+/// which line to change.
+#[test]
+fn cli_refuses_an_arb_scope_no_declared_venue_survives() {
+    let source = "venue pricey_pool {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out solana.USDC\n    fee_bps 40\n    \
+                  liquidity 1_000_000\n    slippage_bps 8\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  arb spread {\n    discover { chains = [x3, ethereum, solana]; max_hops = 4; \
+                  liquidity_min = 500_000 ethereum.USDC; }\n    capital { flash = disabled; max = \
+                  50_000_000 ethereum.USDC; }\n    execution { atomic = true; parallel = true; \
+                  private = false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; \
+                  max_total_fee = 6bps; deadline = 220ms; }\n}\n";
+    let fixture = write_fixture("cli_arb_no_candidate.x3", source);
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(!check.status.success(), "the scope is unsatisfiable: {output}");
+    assert!(
+        output.contains("no declared venue survives") && output.contains("'pricey_pool'"),
+        "the refusal must name the venue: {output}"
+    );
+    assert!(
+        output.contains("charges 40bps") && output.contains("`max_total_fee` is 6bps"),
+        "the refusal must give the figure and the bound: {output}"
     );
 }

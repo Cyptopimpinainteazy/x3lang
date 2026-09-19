@@ -12,25 +12,64 @@ use std::path::Path;
 
 use x3_lang_compiler::arb::{self, Enforcement};
 
-/// The `arb` block, with each of its four parts supplied by the caller.
+/// Two venues the sound scope can actually search.
+///
+/// The declaration is judged against the graph as well as against itself, so a
+/// scope with no venues to search is refused — which means every test below needs
+/// a graph for its declaration to be about.
+const VENUES: &str = "\
+venue uniswap_v3 {\n    \
+    kind pool\n    chain ethereum\n    domain evm\n    \
+    asset_in ethereum.USDC\n    asset_out solana.USDC\n    \
+    fee_bps 5\n    liquidity 1_000_000\n    slippage_bps 8\n    \
+    latency_ms 12\n    finality_blocks 12\n    risk 2\n\
+}\n\
+venue x3_pool {\n    \
+    kind pool\n    chain x3\n    domain x3vm\n    \
+    asset_in x3.USDC\n    asset_out x3.ETH\n    \
+    fee_bps 3\n    liquidity 2_000_000\n    slippage_bps 4\n    \
+    latency_ms 5\n    finality_blocks 1\n    risk 1\n\
+}\n";
+
+/// The guarded trade the scope bounds, so the declared floor has something
+/// enforcing it.
+const TRADE: &str = "\
+intent spread_trade {\n    \
+    from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
+    to solana.USDC receiver 0xA2\n    \
+    route {\n        \
+        swap uniswap ethereum.USDC -> solana.USDC amount 1_000_000 min_output 1_001_000\n    \
+    }\n    \
+    require profit >= 20\n    \
+    require slippage <= 50\n    \
+    timeout 30s refund ethereum.USDC to sender\n    \
+    on_fail rollback\n\
+}\n";
+
+/// The `arb` block, with each of its four parts supplied by the caller, over a
+/// program that declares the venues it will be judged against.
 fn arb_source(discover: &str, capital: &str, execution: &str, risk: &str) -> String {
     format!(
-        "intent spread_trade {{\n    \
-             from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
-             to solana.USDC receiver 0xA2\n    \
-             route {{\n        \
-                 swap uniswap ethereum.USDC -> solana.USDC amount 1_000_000 min_output 1_001_000\n    \
-             }}\n    \
-             require profit >= 20\n    \
-             require slippage <= 50\n    \
-             timeout 30s refund ethereum.USDC to sender\n    \
-             on_fail rollback\n\
-         }}\n\n\
-         arb spread {{\n    \
+        "{TRADE}\n{VENUES}\narb spread {{\n    \
              discover {{ {discover} }}\n    \
              capital {{ {capital} }}\n    \
              execution {{ {execution} }}\n    \
              risk {{ {risk} }}\n\
+         }}\n"
+    )
+}
+
+/// The same scope with the venue declarations replaced, so a test can say what
+/// the search has to work with.
+fn program_with_venues(venues: &str) -> String {
+    format!(
+        "{TRADE}\n{venues}\narb spread {{\n    \
+             discover {{ chains = [x3, ethereum, solana]; max_hops = 4; liquidity_min = 500_000 \
+             ethereum.USDC; }}\n    \
+             capital {{ flash = disabled; max = 50_000_000 ethereum.USDC; }}\n    \
+             execution {{ atomic = true; parallel = true; private = false; }}\n    \
+             risk {{ min_profit = 20bps; max_slippage = 8bps; max_total_fee = 6bps; deadline = \
+             220ms; }}\n\
          }}\n"
     )
 }
@@ -482,5 +521,169 @@ fn an_arb_with_no_guarded_trade_at_all_is_refused_for_the_same_reason() {
     assert!(
         message.contains("no `require profit >= …` guard enforces it"),
         "a scope with nothing to bound must be refused: {message}"
+    );
+}
+
+/// The declaration's decided policy without running the program-level checks, so a
+/// test can ask what the standings are for a scope whose venues were all removed.
+fn policy_only(source: &str) -> arb::ArbPolicy {
+    let program = parse(source);
+    let item = program
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::Arb(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the program declares an arb");
+    arb::policy(item).expect("the declaration decides on its own terms")
+}
+
+/// One venue declaration, so a test can place it on a chain or give it a depth.
+fn venue(name: &str, chain: &str, fee_bps: u32, liquidity: u128, slippage_bps: u32) -> String {
+    format!(
+        "venue {name} {{\n    kind pool\n    chain {chain}\n    domain evm\n    asset_in \
+         {chain}.USDC\n    asset_out {chain}.ETH\n    fee_bps {fee_bps}\n    liquidity \
+         {liquidity}\n    slippage_bps {slippage_bps}\n    latency_ms 12\n    finality_blocks \
+         12\n    risk 2\n}}\n"
+    )
+}
+
+#[test]
+fn a_program_with_no_venue_declaration_has_no_graph_to_search() {
+    // The scope says which of a program's venues may be used. With none declared,
+    // every path is empty by construction, and that is the refusal's reason.
+    let message = refusal(&program_with_venues(""));
+    assert!(
+        message.contains("declares no `venue`") && message.contains("no graph to search"),
+        "the refusal must say there is no graph: {message}"
+    );
+}
+
+#[test]
+fn a_scope_no_declared_venue_survives_is_refused_with_every_reason() {
+    // Both venues charge more than the fee ceiling, so neither can be on a path
+    // the declaration describes. The declaration is internally consistent and
+    // describes a search that returns nothing.
+    let venues = format!(
+        "{}{}",
+        venue("pricey_a", "ethereum", 50, 1_000_000, 4),
+        venue("pricey_b", "x3", 90, 1_000_000, 4),
+    );
+    let message = refusal(&program_with_venues(&venues));
+    assert!(
+        message.contains("no declared venue survives") && message.contains("every search under it returns nothing"),
+        "the refusal must say the scope is unsatisfiable: {message}"
+    );
+    assert!(
+        message.contains("'pricey_a'") && message.contains("'pricey_b'"),
+        "the refusal must name every venue it judged: {message}"
+    );
+    assert!(
+        message.contains("charges 50bps") && message.contains("`max_total_fee` is 6bps"),
+        "the refusal must give the figure and the bound that removed it: {message}"
+    );
+}
+
+#[test]
+fn a_venue_off_the_declared_chains_is_removed_by_the_scope() {
+    // The scope is the only thing that says where the search may look, so a venue
+    // on a chain nobody declared is invisible to it.
+    let venues = venue("base_pool", "base", 5, 1_000_000, 4);
+    let message = refusal(&program_with_venues(&venues));
+    assert!(
+        message.contains("'base_pool'") && message.contains("settles on 'base'"),
+        "the refusal must name the venue and the chain it settles on: {message}"
+    );
+    assert!(
+        message.contains("none of those is in `chains`"),
+        "the refusal must say the scope excluded it: {message}"
+    );
+}
+
+#[test]
+fn a_liquidity_floor_no_venue_can_absorb_is_refused_with_both_figures() {
+    let venues = venue("shallow", "ethereum", 5, 100, 4);
+    let message = refusal(&program_with_venues(&venues));
+    assert!(
+        message.contains("declares 100 of liquidity") && message.contains("`liquidity_min` is 500000 ethereum.USDC"),
+        "the refusal must give the depth and the floor: {message}"
+    );
+}
+
+#[test]
+fn one_surviving_venue_is_enough() {
+    // The weakest claim the graph can support: one venue survives every declared
+    // bound as a one-hop candidate. The other venue being removed is not a defect.
+    let venues = format!(
+        "{}{}",
+        venue("too_pricey", "ethereum", 50, 1_000_000, 4),
+        venue("fine", "ethereum", 5, 1_000_000, 8),
+    );
+    let source = program_with_venues(&venues);
+    let program = parse(&source);
+    let policy = policy_only(&source);
+    assert_eq!(
+        arb::graph_grounding(&program, &policy),
+        Ok(1),
+        "exactly one venue survives, and that is enough for the scope to be a scope"
+    );
+    // And the whole checker agrees, so the declaration compiles past this layer.
+    let mut acc = x3_lang_common::ErrorAccumulator::new();
+    arb::verify(&program, &mut acc);
+    assert!(
+        !acc.has_errors(),
+        "a scope with one viable venue must not be refused: {:?}",
+        acc.errors()
+    );
+}
+
+#[test]
+fn the_standings_name_the_bound_that_removed_each_venue() {
+    let venues = format!(
+        "{}{}{}",
+        venue("off_scope", "base", 5, 1_000_000, 4),
+        venue("shallow", "ethereum", 5, 10, 4),
+        venue("slippy", "ethereum", 5, 1_000_000, 400),
+    );
+    let source = program_with_venues(&venues);
+    let program = parse(&source);
+    let policy = policy_only(&source);
+    let standings = arb::venue_standings(&program, &policy);
+    let reasons: Vec<String> = standings
+        .iter()
+        .map(|(name, standing)| match standing {
+            arb::VenueStanding::Survives => format!("{name}: survives"),
+            arb::VenueStanding::Removed(reason) => format!("{name}: {reason}"),
+        })
+        .collect();
+    assert_eq!(standings.len(), 3, "all three were judged: {reasons:?}");
+    assert!(
+        reasons.iter().all(|reason| reason.contains(": ")),
+        "every venue gets a reason or a pass: {reasons:?}"
+    );
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("off_scope") && reason.contains("`chains`")),
+        "the off-scope venue's reason is the scope: {reasons:?}"
+    );
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("shallow") && reason.contains("liquidity_min")),
+        "the shallow venue's reason is the floor: {reasons:?}"
+    );
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("slippy") && reason.contains("max_slippage")),
+        "the slippy venue's reason is the ceiling: {reasons:?}"
+    );
+    assert!(
+        !standings
+            .iter()
+            .any(|(_, standing)| matches!(standing, arb::VenueStanding::Survives)),
+        "none of the three survives its own bound: {reasons:?}"
     );
 }
