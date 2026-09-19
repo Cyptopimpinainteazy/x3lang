@@ -174,8 +174,8 @@ def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle
     plan['validated_intent_v1'] = rust_contract
     # Surface constraints / requires / policies for downstream evaluators and
     # human-readable run output.
-    plan.setdefault('requires', list(intent.get('requires', [])))
-    plan.setdefault('policies', dict(intent.get('policies', {})))
+    plan.setdefault('requires', list(intent.get('requires') or []))
+    plan.setdefault('policies', dict(intent.get('policies') or {}))
     plan = simulator.simulate(plan)
 
     # Two-phase commit simulation: prepare (emit payloads), then simulate execution

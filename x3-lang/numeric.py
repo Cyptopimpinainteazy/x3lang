@@ -1,5 +1,6 @@
 """Strict numeric parsing shared by the Python intent pipeline."""
 from decimal import Decimal, InvalidOperation
+from math import isfinite
 from typing import Any
 
 
@@ -20,6 +21,16 @@ def parse_decimal(value: Any, *, allow_unit_suffix: bool = False) -> Decimal:
         raise NumericParseError("value must be numeric") from exc
     if not result.is_finite():
         raise NumericParseError("value must be finite")
+    # Every caller narrows this to float immediately; a Decimal outside
+    # float range is finite by Decimal's own definition but silently
+    # becomes `inf`/`-inf` on that narrowing (Python's float() does not
+    # raise), which is exactly the silent-corruption class this parser
+    # exists to reject.
+    try:
+        if not isfinite(float(result)):
+            raise NumericParseError("value must be finite")
+    except OverflowError as exc:
+        raise NumericParseError("value must be finite") from exc
     return result
 
 
