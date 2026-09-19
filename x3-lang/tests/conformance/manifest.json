@@ -14,17 +14,20 @@
     {
       "name": "same_chain_bridge",
       "path": "invalid/routes/same_chain_bridge.x3",
-      "expect": "reject"
+      "expect": "reject",
+      "expect_message": "bridge from_chain == to_chain"
     },
     {
       "name": "bridge_without_finality",
       "path": "invalid/intents/bridge_without_finality.x3",
-      "expect": "reject"
+      "expect": "reject",
+      "expect_message": "has no explicit finality requirement"
     },
     {
       "name": "swap_without_slippage",
       "path": "invalid/intents/swap_without_slippage.x3",
-      "expect": "reject"
+      "expect": "reject",
+      "expect_message": "swap leg present without an explicit slippage bound"
     }
   ]
 }

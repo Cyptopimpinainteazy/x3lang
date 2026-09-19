@@ -16,6 +16,16 @@ struct Case {
     path: String,
     expect: String,
     code: Option<String>,
+    /// A substring the rejection's diagnostic must contain.
+    ///
+    /// A rejection case that says nothing about *why* it is rejected is satisfied
+    /// by any failure at all — a parse error from an unrelated line counts — which
+    /// is how four cases passed while the guard they were written for never ran
+    /// (TICKET-011: before the lexer read comments, those files failed at line
+    /// one). Every rejection case now states a code, a message, or both, and the
+    /// harness enforces that.
+    #[serde(default)]
+    expect_message: Option<String>,
 }
 
 fn conformance_root() -> PathBuf {
@@ -60,26 +70,48 @@ fn manifest_cases_match_authoritative_compiler_behavior() {
                 Err(error) => panic!("{}: expected acceptance, got compiler error: {error:?}", case.name),
             },
             "reject" => {
-                let observed_code = match result {
-                    Err(error) => diagnostic_code_for_error(&error).map(|code| code.as_str().to_owned()),
+                let (observed_code, observed_messages) = match result {
+                    Err(error) => (
+                        diagnostic_code_for_error(&error).map(|code| code.as_str().to_owned()),
+                        vec![error.to_string()],
+                    ),
                     Ok((_program, _ir, errors)) => {
                         assert!(
                             !errors.is_empty(),
                             "{}: expected rejection, but compiler accepted source",
                             case.name
                         );
-                        errors
-                            .iter()
-                            .find_map(diagnostic_code_for_error)
-                            .map(|code| code.as_str().to_owned())
+                        (
+                            errors
+                                .iter()
+                                .find_map(diagnostic_code_for_error)
+                                .map(|code| code.as_str().to_owned()),
+                            errors.iter().map(|error| error.to_string()).collect(),
+                        )
                     }
                 };
+
+                // The reason has to be stated, and then it has to be the reason.
+                // A case that names none is a case that any failure satisfies.
+                assert!(
+                    case.code.is_some() || case.expect_message.is_some(),
+                    "{}: a rejection case must say which diagnostic it expects (a `code`, an \
+                     `expect_message`, or both); without one, any failure satisfies it",
+                    case.name
+                );
 
                 if let Some(expected_code) = case.code.as_deref() {
                     assert_eq!(
                         observed_code.as_deref(),
                         Some(expected_code),
                         "{}: wrong diagnostic code",
+                        case.name
+                    );
+                }
+                if let Some(expected) = case.expect_message.as_deref() {
+                    assert!(
+                        observed_messages.iter().any(|message| message.contains(expected)),
+                        "{}: expected a diagnostic containing {expected:?}, got {observed_messages:?}",
                         case.name
                     );
                 }

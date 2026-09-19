@@ -3,6 +3,18 @@
 // execution quality. `min_output` is an absolute floor picked at compile
 // time, not a tolerance for how far the market may move before the fill, so
 // a swap without `require slippage <= N` has no slippage bound at all.
+//
+// The `finality_policy` block is new (TICKET-049): the guard below states a depth
+// for a chain, and the compiler now refuses a guard with nothing declaring it.
+// Without this block the case was rejected for *that* reason rather than for the
+// missing slippage bound, which is the defect the conformance harness is being
+// taught to catch (TICKET-011).
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
 intent swap_without_slippage {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Solana.ETH receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
