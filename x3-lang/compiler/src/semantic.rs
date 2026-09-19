@@ -289,6 +289,81 @@ fn err(message: impl Into<String>) -> X3Error {
     }
 }
 
+/// Refuse a guard whose kind the compiler does not know.
+///
+/// `require_kind_from_str` carries an unknown word as `Custom`, which is how
+/// `require proof verified` parses — and a `Custom` guard is a condition nothing
+/// can check: no declaration to compare against, no run-time quantity, no
+/// verifier reading it. It lowers to a `REQUIRE` the executor treats as true.
+///
+/// The language's own rule everywhere else is that a construct the compiler does
+/// not understand is one it cannot check ("permissions" are a closed set for
+/// exactly this reason), so a guard kind is closed too: the word has to be one of
+/// `REQUIRE_KIND_NAMES`, and the diagnostic lists them.
+pub fn verify_guard_kinds_are_known(program: &Program, acc: &mut ErrorAccumulator) {
+    for (owner, guard) in require_guards(program) {
+        if !matches!(guard.kind, x3_lang_ast::ast::RequireKind::Custom(_)) {
+            continue;
+        }
+        acc.add_error(err(format!(
+            "declaration '{owner}' requires `{}`, which is not a guard kind this compiler knows, \
+             so nothing would ever check it. The kinds it knows are: {}",
+            guard.kind.as_str(),
+            crate::parser::REQUIRE_KIND_NAMES.join(", ")
+        )));
+    }
+}
+
+/// A `require proof_complete <name>` guard needs that proof to be declared.
+///
+/// The guard asserts a proof of the named type was completed;
+/// `proofs required { … }` is where a program declares which proofs its
+/// operations need. So a guard naming a proof the program never declares claims
+/// something no configuration backs — the same shape as the solver bond and the
+/// relayer quorum, and the same reason it is a compile-time check rather than a
+/// `STATIC` assertion.
+pub fn verify_proof_complete_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    let declared: Vec<&str> = program
+        .items
+        .iter()
+        .filter_map(|item| match &item.node {
+            Item::ProofsRequired(proofs) => Some(proofs.proofs.iter().map(|proof| proof.as_str())),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::ProofComplete {
+            continue;
+        }
+        let Some(proof) = guard.subject.as_ref() else {
+            acc.add_error(err(format!(
+                "declaration '{owner}' requires `proof_complete` without naming the proof; there is \
+                 nothing to have completed — write `require proof_complete <proof_type>`"
+            )));
+            continue;
+        };
+        if !declared.iter().any(|name| *name == proof.as_str()) {
+            acc.add_error(err(if declared.is_empty() {
+                format!(
+                    "declaration '{owner}' requires the proof '{}' to be complete, but the program \
+                     declares no `proofs required {{ … }}` at all — the guard has nothing to be \
+                     backed by",
+                    proof.as_str()
+                )
+            } else {
+                format!(
+                    "declaration '{owner}' requires the proof '{}' to be complete, and the program \
+                     declares {{{}}} — a proof it never declares is one no operation can carry",
+                    proof.as_str(),
+                    declared.join(", ")
+                )
+            }));
+        }
+    }
+}
+
 /// Evaluate `require canonical_supply <ASSET>` against what the program does.
 ///
 /// The guard claims the canonical supply of an asset is preserved, and that is a

@@ -49,8 +49,9 @@ use regalloc::{allocate, AllocationResult};
 use semantic::verify_atomic_swap_decls;
 use semantic::verify_with_config as verify_semantics;
 use semantic::{
-    verify_atomic_choice_decls, verify_parallel_decls, verify_privacy_decls, verify_relayer_quorum_declared,
-    verify_route_fallbacks, verify_solver_bond_declared, verify_venue_decls,
+    verify_atomic_choice_decls, verify_guard_kinds_are_known, verify_parallel_decls, verify_privacy_decls,
+    verify_proof_complete_declared, verify_relayer_quorum_declared, verify_route_fallbacks,
+    verify_solver_bond_declared, verify_venue_decls,
 };
 use x3_lang_ast::ast::Program;
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
@@ -185,6 +186,8 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_parallel_decls(program, &mut acc);
     verify_solver_bond_declared(program, &mut acc);
     verify_relayer_quorum_declared(program, &mut acc);
+    verify_proof_complete_declared(program, &mut acc);
+    verify_guard_kinds_are_known(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 
     // Layer 1 of the pipeline described at the top of this file. It was

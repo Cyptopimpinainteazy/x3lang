@@ -4527,6 +4527,32 @@ pub(crate) fn duration_unit_from_suffix(suffix: &str) -> Option<x3_lang_common::
     })
 }
 
+/// The words a guard's kind can be spelled with.
+///
+/// A list beside the match below, and the direction that matters is checked by a
+/// test: every name here must map to a kind that is not `Custom`, because a word
+/// outside this set is a guard whose condition no checker will ever read.
+pub const REQUIRE_KIND_NAMES: &[&str] = &[
+    "finality",
+    "slippage",
+    "profit",
+    "invariant",
+    "risk",
+    "nonce",
+    "audit_gate",
+    "bridge_liquidity",
+    "canonical_supply",
+    "relayer_quorum",
+    "route_score",
+    "solver_bond",
+    "proof_complete",
+    "refund_path",
+    "refund_to",
+    "finality_explicit",
+    "vm_supported",
+    "mainnet_safe",
+];
+
 fn require_kind_from_str(name: &str) -> Result<RequireKind, X3Error> {
     Ok(match name {
         "finality" => RequireKind::Finality,
