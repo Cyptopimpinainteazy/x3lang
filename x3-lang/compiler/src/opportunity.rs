@@ -278,6 +278,20 @@ pub enum RejectionReason {
     MissingProof,
 }
 
+/// The hop ceiling a search uses: the declared one, or the default when the
+/// declaration is zero (which is what "nothing declared" looks like in a
+/// struct that is `Default`).
+///
+/// One function because two readers have to agree: the search prunes with it,
+/// and [`path_reject_reason`] explains a path with it.
+fn effective_max_hops(constraints: &OpportunityConstraints) -> usize {
+    if constraints.max_hops == 0 {
+        DEFAULT_MAX_PATH_HOPS
+    } else {
+        constraints.max_hops
+    }
+}
+
 /// Search the graph for valid opportunities from one asset to another.
 ///
 /// Results are ranked by [`Opportunity::rank_key`], most attractive first. The
@@ -295,11 +309,7 @@ pub fn search_with_budget(
     constraints: &OpportunityConstraints,
     max_expansions: usize,
 ) -> SearchOutcome {
-    let max_hops = if constraints.max_hops == 0 {
-        DEFAULT_MAX_PATH_HOPS
-    } else {
-        constraints.max_hops
-    };
+    let max_hops = effective_max_hops(constraints);
 
     let mut found: Vec<Opportunity> = Vec::new();
     let mut venues: Vec<String> = Vec::new();
@@ -451,6 +461,11 @@ pub fn path_reject_reason(
     graph: &OpportunityGraph,
     constraints: &OpportunityConstraints,
 ) -> Option<RejectionReason> {
+    // A path's first asset is where it starts, so its hop count is one less
+    // than its asset count: every other asset is an edge that was taken.
+    if assets.len().saturating_sub(1) > effective_max_hops(constraints) {
+        return Some(RejectionReason::TooManyHops);
+    }
     if let Some(bound) = constraints.max_fee_bps {
         if path_fee_bps(venues, graph) > bound {
             return Some(RejectionReason::FeeAboveBound);

@@ -544,3 +544,49 @@ fn formatting_an_objective_keeps_the_metric_it_ranks() {
         "formatting is idempotent"
     );
 }
+
+#[test]
+fn a_hop_ceiling_is_reported_as_its_own_reason() {
+    // The search prunes at the hop bound, so it never produces an over-long
+    // path — but a caller holding one (a diagnostic, a replay) has to be able
+    // to ask why it is not an opportunity, and "too many hops" is an answer
+    // that has to exist rather than be inferred from a missing variant.
+    let graph = graph_from(VENUES);
+    let assets = vec![
+        "ethereum.USDC".to_string(),
+        "ethereum.ETH".to_string(),
+        "solana.SOL".to_string(),
+    ];
+    let path = vec!["wide_pool".to_string(), "x3_bridge".to_string()];
+    let one_hop = OpportunityConstraints {
+        max_hops: 1,
+        ..Default::default()
+    };
+    assert_eq!(
+        path_reject_reason(&path, &assets, &graph, &one_hop),
+        Some(RejectionReason::TooManyHops)
+    );
+    let two_hops = OpportunityConstraints {
+        max_hops: 2,
+        ..Default::default()
+    };
+    assert_eq!(path_reject_reason(&path, &assets, &graph, &two_hops), None);
+
+    // Zero is "nothing declared", which the search reads as its own default —
+    // and the explanation has to read it the same way, or a default search
+    // would be explaining paths against a ceiling of none.
+    let undeclared = OpportunityConstraints::default();
+    assert_eq!(path_reject_reason(&path, &assets, &graph, &undeclared), None);
+    let too_long = vec![
+        "ethereum.USDC".to_string(),
+        "ethereum.ETH".to_string(),
+        "ethereum.WBTC".to_string(),
+        "solana.SOL".to_string(),
+        "solana.USDC".to_string(),
+        "solana.ETH".to_string(),
+    ];
+    assert_eq!(
+        path_reject_reason(&path, &too_long, &graph, &undeclared),
+        Some(RejectionReason::TooManyHops)
+    );
+}
