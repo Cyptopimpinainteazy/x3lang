@@ -282,3 +282,122 @@ fn the_require_flags_writer_and_readers_are_inverses() {
         REQUIRE_COMPARE_MEASURED_SLIPPAGE
     );
 }
+
+/// TICKET-089: **a whole-number percent guard does not eat the clause after it.**
+///
+/// The literal reader handled `Int.Dot.Int.Percent` and left `Int.Percent` to fall
+/// through to the integer arm, so `1%` kept its `%` and the expression parser took it for
+/// the **modulo** operator, consuming the next token as its right-hand operand. In a guard
+/// that token is the next clause:
+///
+/// ```text
+/// require slippage <= 1%      FAIL  unexpected clause in intent body: Ident("45s")
+/// require slippage <= 0.5%    OK
+/// ```
+///
+/// The refusal named a line that was correct, and the shape survived because a percent
+/// guard written *last* in a body has no following clause to swallow — which is where
+/// every passing example and fixture happened to put its own. `1%` is the most natural
+/// way to write one percent.
+#[test]
+fn a_whole_number_percent_guard_does_not_eat_the_clause_after_it() {
+    let whole = guard("    require slippage <= 1%\n    timeout 30s refund ethereum.USDC to sender");
+    assert!(matches!(whole.kind, RequireKind::Slippage));
+    assert_eq!(whole.comparison, Some(ComparisonOp::LessOrEqual));
+    assert!(
+        matches!(
+            whole.value,
+            Some(Expression::Literal(x3_lang_ast::ast::LiteralExpr::Percentage { .. }))
+        ),
+        "`1%` is a percentage literal, not an integer followed by a modulo: {:?}",
+        whole.value
+    );
+
+    // And the clause after it is still a clause. The percentage and the basis-point
+    // spelling must lower to the same program, which is the shape the existing
+    // `a_guard_before_a_timeout_leaves_the_timeout_alone` test uses for a different
+    // guard.
+    let percent = "intent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        \
+                   swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    \
+                   require slippage <= 1%\n    timeout 30s refund ethereum.USDC to sender\n    \
+                   on_fail rollback\n}\n";
+    let basis_points = percent.replace("require slippage <= 1%", "require slippage <= 100");
+    let from_percent = x3_lang_compiler::compile_to_ir(
+        &x3_lang_compiler::parser::parse_source(percent).expect("a whole-number percent guard must parse"),
+    )
+    .expect("and lower");
+    let from_points = x3_lang_compiler::compile_to_ir(
+        &x3_lang_compiler::parser::parse_source(&basis_points).expect("and the bps spelling must parse"),
+    )
+    .expect("and lower");
+    assert_eq!(
+        from_percent.operations.len(),
+        from_points.operations.len(),
+        "1% and 100 basis points are one bound, so the two programs are the same program"
+    );
+}
+
+/// Where `%` is a percent and where it is still a modulo.
+///
+/// The percent fix is at the guard's bound, not in the literal reader, and this is the
+/// boundary it draws. Three cases, all pinned:
+///
+/// 1. **Between non-literals** (`totals % slots`) — a modulo, untouched, because the fix
+///    never touched the operator table.
+/// 2. **Between integer literals outside a guard** (`let x = 1 + 2 * 3 - 4 / 5 % 6;`) — a
+///    modulo, and this is the case that decided where the fix belongs: claiming every
+///    `Int` followed by `%` as a percentage in the literal reader would have taken that
+///    expression away, and `compiler/tests/test_parser_coverage.rs` exercises exactly it.
+/// 3. **Inside a guard's bound** — `1%` is a percentage, which is the point of the fix, so
+///    a modulo between literals *there* needs parentheses. That narrowing is deliberate
+///    and recorded here rather than left to be discovered: the spelling it replaces
+///    produced a guard whose value was the text `5 Percent 6`, which is a bound nobody
+///    wrote.
+#[test]
+fn a_percent_in_a_guard_bound_is_a_percentage_and_a_modulo_everywhere_else() {
+    fn guard_value(source: &str) -> Option<Expression> {
+        let program = x3_lang_compiler::parser::parse_source(source).expect("the probe must parse");
+        for item in &program.items {
+            if let x3_lang_ast::ast::Item::IntentDecl(intent) = &item.node {
+                for statement in &intent.body.stmts {
+                    if let Statement::Require(guard) = statement {
+                        return guard.value.clone();
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    let probe = |bound: &str| {
+        format!(
+            "intent probe {{\n    from ethereum.USDC amount 1\n    to solana.SOL\n    \
+             require route_score matched == {bound}\n    on_fail rollback\n}}\n"
+        )
+    };
+
+    // 1. Non-literals: still a modulo.
+    assert!(
+        matches!(guard_value(&probe("totals % slots")), Some(Expression::Binary { .. })),
+        "`totals % slots` must still parse as a modulo"
+    );
+
+    // 2. Integer literals outside a guard: still a modulo. The parser-coverage shape.
+    x3_lang_compiler::parser::parse_source("fn f() { let x = 1 + 2 * 3 - 4 / 5 % 6; }")
+        .expect("`5 % 6` in a `let` must still parse as a modulo");
+
+    // 3. Inside a guard's bound: `Int %` is the percent spelling.
+    assert!(
+        matches!(
+            guard_value(&probe("1%")),
+            Some(Expression::Literal(x3_lang_ast::ast::LiteralExpr::Percentage { .. }))
+        ),
+        "`1%` in a guard's bound is a percentage"
+    );
+    // And a modulo between literals there needs the parentheses, which is the narrowing
+    // this fix makes on purpose.
+    assert!(
+        matches!(guard_value(&probe("(5 % 6)")), Some(Expression::Binary { .. })),
+        "parenthesised, `5 % 6` is still a modulo inside a guard's bound"
+    );
+}

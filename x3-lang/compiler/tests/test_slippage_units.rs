@@ -85,11 +85,21 @@ fn the_mainnet_ceiling_reads_the_same_unit_as_the_guards() {
 
     // The policy is raised with the guard in each case, so the ceiling is the
     // check under test rather than the policy/guard consistency check above it.
+    // The check refuses only what is *above* the ceiling (`bound > policy`), so a
+    // bound equal to it is inside. Two rows here used to disagree with that and
+    // passed anyway: `501` against a `501` ceiling is equal and so is accepted, and
+    // `5%` against a `500` ceiling is 500 bps against 500 and is accepted too — but
+    // the second was "refused" only because a whole-number percent guard did not
+    // parse at all (TICKET-089), so the assertion was satisfied by a parse failure
+    // rather than by the comparison it names. Fixing that parse is what exposed the
+    // table. Each row below is now a claim about the ceiling, and the two percent
+    // rows pin that `5%` and `0.5%` are 500 and 50 basis points.
     for (guard, policy, accepted) in [
         ("require slippage <= 500", "500", true),
-        ("require slippage <= 501", "501", false),
         ("require slippage <= 0.5%", "50", true),
-        ("require slippage <= 5%", "500", false),
+        ("require slippage <= 5%", "500", true),
+        ("require slippage <= 501", "500", false),
+        ("require slippage <= 5%", "499", false),
     ] {
         let source = flagship
             .replace("max_slippage 5", &format!("max_slippage {policy}"))

@@ -5234,6 +5234,15 @@ impl<'a> Parser<'a> {
         let mut expr = match self.advance() {
             Tok::Int(v) => {
                 // Check for percentage literal: Int.Dot.Int.Percent or Int.Percent
+                //
+                // Only the dotted form is implemented here, and that is deliberate rather
+                // than the omission it looks like: `5 % 6` is a modulo between two integer
+                // literals and `compiler/tests/test_parser_coverage.rs` exercises it, so
+                // claiming every `Int` followed by `%` as a percentage would take a real
+                // expression away. A whole-number percent — `1%`, which is the most
+                // natural way to write one percent — is read where the language documents
+                // the percent spelling, in a guard's bound: `parse_guard_bound`
+                // (TICKET-089).
                 if matches!(self.peek(), Tok::Dot)
                     && matches!(self.peek_n(1), Tok::Int(_))
                     && matches!(self.peek_n(2), Tok::Percent)
@@ -5512,6 +5521,34 @@ impl<'a> Parser<'a> {
     /// 50. `require proof verified` used to be unparseable — the parser read
     /// `verified` as the subject and then demanded a value that the program
     /// never wrote (TICKET-045).
+    /// A guard's right-hand side, where a whole-number percent is read.
+    ///
+    /// `0.5%` is one `Percentage` token and reaches the literal reader; `1%` is an integer
+    /// followed by `%`, and the literal reader deliberately leaves that to the modulo
+    /// operator because `5 % 6` is a real expression. A guard's bound is where the language
+    /// documents the percent spelling, so it is claimed here — and nowhere else
+    /// (TICKET-089).
+    ///
+    /// Without this, `require slippage <= 1%` left the `%` to the expression parser, which
+    /// read it as a **modulo** and consumed the next token as its right-hand operand: in a
+    /// guard that token is the next clause, so `require slippage <= 1%` followed by
+    /// `timeout 45s …` was refused with `unexpected clause in intent body: Ident("45s")` —
+    /// naming a line that was correct. It survived because a percent guard written *last*
+    /// in a body has no following clause to swallow, which is where every passing example
+    /// and fixture happens to put its own.
+    fn parse_guard_bound(&mut self) -> Result<Expression, X3Error> {
+        if let Tok::Int(value) = self.peek() {
+            if self.peek_n(1) == Tok::Percent {
+                self.advance(); // the integer
+                self.advance(); // the '%'
+                return Ok(Expression::Literal(LiteralExpr::Percentage {
+                    value: Symbol::new(&format!("{value}%")),
+                }));
+            }
+        }
+        self.parse_expr()
+    }
+
     fn parse_require_guard(&mut self) -> Result<RequireGuard, X3Error> {
         self.advance(); // 'require'
         let ident = self.expect_ident("require kind")?;
@@ -5549,7 +5586,7 @@ impl<'a> Parser<'a> {
         }
         let value = if comparison.is_some() {
             // A comparison with no right-hand side is not a comparison.
-            Some(self.parse_expr()?)
+            Some(self.parse_guard_bound()?)
         } else if subject.is_some() {
             // An explicit subject may stand alone (`require canonical_supply.USDC`).
             if self.can_start_expression() && !self.next_word_begins_a_clause() {
