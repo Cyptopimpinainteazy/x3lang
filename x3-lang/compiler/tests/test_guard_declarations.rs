@@ -109,3 +109,22 @@ fn every_listed_kind_name_is_one_the_parser_knows() {
         );
     }
 }
+
+#[test]
+fn a_refund_path_guard_needs_a_refund_path() {
+    // The guard is a claim about the program's own shape, so it is decided
+    // against the program: with a refund action it holds, without one it does
+    // not. This is the second kind closed by evaluation rather than by a
+    // declaration (TICKET-027).
+    let with_path = "intent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    require slippage <= 50\n    require refund_path sender\n    on_fail refund ethereum.USDC to sender\n}\n";
+    assert_eq!(errors(with_path), Vec::<String>::new(), "the program has one");
+
+    let without_path = "intent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    require slippage <= 50\n    require refund_path sender\n    on_fail rollback\n}\n";
+    let errors = errors(without_path);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("require refund_path") && error.contains("has none")),
+        "the guard demands what the program does not have: {errors:?}"
+    );
+}

@@ -1493,6 +1493,27 @@ pub fn verify_refund_path_exists(ir: &X3IR, acc: &mut ErrorAccumulator) {
             "cross-chain operation present without a refund path — add an OnFail or OnTimeout with Refund action",
         ));
     }
+    // A `require refund_path` guard makes the same claim this pass makes about
+    // the program, so it is decided here rather than recorded as `STATIC`: a
+    // guard demanding a refund path the program does not have is a false
+    // statement about the artifact. The check above only fires for a program with
+    // a cross-chain operation; this one fires for the guard wherever it is
+    // written.
+    let guards_refund_path = ir.operations.iter().any(|op| {
+        matches!(
+            op,
+            Operation::Require {
+                kind: crate::ir::RequireKind::RefundPath,
+                ..
+            }
+        )
+    });
+    if guards_refund_path && !has_refund {
+        acc.add_error(err(
+            "`require refund_path` demands a refund path, and this program has none — add an OnFail \
+             or OnTimeout with a Refund action, or drop the guard",
+        ));
+    }
 }
 
 /// Verify that every cross-chain operation has explicit finality
