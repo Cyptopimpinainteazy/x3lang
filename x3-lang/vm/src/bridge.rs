@@ -1085,11 +1085,34 @@ impl SvmFinalityVerifier for SolanaRpcFinalityVerifier {
 
 pub struct ProductionBridgeAdapter<B> {
     backend: B,
+    /// The host storage a program's `storage_store`/`storage_load` reaches.
+    ///
+    /// **Belongs to the adapter, not to the process.** These were two
+    /// `static Mutex<HashMap<…>>` behind accessor functions, which made them
+    /// process-global: a second run in the same process read the first run's values and
+    /// `COUNT` grew across runs, so a program's `storage_load` answered differently
+    /// depending on what had run before it. That is a determinism defect as much as a
+    /// durability one — the same artifact over the same inputs has to produce the same
+    /// result — and it was the one piece of state in this crate that outlived a run
+    /// (PHASE 42, TICKET-087).
+    ///
+    /// A caller that *wants* the storage to persist across runs now says so by reusing
+    /// one adapter, which is a decision at the call site rather than a property of the
+    /// process. `BTreeMap` rather than `HashMap` for the reason round 57 gave: a map
+    /// nothing orders today is a trap for the first reader that lists it.
+    storage: Mutex<BTreeMap<Vec<u8>, Vec<u8>>>,
+    /// The lifecycle states a program's `lifecycle` operations reach. Scoped here for
+    /// the same reason as `storage`.
+    lifecycle: Mutex<BTreeMap<Vec<u8>, u8>>,
 }
 
 impl<B> ProductionBridgeAdapter<B> {
     pub fn new(backend: B) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            storage: Mutex::new(BTreeMap::new()),
+            lifecycle: Mutex::new(BTreeMap::new()),
+        }
     }
 }
 
@@ -2568,16 +2591,6 @@ fn parsed_svm_amount(info: &Value) -> Option<u128> {
         })
 }
 
-fn storage_map() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
-    static MAP: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
-    MAP.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn lifecycle_states() -> &'static Mutex<HashMap<Vec<u8>, u8>> {
-    static STATES: OnceLock<Mutex<HashMap<Vec<u8>, u8>>> = OnceLock::new();
-    STATES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 const VALID_ROLES: &[&[u8]] = &[b"admin", b"validator", b"relayer", b"solver", b"user"];
 
 impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
@@ -2689,7 +2702,7 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
     fn storage_op(&self, kind: u8, data: &[u8]) -> BridgeResult {
         match kind {
             0 => {
-                let mut map = storage_map().lock().map_err(|e| {
+                let mut map = self.storage.lock().map_err(|e| {
                     Box::new(BridgeError {
                         code: "X3_STORAGE_LOCK_FAILED",
                         message: e.to_string(),
@@ -2702,7 +2715,7 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
                 Ok(size.to_le_bytes().to_vec())
             }
             1 => {
-                let map = storage_map().lock().map_err(|e| {
+                let map = self.storage.lock().map_err(|e| {
                     Box::new(BridgeError {
                         code: "X3_STORAGE_LOCK_FAILED",
                         message: e.to_string(),
@@ -2716,7 +2729,7 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
                 })?)
             }
             2 => {
-                let mut map = storage_map().lock().map_err(|e| {
+                let mut map = self.storage.lock().map_err(|e| {
                     Box::new(BridgeError {
                         code: "X3_STORAGE_LOCK_FAILED",
                         message: e.to_string(),
@@ -2726,7 +2739,7 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
                 Ok(vec![1])
             }
             3 => {
-                let map = storage_map().lock().map_err(|e| {
+                let map = self.storage.lock().map_err(|e| {
                     Box::new(BridgeError {
                         code: "X3_STORAGE_LOCK_FAILED",
                         message: e.to_string(),
@@ -2773,7 +2786,7 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
         match kind {
             0 => Ok(target.to_vec()),
             1 => {
-                let mut states = lifecycle_states().lock().map_err(|e| {
+                let mut states = self.lifecycle.lock().map_err(|e| {
                     Box::new(BridgeError {
                         code: "X3_LIFECYCLE_LOCK_FAILED",
                         message: e.to_string(),
@@ -2783,7 +2796,7 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
                 Ok(vec![1])
             }
             2 => {
-                let mut states = lifecycle_states().lock().map_err(|e| {
+                let mut states = self.lifecycle.lock().map_err(|e| {
                     Box::new(BridgeError {
                         code: "X3_LIFECYCLE_LOCK_FAILED",
                         message: e.to_string(),
@@ -2793,7 +2806,7 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
                 Ok(vec![2])
             }
             3 => {
-                let mut states = lifecycle_states().lock().map_err(|e| {
+                let mut states = self.lifecycle.lock().map_err(|e| {
                     Box::new(BridgeError {
                         code: "X3_LIFECYCLE_LOCK_FAILED",
                         message: e.to_string(),
@@ -4896,5 +4909,118 @@ mod tests {
                 "the refusal must be the hash check"
             );
         }
+    }
+
+    /// TICKET-087: **a run must not observe a previous run's host storage.**
+    ///
+    /// PHASE 48's durability family asks what survives a run. This crate's answer is
+    /// "nothing" — with one exception the measurement found: the host storage a
+    /// program's `storage_store`/`storage_load` reaches was two `static Mutex<HashMap>`
+    /// behind accessor functions, so it belonged to the **process**. Two adapters in one
+    /// process shared it, and `COUNT` grew across runs, so the same artifact over the
+    /// same inputs answered differently depending on what had run before it.
+    ///
+    /// This is the reproduction, and it fails against the process-global version: the
+    /// second adapter reads the first's value and counts it.
+    #[test]
+    fn two_adapters_do_not_share_host_storage() {
+        fn adapter(
+            name: &str,
+        ) -> ProductionBridgeAdapter<EvmProductionBridgeBackend<EthereumLightClientVerifier, FileReceiptStore>>
+        {
+            let store = std::env::temp_dir().join(format!("x3-durability-{name}.jsonl"));
+            ProductionBridgeAdapter::new(EvmProductionBridgeBackend::new(
+                EthereumLightClientVerifier::new("0x00"),
+                FileReceiptStore::new(store),
+            ))
+        }
+
+        // `storage_op` splits its operand in half: `key` then `value`.
+        let key = b"key0";
+        let value = b"val0";
+        let put = [key.as_slice(), value.as_slice()].concat();
+
+        let first = adapter("first");
+        assert_eq!(
+            first.storage_op(0, &put).expect("put"),
+            4usize.to_le_bytes().to_vec(),
+            "PUT answers with the value's length as a native usize"
+        );
+        assert_eq!(
+            first.storage_op(1, key).expect("get within one adapter"),
+            value.to_vec(),
+            "an adapter reads back what it stored"
+        );
+        assert_eq!(first.storage_op(3, &[]).expect("count"), 1u32.to_le_bytes().to_vec());
+
+        // A second adapter is a second run. It must know nothing of the first.
+        let second = adapter("second");
+        assert!(
+            second.storage_op(1, key).is_err(),
+            "a fresh adapter read another run's storage — the storage belongs to the \
+             process, not the run"
+        );
+        assert_eq!(
+            second.storage_op(3, &[]).expect("count"),
+            0u32.to_le_bytes().to_vec(),
+            "COUNT must count this adapter's storage, not every run's"
+        );
+
+        // And the first adapter still has its own, so the isolation is not a wipe.
+        assert_eq!(
+            first.storage_op(1, key).expect("the first adapter keeps its own"),
+            value.to_vec()
+        );
+    }
+
+    /// A 15-field EIP-1186 header with a chosen receipts root and block number, built
+    /// from the test module's own RLP helpers.
+    fn synthetic_evm_header(receipts_root: [u8; 32]) -> Vec<u8> {
+        let filler = [0u8; 32];
+        let mut items: Vec<Vec<u8>> = Vec::new();
+        for index in 0..15u8 {
+            items.push(match index {
+                5 => rlp_bytes(&receipts_root),
+                8 => rlp_bytes(&[0x01]),
+                _ => rlp_bytes(&filler),
+            });
+        }
+        rlp_list(items)
+    }
+
+    /// TICKET-087, `reorg simulation`: **finality is a property of the current view, not
+    /// a verdict that was reached once.**
+    ///
+    /// A block that was the trusted finalized header stops being it when the chain
+    /// reorgs. The same proof, unchanged, must then be refused — and must be trusted
+    /// again if the reorg is undone, which is what shows the check is against the view
+    /// the caller holds now rather than a result cached from the first call.
+    #[test]
+    fn a_reorged_finality_view_refuses_a_proof_that_was_final() {
+        let header = synthetic_evm_header([0x11u8; 32]);
+        let hash = hex_prefixed(&keccak256(&header));
+        let proof = json!({
+            "proof_type": EVM_HEADER_PROOF_TYPE,
+            "rlp_header": hex_prefixed(&header),
+            "header_hash": hash,
+        });
+
+        // As the view stands, this header is the finalized one.
+        let verified = verify_evm_header_proof(&proof, &hash, None).expect("the header is trusted");
+        let expected_root = hex_prefixed(&[0x11u8; 32]);
+        assert_eq!(verified.receipts_root, expected_root, "and its receipts root travels");
+
+        // The chain reorgs: a different header is finalized now.
+        let reorged = hex_prefixed(&keccak256(&synthetic_evm_header([0x22u8; 32])));
+        let refused = verify_evm_header_proof(&proof, &reorged, None)
+            .expect_err("a reorged view must not keep trusting the old header");
+        assert_eq!(refused.code, "X3_EVM_HEADER_NOT_TRUSTED");
+
+        // And the reorg is undone. The same proof is trusted again, because the check
+        // reads the current view and caches nothing.
+        assert!(
+            verify_evm_header_proof(&proof, &hash, None).is_ok(),
+            "the verdict must follow the view, not the first answer"
+        );
     }
 }

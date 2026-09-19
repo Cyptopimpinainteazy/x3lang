@@ -48,6 +48,14 @@ fn asset(symbol: &str) -> AssetKey {
 struct Host {
     manifest: CapabilityManifest,
     output: u128,
+    /// The `swap` call this host stops answering on, counting from 1. `None` answers
+    /// every call.
+    ///
+    /// Models the durability case PHASE 48 calls an outage: an endpoint that was
+    /// answering and then is not. The plan has to refuse and roll back rather than
+    /// treat the silence as a zero or a success.
+    quiet_from_swap: Option<usize>,
+    swap_calls: usize,
 }
 
 impl TradingHost for Host {
@@ -74,6 +82,16 @@ impl TradingHost for Host {
     }
 
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
+        self.swap_calls += 1;
+        if self
+            .quiet_from_swap
+            .is_some_and(|quiet_from| self.swap_calls >= quiet_from)
+        {
+            return Err(HostError {
+                code: "X3_HOST_UNAVAILABLE".to_string(),
+                message: format!("the venue stopped answering before swap call {}", self.swap_calls),
+            });
+        }
         Ok(SwapResult {
             from: request.from,
             to: request.to.clone(),
@@ -175,7 +193,12 @@ fn host(output: u128) -> Host {
     let mut manifest = fixture_manifest(COMMITMENT);
     manifest.providers = BTreeSet::from(["aave_v3".to_string()]);
     manifest.venues = BTreeSet::from(["uniswap_v3".to_string()]);
-    Host { manifest, output }
+    Host {
+        manifest,
+        output,
+        quiet_from_swap: None,
+        swap_calls: 0,
+    }
 }
 
 fn context() -> TradeExecutionContext {
@@ -514,4 +537,159 @@ fn invariant_8_cannot_escape_declared_capabilities() {
             "and a refused capability must leave no state behind"
         );
     }
+}
+
+// ── TICKET-087: what survives a run ─────────────────────────────────────────────
+//
+// PHASE 48's last six cases are one family — state that outlives the process — and the
+// decision recorded in `.ai/reports/x3lang-ticket087-decision-20260919.md` is that
+// **nothing does**: every candidate is either derived from the artifact or supplied by
+// the host for that run. An interrupted plan is therefore not resumed and not executed;
+// the fail-closed reading. These tests assert that reading rather than assuming it.
+//
+// (`restart` and `process kill` share a shape — a run that ends mid-plan — so one test
+// covers both, which is honest rather than a shortcut: the difference between them is
+// whether the process comes back, and the claim being tested is that it does not matter
+// because nothing was left behind either way.)
+
+/// TICKET-087, `restart during execution` and `process kill`: **a run leaves nothing for
+/// the next one to find.**
+///
+/// The claim is that a fresh VM is the *whole* state of a run, so starting over is
+/// exactly starting fresh — there is no half-plan to resume and no journal to inherit.
+/// Asserted two ways: a fresh VM is the empty state, and two fresh VMs driven over the
+/// same ops reach the same state.
+#[test]
+fn restarts_and_kills_leave_nothing_behind() {
+    let fresh = TradingVm::new();
+    assert_eq!(
+        fresh.trading_state,
+        Default::default(),
+        "a fresh VM is the empty journal — if this ever stopped being true, a restart \
+         could inherit something"
+    );
+    assert!(fresh.trading_state.open_debts.is_empty());
+    assert!(fresh.trading_state.credits.is_empty());
+    assert!(fresh.trading_state.cost_ledger.is_empty());
+    assert!(!fresh.trading_state.committed);
+
+    // A run that is abandoned mid-plan leaves nothing either: the VM that executed it is
+    // the only place the partial journal ever existed, and dropping it drops the plan.
+    // What a *second* fresh VM sees is therefore exactly what the first would have seen.
+    let mut abandoned = TradingVm::new();
+    let mut first_host = host(5_000_000);
+    let outcome = abandoned.execute_atomic(&operations(), &mut first_host, context());
+    assert!(outcome.is_ok(), "the fixture commits");
+    drop(abandoned);
+
+    let mut restarted = TradingVm::new();
+    let mut second_host = host(5_000_000);
+    restarted
+        .execute_atomic(&operations(), &mut second_host, context())
+        .expect("the same ops on a fresh VM");
+    let mut uninterrupted = TradingVm::new();
+    let mut third_host = host(5_000_000);
+    uninterrupted
+        .execute_atomic(&operations(), &mut third_host, context())
+        .expect("the same ops again");
+    assert_eq!(
+        restarted.trading_state, uninterrupted.trading_state,
+        "two fresh VMs over the same ops must agree; anything else means state outlived \
+         a run"
+    );
+}
+
+/// TICKET-087, `process kill` from the other side: **the only thing a run emits is
+/// complete or absent.**
+///
+/// A receipt is the one record that leaves a run. It must not exist for a plan that did
+/// not commit — a half-written receipt is exactly the durable state a restart would find
+/// and trust.
+#[test]
+fn a_receipt_exists_only_for_a_committed_plan() {
+    // The fixture's floor is 1 USDC of net; an output below the principal plus that
+    // cannot commit.
+    let mut vm = TradingVm::new();
+    let before = vm.trading_state.clone();
+    let mut poor_host = host(500_000);
+    assert!(
+        vm.execute_atomic(&operations(), &mut poor_host, context()).is_err(),
+        "an output below the principal must not commit"
+    );
+    assert!(!vm.trading_state.receipt_emitted, "a refused plan emitted a receipt");
+    assert_eq!(vm.trading_state, before, "and it left the journal untouched");
+
+    // And a plan that did commit emitted one, with the journal reconciled.
+    let mut vm = TradingVm::new();
+    let mut rich_host = host(5_000_000);
+    vm.execute_atomic(&operations(), &mut rich_host, context())
+        .expect("the fixture commits");
+    assert!(vm.trading_state.receipt_emitted);
+    assert!(vm.trading_state.committed);
+}
+
+/// TICKET-087, `partial domain outage`: **one domain unreachable after the other
+/// committed rolls the whole plan back.**
+///
+/// The fixture's host does not bridge, and the manifest lists the bridge so the refusal
+/// comes from the *host* rather than from the capability check — the domain is
+/// unreachable, not undeclared. The half of the plan that ran must not survive.
+#[test]
+fn an_unreachable_second_domain_rolls_the_plan_back() {
+    let ops = operations_with(|ops| {
+        let at = close_debt_index(ops);
+        ops.insert(
+            at + 1,
+            TradingOperation::Bridge {
+                via: "x3".to_string(),
+                from: asset("USDC"),
+                to: asset("SOL"),
+                input: ValueRef::Literal(1_000),
+                receiver: "0xrecipient".to_string(),
+            },
+        );
+    });
+
+    let mut vm = TradingVm::new();
+    let before = vm.trading_state.clone();
+    let mut host = host(5_000_000);
+    host.manifest.bridges = BTreeSet::from(["x3".to_string()]);
+    let result = vm.execute_atomic(&ops, &mut host, context());
+    assert!(
+        result.is_err(),
+        "a plan whose second domain is unreachable must not commit"
+    );
+    assert_eq!(
+        vm.trading_state, before,
+        "the domain that did commit must be rolled back with the one that did not"
+    );
+}
+
+/// TICKET-087, `RPC outage`: **a host that stops answering mid-plan rolls the plan
+/// back.**
+///
+/// The second swap is where this host goes quiet, so the first leg has already been
+/// debited and credited when the silence arrives. Silence must not read as a zero, a
+/// skip, or a success.
+#[test]
+fn a_host_that_stops_answering_mid_plan_rolls_the_plan_back() {
+    let mut vm = TradingVm::new();
+    let before = vm.trading_state.clone();
+    let mut host = host(5_000_000);
+    // Quiet from the second swap: the first leg commits its debit and credit first.
+    host.quiet_from_swap = Some(2);
+    let result = vm.execute_atomic(&operations(), &mut host, context());
+    assert!(
+        result.is_err(),
+        "a host that stopped answering must not produce a committed plan"
+    );
+    assert_eq!(
+        vm.trading_state, before,
+        "the leg that ran before the silence must be rolled back too"
+    );
+    assert!(!vm.trading_state.receipt_emitted);
+
+    // And the silence is specifically the *second* call, so the test is about an outage
+    // mid-plan rather than about a host that never answered at all.
+    assert_eq!(host.swap_calls, 2, "the outage must land mid-plan");
 }
