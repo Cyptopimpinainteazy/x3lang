@@ -74,8 +74,15 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                 // operator. A byte that says "test a run-time comparison this VM
                 // does not implement", or records an operator the language does
                 // not define, is a guard whose meaning nobody can state.
+                // Every mode the language defines, not only the first: this check used
+                // to accept `STATIC` and `GE` alone, so the first artifact carrying a
+                // *measured* guard was rejected as an invalid operand before the executor
+                // could refuse it for the honest reason. A whitelist that names the
+                // members of a set has to be updated with the set, and `spec/opcodes.rs`
+                // is the single source for it — the same two-layer failure the choice
+                // criteria hit in `89a15ccc5`.
                 let mode = bytes[pc + 1] & REQUIRE_COMPARE_MASK;
-                if mode > REQUIRE_COMPARE_GE {
+                if mode > REQUIRE_COMPARE_MEASURED_SLIPPAGE {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
                 if require_guard_operator(bytes[pc + 1]) > GUARD_OP_NE {

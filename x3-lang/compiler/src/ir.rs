@@ -291,6 +291,23 @@ pub enum Operation {
         /// wrote.
         #[serde(default)]
         comparison: Option<ComparisonOp>,
+        /// Whether this guard is judged against a quantity a host **measured** for the
+        /// trade, rather than being an assertion about the artifact's configuration.
+        ///
+        /// The two are different guards and the language distinguishes them here. A
+        /// `require slippage <= 50` a program writes is a *constraint*: the compiler
+        /// checks it against the venues' and the policy's declared numbers, and the
+        /// instruction records it. A guard a **plan generator** emits after the trade it
+        /// bounds is a *post-condition*: what that trade actually realised, in basis
+        /// points, reported by the host that executed it. The executor refuses a
+        /// measured guard that no host reported rather than comparing register residue —
+        /// which is what makes "native profit guards: the transaction refuses settlement
+        /// below the target" true instead of decorative.
+        ///
+        /// `false` for every guard a program writes, so no existing program changes
+        /// meaning: only the compiler's own plans set it (TICKET-027).
+        #[serde(default)]
+        measured: bool,
     },
     /// On failure, execute recovery action
     OnFail {

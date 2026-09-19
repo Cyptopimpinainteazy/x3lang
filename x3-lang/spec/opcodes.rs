@@ -136,8 +136,78 @@ pub const HALT: u8 = 0xFF;
 pub const REQUIRE_COMPARE_STATIC: u8 = 0;
 /// `r0 >= operand`.
 pub const REQUIRE_COMPARE_GE: u8 = 1;
+/// `r0 >= operand`, where `r0` is the **profit a host measured**, in basis points.
+///
+/// A measured mode rather than a flag beside `GE`, because the two facts belong
+/// together: what to compare, and that comparing is only meaningful against a
+/// measurement. The executor refuses the instruction outright when no host reported
+/// one, so a measured guard can never pass on whatever `r0` happened to hold.
+pub const REQUIRE_COMPARE_MEASURED_PROFIT: u8 = 2;
+/// `r0 <= operand`, where `r0` is the **slippage a host measured**, in basis points.
+pub const REQUIRE_COMPARE_MEASURED_SLIPPAGE: u8 = 3;
 /// Mask for the comparison-mode bits of a `REQUIRE` flags byte.
 pub const REQUIRE_COMPARE_MASK: u8 = 0x03;
+
+/// A capability reply's first byte, marking "a measured quantity follows".
+///
+/// After it come a unit byte and a 16-byte little-endian value, **in the unit of the
+/// guard it answers**: a profit in basis points of the capital committed, or a
+/// slippage in basis points of the price. The unit is the guard's own because the
+/// `REQUIRE` operand is two bytes — an absolute floor would not fit, and comparing a
+/// basis-point floor against an absolute amount would be a units mismatch dressed as
+/// enforcement.
+///
+/// Any other reply is opaque: the VM still puts it in `r0` and records that no
+/// measurement arrived, which is what lets a measured guard refuse rather than
+/// compare bytes that mean something else.
+pub const CAPABILITY_REPLY_MEASURED_TAG: u8 = 0x01;
+/// The unit byte a reply carries when it reports a **profit** in basis points.
+pub const MEASURED_UNIT_PROFIT_BPS: u8 = 1;
+/// The unit byte a reply carries when it reports a **slippage** in basis points.
+pub const MEASURED_UNIT_SLIPPAGE_BPS: u8 = 2;
+
+/// Pack a measurement reply: the tag, the unit, and the value.
+pub fn measured_reply(unit: u8, value: u128) -> Vec<u8> {
+    let mut reply = Vec::with_capacity(18);
+    reply.push(CAPABILITY_REPLY_MEASURED_TAG);
+    reply.push(unit);
+    reply.extend_from_slice(&value.to_le_bytes());
+    reply
+}
+
+/// Read every measurement a reply carries, as `(unit, value)` pairs.
+///
+/// A reply is a **sequence** of 18-byte records, because one trade answers two
+/// questions: a plan's profit floor and its slippage ceiling are both about the same
+/// call, and a host that had to answer twice would have to say which reply went with
+/// which guard. Anything that is not a record is not a measurement, and a caller cannot
+/// mistake an opaque reply for one — the list is simply empty.
+pub fn read_measured_replies(reply: &[u8]) -> Vec<(u8, u128)> {
+    let mut found = Vec::new();
+    let mut rest = reply;
+    while rest.first() == Some(&CAPABILITY_REPLY_MEASURED_TAG) {
+        if rest.len() < 18 {
+            // A truncated record is not a measurement. Dropping it is the fail-closed
+            // direction: a measured guard refuses when nothing reported one.
+            break;
+        }
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&rest[2..18]);
+        found.push((rest[1], u128::from_le_bytes(bytes)));
+        rest = &rest[18..];
+    }
+    found
+}
+
+/// Read a single measurement, for a reply that carries exactly one.
+pub fn read_measured_reply(reply: &[u8]) -> Option<(u8, u128)> {
+    let found = read_measured_replies(reply);
+    if found.len() == 1 {
+        found.into_iter().next()
+    } else {
+        None
+    }
+}
 
 /// The comparison the *guard* makes, in bits 2-4 of the same flags byte.
 ///

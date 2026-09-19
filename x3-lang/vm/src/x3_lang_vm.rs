@@ -109,6 +109,14 @@ pub struct VMState {
     pub parallel_plans: Vec<ParallelPlanRecord>,
     /// Execution modes the program opted into, by feature code.
     pub allowed_features: std::collections::BTreeSet<u8>,
+    /// The profit a host measured for the trade just executed, in basis points.
+    ///
+    /// `None` means no host reported one, and a measured guard refuses rather than
+    /// comparing whatever `r0` holds. The unit is the guard operand's own, which is why
+    /// the reply carries it (`spec::opcodes::CAPABILITY_REPLY_MEASURED_TAG`).
+    pub measured_profit_bps: Option<u128>,
+    /// The slippage a host measured, in basis points, or `None`.
+    pub measured_slippage_bps: Option<u128>,
     /// Strategy licence records the program carried, in order.
     ///
     /// Kept as the decoded text the artifact stated: the distribution reads it,
@@ -148,6 +156,8 @@ impl VMState {
             route_fallbacks: Vec::new(),
             parallel_plans: Vec::new(),
             allowed_features: std::collections::BTreeSet::new(),
+            measured_profit_bps: None,
+            measured_slippage_bps: None,
             strategy_licenses: Vec::new(),
             paused: false,
             atomic_snapshot: None,
@@ -228,8 +238,22 @@ impl VM {
             config: cfg.clone(),
             state: VMState::new(&cfg, gas),
             code: InstructionStream::new(code),
-            bridge: Box::new(crate::bridge::DryRunBridge),
+            bridge: Box::new(crate::bridge::DryRunBridge::default()),
         }
+    }
+
+    /// State the market outcome a dry run is judged against.
+    ///
+    /// A measured guard is enforced against a *measurement*, and a measurement comes
+    /// from whoever knows the market. On a dry run nobody does: the dry-run adapter
+    /// answers calls without prices, and a run that invented a number to satisfy a guard
+    /// would be the decoration this enforcement exists to remove. So the caller states
+    /// one — the same way `x3c packet verify` is given the keys it should trust — and the
+    /// measurement arrives the way a real host's would, in the reply to the trade the
+    /// guard is about. It belongs to the **host**, which is why this replaces the adapter
+    /// rather than setting a field a guard could read before anything executed.
+    pub fn report_measurement(&mut self, profit_bps: u128, slippage_bps: u128) {
+        self.bridge = Box::new(crate::bridge::DryRunBridge::with_measurement(profit_bps, slippage_bps));
     }
 
     /// Build a VM with an explicit bridge backend selection.
@@ -249,7 +273,7 @@ impl VM {
         bridge_config: BridgeConfig,
     ) -> ExecResult<Self> {
         let bridge: Box<dyn crate::bridge::BridgeAdapter> = match bridge_config.mode {
-            BackendMode::DryRun => Box::new(crate::bridge::DryRunBridge),
+            BackendMode::DryRun => Box::new(crate::bridge::DryRunBridge::default()),
             BackendMode::Production => bridge_config.adapter.ok_or_else(|| {
                 ExecError::Panic(
                     "X3_BRIDGE_BACKEND_REQUIRED: BackendMode::Production requires a wired \

@@ -112,12 +112,27 @@ enum Cmd {
         input: PathBuf,
         #[arg(long, default_value_t = 1_000_000u128)]
         gas: u128,
+        /// The realised profit, in basis points, that a plan's `profit >= <n>` floor is
+        /// judged against. A dry run has no prices, so this *states* the market outcome
+        /// rather than letting the floor pass on a number nobody measured.
+        #[arg(long)]
+        measured_profit_bps: Option<u128>,
+        /// The realised slippage, in basis points, for a plan's `slippage <= <n>` ceiling.
+        #[arg(long)]
+        measured_slippage_bps: Option<u128>,
     },
     /// Run bytecode on the dry-run VM (alias of simulate that exits 0/!0).
     Run {
         input: PathBuf,
         #[arg(long, default_value_t = 1_000_000u128)]
         gas: u128,
+        /// The realised profit, in basis points, that a plan's `profit >= <n>` floor is
+        /// judged against.
+        #[arg(long)]
+        measured_profit_bps: Option<u128>,
+        /// The realised slippage, in basis points, for a plan's `slippage <= <n>` ceiling.
+        #[arg(long)]
+        measured_slippage_bps: Option<u128>,
     },
     /// Disassemble bytecode to a human-readable IR trace.
     Explain { input: PathBuf },
@@ -388,7 +403,18 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Check { input, out } => cmd_check(&input, out.as_ref(), mode, cli.deny_warnings),
         Cmd::Lower { input, out } => cmd_lower(&input, &out),
         Cmd::Build { input, out, provenance } => cmd_build(&input, &out, provenance.as_ref(), mode, cli.deny_warnings),
-        Cmd::Simulate { input, gas } | Cmd::Run { input, gas } => cmd_run(&input, gas),
+        Cmd::Simulate {
+            input,
+            gas,
+            measured_profit_bps,
+            measured_slippage_bps,
+        }
+        | Cmd::Run {
+            input,
+            gas,
+            measured_profit_bps,
+            measured_slippage_bps,
+        } => cmd_run(&input, gas, measured_profit_bps, measured_slippage_bps),
         Cmd::Explain { input } => cmd_explain(&input),
         Cmd::TestFixture { out } => cmd_test_fixture(&out),
         Cmd::Intent {
@@ -1226,12 +1252,38 @@ fn cmd_build(
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_run(input: &PathBuf, gas: u128) -> Result<ExitCode, String> {
+fn cmd_run(
+    input: &PathBuf,
+    gas: u128,
+    measured_profit_bps: Option<u128>,
+    measured_slippage_bps: Option<u128>,
+) -> Result<ExitCode, String> {
     let bytecode = std::fs::read(input).map_err(|e| format!("read {input:?}: {e}"))?;
     if bytecode.is_empty() {
         return Err("bytecode is empty".into());
     }
     let mut vm = VM::new(bytecode, VMConfig::default(), gas);
+    // A dry run has no prices, so a plan's economic floor has nothing to be judged
+    // against unless the caller states what the market did. Stating it is explicit and
+    // the floor is *then* enforced against it; leaving either half out makes the floor
+    // refuse rather than pass on a number nobody measured, and stating only one half is
+    // refused because the other would have to be invented.
+    match (measured_profit_bps, measured_slippage_bps) {
+        (Some(profit), Some(slippage)) => vm.report_measurement(profit, slippage),
+        (None, None) => {}
+        (profit, slippage) => {
+            return Err(format!(
+                "state both measurements or neither: `--measured-profit-bps` was {} and \
+                 `--measured-slippage-bps` was {}",
+                profit
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "not given".to_string()),
+                slippage
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "not given".to_string()),
+            ));
+        }
+    }
     match vm.execute() {
         Ok(()) => {
             let (asset_ops, bridge_ops, receipts) = collect_stats(&vm.state);

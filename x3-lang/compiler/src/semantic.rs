@@ -3146,6 +3146,7 @@ mod tests {
                     expr: "finality >= 12".into(),
                 },
                 error_msg: None,
+                measured: false,
                 comparison: None,
             },
             Operation::OnTimeout {
@@ -3212,6 +3213,7 @@ mod tests {
                 subject: None,
                 condition: Condition::Expression { expr: "50".into() },
                 error_msg: None,
+                measured: false,
                 comparison: None,
             },
             Operation::OnTimeout {
@@ -3305,6 +3307,7 @@ mod tests {
                 subject: Some("ethereum".into()),
                 condition: Condition::Expression { expr: "12".into() },
                 error_msg: None,
+                measured: false,
                 comparison: None,
             },
             Operation::OnTimeout {
@@ -3751,6 +3754,7 @@ mod tests {
                     expr: "finality >= 12".into(),
                 },
                 error_msg: None,
+                measured: false,
                 comparison: None,
             },
             Operation::OnTimeout {
@@ -3895,6 +3899,7 @@ mod tests {
                     expr: "finality >= 12".into(),
                 },
                 error_msg: None,
+                measured: false,
                 comparison: None,
             },
             Operation::OnTimeout {
@@ -4079,6 +4084,7 @@ mod tests {
                 subject: None,
                 condition: Condition::False,
                 error_msg: Some("never reachable".into()),
+                measured: false,
                 comparison: None,
             },
             Operation::OnTimeout {
@@ -4400,6 +4406,7 @@ mod tests {
                     expr: "finality >= 12".into(),
                 },
                 error_msg: None,
+                measured: false,
                 comparison: None,
             },
             Operation::OnTimeout {
@@ -4535,6 +4542,7 @@ mod tests {
                 // fixture names a bound that is over the ceiling either way.
                 condition: Condition::Expression { expr: "600".into() },
                 error_msg: Some("slippage".into()),
+                measured: false,
                 comparison: None,
             },
             Operation::RpcConsensus {
@@ -4705,6 +4713,7 @@ mod tests {
                 subject: None,
                 condition: Condition::True,
                 error_msg: None,
+                measured: false,
                 comparison: None,
             },
             Operation::Require {
@@ -4712,6 +4721,7 @@ mod tests {
                 subject: Some("solana".into()),
                 condition: Condition::True,
                 error_msg: None,
+                measured: false,
                 comparison: None,
             },
             Operation::PrivacyCommit {

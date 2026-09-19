@@ -206,7 +206,12 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             });
         }
         Operation::Require { .. } => {
-            // `[REQUIRE][comparison][threshold u16]`, always STATIC today.
+            // `[REQUIRE][comparison][threshold u16]`. Mostly STATIC: a guard a program
+            // writes is a constraint the compiler checks against the declarations, so
+            // the instruction records it and has nothing to test. Two modes do test: the
+            // nonce guard, whose quantity `NONCE_UNUSED` leaves in `r0`, and the economic
+            // floors a *plan generator* emits, whose quantity is a measurement a host
+            // reports in the reply to the trade (`CAPABILITY_REPLY_MEASURED_TAG`).
             //
             // Every guard in the language asserts something about the artifact's
             // configuration — `require relayer_quorum >= 3` against
@@ -272,6 +277,32 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                     span: None,
                 })?;
                 (REQUIRE_COMPARE_STATIC, threshold)
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::ProfitThreshold,
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                // A floor the compiler itself emitted *after* the trade it bounds, so
+                // it is a post-condition on what the trade realised. The mode says the
+                // comparison is against a measurement and the executor refuses when no
+                // host reported one — it never compares register residue, which is what
+                // makes this an enforced constraint rather than a record (TICKET-027).
+                //
+                // The floor travels in the operand in basis points, because the operand
+                // is two bytes: an absolute floor would not fit, and comparing a
+                // basis-point floor against an absolute amount would be a units mismatch
+                // dressed as enforcement.
+                (REQUIRE_COMPARE_MEASURED_PROFIT, guard_bps(expr, "profit floor")?)
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::SlippageTolerance,
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                (REQUIRE_COMPARE_MEASURED_SLIPPAGE, guard_bps(expr, "slippage ceiling")?)
             } else {
                 (REQUIRE_COMPARE_STATIC, 0u16)
             };
@@ -547,6 +578,21 @@ fn emit_payload_op(opcode: u8, op: &Operation, bytecode: &mut Vec<u8>) -> Result
     bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
     bytecode.write_all(&payload)?;
     Ok(())
+}
+
+/// The basis points a generated guard's condition states.
+///
+/// The condition is an expression, and a floor written as a literal is the only shape
+/// this reads: a floor the emitter cannot evaluate is refused rather than defaulted to
+/// zero, because a guard of zero passes everything and would be a guard in name only.
+fn guard_bps(expr: &str, what: &str) -> Result<u16, X3Error> {
+    expr.trim().parse::<u16>().map_err(|_| X3Error::CodegenError {
+        message: format!(
+            "the {what} '{expr}' is not a count of basis points this instruction can carry; a \
+             measured guard's threshold is the operand and must be a basis-point figure"
+        ),
+        span: None,
+    })
 }
 
 /// Return the stable opcode for a trading operation variant.

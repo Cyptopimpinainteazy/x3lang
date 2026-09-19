@@ -277,6 +277,7 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
             subject: requirement.chain.clone(),
             condition: requirement_to_condition(requirement),
             error_msg: None,
+            measured: false,
             comparison: requirement_comparison(requirement),
         });
     }

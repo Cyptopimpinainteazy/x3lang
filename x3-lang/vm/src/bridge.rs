@@ -3166,11 +3166,31 @@ impl BridgeAdapter for UnconfiguredBridge {
     }
 }
 
-pub struct DryRunBridge;
+/// The dry-run adapter, optionally told what the market did.
+///
+/// It answers every call with an echo, which is honest for a dry run: no prices were
+/// consulted, so nothing was measured. When a caller *states* a measurement —
+/// `x3c run --measured-profit-bps 120 --measured-slippage-bps 5` — trade calls answer
+/// with it in the tagged form, and a measured guard is then enforced against a number
+/// somebody stated rather than against whatever `r0` held. The measurement belongs
+/// here, on the adapter, because only a host can know what the market did.
+pub struct DryRunBridge {
+    /// `(profit bps, slippage bps)` a trade call should report.
+    pub measurement: Option<(u128, u128)>,
+}
+
+impl DryRunBridge {
+    /// A dry run that reports the market outcome it is given.
+    pub fn with_measurement(profit_bps: u128, slippage_bps: u128) -> Self {
+        DryRunBridge {
+            measurement: Some((profit_bps, slippage_bps)),
+        }
+    }
+}
 
 impl Default for DryRunBridge {
     fn default() -> Self {
-        Self
+        DryRunBridge { measurement: None }
     }
 }
 
@@ -3241,6 +3261,20 @@ impl BridgeAdapter for DryRunBridge {
         Ok([b"dry-run-event_provenance:".as_slice(), event_type, b":", data].concat())
     }
     fn multi_hop_swap(&self, path: &[u8], amount: u128) -> BridgeResult {
+        // A stated measurement is what the trade reports; without one the reply is an
+        // echo, which says nothing about the market and therefore reports nothing. A
+        // dry run must not invent a number to satisfy a guard.
+        if let Some((profit_bps, slippage_bps)) = self.measurement {
+            let _ = (path, amount);
+            let mut reply =
+                crate::spec::opcodes::measured_reply(crate::spec::opcodes::MEASURED_UNIT_PROFIT_BPS, profit_bps);
+            // The slippage measurement follows in the same reply, so one call can answer
+            // both guards a plan emits.
+            reply.push(crate::spec::opcodes::CAPABILITY_REPLY_MEASURED_TAG);
+            reply.push(crate::spec::opcodes::MEASURED_UNIT_SLIPPAGE_BPS);
+            reply.extend_from_slice(&slippage_bps.to_le_bytes());
+            return Ok(reply);
+        }
         Ok([format!("dry-run-multi_hop_swap:{amount}:").as_bytes(), path].concat())
     }
     fn bridge_transfer(
@@ -3311,7 +3345,7 @@ pub fn resolve_bridge_backend() -> Result<Box<dyn BridgeAdapter>, BridgeError> {
             )
             .to_string(),
         }),
-        _ => Ok(Box::new(DryRunBridge)),
+        _ => Ok(Box::new(DryRunBridge::default())),
     }
 }
 

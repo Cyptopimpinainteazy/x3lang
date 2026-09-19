@@ -361,6 +361,48 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     // of the guard rather than a test.
                     REQUIRE_COMPARE_STATIC => true,
                     REQUIRE_COMPARE_GE => value >= threshold,
+                    // A measured guard: the quantity is what a host reported, in the
+                    // operand's own unit, and the instruction refuses rather than
+                    // comparing when nothing did. That refusal is the point — a guard
+                    // that passed because `r0` happened to hold a large number would be
+                    // worse than no guard at all.
+                    REQUIRE_COMPARE_MEASURED_PROFIT => match vm.state.measured_profit_bps {
+                        Some(measured) if measured >= threshold => true,
+                        Some(measured) => {
+                            // A measured floor is a *refusal*, not a branch: the trade
+                            // did not clear what the program required, so it does not
+                            // settle. It is reported here with both figures rather than
+                            // dispatched to a handler, because the handler mechanism
+                            // takes its target from `r0` (`ON_FAIL` reads a register, not
+                            // an address — TICKET-058) and a failure routed through
+                            // residue lands mid-instruction.
+                            return Err(ExecError::Panic(format!(
+                                "X3_PROFIT_BELOW_FLOOR: the trade realised {measured}bps and the \
+                                 program requires at least {threshold}bps"
+                            )));
+                        }
+                        None => {
+                            return Err(ExecError::Panic(format!(
+                                "X3_GUARD_UNMEASURED: the guard `profit >= {threshold}bps` needs a \
+                                 profit the host measured, and no host reported one for this trade"
+                            )))
+                        }
+                    },
+                    REQUIRE_COMPARE_MEASURED_SLIPPAGE => match vm.state.measured_slippage_bps {
+                        Some(measured) if measured <= threshold => true,
+                        Some(measured) => {
+                            return Err(ExecError::Panic(format!(
+                                "X3_SLIPPAGE_ABOVE_CEILING: the trade realised {measured}bps and the \
+                                 program allows at most {threshold}bps"
+                            )));
+                        }
+                        None => {
+                            return Err(ExecError::Panic(format!(
+                                "X3_GUARD_UNMEASURED: the guard `slippage <= {threshold}bps` needs a \
+                                 slippage the host measured, and no host reported one for this trade"
+                            )))
+                        }
+                    },
                     // A comparison this VM does not implement must not pass by
                     // default.
                     other => {
@@ -1137,7 +1179,9 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
             bridge_result(vm.bridge.event_provenance(event_type.as_bytes(), data.as_bytes()))
         }
         CapabilityPayload::MultiHopSwap { path, amount } => {
-            bridge_result(vm.bridge.multi_hop_swap(path.join("\0").as_bytes(), amount))
+            let reply = bridge_result(vm.bridge.multi_hop_swap(path.join("\0").as_bytes(), amount))?;
+            record_measurement(vm, &reply);
+            Ok(reply)
         }
         CapabilityPayload::VectorMath { op, a, b, size } => {
             bridge_result(vm.bridge.vector_math(op, a.as_bytes(), b.as_bytes(), size))
@@ -1391,6 +1435,37 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
 
 fn bridge_result(result: Result<Vec<u8>, Box<dyn std::error::Error>>) -> ExecResult<Vec<u8>> {
     result.map_err(|err| ExecError::Panic(err.to_string()))
+}
+
+/// Record the measurement a capability reply carries, if it carries one.
+///
+/// A reply is a measurement only when it says so and names the unit. Anything else
+/// clears both fields rather than leaving an earlier trade's numbers in place: a guard
+/// must not pass on a measurement that belongs to a different instruction.
+fn record_measurement(vm: &mut VM, reply: &[u8]) {
+    vm.state.measured_profit_bps = None;
+    vm.state.measured_slippage_bps = None;
+    // A reply that is not a measurement is not an error: most capabilities answer with
+    // arbitrary bytes, and only a measured guard needs a number.
+    // A reply is a *sequence* of measurements, because one trade answers both questions a
+    // plan asks about it: its profit floor and its slippage ceiling are about the same
+    // call, and a host that had to answer twice would have to say which reply went with
+    // which guard.
+    let mut last = None;
+    for (unit, value) in crate::spec::opcodes::read_measured_replies(reply) {
+        last = Some(value);
+        match unit {
+            crate::spec::opcodes::MEASURED_UNIT_PROFIT_BPS => vm.state.measured_profit_bps = Some(value),
+            crate::spec::opcodes::MEASURED_UNIT_SLIPPAGE_BPS => vm.state.measured_slippage_bps = Some(value),
+            // An unknown unit is not a measurement this VM can use, and pretending
+            // otherwise would let a host answer a profit guard with a slippage.
+            _ => {}
+        }
+    }
+    // `r0` carries the last one, so the register and the records agree.
+    if let Some(value) = last {
+        vm.state.registers[0] = value;
+    }
 }
 
 fn bytes_to_register(bytes: &[u8]) -> u128 {

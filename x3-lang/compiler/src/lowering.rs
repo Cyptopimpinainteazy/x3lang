@@ -440,6 +440,7 @@ pub fn lower_program_with_mode(
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: guard_condition(require)?,
                         error_msg: None,
+                        measured: false,
                         comparison: require.comparison,
                     });
                 }
@@ -515,6 +516,7 @@ pub fn lower_program_with_mode(
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: guard_condition(require)?,
                         error_msg: None,
+                        measured: false,
                         comparison: require.comparison,
                     });
                 }
@@ -599,6 +601,7 @@ pub fn lower_program_with_mode(
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: guard_condition(require)?,
                         error_msg: None,
+                        measured: false,
                         comparison: require.comparison,
                     });
                 }
@@ -676,6 +679,7 @@ pub fn lower_program_with_mode(
                             expr: policy.max_slippage.to_string(),
                         },
                         error_msg: None,
+                        measured: false,
                         comparison: Some(ir::ComparisonOp::LessOrEqual),
                     });
                 }
@@ -704,6 +708,7 @@ pub fn lower_program_with_mode(
                         blocks: fp.blocks,
                     },
                     error_msg: None,
+                    measured: false,
                     comparison: None,
                 });
             }
@@ -737,6 +742,7 @@ pub fn lower_program_with_mode(
                         subject: req.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: guard_condition(req)?,
                         error_msg: None,
+                        measured: false,
                         comparison: req.comparison,
                     });
                 }
@@ -839,6 +845,11 @@ pub fn lower_program_with_mode(
                         subject: None,
                         condition: guard_condition(&bps_guard(guard))?,
                         error_msg: None,
+                        // The plan's floors are post-conditions: judged against what the
+                        // host reports for the trade, in basis points, and refused when
+                        // nothing reported one. A guard a program writes is a constraint the
+                        // compiler checks against declarations and stays `measured: false`.
+                        measured: true,
                         comparison: Some(guard.comparison),
                     });
                 }
@@ -888,6 +899,8 @@ pub fn lower_program_with_mode(
                     subject: None,
                     condition: guard_condition(&bps_guard(&floor))?,
                     error_msg: None,
+                    // A post-condition, like the arb plan's floor (TICKET-027).
+                    measured: true,
                     comparison: Some(floor.comparison),
                 });
                 ir.push(Operation::AtomicEnd);
@@ -1153,6 +1166,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 subject: guard.subject.as_ref().map(|s| s.as_str().to_string()),
                 condition: guard_condition(guard)?,
                 error_msg: None,
+                measured: false,
                 comparison: guard.comparison,
             });
         }
@@ -1387,6 +1401,7 @@ fn lower_annotations_prefix(annotations: &[Annotation], ir: &mut X3IR) -> Result
                 comparison: None,
                 condition: Condition::True,
                 error_msg: Some("sandbox gas limit exceeded".to_string()),
+                measured: false,
             }),
             Annotation::Whitelist(entries) => ir.push(Operation::Require {
                 kind: ir::RequireKind::Custom("whitelist".to_string()),
@@ -1396,6 +1411,7 @@ fn lower_annotations_prefix(annotations: &[Annotation], ir: &mut X3IR) -> Result
                     expr: entries.iter().map(|sym| sym.as_str()).collect::<Vec<_>>().join(","),
                 },
                 error_msg: Some("call target not whitelisted".to_string()),
+                measured: false,
             }),
             Annotation::Hot => ir.push(Operation::Emit {
                 name: "hot_enter".to_string(),

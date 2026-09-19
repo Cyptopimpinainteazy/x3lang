@@ -1878,7 +1878,14 @@ fn cli_plans_an_arb_scope_builds_it_and_runs_it() {
         "the whole plan must sit inside one atomic block: {disassembly}"
     );
 
-    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
+    // The plan's floors are *enforced*, so the run states the market outcome they are
+    // judged against rather than the floor passing on a number nobody measured.
+    let run = x3c()
+        .arg("run")
+        .args(["--measured-profit-bps", "100", "--measured-slippage-bps", "5"])
+        .arg(&out)
+        .output()
+        .expect("x3c run");
     let run_text = format!(
         "{}{}",
         String::from_utf8_lossy(&run.stdout),
@@ -2272,7 +2279,14 @@ fn cli_plans_a_hyperarb_builds_it_and_runs_it() {
         "the net-profit floor must be a guard inside the atomic block: {disassembly}"
     );
 
-    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
+    // The plan's floors are *enforced*, so the run states the market outcome they are
+    // judged against rather than the floor passing on a number nobody measured.
+    let run = x3c()
+        .arg("run")
+        .args(["--measured-profit-bps", "100", "--measured-slippage-bps", "5"])
+        .arg(&out)
+        .output()
+        .expect("x3c run");
     let run_text = format!(
         "{}{}",
         String::from_utf8_lossy(&run.stdout),
@@ -2506,5 +2520,134 @@ fn cli_gpu_reports_the_classification_the_probe_and_an_unproven_equality() {
     assert!(
         stdout.contains("the CPU is the only backend available, not a fallback"),
         "the report must not present the CPU as a fallback: {stdout}"
+    );
+}
+
+/// A plan's economic floor is **enforced**, not recorded — spec PHASE 50's "native profit
+/// guards: the transaction simply refuses settlement below target profit".
+///
+/// The floors `arb::plan` and `hyperarb::plan` emit are post-conditions on the trade, so
+/// they are judged against a measurement a host reports, in basis points, and this is the
+/// whole of it: without a measurement the guard refuses, with one that clears the floor it
+/// passes, and with one that does not it refuses **with both figures**. A guard a *program*
+/// writes is a different thing — a constraint the compiler checks against declarations —
+/// and the last case here is that one, still running unchanged.
+#[test]
+fn cli_enforces_a_plans_floor_against_a_measured_outcome() {
+    let source = "intent spread_trade {\n    from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
+                  to ethereum.USDC receiver 0xA2\n    require profit >= 20\n    require \
+                  slippage <= 50\n    timeout 30s refund ethereum.USDC to sender\n    on_fail \
+                  rollback\n}\n\
+                  venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 3\n    \
+                  liquidity 1_000_000\n    slippage_bps 8\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  venue eth_to_usdc {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.ETH\n    asset_out ethereum.USDC\n    fee_bps 2\n    \
+                  liquidity 900_000\n    slippage_bps 6\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  arb spread {\n    discover { chains = [ethereum]; max_hops = 4; liquidity_min = \
+                  500_000 ethereum.USDC; }\n    capital { flash = disabled; max = 25_000_000 \
+                  ethereum.USDC; }\n    execution { atomic = true; parallel = true; private = \
+                  false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; max_total_fee = \
+                  6bps; deadline = 220ms; }\n}\n";
+    let fixture = write_fixture("cli_measured_floor.x3", source);
+    let out = std::env::temp_dir().join("cli_measured_floor.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    assert!(
+        build.status.success(),
+        "the plan must build: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = |args: &[&str]| {
+        let mut command = x3c();
+        command.arg("run").args(args).arg(&out);
+        let output = command.output().expect("x3c run");
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    };
+
+    // Nothing measured: the floor refuses rather than passing on a number nobody took.
+    let unmeasured = run(&[]);
+    assert!(
+        unmeasured.contains("X3_GUARD_UNMEASURED") && unmeasured.contains("profit >= 20bps"),
+        "an unmeasured floor must refuse: {unmeasured}"
+    );
+
+    // Measured and clearing both floors: it settles.
+    let cleared = run(&["--measured-profit-bps", "100", "--measured-slippage-bps", "5"]);
+    assert!(
+        cleared.contains("x3c run: ok"),
+        "a trade that clears its floors must run: {cleared}"
+    );
+
+    // Measured below the profit floor: refused, with both figures.
+    let below = run(&["--measured-profit-bps", "5", "--measured-slippage-bps", "5"]);
+    assert!(
+        below.contains("X3_PROFIT_BELOW_FLOOR") && below.contains("realised 5bps") && below.contains("at least 20bps"),
+        "the refusal must give what was realised and what was required: {below}"
+    );
+
+    // Measured above the slippage ceiling: refused, with both figures.
+    let slippy = run(&["--measured-profit-bps", "100", "--measured-slippage-bps", "90"]);
+    assert!(
+        slippy.contains("X3_SLIPPAGE_ABOVE_CEILING")
+            && slippy.contains("realised 90bps")
+            && slippy.contains("at most 8bps"),
+        "the refusal must give what was realised and what was allowed: {slippy}"
+    );
+
+    // Half a measurement is refused rather than completed by inventing the other half.
+    let half = run(&["--measured-profit-bps", "100"]);
+    assert!(
+        half.contains("state both measurements or neither"),
+        "a half-stated measurement must be refused: {half}"
+    );
+
+    // And a *program's* guard is a different thing: `simple_swap`'s `require slippage <= 50`
+    // is a constraint the compiler checks against declarations, so it runs with no
+    // measurement at all. This is the case that keeps the change from altering what
+    // existing programs mean.
+    let existing = std::env::temp_dir().join("cli_measured_source_guard.x3");
+    std::fs::write(
+        &existing,
+        "venue uniswap_v3 {\n    kind pool\n    chain ethereum\n    domain evm\n    asset_in \
+         ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 5\n    liquidity 1_000_000\n    \
+         slippage_bps 8\n    latency_ms 12\n    finality_blocks 12\n    risk 2\n}\n\
+         intent simple_swap {\n    from ethereum.USDC amount 100 receiver 0xA1\n    to \
+         ethereum.ETH receiver 0xA2\n    route {\n        swap uniswap_v3 ethereum.USDC -> \
+         ethereum.ETH amount 100 min_output 90\n    }\n    require nonce unused simple_nonce\n    \
+         require slippage <= 50\n    timeout 30s refund ethereum.USDC to sender\n    on_fail \
+         rollback\n}\n",
+    )
+    .expect("write the source-guard fixture");
+    let source_artifact = std::env::temp_dir().join("cli_measured_source_guard.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&existing)
+        .arg("--out")
+        .arg(&source_artifact)
+        .output()
+        .expect("x3c build");
+    assert!(build.status.success(), "the source-guard program must build");
+    let output = x3c().arg("run").arg(&source_artifact).output().expect("x3c run");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.success() && text.contains("x3c run: ok"),
+        "a program's own guard is a compile-time constraint and must still run unmeasured: {text}"
     );
 }
