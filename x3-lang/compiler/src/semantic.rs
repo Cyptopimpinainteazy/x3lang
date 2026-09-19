@@ -320,10 +320,12 @@ pub fn verify_risk_policy_bounds_guards(program: &Program, acc: &mut ErrorAccumu
         if !guard.comparison.is_some_and(|op| op.is_upper_bound()) {
             continue;
         }
-        let Some(bound) = guard.value.as_ref().and_then(extract_int_from_expr) else {
+        let Some(bound) = guard.value.as_ref().and_then(slippage_bps_from_expr) else {
             continue;
         };
-        if bound > u128::from(policy) {
+        // Both sides in basis points: the policy's field is a bare number in the
+        // same unit as a guard's (TICKET-054).
+        if bound > u32::try_from(policy).unwrap_or(u32::MAX) {
             acc.add_error(err(format!(
                 "declaration '{owner}' permits a slippage of {bound} while the risk policy accepts \
                  at most {policy}; the guard allows what the policy forbids"
@@ -2227,7 +2229,7 @@ fn verify_slippage_safe(ir: &X3IR, acc: &mut ErrorAccumulator) {
             // Compared in basis points. A `f64` comparison decides a mainnet
             // rejection, and a value one ulp either side of 5.0 would decide it
             // differently on a different runtime.
-            if let Some(bps) = extract_slippage_bps(expr).filter(|bps| *bps > SLIPPAGE_CEILING_BPS) {
+            if let Some(bps) = slippage_bps_from_text(expr).filter(|bps| *bps > SLIPPAGE_CEILING_BPS) {
                 acc.add_error(err(format!(
                     "mainnet: slippage tolerance {}.{:02}% exceeds maximum 5%",
                     bps / 100,
@@ -2247,25 +2249,60 @@ const SLIPPAGE_CEILING_BPS: u32 = 500;
 /// This used to parse to `f64` and compare against `5.0`. The comparison decides
 /// whether a program is rejected on mainnet, and a floating-point comparison
 /// that decides a rejection is the ambiguity PHASE 43 asks us not to have.
-fn extract_slippage_bps(expr: &str) -> Option<u32> {
-    let cleaned: String = expr.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
-    match cleaned.split_once('.') {
-        None => cleaned.parse().ok(),
-        // A fractional percentage is a whole number of basis points only when
-        // the fraction is hundredths: `5.25` is 525 bps, `5.255` is nothing we
-        // can represent, and saying `None` leaves the check silent rather than
-        // guessing.
-        Some((whole, fraction)) => {
-            let whole: u32 = whole.parse().ok()?;
-            let fraction = match fraction.len() {
-                0 => 0,
-                1 => fraction.parse::<u32>().ok()? * 10,
-                2 => fraction.parse::<u32>().ok()?,
-                _ => return None,
-            };
-            whole.checked_mul(100)?.checked_add(fraction)
-        }
+/// The slippage a guard states, in basis points.
+///
+/// One quantity, one unit, and the two ways of writing it *agree*: a bare number
+/// is **basis points** (`require slippage <= 50` is 0.5%) and a percent literal is
+/// a **percentage** (`<= 0.5%` is also 50 bps). The readers did not agree — the
+/// mainnet gate read a bare number as bps, the risk scorer multiplied it by 100 as
+/// though it were a percent, and the strategy check compared it against a
+/// `max_slippage_bps` field directly — so the corpus's most common bound,
+/// `require slippage <= 50`, was 0.5% to one reader and 50% to another, and the
+/// scorer reported it as `high slippage (5000bps / 50.00%)` (TICKET-054).
+///
+/// The rule matches the field name every declaration already uses
+/// (`max_slippage_bps`), so a guard and the policy it sits under are in one unit.
+pub fn slippage_bps_from_expr(expr: &Expression) -> Option<u32> {
+    match expr {
+        Expression::Literal(LiteralExpr::Int { value, .. }) => u32::try_from(*value).ok(),
+        Expression::Literal(LiteralExpr::Percentage { value }) => percent_to_bps(value.as_str().trim_end_matches('%')),
+        // A *bare* fractional number is basis points too: `50.0` is fifty of them,
+        // and half a basis point is not a bound the VM can compare — `None`
+        // rather than a rounding nobody chose.
+        Expression::Literal(LiteralExpr::Float { raw, .. }) => slippage_bps_from_text(raw.as_str()),
+        _ => None,
     }
+}
+
+/// The same rule for a rendered expression, which is what the IR carries.
+pub fn slippage_bps_from_text(text: &str) -> Option<u32> {
+    let text = text.trim();
+    if let Some(percent) = text.strip_suffix('%') {
+        return percent_to_bps(percent);
+    }
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
+    if !fraction.is_empty() && fraction.chars().any(|ch| ch != '0') {
+        return None;
+    }
+    whole.parse().ok()
+}
+
+/// `<n>[.<fraction>]` as basis points.
+///
+/// At most two fractional digits: `0.5` is 50 bps, `0.05` is 5 bps, and `0.005`
+/// is half a basis point, which is not representable and is refused rather than
+/// rounded in a direction nobody wrote down.
+fn percent_to_bps(percent: &str) -> Option<u32> {
+    let percent = percent.trim();
+    let (whole, fraction) = percent.split_once('.').unwrap_or((percent, ""));
+    let whole: u32 = whole.parse().ok()?;
+    let fraction = match fraction.len() {
+        0 => 0,
+        1 => fraction.parse::<u32>().ok()? * 10,
+        2 => fraction.parse::<u32>().ok()?,
+        _ => return None,
+    };
+    whole.checked_mul(100)?.checked_add(fraction)
 }
 
 fn verify_deadline_bounded(ir: &X3IR, acc: &mut ErrorAccumulator) {
@@ -3757,7 +3794,11 @@ mod tests {
             Operation::Require {
                 kind: RequireKind::SlippageTolerance,
                 subject: None,
-                condition: Condition::Expression { expr: "10.0".into() },
+                // 600 basis points = 6%, over the 5% ceiling. This said `10.0`,
+                // which was read as 10% when the gate took a bare number for a
+                // percentage; a bare number is basis points (TICKET-054), so the
+                // fixture names a bound that is over the ceiling either way.
+                condition: Condition::Expression { expr: "600".into() },
                 error_msg: Some("slippage".into()),
                 comparison: None,
             },

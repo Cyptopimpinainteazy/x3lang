@@ -350,7 +350,16 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
                     if guard.kind == x3_lang_ast::ast::RequireKind::Slippage {
                         if let Some(bound) = guard.comparison.and_then(|op| {
                             op.is_upper_bound()
-                                .then(|| guard.value.as_ref().and_then(expression_to_u128))
+                                // In the one unit a slippage bound is written in:
+                                // basis points, the same unit as the profile's field
+                                // (TICKET-054).
+                                .then(|| {
+                                    guard
+                                        .value
+                                        .as_ref()
+                                        .and_then(crate::semantic::slippage_bps_from_expr)
+                                        .map(u128::from)
+                                })
                                 .flatten()
                         }) {
                             if bound > u128::from(risk.max_slippage_bps) {

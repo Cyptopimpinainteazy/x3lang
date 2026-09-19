@@ -129,11 +129,15 @@ impl RiskScorer {
                             RequireKind::Nonce => has_nonce = true,
                             RequireKind::RouteScore => has_route_score = true,
                             RequireKind::Slippage => {
-                                if let Some(Expression::Literal(LiteralExpr::Int { value, .. })) = &guard.value {
-                                    // This guard's literal is a whole percent (e.g. `require
-                                    // slippage < 5` means 5%); normalize to basis points so it
-                                    // shares a scale with trading-core-v1's native bps policy.
-                                    slippage_bps = (*value as u64).saturating_mul(100);
+                                // A bare number is basis points (TICKET-054). This
+                                // multiplied by 100 as though it were a whole percent, so
+                                // `require slippage <= 50` — the corpus's most common bound,
+                                // and 0.5% — arrived as 5000 bps and was scored and reported
+                                // as `high slippage (5000bps / 50.00%)`.
+                                if let Some(bps) =
+                                    guard.value.as_ref().and_then(crate::semantic::slippage_bps_from_expr)
+                                {
+                                    slippage_bps = u64::from(bps);
                                 }
                             }
                             _ => {}
