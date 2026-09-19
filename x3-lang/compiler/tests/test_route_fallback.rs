@@ -122,7 +122,13 @@ fn a_non_literal_bound_is_rejected() {
 fn a_fallback_without_a_swap_leg_is_rejected() {
     // Nothing to replace: the approval set would describe substitutions for a
     // leg that does not exist.
-    let source = r#"intent busy_route {
+    let source = r#"finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
+intent busy_route {
     from ethereum.USDC amount 100 receiver 0x1
     to ethereum.ETH receiver 0x2
     route {

@@ -56,6 +56,19 @@ finality_policy strict {
     requirement finalized
 }
 
+finality_policy strict {
+    chain arbitrum
+    requirement finalized
+    blocks 32
+}
+
+finality_policy strict {
+    chain solana
+    requirement finalized
+    blocks 32
+}
+
+
 error SlippageExceeded
 
 target evm {

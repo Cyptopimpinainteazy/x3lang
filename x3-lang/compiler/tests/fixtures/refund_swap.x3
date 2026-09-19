@@ -1,3 +1,15 @@
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
+finality_policy strict {
+    chain solana
+    requirement finalized
+    blocks 32
+}
+
 intent refundable_swap {
     from ethereum.USDC amount 1000 sender 0x1234
     to solana.SOL receiver 0x5678

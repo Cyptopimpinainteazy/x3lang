@@ -280,6 +280,18 @@ target evm {
     contract 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18
 }
 
+finality_policy strict {
+    chain arbitrum
+    requirement finalized
+    blocks 32
+}
+
+finality_policy strict {
+    chain solana
+    requirement finalized
+    blocks 32
+}
+
 intent safe_cross_vm_swap {
     from arbitrum.USDC amount 500
     to solana.SOL receiver wallet
@@ -324,7 +336,19 @@ const GOOD_SOURCE: &str = r#"intent arb_solana_eth {
 /// therefore asserting that the compiler complains about a correct program, and
 /// they went green on a defect. A warning fixture has to warn about something
 /// the program could actually fix.
-const WARN_SOURCE: &str = r#"intent bridging_without_proofs {
+const WARN_SOURCE: &str = r#"finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 32
+}
+
+finality_policy strict {
+    chain solana
+    requirement finalized
+    blocks 32
+}
+
+intent bridging_without_proofs {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
     route {

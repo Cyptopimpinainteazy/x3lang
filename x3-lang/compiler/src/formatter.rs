@@ -1249,6 +1249,10 @@ impl X3Formatter {
         self.write("requirement ");
         self.write(f.requirement.as_str());
         self.write("\n");
+        if let Some(blocks) = f.blocks {
+            self.write_indent();
+            self.write(&format!("blocks {blocks}\n"));
+        }
         self.dedent();
         self.write("}\n");
     }

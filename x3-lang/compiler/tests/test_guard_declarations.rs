@@ -391,3 +391,194 @@ fn a_bridge_liquidity_guard_needs_bridges_that_deep() {
         "{ceiling:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `require finality.<chain> >= N` — TICKET-049's last kind with corpus weight.
+//
+// Nine corpus programs wrote twelve finality guards against a quantity nothing
+// declared. `finality_policy` is where a program states what it requires of a
+// chain; these tests pin both directions of the check and the invariant that the
+// corpus declares what its guards require.
+// ---------------------------------------------------------------------------
+
+/// A policy that requires 32 blocks of `solana`.
+const SOLANA_32: &str = "finality_policy strict {\n    chain solana\n    requirement finalized\n    blocks 32\n}\n\n";
+
+fn finality(declarations: &str, guard: &str) -> Vec<String> {
+    errors(&program(declarations, &format!("    {guard}")))
+}
+
+#[test]
+fn a_guard_at_the_declared_depth_is_accepted() {
+    assert_eq!(
+        finality(SOLANA_32, "require finality.solana >= 32"),
+        Vec::<String>::new(),
+        "the guard states exactly the policy's requirement"
+    );
+}
+
+#[test]
+fn a_guard_stricter_than_the_declaration_is_accepted() {
+    // Demanding a deeper state than the policy's floor is strictly more
+    // conservative: the program waits longer than it promised to.
+    assert_eq!(
+        finality(SOLANA_32, "require finality.solana >= 64"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_guard_below_the_declared_depth_is_refused_with_both_numbers() {
+    // The guard would pass at 12 blocks while the program's own policy says the
+    // chain is not final until 32 — the exact blur between confirmation depths
+    // the declaration exists to prevent.
+    let errors = finality(SOLANA_32, "require finality.solana >= 12");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("12") && errors[0].contains("32") && errors[0].contains("not final"),
+        "the message must carry both depths and say which way the guard is wrong: {errors:?}"
+    );
+}
+
+#[test]
+fn a_depth_guard_with_no_declaration_names_the_clause_to_add() {
+    let errors = finality("", "require finality.solana >= 32");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("finality_policy") && errors[0].contains("blocks"),
+        "the diagnostic must name the declaration that would back the guard: {errors:?}"
+    );
+}
+
+#[test]
+fn a_policy_without_a_depth_cannot_back_a_depth_guard() {
+    // A mode is not a depth. `requirement finalized` says what the chain must
+    // reach, not how far behind the tip it must be.
+    let declarations = "finality_policy strict {\n    chain solana\n    requirement finalized\n}\n\n";
+    let errors = finality(declarations, "require finality.solana >= 32");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("no `blocks`") && errors[0].contains("blocks 32"),
+        "the diagnostic must say which clause is missing: {errors:?}"
+    );
+}
+
+#[test]
+fn a_mode_guard_is_decided_against_the_declared_requirement() {
+    let declarations = "finality_policy strict {\n    chain solana\n    requirement finalized\n    blocks 32\n}\n\n";
+    assert_eq!(
+        finality(declarations, "require finality.solana == finalized"),
+        Vec::<String>::new(),
+        "the guard states the mode the policy requires"
+    );
+    let mismatched = finality(declarations, "require finality.solana == safe");
+    assert_eq!(mismatched.len(), 1, "{mismatched:?}");
+    assert!(
+        mismatched[0].contains("safe") && mismatched[0].contains("finalized"),
+        "the diagnostic must name both modes: {mismatched:?}"
+    );
+}
+
+#[test]
+fn a_finality_depth_written_as_a_ceiling_is_refused() {
+    let errors = finality(SOLANA_32, "require finality.solana <= 32");
+    assert!(
+        errors.iter().any(|error| error.contains("without a `>=` bound")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn chain_names_compare_without_case() {
+    // Eight of the corpus's twelve guards spell their chain differently from the
+    // way the declaration does (`finality Ethereum`), and a chain name is not an
+    // identifier whose case is part of its meaning.
+    let declarations = "finality_policy strict {\n    chain Ethereum\n    requirement finalized\n    blocks 64\n}\n\n";
+    assert_eq!(
+        finality(declarations, "require finality.ethereum >= 64"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn two_policies_for_one_chain_are_refused_where_a_guard_depends_on_them() {
+    let declarations = format!(
+        "{SOLANA_32}finality_policy loose {{\n    chain solana\n    requirement finalized\n    blocks 12\n}}\n\n"
+    );
+    let errors = finality(&declarations, "require finality.solana >= 32");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].contains("2 `finality_policy` declarations"),
+        "a guard read against the first of two depths is read against whichever was written first: {errors:?}"
+    );
+}
+
+#[test]
+fn no_example_gates_on_finality_without_declaring_what_it_requires() {
+    // The corpus is where this defect lived, so the corpus is where the
+    // invariant is asserted: every example that writes a finality guard must
+    // declare the depth (or mode) it requires, and an example that gains one
+    // without the other fails here rather than passing a check that reads it as
+    // true. The six examples the Rust parser does not accept are included — their
+    // other errors are ignored, but a finality guard with nothing behind it is
+    // not.
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("examples");
+    let mut gating_examples = 0usize;
+    for entry in std::fs::read_dir(&directory).expect("the examples directory must be readable") {
+        let path = entry.expect("a readable directory entry").path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("x3") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("an example must be readable");
+        if !source.contains("require finality") {
+            continue;
+        }
+        gating_examples += 1;
+        let unbacked: Vec<String> = errors(&source)
+            .into_iter()
+            .filter(|error| {
+                error.contains("no `finality_policy` names that chain")
+                    || error.contains("blocks of finality")
+                    || error.contains("finality mode")
+                    || error.contains("`finality_policy` declarations name chain")
+            })
+            .collect();
+        assert!(
+            unbacked.is_empty(),
+            "{}: a finality guard with nothing behind it: {unbacked:?}",
+            path.display()
+        );
+    }
+    assert!(
+        gating_examples >= 9,
+        "the corpus must still contain the examples this check is about: {gating_examples}"
+    );
+}
+
+#[test]
+fn a_declared_depth_is_written_back_by_the_formatter() {
+    // The round trip matters because the formatter is what `x3c fmt` writes and
+    // what the corpus is regenerated through: a field the parser reads and the
+    // formatter drops is a declaration that disappears on reformatting.
+    let source = format!("{SOLANA_32}{}", program("", "    require finality.solana >= 32"));
+    let program = x3_lang_compiler::parser::parse_source(&source).expect("the program should parse");
+    let formatted = x3_lang_compiler::formatter::X3Formatter::new().format_program(&program);
+    assert!(
+        formatted.contains("blocks 32"),
+        "the depth must survive the formatter: {formatted}"
+    );
+    let reparsed = x3_lang_compiler::parser::parse_source(&formatted).expect("the formatted program must parse");
+    assert_eq!(
+        x3_lang_compiler::compile_to_ir(&reparsed)
+            .expect("it must lower")
+            .operations
+            .len(),
+        x3_lang_compiler::compile_to_ir(&program)
+            .expect("it must lower")
+            .operations
+            .len(),
+        "formatting must not change the program"
+    );
+}

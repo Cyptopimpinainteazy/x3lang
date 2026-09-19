@@ -1363,12 +1363,24 @@ pub struct ErrorDecl {
     pub name: Symbol,
 }
 
-/// `finality_policy strict { evm require finalized }` — finality configuration per chain.
+/// `finality_policy strict { chain evm requirement finalized blocks 32 }` —
+/// finality configuration per chain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalityPolicy {
     pub mode: Symbol,
     pub chain: Symbol,
     pub requirement: Symbol,
+    /// The depth the program requires of this chain, in blocks.
+    ///
+    /// A mode (`requirement finalized`) says *what* the chain must reach; it
+    /// cannot answer `require finality.arbitrum >= 32`, which is a claim about
+    /// how many blocks deep the chain must be. Nine corpus programs wrote such a
+    /// guard and nothing declared a depth anywhere, so every one of them lowered
+    /// to a `REQUIRE` the executor treats as true. The depth is optional because
+    /// a program that only makes mode claims does not have one to state, and a
+    /// guard that needs it is refused by name when it is absent.
+    #[serde(default)]
+    pub blocks: Option<u32>,
 }
 
 /// `proofs required { source_lock_proof ... }` — required proof declarations.

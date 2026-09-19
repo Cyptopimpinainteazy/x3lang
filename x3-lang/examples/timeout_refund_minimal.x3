@@ -1,3 +1,9 @@
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
 intent timeout_refund_minimal {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD

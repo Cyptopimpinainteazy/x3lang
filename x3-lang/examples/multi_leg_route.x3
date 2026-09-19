@@ -1,3 +1,9 @@
+finality_policy strict {
+    chain polygon
+    requirement finalized
+    blocks 32
+}
+
 risk_policy {
     min_route_score 90
 }

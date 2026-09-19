@@ -551,6 +551,150 @@ pub fn verify_route_score_declared(program: &Program, acc: &mut ErrorAccumulator
     }
 }
 
+/// A `require finality.<chain> >= N` guard needs a declared depth for that chain.
+///
+/// The guard is a claim about settlement: "this program will not treat a fill as
+/// final until `<chain>` is at least N blocks deep". `finality_policy { chain
+/// <chain> blocks N }` is the depth the program requires of that chain, so a
+/// guard *below* it is refused — it would pass at a depth the program's own
+/// policy says is not final, which is the blur between confirmation depths this
+/// pass exists to prevent — while a guard above it is strictly more conservative
+/// and allowed. A guard naming a chain no policy declares is refused too:
+/// nothing backs it, and it lowered to a `REQUIRE` the executor treats as true,
+/// which is the defect that made every corpus program with a depth guard
+/// unchecked.
+///
+/// The mode form (`require finality.sol == finalized`) is decided the same way
+/// against the declaration's `requirement` word. Chain names compare
+/// case-insensitively, because eight of the corpus's twelve depth guards spell
+/// their chain differently from the way the declaration does (`finality
+/// Ethereum`) and a chain's name is not an identifier whose case is part of its
+/// meaning.
+pub fn verify_finality_guards_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    let policies: Vec<&x3_lang_ast::ast::FinalityPolicy> = program
+        .items
+        .iter()
+        .filter_map(|item| match &item.node {
+            Item::FinalityPolicy(policy) => Some(policy),
+            _ => None,
+        })
+        .collect();
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::Finality {
+            continue;
+        }
+        // `require source_finality` / `dest_finality` name a side of the program
+        // rather than a chain, and no declaration states what such a side must
+        // reach; they are decided by the program's own finality pass.
+        let Some(chain) = guard.subject.as_ref() else {
+            continue;
+        };
+        let matching: Vec<&&x3_lang_ast::ast::FinalityPolicy> = policies
+            .iter()
+            .filter(|policy| policy.chain.as_str().eq_ignore_ascii_case(chain.as_str()))
+            .collect();
+        if matching.is_empty() {
+            acc.add_error(err(format!(
+                "declaration '{owner}' requires `finality.{}`, but no `finality_policy` names that \
+                 chain — the guard has nothing to compare against. Write `finality_policy <mode> {{ \
+                 chain {} requirement finalized blocks <n> }}`",
+                chain.as_str(),
+                chain.as_str()
+            )));
+            continue;
+        }
+        if matching.len() > 1 {
+            acc.add_error(err(format!(
+                "{} `finality_policy` declarations name chain '{}' while '{owner}' guards it; one \
+                 chain has one policy, and a guard read against the first of two depths is read \
+                 against whichever happened to be written first",
+                matching.len(),
+                chain.as_str()
+            )));
+            continue;
+        }
+        let policy = matching[0];
+
+        let Some(value) = guard.value.as_ref() else {
+            acc.add_error(err(format!(
+                "declaration '{owner}' states `require finality.{}` with no depth and no mode; write \
+                 a floor (`require finality.{} >= 32`) or a mode (`require finality.{} == \
+                 finalized`)",
+                chain.as_str(),
+                chain.as_str(),
+                chain.as_str()
+            )));
+            continue;
+        };
+
+        if let Some(required) = extract_int_from_expr(value) {
+            // A depth is a floor — "at least N blocks deep". A ceiling says the
+            // chain may not be *well* settled, and comparing that against a
+            // declared depth answers a question nobody asked.
+            if !guard.comparison.is_some_and(|op| op.is_lower_bound()) {
+                acc.add_error(err(format!(
+                    "declaration '{owner}' states `require finality.{}` without a `>=` bound; a \
+                     finality depth is a floor — write `require finality.{} >= {required}`",
+                    chain.as_str(),
+                    chain.as_str()
+                )));
+                continue;
+            }
+            match policy.blocks {
+                None => acc.add_error(err(format!(
+                    "declaration '{owner}' requires {required} blocks of finality on '{}', but the \
+                     `finality_policy` for that chain states no `blocks`; add `blocks {required}` \
+                     (or more) to the policy",
+                    chain.as_str()
+                ))),
+                Some(declared) if required < u128::from(declared) => acc.add_error(err(format!(
+                    "declaration '{owner}' requires only {required} blocks of finality on '{}', while \
+                     the policy declared for that chain requires {declared}: the guard would pass at \
+                     a depth the program itself says is not final. Write `require finality.{} >= \
+                     {declared}`, or lower the policy if {required} is what the program means",
+                    chain.as_str(),
+                    chain.as_str()
+                ))),
+                Some(_) => {}
+            }
+            continue;
+        }
+
+        let Some(mode) = guard_word(value) else {
+            acc.add_error(err(format!(
+                "declaration '{owner}' compares `finality.{}` against something that is neither a \
+                 depth nor a mode; write `require finality.{} >= <blocks>` or `require finality.{} \
+                 == <mode>`",
+                chain.as_str(),
+                chain.as_str(),
+                chain.as_str()
+            )));
+            continue;
+        };
+        if !policy.requirement.as_str().eq_ignore_ascii_case(mode) {
+            acc.add_error(err(format!(
+                "declaration '{owner}' requires finality mode '{mode}' on '{}', but the declared \
+                 policy for that chain requires '{}'",
+                chain.as_str(),
+                policy.requirement.as_str()
+            )));
+        }
+    }
+}
+
+/// The name a guard's right-hand side writes, when it is a bare identifier.
+///
+/// `require finality.sol == finalized` compares a chain against a *word*, and the
+/// parser stores that word as an identifier expression. Returning `None` for
+/// anything else keeps the caller from reading a compound expression as a name.
+fn guard_word(expr: &Expression) -> Option<&str> {
+    match expr {
+        Expression::Ident(name) => Some(name.as_str()),
+        _ => None,
+    }
+}
+
 /// Refuse a guard whose kind the compiler does not know.
 ///
 /// `require_kind_from_str` carries an unknown word as `Custom`, which is how

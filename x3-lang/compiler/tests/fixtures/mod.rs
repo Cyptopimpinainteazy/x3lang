@@ -27,7 +27,13 @@ pub const TRANSFER: &str = r#"intent internal_transfer {
 
 /// Atomic swap: bridge + swap on the destination chain. Exercises the
 /// cross-VM path under a single atomic block with a refund policy.
-pub const ATOMIC_SWAP: &str = r#"intent swap_demo {
+pub const ATOMIC_SWAP: &str = r#"finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
+intent swap_demo {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
     route {
@@ -44,7 +50,13 @@ pub const ATOMIC_SWAP: &str = r#"intent swap_demo {
 
 /// EVM call: route through a pure EVM chain pair. Used to exercise the
 /// Ethereum adapter path.
-pub const EVM_CALL: &str = r#"intent evm_call {
+pub const EVM_CALL: &str = r#"finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
+intent evm_call {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Polygon.USDC receiver 0x2222222222222222222222222222222222222222
     route {
@@ -58,7 +70,13 @@ pub const EVM_CALL: &str = r#"intent evm_call {
 "#;
 
 /// X3VM internal call: the destination is the X3 chain itself.
-pub const X3_CALL: &str = r#"intent x3_call {
+pub const X3_CALL: &str = r#"finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
+intent x3_call {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to X3.USDC receiver x3-receiver-1234
     route {
@@ -73,7 +91,13 @@ pub const X3_CALL: &str = r#"intent x3_call {
 
 /// BTC/UTXO route. The X3 side of the route uses a real bridge; the
 /// adapter is feature-gated and fails closed in production builds.
-pub const BTC_ROUTE: &str = r#"intent btc_route {
+pub const BTC_ROUTE: &str = r#"finality_policy strict {
+    chain bitcoin
+    requirement finalized
+    blocks 6
+}
+
+intent btc_route {
     from Bitcoin.BTC amount 1 receiver bc1qexampleexampleexampleexampleexampleexampleexample
     to Ethereum.WBTC receiver 0x1111111111111111111111111111111111111111
     route {

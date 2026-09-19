@@ -6,6 +6,17 @@
 // attest the swap, so the program has to say which swarm attests it — the
 // guard is checked against `relayers { quorum ... }` at compile time.
 
+finality_policy strict {
+    chain eth
+    requirement finalized
+    blocks 12
+}
+
+finality_policy strict {
+    chain sol
+    requirement finalized
+}
+
 relayers {
     quorum_numerator 3
     quorum_denominator 5

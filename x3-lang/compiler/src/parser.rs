@@ -3436,13 +3436,14 @@ impl<'a> Parser<'a> {
         Ok(Item::VmTarget(VmTarget { vm, adapter, contract }))
     }
 
-    /// `finality_policy <name> { <vm> require <mode> ... }`
+    /// `finality_policy <name> { [chain <c>] [requirement <mode>] [blocks <n>] }`
     fn parse_finality_policy_item(&mut self) -> Result<Item, X3Error> {
         self.advance();
         let mode = Symbol::new(&self.expect_ident("finality_policy mode")?);
         self.expect(Tok::LBrace, "expected '{' after finality_policy")?;
         let mut chain = Symbol::new("unknown");
         let mut requirement = Symbol::new("finalized");
+        let mut blocks: Option<u32> = None;
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             match self.peek() {
                 // The clause form the examples are written in:
@@ -3458,6 +3459,14 @@ impl<'a> Parser<'a> {
                 Tok::Ident(ref s) if s == "requirement" || s == "require" => {
                     self.advance();
                     requirement = Symbol::new(&self.expect_ident("finality requirement")?);
+                }
+                // The depth clause, and it has to be matched *before* the terse
+                // form below: `blocks 32` is a chain name followed by a number to
+                // that arm, so the depth would be read as a chain called
+                // `blocks` and the number left where the next clause begins.
+                Tok::Ident(ref s) if s == "blocks" => {
+                    self.advance();
+                    blocks = Some(self.parse_finality_blocks()?);
                 }
                 // The terse form: `<chain_name> require <mode>`.
                 Tok::Ident(_) => {
@@ -3475,7 +3484,40 @@ impl<'a> Parser<'a> {
             mode,
             chain,
             requirement,
+            blocks,
         }))
+    }
+
+    /// `blocks <n>` inside `finality_policy`.
+    ///
+    /// The count is a depth in blocks and the field's own name fixes the unit,
+    /// the same rule `constraints { finality <= 64 blocks }` follows: the unit
+    /// may be written (`blocks 32 blocks`) and is then checked rather than
+    /// stepped over, because a word that is not the unit would otherwise be left
+    /// where the next clause begins.
+    fn parse_finality_blocks(&mut self) -> Result<u32, X3Error> {
+        let expr = self.parse_expr()?;
+        let value = expr_to_u128(&expr).map_err(|_| {
+            parse_err(
+                "finality_policy `blocks` must be an integer literal the compiler can evaluate; a \
+                 depth read at run time is a depth no guard can be checked against"
+                    .into(),
+                self.peek(),
+            )
+        })?;
+        if matches!(self.peek(), Tok::Ident(ref unit) if unit == "blocks") {
+            self.advance();
+        }
+        u32::try_from(value).map_err(|_| {
+            parse_err(
+                format!(
+                    "finality_policy `blocks` {value} is above the largest count this format holds \
+                     ({})",
+                    u32::MAX
+                ),
+                self.peek(),
+            )
+        })
     }
 
     /// `error <name>`
