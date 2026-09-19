@@ -4189,34 +4189,34 @@ impl<'a> Parser<'a> {
             Some(self.parse_expr()?)
         } else if subject.is_some() {
             // An explicit subject may stand alone (`require canonical_supply.USDC`).
-            if self.can_start_expression() {
+            if self.can_start_expression() && !self.next_word_begins_a_clause() {
                 Some(self.parse_expr()?)
             } else {
                 None
             }
-        } else if !self.can_start_expression() {
+        } else if !self.can_start_expression() || self.next_word_begins_a_clause() {
+            // Either nothing follows, or what follows begins the next clause:
+            // `require proof_complete` then `amount 500` is a property guard and
+            // an amount, not a guard about an amount.
             None
         } else {
             let first = self.parse_expr()?;
             match first {
-                // A name with nothing after it is the subject, not a value:
-                // there is no reading in which a bare name is a threshold.
+                // A name, then either the block's end or the next clause: the
+                // name is what the guard is about. A name followed by something
+                // that can begin an expression is that expression's subject:
+                // `require nonce unused <id>`.
                 Expression::Ident(name) => {
-                    subject = Some(name);
-                    // `require nonce unused <id>` is the one guard that names a
-                    // subject *and* a value, and `nonce` is the one kind whose
-                    // subject is a status rather than the thing itself. Gating
-                    // on it is what keeps a clause that follows a valueless
-                    // guard (`require proof_complete` then `amount 500`) from
-                    // being swallowed as that guard's subject and value.
-                    if kind == RequireKind::Nonce && self.can_start_expression() {
-                        Some(self.parse_expr()?)
+                    if self.can_start_expression() && !self.next_word_begins_a_clause() {
+                        let value = self.parse_expr()?;
+                        subject = Some(name);
+                        Some(value)
                     } else {
+                        subject = Some(name);
                         None
                     }
                 }
-                // A name followed by another expression is the subject of it:
-                // `require nonce unused <id>`.
+                // Anything else is a value: `require slippage 50`.
                 other => Some(other),
             }
         };
@@ -4263,6 +4263,29 @@ impl<'a> Parser<'a> {
             self.peek_n(1),
             Tok::Ge | Tok::Gt | Tok::Le | Tok::Lt | Tok::EqEq | Tok::Ne
         )
+    }
+
+    /// Whether the word at the cursor begins a clause rather than continuing the
+    /// guard being read.
+    ///
+    /// A guard is the last thing read before a block ends or another clause
+    /// begins, and a block's clause words are identifiers rather than keywords
+    /// (`amount`, `receiver`, `to`, …), so a guard that stops at the wrong place
+    /// eats the next clause. Measured: `require proof_complete` followed by
+    /// `amount 500` used to become a guard *about* `amount` with the number left
+    /// over as a statement — it parsed, it lowered, and the swap had no amount.
+    ///
+    /// The list is the union of the clause words a guard can be followed by.
+    /// It is a list because the parser's clause dispatch is per-block rather
+    /// than shared and the words are not keywords in the lexer; a word here that
+    /// a program meant as a guard's *value* is refused loudly, since the value
+    /// position is then empty and the word starts a clause the block may not
+    /// allow.
+    fn next_word_begins_a_clause(&self) -> bool {
+        match self.peek() {
+            Tok::Ident(ref word) => CLAUSE_WORDS.contains(&word.as_str()),
+            _ => false,
+        }
     }
 
     /// Whether the token at the cursor can begin an expression.
@@ -4383,6 +4406,43 @@ impl<'a> Parser<'a> {
 
 // ===========================================================================
 // Standalone helpers
+
+/// Words that begin a clause in some block a guard can appear in.
+///
+/// See `Parser::next_word_begins_a_clause`: a guard stops here rather than
+/// treating the word as what it is about.
+/// Only the words that reach the parser as *identifiers* need listing: `swap`,
+/// `bridge`, `require`, `emit`, `use`, `mint`, `burn`, `lock` and `release` are
+/// mapped to keyword tokens, which cannot begin an expression either, so they
+/// stop a guard without help.
+const CLAUSE_WORDS: &[&str] = &[
+    // intent body
+    "from",
+    "to",
+    "route",
+    "timeout",
+    "on_fail",
+    "allow",
+    "on",
+    "proofs",
+    // route steps and `atomic swap` bodies
+    "amount",
+    "receiver",
+    "hashlock",
+    "min_output",
+    // choice paths and route fallbacks
+    "net_output",
+    "replace",
+    "leg",
+    "path",
+    "choose",
+    // statements and trade bodies that carry a guard
+    "repay",
+    "borrow",
+    "balance",
+    "invariant",
+    "net_profit",
+];
 
 fn require_kind_from_str(name: &str) -> Result<RequireKind, X3Error> {
     Ok(match name {

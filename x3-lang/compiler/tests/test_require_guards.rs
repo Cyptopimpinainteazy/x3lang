@@ -154,13 +154,10 @@ fn a_property_guard_reaches_the_ir_with_what_it_named() {
                 kind: x3_lang_compiler::ir::RequireKind::CanonicalSupply,
                 condition,
                 ..
-            } =>
-            {
-                match condition {
-                    x3_lang_compiler::ir::Condition::Expression { expr } => Some(expr.clone()),
-                    other => Some(format!("{other:?}")),
-                }
-            }
+            } => match condition {
+                x3_lang_compiler::ir::Condition::Expression { expr } => Some(expr.clone()),
+                other => Some(format!("{other:?}")),
+            },
             _ => None,
         })
         .collect();
@@ -168,5 +165,60 @@ fn a_property_guard_reaches_the_ir_with_what_it_named() {
         conditions,
         vec!["USDC".to_string()],
         "the guard must lower with the name it asserted, not to an unconditional requirement"
+    );
+}
+
+#[test]
+fn a_clause_after_a_valueless_guard_is_a_clause() {
+    // The shape that made the first cut of this fix wrong: `require
+    // proof_complete` followed by `amount 500` parsed as a guard *about* the
+    // word `amount`, leaving `500` behind as a statement. The program still
+    // parsed, still compiled, and had no amount. Reading the guard and reading
+    // the clause have to agree, in either order.
+    let guard_first = "atomic swap eth.USDC -> sol.SOL {\n    require proof_complete\n    amount \
+                       500\n    receiver sol.wallet.owner\n    hashlock sha256(secret)\n    timeout \
+                       source 40m\n    timeout destination 20m\n    require finality.eth >= 12\n}\n";
+    let clause_first = "atomic swap eth.USDC -> sol.SOL {\n    amount 500\n    receiver \
+                        sol.wallet.owner\n    hashlock sha256(secret)\n    timeout source 40m\n    timeout \
+                        destination 20m\n    require proof_complete\n    require finality.eth >= 12\n}\n";
+
+    let first = x3_lang_compiler::compile_to_ir(
+        &x3_lang_compiler::parser::parse_source(guard_first).expect("the guard-first order must parse"),
+    )
+    .expect("and lower");
+    let second = x3_lang_compiler::compile_to_ir(
+        &x3_lang_compiler::parser::parse_source(clause_first).expect("the clause-first order must parse"),
+    )
+    .expect("and lower");
+    assert_eq!(
+        first.operations.len(),
+        second.operations.len(),
+        "the two orders describe the same swap and must lower to the same operations"
+    );
+}
+
+#[test]
+fn a_guard_before_a_timeout_leaves_the_timeout_alone() {
+    // The second clause word that bit this fix: `timeout` reaches the parser as
+    // an identifier, so a guard that reads "whatever comes next" swallows it and
+    // leaves `30s` behind. One guard, one timeout, in either order.
+    let guard_first = "intent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    require \
+                       canonical_supply USDC\n    timeout 30s refund ethereum.USDC to sender\n    \
+                       on_fail rollback\n}\n";
+    let timeout_first = "intent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    timeout \
+                         30s refund ethereum.USDC to sender\n    require canonical_supply USDC\n    \
+                         on_fail rollback\n}\n";
+    let first = x3_lang_compiler::compile_to_ir(
+        &x3_lang_compiler::parser::parse_source(guard_first).expect("guard first must parse"),
+    )
+    .expect("and lower");
+    let second = x3_lang_compiler::compile_to_ir(
+        &x3_lang_compiler::parser::parse_source(timeout_first).expect("timeout first must parse"),
+    )
+    .expect("and lower");
+    assert_eq!(
+        first.operations.len(),
+        second.operations.len(),
+        "the guard must not have taken the timeout clause with it"
     );
 }
