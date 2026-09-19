@@ -1024,3 +1024,104 @@ fn graph_says_when_it_is_ignoring_a_declared_objective() {
         "there is nothing to say about a program that declares none: {stdout}"
     );
 }
+
+/// `x3c fusion` — spec PHASE 21's netting report.
+///
+/// The compiler module has its own tests (`compiler/tests/test_fusion.rs`), but
+/// those call `fusion::rings` directly. This is the reachability the feature
+/// needs to be a feature rather than a module: without a test that runs the
+/// *binary* and reads its report, `x3c fusion` could print anything — or nothing
+/// — and every test in the workspace would still pass. The same gap that
+/// TICKET-042 closed for the opportunity graph.
+fn fusion_intent(
+    name: &str,
+    give: &str,
+    give_amount: u128,
+    want: &str,
+    min_out: u128,
+    deadline: u32,
+    opt_in: bool,
+) -> String {
+    let allow = if opt_in { "    allow intent_fusion\n" } else { "" };
+    format!(
+        r#"intent {name} {{
+    from ethereum.{give} amount {give_amount} receiver 0x1
+    to ethereum.{want} receiver 0x2
+    route {{
+        swap uniswap ethereum.{give} -> ethereum.{want} amount {give_amount} min_output {min_out}
+    }}
+{allow}    require nonce unused {name}_nonce
+    require slippage <= 50
+    timeout {deadline} refund ethereum.{give} to sender
+    on_fail rollback
+}}
+"#
+    )
+}
+
+#[test]
+fn cli_fusion_reports_a_ring_that_closes() {
+    // Alice gives ETH and wants SOL, Bob gives SOL and wants USDC, Charlie gives
+    // USDC and wants ETH. Every participant opted in and every declared minimum
+    // is met by what the next participant hands over.
+    let source = format!(
+        "{}{}{}",
+        fusion_intent("alice", "ETH", 10, "SOL", 9, 30, true),
+        fusion_intent("bob", "SOL", 9, "USDC", 8, 20, true),
+        fusion_intent("charlie", "USDC", 8, "ETH", 7, 60, true)
+    );
+    let fixture = write_fixture("cli_fusion_ring.x3", &source);
+    let output = x3c().arg("fusion").arg(&fixture).output().expect("run x3c fusion");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "fusion must exit 0: {stdout}");
+    assert!(stdout.contains("1 ring(s)"), "the ring must be reported: {stdout}");
+    assert!(
+        stdout.contains("alice -> bob -> charlie"),
+        "the ring must name its participants in order: {stdout}"
+    );
+    assert!(
+        stdout.contains("earliest deadline 20 block(s)"),
+        "the ring's deadline is its most urgent participant's: {stdout}"
+    );
+    for check in [
+        "authorization",
+        "asset correctness",
+        "minimum output",
+        "deadline",
+        "fairness",
+    ] {
+        assert!(
+            stdout.contains(&format!("{check}: satisfied")),
+            "every check must be stated, not implied ({check}): {stdout}"
+        );
+    }
+    assert!(
+        stdout.contains("verdict: fusable"),
+        "a ring whose checks all pass is fusable: {stdout}"
+    );
+}
+
+#[test]
+fn cli_fusion_never_internalizes_an_intent_that_did_not_opt_in() {
+    // The same ring without `allow intent_fusion`.
+    let source = format!(
+        "{}{}{}",
+        fusion_intent("alice", "ETH", 10, "SOL", 9, 30, false),
+        fusion_intent("bob", "SOL", 9, "USDC", 8, 20, false),
+        fusion_intent("charlie", "USDC", 8, "ETH", 7, 60, false)
+    );
+    let fixture = write_fixture("cli_fusion_no_optin.x3", &source);
+    let output = x3c().arg("fusion").arg(&fixture).output().expect("run x3c fusion");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "fusion must exit 0: {stdout}");
+    assert!(
+        stdout.contains("0 ring(s)"),
+        "an intent that did not consent is never netted, so there is no ring: {stdout}"
+    );
+    assert!(
+        !stdout.contains("verdict: fusable"),
+        "and nothing may be reported as fusable: {stdout}"
+    );
+}
