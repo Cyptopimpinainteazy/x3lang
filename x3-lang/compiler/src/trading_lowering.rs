@@ -79,7 +79,15 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         ),
         None => (None, None),
     };
-    let deadline_blocks = literal_u64(&policy.deadline, "policy deadline")?;
+    // Through the language's one duration rule, so a deadline written in time
+    // (`2h`) is the same number of blocks as the same duration written anywhere
+    // else, and a fraction of a block is refused rather than truncated
+    // (TICKET-048).
+    let deadline_blocks = u64::from(
+        crate::lowering::expression_to_blocks(&policy.deadline).map_err(|error| LowerError {
+            message: format!("policy deadline: {error}"),
+        })?,
+    );
 
     let compiled_policy = CompiledTradingPolicy {
         policy_id: policy.name.as_str().to_string(),
@@ -280,17 +288,6 @@ fn literal_string(expr: &Expression, context: &str) -> Result<String, LowerError
         Expression::Literal(LiteralExpr::String(value)) => Ok(value.as_str().to_string()),
         _ => Err(LowerError {
             message: format!("{context} must be a string literal"),
-        }),
-    }
-}
-
-fn literal_u64(expr: &Expression, context: &str) -> Result<u64, LowerError> {
-    match expr {
-        Expression::Literal(LiteralExpr::Int { value, .. }) => u64::try_from(*value).map_err(|_| LowerError {
-            message: format!("{context} exceeds u64"),
-        }),
-        _ => Err(LowerError {
-            message: format!("{context} must be an integer literal"),
         }),
     }
 }

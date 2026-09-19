@@ -1408,23 +1408,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse a deadline expression. Trading Core v1 canonical syntax is
-    /// `deadline: N blocks`; the numeric expression is stored losslessly and
-    /// the explicit `blocks` unit is consumed. Other clock units are rejected
-    /// rather than silently dropping the unit.
+    /// A trading deadline: `deadline: 2 blocks`, `deadline: 30s`, `deadline: 2h`.
+    ///
+    /// Trading Core v1's canonical syntax is `N blocks` and that is still what a
+    /// bare number means. It used to *reject* any other unit ("'seconds' is not
+    /// supported") while the timeout clauses accepted `180s` — one language, two
+    /// answers about what a duration is, and a deadline in seconds was the
+    /// program that could not be written. It goes through the same parser and the
+    /// same conversion as everything else now, so `deadline: 2h` and
+    /// `timeout 2h` are the same 1200 blocks (TICKET-048).
     fn parse_deadline_expr(&mut self) -> Result<Expression, X3Error> {
-        let expr = self.parse_expr()?;
-        match self.peek() {
-            Tok::Ident(ref unit) if unit == "blocks" => {
-                self.advance();
-                Ok(expr)
-            }
-            Tok::Ident(ref unit) if unit == "seconds" => Err(parse_err(
-                "Trading Core v1 deadline currently requires 'blocks'; 'seconds' is not supported".into(),
-                self.peek(),
-            )),
-            _ => Ok(expr),
-        }
+        self.parse_duration_expr("deadline")
     }
 
     fn parse_strategy_item(&mut self) -> Result<Item, X3Error> {
@@ -2909,11 +2903,26 @@ impl<'a> Parser<'a> {
             }
         }
         let expr = self.parse_expr()?;
-        // `40 blocks` — the unit written as its own word, the form the deadline
-        // clause uses. A count of blocks either way.
-        if let Tok::Ident(ref word) = self.peek() {
-            if word == "blocks" {
+        // The unit as its own word: `40 blocks` (the form the trading deadline is
+        // written in) and the time words (`30 seconds`), which mean what the
+        // suffix forms mean. `blocks` stays a count of blocks.
+        if let Tok::Ident(word) = self.peek() {
+            let text = word.as_str().to_string();
+            if text == "blocks" {
                 self.advance();
+            } else if let Some(unit) = duration_unit_from_word(&text) {
+                self.advance();
+                let value: u64 = match &expr {
+                    Expression::Literal(LiteralExpr::Int { value, .. }) => u64::try_from(*value)
+                        .map_err(|_| parse_err(format!("{what} is too large to be a duration"), self.peek()))?,
+                    _ => {
+                        return Err(parse_err(
+                            format!("{what} must be a whole number of {text}"),
+                            self.peek(),
+                        ))
+                    }
+                };
+                return Ok(Expression::Literal(LiteralExpr::Duration { value, unit }));
             }
         }
         Ok(expr)
@@ -4536,6 +4545,22 @@ const CLAUSE_WORDS: &[&str] = &[
 
 /// The time unit a suffix names, or `None` for a suffix the language does not
 /// define.
+/// The unit a word names (`30 seconds`), for the clauses that write the unit
+/// apart from the number.
+pub(crate) fn duration_unit_from_word(word: &str) -> Option<x3_lang_common::DurationUnit> {
+    use x3_lang_common::DurationUnit;
+    Some(match word {
+        "nanoseconds" => DurationUnit::Nanoseconds,
+        "microseconds" => DurationUnit::Microseconds,
+        "milliseconds" => DurationUnit::Milliseconds,
+        "seconds" => DurationUnit::Seconds,
+        "minutes" => DurationUnit::Minutes,
+        "hours" => DurationUnit::Hours,
+        "days" => DurationUnit::Days,
+        _ => return None,
+    })
+}
+
 pub(crate) fn duration_unit_from_suffix(suffix: &str) -> Option<x3_lang_common::DurationUnit> {
     use x3_lang_common::DurationUnit;
     Some(match suffix {

@@ -1764,7 +1764,7 @@ fn numeric_prefix_u32(value: &str) -> Option<u32> {
     }
 }
 
-fn expression_to_blocks(expr: &Expression) -> Result<u32, x3_lang_common::X3Error> {
+pub(crate) fn expression_to_blocks(expr: &Expression) -> Result<u32, x3_lang_common::X3Error> {
     // `u32::try_from` rather than a cast: a bare `as u32` used to wrap a large
     // literal, so `timeout 4294967297` became a one-block timeout — a
     // too-short window is a safety problem in an HTLC, not a cosmetic one.

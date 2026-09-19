@@ -128,3 +128,57 @@ fn the_atomic_swap_ordering_invariant_compares_what_it_enforces() {
         "a destination that outlasts its source strands the claim: {errors}"
     );
 }
+
+/// The trading policy's deadline, in blocks, from a program that declares it.
+///
+/// Reads the compiled policy out of the IR — the number the trade is actually
+/// held to — rather than the AST, so the conversion is what is asserted.
+fn policy_deadline_blocks(deadline: &str) -> Result<u64, String> {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../examples/trading_core_v1.x3");
+    let fixture = std::fs::read_to_string(&path).expect("the trading example must be readable");
+    let source = fixture.replace("deadline: 2 blocks", &format!("deadline: {deadline}"));
+    assert!(
+        source.contains(&format!("deadline: {deadline}")),
+        "the fixture must declare a deadline"
+    );
+
+    let program = x3_lang_compiler::parser::parse_source(&source).map_err(|error| format!("{error}"))?;
+    let ir = x3_lang_compiler::compile_to_ir(&program).map_err(|error| format!("{error}"))?;
+    ir.operations
+        .iter()
+        .find_map(|operation| match operation {
+            Operation::Trading(x3_lang_compiler::ir::TradingOperation::BeginAtomicTrade { policy, .. }) => {
+                Some(policy.deadline_blocks)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "no compiled trading policy in the IR".to_string())
+}
+
+#[test]
+fn a_deadline_written_in_time_is_the_time_it_says() {
+    // `deadline: 2h` and `timeout 2h` are the same 1200 blocks: one duration rule
+    // for the whole language. Before this, the deadline *rejected* any unit but
+    // `blocks` ("'seconds' is not supported") while the timeout clauses accepted
+    // `180s` — one language, two answers about what a duration is.
+    assert_eq!(policy_deadline_blocks("2h"), Ok(1_200));
+    assert_eq!(policy_deadline_blocks("30s"), Ok(5));
+    assert_eq!(policy_deadline_blocks("1d"), Ok(14_400));
+    assert_eq!(policy_deadline_blocks("45s"), Ok(8));
+}
+
+#[test]
+fn a_deadline_in_blocks_is_still_a_count_of_blocks() {
+    // Trading Core v1's canonical spelling, and the bare number under it.
+    assert_eq!(policy_deadline_blocks("2 blocks"), Ok(2));
+    assert_eq!(policy_deadline_blocks("2"), Ok(2));
+    // The unit as its own word, which the other clauses also accept.
+    assert_eq!(policy_deadline_blocks("30 seconds"), Ok(5));
+}
+
+#[test]
+fn a_deadline_with_a_unit_the_language_does_not_define_is_refused_by_name() {
+    let error = policy_deadline_blocks("2x").expect_err("an undefined unit cannot be dropped");
+    assert!(error.contains("does not define"), "got: {error}");
+    assert!(error.contains("2x"), "the message must name what was written: {error}");
+}
