@@ -543,8 +543,55 @@ pub struct RequireGuard {
     pub kind: RequireKind,
     /// Optional subject: chain name for Finality, invariant name for InvariantCheck, etc.
     pub subject: Option<Symbol>,
+    /// The comparison the guard makes, when it makes one.
+    ///
+    /// This used to be parsed and thrown away, so `require slippage <= 50` and
+    /// `require slippage >= 50` were the same program: the direction of every
+    /// guard in the language was discarded at the parser, and the number that
+    /// survived was only a number. Every check that reads a guard as a ceiling
+    /// or a floor was therefore reading a direction nobody had stated.
+    ///
+    /// `None` is a guard with no comparison at all, such as
+    /// `require nonce unused <id>`, which asserts a property rather than a
+    /// threshold.
+    #[serde(default)]
+    pub comparison: Option<ComparisonOp>,
     /// The threshold or target expression (the RHS of the comparison).
     pub value: Expression,
+}
+
+/// The comparison a guard makes between the quantity it names and its value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComparisonOp {
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
+    Equal,
+    NotEqual,
+}
+
+impl ComparisonOp {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ComparisonOp::Less => "<",
+            ComparisonOp::LessOrEqual => "<=",
+            ComparisonOp::Greater => ">",
+            ComparisonOp::GreaterOrEqual => ">=",
+            ComparisonOp::Equal => "==",
+            ComparisonOp::NotEqual => "!=",
+        }
+    }
+
+    /// Whether the guard names an upper bound on the quantity.
+    pub fn is_upper_bound(self) -> bool {
+        matches!(self, ComparisonOp::Less | ComparisonOp::LessOrEqual)
+    }
+
+    /// Whether the guard names a lower bound on the quantity.
+    pub fn is_lower_bound(self) -> bool {
+        matches!(self, ComparisonOp::Greater | ComparisonOp::GreaterOrEqual)
+    }
 }
 
 /// One leg of a `parallel` block.
@@ -818,6 +865,82 @@ pub struct CrossChainStrategy {
     pub body: Vec<Statement>,
     pub requires: Vec<RequireGuard>,
     pub on_fail: Option<FailureAction>,
+    /// `input <ASSET> amount <N>` — what the module is handed. One or more.
+    pub inputs: Vec<StrategyInput>,
+    /// `output <ASSET>` — what it produces.
+    pub outputs: Vec<AssetRef>,
+    /// `effects [ ... ]` — the economic effects the body is expected to have.
+    pub effects: Vec<crate::trading::TradeEffect>,
+    /// `guarantees [ ... ]` — what the module promises holds afterwards.
+    pub guarantees: Vec<crate::trading::TradeGuarantee>,
+    /// `permissions [ ... ]` — what the body is allowed to do beyond its
+    /// declared effects.
+    pub permissions: Vec<StrategyPermission>,
+    /// `domains [ ... ]` — the chains the module needs.
+    pub domains: Vec<Symbol>,
+    /// `risk { ... }` — the bounds the module accepts.
+    pub risk: Option<StrategyRisk>,
+}
+
+/// One `input` of a strategy module.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StrategyInput {
+    pub asset: AssetRef,
+    /// How much the module may take. `None` means it does not say, which the
+    /// verifier refuses: a capital figure nobody bounded is a capital figure
+    /// nobody agreed to.
+    pub amount: Option<Expression>,
+}
+
+/// A module's declared risk profile.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct StrategyRisk {
+    pub max_slippage_bps: u32,
+    pub max_total_fee_bps: u32,
+}
+
+/// What a strategy module's body is allowed to do beyond its declared effects.
+///
+/// A closed set, for the same reason every other permission here is closed: a
+/// permission the compiler does not understand is a permission it cannot check,
+/// and "permissions" that are not checked are decoration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StrategyPermission {
+    /// Submit through a private channel.
+    PrivateSubmission,
+    /// Take flash liquidity that must be returned within the transaction.
+    FlashCapital,
+    /// Allow the intent to be netted against others.
+    IntentFusion,
+    /// Touch more than one chain.
+    CrossDomain,
+}
+
+impl StrategyPermission {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StrategyPermission::PrivateSubmission => "private_submission",
+            StrategyPermission::FlashCapital => "flash_capital",
+            StrategyPermission::IntentFusion => "intent_fusion",
+            StrategyPermission::CrossDomain => "cross_domain",
+        }
+    }
+
+    /// The permissions the language accepts. The parser and the unknown-name
+    /// error message both read this, so they cannot list different sets.
+    pub const ALL: [StrategyPermission; 4] = [
+        StrategyPermission::PrivateSubmission,
+        StrategyPermission::FlashCapital,
+        StrategyPermission::IntentFusion,
+        StrategyPermission::CrossDomain,
+    ];
+
+    pub fn parse(name: &str) -> Option<StrategyPermission> {
+        StrategyPermission::ALL
+            .iter()
+            .copied()
+            .find(|permission| permission.as_str() == name)
+    }
 }
 
 /// `proposal { ... }` — an on-chain governance proposal.

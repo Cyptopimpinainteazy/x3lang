@@ -14,6 +14,9 @@ use std::collections::{BTreeSet, HashMap};
 /// criterion set: an IR and an AST that could disagree about which criteria
 /// exist would be a way for an unverified criterion to reach the artifact.
 pub use x3_lang_ast::ast::ChoiceCriterion;
+/// Re-exported for the same reason: one definition of what a guard's operator
+/// is, so the AST and the IR cannot disagree about `<=`.
+pub use x3_lang_ast::ast::ComparisonOp;
 
 /// Root IR program - list of operations to execute in sequence
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +200,12 @@ pub enum Operation {
         subject: Option<String>,
         condition: Condition,
         error_msg: Option<String>,
+        /// The comparison the guard makes, when it makes one. Carried because
+        /// `slippage <= 50` and `slippage >= 50` are opposite claims, and a
+        /// check that reads one as the other is reading a direction nobody
+        /// wrote.
+        #[serde(default)]
+        comparison: Option<ComparisonOp>,
     },
     /// On failure, execute recovery action
     OnFail {

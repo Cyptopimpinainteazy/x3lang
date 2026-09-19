@@ -569,6 +569,7 @@ fn verify_asset_moves(ir: &X3IR, acc: &mut ErrorAccumulator) {
                 subject: _,
                 condition,
                 error_msg,
+                ..
             } => {
                 if matches!(condition, Condition::False) {
                     acc.add_error(err(format!(
@@ -877,11 +878,25 @@ pub fn verify_route_fallbacks(program: &Program, acc: &mut ErrorAccumulator) {
                         // venue that declares more slippage than the block
                         // allows would make the block a claim the program does
                         // not satisfy.
+                        // The bound is a ceiling: `require slippage <= N`. A
+                        // fallback written with `>=` inside it is claiming a
+                        // floor, and comparing it against a venue's declared
+                        // slippage as a ceiling would invert the check.
                         let bound = requires.iter().find_map(|guard| {
                             (guard.kind == x3_lang_ast::ast::RequireKind::Slippage)
                                 .then(|| extract_int_from_expr(&guard.value))
                                 .flatten()
                         });
+                        for guard in requires {
+                            if guard.kind == x3_lang_ast::ast::RequireKind::Slippage
+                                && !guard.comparison.is_some_and(|op| op.is_upper_bound())
+                            {
+                                acc.add_error(err("a fallback's slippage bound must be a ceiling (`<=`); the check \
+                                     compares it against what the approved venue declares, which only \
+                                     means something if the guard names an upper bound"
+                                    .to_string()));
+                            }
+                        }
                         if let (Some(bound), Some((_, venue_slippage))) =
                             (bound, declared.iter().find(|(name, _)| *name == venue).copied())
                         {
@@ -1075,6 +1090,15 @@ pub fn verify_solver_bond_declared(program: &Program, acc: &mut ErrorAccumulator
         if guard.kind != x3_lang_ast::ast::RequireKind::SolverBond {
             continue;
         }
+        // `require solver_bond >= N` claims a floor. Written with a ceiling the
+        // guard says something else, and comparing it against the declared bond
+        // as though it were a floor would answer a question nobody asked.
+        if !guard.comparison.is_some_and(|op| op.is_lower_bound()) {
+            acc.add_error(err(format!(
+                "declaration '{owner}' states `require solver_bond` without a `>=` bound; a solver                  bond guard is a floor, and the check reads it as one"
+            )));
+            continue;
+        }
         let required = extract_int_from_expr(&guard.value).unwrap_or(0);
         match declared {
             None => acc.add_error(err(format!(
@@ -1106,6 +1130,12 @@ pub fn verify_relayer_quorum_declared(program: &Program, acc: &mut ErrorAccumula
 
     for (owner, guard) in require_guards(program) {
         if guard.kind != x3_lang_ast::ast::RequireKind::RelayerQuorum {
+            continue;
+        }
+        if !guard.comparison.is_some_and(|op| op.is_lower_bound()) {
+            acc.add_error(err(format!(
+                "declaration '{owner}' states `require relayer_quorum` without a `>=` bound; a quorum                  guard is a floor, and the check reads it as one"
+            )));
             continue;
         }
         let required = extract_int_from_expr(&guard.value).unwrap_or(0);
@@ -2128,6 +2158,7 @@ mod tests {
                     expr: "finality >= 12".into(),
                 },
                 error_msg: None,
+                comparison: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -2193,6 +2224,7 @@ mod tests {
                 subject: None,
                 condition: Condition::Expression { expr: "50".into() },
                 error_msg: None,
+                comparison: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -2285,6 +2317,7 @@ mod tests {
                 subject: Some("ethereum".into()),
                 condition: Condition::Expression { expr: "12".into() },
                 error_msg: None,
+                comparison: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -2623,6 +2656,7 @@ mod tests {
                     expr: "finality >= 12".into(),
                 },
                 error_msg: None,
+                comparison: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -2766,6 +2800,7 @@ mod tests {
                     expr: "finality >= 12".into(),
                 },
                 error_msg: None,
+                comparison: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -2949,6 +2984,7 @@ mod tests {
                 subject: None,
                 condition: Condition::False,
                 error_msg: Some("never reachable".into()),
+                comparison: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -3163,6 +3199,7 @@ mod tests {
         decl.requires = vec![x3_lang_ast::ast::RequireGuard {
             kind: x3_lang_ast::ast::RequireKind::Finality,
             subject: None,
+            comparison: None,
             value: Expression::Literal(LiteralExpr::Int {
                 value: 12,
                 base: x3_lang_common::IntBase::Decimal,
@@ -3184,6 +3221,7 @@ mod tests {
         decl.requires = vec![x3_lang_ast::ast::RequireGuard {
             kind: x3_lang_ast::ast::RequireKind::RelayerQuorum,
             subject: None,
+            comparison: None,
             value: Expression::Literal(LiteralExpr::Int {
                 value: 3,
                 base: x3_lang_common::IntBase::Decimal,
@@ -3205,6 +3243,7 @@ mod tests {
         decl.requires = vec![x3_lang_ast::ast::RequireGuard {
             kind: x3_lang_ast::ast::RequireKind::RelayerQuorum,
             subject: None,
+            comparison: None,
             value: Expression::Literal(LiteralExpr::Int {
                 value: 0,
                 base: x3_lang_common::IntBase::Decimal,
@@ -3266,6 +3305,7 @@ mod tests {
                     expr: "finality >= 12".into(),
                 },
                 error_msg: None,
+                comparison: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -3396,6 +3436,7 @@ mod tests {
                 subject: None,
                 condition: Condition::Expression { expr: "10.0".into() },
                 error_msg: Some("slippage".into()),
+                comparison: None,
             },
             Operation::RpcConsensus {
                 chain: "solana".into(),
@@ -3565,12 +3606,14 @@ mod tests {
                 subject: None,
                 condition: Condition::True,
                 error_msg: None,
+                comparison: None,
             },
             Operation::Require {
                 kind: RequireKind::Finality,
                 subject: Some("solana".into()),
                 condition: Condition::True,
                 error_msg: None,
+                comparison: None,
             },
             Operation::PrivacyCommit {
                 reveal_on: "fill".into(),

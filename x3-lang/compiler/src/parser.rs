@@ -1429,57 +1429,191 @@ impl<'a> Parser<'a> {
     fn parse_strategy_item(&mut self) -> Result<Item, X3Error> {
         self.advance();
         let name = self.expect_ident("strategy name")?;
-        let mut max_steps = None;
-        let mut max_gas = None;
-        if self.peek() == Tok::LBrace {
-            // no config; proceed
-        } else {
-            // optional max_steps / max_gas
-            while self.peek() != Tok::LBrace && self.peek() != Tok::Eof {
-                match self.peek() {
-                    Tok::Ident(key) if key.as_str() == "max_steps" => {
-                        self.advance();
-                        self.expect(Tok::Eq, "expected '='")?;
-                        max_steps = Some(self.parse_expr()?);
-                        if self.peek() == Tok::Comma {
-                            self.advance();
-                        }
-                    }
-                    Tok::Ident(key) if key.as_str() == "max_gas" => {
-                        self.advance();
-                        self.expect(Tok::Eq, "expected '='")?;
-                        max_gas = Some(self.parse_expr()?);
-                        if self.peek() == Tok::Comma {
-                            self.advance();
-                        }
-                    }
-                    _ => break,
-                }
-            }
+        if self.peek() != Tok::LBrace {
+            return Err(parse_err(
+                "expected '{' after the strategy name; a strategy module declares input, output, \
+                 effects, guarantees, permissions, domains, risk, bounds and execute"
+                    .into(),
+                self.peek(),
+            ));
         }
-        self.expect(Tok::LBrace, "expected '{'")?;
-        let mut body = Vec::new();
-        let mut requires = Vec::new();
-        let mut on_fail = None;
+        self.advance(); // consume '{'
+        let mut inputs: Vec<StrategyInput> = Vec::new();
+        let mut outputs: Vec<AssetRef> = Vec::new();
+        let mut effects: Vec<x3_lang_ast::trading::TradeEffect> = Vec::new();
+        let mut guarantees: Vec<x3_lang_ast::trading::TradeGuarantee> = Vec::new();
+        let mut permissions: Vec<StrategyPermission> = Vec::new();
+        let mut domains: Vec<Symbol> = Vec::new();
+        let mut risk: Option<StrategyRisk> = None;
+        let mut max_steps: Option<Expression> = None;
+        let mut max_gas: Option<Expression> = None;
+        let mut body: Vec<Statement> = Vec::new();
+
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
-            match self.peek() {
-                Tok::KwRequire => requires.push(self.parse_require_guard()?),
-                Tok::KwOnFail => {
-                    self.advance();
-                    on_fail = Some(self.parse_failure_action()?);
+            let section = self.expect_ident("strategy section")?;
+            match section.as_str() {
+                "input" => {
+                    let asset = self.parse_asset_ref()?;
+                    let mut amount = None;
+                    if let Tok::Ident(ref keyword) = self.peek() {
+                        if keyword == "amount" {
+                            self.advance();
+                            amount = Some(self.parse_expr()?);
+                        }
+                    }
+                    self.opt_semi();
+                    inputs.push(StrategyInput { asset, amount });
                 }
-                _ => body.push(self.parse_statement()?),
+                "output" => {
+                    outputs.push(self.parse_asset_ref()?);
+                    self.opt_semi();
+                }
+                "effects" => {
+                    for effect in self.parse_bracketed_ident_list("effects")? {
+                        effects.push(TradeEffect::from_name(&effect).ok_or_else(|| {
+                            parse_err(
+                                format!(
+                                    "unknown effect '{effect}' in a strategy module; known: {}",
+                                    known_names(TradeEffect::ALL.iter().map(|effect| effect.as_str()))
+                                ),
+                                self.peek(),
+                            )
+                        })?);
+                    }
+                    self.opt_semi();
+                }
+                "guarantees" => {
+                    for guarantee in self.parse_bracketed_ident_list("guarantees")? {
+                        guarantees.push(TradeGuarantee::from_name(&guarantee).ok_or_else(|| {
+                            parse_err(
+                                format!(
+                                    "unknown guarantee '{guarantee}' in a strategy module; known: {}",
+                                    known_names(TradeGuarantee::ALL.iter().map(|g| g.as_str()))
+                                ),
+                                self.peek(),
+                            )
+                        })?);
+                    }
+                    self.opt_semi();
+                }
+                "permissions" => {
+                    for permission in self.parse_bracketed_ident_list("permissions")? {
+                        permissions.push(StrategyPermission::parse(&permission).ok_or_else(|| {
+                            let allowed: Vec<&str> = StrategyPermission::ALL.iter().map(|p| p.as_str()).collect();
+                            parse_err(
+                                format!(
+                                    "unknown permission '{permission}'; the set is closed: {}",
+                                    allowed.join(", ")
+                                ),
+                                self.peek(),
+                            )
+                        })?);
+                    }
+                    self.opt_semi();
+                }
+                "domains" => {
+                    for domain in self.parse_bracketed_ident_list("domains")? {
+                        domains.push(Symbol::new(&domain));
+                    }
+                    self.opt_semi();
+                }
+                "risk" => {
+                    risk = Some(self.parse_strategy_risk()?);
+                }
+                "bounds" => {
+                    self.expect(Tok::LBrace, "expected '{' after bounds")?;
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        let key = self.expect_ident("bounds field")?;
+                        match key.as_str() {
+                            "max_steps" => max_steps = Some(self.parse_expr()?),
+                            "max_gas" => max_gas = Some(self.parse_expr()?),
+                            other => {
+                                return Err(parse_err(
+                                    format!("unknown bounds field '{other}'; expected max_steps or max_gas"),
+                                    self.peek(),
+                                ))
+                            }
+                        }
+                        self.opt_semi();
+                    }
+                    self.expect(Tok::RBrace, "expected '}' to close bounds")?;
+                }
+                "execute" => {
+                    self.expect(Tok::LBrace, "expected '{' after execute")?;
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        match self.peek() {
+                            Tok::KwSwap | Tok::KwBridge | Tok::KwLock | Tok::KwMint | Tok::KwBurn | Tok::KwRelease => {
+                                body.push(self.parse_route_step()?)
+                            }
+                            Tok::Ident(ref s)
+                                if matches!(s.as_str(), "swap" | "bridge" | "lock" | "mint" | "burn" | "release") =>
+                            {
+                                body.push(self.parse_route_step()?)
+                            }
+                            Tok::Ident(ref s) if s == "timeout" => body.push(self.parse_intent_timeout()?),
+                            _ => body.push(self.parse_statement()?),
+                        }
+                    }
+                    self.expect(Tok::RBrace, "expected '}' to close execute")?;
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown strategy section '{other}'; expected input, output, effects, \
+                             guarantees, permissions, domains, risk, bounds or execute"
+                        ),
+                        self.peek(),
+                    ))
+                }
             }
         }
-        self.expect(Tok::RBrace, "expected '}'")?;
+        self.expect(Tok::RBrace, "expected '}' to close the strategy")?;
         Ok(Item::Strategy(CrossChainStrategy {
             name: Symbol::new(&name),
             max_steps,
             max_gas,
             body,
-            requires,
-            on_fail,
+            requires: Vec::new(),
+            on_fail: None,
+            inputs,
+            outputs,
+            effects,
+            guarantees,
+            permissions,
+            domains,
+            risk,
         }))
+    }
+
+    /// `risk { max_slippage_bps <n> max_total_fee_bps <n> }` — a module's
+    /// declared risk profile. Both fields are required: a module that bounds one
+    /// cost and not the other has not declared a profile, it has declared half
+    /// of one.
+    fn parse_strategy_risk(&mut self) -> Result<StrategyRisk, X3Error> {
+        self.expect(Tok::LBrace, "expected '{' after risk")?;
+        let mut max_slippage_bps = None;
+        let mut max_total_fee_bps = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let key = self.expect_ident("risk field")?;
+            match key.as_str() {
+                "max_slippage_bps" => max_slippage_bps = Some(self.parse_venue_u32("max_slippage_bps")?),
+                "max_total_fee_bps" => max_total_fee_bps = Some(self.parse_venue_u32("max_total_fee_bps")?),
+                other => {
+                    return Err(parse_err(
+                        format!("unknown risk field '{other}'; expected max_slippage_bps or max_total_fee_bps"),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        self.expect(Tok::RBrace, "expected '}' to close risk")?;
+        Ok(StrategyRisk {
+            max_slippage_bps: max_slippage_bps
+                .ok_or_else(|| parse_err("strategy risk is missing max_slippage_bps".into(), self.peek()))?,
+            max_total_fee_bps: max_total_fee_bps
+                .ok_or_else(|| parse_err("strategy risk is missing max_total_fee_bps".into(), self.peek()))?,
+        })
     }
 
     fn parse_proposal_item(&mut self) -> Result<Item, X3Error> {
@@ -3435,16 +3569,29 @@ impl<'a> Parser<'a> {
                 (kind, subject)
             }
         };
-        // Skip optional comparison operator (>=, ==, <=, >, <, !=)
-        match self.peek() {
-            Tok::Ge | Tok::Gt | Tok::Le | Tok::Lt | Tok::EqEq | Tok::Ne => {
-                self.advance();
-            }
-            _ => {}
+        // The comparison is part of the guard, not punctuation to step over:
+        // `slippage <= 50` and `slippage >= 50` are opposite claims, and a check
+        // that reads one as the other is reading a direction nobody wrote.
+        let comparison = match self.peek() {
+            Tok::Ge => Some(ComparisonOp::GreaterOrEqual),
+            Tok::Gt => Some(ComparisonOp::Greater),
+            Tok::Le => Some(ComparisonOp::LessOrEqual),
+            Tok::Lt => Some(ComparisonOp::Less),
+            Tok::EqEq => Some(ComparisonOp::Equal),
+            Tok::Ne => Some(ComparisonOp::NotEqual),
+            _ => None,
+        };
+        if comparison.is_some() {
+            self.advance();
         }
         let value = self.parse_expr()?;
         self.opt_semi();
-        Ok(RequireGuard { kind, subject, value })
+        Ok(RequireGuard {
+            kind,
+            subject,
+            comparison,
+            value,
+        })
     }
 
     fn parse_require_stmt(&mut self) -> Result<Statement, X3Error> {

@@ -120,6 +120,33 @@ pub const HALT: u8 = 0xFF;
 pub const REQUIRE_COMPARE_STATIC: u8 = 0;
 /// `r0 >= operand`.
 pub const REQUIRE_COMPARE_GE: u8 = 1;
+/// Mask for the comparison-mode bits of a `REQUIRE` flags byte.
+pub const REQUIRE_COMPARE_MASK: u8 = 0x03;
+
+/// The comparison the *guard* makes, in bits 2-4 of the same flags byte.
+///
+/// The two are different questions and used to share one byte's worth of
+/// meaning: bits 0-1 say whether the VM should test a run-time quantity, bits
+/// 2-4 record what the program wrote (`slippage <= 7`). Recording the guard's
+/// own operator is what stops `<=` and `>=` from being the same program.
+pub const GUARD_OP_NONE: u8 = 0;
+pub const GUARD_OP_LT: u8 = 1;
+pub const GUARD_OP_LE: u8 = 2;
+pub const GUARD_OP_GT: u8 = 3;
+pub const GUARD_OP_GE: u8 = 4;
+pub const GUARD_OP_EQ: u8 = 5;
+pub const GUARD_OP_NE: u8 = 6;
+
+/// Pack a `REQUIRE` flags byte: comparison mode in bits 0-1, guard operator in
+/// bits 2-4.
+pub const fn require_flags(comparison_mode: u8, guard_operator: u8) -> u8 {
+    (comparison_mode & REQUIRE_COMPARE_MASK) | ((guard_operator & 0x07) << 2)
+}
+
+/// The guard operator recorded in a `REQUIRE` flags byte.
+pub const fn require_guard_operator(flags: u8) -> u8 {
+    (flags >> 2) & 0x07
+}
 
 /// Criterion codes for `ATOMIC_CHOICE`, carried in the instruction's flags
 /// byte; the operand packs `paths << 8 | selected`.

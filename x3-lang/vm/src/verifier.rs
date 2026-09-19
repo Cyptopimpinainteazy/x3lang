@@ -65,6 +65,19 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                     return Err(VerifyError::JumpToNonBoundary(pc, target as usize));
                 }
             }
+            REQUIRE => {
+                // Bits 0-1 are the comparison mode; bits 2-4 the guard's own
+                // operator. A byte that says "test a run-time comparison this VM
+                // does not implement", or records an operator the language does
+                // not define, is a guard whose meaning nobody can state.
+                let mode = bytes[pc + 1] & REQUIRE_COMPARE_MASK;
+                if mode > REQUIRE_COMPARE_GE {
+                    return Err(VerifyError::InvalidOperand(pc));
+                }
+                if require_guard_operator(bytes[pc + 1]) > GUARD_OP_NE {
+                    return Err(VerifyError::InvalidOperand(pc));
+                }
+            }
             FEATURE_ALLOW => {
                 // A fixed three-byte frame whose operand is the feature code.
                 // The set is closed: consent to an unknown mode is not consent,

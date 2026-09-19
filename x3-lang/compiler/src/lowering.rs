@@ -412,6 +412,7 @@ pub fn lower_program_with_mode(
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: expression_to_condition(&require.value)?,
                         error_msg: None,
+                        comparison: require.comparison,
                     });
                 }
 
@@ -486,6 +487,7 @@ pub fn lower_program_with_mode(
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: expression_to_condition(&require.value)?,
                         error_msg: None,
+                        comparison: require.comparison,
                     });
                 }
 
@@ -526,6 +528,7 @@ pub fn lower_program_with_mode(
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: expression_to_condition(&require.value)?,
                         error_msg: None,
+                        comparison: require.comparison,
                     });
                 }
 
@@ -609,6 +612,7 @@ pub fn lower_program_with_mode(
                         expr: format!("{} {}", fp.mode.as_str(), fp.requirement.as_str()),
                     },
                     error_msg: None,
+                    comparison: None,
                 });
             }
             Item::ProofsRequired(proofs) => {
@@ -641,6 +645,7 @@ pub fn lower_program_with_mode(
                         subject: req.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: expression_to_condition(&req.value)?,
                         error_msg: None,
+                        comparison: req.comparison,
                     });
                 }
                 ir.push(Operation::AtomicEnd);
@@ -823,6 +828,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 subject: guard.subject.as_ref().map(|s| s.as_str().to_string()),
                 condition: expression_to_condition(&guard.value)?,
                 error_msg: None,
+                comparison: guard.comparison,
             });
         }
         Statement::RouteFallback { replacements, .. } => {
@@ -1045,12 +1051,14 @@ fn lower_annotations_prefix(annotations: &[Annotation], ir: &mut X3IR) -> Result
             Annotation::Sandbox => ir.push(Operation::Require {
                 kind: ir::RequireKind::Custom("sandbox_gas_limit".to_string()),
                 subject: None,
+                comparison: None,
                 condition: Condition::True,
                 error_msg: Some("sandbox gas limit exceeded".to_string()),
             }),
             Annotation::Whitelist(entries) => ir.push(Operation::Require {
                 kind: ir::RequireKind::Custom("whitelist".to_string()),
                 subject: None,
+                comparison: None,
                 condition: Condition::Expression {
                     expr: entries.iter().map(|sym| sym.as_str()).collect::<Vec<_>>().join(","),
                 },

@@ -557,9 +557,83 @@ impl X3Formatter {
         self.write(s.name.as_str());
         self.write(" {\n");
         self.indent();
+        // The eight declarations are part of the module, so they are part of
+        // what the formatter prints. A formatter that dropped them would turn a
+        // checked module into one the verifier refuses, which is the worst
+        // possible outcome for a source-level tool.
+        for input in &s.inputs {
+            self.write_indent();
+            self.write("input ");
+            self.format_asset_ref(&input.asset);
+            if let Some(amount) = &input.amount {
+                self.write(" amount ");
+                self.format_expression(amount);
+            }
+            self.write("\n");
+        }
+        for output in &s.outputs {
+            self.write_indent();
+            self.write("output ");
+            self.format_asset_ref(output);
+            self.write("\n");
+        }
+        let names = |items: Vec<&str>| items.join(", ");
+        if !s.effects.is_empty() {
+            self.write_indent();
+            self.write("effects [");
+            self.write(&names(s.effects.iter().map(|effect| effect.as_str()).collect()));
+            self.write("]\n");
+        }
+        if !s.guarantees.is_empty() {
+            self.write_indent();
+            self.write("guarantees [");
+            self.write(&names(s.guarantees.iter().map(|g| g.as_str()).collect()));
+            self.write("]\n");
+        }
+        if !s.permissions.is_empty() {
+            self.write_indent();
+            self.write("permissions [");
+            self.write(&names(
+                s.permissions.iter().map(|permission| permission.as_str()).collect(),
+            ));
+            self.write("]\n");
+        }
+        if !s.domains.is_empty() {
+            self.write_indent();
+            self.write("domains [");
+            self.write(&names(s.domains.iter().map(|domain| domain.as_str()).collect()));
+            self.write("]\n");
+        }
+        if let Some(risk) = &s.risk {
+            self.write_indent();
+            self.write("risk { max_slippage_bps ");
+            self.write(&risk.max_slippage_bps.to_string());
+            self.write(" max_total_fee_bps ");
+            self.write(&risk.max_total_fee_bps.to_string());
+            self.write(" }\n");
+        }
+        self.write_indent();
+        self.write("bounds { ");
+        if let Some(max_steps) = &s.max_steps {
+            self.write("max_steps ");
+            self.format_expression(max_steps);
+            self.write(" ");
+        }
+        if let Some(max_gas) = &s.max_gas {
+            self.write("max_gas ");
+            self.format_expression(max_gas);
+            self.write(" ");
+        }
+        self.write("}\n");
+        self.write_indent();
+        self.write("execute {\n");
+        self.indent();
         for stmt in &s.body {
             self.format_statement(stmt);
         }
+        self.dedent();
+        self.write_indent();
+        self.write("}\n");
         self.dedent();
         self.write("}\n");
     }
@@ -949,6 +1023,20 @@ impl X3Formatter {
                 self.format_expression(amount);
                 self.write(" receiver ");
                 self.format_expression(receiver);
+                self.write(";\n");
+            }
+            Statement::Require(guard) if guard.comparison.is_some() => {
+                self.write_indent();
+                self.write("require ");
+                self.format_require_kind(&guard.kind);
+                if let Some(subject) = &guard.subject {
+                    self.write(".");
+                    self.write(subject.as_str());
+                }
+                self.write(" ");
+                self.write(guard.comparison.expect("matched on Some").as_str());
+                self.write(" ");
+                self.format_expression(&guard.value);
                 self.write(";\n");
             }
             Statement::Require(guard) => {

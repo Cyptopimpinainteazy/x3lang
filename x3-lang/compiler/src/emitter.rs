@@ -4,8 +4,8 @@
 //! for the X3 runtime or specific chain emitters (EVM, SVM, etc.).
 
 use crate::ir::{
-    ChainMetricKind, ChoiceCriterion, CrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind, SerialFormat,
-    StorageKind, TradingOperation, VectorOp, X3IR,
+    ChainMetricKind, ChoiceCriterion, ComparisonOp, CrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind,
+    SerialFormat, StorageKind, TradingOperation, VectorOp, X3IR,
 };
 // Import shared opcode constants
 use crate::spec::opcodes::*;
@@ -183,7 +183,21 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             // guards fail. Emitting a comparison against that would be a new
             // wrong answer rather than a fix; the data flow has to arrive first
             // (TICKET-027).
-            bytecode.write_all(&[REQUIRE, REQUIRE_COMPARE_STATIC])?;
+            let guard_operator = match op {
+                Operation::Require {
+                    comparison: Some(comparison),
+                    ..
+                } => match comparison {
+                    ComparisonOp::Less => GUARD_OP_LT,
+                    ComparisonOp::LessOrEqual => GUARD_OP_LE,
+                    ComparisonOp::Greater => GUARD_OP_GT,
+                    ComparisonOp::GreaterOrEqual => GUARD_OP_GE,
+                    ComparisonOp::Equal => GUARD_OP_EQ,
+                    ComparisonOp::NotEqual => GUARD_OP_NE,
+                },
+                _ => GUARD_OP_NONE,
+            };
+            bytecode.write_all(&[REQUIRE, require_flags(REQUIRE_COMPARE_STATIC, guard_operator)])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
         Operation::OnFail { .. } => {
