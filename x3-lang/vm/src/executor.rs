@@ -1054,7 +1054,19 @@ fn gas_surcharge(opcode: u8, vm: &VM, operand: u16) -> u128 {
             let addr = base.wrapping_add(imm as usize);
             (addr as u128 / 65536).saturating_mul(5)
         }
-        0x20..=0x25 | 0x60 | 0x61 | 0x80..=0x9C | 0xA0..=0xAB => {
+        // Charged for the payload the execution actually reads, from the one
+        // place that says which opcodes carry one. This was a list of ranges, and
+        // the list omitted `ATOMIC_CHOICE`, `ROUTE_FALLBACK`, `PARALLEL_PLAN`,
+        // `STRATEGY_LICENSE` and the trading range: instructions whose payloads
+        // both the verifier and the executor read and dispatch, while their
+        // payload-proportional surcharge was zero. Gas is a statement about work,
+        // and it was a statement about a different set of instructions
+        // (TICKET-056).
+        //
+        // The asset ops (`0x20..=0x25`) carry a payloads only in a compiler
+        // stream, which is what the framing flag says: in raw bytecode they are
+        // fixed frames with nothing to read, so there is nothing to charge for.
+        _ if is_payload_opcode(opcode, has_compiler_header(vm.code.as_slice())) => {
             let payload_len = read_u16_le(vm.code.as_slice(), vm.state.pc + 1).unwrap_or(0) as u128;
             payload_len / 32
         }
@@ -2094,7 +2106,7 @@ mod tests {
     /// that (`InvalidOpcode(156)`), and this test passed throughout, because a
     /// range literal cannot notice an opcode outside it. Driving the walk from the
     /// predicate is what makes the two agree. (TICKET-055.)
-    fn payload_opcodes() -> Vec<u8> {
+    pub(super) fn payload_opcodes() -> Vec<u8> {
         (0u8..=u8::MAX)
             .filter(|opcode| is_payload_opcode(*opcode, true))
             .collect()
@@ -2325,6 +2337,55 @@ mod tests {
         match result.unwrap_err() {
             ExecError::InvalidOpcode(0xCC) => {}
             other => panic!("expected InvalidOpcode(0xCC), got {:?}", other),
+        }
+    }
+}
+
+#[cfg(test)]
+mod payload_charge_tests {
+    use super::tests::payload_opcodes;
+    use super::*;
+    use crate::x3_lang_vm::VMConfig;
+
+    /// What one execution of `opcode` with a payload of `len` bytes costs.
+    fn cost(opcode: u8, len: usize) -> u128 {
+        let mut vm = VM::new(
+            // The helper lives in the other test module, so build the frame here.
+            {
+                let mut code = vec![0x01, opcode];
+                code.extend_from_slice(&(len as u16).to_le_bytes());
+                code.extend(std::iter::repeat_n(0u8, len));
+                while code.len() % 4 != 0 {
+                    code.push(0);
+                }
+                code.extend_from_slice(&[HALT, 0, 0, 0]);
+                code
+            },
+            VMConfig::default(),
+            1_000_000,
+        );
+        let before = vm.state.gas;
+        let _ = execute(&mut vm);
+        before - vm.state.gas
+    }
+
+    #[test]
+    fn every_payload_opcode_is_charged_for_its_payload() {
+        // The rule is `payload_len / 32`, and it applies to *every* instruction
+        // whose payload is read. Asserted exactly rather than as an inequality:
+        // "a longer payload does not cost less" passes when nothing is charged at
+        // all, which is the defect this test exists for.
+        let opcodes = payload_opcodes();
+        assert!(!opcodes.is_empty(), "the payload set must not be empty");
+        for opcode in opcodes {
+            let empty = cost(opcode, 0);
+            let long = cost(opcode, 64);
+            assert_eq!(
+                long,
+                empty + 2,
+                "opcode 0x{opcode:02x} must be charged 64/32 = 2 more for a 64-byte payload than \
+                 for an empty one (empty {empty}, long {long})"
+            );
         }
     }
 }
