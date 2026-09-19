@@ -780,6 +780,20 @@ fn cmd_graph(
         return Ok(ExitCode::from(1));
     }
 
+    // A program can declare what it wants ranked, with ceilings the planner must
+    // respect. This command searches the graph *without* them — it exists to show
+    // what the graph holds — so it says that out loud rather than letting a reader
+    // take the list for the set the program allows. `x3c optimize` is the command
+    // that applies them (TICKET-042).
+    if let Some(declared) = x3_lang_compiler::objective::declaration_of(&program) {
+        println!(
+            "  note: the program declares objective '{}' ({}); this command ignores its constraints \
+             and lists what the graph holds — `x3c optimize` applies them",
+            declared.name.as_str(),
+            declared.metric.as_str()
+        );
+    }
+
     let graph = x3_lang_compiler::opportunity::OpportunityGraph::from_program(&program);
     let constraints = x3_lang_compiler::opportunity::OpportunityConstraints {
         max_hops,

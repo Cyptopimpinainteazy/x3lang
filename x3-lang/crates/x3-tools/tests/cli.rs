@@ -949,3 +949,54 @@ fn cli_deny_warnings_passes_a_program_with_no_warnings() {
         "a warning-free program must pass --deny-warnings: {status:?}"
     );
 }
+
+#[test]
+fn graph_says_when_it_is_ignoring_a_declared_objective() {
+    // `x3c optimize` follows a program's `objective` declaration; `x3c graph` exists
+    // to show what the graph holds, so it searches without those ceilings and says so
+    // rather than letting a reader take the list for the set the program allows.
+    // Measured on the example: the declaration's fee ceiling excludes the 9 bps route,
+    // and `graph` lists it — which is exactly the difference the note is about.
+    let with_objective = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/objective_routing.x3");
+    let output = x3c()
+        .args([
+            "graph",
+            with_objective.to_str().expect("a path"),
+            "--from",
+            "ethereum.USDC",
+            "--to",
+            "solana.SOL",
+        ])
+        .output()
+        .expect("x3c graph runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "graph must succeed: {stdout}");
+    assert!(
+        stdout.contains("declares objective 'cheapest_route'") && stdout.contains("ignores its constraints"),
+        "the note must name the objective and say what this command does with it: {stdout}"
+    );
+    assert!(
+        stdout.contains("deep_pool"),
+        "and the routes the declaration would exclude are still listed: {stdout}"
+    );
+
+    // A program with no declaration gets no note.
+    let without = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/opportunity_graph.x3");
+    let output = x3c()
+        .args([
+            "graph",
+            without.to_str().expect("a path"),
+            "--from",
+            "ethereum.USDC",
+            "--to",
+            "solana.SOL",
+        ])
+        .output()
+        .expect("x3c graph runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "graph must succeed: {stdout}");
+    assert!(
+        !stdout.contains("declares objective"),
+        "there is nothing to say about a program that declares none: {stdout}"
+    );
+}
