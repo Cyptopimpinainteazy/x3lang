@@ -16,6 +16,7 @@ pub mod dag;
 pub mod diagnostic;
 pub mod emitter;
 pub mod formatter;
+pub mod fusion;
 pub mod intent_emit;
 pub mod ir;
 pub mod linter;

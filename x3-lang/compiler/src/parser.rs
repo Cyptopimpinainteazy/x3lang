@@ -1611,6 +1611,14 @@ impl<'a> Parser<'a> {
                 Ok(Statement::Require(g))
             }
             Tok::Ident(ref s) if s == "timeout" => self.parse_intent_timeout(),
+            Tok::Ident(ref s) if s == "allow" => {
+                self.advance();
+                let feature = self.expect_ident("allowed feature")?;
+                self.opt_semi();
+                Ok(Statement::Allow {
+                    feature: Symbol::new(&feature),
+                })
+            }
             Tok::Ident(ref s) if s == "on_fail" => self.parse_intent_onfail(),
             Tok::KwOnFail => self.parse_intent_onfail(),
             Tok::Ident(ref s) if s == "use" => self.parse_intent_use(),

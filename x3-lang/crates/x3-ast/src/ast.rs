@@ -287,6 +287,15 @@ pub enum Statement {
         duration: Expression,
         action: FailureAction,
     },
+    /// `allow <feature>` — opt in to an execution mode the compiler may apply.
+    ///
+    /// A closed set rather than free text: "allow intent_fusion" is the compiler
+    /// agreeing to net this intent against others, which changes who settles
+    /// with whom. An unknown feature is refused, so a misspelling cannot read as
+    /// consent.
+    Allow {
+        feature: Symbol,
+    },
     /// `fallback { replace with <venue> ... require <bound> ... }` — the
     /// approved substitutions for a route's failing legs.
     ///

@@ -221,6 +221,17 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
         // waves cannot check it. Encoded as a payload frame like every other
         // record here: a payload is consumed as `align4(pc + 3 + len)`, the
         // expression the writer pads by, so it is correct at any offset.
+        // `[FEATURE_ALLOW][0][u16 code]` — a three-byte frame, like every other
+        // fixed instruction here. A four-byte one would desync the reader when it
+        // lands at an offset congruent to 1 mod 4, which is where the first
+        // instruction of a stream sits.
+        Operation::FeatureAllow { feature, .. } => {
+            // `[FEATURE_ALLOW][flags = 0][code]`. Three bytes of content, then
+            // the per-instruction padding — the shape every fixed-frame
+            // instruction here uses, and the only shape the reader can follow at
+            // any offset.
+            bytecode.write_all(&[FEATURE_ALLOW, 0, *feature])?;
+        }
         Operation::ParallelPlan {
             waves,
             edges,

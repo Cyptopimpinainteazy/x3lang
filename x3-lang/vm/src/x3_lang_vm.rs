@@ -91,6 +91,8 @@ pub struct VMState {
     /// so a caller can compare what it was told against what the artifact claims
     /// rather than having to re-derive it.
     pub parallel_plans: Vec<ParallelPlanRecord>,
+    /// Execution modes the program opted into, by feature code.
+    pub allowed_features: std::collections::BTreeSet<u8>,
     pub paused: bool,
     /// Atomic scope rollback snapshot (set by ATOMIC_BEGIN, consumed by ATOMIC_ROLLBACK).
     pub atomic_snapshot: Option<VmSnapshot>,
@@ -122,6 +124,7 @@ impl VMState {
             atomic_choices: Vec::new(),
             route_fallbacks: Vec::new(),
             parallel_plans: Vec::new(),
+            allowed_features: std::collections::BTreeSet::new(),
             paused: false,
             atomic_snapshot: None,
             failure_handlers: Vec::new(),

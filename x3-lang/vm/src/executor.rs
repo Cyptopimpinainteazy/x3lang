@@ -650,6 +650,20 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
+            FEATURE_ALLOW => {
+                // The program consented to an execution mode. Recording it is
+                // the whole effect: a runtime deciding whether it may net this
+                // intent against another has to be able to see the consent.
+                if _flags != 0 || operand != u16::from(FEATURE_INTENT_FUSION) {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_FEATURE_ALLOW_INVALID: feature code {operand} is not one the language defines"
+                    )));
+                }
+                vm.state.allowed_features.insert(FEATURE_INTENT_FUSION);
+            }
             PARALLEL_PLAN => {
                 // `legs=<n>;waves=a,b|c;edges=a->c`.
                 //

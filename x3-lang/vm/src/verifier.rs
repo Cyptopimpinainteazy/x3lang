@@ -65,6 +65,15 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                     return Err(VerifyError::JumpToNonBoundary(pc, target as usize));
                 }
             }
+            FEATURE_ALLOW => {
+                // A fixed three-byte frame whose operand is the feature code.
+                // The set is closed: consent to an unknown mode is not consent,
+                // and a byte that happens to decode as a feature must still name
+                // one the language defines.
+                if operand != u16::from(FEATURE_INTENT_FUSION) {
+                    return Err(VerifyError::InvalidOperand(pc));
+                }
+            }
             CALL => {
                 let target = operand as usize;
                 if target >= bytes.len() {

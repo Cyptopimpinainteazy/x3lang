@@ -837,6 +837,26 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                     .collect(),
             });
         }
+        Statement::Allow { feature } => {
+            // The consent is the point, so it goes in the artifact. An opt-in
+            // the bytecode does not carry is a permission only the source knows
+            // about, and a runtime deciding whether it may net this intent
+            // against another has nothing to check it against.
+            let code = match feature.as_str() {
+                "intent_fusion" => crate::spec::opcodes::FEATURE_INTENT_FUSION,
+                _ => {
+                    return Err(semantic(&format!(
+                        "unknown feature '{}' in `allow`; the set is closed so a misspelling cannot be \
+                         read as consent",
+                        feature.as_str()
+                    )))
+                }
+            };
+            ir.push(Operation::FeatureAllow {
+                feature: code,
+                name: feature.as_str().to_string(),
+            });
+        }
         Statement::OnFail(action) => {
             ir.push(Operation::OnFail {
                 action: failure_action_to_ir(action),

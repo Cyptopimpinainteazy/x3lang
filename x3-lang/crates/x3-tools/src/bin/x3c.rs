@@ -180,6 +180,9 @@ enum Cmd {
         #[arg(long)]
         max_slippage_bps: Option<u32>,
     },
+    /// Find rings of intents that could settle against each other instead of
+    /// each taking external liquidity.
+    Fusion { input: PathBuf },
     /// Compute route/risk score for an intent.
     Score { input: PathBuf },
     /// Generate and run tests for an intent.
@@ -340,6 +343,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             max_hops,
             max_slippage_bps,
         } => cmd_optimize(&input, &from, &to, &objective, max_hops, max_slippage_bps),
+        Cmd::Fusion { input } => cmd_fusion(&input),
         Cmd::Score { input } => cmd_score(&input, mode),
         Cmd::Test {
             input,
@@ -457,6 +461,79 @@ fn cmd_check(input: &PathBuf, out: Option<&PathBuf>, mode_str: &str, deny_warnin
         }
         Ok(ExitCode::from(1))
     }
+}
+
+/// `x3c fusion` — report every ring of intents that could settle internally.
+///
+/// The report says what it could check and what it could not. A ring whose
+/// minimums cannot be verified is printed as unverifiable rather than omitted:
+/// an author who opted into fusion needs to know that the compiler looked and
+/// could not be sure, which is different from the compiler finding nothing.
+fn cmd_fusion(input: &PathBuf) -> Result<ExitCode, String> {
+    use x3_lang_compiler::fusion::{flows, rings, Check};
+
+    let source = read_source(input)?;
+    // Verify before analysing: an intent the compiler rejects is not a candidate
+    // for netting, and a fusion report about a program that does not compile
+    // would be advice about code that cannot run.
+    let (program, _, outcome) =
+        x3_lang_compiler::check_source_diagnostics_with_mode(&source, x3_lang_compiler::CompilationMode::Dev)
+            .map_err(|e| format!("compile error: {e}"))?;
+    if !outcome.errors.is_empty() {
+        for error in &outcome.errors {
+            print_error(&format!("{error}"));
+        }
+        return Ok(ExitCode::from(1));
+    }
+    let flows = flows(&program);
+    let found = rings(&flows);
+    let opted_in = flows.iter().filter(|flow| flow.opted_in).count();
+
+    println!(
+        "x3c fusion: {} intent(s), {opted_in} opted in, {} ring(s)",
+        flows.len(),
+        found.len()
+    );
+    for ring in &found {
+        println!(
+            "  ring {} (assets {}): earliest deadline {}",
+            ring.participants.join(" -> "),
+            ring.assets.join(" -> "),
+            ring.earliest_deadline
+                .map(|blocks| format!("{blocks} block(s)"))
+                .unwrap_or_else(|| "unstated".to_string())
+        );
+        let describe = |label: &str, check: &Check| match check {
+            Check::Satisfied => println!("    {label}: satisfied"),
+            Check::Unverifiable(reason) => println!("    {label}: UNVERIFIABLE — {reason}"),
+            Check::Failed(reason) => println!("    {label}: FAILED — {reason}"),
+        };
+        describe("authorization", &ring.authorization);
+        describe("asset correctness", &ring.asset_correctness);
+        describe("minimum output", &ring.minimum_output);
+        describe("deadline", &ring.deadline);
+        describe("fairness", &ring.fairness);
+        println!(
+            "    verdict: {}",
+            if ring.is_fusable() {
+                "fusable — no external liquidity needed for the ringed assets"
+            } else {
+                "not fusable"
+            }
+        );
+    }
+    // An intent that opted in but took no part is worth naming: silence would
+    // read as "considered and fine".
+    for flow in flows.iter().filter(|flow| flow.opted_in) {
+        if !found.iter().any(|ring| ring.participants.contains(&flow.name)) {
+            println!(
+                "  note: '{}' allowed fusion but supplies no ring: knows what it gives, what it \
+                 wants, and nobody closes the loop",
+                flow.name
+            );
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `x3c optimize` — choose one route, and show enough to review the choice.

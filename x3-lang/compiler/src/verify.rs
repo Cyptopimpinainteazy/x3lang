@@ -82,6 +82,17 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 }
                 let _ = criterion;
             }
+            Operation::FeatureAllow { feature, name } => {
+                // The set of features is closed, and this is where the closure
+                // is enforced on the IR side: an unknown code means the artifact
+                // claims consent to something the language does not define.
+                if *feature != crate::spec::opcodes::FEATURE_INTENT_FUSION {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: unknown allowed feature code {feature} ({name})"),
+                    );
+                }
+            }
             Operation::ParallelPlan {
                 waves,
                 edges,

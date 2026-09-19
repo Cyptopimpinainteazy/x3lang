@@ -963,6 +963,12 @@ impl X3Formatter {
                 self.format_expression(&guard.value);
                 self.write(";\n");
             }
+            Statement::Allow { feature } => {
+                self.write_indent();
+                self.write("allow ");
+                self.write(feature.as_str());
+                self.write(";\n");
+            }
             Statement::OnFail(action) => {
                 self.write_indent();
                 self.write("on_fail ");

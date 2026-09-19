@@ -164,6 +164,12 @@ pub enum Operation {
     /// "these legs may run concurrently" is a claim about their independence,
     /// and a reader who cannot see the waves cannot check that claim. The legs'
     /// operations follow in wave order.
+    /// An execution mode the program opted into, as `FEATURE_*`.
+    FeatureAllow {
+        feature: u8,
+        /// The name as written, for diagnostics and for the trace.
+        name: String,
+    },
     ParallelPlan {
         /// Groups of legs that can run concurrently, in execution order.
         waves: Vec<Vec<String>>,
