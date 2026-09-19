@@ -448,6 +448,17 @@ fn an_effect_with_no_matching_statement_is_rejected() {
         has_message(&errors, "declares effect 'bridge'"),
         "an undeclared-but-claimed effect must be reported: {errors:?}"
     );
+    // And it has to be reportable *mechanically*: an economic diagnostic carries a
+    // stable code, so a build system can act on it without matching wording
+    // (PHASE 52, TICKET-021).
+    assert!(
+        errors.iter().any(|error| {
+            let text = format!("{error}");
+            text.starts_with("Semantic error: X3E4021:") && text.contains("declares effect 'bridge'")
+        }),
+        "the effects check must report its own code, X3E4021 (unresolved economic \
+         effect): {errors:?}"
+    );
 }
 
 #[test]
@@ -662,5 +673,58 @@ fn relayer_quorum_guards_are_checked_wherever_they_live() {
     assert!(
         has_message(&errors, "declares no `relayers"),
         "an atomic swap's unbacked quorum guard must be reported too: {errors:?}"
+    );
+}
+
+#[test]
+fn a_swap_whose_declared_asset_differs_from_its_amount_is_coded() {
+    // The parser sets a swap's `from_asset` from the amount's own asset, so source
+    // text cannot produce a disagreement — but a hand-built AST can, and that is
+    // the shape any other front end produces. The check is a guard for those
+    // producers, and it reports `X3E2107 ASSET_TYPE_MISMATCH` rather than a
+    // message alone: an economic diagnostic has to be keyable (PHASE 52,
+    // TICKET-021).
+    use x3_lang_ast::{AmountExpr, AssetDecl, AssetId, AtomicTradeDecl, ChainRef, Item, Program, TradeStmt};
+    use x3_lang_common::{Spanned, Symbol};
+
+    let asset = |name: &str| {
+        Spanned::dummy(Item::AssetDecl(AssetDecl {
+            name: Symbol::new(name),
+            asset: AssetId {
+                vm_family: Symbol::new("evm"),
+                chain: ChainRef::new(Symbol::new("ethereum")),
+                canonical_id: Symbol::new(&format!("0x{name}")),
+                symbol: Symbol::new(name),
+                decimals: 6,
+            },
+        }))
+    };
+    let trade = Spanned::dummy(Item::AtomicTrade(AtomicTradeDecl {
+        name: Symbol::new("Drifted"),
+        risk_policy: Symbol::new("P"),
+        effects: Vec::new(),
+        guarantees: Vec::new(),
+        body: vec![TradeStmt::Swap {
+            binding: Symbol::new("out"),
+            input: AmountExpr::literal(100, Symbol::new("USDC")),
+            // The declared asset disagrees with the amount's own asset.
+            from_asset: Symbol::new("DAI"),
+            to_asset: Symbol::new("ETH"),
+            venue: Symbol::new("uniswap_v3"),
+            min_output: AmountExpr::literal(1, Symbol::new("ETH")),
+        }],
+    }));
+    let program = Program {
+        items: vec![asset("USDC"), asset("DAI"), asset("ETH"), trade],
+    };
+
+    let errors = x3_lang_compiler::analyze_trading(&program, CompilationMode::Dev)
+        .expect_err("a swap whose declared asset disagrees with its amount must be refused");
+    assert!(
+        errors.iter().any(|error| {
+            let text = format!("{error}");
+            text.starts_with("Semantic error: X3E2107:") && text.contains("does not match declared from_asset")
+        }),
+        "the mismatch must carry its code and say which reference disagrees: {errors:?}"
     );
 }

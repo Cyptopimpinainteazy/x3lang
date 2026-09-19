@@ -15,6 +15,19 @@ pub enum DiagnosticCode {
     InvalidNumericCoercion,
     InvalidCrossChainRoute,
     UnsafeIr,
+    /// An amount's asset is not the asset the operation requires.
+    ///
+    /// The super-prompt's `X3E-2107 ASSET_TYPE_MISMATCH`, in the four-digit
+    /// spelling this catalogue already uses: economic code needs economic
+    /// diagnostics, and a message alone cannot be keyed on by tooling (PHASE 52,
+    /// TICKET-021).
+    AssetTypeMismatch,
+    /// A declared economic effect or guarantee that nothing in the body discharges.
+    ///
+    /// The super-prompt's `X3E-4021` "unresolved economic effect". This is the code
+    /// a strategy module's effects/guarantees check reports under, so a build system
+    /// can tell "you declared work you do not do" from every other semantic error.
+    UnresolvedEconomicEffect,
 }
 
 impl DiagnosticCode {
@@ -28,6 +41,8 @@ impl DiagnosticCode {
             Self::InvalidNumericCoercion => "X3E0301",
             Self::InvalidCrossChainRoute => "X3E0401",
             Self::UnsafeIr => "X3E0501",
+            Self::AssetTypeMismatch => "X3E2107",
+            Self::UnresolvedEconomicEffect => "X3E4021",
         }
     }
 }
@@ -52,6 +67,19 @@ pub struct CompilerDiagnostic {
 }
 
 impl CompilerDiagnostic {
+    /// This diagnostic as the error the compiler's accumulators carry, with its
+    /// stable code in front of the message.
+    ///
+    /// One renderer, used by the IR verifier's conversion and by every check that
+    /// wants a code: two spellings of "code then message" is two things for tooling
+    /// to parse, which is the defect the catalogue exists to prevent.
+    pub fn into_error(self) -> x3_lang_common::X3Error {
+        x3_lang_common::X3Error::SemanticError {
+            message: format!("{}: {}", self.code.as_str(), self.message),
+            span: self.primary_span,
+        }
+    }
+
     /// Construct an error diagnostic with a required primary source span.
     pub fn error(code: DiagnosticCode, message: impl Into<String>, primary_span: Span) -> Self {
         Self {

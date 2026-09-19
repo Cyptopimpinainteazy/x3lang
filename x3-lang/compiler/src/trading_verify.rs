@@ -53,7 +53,7 @@ fn verify_atomic_trade_at_span(
     // reaches a chain.
     for effect in &trade.effects {
         if !trade.body.iter().any(|stmt| effect.is_produced_by(stmt)) {
-            errors.push(semantic_error(
+            errors.push(unresolved_effect_error(
                 format!(
                     "atomic trade '{}' declares effect '{}' but no statement in the body produces it; \
                      add a '{}' statement or drop it from the effects list",
@@ -67,7 +67,7 @@ fn verify_atomic_trade_at_span(
     }
     for guarantee in &trade.guarantees {
         if !trade.body.iter().any(|stmt| guarantee.is_discharged_by(stmt)) {
-            errors.push(semantic_error(
+            errors.push(unresolved_effect_error(
                 format!(
                     "atomic trade '{}' declares guarantee '{}' but nothing in the body discharges it; {}",
                     trade.name.as_str(),
@@ -405,4 +405,16 @@ fn semantic_error(message: impl Into<String>, span: Span) -> X3Error {
         message: message.into(),
         span,
     }
+}
+
+/// A declaration nothing in the body discharges, with the code the catalogue gives
+/// that class: `X3E4021` unresolved economic effect. An economic diagnostic has to
+/// be keyable, or a build system is matching wording (PHASE 52, TICKET-021).
+fn unresolved_effect_error(message: impl Into<String>, span: Span) -> X3Error {
+    crate::diagnostic::CompilerDiagnostic::error(
+        crate::diagnostic::DiagnosticCode::UnresolvedEconomicEffect,
+        message,
+        span,
+    )
+    .into_error()
 }

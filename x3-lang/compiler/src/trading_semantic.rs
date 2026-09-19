@@ -206,7 +206,7 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                 validate_amount(input, &symbols.assets, "swap input", span, errors);
                 validate_amount(min_output, &symbols.assets, "swap min_out", span, errors);
                 if input.asset != *from_asset {
-                    errors.push(semantic_error(
+                    errors.push(asset_mismatch_error(
                         format!(
                             "atomic trade '{}' swap input asset '{}' does not match declared from_asset '{}'",
                             trade.name.as_str(),
@@ -286,7 +286,7 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
             } => {
                 validate_amount(input, &symbols.assets, "bridge amount", span, errors);
                 if input.asset != *from_asset {
-                    errors.push(semantic_error(
+                    errors.push(asset_mismatch_error(
                         format!(
                             "atomic trade '{}' bridge input asset '{}' does not match declared from_asset '{}'",
                             trade.name.as_str(),
@@ -491,6 +491,14 @@ fn semantic_error(message: impl Into<String>, span: Span) -> X3Error {
         message: message.into(),
         span,
     }
+}
+
+/// An asset mismatch, with the code the catalogue gives that class
+/// (`X3E2107 ASSET_TYPE_MISMATCH`): what a tool has to key on when an amount's
+/// asset is not the asset the operation requires (PHASE 52, TICKET-021).
+fn asset_mismatch_error(message: impl Into<String>, span: Span) -> X3Error {
+    crate::diagnostic::CompilerDiagnostic::error(crate::diagnostic::DiagnosticCode::AssetTypeMismatch, message, span)
+        .into_error()
 }
 
 /// Helper used by focused type tests and later verifier stages.

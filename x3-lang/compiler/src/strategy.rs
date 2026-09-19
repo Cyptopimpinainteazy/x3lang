@@ -51,6 +51,14 @@ fn err(message: String) -> X3Error {
     }
 }
 
+/// A diagnostic a build system can key on: the code says *what kind* of thing is
+/// wrong, which a message cannot (PHASE 52, TICKET-021). The effects and
+/// guarantees checks below report as `X3E4021` — "unresolved economic effect" —
+/// because that is what a declaration nothing discharges is.
+fn coded_err(code: crate::diagnostic::DiagnosticCode, message: String) -> X3Error {
+    crate::diagnostic::CompilerDiagnostic::error(code, message, x3_lang_common::Span::DUMMY).into_error()
+}
+
 /// Every statement of a body, including the ones inside blocks.
 fn walk<'a>(statements: &'a [Statement], out: &mut Vec<&'a Statement>) {
     for statement in statements {
@@ -177,16 +185,22 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
         for effect in &module.effects {
             match effect_is_discharged(*effect, &statements) {
                 Discharge::Yes => {}
-                Discharge::No => acc.add_error(err(format!(
-                    "strategy '{name}' declares effect '{}' but nothing in `execute` performs it",
-                    effect.as_str()
-                ))),
-                Discharge::NoStatementForm => acc.add_error(err(format!(
-                    "strategy '{name}' declares effect '{}', and a module body has no statement that \
-                     could discharge it; debt effects belong to an atomic trade, which has the \
-                     statements for them",
-                    effect.as_str()
-                ))),
+                Discharge::No => acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::UnresolvedEconomicEffect,
+                    format!(
+                        "strategy '{name}' declares effect '{}' but nothing in `execute` performs it",
+                        effect.as_str()
+                    ),
+                )),
+                Discharge::NoStatementForm => acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::UnresolvedEconomicEffect,
+                    format!(
+                        "strategy '{name}' declares effect '{}', and a module body has no statement \
+                         that could discharge it; debt effects belong to an atomic trade, which has \
+                         the statements for them",
+                        effect.as_str()
+                    ),
+                )),
             }
         }
 
@@ -194,17 +208,23 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
         for guarantee in &module.guarantees {
             match guarantee_is_discharged(*guarantee, &statements) {
                 Discharge::Yes => {}
-                Discharge::No => acc.add_error(err(format!(
-                    "strategy '{name}' declares guarantee '{}' but nothing in `execute` discharges \
-                     it; {}",
-                    guarantee.as_str(),
-                    guarantee_requirement(*guarantee)
-                ))),
-                Discharge::NoStatementForm => acc.add_error(err(format!(
-                    "strategy '{name}' declares guarantee '{}', and a module body has no statement \
-                     that could discharge it; declare it on an atomic trade instead",
-                    guarantee.as_str()
-                ))),
+                Discharge::No => acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::UnresolvedEconomicEffect,
+                    format!(
+                        "strategy '{name}' declares guarantee '{}' but nothing in `execute` \
+                         discharges it; {}",
+                        guarantee.as_str(),
+                        guarantee_requirement(*guarantee)
+                    ),
+                )),
+                Discharge::NoStatementForm => acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::UnresolvedEconomicEffect,
+                    format!(
+                        "strategy '{name}' declares guarantee '{}', and a module body has no statement \
+                         that could discharge it; declare it on an atomic trade instead",
+                        guarantee.as_str()
+                    ),
+                )),
             }
         }
 

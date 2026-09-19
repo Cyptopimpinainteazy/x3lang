@@ -226,10 +226,7 @@ pub(crate) fn ir_level_errors(ir: &crate::ir::X3IR) -> Vec<X3Error> {
 /// A pipeline diagnostic as an error the rest of the compiler can carry,
 /// keeping its stable code visible so tooling can still key on it.
 fn diagnostic_to_error(diagnostic: &CompilerDiagnostic) -> X3Error {
-    X3Error::SemanticError {
-        message: format!("{}: {}", diagnostic.code.as_str(), diagnostic.message),
-        span: diagnostic.primary_span,
-    }
+    diagnostic.clone().into_error()
 }
 
 /// Compile an X3 AST program to bytecode
