@@ -2246,6 +2246,43 @@ fn release_lock(op: &Operation) -> Option<(&str, &str)> {
     }
 }
 
+/// The escrows a program creates, as `(chain, asset)`, wherever they are.
+///
+/// Program-wide rather than atomic-scoped, and that asymmetry is the point:
+/// whether an asset was locked is a property of the program, while *when* it was
+/// claimed and refunded is a property of a position inside one atomic route. An
+/// escrow locked at the top level — which is where intent lowering puts the `from`
+/// endpoint — is still the escrow a claim and a refund inside the route refer to,
+/// so a rule that only looked inside the block would lose the genuine case.
+fn locked_escrows(ir: &X3IR) -> Vec<(&str, &str)> {
+    fn collect<'a>(operations: &'a [Operation], out: &mut Vec<(&'a str, &'a str)>) {
+        for op in operations {
+            match op {
+                Operation::Lock { chain, asset, .. } => out.push((chain.as_str(), asset.as_str())),
+                Operation::If { then_ops, else_ops, .. } => {
+                    collect(then_ops, out);
+                    if let Some(else_ops) = else_ops {
+                        collect(else_ops, out);
+                    }
+                }
+                Operation::Loop { body, .. } | Operation::Simulate { body, .. } => collect(body, out),
+                Operation::ScheduledDispatch { entry, .. } => collect(entry, out),
+                Operation::GasAdaptive {
+                    high_gas_ops,
+                    low_gas_ops,
+                } => {
+                    collect(high_gas_ops, out);
+                    collect(low_gas_ops, out);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    collect(&ir.operations, &mut out);
+    out
+}
+
 /// Return the list of built-in invariant rules for static analysis.
 ///
 /// The duplicate-claim and claim/refund-ordering rules below reason about
@@ -2324,17 +2361,29 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
             name: "no_refund_after_claim".into(),
             description: "Refund must not execute after claim".into(),
             check_fn: |ir| {
-                // Per lock, for the same reason as `no_double_refund`: releasing
-                // the destination leg does not stop the source leg from being
-                // refunded on its own timeout, and a structural scan that
-                // ignored the lock would call that a violation.
+                // Per escrow, and only for an escrow this program locked.
+                //
+                // `Release` means two things in this IR: claiming an escrow the
+                // program locked, and paying out the asset a route delivered. A
+                // two-legged swap pays the destination asset out and, on the other
+                // settlement path, refunds that same asset on timeout — so a scan
+                // that read the payout as a claim called it a claim-then-refund.
+                // Measured: `examples/atomic_swap.x3`, the roadmap's canonical
+                // example, warned on every check and build (TICKET-035).
+                //
+                // A refund can only double-spend an escrow that exists, so the rule
+                // requires the asset to have been locked by this program: the
+                // payout of an asset nobody locked is not a claim this rule is
+                // about, while a claim of a locked escrow that is refunded later in
+                // the same route is still caught.
+                let locked = locked_escrows(ir);
                 let mut claimed: Vec<(&str, &str)> = Vec::new();
                 for op in atomic_scoped_operations(ir) {
                     if let Some(lock) = release_lock(op) {
                         claimed.push(lock);
                     }
                     if let Some(lock) = refund_lock(op) {
-                        if claimed.contains(&lock) {
+                        if claimed.contains(&lock) && locked.contains(&lock) {
                             return Err(format!(
                                 "Refund of {}.{} found after its Release (claim)",
                                 lock.0, lock.1
@@ -3200,8 +3249,20 @@ mod tests {
 
     #[test]
     fn invariants_still_catch_a_refund_after_a_claim_inside_one_route() {
+        // The escrow is locked first, because that is the scenario the rule is
+        // about: a *claim* releases an escrow this program created, and refunding
+        // that escrow afterwards is the double-spend. The fixture used to omit the
+        // `Lock`, which made it indistinguishable from the two-legged payout the
+        // rule used to false-positive on (TICKET-035) — the assertion was right and
+        // the program it was asserted against was not.
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
+            Operation::Lock {
+                chain: "solana".into(),
+                asset: "USDC".into(),
+                amount: 100,
+                from: "0x1111".into(),
+            },
             Operation::Release {
                 chain: "solana".into(),
                 asset: "USDC".into(),
@@ -3220,7 +3281,58 @@ mod tests {
             invariant_violations(&ir)
                 .iter()
                 .any(|v| v.starts_with("no_refund_after_claim")),
-            "a refund after a claim in one atomic route must be reported"
+            "a refund of a claimed escrow in one atomic route must be reported"
+        );
+    }
+
+    #[test]
+    fn a_two_legged_swap_pays_out_and_refunds_different_assets() {
+        // The shape `examples/atomic_swap.x3` has: one escrow is locked and can be
+        // refunded, the destination asset is paid out with no lock of its own, and
+        // each leg's timeout refund is the other settlement path of that leg. The
+        // payout is not a claim of an escrow, and the rule must not read it as one
+        // — it warned on every build of the roadmap's canonical example
+        // (TICKET-035).
+        let mut ir = empty_ir();
+        ir.operations = vec![
+            Operation::Lock {
+                chain: "ethereum".into(),
+                asset: "USDC".into(),
+                amount: 100,
+                from: "0x1111".into(),
+            },
+            Operation::AtomicBegin,
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "SOL".into(),
+                to: "4Nd1".into(),
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "ethereum".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "SOL".into(),
+                    to: "sender".into(),
+                },
+            },
+            Operation::AtomicEnd,
+        ];
+        assert_eq!(
+            invariant_violations(&ir)
+                .iter()
+                .filter(|violation| violation.starts_with("no_refund_after_claim"))
+                .count(),
+            0,
+            "a two-legged swap is not a claim-then-refund: {:?}",
+            invariant_violations(&ir)
         );
     }
 
