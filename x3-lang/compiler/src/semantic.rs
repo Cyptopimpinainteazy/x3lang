@@ -1987,19 +1987,48 @@ fn verify_slippage_safe(ir: &X3IR, acc: &mut ErrorAccumulator) {
             ..
         } = op
         {
-            if let Some(pct) = extract_slippage_percent(expr).filter(|p| *p > 5.0) {
-                acc.add_error(err(format!("mainnet: slippage tolerance {pct}% exceeds maximum 5%")));
+            // Compared in basis points. A `f64` comparison decides a mainnet
+            // rejection, and a value one ulp either side of 5.0 would decide it
+            // differently on a different runtime.
+            if let Some(bps) = extract_slippage_bps(expr).filter(|bps| *bps > SLIPPAGE_CEILING_BPS) {
+                acc.add_error(err(format!(
+                    "mainnet: slippage tolerance {}.{:02}% exceeds maximum 5%",
+                    bps / 100,
+                    bps % 100
+                )));
             }
         }
     }
 }
 
-fn extract_slippage_percent(expr: &str) -> Option<f64> {
-    let cleaned: String = expr
-        .chars()
-        .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+' || *c == 'e' || *c == 'E')
-        .collect();
-    cleaned.parse::<f64>().ok()
+/// The slippage ceiling a mainnet run will accept, in basis points.
+const SLIPPAGE_CEILING_BPS: u32 = 500;
+
+/// Read a slippage figure as basis points, or `None` if it is not a whole
+/// number of them.
+///
+/// This used to parse to `f64` and compare against `5.0`. The comparison decides
+/// whether a program is rejected on mainnet, and a floating-point comparison
+/// that decides a rejection is the ambiguity PHASE 43 asks us not to have.
+fn extract_slippage_bps(expr: &str) -> Option<u32> {
+    let cleaned: String = expr.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
+    match cleaned.split_once('.') {
+        None => cleaned.parse().ok(),
+        // A fractional percentage is a whole number of basis points only when
+        // the fraction is hundredths: `5.25` is 525 bps, `5.255` is nothing we
+        // can represent, and saying `None` leaves the check silent rather than
+        // guessing.
+        Some((whole, fraction)) => {
+            let whole: u32 = whole.parse().ok()?;
+            let fraction = match fraction.len() {
+                0 => 0,
+                1 => fraction.parse::<u32>().ok()? * 10,
+                2 => fraction.parse::<u32>().ok()?,
+                _ => return None,
+            };
+            whole.checked_mul(100)?.checked_add(fraction)
+        }
+    }
 }
 
 fn verify_deadline_bounded(ir: &X3IR, acc: &mut ErrorAccumulator) {

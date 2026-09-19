@@ -437,9 +437,18 @@ fn test_check_mode_mainnet_rejects_unsafe_intent() {
         "mainnet mode should produce errors for unsafe intent"
     );
     let all_msgs: String = errors.iter().map(|e| format!("{:?}", e)).collect::<Vec<_>>().join("\n");
+    // This used to require "slippage" or "refund" in the messages, because the
+    // mainnet slippage check read a basis-point guard as a percentage:
+    // `require slippage <= 50` (0.5%) was reported as "50% exceeds maximum 5%",
+    // so every program with a guard above 5 bps was rejected on mainnet with a
+    // message that misstated its own units. The check now compares basis points,
+    // which is what the guard holds, what `risk.rs` already assumed and what the
+    // spec writes (`require slippage <= 7bps`). `simple_swap.x3` guards 50 bps,
+    // which is safe, so the real mainnet errors are the ones it genuinely
+    // lacks — and those are what this asserts.
     assert!(
-        all_msgs.contains("slippage") || all_msgs.contains("refund"),
-        "should mention slippage or refund in: {}",
+        all_msgs.contains("RPC consensus") || all_msgs.contains("relayer attestation"),
+        "mainnet mode must still reject the intent for what it lacks: {}",
         all_msgs
     );
 }

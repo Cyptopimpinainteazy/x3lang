@@ -1261,6 +1261,9 @@ struct SolanaDelegationWire {
     stake: u64,
     activation_epoch: u64,
     deactivation_epoch: u64,
+    /// float-exemption: this mirrors Solana's own stake-account layout, where the
+    /// field is an `f64`. It is deserialized from account data and no arithmetic
+    /// here reads it, so it is a wire format rather than a money conversion.
     warmup_cooldown_rate: f64,
 }
 
@@ -2997,16 +3000,14 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
             .collect())
     }
     fn vrf_seed(&self) -> BridgeResult {
-        let mut hasher = Sha256::new();
-        hasher.update(b"x3-vrf-seed");
-        hasher.update(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-                .to_le_bytes(),
-        );
-        Ok(hasher.finalize().to_vec())
+        // This hashed the wall clock. A seed derived from the time is neither
+        // deterministic nor verifiable, which is the opposite of what a VRF is,
+        // and PHASE 42 names wall-clock jitter as something a consensus-affecting
+        // decision may not depend on. It was also unreachable — no opcode
+        // dispatches to it — so the honest answer is the one the unconfigured
+        // adapter gives: refuse, rather than fabricate a value that would look
+        // random and be reproducible by anyone who guessed the clock.
+        backend_required("VRF")
     }
     fn gas_adaptive_select(&self) -> BridgeResult {
         Ok(vec![0])

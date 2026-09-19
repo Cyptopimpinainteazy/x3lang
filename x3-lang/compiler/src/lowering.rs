@@ -1591,11 +1591,19 @@ fn expression_to_string(expr: &Expression) -> String {
 fn expression_to_u128(expr: &Expression) -> Result<u128, x3_lang_common::X3Error> {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => Ok(*value),
-        Expression::Literal(LiteralExpr::Float { raw, .. }) => raw
-            .as_str()
-            .parse::<f64>()
-            .map(|v| v as u128)
-            .map_err(|_| semantic("invalid numeric literal")),
+        // A float literal used as an amount used to be parsed as `f64` and cast
+        // to `u128`, which is a silent wrong value: `amount 0.5` became 0, and a
+        // large fractional value could land anywhere. Amounts are money, PHASE 43
+        // asks for exact conversion or none, and the exact path exists — the
+        // trading policy converts `0.02 ETH` to base units through the asset's
+        // declared decimals. So the answer here is a refusal that says where the
+        // exact conversion is, not a truncation.
+        Expression::Literal(LiteralExpr::Float { raw, .. }) => Err(semantic(&format!(
+            "expected an amount, but `{}` is a fractional literal; an amount is converted only when \
+             the conversion is exact, so write it in base units or use a field that carries its \
+             asset's decimals (as `max_gas: 0.02 ETH` does)",
+            raw.as_str()
+        ))),
         _ => expression_to_string(expr)
             .parse::<u128>()
             .map_err(|_| semantic("expected numeric expression")),
@@ -1625,7 +1633,10 @@ fn chain_to_string(chain: &ChainRef) -> String {
 pub(crate) fn timeout_expression_to_blocks(expr: &Expression) -> Option<u32> {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => u32::try_from(*value).ok(),
-        Expression::Literal(LiteralExpr::Float { raw, .. }) => raw.as_str().parse::<f64>().ok().map(|v| v as u32),
+        // A fractional duration is not a number of blocks. This used to parse as
+        // `f64` and truncate, so `timeout 40.9m` became 40 — a wrong value rather
+        // than a refusal, in a field the timeout-ordering invariant reads.
+        Expression::Literal(LiteralExpr::Float { .. }) => None,
         // A real duration literal, if the lexer ever produces one for a timeout.
         Expression::Literal(LiteralExpr::Duration { value, .. }) => u32::try_from(*value).ok(),
         Expression::Ident(sym) => numeric_prefix_u32(sym.as_str()),

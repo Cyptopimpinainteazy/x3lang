@@ -387,10 +387,14 @@ impl RiskScorer {
         };
         categories.insert("slippage_risk".into(), slippage_score);
         if slippage_bps > 1000 {
+            // Integer arithmetic, like every other basis-point figure here: the
+            // crate formats money without floats so that nothing in a risk
+            // decision can depend on a rounding mode.
             details.push(format!(
-                "slippage risk: high slippage ({}bps / {:.2}%)",
+                "slippage risk: high slippage ({}bps / {}.{:02}%)",
                 slippage_bps,
-                slippage_bps as f64 / 100.0
+                slippage_bps / 100,
+                slippage_bps % 100
             ));
         }
 
