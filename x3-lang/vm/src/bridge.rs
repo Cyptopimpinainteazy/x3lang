@@ -4841,4 +4841,60 @@ mod tests {
         out.extend_from_slice(encoded_len);
         out
     }
+
+    // PHASE 49 (7): *invalid proof cannot produce `FinalizedState`*.
+    //
+    // The trust anchor is two checks at the top of `verify_evm_header_proof`: the supplied
+    // `header_hash` must be `keccak256(rlp_header)`, and that hash must be the *trusted*
+    // finalized header's. Both are asserted over generated headers and hashes, and each
+    // case pins **which** refusal came back — the anchor's code rather than whatever a
+    // later RLP decode would have said, because a proof that gets past the anchor and
+    // fails on its shape is a proof that was trusted.
+    //
+    // No mainnet fixture is needed: the property is about the anchor, and a generated
+    // header exercises it with inputs no fixture happens to contain.
+    use proptest::prelude::any;
+    use proptest::{prop_assert_eq, proptest};
+
+    proptest! {
+        /// See the comment above `proptest!`.
+        #[test]
+        fn invariant_7_an_untrusted_or_inconsistent_header_cannot_be_finalized(
+            rlp_header in proptest::collection::vec(any::<u8>(), 1..200),
+            trusted_seed in proptest::collection::vec(any::<u8>(), 32..64),
+        ) {
+            let carried = hex_prefixed(&keccak256(&rlp_header));
+            let trusted = hex_prefixed(&keccak256(&trusted_seed));
+
+            // Self-consistent — the hash really is this header's — but not the header the
+            // verifier trusts. Refused by the trust check.
+            let self_consistent = json!({
+                "proof_type": EVM_HEADER_PROOF_TYPE,
+                "rlp_header": hex_prefixed(&rlp_header),
+                "header_hash": carried,
+            });
+            let refused = verify_evm_header_proof(&self_consistent, &trusted, None)
+                .expect_err("an untrusted header must not finalize");
+            prop_assert_eq!(
+                refused.code,
+                "X3_EVM_HEADER_NOT_TRUSTED",
+                "the refusal must be the trust anchor, not a later decode"
+            );
+
+            // And naming the trusted hash while carrying bytes that hash to something else
+            // is refused too: a proof cannot name a header it does not carry.
+            let name_only = json!({
+                "proof_type": EVM_HEADER_PROOF_TYPE,
+                "rlp_header": hex_prefixed(&rlp_header),
+                "header_hash": trusted,
+            });
+            let refused = verify_evm_header_proof(&name_only, &trusted, None)
+                .expect_err("a proof may not name a header it does not carry");
+            prop_assert_eq!(
+                refused.code,
+                "X3_EVM_HEADER_HASH_MISMATCH",
+                "the refusal must be the hash check"
+            );
+        }
+    }
 }

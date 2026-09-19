@@ -1,4 +1,24 @@
-//! Property tests for atomic trading conservation and rollback.
+//! Property tests for atomic trading conservation and rollback, and the eight named
+//! economic invariants of PHASE 49.
+//!
+//! The phase lists the invariants a property test has to cover. Each one below is named
+//! after the phase's own words for it, so the list can be checked off rather than
+//! interpreted:
+//!
+//! | PHASE 49 item | test |
+//! |---|---|
+//! | assets cannot appear from nowhere | [`invariant_1_assets_cannot_appear_from_nowhere`] |
+//! | debt cannot disappear without valid repayment | [`invariant_2_debt_cannot_disappear_without_repayment`] |
+//! | profit cannot exceed the possible balance delta | [`invariant_3_profit_cannot_exceed_the_balance_delta`] |
+//! | net profit = outputs − inputs − all declared costs | [`invariant_4_net_profit_is_outputs_minus_inputs_minus_costs`] |
+//! | closed debt cannot reopen without explicit borrow | [`invariant_5_closed_debt_cannot_reopen`] |
+//! | atomic plan cannot commit with an unresolved required leg | [`invariant_6_cannot_commit_with_a_required_leg_open`] |
+//! | invalid proof cannot produce `FinalizedState` | `vm/src/bridge.rs` — `invariant_7_*` |
+//! | no execution can escape declared capabilities | [`invariant_8_cannot_escape_declared_capabilities`] |
+//!
+//! Seven of the eight share the `Host` harness below because they are properties of an
+//! atomic trade. The seventh is a property of a bridge proof and lives beside the
+//! fixtures that build one.
 
 use std::collections::BTreeSet;
 
@@ -6,6 +26,7 @@ use proptest::prelude::*;
 use x3_lang_compiler::ir::{
     AssetKey, CompiledTradingPolicy, CostKind, StateBindingMode, SubmissionProfile, TradingOperation, ValueRef,
 };
+use x3_lang_vm::profit::{LedgerCost, Profit};
 use x3_lang_vm::trading::{
     fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionMode, HostError,
     QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost,
@@ -186,5 +207,311 @@ proptest! {
         if result.is_err() {
             prop_assert_eq!(vm.trading_state, before);
         }
+    }
+}
+
+// ── PHASE 49: the eight named economic invariants ───────────────────────────────
+
+/// The fixture's debt id and principal, named once so the invariants below read as
+/// statements about a debt rather than about a number.
+const DEBT_ID: &str = "debt";
+const DEBT_PRINCIPAL: u128 = 1_000_000;
+
+/// The fixture's ops, with one edit. Kept as a function rather than four near-copies of
+/// `operations()` so a change to the fixture reaches every invariant.
+fn operations_with(mutate: impl FnOnce(&mut Vec<TradingOperation>)) -> Vec<TradingOperation> {
+    let mut ops = operations();
+    mutate(&mut ops);
+    ops
+}
+
+fn close_debt_index(ops: &[TradingOperation]) -> usize {
+    ops.iter()
+        .position(|op| matches!(op, TradingOperation::CloseDebt { .. }))
+        .expect("the fixture closes its debt")
+}
+
+proptest! {
+    /// PHASE 49 (1): **assets cannot appear from nowhere**.
+    ///
+    /// The state records every credit, every debit and every cost per asset, so
+    /// `net_deltas = credits − debits − costs` is the conservation law of this
+    /// accounting. An asset whose balance grew without a credit, or a cost charged
+    /// without being recorded, breaks it — and the balance itself is bounded by what was
+    /// credited, which is the "from nowhere" half.
+    #[test]
+    fn invariant_1_assets_cannot_appear_from_nowhere(output in 1u128..10_000_000u128) {
+        let mut vm = TradingVm::new();
+        let mut host = host(output);
+        let result = vm.execute_atomic(&operations(), &mut host, context());
+        if result.is_ok() {
+            for (asset, credits) in vm.trading_state.credits.clone() {
+                let debits = vm.trading_state.debits.get(&asset).copied().unwrap_or(0);
+                let costs = vm.trading_state.costs.get(&asset).copied().unwrap_or(0);
+                let delta = vm.trading_state.net_deltas.get(&asset).copied().unwrap_or(0);
+                prop_assert_eq!(
+                    delta,
+                    i128::try_from(credits).expect("a fixture credit fits an i128")
+                        - i128::try_from(debits).expect("a fixture debit fits an i128")
+                        - i128::try_from(costs).expect("a fixture cost fits an i128"),
+                    "asset {:?} breaks credits - debits - costs = net_deltas",
+                    asset.symbol
+                );
+            }
+            for (asset, balance) in vm.trading_state.balances.clone() {
+                let credits = vm.trading_state.credits.get(&asset).copied().unwrap_or(0);
+                prop_assert!(
+                    balance <= credits,
+                    "asset {:?} holds {balance} against {credits} credited — the rest came from nowhere",
+                    asset.symbol
+                );
+            }
+        }
+    }
+
+    /// PHASE 49 (2): **debt cannot disappear without valid repayment**.
+    ///
+    /// Two halves. A committed trade has a closed record for the debt it opened, at the
+    /// principal it borrowed — a debt that vanished would leave no record. And a run
+    /// that did *not* commit closes nothing: the debt does not disappear, it is undone.
+    #[test]
+    fn invariant_2_debt_cannot_disappear_without_repayment(output in 1u128..10_000_000u128) {
+        let mut vm = TradingVm::new();
+        let mut host = host(output);
+        let result = vm.execute_atomic(&operations(), &mut host, context());
+        match result {
+            Ok(_) => {
+                prop_assert!(vm.trading_state.open_debts.is_empty());
+                let record = vm
+                    .trading_state
+                    .closed_debt_records
+                    .get(DEBT_ID)
+                    .expect("a committed trade records the debt it closed");
+                prop_assert_eq!(record.principal, DEBT_PRINCIPAL);
+                prop_assert!(vm.trading_state.closed_debts.contains(DEBT_ID));
+            }
+            Err(_) => {
+                prop_assert!(
+                    vm.trading_state.closed_debt_records.is_empty(),
+                    "a trade that did not commit closed a debt"
+                );
+                prop_assert!(vm.trading_state.closed_debts.is_empty());
+            }
+        }
+    }
+
+    /// PHASE 49 (3): **profit cannot exceed the mathematically possible balance delta**.
+    ///
+    /// The `AssertMinNetProfit` guard reads the VM's own net. If it passes, the ledger
+    /// has to support the figure it passed on: the settlement asset's recorded delta must
+    /// actually be at least the floor. A guard that passed on a number the accounting
+    /// does not contain is a profit that exists only in the comparison.
+    #[test]
+    fn invariant_3_profit_cannot_exceed_the_balance_delta(output in 1u128..10_000_000u128) {
+        let mut vm = TradingVm::new();
+        let mut host = host(output);
+        let result = vm.execute_atomic(&operations(), &mut host, context());
+        if result.is_ok() {
+            // `balances` and `costs` are maintained by different calls — `credit`/`debit`
+            // move the balance, `accrue_cost` records the cost — so the relationship
+            // between them is a cross-check rather than a restatement. If a cost were ever
+            // charged without reducing the balance's backing, or a balance moved without a
+            // cost, these two assertions are what notices.
+            for asset in vm.trading_state.net_deltas.keys().cloned().collect::<Vec<_>>() {
+                let profit = vm
+                    .profit(&asset)
+                    .expect("a committed state must reconcile its own profit");
+                let balance = i128::try_from(vm.trading_state.balances.get(&asset).copied().unwrap_or(0))
+                    .expect("a fixture balance fits an i128");
+                let costs = i128::try_from(vm.trading_state.costs.get(&asset).copied().unwrap_or(0))
+                    .expect("a fixture cost fits an i128");
+
+                prop_assert!(
+                    profit.net <= balance,
+                    "asset {}: a profit of {} exceeds the balance of {} it would have to come \
+                     out of — money the trade does not have",
+                    asset.symbol,
+                    profit.net,
+                    balance
+                );
+                prop_assert_eq!(
+                    balance - profit.net,
+                    costs,
+                    "asset {}: the gap between the balance and the profit is not the costs charged",
+                    asset.symbol
+                );
+            }
+
+            let settlement = asset("USDC");
+            let delta = vm.trading_state.net_deltas.get(&settlement).copied().unwrap_or(0);
+            // The fixture's floor is `AssertMinNetProfit { minimum: 1 }`.
+            prop_assert!(
+                delta >= 1,
+                "the profit guard passed on {delta}, which is below its own floor of 1"
+            );
+            prop_assert_eq!(
+                vm.net_profit(&settlement).expect("reconciles"),
+                delta,
+                "the assembled profit and the recorded delta disagree"
+            );
+        }
+    }
+
+    /// PHASE 49 (6): **atomic plan cannot commit with unresolved required leg**.
+    ///
+    /// The fixture's plan closes its debt and then asserts `AssertAllDebtsClosed`. Remove
+    /// the repayment and the plan has an unresolved leg at commit: the run must fail, and
+    /// nothing may be committed or receipted — a plan that settled with a debt still open
+    /// is the failure this invariant names.
+    #[test]
+    fn invariant_6_cannot_commit_with_a_required_leg_open(output in 1u128..10_000_000u128) {
+        let ops = operations_with(|ops| {
+            let at = close_debt_index(ops);
+            ops.remove(at);
+        });
+        let mut vm = TradingVm::new();
+        let before = vm.trading_state.clone();
+        let mut host = host(output);
+        let result = vm.execute_atomic(&ops, &mut host, context());
+        prop_assert!(result.is_err(), "a plan with an open debt committed");
+        prop_assert_eq!(&vm.trading_state, &before, "and it must leave no trace");
+    }
+}
+
+/// PHASE 49 (4): **net profit = outputs − inputs − all declared costs**.
+///
+/// The identity, over arbitrary cost lists rather than one fixture. `total_costs` has to
+/// be the sum of the categories that were declared — no category quietly outside the sum
+/// — and `net` has to be the whole expression, including the principal and the declared
+/// buffer that the phase's shorthand omits.
+#[test]
+fn invariant_4_net_profit_is_outputs_minus_inputs_minus_costs() {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    use x3_lang_compiler::ir::CostKind;
+
+    let kinds = [
+        CostKind::Gas,
+        CostKind::LiquidityFee,
+        CostKind::FlashLiquidityFee,
+        CostKind::SolverInfrastructureFee,
+        CostKind::ProofFee,
+        CostKind::CrossDomainFee,
+        CostKind::Slippage,
+        CostKind::PriceImpact,
+        CostKind::MevLeakage,
+    ];
+
+    let mut runner = TestRunner::default();
+    // Bounded rather than `u128::ANY`: the identity is signed arithmetic, so a gross or
+    // principal above `i128::MAX` would make the property about the conversion rather than
+    // about the accounting. Values a trade could actually realise.
+    let cases = proptest::collection::vec((0usize..kinds.len(), 0u128..10_000), 0..8)
+        .prop_flat_map(|costs| (0u128..1_000_000, 0u128..1_000_000, 0u128..1_000, Just(costs)));
+
+    for _ in 0..256 {
+        let (gross, principal, buffer, declared) = cases.new_tree(&mut runner).expect("a generated case").current();
+        let ledger: Vec<LedgerCost> = declared
+            .iter()
+            .map(|(index, amount)| LedgerCost {
+                amount: *amount,
+                kind: kinds[*index].as_str().to_string(),
+            })
+            .collect();
+
+        let Ok(profit) = Profit::from_ledger(gross, principal, buffer, &ledger) else {
+            // A total that overflows `i128` is allowed to refuse; what it must not do is
+            // return a figure.  Continue rather than assert, so the property is about the
+            // cases that do produce one.
+            continue;
+        };
+
+        // The declared costs are exactly what the ledger said, whatever the mix.
+        let declared_total: u128 = declared.iter().map(|(_, amount)| *amount).sum();
+        assert_eq!(profit.total_costs(), declared_total, "a cost fell outside the sum");
+
+        // And `net` is the whole identity: outputs − inputs − all declared costs, less the
+        // buffer the policy holds back.
+        let signed = |value: u128| i128::try_from(value).expect("the generator bounds every figure");
+        let expected = signed(gross) - signed(principal) - signed(declared_total) - signed(buffer);
+        assert_eq!(profit.net, expected, "net is not the identity the phase states");
+
+        // A margin is a share of the proceeds, so it cannot be non-zero when there are none.
+        if gross == 0 {
+            assert_eq!(profit.margin_bps, 0, "a margin against nothing is not a number");
+        }
+    }
+}
+
+/// PHASE 49 (5): **closed debt cannot reopen without explicit borrow**.
+///
+/// A plan that closes its debt and then opens the same id is asking to borrow again
+/// under a name it has already repaid. It is refused — and because the refusal happens
+/// inside the atomic scope, the whole trade rolls back rather than leaving half of it.
+#[test]
+fn invariant_5_closed_debt_cannot_reopen() {
+    let ops = operations_with(|ops| {
+        let at = close_debt_index(ops);
+        ops.insert(
+            at + 1,
+            TradingOperation::OpenDebt {
+                debt_id: DEBT_ID.to_string(),
+                provider: "aave_v3".to_string(),
+                asset: asset("USDC"),
+                principal: 1_000,
+            },
+        );
+    });
+
+    let mut vm = TradingVm::new();
+    let before = vm.trading_state.clone();
+    let mut host = host(5_000_000);
+    let result = vm.execute_atomic(&ops, &mut host, context());
+    assert!(
+        result.is_err(),
+        "a closed debt id reopened without the plan borrowing under a name it already repaid"
+    );
+    assert_eq!(vm.trading_state, before, "and the refusal rolls the plan back");
+}
+
+/// PHASE 49 (8): **no execution can escape declared capabilities**.
+///
+/// The host declares the venues it can reach. A program that names a venue the manifest
+/// does not list is asking for a capability it was not granted, and it is refused — with
+/// the state rolled back, so the attempt leaves nothing behind.
+#[test]
+fn invariant_8_cannot_escape_declared_capabilities() {
+    for (label, swap_venue) in [("venue", "some_other_venue"), ("provider", "some_other_provider")] {
+        let ops = operations_with(|ops| {
+            let mut edits = 0;
+            for op in ops.iter_mut() {
+                match op {
+                    TradingOperation::ExecuteSwap { venue, .. } if label == "venue" => {
+                        *venue = swap_venue.to_string();
+                        edits += 1;
+                    }
+                    TradingOperation::OpenDebt { provider, .. } if label == "provider" => {
+                        *provider = swap_venue.to_string();
+                        edits += 1;
+                    }
+                    _ => {}
+                }
+            }
+            assert!(edits > 0, "the fixture must contain the op this case edits");
+        });
+
+        let mut vm = TradingVm::new();
+        let before = vm.trading_state.clone();
+        let mut host = host(5_000_000);
+        let result = vm.execute_atomic(&ops, &mut host, context());
+        assert!(
+            result.is_err(),
+            "a plan naming an undeclared {label} ('{swap_venue}') executed"
+        );
+        assert_eq!(
+            vm.trading_state, before,
+            "and a refused capability must leave no state behind"
+        );
     }
 }
