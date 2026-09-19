@@ -30,8 +30,13 @@
 //! - `plan` — show the execution plan for an intent
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+// The provenance module lives at the crate root, where a reusable module belongs;
+// an explicit path keeps it there while this binary stays a binary.
+#[path = "../provenance.rs"]
+mod provenance;
 
 use clap::{Parser, Subcommand};
 use ed25519_dalek::SigningKey;
@@ -95,6 +100,12 @@ enum Cmd {
         input: PathBuf,
         #[arg(short, long)]
         out: PathBuf,
+        /// Write a provenance document next to the artifact: the source hash, the
+        /// artifact hash, the compiler version, the repository commit and the
+        /// dependency lock, so "which exact source produced this artifact?" has an
+        /// answer (PHASE 47).
+        #[arg(long)]
+        provenance: Option<PathBuf>,
     },
     /// Run bytecode on the dry-run VM, print stats.
     Simulate {
@@ -331,7 +342,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Parse { input, out } => cmd_parse(&input, out.as_ref()),
         Cmd::Check { input, out } => cmd_check(&input, out.as_ref(), mode, cli.deny_warnings),
         Cmd::Lower { input, out } => cmd_lower(&input, &out),
-        Cmd::Build { input, out } => cmd_build(&input, &out, mode, cli.deny_warnings),
+        Cmd::Build { input, out, provenance } => cmd_build(&input, &out, provenance.as_ref(), mode, cli.deny_warnings),
         Cmd::Simulate { input, gas } | Cmd::Run { input, gas } => cmd_run(&input, gas),
         Cmd::Explain { input } => cmd_explain(&input),
         Cmd::TestFixture { out } => cmd_test_fixture(&out),
@@ -894,7 +905,13 @@ fn report_warnings(outcome: &VerifyOutcome, deny_warnings: bool, command: &str) 
     Ok(())
 }
 
-fn cmd_build(input: &PathBuf, out: &PathBuf, mode_str: &str, deny_warnings: bool) -> Result<ExitCode, String> {
+fn cmd_build(
+    input: &PathBuf,
+    out: &PathBuf,
+    provenance_out: Option<&PathBuf>,
+    mode_str: &str,
+    deny_warnings: bool,
+) -> Result<ExitCode, String> {
     let source = read_source(input)?;
     let comp_mode = parse_mode(mode_str)?;
     let (bytecode, outcome) =
@@ -905,6 +922,29 @@ fn cmd_build(input: &PathBuf, out: &PathBuf, mode_str: &str, deny_warnings: bool
     }
 
     std::fs::write(out, &bytecode).map_err(|e| format!("write {out:?}: {e}"))?;
+
+    // PHASE 47: provenance is written beside the artifact, not into it, so the
+    // bytecode stays the artifact and the record of where it came from stays
+    // readable by any tool. The commit is observed here rather than in the
+    // library: a CLI may run a process, a library should not.
+    if let Some(provenance_path) = provenance_out {
+        let commit = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(input.parent().unwrap_or_else(|| Path::new(".")))
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok());
+        let document = crate::provenance::observe(input, &source, out, &bytecode, commit);
+        std::fs::write(provenance_path, document.to_json()).map_err(|e| format!("write {provenance_path:?}: {e}"))?;
+        println!(
+            "x3c build: provenance -> {} (source {}, artifact {}, commit {})",
+            provenance_path.display(),
+            &document.source_hash[..15.min(document.source_hash.len())],
+            &document.artifact_hash[..16.min(document.artifact_hash.len())],
+            document.repository_commit,
+        );
+    }
     println!(
         "x3c build: {} bytes ({} ops){} -> {}",
         bytecode.len(),

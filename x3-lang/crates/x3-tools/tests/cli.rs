@@ -1227,3 +1227,97 @@ fn cli_refuses_a_bridging_program_without_its_proofs_on_mainnet() {
         "and the refusal must name the obligation as a mainnet requirement: {mainnet_output}"
     );
 }
+
+/// PHASE 47 — source provenance: which exact source produced this artifact?
+///
+/// The record is measured, not guessed: the hashes are of bytes that exist, and a
+/// field the build could not observe says `"unknown"` with the reason rather than
+/// being filled with something plausible. This test builds one fixture twice and
+/// checks both halves of that.
+#[test]
+fn cli_build_writes_provenance_that_names_the_source_and_the_artifact() {
+    let source = "risk_policy {\n    min_route_score 90\n}\n\nintent provenance {\n    from \
+                  ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        swap uniswap \
+                  ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    require slippage <= \
+                  50\n    on_fail refund ethereum.USDC to sender\n}\n";
+    let fixture = write_fixture("cli_provenance.x3", source);
+    let artifact = std::env::temp_dir().join("cli_provenance.x3b");
+    let document = std::env::temp_dir().join("cli_provenance.json");
+    let _ = std::fs::remove_file(&artifact);
+    let _ = std::fs::remove_file(&document);
+
+    let output = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&artifact)
+        .arg("--provenance")
+        .arg(&document)
+        .output()
+        .expect("run x3c build --provenance");
+    assert!(
+        output.status.success(),
+        "build must succeed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&document).expect("the document exists"))
+            .expect("the document must be JSON");
+
+    // The source hash is of the source as read: recompute it here rather than
+    // trusting the string.
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(source.as_bytes());
+    let source_hash = format!("sha256:{}", hex_lower(&hasher.finalize()));
+    assert_eq!(json["source_hash"], source_hash, "{json}");
+
+    let bytes = std::fs::read(&artifact).expect("the artifact exists");
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let artifact_hash = format!("sha256:{}", hex_lower(&hasher.finalize()));
+    assert_eq!(json["artifact_hash"], artifact_hash, "{json}");
+
+    assert!(
+        json["compiler_version"].as_str().is_some_and(|value| !value.is_empty()),
+        "the compiler's version is a fact about the binary: {json}"
+    );
+    assert!(
+        json["repository_commit"].as_str().is_some(),
+        "a commit is recorded, or `unknown` with a note — never absent: {json}"
+    );
+    assert!(
+        json["notes"].as_array().is_some() || json["repository_commit"] != "unknown",
+        "a field that could not be measured must carry a note: {json}"
+    );
+
+    // Deterministic: the same source and the same compiler give the same hashes.
+    let second = std::env::temp_dir().join("cli_provenance_2.json");
+    let _ = std::fs::remove_file(&second);
+    let artifact_2 = std::env::temp_dir().join("cli_provenance_2.x3b");
+    let status = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&artifact_2)
+        .arg("--provenance")
+        .arg(&second)
+        .output()
+        .expect("second build");
+    assert!(status.status.success());
+    let second_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&second).expect("second document"))
+            .expect("second document must be JSON");
+    assert_eq!(json["source_hash"], second_json["source_hash"]);
+    assert_eq!(json["artifact_hash"], second_json["artifact_hash"]);
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
