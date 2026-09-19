@@ -204,8 +204,8 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
                     .ok_or_else(|| semantic_error(format!("path[{index}] swap missing 'to' asset")))?;
                 // A step may omit `amount` when it consumes the output of the
                 // previous step; carry the running amount forward in that case.
-                let input_amount = field_amount(step, "amount").unwrap_or(running_amount);
-                let min_output = field_amount(step, "min_output").unwrap_or(0);
+                let input_amount = field_amount(step, "amount")?.unwrap_or(running_amount);
+                let min_output = field_amount(step, "min_output")?.unwrap_or(0);
                 let dex = field_string(step, "dex");
                 // `Operation::Swap` carries the destination chain explicitly
                 // (`ethereum.DAI -> solana.SOL` is a cross-chain swap, and a
@@ -238,7 +238,7 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
                 let asset = field_string(step, "asset")
                     .unwrap_or_else(|| intent.from.asset.clone());
                 let to_asset = field_string(step, "to_asset").unwrap_or_else(|| asset.clone());
-                let amount = field_amount(step, "amount").unwrap_or(running_amount);
+                let amount = field_amount(step, "amount")?.unwrap_or(running_amount);
                 let receiver = field_string(step, "receiver")
                     .or_else(|| intent.to.receiver.clone())
                     .unwrap_or_else(|| "receiver".to_string());
@@ -400,10 +400,30 @@ fn field_nested_chain(step: &RouteStep, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn field_amount(step: &RouteStep, key: &str) -> Option<u128> {
-    let value = step.fields.get(key)?;
+/// Parse an amount from intent JSON, exactly.
+///
+/// The previous body was `text.parse::<f64>().ok().map(|n| n as u128)
+/// .or_else(|| text.parse::<u128>().ok())`: it took the float branch first, so
+/// `"10.9"` silently became `10` and any amount above 2^53 (an 18-decimal token
+/// amount is easily 20 digits) lost its low digits before the cast. The
+/// `no_money_or_policy_conversion_goes_through_a_float` discipline test rejects
+/// that shape for exactly this reason. Whole base units parse exactly; anything
+/// else is an error the caller must handle rather than a silently altered
+/// number.
+fn parse_amount(field: &str, value: &Value) -> Result<u128, X3Error> {
     let text = value_to_string(value);
-    text.parse::<f64>().ok().map(|n| n as u128).or_else(|| text.parse::<u128>().ok())
+    text.trim().parse::<u128>().map_err(|_| {
+        semantic_error(format!(
+            "{field} must be a whole number of base units (no decimal point, no exponent): {text:?}"
+        ))
+    })
+}
+
+fn field_amount(step: &RouteStep, key: &str) -> Result<Option<u128>, X3Error> {
+    match step.fields.get(key) {
+        Some(value) => parse_amount(&format!("path[].{key}"), value).map(Some),
+        None => Ok(None),
+    }
 }
 
 fn validate_endpoint(name: &str, endpoint: &Endpoint, amount_required: bool) -> Result<(), X3Error> {
