@@ -157,6 +157,20 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 span: None,
             });
         }
+        Operation::Hyperarb { name, .. } => {
+            // Refused here as well as in the IR verifier, because `emit_x3ir` is
+            // public: the plan is decided and the legs cannot be settled.
+            return Err(X3Error::CodegenError {
+                message: format!(
+                    "cannot emit the hyperarb '{name}': its legs are resolved and the pipeline that \
+                     turns them into a settlement has no implementation for {}. An artifact \
+                     carrying legs nothing settles would be a plan that does nothing (PHASE 38, \
+                     TICKET-073)",
+                    crate::arb::missing_stages().join(", ")
+                ),
+                span: None,
+            });
+        }
         Operation::Liquidation { position, .. } => {
             // Refused here as well as in the IR verifier, because `emit_x3ir` is
             // public: the accounting is decided, and the calls it plans need an

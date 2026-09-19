@@ -305,6 +305,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "rebalance" => self.parse_rebalance_item(),
             Tok::Ident(ref s) if s == "netting" => self.parse_netting_item(),
             Tok::Ident(ref s) if s == "arb" => self.parse_arb_item(),
+            Tok::Ident(ref s) if s == "hyperarb" => self.parse_hyperarb_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
@@ -4112,6 +4113,196 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `hyperarb <name> { capital = …; parallel { … } choose …; hedge volatility;
+    /// settle_across_domains; require net_profit >= <n>bps; }` — spec PHASE 38.
+    ///
+    /// The clauses are read in any order and each may appear once: a declaration
+    /// that says `choose` twice has two answers and no way to pick between them.
+    /// Nothing is validated here — flash capital, a leg that resolves to nothing,
+    /// a hedge with no bound and `settle_across_domains` over one domain are all
+    /// decided in `compiler/src/hyperarb.rs`, where the reason can be stated with
+    /// figures.
+    fn parse_hyperarb_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let name = Symbol::new(&self.expect_ident("hyperarb name")?);
+        self.expect(Tok::LBrace, "expected '{' after the hyperarb name")?;
+
+        let mut capital: Option<(u128, AssetRef)> = None;
+        let mut flash = false;
+        let mut legs: Option<Vec<HyperarbLeg>> = None;
+        let mut choose: Option<ChoiceCriterion> = None;
+        let mut hedge_volatility = false;
+        let mut settle_across_domains = false;
+        let mut net_profit_bps: Option<u16> = None;
+        let mut seen: Vec<String> = Vec::new();
+
+        let mut note = |seen: &mut Vec<String>, clause: &str| -> Result<(), X3Error> {
+            if seen.iter().any(|name| name == clause) {
+                return Err(parse_err(
+                    format!("the hyperarb declares `{clause}` twice; one line would have to override the other"),
+                    Tok::LBrace,
+                ));
+            }
+            seen.push(clause.to_string());
+            Ok(())
+        };
+
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            if self.peek() == Tok::KwRequire {
+                self.advance();
+                let field = self.expect_ident("`net_profit`")?;
+                if field != "net_profit" {
+                    return Err(parse_err(
+                        format!(
+                            "a hyperarb's floor is `require net_profit >= <n>bps`, found `require \
+                             {field}`"
+                        ),
+                        self.peek(),
+                    ));
+                }
+                if self.peek() != Tok::Ge && self.peek() != Tok::Gt {
+                    return Err(parse_err(
+                        "`require net_profit` needs a floor: write `require net_profit >= <n>bps`".into(),
+                        self.peek(),
+                    ));
+                }
+                self.advance();
+                let value = self.parse_arb_bps("net_profit")?;
+                note(&mut seen, "require net_profit")?;
+                net_profit_bps = Some(value);
+                self.opt_semi();
+                continue;
+            }
+
+            let clause = self.peek_word().ok_or_else(|| {
+                parse_err(
+                    "expected `capital = …`, `parallel { … }`, `choose …`, `hedge volatility`, \
+                     `settle_across_domains` or `require net_profit >= <n>bps`"
+                        .into(),
+                    self.peek(),
+                )
+            })?;
+            match clause.as_str() {
+                "capital" => {
+                    note(&mut seen, "capital")?;
+                    self.advance();
+                    self.expect(Tok::Eq, "expected '=' after `capital`")?;
+                    // `flash(…)` is read rather than rejected: the refusal has to
+                    // be able to quote the amount the author wrote.
+                    if self.peek_word().as_deref() == Some("flash") {
+                        self.advance();
+                        self.expect(Tok::LParen, "expected '(' after `flash`")?;
+                        capital = Some(self.parse_arb_amount("flash")?);
+                        self.expect(Tok::RParen, "expected ')' after the flash amount")?;
+                        flash = true;
+                    } else {
+                        capital = Some(self.parse_arb_amount("capital")?);
+                    }
+                }
+                "parallel" => {
+                    note(&mut seen, "parallel")?;
+                    self.advance();
+                    self.expect(Tok::LBrace, "expected '{' after `parallel`")?;
+                    let mut found: Vec<HyperarbLeg> = Vec::new();
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        let leg = self.expect_ident("a parallel leg name")?;
+                        self.expect(Tok::Eq, &format!("expected '=' after the leg '{leg}'"))?;
+                        let verb = self.expect_ident("`evaluate`")?;
+                        if verb != "evaluate" {
+                            return Err(parse_err(
+                                format!("a hyperarb leg is `{leg} = evaluate(<target>)`, found `{verb}`"),
+                                self.peek(),
+                            ));
+                        }
+                        self.expect(Tok::LParen, "expected '(' after `evaluate`")?;
+                        let target = self.expect_ident("the path a leg evaluates")?;
+                        self.expect(Tok::RParen, "expected ')' after the leg's target")?;
+                        self.opt_semi();
+                        found.push(HyperarbLeg {
+                            name: Symbol::new(&leg),
+                            target: Symbol::new(&target),
+                        });
+                    }
+                    self.expect(Tok::RBrace, "expected '}' after the parallel legs")?;
+                    legs = Some(found);
+                }
+                "choose" => {
+                    note(&mut seen, "choose")?;
+                    self.advance();
+                    let wanted = self.expect_ident("a choice criterion")?;
+                    choose = Some(ChoiceCriterion::parse(&wanted).ok_or_else(|| {
+                        let allowed: Vec<&str> = ChoiceCriterion::ALL.iter().map(|c| c.as_str()).collect();
+                        parse_err(
+                            format!(
+                                "unknown choice criterion '{wanted}'; a hyperarb chooses one of: {}",
+                                allowed.join(", ")
+                            ),
+                            self.peek(),
+                        )
+                    })?);
+                }
+                "hedge" => {
+                    note(&mut seen, "hedge")?;
+                    self.advance();
+                    let what = self.expect_ident("`volatility`")?;
+                    if what != "volatility" {
+                        return Err(parse_err(
+                            format!(
+                                "a hyperarb can `hedge volatility`, which is the exposure it names; \
+                                 found `hedge {what}`"
+                            ),
+                            self.peek(),
+                        ));
+                    }
+                    hedge_volatility = true;
+                }
+                "settle_across_domains" => {
+                    note(&mut seen, "settle_across_domains")?;
+                    self.advance();
+                    settle_across_domains = true;
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown hyperarb clause '{other}'; it declares `capital`, `parallel`, \
+                             `choose`, `hedge volatility`, `settle_across_domains` and `require \
+                             net_profit >= <n>bps`"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        self.expect(Tok::RBrace, "expected '}' after the hyperarb")?;
+
+        let written = name.as_str().to_string();
+        let missing = |clause: &str| {
+            parse_err(
+                format!(
+                    "the hyperarb '{written}' declares no `{clause}`; a declaration without it is \
+                     not the primitive the phase describes"
+                ),
+                Tok::RBrace,
+            )
+        };
+        Ok(Item::Hyperarb(HyperarbDecl {
+            name,
+            capital: capital.or_else(|| {
+                Some((
+                    0,
+                    AssetRef::new(ChainRef::new(Symbol::new("unknown")), Symbol::new("unknown")),
+                ))
+            }),
+            flash,
+            legs: legs.ok_or_else(|| missing("parallel"))?,
+            choose: choose.ok_or_else(|| missing("choose"))?,
+            hedge_volatility,
+            settle_across_domains,
+            net_profit_bps: net_profit_bps.ok_or_else(|| missing("require net_profit"))?,
+        }))
+    }
+
     /// A metric name, read through the objective's table so the two constructs cannot
     /// disagree about which metrics exist or which way each points.
     fn parse_metric_name(&mut self, direction: &str) -> Result<ObjectiveMetric, X3Error> {
@@ -4322,9 +4513,19 @@ impl<'a> Parser<'a> {
                 }
                 self.advance();
                 let value = self.parse_expr()?;
+                // The unit every other basis-point clause in the language writes
+                // (`50 bps`, `100bps`) is accepted here too. It was not, while this
+                // construct's own formatter emitted it — so `x3c fmt` produced an
+                // `atomic_hedge` the parser could not read back, and formatting a
+                // program corrupted it.
+                if self.peek_word().as_deref() == Some("bps") {
+                    self.advance();
+                }
                 delta_bound_bps = Some(crate::semantic::bound_bps_from_expr(&value).ok_or_else(|| {
                     parse_err(
-                        "the delta bound must be a percentage (`0.01%`) or a count of basis points".into(),
+                        "the delta bound must be a percentage (`0.01%`), a count of basis points \
+                         (`1`) or a count with its unit (`1 bps`)"
+                            .into(),
                         self.peek(),
                     )
                 })?);

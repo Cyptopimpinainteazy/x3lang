@@ -70,6 +70,8 @@ pub enum Item {
     /// `arb <name> { discover { … } capital { … } execution { … } risk { … } }` —
     /// spec PHASE 37.
     Arb(ArbDecl),
+    /// `hyperarb <name> { … }` — spec PHASE 38.
+    Hyperarb(HyperarbDecl),
     ParallelDecl(ParallelDecl),
     ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
@@ -1886,4 +1888,52 @@ impl SettlementGuarantee {
     pub fn is_off_chain(self) -> bool {
         !self.is_atomic()
     }
+}
+
+/// `hyperarb <name> { capital = <n> <ASSET>; parallel { … } choose <criterion>;
+/// hedge volatility; settle_across_domains; require net_profit >= <n>bps; }` —
+/// spec PHASE 38.
+///
+/// The multi-leg, multi-domain form of an arbitrage: several paths evaluated at
+/// once, one chosen by a criterion the choice vocabulary already knows, optionally
+/// hedged, settled across domains, with a net-profit floor the declaration states
+/// inline.
+///
+/// Two spellings the phase writes are refused rather than carried, and the reasons
+/// are in `compiler/src/hyperarb.rs`:
+///
+/// - `capital = flash(…)` — spec PHASE 20 forbids shipping flash collateral before
+///   a formal safety proof, so the declaration must state committed capital. The
+///   flash form is parsed (so the refusal can quote the amount) and refused with
+///   the phase's own reason rather than ignored.
+/// - `hedge volatility;` with no hedge in the program — a hedge with no bound is a
+///   hedge with nothing to check, so it must point at the `atomic_hedge` (PHASE 9)
+///   whose `require delta <= …` states what it has to net to.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperarbDecl {
+    pub name: Symbol,
+    /// The capital the trade commits. `None` only when `flash` is set, because the
+    /// flash form names its amount inside the call and the refusal quotes it.
+    pub capital: Option<(u128, AssetRef)>,
+    /// Whether the declaration wrote `capital = flash(…)`.
+    pub flash: bool,
+    /// `parallel { route_a = evaluate(<target>); … }` — the legs, in order.
+    pub legs: Vec<HyperarbLeg>,
+    /// `choose <criterion>` — from the same vocabulary `atomic_choice` uses.
+    pub choose: ChoiceCriterion,
+    /// Whether the declaration wrote `hedge volatility;`.
+    pub hedge_volatility: bool,
+    /// Whether the declaration wrote `settle_across_domains;`.
+    pub settle_across_domains: bool,
+    /// `require net_profit >= <n>bps` — the floor, stated inline.
+    pub net_profit_bps: u16,
+}
+
+/// One `route_x = evaluate(<target>)` leg of a `hyperarb`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperarbLeg {
+    pub name: Symbol,
+    /// What the leg evaluates. Resolved to the program's own declarations by
+    /// `hyperarb::analyse`, never taken on trust.
+    pub target: Symbol,
 }

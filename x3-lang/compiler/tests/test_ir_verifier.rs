@@ -609,3 +609,33 @@ fn an_arb_scope_is_refused_naming_the_pipeline_stages_that_do_not_exist() {
         "the refusal must name the arb and the missing stages: {diagnostics:?}"
     );
 }
+
+#[test]
+fn a_hyperarb_is_refused_until_the_pipeline_can_settle_its_legs() {
+    // PHASE 38's clauses are resolved on the AST (`hyperarb::analyse`); what is
+    // missing is the same pipeline the arb scope needs, and the refusal names the
+    // same two stages rather than saying "not implemented".
+    let ir = ir_with(vec![Operation::Hyperarb {
+        name: "triangular".to_owned(),
+        capital: (25_000_000, "ethereum.USDC".to_owned()),
+        legs: vec![
+            ("route_a".to_owned(), "the venue 'uniswap_v3'".to_owned()),
+            ("route_b".to_owned(), "the venue 'x3_pool'".to_owned()),
+        ],
+        choose: "highest_net_output".to_owned(),
+        hedge_volatility: true,
+        settle_across_domains: true,
+        net_profit_bps: 35,
+    }]);
+    let diagnostics = verify_ir(&ir).expect_err("nothing settles the resolved legs");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        diagnostics[0].message.contains("cannot be executed")
+            && diagnostics[0].message.contains("triangular")
+            && diagnostics[0].message.contains("2 leg(s)")
+            && diagnostics[0].message.contains("Execution Plan")
+            && diagnostics[0].message.contains("Atomic Settlement")
+            && !diagnostics[0].message.contains("  "),
+        "the refusal must name the plan, the legs and the missing stages: {diagnostics:?}"
+    );
+}

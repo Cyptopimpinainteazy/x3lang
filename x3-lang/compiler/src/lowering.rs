@@ -6,6 +6,7 @@
 
 use crate::arb;
 use crate::hedge;
+use crate::hyperarb;
 use crate::intent_emit;
 use crate::ir::{
     self, ChainMetricKind, Condition, CrdtKind as IrCrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind,
@@ -800,6 +801,23 @@ pub fn lower_program_with_mode(
                     max_total_fee_bps: decided.max_total_fee_bps,
                     deadline_blocks: decided.deadline_blocks,
                     parallel: decided.parallel,
+                });
+            }
+            // Explicit rather than left to the catch-all below: `Item` has an arm
+            // for "other items generate no operations", and a declaration that fell
+            // into it would vanish from the artifact silently — a `hyperarb` that
+            // lowered to nothing would be a program whose plan is invisible in the
+            // very document a reader checks it against.
+            Item::Hyperarb(hyperarb_decl) => {
+                let plan = hyperarb::analyse(program, hyperarb_decl).map_err(|reason| semantic(&reason))?;
+                ir.push(Operation::Hyperarb {
+                    name: plan.name.clone(),
+                    capital: plan.capital.clone(),
+                    legs: plan.legs.clone(),
+                    choose: plan.choose.clone(),
+                    hedge_volatility: plan.hedge_volatility,
+                    settle_across_domains: plan.settle_across_domains,
+                    net_profit_bps: plan.net_profit_bps,
                 });
             }
             Item::AtomicLiquidation(liquidation_decl) => {

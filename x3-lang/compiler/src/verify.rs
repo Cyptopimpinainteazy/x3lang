@@ -354,6 +354,18 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     crate::arb::missing_stages().join(", ")
                 ),
             ),
+            // A hyperarb's plan is decided (`hyperarb::analyse`); the pipeline that
+            // would turn its legs into a settlement is the same one the arb scope
+            // needs, and the same two stages of it are missing.
+            Operation::Hyperarb { name, legs, .. } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: the hyperarb '{name}' cannot be executed — it resolves {} leg(s) \
+                     and the pipeline that turns them into a settlement has no implementation for: {}",
+                    legs.len(),
+                    crate::arb::missing_stages().join(", ")
+                ),
+            ),
             Operation::Liquidation { position, .. } => push_unsafe(
                 diagnostics,
                 format!(

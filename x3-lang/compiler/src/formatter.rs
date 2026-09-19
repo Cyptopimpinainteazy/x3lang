@@ -181,6 +181,7 @@ impl X3Formatter {
             Item::Rebalance(rebalance) => self.format_rebalance(rebalance),
             Item::Netting(netting) => self.format_netting(netting),
             Item::Arb(arb) => self.format_arb(arb),
+            Item::Hyperarb(hyperarb) => self.format_hyperarb(hyperarb),
             Item::ProofsRequired(p) => self.format_proofs_required(p),
             Item::VmTarget(t) => self.format_vm_target(t),
             Item::AssetDecl(decl) => self.format_asset_decl(decl),
@@ -1274,6 +1275,49 @@ impl X3Formatter {
         self.write("}\n");
     }
 
+    /// `hyperarb <name> { capital = …; parallel { … } choose …; hedge volatility;
+    /// settle_across_domains; require net_profit >= <n>bps; }`
+    fn format_hyperarb(&mut self, hyperarb: &HyperarbDecl) {
+        self.write("hyperarb ");
+        self.write(hyperarb.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        if let Some((amount, asset)) = &hyperarb.capital {
+            self.write_indent();
+            if hyperarb.flash {
+                self.write(&format!("capital = flash({amount} "));
+            } else {
+                self.write(&format!("capital = {amount} "));
+            }
+            self.format_asset_ref(asset);
+            self.write(if hyperarb.flash { ");\n" } else { ";\n" });
+        }
+        self.write_indent();
+        self.write("parallel {\n");
+        self.indent();
+        for leg in &hyperarb.legs {
+            self.write_indent();
+            self.write(&format!("{} = evaluate({});\n", leg.name.as_str(), leg.target.as_str()));
+        }
+        self.dedent();
+        self.write_indent();
+        self.write("}\n");
+        self.write_indent();
+        self.write(&format!("choose {};\n", hyperarb.choose.as_str()));
+        if hyperarb.hedge_volatility {
+            self.write_indent();
+            self.write("hedge volatility;\n");
+        }
+        if hyperarb.settle_across_domains {
+            self.write_indent();
+            self.write("settle_across_domains;\n");
+        }
+        self.write_indent();
+        self.write(&format!("require net_profit >= {}bps;\n", hyperarb.net_profit_bps));
+        self.dedent();
+        self.write("}\n");
+    }
+
     /// `arb <name> { discover { … } capital { … } execution { … } risk { … } }`
     fn format_arb(&mut self, arb: &ArbDecl) {
         let flag = |value: bool| if value { "enabled" } else { "disabled" };
@@ -1431,7 +1475,10 @@ impl X3Formatter {
         }
         if let Some(bound) = hedge.delta_bound_bps {
             self.write_indent();
-            self.write(&format!("require delta <= {bound} bps;\n"));
+            // The bare count, which is the form the parser documents and the form
+            // that round-trips exactly. The unit spelling is accepted too, but a
+            // formatter should emit the canonical one.
+            self.write(&format!("require delta <= {bound};\n"));
         }
         self.dedent();
         self.write("}\n");

@@ -20,6 +20,7 @@ pub mod emitter;
 pub mod formatter;
 pub mod fusion;
 pub mod hedge;
+pub mod hyperarb;
 pub mod intent_bridge;
 pub mod intent_emit;
 pub mod ir;
@@ -221,6 +222,9 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     // An arbitrage scope's bounds have to be bounds, and its declared profit floor
     // has to be enforced by a guard rather than merely written down (PHASE 37).
     arb::verify(program, &mut acc);
+    // A hyperarb's legs have to resolve to something the program declares, and its
+    // hedge and settlement clauses have to be about something real (PHASE 38).
+    hyperarb::verify(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 
     // Layer 1 of the pipeline described at the top of this file. It was

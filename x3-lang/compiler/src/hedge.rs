@@ -271,3 +271,62 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+
+    fn parse(source: &str) -> Program {
+        crate::parser::parse_source(source).expect("the hedge must parse")
+    }
+
+    fn bound(source: &str) -> u32 {
+        let program = parse(source);
+        let mut acc = ErrorAccumulator::new();
+        super::verify(&program, &mut acc);
+        assert!(!acc.has_errors(), "{:?}", acc.errors());
+        program
+            .items
+            .iter()
+            .find_map(|item| match &item.node {
+                Item::AtomicHedge(hedge) => hedge.delta_bound_bps,
+                _ => None,
+            })
+            .expect("the program declares a hedge")
+    }
+
+    /// The three spellings of one basis point mean the same basis point.
+    #[test]
+    fn the_delta_bound_is_read_from_a_percentage_a_count_or_a_count_with_its_unit() {
+        for source in [
+            "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short equivalent ethereum.ETH \
+             perp;\n    require delta <= 0.01%;\n}\n",
+            "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short equivalent ethereum.ETH \
+             perp;\n    require delta <= 1;\n}\n",
+            "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short equivalent ethereum.ETH \
+             perp;\n    require delta <= 1 bps;\n}\n",
+        ] {
+            assert_eq!(bound(source), 1, "one basis point, however it is written: {source}");
+        }
+    }
+
+    /// `x3c fmt` must not produce a hedge the parser cannot read back. The
+    /// formatter emitted `require delta <= 1 bps;`, which the delta guard rejected,
+    /// so formatting an `atomic_hedge` corrupted it.
+    #[test]
+    fn a_formatted_hedge_parses_back_to_the_same_bound() {
+        let source = "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short equivalent \
+                      ethereum.ETH perp;\n    require delta <= 0.01%;\n}\n";
+        let formatted = crate::formatter::X3Formatter::new().format_program(&parse(source));
+        assert_eq!(
+            bound(&formatted),
+            bound(source),
+            "the formatted hedge must decide the same bound: {formatted}"
+        );
+        assert_eq!(
+            formatted,
+            crate::formatter::X3Formatter::new().format_program(&parse(&formatted)),
+            "formatting must be idempotent over a hedge"
+        );
+    }
+}
