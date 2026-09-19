@@ -844,22 +844,53 @@ pub fn lower_program_with_mode(
                 }
                 ir.push(Operation::AtomicEnd);
             }
-            // Explicit rather than left to the catch-all below: `Item` has an arm
-            // for "other items generate no operations", and a declaration that fell
-            // into it would vanish from the artifact silently — a `hyperarb` that
-            // lowered to nothing would be a program whose plan is invisible in the
-            // very document a reader checks it against.
+            // Explicit rather than left to the catch-all below: `Item` has an arm for
+            // "other items generate no operations", and a declaration that fell into it
+            // would vanish from the artifact silently (TICKET-078).
             Item::Hyperarb(hyperarb_decl) => {
-                let plan = hyperarb::analyse(program, hyperarb_decl).map_err(|reason| semantic(&reason))?;
-                ir.push(Operation::Hyperarb {
-                    name: plan.name.clone(),
-                    capital: plan.capital.clone(),
-                    legs: plan.legs.clone(),
-                    choose: plan.choose.clone(),
-                    hedge_volatility: plan.hedge_volatility,
-                    settle_across_domains: plan.settle_across_domains,
-                    net_profit_bps: plan.net_profit_bps,
+                // The declaration lowers to the route its `choose` clause selects: an
+                // atomic block holding the selection, the chosen leg's host call, the
+                // venues the compiler approved, and the net-profit floor as a runtime
+                // guard.
+                let planned = hyperarb::plan(program, hyperarb_decl).map_err(|reason| semantic(&reason))?;
+                let leg = planned
+                    .legs
+                    .get(planned.selected)
+                    .ok_or_else(|| semantic("the hyperarb selected no leg"))?
+                    .clone();
+
+                ir.push(Operation::AtomicBegin);
+                ir.push(Operation::AtomicChoice {
+                    paths: planned.legs.len() as u32,
+                    criterion: planned.criterion,
+                    selected: planned.selected as u32,
                 });
+                // The input amount is the capital the declaration commits; the leg's
+                // outputs are the host's, because every output depends on a price this
+                // compiler does not have.
+                ir.push(Operation::MultiHopSwap {
+                    path: leg.path.clone(),
+                    amount: planned.capital.0,
+                });
+                ir.push(Operation::RouteFallback {
+                    approved: leg.approved.clone(),
+                });
+                // The floor travels as a guard the runtime evaluates, for the same reason
+                // the arb plan's does: the compiler can bound the trade and cannot measure
+                // it.
+                let floor = arb::Guard {
+                    kind: ast::RequireKind::Profit,
+                    comparison: ast::ComparisonOp::GreaterOrEqual,
+                    bps: planned.net_profit_bps,
+                };
+                ir.push(Operation::Require {
+                    kind: require_kind_to_ir(&floor.kind),
+                    subject: None,
+                    condition: guard_condition(&bps_guard(&floor))?,
+                    error_msg: None,
+                    comparison: Some(floor.comparison),
+                });
+                ir.push(Operation::AtomicEnd);
             }
             Item::AtomicLiquidation(liquidation_decl) => {
                 // The `ledger` call repeats nothing the verifier decided: it is what

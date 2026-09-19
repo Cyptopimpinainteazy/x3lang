@@ -212,24 +212,6 @@ fn hedge_volatility_pointing_at_a_declared_hedge_is_accepted() {
 }
 
 #[test]
-fn settle_across_domains_over_one_domain_is_refused() {
-    // Both the surviving legs are on `evm`, so the claim is empty.
-    let source = clause(
-        "        route_a = evaluate(uniswap_v3);\n        route_b = evaluate(x3_pool);\n",
-        "        route_a = evaluate(uniswap_v3);\n        route_b = evaluate(ethereum);\n",
-    );
-    let message = refusal(&source);
-    assert!(
-        message.contains("says `settle_across_domains` and its legs resolve onto 1 domain(s)"),
-        "the refusal must give the domain count: {message}"
-    );
-    assert!(
-        message.contains("over one it is empty"),
-        "the refusal must say why the claim is empty: {message}"
-    );
-}
-
-#[test]
 fn a_settlement_claim_is_accepted_when_the_legs_really_cross_domains() {
     let plan = decided(&program(HYPERARB));
     assert_eq!(plan.domains.len(), 2);
@@ -312,4 +294,210 @@ fn the_formatter_round_trips_a_hyperarb() {
         decided(&source),
         "a reformat must not change what the declaration decided"
     );
+}
+
+/// Two venues that both take the asset a hyperarb would commit, one of them crossing
+/// chains — which is what makes `settle_across_domains` a claim with content.
+const ROUTES: &str = "\
+venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 5\n    liquidity 1_200_000\n    \
+slippage_bps 8\n    latency_ms 12\n    finality_blocks 12\n    risk 2\n}\n\
+venue usdc_to_sol {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+asset_in ethereum.USDC\n    asset_out solana.USDC\n    fee_bps 3\n    liquidity 1_000_000\n    \
+slippage_bps 6\n    latency_ms 20\n    finality_blocks 12\n    risk 3\n}\n";
+
+/// The declaration the route tests plan.
+const ROUTE_DECL: &str = "hyperarb tri {\n    capital = 25_000_000 ethereum.USDC;\n    \
+                        parallel { route_a = evaluate(usdc_to_eth); route_b = evaluate(usdc_to_sol); }\n    \
+                        choose lowest_declared_fee;\n    settle_across_domains;\n    require \
+                        net_profit >= 35bps;\n}\n";
+
+/// A declaration in the program that carries the slippage ceiling the semantic pass
+/// requires of any artifact containing a swap leg. A hyperarb states only a profit floor,
+/// so the ceiling has to come from somewhere in the program.
+const BOUND: &str = "intent bounds {\n    from ethereum.USDC amount 1 receiver 0xA1\n    to \
+                     ethereum.USDC receiver 0xA2\n    require slippage <= 50\n    require nonce \
+                     unused bounds_nonce\n    timeout 30s refund ethereum.USDC to sender\n    \
+                     on_fail rollback\n}\n";
+
+fn route_program(routes: &str, declaration: &str) -> String {
+    format!("{BOUND}{routes}{declaration}")
+}
+
+fn route_plan(source: &str) -> hyperarb::RoutePlan {
+    let parsed = parse(source);
+    let decl = parsed
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::Hyperarb(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the program declares a hyperarb");
+    hyperarb::plan(&parsed, decl).expect("a declared route plans")
+}
+
+fn route_refusal(source: &str) -> String {
+    let parsed = parse(source);
+    let decl = parsed
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::Hyperarb(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the program declares a hyperarb");
+    hyperarb::plan(&parsed, decl).expect_err("the route must be refused")
+}
+
+#[test]
+fn the_plan_selects_the_cheapest_declared_leg_and_records_the_choice() {
+    let plan = route_plan(&route_program(ROUTES, ROUTE_DECL));
+    assert_eq!(plan.legs.len(), 2, "two candidate routes");
+    assert_eq!(
+        plan.selected, 1,
+        "the second leg declares 3bps against the first's 5: {:?}",
+        plan.legs
+    );
+    assert_eq!(plan.legs[1].name, "route_b");
+    assert_eq!(plan.legs[1].declared_fee_bps, 3);
+    assert_eq!(
+        plan.legs[1].path,
+        vec!["ethereum.USDC".to_string(), "solana.USDC".to_string()],
+        "the selected route is the leg's own asset pair"
+    );
+    assert!(
+        plan.legs[1].crosses_chains,
+        "ethereum.USDC -> solana.USDC crosses chains, which is what the settlement claim needs"
+    );
+    assert_eq!(
+        plan.legs[0].approved,
+        vec!["usdc_to_eth".to_string()],
+        "a leg naming a venue approves that venue"
+    );
+    assert_eq!(plan.capital, (25_000_000, "ethereum.USDC".to_string()));
+    assert_eq!(plan.net_profit_bps, 35);
+}
+
+#[test]
+fn the_criterion_that_needs_prices_is_refused_with_that_reason() {
+    // The phase's own example writes it. The graph holds venue attributes and no price,
+    // so there is no output to rank by — the same reason the language refuses `maximize
+    // profit` for an objective.
+    let source = route_program(
+        ROUTES,
+        &ROUTE_DECL.replace("choose lowest_declared_fee", "choose highest_net_output"),
+    );
+    let refusal = route_refusal(&source);
+    assert!(
+        refusal.contains("`highest_net_output`") && refusal.contains("no price"),
+        "the refusal must say which number is missing: {refusal}"
+    );
+    assert!(
+        refusal.contains("lowest_declared_fee"),
+        "and which criteria are computable: {refusal}"
+    );
+}
+
+#[test]
+fn a_leg_that_takes_another_asset_is_refused_because_it_is_a_different_trade() {
+    let other_asset = "\
+venue x3_to_eth {\n    kind pool\n    chain x3\n    domain x3vm\n    \
+asset_in x3.USDC\n    asset_out x3.ETH\n    fee_bps 1\n    liquidity 2_000_000\n    \
+slippage_bps 2\n    latency_ms 5\n    finality_blocks 1\n    risk 1\n}\n";
+    let source = route_program(
+        &format!("{ROUTES}{other_asset}"),
+        &ROUTE_DECL.replace("evaluate(usdc_to_eth)", "evaluate(x3_to_eth)"),
+    );
+    let refusal = route_refusal(&source);
+    assert!(
+        refusal.contains("takes x3.USDC") && refusal.contains("committed in ethereum.USDC"),
+        "the refusal must give both assets: {refusal}"
+    );
+}
+
+#[test]
+fn a_leg_whose_venues_disagree_on_an_asset_pair_is_refused_naming_them() {
+    // `evaluate(ethereum)` resolves to every venue on ethereum, and they do not pair the
+    // same assets — so the leg has no single route and the compiler will not pick one.
+    let source = route_program(
+        ROUTES,
+        &ROUTE_DECL.replace("evaluate(usdc_to_eth)", "evaluate(ethereum)"),
+    );
+    let refusal = route_refusal(&source);
+    assert!(
+        refusal.contains("do not agree on an asset pair"),
+        "the refusal must say the venues disagree: {refusal}"
+    );
+    assert!(refusal.contains("usdc_to_sol"), "and name one of them: {refusal}");
+}
+
+#[test]
+fn settle_across_domains_is_judged_against_the_selected_route_not_the_union() {
+    // Both candidates are on `evm`, and the selected one crosses to Solana. The claim is
+    // about the route that settles, so it holds — and when the selected route stays on
+    // one chain it does not.
+    let plan = route_plan(&route_program(ROUTES, ROUTE_DECL));
+    assert!(plan.legs[plan.selected].crosses_chains);
+
+    let one_chain = ROUTES.replace("asset_out solana.USDC", "asset_out ethereum.USDC");
+    let source = route_program(&one_chain, ROUTE_DECL);
+    let refusal = route_refusal(&source);
+    assert!(
+        refusal.contains("says `settle_across_domains`"),
+        "the refusal must be about the claim: {refusal}"
+    );
+    assert!(
+        refusal.contains("within one chain") && refusal.contains("over one chain the claim is empty"),
+        "and say why it is empty: {refusal}"
+    );
+}
+
+#[test]
+fn ties_go_to_the_earliest_declared_leg() {
+    // `fewest_hops` cannot separate two one-venue legs, so the convention is that the
+    // earliest declared one wins — the same tie-break `atomic_choice` uses, which makes
+    // the selection a function of the program text.
+    // The cross-chain leg is declared first, because `settle_across_domains` is a claim
+    // about the route that settles: with the same-chain leg first, this declaration would
+    // be refused for a claim it cannot support, which is a different test.
+    let source = route_program(
+        ROUTES,
+        &ROUTE_DECL
+            .replace("choose lowest_declared_fee", "choose fewest_hops")
+            .replace(
+                "parallel { route_a = evaluate(usdc_to_eth); route_b = evaluate(usdc_to_sol); }",
+                "parallel { route_a = evaluate(usdc_to_sol); route_b = evaluate(usdc_to_eth); }",
+            ),
+    );
+    let plan = route_plan(&source);
+    assert_eq!(plan.selected, 0, "the earliest declared leg: {:?}", plan.legs);
+    assert_eq!(plan.criterion, x3_lang_ast::ast::ChoiceCriterion::FewestHops);
+}
+
+#[test]
+fn the_plan_is_a_function_of_the_declarations_not_of_their_order() {
+    // Built by hand rather than by reversing a split, because `split` is not
+    // double-ended — and hand-written is clearer about what is being reversed anyway.
+    let reversed = ROUTES
+        .rsplit_once("venue usdc_to_sol {")
+        .map(|(head, _)| head)
+        .map(|first| {
+            let sol = ROUTES.strip_prefix(first).unwrap_or("").to_string();
+            format!("{sol}{first}")
+        })
+        .unwrap_or_else(|| ROUTES.to_string());
+    let plan = route_plan(&route_program(ROUTES, ROUTE_DECL));
+    let reversed_plan = route_plan(&route_program(
+        &reversed,
+        &ROUTE_DECL.replace(
+            "parallel { route_a = evaluate(usdc_to_eth); route_b = evaluate(usdc_to_sol); }",
+            "parallel { route_a = evaluate(usdc_to_sol); route_b = evaluate(usdc_to_eth); }",
+        ),
+    ));
+    assert_eq!(
+        plan.legs[plan.selected].path, reversed_plan.legs[reversed_plan.selected].path,
+        "the selected route must not depend on declaration order"
+    );
+    assert_eq!(plan.legs[plan.selected].declared_fee_bps, 3);
 }

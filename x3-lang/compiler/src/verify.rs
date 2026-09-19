@@ -328,19 +328,6 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                      them, so the portfolio is decided and the plan is not pretended"
                 ),
             ),
-            // A hyperarb's legs are resolved (`hyperarb::analyse`) and the generator that
-            // turns them into operations is not written — its sibling `arb` has one
-            // (`arb::plan`), and this is the next piece rather than a stage of the shared
-            // pipeline. Refused here and in the emitter with that reason.
-            Operation::Hyperarb { name, legs, .. } => push_unsafe(
-                diagnostics,
-                format!(
-                    "{op_context}: the hyperarb '{name}' cannot be executed — it resolves {} leg(s) \
-                     and the generator that turns resolved legs into a settled plan is not written, \
-                     so the legs are decided and no artifact claims otherwise",
-                    legs.len()
-                ),
-            ),
             Operation::Liquidation { position, .. } => push_unsafe(
                 diagnostics,
                 format!(

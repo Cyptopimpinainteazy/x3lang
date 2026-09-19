@@ -2200,29 +2200,105 @@ fn cli_refuses_an_arb_scope_no_declared_venue_survives() {
 /// have to reach the *binary*, a leg that names nothing has to be refused there,
 /// and `x3c lower` has to show the plan the verifier resolved.
 #[test]
-fn cli_refuses_a_hyperarb_leg_that_names_nothing_and_lowers_the_one_that_does() {
-    let venues = "venue uniswap_v3 {\n    kind pool\n    chain ethereum\n    domain evm\n    \
-                  asset_in ethereum.USDC\n    asset_out solana.USDC\n    fee_bps 5\n    liquidity \
-                  1_000_000\n    slippage_bps 8\n    latency_ms 12\n    finality_blocks 12\n    \
-                  risk 2\n}\n\
-                  venue x3_pool {\n    kind pool\n    chain x3\n    domain x3vm\n    asset_in \
-                  x3.USDC\n    asset_out x3.ETH\n    fee_bps 3\n    liquidity 2_000_000\n    \
-                  slippage_bps 4\n    latency_ms 5\n    finality_blocks 1\n    risk 1\n}\n";
-    let hyperarb = |legs: &str| {
-        format!(
-            "{venues}hyperarb triangular {{\n    capital = 25_000_000 ethereum.USDC;\n    \
-             parallel {{\n{legs}    }}\n    choose highest_net_output;\n    \
-             settle_across_domains;\n    require net_profit >= 35bps;\n}}\n"
-        )
-    };
-
-    // A leg naming an invented path is a route to nowhere, and the refusal lists
-    // what the program does declare.
-    let bad = write_fixture(
-        "cli_hyperarb_bad_leg.x3",
-        &hyperarb("        route_a = evaluate(uniswap_v3);\n        route_b = evaluate(EVM_PATH);\n"),
+fn cli_plans_a_hyperarb_builds_it_and_runs_it() {
+    // The legs used to be resolved and refused, because nothing turned them into
+    // operations. `hyperarb::plan` selects one and emits its route, so the whole path has
+    // to hold — check, build, disassemble, run — and the artifact has to carry which leg
+    // was chosen and the floor the runtime enforces.
+    let source = "venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 5\n    \
+                  liquidity 1_200_000\n    slippage_bps 8\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  venue usdc_to_sol {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out solana.USDC\n    fee_bps 3\n    \
+                  liquidity 1_000_000\n    slippage_bps 6\n    latency_ms 20\n    \
+                  finality_blocks 12\n    risk 3\n}\n\
+                  intent bounds {\n    from ethereum.USDC amount 1 receiver 0xA1\n    to \
+                  ethereum.USDC receiver 0xA2\n    require slippage <= 50\n    require nonce \
+                  unused bounds_nonce\n    timeout 30s refund ethereum.USDC to sender\n    \
+                  on_fail rollback\n}\n\
+                  hyperarb tri {\n    capital = 25_000_000 ethereum.USDC;\n    \
+                  parallel { route_a = evaluate(usdc_to_eth); route_b = evaluate(usdc_to_sol); }\n    \
+                  choose lowest_declared_fee;\n    settle_across_domains;\n    require net_profit \
+                  >= 35bps;\n}\n";
+    let fixture = write_fixture("cli_hyperarb_planned.x3", source);
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
     );
-    let check = x3c().arg("check").arg(&bad).output().expect("x3c check");
+    assert!(check.status.success(), "a planned hyperarb must check: {output}");
+    assert!(
+        !output.contains("cannot be executed"),
+        "nothing about a planned hyperarb is unexecutable: {output}"
+    );
+
+    let out = std::env::temp_dir().join("cli_hyperarb_planned.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.status.success(), "the route must build: {text}");
+
+    let explain = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let disassembly = format!(
+        "{}{}",
+        String::from_utf8_lossy(&explain.stdout),
+        String::from_utf8_lossy(&explain.stderr)
+    );
+    assert!(
+        disassembly.contains("ATOMIC_CHOICE") && disassembly.contains("MULTI_HOP_SWAP"),
+        "the plan must record the choice and the chosen route: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("solana.USDC"),
+        "the selected leg is the one that crosses to Solana: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("ROUTE_FALLBACK") && disassembly.contains("usdc_to_sol"),
+        "the approved venues must travel in the artifact: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("REQUIRE") && disassembly.contains("ATOMIC_END"),
+        "the net-profit floor must be a guard inside the atomic block: {disassembly}"
+    );
+
+    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
+    let run_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        run.status.success() && run_text.contains("x3c run: ok"),
+        "the planned route must run against the fixture host: {run_text}"
+    );
+}
+
+#[test]
+fn cli_refuses_a_hyperarb_leg_that_names_nothing() {
+    let source = "venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 5\n    \
+                  liquidity 1_200_000\n    slippage_bps 8\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  intent bounds {\n    from ethereum.USDC amount 1 receiver 0xA1\n    to \
+                  ethereum.USDC receiver 0xA2\n    require slippage <= 50\n    require nonce \
+                  unused bounds_nonce\n    timeout 30s refund ethereum.USDC to sender\n    \
+                  on_fail rollback\n}\n\
+                  hyperarb tri {\n    capital = 25_000_000 ethereum.USDC;\n    \
+                  parallel { route_a = evaluate(usdc_to_eth); route_b = evaluate(EVM_PATH); }\n    \
+                  choose lowest_declared_fee;\n    require net_profit >= 35bps;\n}\n";
+    let fixture = write_fixture("cli_hyperarb_bad_leg.x3", source);
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
     let output = format!(
         "{}{}",
         String::from_utf8_lossy(&check.stdout),
@@ -2234,50 +2310,40 @@ fn cli_refuses_a_hyperarb_leg_that_names_nothing_and_lowers_the_one_that_does() 
         "the refusal must name the leg's target: {output}"
     );
     assert!(
-        output.contains("uniswap_v3") && output.contains("x3vm"),
+        output.contains("usdc_to_eth") && output.contains("evm"),
         "the refusal must list what the program declares: {output}"
     );
+}
 
-    // The sound declaration lowers, and the plan it decided is visible in the IR.
-    let good = write_fixture(
-        "cli_hyperarb_good.x3",
-        &hyperarb("        route_a = evaluate(uniswap_v3);\n        route_b = evaluate(x3_pool);\n"),
-    );
-    let out = std::env::temp_dir().join("cli_hyperarb_good.json");
-    let lower = x3c()
-        .arg("lower")
-        .arg(&good)
-        .arg("--out")
-        .arg(&out)
-        .output()
-        .expect("x3c lower");
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&lower.stdout),
-        String::from_utf8_lossy(&lower.stderr)
-    );
-    assert!(lower.status.success(), "lowering must succeed: {text}");
-    let json = std::fs::read_to_string(&out).expect("the IR document");
-    assert!(
-        json.contains("\"Hyperarb\"")
-            && json.contains("the venue 'uniswap_v3'")
-            && json.contains("the venue 'x3_pool'")
-            && json.contains("\"choose\": \"highest_net_output\"")
-            && json.contains("\"net_profit_bps\": 35"),
-        "the decided plan must be in the IR: {json}"
-    );
-
-    // And `check` refuses it at the pipeline, not silently.
-    let check = x3c().arg("check").arg(&good).output().expect("x3c check");
+#[test]
+fn cli_refuses_a_hyperarb_that_chooses_by_output() {
+    // The phase's own example criterion, and the number the compiler does not have.
+    let source = "venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 5\n    \
+                  liquidity 1_200_000\n    slippage_bps 8\n    latency_ms 12\n    \
+                  finality_blocks 12\n    risk 2\n}\n\
+                  venue usdc_to_sol {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+                  asset_in ethereum.USDC\n    asset_out solana.USDC\n    fee_bps 3\n    \
+                  liquidity 1_000_000\n    slippage_bps 6\n    latency_ms 20\n    \
+                  finality_blocks 12\n    risk 3\n}\n\
+                  intent bounds {\n    from ethereum.USDC amount 1 receiver 0xA1\n    to \
+                  ethereum.USDC receiver 0xA2\n    require slippage <= 50\n    require nonce \
+                  unused bounds_nonce\n    timeout 30s refund ethereum.USDC to sender\n    \
+                  on_fail rollback\n}\n\
+                  hyperarb tri {\n    capital = 25_000_000 ethereum.USDC;\n    \
+                  parallel { route_a = evaluate(usdc_to_eth); route_b = evaluate(usdc_to_sol); }\n    \
+                  choose highest_net_output;\n    require net_profit >= 35bps;\n}\n";
+    let fixture = write_fixture("cli_hyperarb_by_output.x3", source);
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
     let output = format!(
         "{}{}",
         String::from_utf8_lossy(&check.stdout),
         String::from_utf8_lossy(&check.stderr)
     );
-    assert!(!check.status.success(), "no generator settles the legs: {output}");
+    assert!(!check.status.success(), "there is no output to rank by: {output}");
     assert!(
-        output.contains("2 leg(s)") && output.contains("generator that turns resolved legs"),
-        "the refusal must say what is missing and what was decided: {output}"
+        output.contains("highest_net_output") && output.contains("no price"),
+        "the refusal must say which number is missing: {output}"
     );
 }
 

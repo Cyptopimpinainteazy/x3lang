@@ -664,7 +664,9 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 };
                 let known_criterion = matches!(
                     criterion,
-                    CHOICE_CRITERION_HIGHEST_NET_OUTPUT | CHOICE_CRITERION_FEWEST_HOPS
+                    CHOICE_CRITERION_HIGHEST_NET_OUTPUT
+                        | CHOICE_CRITERION_FEWEST_HOPS
+                        | CHOICE_CRITERION_LOWEST_DECLARED_FEE
                 );
                 if !known_criterion || paths < 2 || selected >= paths {
                     if try_dispatch_handler(vm) {

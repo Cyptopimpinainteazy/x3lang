@@ -192,19 +192,12 @@ pub fn analyse(program: &Program, decl: &HyperarbDecl) -> Result<HyperarbPlan, S
     }
 
     // --- settlement -------------------------------------------------------
-    if decl.settle_across_domains && domains.len() < 2 {
-        return Err(format!(
-            "the hyperarb '{name}' says `settle_across_domains` and its legs resolve onto {} \
-             domain(s) ({}); settlement across domains is a claim about how many ledgers the legs \
-             touch, and over one it is empty",
-            domains.len(),
-            if domains.is_empty() {
-                "none".to_string()
-            } else {
-                domains.iter().cloned().collect::<Vec<_>>().join(", ")
-            }
-        ));
-    }
+    // Checked in `plan`, against the route that actually settles: the legs are
+    // alternative candidate routes and `choose` selects one, so "across domains" is a
+    // claim about the selected leg's path rather than about the union of everything the
+    // declarations mention. Checking the union here would accept a hyperarb whose
+    // selected route stays on one chain and refuse one whose alternatives happen to
+    // share a domain.
 
     if decl.net_profit_bps == 0 {
         return Err(format!(
@@ -285,5 +278,236 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
                 span: Span::DUMMY,
             });
         }
+    }
+}
+
+/// One leg's route: the asset path it takes and the venues approved to serve it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegRoute {
+    pub name: String,
+    /// `chain.ASSET` along the leg, starting at the venue's input asset.
+    pub path: Vec<String>,
+    /// The venues that may serve this leg, cheapest declared fee first. The order is
+    /// the compiler's preference and it is carried rather than implied.
+    pub approved: Vec<String>,
+    /// The declared fee of the leg's cheapest venue, in basis points.
+    pub declared_fee_bps: u32,
+    /// Whether the leg's path moves value between chains.
+    pub crosses_chains: bool,
+}
+
+/// The plan a `hyperarb` lowers to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutePlan {
+    pub name: String,
+    /// The committed capital: its amount and `chain.ASSET`.
+    pub capital: (u128, String),
+    /// Every leg, in declaration order.
+    pub legs: Vec<LegRoute>,
+    /// The leg `choose` selected, as an index into `legs`.
+    pub selected: usize,
+    /// The criterion the selection was made by.
+    pub criterion: x3_lang_ast::ast::ChoiceCriterion,
+    pub net_profit_bps: u16,
+}
+
+/// Turn a decided `hyperarb` into the route its `choose` clause selects.
+///
+/// ## The reading this takes, and why
+///
+/// `parallel { route_a = evaluate(…); … }` is read as **candidate routes**, not as legs
+/// that all run. The phase's own description of its lowerings is "Opportunity Graph →
+/// Candidate Routes → Filter → Dependency DAG → Risk Verification → Execution Plan →
+/// Atomic Settlement": candidates are *filtered*, which is a selection among
+/// alternatives. And `choose` only means anything under that reading — you cannot
+/// choose one of three things you have already run. So the plan is an `AtomicChoice`
+/// over the legs followed by the selected leg's operations, which is the machinery
+/// `atomic_choice` already has.
+///
+/// ## What cannot be ranked, and is refused
+///
+/// `choose highest_net_output` ranks the legs by their outputs. `opportunity.rs` opens
+/// by naming what it does not model — "What it deliberately does *not* do: model price
+/// impact as a function" — and a venue edge carries fee, slippage, liquidity, latency,
+/// finality and risk and no price. So that criterion needs a number the compiler does
+/// not have, which is already why the language refuses `maximize profit` for an
+/// objective. `fewest_hops` and `lowest_declared_fee` *are* computable, and the phase's
+/// own example is the one that is not.
+///
+/// ## The exchange, stated plainly
+///
+/// Every leg is one venue's asset pair, because that is what a leg's target names and
+/// what the graph can be sure of: a leg whose venues disagree about which assets they
+/// move is refused rather than resolved to one of their pairs. So the legs are
+/// alternatives between venues, and `choose` is a choice among them — not a search for
+/// the most profitable path through all of them, which needs prices.
+pub fn plan(program: &Program, decl: &HyperarbDecl) -> Result<RoutePlan, String> {
+    let decided = analyse(program, decl)?;
+    let venues = declared_venues(program);
+
+    let mut legs: Vec<LegRoute> = Vec::with_capacity(decl.legs.len());
+    for leg in &decl.legs {
+        let target = leg.target.as_str();
+        let reached: Vec<&VenueDecl> = match resolve(&venues, target)? {
+            Resolution::Venue(wanted) => venues
+                .values()
+                .copied()
+                .filter(|venue| venue.name.as_str() == wanted)
+                .collect(),
+            Resolution::Chain(chain) => venues
+                .values()
+                .copied()
+                .filter(|venue| venue.chain.as_str() == chain)
+                .collect(),
+            Resolution::Domain(domain) => venues
+                .values()
+                .copied()
+                .filter(|venue| venue.domain.as_str() == domain)
+                .collect(),
+        };
+        if reached.is_empty() {
+            return Err(format!(
+                "the hyperarb '{}' leg '{}' resolves to '{target}' and no venue serves it, so the \
+                 leg has no route to take",
+                decided.name,
+                leg.name.as_str()
+            ));
+        }
+
+        // The venues a leg resolves to have to agree about what the leg moves. A chain
+        // or a domain can hold several venues and they need not pair the same assets;
+        // resolving to one of their pairs would be choosing a route nobody wrote.
+        let first = &(reached[0].asset_in.clone(), reached[0].asset_out.clone());
+        let disagreement: Vec<String> = reached
+            .iter()
+            .filter(|venue| &(venue.asset_in.clone(), venue.asset_out.clone()) != first)
+            .map(|venue| {
+                format!(
+                    "{} ({} -> {})",
+                    venue.name.as_str(),
+                    crate::opportunity::asset_label(&venue.asset_in),
+                    crate::opportunity::asset_label(&venue.asset_out)
+                )
+            })
+            .collect();
+        if !disagreement.is_empty() {
+            return Err(format!(
+                "the hyperarb '{}' leg '{}' resolves to venues that do not agree on an asset pair: \
+                 {} takes {} -> {}, while {} take other pairs. A leg whose venues move different \
+                 assets has no single route, so name the venue whose route the leg means",
+                decided.name,
+                leg.name.as_str(),
+                reached[0].name.as_str(),
+                crate::opportunity::asset_label(&reached[0].asset_in),
+                crate::opportunity::asset_label(&reached[0].asset_out),
+                disagreement.join(", ")
+            ));
+        }
+
+        // Cheapest declared fee first, then by name: the preference is a function of the
+        // declarations rather than of the order they were written in.
+        let mut ordered: Vec<&VenueDecl> = reached.clone();
+        ordered.sort_by(|left, right| {
+            left.fee_bps
+                .cmp(&right.fee_bps)
+                .then(left.name.as_str().cmp(right.name.as_str()))
+        });
+
+        // Every leg is an alternative route for the *same* trade from the *same*
+        // capital, so a leg whose input asset is not the capital's is a route for a
+        // different trade: the amount the plan carries is denominated in the capital,
+        // and spending it on a leg that takes another asset would be spending it twice
+        // in two units. Refused with both assets rather than converted, because a
+        // conversion is a trade nobody wrote.
+        let leg_input = crate::opportunity::asset_label(&ordered[0].asset_in);
+        if leg_input != decided.capital.1 {
+            return Err(format!(
+                "the hyperarb '{}' leg '{}' takes {leg_input} while the capital is committed in \
+                 {}; the legs of one hyperarb are alternative routes for one trade, so a leg that \
+                 takes another asset is a route for a different trade",
+                decided.name,
+                leg.name.as_str(),
+                decided.capital.1
+            ));
+        }
+
+        legs.push(LegRoute {
+            name: leg.name.as_str().to_string(),
+            path: vec![
+                crate::opportunity::asset_label(&ordered[0].asset_in),
+                crate::opportunity::asset_label(&ordered[0].asset_out),
+            ],
+            approved: ordered.iter().map(|venue| venue.name.as_str().to_string()).collect(),
+            declared_fee_bps: ordered[0].fee_bps,
+            crosses_chains: ordered[0].asset_in.chain.as_str() != ordered[0].asset_out.chain.as_str(),
+        });
+    }
+
+    let selected = select_leg(decl, &legs, &decided.name)?;
+
+    // The plan contains a swap, and `semantic::verify_slippage_explicit` refuses a swap
+    // leg in an artifact with no explicit slippage bound. The hyperarb has no slippage
+    // clause of its own — the phase's example states only a profit floor — so the bound
+    // has to come from the program, and a program that states none is refused here with
+    // the rule named rather than emitted into an artifact the next layer rejects.
+    let bounded = crate::semantic::require_guards(program)
+        .into_iter()
+        .any(|(_, guard)| guard.kind == x3_lang_ast::ast::RequireKind::Slippage);
+    if !bounded {
+        return Err(format!(
+            "the hyperarb '{}' plans a swap route and this program declares no `require slippage <= \
+             <n>` bound; a swap without an explicit ceiling is a leg whose price is unconstrained, \
+             so write the bound where the trade is bounded",
+            decided.name
+        ));
+    }
+
+    // `settle_across_domains` is a claim about the route that settles, which under this
+    // reading is the selected leg. A leg that stays on one chain settles on one ledger.
+    if decided.settle_across_domains && !legs[selected].crosses_chains {
+        return Err(format!(
+            "the hyperarb '{}' says `settle_across_domains` and the leg it selects ('{}') moves {} \
+             within one chain; a settlement across domains is one whose route crosses chains, and \
+             over one chain the claim is empty",
+            decided.name,
+            legs[selected].name,
+            legs[selected].path.join(" -> ")
+        ));
+    }
+
+    Ok(RoutePlan {
+        name: decided.name,
+        capital: decided.capital,
+        legs,
+        selected,
+        criterion: decl.choose,
+        net_profit_bps: decided.net_profit_bps,
+    })
+}
+
+/// Which leg `choose` selects.
+///
+/// Ties go to the earliest declared leg, which is `atomic_choice`'s own convention and
+/// what makes the selection a function of the program text.
+fn select_leg(decl: &HyperarbDecl, legs: &[LegRoute], name: &str) -> Result<usize, String> {
+    use x3_lang_ast::ast::ChoiceCriterion;
+
+    match decl.choose {
+        ChoiceCriterion::LowestDeclaredFee => Ok(legs
+            .iter()
+            .enumerate()
+            .min_by_key(|(index, leg)| (leg.declared_fee_bps, *index))
+            .map(|(index, _)| index)
+            .unwrap_or(0)),
+        // Every leg is one venue's pair, so every leg is one hop and the criterion
+        // cannot separate them: the earliest declared leg is the selection, which the
+        // convention above makes a decision rather than an accident.
+        ChoiceCriterion::FewestHops => Ok(0),
+        ChoiceCriterion::HighestNetOutput => Err(format!(
+            "the hyperarb '{name}' chooses by `highest_net_output`, which ranks the legs by their \
+             outputs; the opportunity graph holds venue attributes and no price, so the compiler \
+             has no output to rank by and will not invent one. Choose `lowest_declared_fee` or \
+             `fewest_hops`, which are computable from what the program declares"
+        )),
     }
 }

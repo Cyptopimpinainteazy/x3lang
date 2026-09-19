@@ -141,25 +141,6 @@ pub enum Operation {
     /// accounts, so there is no balance for the VM to debit. The IR verifier and the
     /// emitter both refuse it for that reason (TICKET-071).
 
-    /// The multi-leg, multi-domain arbitrage primitive (spec PHASE 38).
-    ///
-    /// The decided plan travels so `x3c lower` shows what the verifier resolved:
-    /// the committed capital, the legs and what each one names, the criterion, and
-    /// the domains the legs cover. No artifact is emitted with this operation —
-    /// the pipeline stages `arb::missing_stages` names are still missing, so the IR
-    /// verifier and the emitter both refuse it (TICKET-073).
-    Hyperarb {
-        name: String,
-        /// The committed capital: its amount and `chain.ASSET`.
-        capital: (u128, String),
-        /// `(leg name, what it resolved to)`, in declaration order.
-        legs: Vec<(String, String)>,
-        choose: String,
-        hedge_volatility: bool,
-        settle_across_domains: bool,
-        net_profit_bps: u16,
-    },
-
     /// A liquidation: the capital advanced, the collateral seized, and what the
     /// conversion's own bound leaves after the repayment (spec PHASE 10).
     ///

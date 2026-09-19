@@ -411,7 +411,7 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         let selected: u32 = fields[2].parse().map_err(|_| VerifyError::InvalidOperand(pc))?;
         let known_criterion = matches!(
             criterion,
-            CHOICE_CRITERION_HIGHEST_NET_OUTPUT | CHOICE_CRITERION_FEWEST_HOPS
+            CHOICE_CRITERION_HIGHEST_NET_OUTPUT | CHOICE_CRITERION_FEWEST_HOPS | CHOICE_CRITERION_LOWEST_DECLARED_FEE
         );
         if !known_criterion || paths < 2 || selected >= paths {
             return Err(VerifyError::InvalidOperand(pc));
