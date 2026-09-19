@@ -303,6 +303,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "atomic_hedge" => self.parse_atomic_hedge_item(),
             Tok::Ident(ref s) if s == "atomic_liquidation" => self.parse_atomic_liquidation_item(),
             Tok::Ident(ref s) if s == "rebalance" => self.parse_rebalance_item(),
+            Tok::Ident(ref s) if s == "netting" => self.parse_netting_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
@@ -3533,6 +3534,112 @@ impl<'a> Parser<'a> {
             name,
             weights,
             minimize,
+        }))
+    }
+
+    /// `netting <name> { consent <party>; <debtor> owes <amount> <chain.ASSET> to
+    /// <creditor>; … }` — spec PHASE 22.
+    ///
+    /// Two clause forms, told apart by their first word, the way every other block
+    /// in this language is read: `consent <party>` and `<debtor> owes <amount>
+    /// <chain.ASSET> to <creditor>`. The obligation clause starts with the debtor's
+    /// name, which is the only thing that can start it, so the parser never has to
+    /// guess which form it is looking at.
+    ///
+    /// Nothing here validates the book — whether the weights of an obligation set
+    /// add up, whether a party consented, whether two obligations are even
+    /// comparable is decided in `compiler/src/netting.rs`, where the reason can be
+    /// stated with figures. The parser's job is only to say what was written.
+    fn parse_netting_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let name = Symbol::new(&self.expect_ident("netting name")?);
+        self.expect(Tok::LBrace, "expected '{' after the netting name")?;
+        let mut consent: Vec<Symbol> = Vec::new();
+        let mut obligations: Vec<ObligationDecl> = Vec::new();
+
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let clause = self.peek_word().ok_or_else(|| {
+                parse_err(
+                    "expected `consent <party>` or `<debtor> owes <amount> <chain.ASSET> to \
+                     <creditor>`"
+                        .into(),
+                    self.peek(),
+                )
+            })?;
+
+            if clause == "consent" {
+                self.advance();
+                let party = Symbol::new(&self.expect_ident("the party consenting to netting")?);
+                self.opt_semi();
+                consent.push(party);
+                continue;
+            }
+
+            // `<debtor> owes <amount> <chain.ASSET> to <creditor>`
+            let debtor = Symbol::new(&clause);
+            self.advance();
+            let verb = self.expect_ident("`owes`")?;
+            if verb != "owes" {
+                return Err(parse_err(
+                    format!(
+                        "expected `{clause} owes <amount> <chain.ASSET> to <creditor>`, found \
+                         `{clause} {verb}`; an obligation is written as an amount one party owes \
+                         another"
+                    ),
+                    self.peek(),
+                ));
+            }
+            let amount = match self.peek() {
+                Tok::Int(value) => {
+                    self.advance();
+                    value
+                }
+                _ => {
+                    return Err(parse_err(
+                        format!(
+                            "`{clause} owes <amount> …` needs a whole number of base units: an \
+                             obligation with a fractional amount would have to name its rounding, \
+                             and how much of a debt is discharged is not a rounding decision"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            };
+            let asset = self.parse_hedge_asset()?;
+            let connective = self.expect_ident("`to`")?;
+            if connective != "to" {
+                return Err(parse_err(
+                    format!(
+                        "an obligation names the party it is owed to: write `{clause} owes \
+                         {amount} <chain.ASSET> to <creditor>`, found `{connective}`"
+                    ),
+                    self.peek(),
+                ));
+            }
+            let creditor = Symbol::new(&self.expect_ident("the party the obligation is owed to")?);
+            self.opt_semi();
+            obligations.push(ObligationDecl {
+                debtor,
+                creditor,
+                amount,
+                asset,
+            });
+        }
+        self.expect(Tok::RBrace, "expected '}' after the netting book")?;
+
+        if obligations.is_empty() {
+            return Err(parse_err(
+                format!(
+                    "the netting book '{name}' declares no obligation; a book with nothing in it \
+                     has no net position and nothing to offset"
+                ),
+                self.peek(),
+            ));
+        }
+        Ok(Item::Netting(NettingDecl {
+            name,
+            consent,
+            obligations,
         }))
     }
 

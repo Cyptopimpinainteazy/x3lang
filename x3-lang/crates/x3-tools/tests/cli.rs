@@ -1610,3 +1610,121 @@ fn cli_decides_a_rebalances_weights_and_refuses_to_pretend_it_plans() {
         "an unrankable target must carry the objective's own reason: {output}"
     );
 }
+
+/// `x3c netting` — spec PHASE 22's obligation offsets.
+///
+/// The compiler module has its own tests (`compiler/tests/test_netting.rs`), but
+/// those call `netting::books` directly. This is the reachability the feature needs
+/// to be a feature rather than a module: without a test that runs the *binary* and
+/// reads its report, `x3c netting` could print anything — or nothing — and every
+/// test in the workspace would still pass.
+#[test]
+fn cli_netting_offsets_a_book_and_measures_what_it_removed() {
+    let source = "netting book_a {\n    consent alice;\n    consent bob;\n    consent carol;\n    \
+                  alice owes 500 ethereum.USDC to bob;\n    bob owes 300 ethereum.USDC to \
+                  alice;\n    carol owes 120 ethereum.USDC to alice;\n    alice owes 40 \
+                  ethereum.USDC to carol;\n}\n";
+    let fixture = write_fixture("cli_netting_book.x3", source);
+    let output = x3c().arg("netting").arg(&fixture).output().expect("run x3c netting");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "netting must exit 0: {stdout}");
+    assert!(
+        stdout.contains("book 'book_a'") && stdout.contains("3 part(ies)"),
+        "the book must be named with its parties: {stdout}"
+    );
+    assert!(
+        stdout.contains("4 obligation(s) -> 2 transfer(s), gross 960 -> 200"),
+        "the saving must be measured, not asserted: {stdout}"
+    );
+    assert!(
+        stdout.contains("alice -> bob: 120") && stdout.contains("carol -> bob: 80"),
+        "the residual must be printed: {stdout}"
+    );
+    assert!(
+        stdout.contains("changed no party's net position"),
+        "the invariant must be reported: {stdout}"
+    );
+}
+
+#[test]
+fn cli_netting_names_the_pairs_it_refused_to_combine() {
+    // Two ledgers, same asset name. A report that listed only what it netted would
+    // let a reader assume this pair was netted too.
+    let source = "netting book_b {\n    consent alice;\n    consent bob;\n    alice owes 5 \
+                  ethereum.USDC to bob;\n    bob owes 5 x3.USDC to alice;\n}\n";
+    let fixture = write_fixture("cli_netting_ledgers.x3", source);
+    let output = x3c().arg("netting").arg(&fixture).output().expect("run x3c netting");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "netting must exit 0: {stdout}");
+    assert_eq!(
+        stdout.matches("gross 5 -> 5").count(),
+        2,
+        "both groups keep their one obligation, so nothing was netted across the two \
+         ledgers: {stdout}"
+    );
+    assert!(
+        stdout.contains("were NOT combined"),
+        "the pair it declined must be named: {stdout}"
+    );
+}
+
+#[test]
+fn cli_netting_refuses_a_book_that_nets_a_party_that_did_not_consent() {
+    let source = "netting book_c {\n    consent alice;\n    alice owes 500 ethereum.USDC to \
+                  bob;\n    bob owes 300 ethereum.USDC to alice;\n}\n";
+    let fixture = write_fixture("cli_netting_no_consent.x3", source);
+    let output = x3c().arg("netting").arg(&fixture).output().expect("run x3c netting");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        !output.status.success(),
+        "an unconsented offset must be refused: {text}"
+    );
+    assert!(
+        text.contains("did not consent"),
+        "the refusal must say who did not consent: {text}"
+    );
+}
+
+#[test]
+fn cli_check_refuses_a_netting_book_because_nothing_settles_the_residual() {
+    // The offsets are decided, and the command that says whether the program can run
+    // says it cannot — with the reason, not with silence.
+    let source = "netting book_a {\n    consent alice;\n    consent bob;\n    alice owes 500 \
+                  ethereum.USDC to bob;\n    bob owes 300 ethereum.USDC to alice;\n}\n";
+    let fixture = write_fixture("cli_netting_check.x3", source);
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(!check.status.success(), "nothing settles the residual yet: {output}");
+    assert!(
+        output.contains("book_a") && output.contains("name rather than an account"),
+        "the refusal must name the book and the missing settler: {output}"
+    );
+
+    // And the same answer from `build`, so `check` and `build` cannot disagree.
+    let out = std::env::temp_dir().join("cli_netting_check.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(!build.status.success(), "the artifact must not be emitted: {text}");
+    assert!(text.contains("book_a"), "the emitter must give the same reason: {text}");
+}

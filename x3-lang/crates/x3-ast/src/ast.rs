@@ -65,6 +65,8 @@ pub enum Item {
     AtomicLiquidation(AtomicLiquidationDecl),
     /// `rebalance <name> { … }` — spec PHASE 11.
     Rebalance(RebalanceDecl),
+    /// `netting <name> { … }` — spec PHASE 22.
+    Netting(NettingDecl),
     ParallelDecl(ParallelDecl),
     ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
@@ -1673,4 +1675,54 @@ pub struct RebalanceDecl {
     /// criterion the compiler would rank a plan by; the rest are recorded targets,
     /// because the optimizer ranks one metric (PHASE 15).
     pub minimize: Vec<ObjectiveMetric>,
+}
+
+/// `netting <name> { consent <party>; <debtor> owes <amount> <chain.ASSET> to
+/// <creditor>; … }` — spec PHASE 22.
+///
+/// A *book* of obligations between named parties. PHASE 22's premise is that
+/// several obligations can be discharged by the transfers that remain after they
+/// are offset, so less value moves than the sum of what was promised: "net
+/// obligations before settlement where cryptographically valid."
+///
+/// The declaration is the obligation set; the analysis over it lives in
+/// `compiler/src/netting.rs`, which decides each of the phase's listed benefits as
+/// a measured quantity (gross movement and transfer count before and after) rather
+/// than as a claim. Two things are deliberately *not* in the syntax:
+///
+/// - **no netting of unlike assets.** `alice owes 5 ethereum.ETH to bob; bob owes
+///   5 ethereum.USDC to alice;` are not offsettable: saying 5 ETH discharges 5
+///   USDC is a claim about a price, and this compiler does not have one
+///   (`compiler/src/hedge.rs` refuses the same claim in a hedge for the same
+///   reason). The analysis refuses it with that reason instead of picking a rate.
+/// - **no netting across domains.** An obligation to deliver on Ethereum is not a
+///   payment on X3, so the two are not offset against each other — that is a
+///   bridge's job, and the bridge carries its own trust assumptions. Groups are
+///   netted one `(domain, asset)` at a time and the report says which obligations
+///   it declined to combine and why.
+///
+/// `consent` is not decoration: netting changes *who* pays *whom*, so a party whose
+/// obligation is rewritten has to have agreed. A book that nets a party which did
+/// not consent is refused, the same way a non-consenting intent is never
+/// internalized into a fusion ring (`compiler/src/fusion.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NettingDecl {
+    pub name: Symbol,
+    /// `consent <party>;` — the parties that agreed to have their obligations
+    /// offset against each other, in the order written.
+    pub consent: Vec<Symbol>,
+    /// The obligations, in the order written.
+    pub obligations: Vec<ObligationDecl>,
+}
+
+/// `<debtor> owes <amount> <chain.ASSET> to <creditor>` — one obligation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObligationDecl {
+    pub debtor: Symbol,
+    pub creditor: Symbol,
+    /// A whole number of base units of `asset`. Amounts crossing this surface are
+    /// integers for the same reason every other amount in the language is: a
+    /// fractional unit would have to name its rounding.
+    pub amount: u128,
+    pub asset: AssetRef,
 }

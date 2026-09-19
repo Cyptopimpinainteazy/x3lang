@@ -134,6 +134,19 @@ pub enum Operation {
         criterion: String,
     },
 
+    /// A book of obligations reduced to the transfers that remain (spec PHASE 22).
+    ///
+    /// The decided residual travels so `x3c lower` shows what netting left standing,
+    /// because nothing executes it: the parties in a book are symbols rather than
+    /// accounts, so there is no balance for the VM to debit. The IR verifier and the
+    /// emitter both refuse it for that reason (TICKET-071).
+    Netting {
+        book: String,
+        /// `(debtor, creditor, domain.ASSET, amount)` — the residual transfers, in
+        /// the deterministic order the analysis produced.
+        transfers: Vec<(String, String, String, u128)>,
+    },
+
     /// A liquidation: the capital advanced, the collateral seized, and what the
     /// conversion's own bound leaves after the repayment (spec PHASE 10).
     ///

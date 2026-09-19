@@ -558,3 +558,25 @@ fn a_rebalance_operation_is_refused_until_the_graph_can_be_generated() {
         "the refusal must name the rebalance and what is missing: {diagnostics:?}"
     );
 }
+
+#[test]
+fn a_netting_book_is_refused_until_something_can_settle_the_residual() {
+    // PHASE 22's offsets are decided on the AST (`netting::book`); what is missing is
+    // anything that can move the residual. A party in a book is a name rather than an
+    // account, so there is no balance to debit, and an artifact carrying a residual
+    // nothing settles would be the fake this repository forbids.
+    let ir = ir_with(vec![Operation::Netting {
+        book: "book_a".to_owned(),
+        transfers: vec![("alice".to_owned(), "bob".to_owned(), "ethereum.USDC".to_owned(), 200)],
+    }]);
+    let diagnostics = verify_ir(&ir).expect_err("nothing settles the residual yet");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        diagnostics[0].message.contains("cannot be executed")
+            && diagnostics[0].message.contains("book_a")
+            && diagnostics[0].message.contains("1 transfer(s)")
+            && diagnostics[0].message.contains("account")
+            && !diagnostics[0].message.contains("  "),
+        "the refusal must name the book, the residual and what is missing: {diagnostics:?}"
+    );
+}

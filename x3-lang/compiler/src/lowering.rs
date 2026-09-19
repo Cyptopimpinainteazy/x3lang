@@ -11,6 +11,7 @@ use crate::ir::{
     SerialFormat, StorageKind, VectorOp, X3IR,
 };
 use crate::liquidation;
+use crate::netting;
 use crate::rebalance;
 use crate::semantic::CompilationMode;
 use crate::trading_lowering;
@@ -758,6 +759,31 @@ pub fn lower_program_with_mode(
                     name: portfolio.name.clone(),
                     weights: portfolio.weights.clone(),
                     criterion: portfolio.criterion.name().to_string(),
+                });
+            }
+            Item::Netting(netting_decl) => {
+                // The residual travels in the operation: `x3c lower` is where the
+                // offsets are visible today, because the parties are symbols rather
+                // than accounts and there is nothing for the VM to move.
+                let analysed = netting::book(netting_decl).map_err(|reason| semantic(&reason))?;
+                let transfers = analysed
+                    .groups
+                    .iter()
+                    .flat_map(|group| {
+                        let key = format!("{}.{}", group.domain, group.asset);
+                        group.transfers().into_iter().map(move |transfer| {
+                            (
+                                transfer.debtor.clone(),
+                                transfer.creditor.clone(),
+                                key.clone(),
+                                transfer.amount,
+                            )
+                        })
+                    })
+                    .collect();
+                ir.push(Operation::Netting {
+                    book: analysed.name.clone(),
+                    transfers,
                 });
             }
             Item::AtomicLiquidation(liquidation_decl) => {

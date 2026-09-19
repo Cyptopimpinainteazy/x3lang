@@ -328,6 +328,20 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                      them, so the portfolio is decided and the plan is not pretended"
                 ),
             ),
+            // A book's offsets are decided (`netting::verify` and `netting::book`); what
+            // is missing is anything that can move them. The parties are symbols, not
+            // accounts, so there is no balance for the VM to debit. Refusing here rather
+            // than emitting a residual set nothing settles is the same rule the
+            // rebalance, hedge and liquidation follow.
+            Operation::Netting { book, transfers } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: the netting book '{book}' cannot be executed — it reduces its \
+                     obligations to {} transfer(s), and a party in a book is a name rather than an \
+                     account, so nothing can settle the residual the analysis decided",
+                    transfers.len()
+                ),
+            ),
             Operation::Liquidation { position, .. } => push_unsafe(
                 diagnostics,
                 format!(

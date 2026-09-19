@@ -26,6 +26,7 @@ pub mod linter;
 pub mod liquidation;
 pub mod lowering;
 pub mod metadata;
+pub mod netting;
 pub mod numeric;
 pub mod objective;
 pub mod opportunity;
@@ -213,6 +214,9 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     // A target portfolio's weights have to be a whole, and its criterion has to be
     // one the optimizer can rank (PHASE 11).
     rebalance::verify(program, &mut acc);
+    // A book of obligations has to be one the parties agreed to and one whose
+    // offsetting leaves every position alone (PHASE 22).
+    netting::verify(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 
     // Layer 1 of the pipeline described at the top of this file. It was

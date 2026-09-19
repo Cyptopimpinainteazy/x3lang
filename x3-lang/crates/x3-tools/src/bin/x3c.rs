@@ -210,6 +210,8 @@ enum Cmd {
     /// Find rings of intents that could settle against each other instead of
     /// each taking external liquidity.
     Fusion { input: PathBuf },
+    /// Offset a book of obligations and report what has to move afterwards.
+    Netting { input: PathBuf },
     /// Print a compiled strategy's marketplace metadata: what it is, what it
     /// needs, and what it does not expose.
     Metadata {
@@ -380,6 +382,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             max_slippage_bps,
         } => cmd_optimize(&input, &from, &to, objective.as_deref(), max_hops, max_slippage_bps),
         Cmd::Fusion { input } => cmd_fusion(&input),
+        Cmd::Netting { input } => cmd_netting(&input),
         Cmd::Metadata { input, out } => cmd_metadata(&input, out.as_ref(), mode),
         Cmd::Score { input } => cmd_score(&input, mode),
         Cmd::Test {
@@ -609,6 +612,87 @@ fn cmd_fusion(input: &PathBuf) -> Result<ExitCode, String> {
                  wants, and nobody closes the loop",
                 flow.name
             );
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `x3c netting` — offset a book of obligations and report what has to move
+/// afterwards (spec PHASE 22).
+///
+/// The report gives the measured saving rather than the phase's adjectives: gross
+/// movement and transfer count before and after, per `(domain, asset)` group. It
+/// also prints the pairs it declined to combine and why, because a report that
+/// listed only what it netted would let a reader assume everything else was netted
+/// too.
+///
+/// It parses and analyses without running the full `check`, for the reason
+/// `x3c optimize` does the same: `check` refuses a netting book at the IR layer
+/// (nothing settles a residual whose parties are names), and the analysis is
+/// exactly what this command exists to show. Refusing to report it because the
+/// book cannot be executed would hide the one thing the phase is about.
+fn cmd_netting(input: &PathBuf) -> Result<ExitCode, String> {
+    use x3_lang_compiler::netting::{books, Outcome};
+
+    let source = read_source(input)?;
+    let program = x3_lang_compiler::parser::parse_source(&source).map_err(|e| format!("parse error: {e}"))?;
+    // The book-level errors first, so a book that is not a book reports the reason
+    // rather than an empty analysis.
+    let mut acc = x3_lang_common::ErrorAccumulator::new();
+    x3_lang_compiler::netting::verify(&program, &mut acc);
+    if acc.has_errors() {
+        for error in acc.errors() {
+            print_error(&format!("{error}"));
+        }
+        return Ok(ExitCode::from(1));
+    }
+    let books = books(&program).map_err(|reason| format!("netting error: {reason}"))?;
+    if books.is_empty() {
+        println!("x3c netting: no `netting` book in {}", input.display());
+        return Ok(ExitCode::SUCCESS);
+    }
+    for book in &books {
+        println!(
+            "x3c netting: book '{}' — {} part(ies), {} obligation group(s)",
+            book.name,
+            book.parties.len(),
+            book.groups.len()
+        );
+        for group in &book.groups {
+            let key = format!("{}.{}", group.domain, group.asset);
+            match &group.outcome {
+                Outcome::Netted {
+                    transfers,
+                    gross_before,
+                    gross_after,
+                } => {
+                    println!(
+                        "  {key}: {} obligation(s) -> {} transfer(s), gross {gross_before} -> \
+                         {gross_after}",
+                        group.obligations.len(),
+                        transfers.len()
+                    );
+                    for transfer in transfers {
+                        println!("    {} -> {}: {}", transfer.debtor, transfer.creditor, transfer.amount);
+                    }
+                }
+                Outcome::Refused(reason) => println!("  {key}: NOT NETTED — {reason}"),
+            }
+        }
+        for pair in &book.uncombined {
+            println!(
+                "  note: '{}' and '{}' owe each other across {} and {} and were NOT combined: {}",
+                pair.party, pair.counterparty, pair.groups.0, pair.groups.1, pair.reason
+            );
+        }
+        // The property the whole analysis rests on, printed because a report that
+        // only showed the saving would not show that nobody paid for it.
+        match book.preserves_net_positions() {
+            Ok(()) => println!(
+                "  verdict: netting changed no party's net position — the offsets removed \
+                 circular movement and nothing else"
+            ),
+            Err(reason) => println!("  verdict: REFUSED — {reason}"),
         }
     }
     Ok(ExitCode::SUCCESS)

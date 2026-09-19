@@ -179,6 +179,7 @@ impl X3Formatter {
             Item::AtomicHedge(hedge) => self.format_atomic_hedge(hedge),
             Item::AtomicLiquidation(liquidation) => self.format_atomic_liquidation(liquidation),
             Item::Rebalance(rebalance) => self.format_rebalance(rebalance),
+            Item::Netting(netting) => self.format_netting(netting),
             Item::ProofsRequired(p) => self.format_proofs_required(p),
             Item::VmTarget(t) => self.format_vm_target(t),
             Item::AssetDecl(decl) => self.format_asset_decl(decl),
@@ -1262,6 +1263,26 @@ impl X3Formatter {
         self.write("}\n");
         self.write_indent();
         self.write("atomic;\n");
+        self.dedent();
+        self.write("}\n");
+    }
+
+    /// `netting <name> { consent <party>; <debtor> owes <n> <chain.ASSET> to <creditor>; }`
+    fn format_netting(&mut self, netting: &NettingDecl) {
+        self.write("netting ");
+        self.write(netting.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        for party in &netting.consent {
+            self.write_indent();
+            self.write(&format!("consent {};\n", party.as_str()));
+        }
+        for obligation in &netting.obligations {
+            self.write_indent();
+            self.write(&format!("{} owes {} ", obligation.debtor.as_str(), obligation.amount));
+            self.format_asset_ref(&obligation.asset);
+            self.write(&format!(" to {};\n", obligation.creditor.as_str()));
+        }
         self.dedent();
         self.write("}\n");
     }
