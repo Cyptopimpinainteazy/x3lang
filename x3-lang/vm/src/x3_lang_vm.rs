@@ -88,6 +88,13 @@ pub struct VMState {
     /// taken, instead of having to infer it from which operations happen to be
     /// present.
     pub atomic_choices: Vec<AtomicChoiceRecord>,
+    /// Nonces this run has tested and recorded, in order.
+    ///
+    /// A `Vec` rather than a set: every ordering in this VM is explicit so that
+    /// two runs of one artifact are identical, and membership at these sizes is
+    /// a scan. A host that wants replay protection across runs starts the VM with
+    /// the nonces it has already seen.
+    pub used_nonces: Vec<String>,
     /// Route `fallback` approval sets the program declared, in order.
     ///
     /// The approved venue list is what a runtime needs in order to restrict
@@ -137,6 +144,7 @@ impl VMState {
             sub_exec_ops: Vec::new(),
             trading_ops: Vec::new(),
             atomic_choices: Vec::new(),
+            used_nonces: Vec::new(),
             route_fallbacks: Vec::new(),
             parallel_plans: Vec::new(),
             allowed_features: std::collections::BTreeSet::new(),

@@ -74,6 +74,15 @@ pub const GAS_ADAPTIVE: u8 = 0x99;
 pub const BOUNTY: u8 = 0x9A;
 pub const SUB_EXEC: u8 = 0x9B;
 
+/// Whether a nonce has been used, and the recording of it.
+///
+/// The one instruction that leaves a guard's quantity in `r0` from a *run-time*
+/// fact rather than a declaration: `require nonce unused <id>` is a claim about
+/// the chain's history, so the compiler cannot decide it and the VM has to. Its
+/// payload carries the identifier; the executor sets `r0` to 1 when the nonce is
+/// new and records it, and the guard that follows compares `r0` against 1.
+pub const NONCE_UNUSED: u8 = 0x9C;
+
 pub const ROUTE_SCORE: u8 = 0xA0;
 pub const SOLVER_BID: u8 = 0xA1;
 pub const RELAYER_ATTEST: u8 = 0xA2;
@@ -190,6 +199,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
         || matches!(
             opcode,
             EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK | PARALLEL_PLAN | STRATEGY_LICENSE
+                | NONCE_UNUSED
                 | GPU_DISPATCH..=SUB_EXEC
                 | ROUTE_SCORE..=REFUND_POLICY
                 | TRADING_BEGIN..=TRADING_BRIDGE

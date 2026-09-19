@@ -93,6 +93,11 @@ pub enum CapabilityPayload {
         version: String,
         upgrade_from: Option<String>,
     },
+    /// Test-and-record a nonce: the quantity `require nonce unused <id>` is
+    /// about, which only the runtime can answer (TICKET-051).
+    NonceUnused {
+        nonce: String,
+    },
     StorageNamespace {
         package: String,
         key: String,
@@ -342,6 +347,7 @@ pub fn encode_capability_payload(payload: &CapabilityPayload) -> Result<Vec<u8>,
             write_string(&mut out, version)?;
             write_optional_string(&mut out, upgrade_from.as_deref())?;
         }
+        CapabilityPayload::NonceUnused { nonce } => write_string(&mut out, nonce)?,
         CapabilityPayload::StorageNamespace { package, key } => {
             write_string(&mut out, package)?;
             write_string(&mut out, key)?;
@@ -686,6 +692,9 @@ pub fn decode_capability_payload(opcode: u8, bytes: &[u8]) -> Result<CapabilityP
         0x94 => CapabilityPayload::MultisigCheck {
             required: reader.read_u32()?,
             total: reader.read_u32()?,
+        },
+        0x9C => CapabilityPayload::NonceUnused {
+            nonce: reader.read_string()?,
         },
         0x95 => CapabilityPayload::VersionMeta {
             version: reader.read_string()?,

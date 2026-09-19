@@ -209,6 +209,13 @@ pub enum Operation {
 
     // ===== Guard Operations =====
     /// Require a condition to be true
+    /// `require nonce unused <id>` — test the nonce and record it.
+    ///
+    /// Emitted immediately before the guard that reads its result, because the
+    /// guard's quantity is `r0` and this is what puts it there.
+    NonceUnused {
+        nonce: String,
+    },
     Require {
         kind: RequireKind,
         /// Optional subject: chain for Finality, invariant name, etc.

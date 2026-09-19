@@ -197,8 +197,25 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 },
                 _ => GUARD_OP_NONE,
             };
-            bytecode.write_all(&[REQUIRE, require_flags(REQUIRE_COMPARE_STATIC, guard_operator)])?;
-            bytecode.write_all(&0u16.to_le_bytes())?;
+            // Which comparison the VM makes. Every guard is STATIC — the
+            // compiler checked it and there is no run-time quantity — *except*
+            // the nonce guard, whose quantity is whether the nonce is new: the
+            // `NONCE_UNUSED` instruction emitted immediately before it puts that
+            // in `r0`, so this one compares (`r0 >= 1`) and a replay fails at the
+            // guard rather than at a later, unrelated instruction.
+            let (mode, threshold) = if matches!(
+                op,
+                Operation::Require {
+                    kind: crate::ir::RequireKind::NonceUnused,
+                    ..
+                }
+            ) {
+                (REQUIRE_COMPARE_GE, 1u16)
+            } else {
+                (REQUIRE_COMPARE_STATIC, 0u16)
+            };
+            bytecode.write_all(&[REQUIRE, require_flags(mode, guard_operator)])?;
+            bytecode.write_all(&threshold.to_le_bytes())?;
         }
         Operation::OnFail { .. } => {
             bytecode.write_all(&[ON_FAIL])?;
@@ -405,6 +422,7 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
         Operation::InvariantCheck { .. } => emit_payload_op(INVARIANT_CHECK, op, bytecode)?,
         Operation::PrivacyCommit { .. } => emit_payload_op(PRIVACY_COMMIT, op, bytecode)?,
         Operation::ProofRequired { .. } => emit_payload_op(PROOF_REQUIRED, op, bytecode)?,
+        Operation::NonceUnused { .. } => emit_payload_op(NONCE_UNUSED, op, bytecode)?,
         Operation::VmAdapterCall { .. } => emit_payload_op(VM_ADAPTER_CALL, op, bytecode)?,
         Operation::ModeCheck { .. } => emit_payload_op(MODE_CHECK, op, bytecode)?,
         Operation::PackageImport { .. } => emit_payload_op(PACKAGE_IMPORT, op, bytecode)?,
@@ -878,6 +896,7 @@ fn operation_to_payload(op: &Operation) -> Result<CapabilityPayload, X3Error> {
             require_denominator: require.1,
             reject_on: reject_on.clone(),
         },
+        Operation::NonceUnused { nonce } => CapabilityPayload::NonceUnused { nonce: nonce.clone() },
         Operation::RiskScore { score, category } => CapabilityPayload::RiskScore {
             score: *score,
             category: category.clone(),
@@ -1131,6 +1150,7 @@ fn disassemble_op(opcode: u8, payload: &[u8], _flags: u8, _operand: u16) -> Stri
         0x70..=0x7F => format!("VECTOR   {payload_str}"),
         0x80..=0x9A => format!("CAP      {payload_str}"),
         0x9B => "SUB_EXEC".into(),
+        0x9C => "NONCE_UNUSED".into(),
         0xA0 => format!("ROUTE_SCORE  {payload_str}"),
         0xA1 => format!("SOLVER_BID   {payload_str}"),
         0xA2 => format!("RELAYER_ATTEST {payload_str}"),

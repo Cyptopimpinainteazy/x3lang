@@ -458,6 +458,14 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
                 return Err(VerifyError::InvalidOperand(pc));
             }
         }
+        CapabilityPayload::NonceUnused { nonce } => {
+            // The same rule the compiler states: an empty identifier would test
+            // and record nothing while the guard after it passes, i.e. a
+            // replay-protection instruction that protects against no replay.
+            if nonce.is_empty() {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+        }
         _ => {}
     }
     Ok(())

@@ -60,6 +60,15 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 }
                 atomic_depth += 1;
             }
+            Operation::NonceUnused { nonce } => {
+                // The instruction exists to carry an identifier, and an empty one
+                // would test and record nothing while the guard after it passes:
+                // a replay-protection instruction that protects against no
+                // replay.
+                if nonce.trim().is_empty() {
+                    push_unsafe(diagnostics, format!("{op_context}: nonce is empty"));
+                }
+            }
             Operation::AtomicChoice {
                 paths,
                 criterion,

@@ -907,8 +907,8 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 // program commits to. The parser refuses a nonce guard without
                 // one; a hand-built AST that has none is refused here rather
                 // than recorded as a nonce of nothing.
-                match &guard.value {
-                    Some(value) => ir.metadata.nonce = Some(expression_to_string(value)),
+                let nonce = match &guard.value {
+                    Some(value) => expression_to_string(value),
                     None => {
                         return Err(x3_lang_common::X3Error::SemanticError {
                             message: "a `nonce` guard must name the nonce it commits to \
@@ -918,7 +918,15 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                             span: Span::DUMMY,
                         })
                     }
-                }
+                };
+                ir.metadata.nonce = Some(nonce.clone());
+                // And put the quantity the guard reads into `r0`: whether this
+                // nonce has been used. This is the one guard in the language
+                // whose condition is a *run-time* fact, so it is the one that
+                // emits a comparison rather than a `STATIC` assertion
+                // (TICKET-027/051). The instruction goes immediately before the
+                // guard because the guard tests `r0` and nothing else writes it.
+                ir.push(Operation::NonceUnused { nonce });
             }
             ir.push(Operation::Require {
                 kind: require_kind_to_ir(&guard.kind),

@@ -502,7 +502,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.pc = align4(vm.state.pc + 3 + data.len());
                 continue;
             }
-            GPU_DISPATCH..=SUB_EXEC => {
+            GPU_DISPATCH..=SUB_EXEC | NONCE_UNUSED => {
                 let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
                     Ok(p) => p.to_vec(),
                     Err(e) => {
@@ -1029,6 +1029,9 @@ fn gas_cost_for_opcode(opcode: u8) -> u128 {
         0x99 => 50,
         0x9A => 50,
         0x9B => 50,
+        // A nonce test is a membership check and a recording: a scan over the
+        // run's nonces, priced like the other cheap capabilities.
+        0x9C => 50,
         0xA0..=0xAB => 50,
         0xB0..=0xB8 => 50,
         0xFF => 0,
@@ -1051,7 +1054,7 @@ fn gas_surcharge(opcode: u8, vm: &VM, operand: u16) -> u128 {
             let addr = base.wrapping_add(imm as usize);
             (addr as u128 / 65536).saturating_mul(5)
         }
-        0x20..=0x25 | 0x60 | 0x61 | 0x80..=0x9B | 0xA0..=0xAB => {
+        0x20..=0x25 | 0x60 | 0x61 | 0x80..=0x9C | 0xA0..=0xAB => {
             let payload_len = read_u16_le(vm.code.as_slice(), vm.state.pc + 1).unwrap_or(0) as u128;
             payload_len / 32
         }
@@ -1310,6 +1313,22 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
                 return Err(ExecError::Panic("rpc consensus: invalid require ratio".to_string()));
             }
             vm.state.registers[0] = 1;
+            Ok(vec![])
+        }
+        CapabilityPayload::NonceUnused { nonce } => {
+            if nonce.is_empty() {
+                return Err(ExecError::Panic("nonce unused: nonce must be non-empty".to_string()));
+            }
+            // Leave the guarded quantity in r0: 1 when the nonce is new, 0 when
+            // it has been used. This is a *test and record* — the second use in
+            // the same run fails the guard that follows, which is what makes
+            // `require nonce unused <id>` a check rather than an assertion
+            // nothing reads (TICKET-051).
+            let fresh = !vm.state.used_nonces.iter().any(|used| used == &nonce);
+            vm.state.registers[0] = if fresh { 1 } else { 0 };
+            if fresh {
+                vm.state.used_nonces.push(nonce.clone());
+            }
             Ok(vec![])
         }
         CapabilityPayload::RiskScore { score, category } => {
