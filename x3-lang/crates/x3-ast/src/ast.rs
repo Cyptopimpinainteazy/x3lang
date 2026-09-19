@@ -888,6 +888,53 @@ pub struct CrossChainStrategy {
     pub license: Option<StrategyLicense>,
     /// `split profit { ... }` — how net profit is distributed.
     pub split: Option<ProfitSplit>,
+    /// `submission { private = ... }` — the submission policy the module is
+    /// compiled with.
+    ///
+    /// PHASE 28: the runtime has to reject an accidental public submission when
+    /// the compiled policy requires privacy, so this is a *requirement the
+    /// artifact states* rather than a description of the source.
+    pub submission: Option<SubmissionPolicy>,
+}
+
+/// How a module requires its submission to travel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PrivateSubmissionMode {
+    /// A public submission is acceptable.
+    Allowed,
+    /// A private channel is preferred but not required.
+    Preferred,
+    /// A private channel is required; a runtime without one must refuse.
+    Required,
+}
+
+impl PrivateSubmissionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PrivateSubmissionMode::Allowed => "allowed",
+            PrivateSubmissionMode::Preferred => "preferred",
+            PrivateSubmissionMode::Required => "required",
+        }
+    }
+
+    pub const ALL: [PrivateSubmissionMode; 3] = [
+        PrivateSubmissionMode::Allowed,
+        PrivateSubmissionMode::Preferred,
+        PrivateSubmissionMode::Required,
+    ];
+
+    pub fn parse(name: &str) -> Option<PrivateSubmissionMode> {
+        PrivateSubmissionMode::ALL
+            .iter()
+            .copied()
+            .find(|mode| mode.as_str() == name)
+    }
+}
+
+/// `submission { private = <mode> }`
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct SubmissionPolicy {
+    pub private: PrivateSubmissionMode,
 }
 
 /// `license { creator <who> profit_share <N>% [executions <N>] [expires_block <N>] }`

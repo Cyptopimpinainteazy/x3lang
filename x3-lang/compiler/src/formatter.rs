@@ -631,6 +631,12 @@ impl X3Formatter {
             }
             self.write(" }\n");
         }
+        if let Some(submission) = &s.submission {
+            self.write_indent();
+            self.write("submission { private = ");
+            self.write(submission.private.as_str());
+            self.write(" }\n");
+        }
         if let Some(split) = &s.split {
             self.write_indent();
             self.write("split profit {\n");

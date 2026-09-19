@@ -551,6 +551,16 @@ pub fn lower_program_with_mode(
                             .unwrap_or_default(),
                     });
                 }
+                if let Some(submission) = &strategy.submission {
+                    // The policy becomes a mode check rather than a comment: the
+                    // runtime refuses a program whose compiled policy requires
+                    // privacy when it has no private channel, which is what
+                    // PHASE 28 asks for.
+                    ir.push(Operation::ModeCheck {
+                        mode: "submission".to_string(),
+                        restriction: format!("private_{}", submission.private.as_str()),
+                    });
+                }
                 // Lower strategy as constrained execution
                 ir.push(Operation::AtomicBegin);
 

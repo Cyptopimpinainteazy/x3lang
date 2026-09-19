@@ -47,8 +47,8 @@ use regalloc::{allocate, AllocationResult};
 use semantic::verify_atomic_swap_decls;
 use semantic::verify_with_config as verify_semantics;
 use semantic::{
-    verify_atomic_choice_decls, verify_parallel_decls, verify_relayer_quorum_declared, verify_route_fallbacks,
-    verify_solver_bond_declared, verify_venue_decls,
+    verify_atomic_choice_decls, verify_parallel_decls, verify_privacy_decls, verify_relayer_quorum_declared,
+    verify_route_fallbacks, verify_solver_bond_declared, verify_venue_decls,
 };
 use x3_lang_ast::ast::Program;
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
@@ -171,6 +171,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_atomic_swap_decls(program, &mut acc);
     verify_atomic_choice_decls(program, &mut acc);
     verify_route_fallbacks(program, &mut acc);
+    verify_privacy_decls(program, &mut acc);
     verify_venue_decls(program, &mut acc);
     strategy::verify_strategy_modules(program, &mut acc);
     verify_parallel_decls(program, &mut acc);

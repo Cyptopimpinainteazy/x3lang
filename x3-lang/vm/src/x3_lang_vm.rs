@@ -24,6 +24,13 @@ impl InstructionStream {
 
 #[derive(Clone, Debug)]
 pub struct VMConfig {
+    /// Whether this runtime has a private submission channel.
+    ///
+    /// Defaults to false, so a program whose compiled policy requires private
+    /// submission is refused rather than submitted publicly by accident. That is
+    /// the direction the failure has to fall in: an accidental public
+    /// submission cannot be taken back.
+    pub allow_private_submission: bool,
     pub max_registers: usize,
     pub max_stack: usize,
     pub max_memory_pages: usize,
@@ -32,6 +39,7 @@ pub struct VMConfig {
 impl Default for VMConfig {
     fn default() -> Self {
         VMConfig {
+            allow_private_submission: false,
             max_registers: 32,
             max_stack: 65536,
             max_memory_pages: 256,

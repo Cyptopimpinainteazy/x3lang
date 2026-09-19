@@ -998,6 +998,59 @@ pub fn verify_parallel_decls(program: &Program, acc: &mut ErrorAccumulator) {
     }
 }
 
+/// The privacy levels this language implements, labelled.
+///
+/// PHASE 27 asks for two things at once: support private execution, and "do not
+/// invent cryptographic guarantees that are not implemented", with each privacy
+/// level clearly labelled. A table is how both are satisfied: what a program can
+/// declare is exactly what a mechanism here can deliver, and the levels that are
+/// not implemented are named so the refusal can say what *is*.
+pub fn implemented_privacy_levels() -> &'static [(&'static str, &'static str)] {
+    &[
+        (
+            "public (no privacy block)",
+            "nothing is hidden; every operation is visible in the artifact",
+        ),
+        (
+            "hide_route_until_commit true + reveal_on <event>",
+            "the route is committed to and revealed at <event>; the commitment is real \
+             (PRIVACY_COMMIT), the hiding is until the reveal point",
+        ),
+        (
+            "submission { private = required }",
+            "the artifact refuses to run without a private channel; enforced against the \
+             runtime's capability, the same gate the trading path uses",
+        ),
+    ]
+}
+
+/// Verify a `privacy` block only declares what a mechanism here provides.
+///
+/// The block has an `encrypted` flag that nothing implements — the executor's
+/// `PrivacyCommit` arm reads it as `encrypted: _` — so `encrypted true` compiled
+/// into an artifact that carried a claim of encryption with nothing behind it.
+/// That is the specific failure PHASE 27 forbids, and a declaration that cannot
+/// be honoured has to be refused rather than recorded.
+pub fn verify_privacy_decls(program: &Program, acc: &mut ErrorAccumulator) {
+    for item in &program.items {
+        let Item::PrivacyBlock(privacy) = &item.node else {
+            continue;
+        };
+        if privacy.encrypted {
+            let implemented: Vec<String> = implemented_privacy_levels()
+                .iter()
+                .map(|(level, what)| format!("\n  - {level}: {what}"))
+                .collect();
+            acc.add_error(err(format!(
+                "privacy declares `encrypted true`, and no mechanism in this language implements \
+                 encryption: the artifact would carry a claim of encryption that nothing provides. \
+                 The levels that are implemented are:{}",
+                implemented.join("")
+            )));
+        }
+    }
+}
+
 /// Verify every `venue` declaration is a node the graph can actually use.
 ///
 /// A venue's declared attributes are what the planner reads, so a declaration

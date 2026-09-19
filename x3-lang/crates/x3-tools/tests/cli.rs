@@ -253,7 +253,6 @@ risk_policy {
 privacy {
     hide_route_until_commit true
     reveal_on claim
-    encrypted true
 }
 
 invariant no_double_claim
@@ -713,7 +712,7 @@ fn cli_audit_status_reflects_fail_severity_not_warn_count() {
     // otherwise fully-configured, zero-FAIL program must produce exactly
     // one [WARN] and still report Status: PASS.
     let without_privacy = FULLY_CONFIGURED_SOURCE.replacen(
-        "privacy {\n    hide_route_until_commit true\n    reveal_on claim\n    encrypted true\n}\n\n",
+        "privacy {\n    hide_route_until_commit true\n    reveal_on claim\n}\n\n",
         "",
         1,
     );

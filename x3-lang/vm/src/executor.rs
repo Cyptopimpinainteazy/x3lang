@@ -1378,6 +1378,17 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
                     "mode check: restriction must be non-empty".to_string(),
                 ));
             }
+            // PHASE 28's "runtime should reject accidental public submission if
+            // compiled policy requires privacy" is enforced here rather than
+            // recorded: a mode check that nothing reads is a policy the artifact
+            // states and the runtime ignores, which is worse than no policy.
+            if mode == "submission" && restriction == "private_required" && !vm.config.allow_private_submission {
+                return Err(ExecError::Panic(
+                    "X3_PRIVATE_SUBMISSION_REQUIRED: the compiled policy requires private submission \
+                     but this runtime has no private channel"
+                        .to_string(),
+                ));
+            }
             Ok(vec![])
         }
         CapabilityPayload::PackageImport { path, alias: _ } => {

@@ -31,7 +31,11 @@ risk_policy {
 privacy {
     hide_route_until_commit true
     reveal_on claim
-    encrypted true
+    // `encrypted true` used to be written here. Nothing implements encryption —
+    // the executor reads the flag as `encrypted: _` — so the line was a claim
+    // of a guarantee the artifact could not keep, and the compiler now refuses
+    // it. What is real is above: the route is committed to and revealed on
+    // `claim`.
 }
 
 invariant no_double_claim

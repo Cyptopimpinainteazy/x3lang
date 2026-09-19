@@ -1446,6 +1446,7 @@ impl<'a> Parser<'a> {
         let mut domains: Vec<Symbol> = Vec::new();
         let mut risk: Option<StrategyRisk> = None;
         let mut license: Option<StrategyLicense> = None;
+        let mut submission: Option<SubmissionPolicy> = None;
         let mut split: Option<ProfitSplit> = None;
         let mut max_steps: Option<Expression> = None;
         let mut max_gas: Option<Expression> = None;
@@ -1540,6 +1541,38 @@ impl<'a> Parser<'a> {
                     }
                     self.expect(Tok::RBrace, "expected '}' to close bounds")?;
                 }
+                "submission" => {
+                    self.expect(Tok::LBrace, "expected '{' after submission")?;
+                    let mut private: Option<PrivateSubmissionMode> = None;
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        let key = self.expect_ident("submission field")?;
+                        if key != "private" {
+                            return Err(parse_err(
+                                format!("unknown submission field '{key}'; expected private"),
+                                self.peek(),
+                            ));
+                        }
+                        self.expect(Tok::Eq, "expected '=' after `private`")?;
+                        let mode = self.expect_ident("submission privacy mode")?;
+                        private = Some(PrivateSubmissionMode::parse(&mode).ok_or_else(|| {
+                            let allowed: Vec<&str> =
+                                PrivateSubmissionMode::ALL.iter().map(|mode| mode.as_str()).collect();
+                            parse_err(
+                                format!(
+                                    "unknown submission mode '{mode}'; the set is closed: {}",
+                                    allowed.join(", ")
+                                ),
+                                self.peek(),
+                            )
+                        })?);
+                        self.opt_semi();
+                    }
+                    self.expect(Tok::RBrace, "expected '}' to close submission")?;
+                    submission = Some(SubmissionPolicy {
+                        private: private
+                            .ok_or_else(|| parse_err("submission is missing `private = <mode>`".into(), self.peek()))?,
+                    });
+                }
                 "license" => {
                     license = Some(self.parse_strategy_license()?);
                 }
@@ -1616,6 +1649,7 @@ impl<'a> Parser<'a> {
             risk,
             license,
             split,
+            submission,
         }))
     }
 
