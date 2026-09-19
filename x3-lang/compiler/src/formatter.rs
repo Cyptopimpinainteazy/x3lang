@@ -1749,6 +1749,12 @@ impl X3Formatter {
                 self.write(s.as_str());
                 self.write("\"");
             }
+            LiteralExpr::Duration { value, unit } => {
+                // `180s`, not `180`: a bare number is a count of *blocks*, so
+                // dropping the unit would change the deadline by the block time.
+                self.write(&value.to_string());
+                self.write(duration_unit_suffix(*unit));
+            }
             LiteralExpr::Bool(true) => self.write("true"),
             LiteralExpr::Bool(false) => self.write("false"),
             LiteralExpr::Unit => self.write("()"),
@@ -1937,5 +1943,19 @@ impl X3Formatter {
 impl Default for X3Formatter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// The suffix a duration unit is written with.
+fn duration_unit_suffix(unit: x3_lang_common::DurationUnit) -> &'static str {
+    use x3_lang_common::DurationUnit;
+    match unit {
+        DurationUnit::Nanoseconds => "ns",
+        DurationUnit::Microseconds => "us",
+        DurationUnit::Milliseconds => "ms",
+        DurationUnit::Seconds => "s",
+        DurationUnit::Minutes => "m",
+        DurationUnit::Hours => "h",
+        DurationUnit::Days => "d",
     }
 }

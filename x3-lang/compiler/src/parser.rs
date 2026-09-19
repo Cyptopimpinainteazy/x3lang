@@ -644,7 +644,7 @@ impl<'a> Parser<'a> {
                 }
                 Tok::KwOnTimeout => {
                     self.advance();
-                    let duration = self.parse_expr()?;
+                    let duration = self.parse_duration_expr("on_timeout")?;
                     let action = self.parse_failure_action()?;
                     // Store timeout on destination by default for backward compat
                     timeout_destination = Some(duration);
@@ -720,7 +720,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     // timeout source <expr>  |  timeout destination <expr>
                     let kind = self.expect_ident("timeout kind (source/destination)")?;
-                    let duration = self.parse_expr()?;
+                    let duration = self.parse_duration_expr("timeout")?;
                     match kind.as_str() {
                         "source" => timeout_source = Some(duration),
                         "destination" => timeout_destination = Some(duration),
@@ -2844,15 +2844,85 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// A duration, in the two forms the language writes: a bare number of
+    /// *blocks*, or a number with a time unit attached (`180s`, `40m`, `2h`).
+    ///
+    /// The two used to be the same token to everyone downstream and meant
+    /// different things in different layers: `40m` reached the parser as one
+    /// identifier, `lowering` read 40 blocks from its digits, and the atomic
+    /// swap's ordering check read a bare number as *seconds* and skipped an
+    /// identifier altogether — so the invariant that a source timeout outlasts
+    /// its destination was not checked at all for a program that wrote its units.
+    /// (TICKET-033.)
+    ///
+    /// A suffix the language does not know is refused here rather than dropped:
+    /// `timeout 40x` is a program that said something about time and nothing
+    /// about blocks.
+    fn parse_duration_expr(&mut self, what: &str) -> Result<Expression, X3Error> {
+        if let Tok::Float(_) = self.peek() {
+            return Err(parse_err(
+                format!(
+                    "{what} is a count of blocks or a whole number with a unit; a fractional \
+                     duration is not one of them"
+                ),
+                self.peek(),
+            ));
+        }
+        if let Tok::Ident(word) = self.peek() {
+            let text = word.as_str().to_string();
+            let digits = text.trim_end_matches(|ch: char| ch.is_ascii_alphabetic());
+            if !digits.is_empty() && digits.len() != text.len() {
+                let suffix = &text[digits.len()..];
+                if digits.contains('.') {
+                    return Err(parse_err(
+                        format!(
+                            "{what} '{text}' is fractional; a duration is a whole number of blocks \
+                             or of a time unit"
+                        ),
+                        self.peek(),
+                    ));
+                }
+                let value: u64 = digits
+                    .trim_end_matches('_')
+                    .replace('_', "")
+                    .parse()
+                    .map_err(|_| parse_err(format!("{what} '{text}' has no number in it"), self.peek()))?;
+                if suffix == "blocks" {
+                    self.advance();
+                    return Ok(Expression::Literal(LiteralExpr::Int {
+                        value: u128::from(value),
+                        base: IntBase::Decimal,
+                        suffix: None,
+                    }));
+                }
+                let Some(unit) = duration_unit_from_suffix(suffix) else {
+                    return Err(parse_err(
+                        format!(
+                            "{what} '{text}' uses the unit '{suffix}', which the language does not \
+                             define; write blocks as a bare number, or one of s, m, h, d, ms, us, ns"
+                        ),
+                        self.peek(),
+                    ));
+                };
+                self.advance();
+                return Ok(Expression::Literal(LiteralExpr::Duration { value, unit }));
+            }
+        }
+        let expr = self.parse_expr()?;
+        // `40 blocks` — the unit written as its own word, the form the deadline
+        // clause uses. A count of blocks either way.
+        if let Tok::Ident(ref word) = self.peek() {
+            if word == "blocks" {
+                self.advance();
+            }
+        }
+        Ok(expr)
+    }
+
     /// `timeout <N>[s] [refund <chain.ASSET> to <receiver>]`
     fn parse_intent_timeout(&mut self) -> Result<Statement, X3Error> {
         self.advance(); // consume `timeout`
-        let dur = self.parse_expr()?;
-        // One definition of "what block count does this timeout denote",
-        // shared with the `atomic swap` and `bridge` lowering that used to
-        // reject the same syntax outright. Anything unreadable falls back to 0,
-        // which the semantic layer then rejects as a zero-duration timeout.
-        let dur_blocks: u32 = crate::lowering::timeout_expression_to_blocks(&dur).unwrap_or(0);
+        let dur = self.parse_duration_expr("timeout")?;
         let mut action = FailureAction::Rollback;
         loop {
             match self.peek() {
@@ -2879,14 +2949,11 @@ impl<'a> Parser<'a> {
             }
         }
         self.opt_semi();
-        Ok(Statement::OnTimeout {
-            duration: Expression::Literal(LiteralExpr::Int {
-                value: dur_blocks as u128,
-                base: IntBase::Decimal,
-                suffix: None,
-            }),
-            action,
-        })
+        // The duration is kept as the program wrote it — blocks or time — and
+        // converted once, in lowering. It used to be converted here, which made
+        // the AST hold blocks while the ordering check read the same field as
+        // seconds.
+        Ok(Statement::OnTimeout { duration: dur, action })
     }
 
     /// `on_fail rollback | halt | quarantine | refund <chain.ASSET> to <receiver>`
@@ -4443,6 +4510,22 @@ const CLAUSE_WORDS: &[&str] = &[
     "invariant",
     "net_profit",
 ];
+
+/// The time unit a suffix names, or `None` for a suffix the language does not
+/// define.
+pub(crate) fn duration_unit_from_suffix(suffix: &str) -> Option<x3_lang_common::DurationUnit> {
+    use x3_lang_common::DurationUnit;
+    Some(match suffix {
+        "ns" => DurationUnit::Nanoseconds,
+        "us" => DurationUnit::Microseconds,
+        "ms" => DurationUnit::Milliseconds,
+        "s" => DurationUnit::Seconds,
+        "m" => DurationUnit::Minutes,
+        "h" => DurationUnit::Hours,
+        "d" => DurationUnit::Days,
+        _ => return None,
+    })
+}
 
 fn require_kind_from_str(name: &str) -> Result<RequireKind, X3Error> {
     Ok(match name {

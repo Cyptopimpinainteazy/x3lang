@@ -949,17 +949,25 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             });
         }
         Statement::OnTimeout { duration, action } => {
-            // Accept either a u32 or u128 integer literal; clamp to u32.
-            let dur_blocks: u32 = match &duration {
-                Expression::Literal(LiteralExpr::Int { value, .. }) => {
-                    if *value > u32::MAX as u128 {
-                        u32::MAX
-                    } else {
-                        *value as u32
-                    }
-                }
-                _ => expression_to_blocks(&duration)?,
-            };
+            // One converter for every timeout in the language: a bare number is
+            // blocks, a number with a unit is time. This used to have its own
+            // inline rule that clamped an oversized literal to `u32::MAX`, so a
+            // deadline of 4_294_967_297 blocks became 4_294_967_295 — a silently
+            // different deadline rather than a refusal.
+            let dur_blocks: u32 = expression_to_blocks(&duration)?;
+            // The ceiling applies wherever a timeout is written, not only in the
+            // `atomic swap` clauses and the mainnet pass: a window longer than a
+            // day is not a window, and a program should be told so in dev mode
+            // rather than at release.
+            if dur_blocks == 0 {
+                return Err(semantic("timeout must be greater than 0 blocks"));
+            }
+            if dur_blocks > MAX_TIMEOUT_BLOCKS {
+                return Err(semantic(&format!(
+                    "timeout of {dur_blocks} blocks exceeds maximum {MAX_TIMEOUT_BLOCKS} \
+                     (24 hours at {SECONDS_PER_BLOCK}s/block)"
+                )));
+            }
             ir.push(Operation::OnTimeout {
                 duration_blocks: dur_blocks,
                 action: failure_action_to_ir(action),
@@ -1669,16 +1677,65 @@ fn chain_to_string(chain: &ChainRef) -> String {
 /// decision rather than a bug fix. See TICKET-033.
 pub(crate) fn timeout_expression_to_blocks(expr: &Expression) -> Option<u32> {
     match expr {
+        // A bare number is a count of blocks.
         Expression::Literal(LiteralExpr::Int { value, .. }) => u32::try_from(*value).ok(),
         // A fractional duration is not a number of blocks. This used to parse as
         // `f64` and truncate, so `timeout 40.9m` became 40 — a wrong value rather
         // than a refusal, in a field the timeout-ordering invariant reads.
         Expression::Literal(LiteralExpr::Float { .. }) => None,
-        // A real duration literal, if the lexer ever produces one for a timeout.
-        Expression::Literal(LiteralExpr::Duration { value, .. }) => u32::try_from(*value).ok(),
-        Expression::Ident(sym) => numeric_prefix_u32(sym.as_str()),
+        Expression::Literal(LiteralExpr::Duration { value, unit }) => blocks_from_duration(*value, *unit),
+        // `40m` is one identifier when it was not classified where it was read
+        // (a hand-built AST, or a duration in a position the parser does not
+        // treat as one). The unit is read rather than dropped: this used to take
+        // the leading digits and ignore the rest, so `40m` meant forty *blocks*.
+        Expression::Ident(sym) => {
+            let text = sym.as_str();
+            let digits = text.trim_end_matches(|ch: char| ch.is_ascii_alphabetic());
+            if !digits.is_empty() && digits.len() != text.len() {
+                let suffix = &text[digits.len()..];
+                let value: u64 = digits.trim_end_matches('_').replace('_', "").parse().ok()?;
+                if suffix == "blocks" {
+                    return u32::try_from(value).ok();
+                }
+                return crate::parser::duration_unit_from_suffix(suffix)
+                    .and_then(|unit| blocks_from_duration(value, unit));
+            }
+            numeric_prefix_u32(text)
+        }
         _ => None,
     }
+}
+
+/// Seconds per block.
+///
+/// Named once, because two things depend on it: what a program's `40m` means,
+/// and `MAX_TIMEOUT_BLOCKS`'s reading of "24 hours". A timeout that says minutes
+/// and a ceiling that assumes a block time have to agree about the block time.
+pub const SECONDS_PER_BLOCK: u64 = 6;
+
+/// The blocks a duration of `value` of `unit` denotes.
+///
+/// Rounded **up**: an HTLC window shorter than the program asked for is the
+/// dangerous direction — the source-side claim is the one that needs the time —
+/// so a duration that is not a whole number of blocks gets the extra block. A
+/// sub-second duration therefore becomes one block rather than none, which is
+/// also what keeps `timeout 500ms` from lowering to a deadline of zero (and
+/// being refused as a zero-duration timeout, which it is not).
+fn blocks_from_duration(value: u64, unit: x3_lang_common::DurationUnit) -> Option<u32> {
+    use x3_lang_common::DurationUnit;
+    let seconds = match unit {
+        DurationUnit::Nanoseconds => value.div_ceil(1_000_000_000),
+        DurationUnit::Microseconds => value.div_ceil(1_000_000),
+        DurationUnit::Milliseconds => value.div_ceil(1_000),
+        DurationUnit::Seconds => value,
+        DurationUnit::Minutes => value.saturating_mul(60),
+        DurationUnit::Hours => value.saturating_mul(3_600),
+        DurationUnit::Days => value.saturating_mul(86_400),
+    };
+    if seconds == 0 {
+        return Some(0);
+    }
+    u32::try_from(seconds.div_ceil(SECONDS_PER_BLOCK)).ok()
 }
 
 fn numeric_prefix_u32(value: &str) -> Option<u32> {
@@ -1753,8 +1810,10 @@ const KNOWN_CHAIN_PREFIXES: &[&str] = &[
     "sp1",
 ];
 
-/// Maximum allowed timeout in blocks (24 hours at 6s/block = 14400 blocks).
-const MAX_TIMEOUT_BLOCKS: u32 = 14400;
+/// Maximum allowed timeout, from the block time rather than beside it: 24 hours
+/// of blocks. Derived, so a change to `SECONDS_PER_BLOCK` moves the ceiling with
+/// it instead of leaving two numbers that disagree about what a day is.
+pub const MAX_TIMEOUT_BLOCKS: u32 = (24 * 60 * 60 / SECONDS_PER_BLOCK) as u32;
 fn crdt_kind_to_ir(kind: &CrdtOpKind) -> IrCrdtKind {
     match kind {
         CrdtOpKind::Get => IrCrdtKind::Get,

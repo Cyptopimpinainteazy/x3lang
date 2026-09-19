@@ -1206,31 +1206,6 @@ pub fn verify_relayer_quorum_declared(program: &Program, acc: &mut ErrorAccumula
     }
 }
 
-/// Extract a duration in seconds from an expression.
-///
-/// - `Literal(Int(n))` → bare number treated as seconds → `Some(n)`
-/// - `Literal(Duration { value, unit })` → converts to seconds
-/// - Otherwise → `None`
-fn extract_seconds_from_expr(expr: &Expression) -> Option<u64> {
-    match expr {
-        Expression::Literal(LiteralExpr::Int { value, .. }) => Some(*value as u64),
-        Expression::Literal(LiteralExpr::Duration { value, unit }) => {
-            use x3_lang_common::DurationUnit;
-            let secs = match unit {
-                DurationUnit::Seconds => *value,
-                DurationUnit::Minutes => value.saturating_mul(60),
-                DurationUnit::Hours => value.saturating_mul(3600),
-                DurationUnit::Days => value.saturating_mul(86400),
-                DurationUnit::Milliseconds => value / 1000,
-                DurationUnit::Microseconds => value / 1_000_000,
-                DurationUnit::Nanoseconds => value / 1_000_000_000,
-            };
-            Some(secs)
-        }
-        _ => None,
-    }
-}
-
 /// Check that a chain name is in the known-chains allow-list (case-insensitive).
 fn is_known_chain(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
@@ -1298,12 +1273,18 @@ fn validate_atomic_swap(decl: &AtomicSwapDecl, acc: &mut ErrorAccumulator) {
 
     // Validate 5: Timeout ordering
     if let (Some(src_expr), Some(dst_expr)) = (&decl.timeout_source, &decl.timeout_destination) {
-        if let (Some(src_secs), Some(dst_secs)) =
-            (extract_seconds_from_expr(src_expr), extract_seconds_from_expr(dst_expr))
-        {
-            if src_secs <= dst_secs {
+        // Compared in the unit that is enforced — blocks, converted by the one
+        // function lowering uses. This read the same expression as *seconds* and
+        // skipped an expression it could not read, so a program that wrote its
+        // units (`timeout source 40m`) had no ordering check at all.
+        if let (Some(src_blocks), Some(dst_blocks)) = (
+            crate::lowering::timeout_expression_to_blocks(src_expr),
+            crate::lowering::timeout_expression_to_blocks(dst_expr),
+        ) {
+            if src_blocks <= dst_blocks {
                 acc.add_error(err(format!(
-                    "Source timeout ({src_secs}s) must be greater than destination timeout ({dst_secs}s) in atomic swap"
+                    "Source timeout ({src_blocks} blocks) must be greater than destination timeout \
+                     ({dst_blocks} blocks) in atomic swap"
                 )));
             }
         }
@@ -2032,12 +2013,16 @@ fn extract_slippage_bps(expr: &str) -> Option<u32> {
 }
 
 fn verify_deadline_bounded(ir: &X3IR, acc: &mut ErrorAccumulator) {
-    let max_allowed_blocks: u32 = 14400; // 24h at 6s/block
+    // One ceiling for the whole language, from the block time that also decides
+    // what a program's `40m` means.
+    let max_allowed_blocks = crate::lowering::MAX_TIMEOUT_BLOCKS;
     for op in &ir.operations {
         if let Operation::OnTimeout { duration_blocks, .. } = op {
             if *duration_blocks > max_allowed_blocks {
                 acc.add_error(err(format!(
-                    "mainnet: timeout {duration_blocks} blocks exceeds maximum 14400 (24h)"
+                    "mainnet: timeout {duration_blocks} blocks exceeds the maximum of \
+                     {max_allowed_blocks} (24 hours at {}s/block)",
+                    crate::lowering::SECONDS_PER_BLOCK
                 )));
             }
         }
@@ -2162,7 +2147,7 @@ pub fn compute_risk_score(ir: &X3IR) -> RiskScore {
 
     // Timeout risk: bounded timeout
     let has_bounded_timeout = ir.operations.iter().any(|op| match op {
-        Operation::OnTimeout { duration_blocks, .. } => *duration_blocks <= 14400,
+        Operation::OnTimeout { duration_blocks, .. } => *duration_blocks <= crate::lowering::MAX_TIMEOUT_BLOCKS,
         _ => false,
     });
     score.timeout_risk = if has_bounded_timeout { 0 } else { 5 };

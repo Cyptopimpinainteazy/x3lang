@@ -45,12 +45,18 @@ fn minimal_intent_lowers_with_atomic_and_timeout() {
         ir.operations.iter().any(|op| matches!(op, Operation::AtomicEnd)),
         "atomic block must terminate"
     );
+    // `timeout 45s` is a duration, not a block count: 45 seconds is eight blocks
+    // at the language's block time (rounded up, because an HTLC window shorter
+    // than the program asked for is the dangerous direction). The expectation is
+    // derived from the block time so it cannot drift from the conversion.
+    let forty_five_seconds_in_blocks = (45u64).div_ceil(x3_lang_compiler::lowering::SECONDS_PER_BLOCK) as u32;
+    assert_eq!(forty_five_seconds_in_blocks, 8, "45s is eight blocks at 6s/block");
     assert!(
         ir.operations.iter().any(|op| matches!(
             op,
-            Operation::OnTimeout { duration_blocks, .. } if *duration_blocks == 45
+            Operation::OnTimeout { duration_blocks, .. } if *duration_blocks == forty_five_seconds_in_blocks
         )),
-        "timeout 45s must produce OnTimeout with 45 blocks"
+        "timeout 45s must produce OnTimeout with {forty_five_seconds_in_blocks} blocks"
     );
     let has_lock = ir.operations.iter().any(|op| {
         matches!(

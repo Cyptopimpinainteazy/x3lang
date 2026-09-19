@@ -76,9 +76,15 @@ fn the_ring_names_the_asset_handed_over_at_each_hop() {
 
 #[test]
 fn the_earliest_deadline_is_the_ring_deadline() {
-    // A ring is not settled until its most urgent member is out of time.
+    // A ring is not settled until its most urgent member is out of time, and the
+    // ring's members declare their deadlines in *seconds*: `timeout 20s` is four
+    // blocks at the language's block time, so the earliest of {20s, 25s, 30s} is
+    // four blocks. The expectation is derived rather than written down, so it
+    // cannot drift from the conversion.
+    let twenty_seconds_in_blocks = (20u64).div_ceil(x3_lang_compiler::lowering::SECONDS_PER_BLOCK) as u32;
+    assert_eq!(twenty_seconds_in_blocks, 4, "20s is four blocks at 6s/block");
     let found = analyze(&sound_ring());
-    assert_eq!(found[0].earliest_deadline, Some(20));
+    assert_eq!(found[0].earliest_deadline, Some(twenty_seconds_in_blocks));
     assert_eq!(found[0].deadline, Check::Satisfied);
 }
 
