@@ -44,12 +44,12 @@ impl Ord for DebtId {
 }
 
 /// Explicit rounding direction for amount arithmetic that can lose precision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RoundingMode {
-    Down,
-    Up,
-    Exact,
-}
+///
+/// Defined in `x3-lang-common::fixed` and re-exported here, because the arithmetic that
+/// uses it lives below the AST and one vocabulary is the point: a value that rounds "down"
+/// in an asset conversion and "down" in a basis-point computation have to mean the same
+/// thing (PHASE 43).
+pub use x3_lang_common::fixed::RoundingMode;
 
 /// A typed amount expressed against a symbolic asset.
 #[derive(Debug, Clone, Serialize, Deserialize)]

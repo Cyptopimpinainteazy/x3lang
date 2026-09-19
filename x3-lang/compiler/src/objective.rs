@@ -17,7 +17,7 @@
 //!   phase forbids.
 
 use x3_lang_ast::ast::{Item, ObjectiveConstraints, ObjectiveMetric, Program, RiskBound};
-use x3_lang_common::{ErrorAccumulator, X3Error};
+use x3_lang_common::{Bps, ErrorAccumulator, X3Error};
 
 use crate::optimizer::Objective;
 
@@ -171,7 +171,7 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
             ("fees", constraints.max_fees_bps),
             ("slippage", constraints.max_slippage_bps),
         ] {
-            if value.is_some_and(|value| value > 10_000) {
+            if value.is_some_and(|value| !Bps::from_raw(value).is_within_whole()) {
                 acc.add_error(err(format!(
                     "{} bounds {field} above 10,000 bps, which is the whole amount",
                     label(name)

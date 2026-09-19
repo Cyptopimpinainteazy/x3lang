@@ -112,7 +112,7 @@
 use std::collections::BTreeSet;
 
 use x3_lang_ast::ast::{ArbDecl, Expression, Item, Program, RequireKind, VenueDecl};
-use x3_lang_common::{ErrorAccumulator, Span, X3Error};
+use x3_lang_common::{Bps, ErrorAccumulator, Span, X3Error};
 
 use crate::lowering;
 use crate::semantic;
@@ -321,14 +321,17 @@ pub fn policy(decl: &ArbDecl) -> Result<ArbPolicy, String> {
     // The three figures are all in the same unit, so they are added rather than
     // converted: a trade that has to gain `min_profit`, may lose `max_slippage`
     // and may pay `max_total_fee` has a margin of the sum, and a margin at or
-    // above the whole trade is not a bound.
-    let margin = u32::from(min_profit_bps) + u32::from(max_slippage_bps) + u32::from(max_total_fee_bps);
-    if margin >= 10_000 {
+    // above the whole trade is not a bound. The unit is named (`Bps::WHOLE`)
+    // rather than spelled as a literal, because the same ten thousand is the
+    // ceiling in half a dozen other files (PHASE 43).
+    let margin = Bps::from_raw(u32::from(min_profit_bps) + u32::from(max_slippage_bps) + u32::from(max_total_fee_bps));
+    if margin.raw() >= Bps::WHOLE.raw() {
         return Err(format!(
             "the arb '{name}' declares min_profit {min_profit_bps}bps, max_slippage \
-             {max_slippage_bps}bps and max_total_fee {max_total_fee_bps}bps, which is {margin}bps — \
-             the whole trade — so the three bounds together permit the trade to keep nothing and \
-             still be called profitable"
+             {max_slippage_bps}bps and max_total_fee {max_total_fee_bps}bps, which is {}bps — the \
+             whole trade — so the three bounds together permit the trade to keep nothing and still \
+             be called profitable",
+            margin.raw()
         ));
     }
 

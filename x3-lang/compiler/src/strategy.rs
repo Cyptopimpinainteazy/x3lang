@@ -35,14 +35,15 @@
 use std::collections::BTreeSet;
 
 use x3_lang_ast::ast::{SplitRecipient, Statement, StrategyPermission};
-use x3_lang_common::{ErrorAccumulator, X3Error};
+use x3_lang_common::{Bps, ErrorAccumulator, X3Error};
 
 use x3_lang_ast::ast::{Item, Program};
 
 use x3_lang_ast::trading::{TradeEffect, TradeGuarantee};
 
-/// Largest basis-point figure any risk field may carry.
-const MAX_BPS: u32 = 10_000;
+/// Largest basis-point figure any risk field may carry: a whole (`Bps::WHOLE`), named
+/// rather than spelled as a literal (PHASE 43).
+const MAX_BPS: u32 = Bps::WHOLE.raw();
 
 fn err(message: String) -> X3Error {
     X3Error::SemanticError {
@@ -274,7 +275,7 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
         // two declared numbers rather than a run-time branch.
         if let Some(split) = &module.split {
             let total: u32 = split.shares.iter().map(|(_, bps)| *bps).sum();
-            if total != 10_000 {
+            if total != MAX_BPS {
                 acc.add_error(err(format!(
                     "strategy '{name}' profit split totals {total} bps, not 10_000; a split that does \
                      not add up is distributing something it does not have, or leaving part of the \

@@ -17,6 +17,10 @@
 //! "short the same notional" without repeating the number, and two `equivalent` legs
 //! (nothing to be equivalent *to*) are refused.
 //!
+//! The formula is evaluated in the fixed-point vocabulary (`Ratio::of`, then
+//! `Ratio::to_bps`) rather than with a bare ten-thousand literal (PHASE 43), so the
+//! unit the bound is written in and the unit the net is computed in are one thing.
+//!
 //! The asset is part of the net: legs on `ethereum.ETH` and `solana.ETH` are two
 //! different assets, and netting them would be a claim about a price this compiler
 //! does not have. A hedge with one leg is a position rather than a hedge, and it is
@@ -28,7 +32,7 @@
 //! not pretended.
 
 use x3_lang_ast::ast::{AtomicHedgeDecl, HedgeLeg, HedgeQuantity, HedgeSide, HedgeVenue, Item, Program};
-use x3_lang_common::{ErrorAccumulator, Span, X3Error};
+use x3_lang_common::{ErrorAccumulator, Ratio, RoundingMode, Span, X3Error};
 
 /// The two sides of a hedge, resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,13 +45,20 @@ pub struct HedgeExposure {
 impl HedgeExposure {
     /// The net left open, as basis points of the notional being hedged.
     ///
-    /// Saturating and integer: a hedge is a claim about a position, and a fractional
-    /// basis point is not a quantity this language compares (PHASE 43).
+    /// The open leg as a share of the position, read in basis points and rounded down —
+    /// a hedge is a claim about a position, and a fractional basis point is not a
+    /// quantity this language compares (PHASE 43). Where the notional is too large for
+    /// the fixed-point conversion the delta is reported as the largest one rather than
+    /// as a small plausible figure: an exposure that cannot be represented is not an
+    /// exposure that is small, and every declared bound is below `u128::MAX`, so the
+    /// hedge is refused rather than admitted.
     pub fn delta_bps(&self) -> u128 {
         if self.long == 0 {
             return 0;
         }
-        self.long.abs_diff(self.short).saturating_mul(10_000) / self.long
+        Ratio::of(self.long, self.long.abs_diff(self.short))
+            .and_then(|ratio| ratio.to_bps(RoundingMode::Down))
+            .map_or(u128::MAX, |bps| u128::from(bps.raw()))
     }
 }
 

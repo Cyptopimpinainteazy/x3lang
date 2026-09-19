@@ -6,7 +6,7 @@
 use crate::diagnostic::{CompilerDiagnostic, DiagnosticCode};
 use crate::ir::{AssetKey, Operation, TradingOperation, ValueRef, X3IR};
 use std::collections::{BTreeMap, BTreeSet};
-use x3_lang_common::Span;
+use x3_lang_common::{Bps, Span};
 
 /// Verify structural and safety invariants of lowered X3IR.
 pub fn verify_ir(ir: &X3IR) -> Result<(), Vec<CompilerDiagnostic>> {
@@ -109,7 +109,7 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                         format!("{op_context}: a strategy licence claims a royalty but names no creator"),
                     );
                 }
-                if *royalty_bps > 10_000 {
+                if !Bps::from_raw(*royalty_bps).is_within_whole() {
                     push_unsafe(
                         diagnostics,
                         format!("{op_context}: strategy licence royalty {royalty_bps} bps exceeds 10,000"),
@@ -122,7 +122,7 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     );
                 } else {
                     let total: u32 = split.iter().map(|(_, bps)| *bps).sum();
-                    if total != 10_000 {
+                    if total != Bps::WHOLE.raw() {
                         push_unsafe(
                             diagnostics,
                             format!("{op_context}: the profit split totals {total} bps, not 10,000"),
@@ -973,11 +973,11 @@ fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnosti
                     format!("{context}: policy version must be greater than zero"),
                 );
             }
-            if policy.max_slippage_bps > 10_000 {
+            if !Bps::from_raw(u32::from(policy.max_slippage_bps)).is_within_whole() {
                 push_unsafe(diagnostics, format!("{context}: policy max_slippage_bps exceeds 10000"));
             }
             if let Some(deviation_bps) = policy.max_oracle_deviation_bps {
-                if deviation_bps > 10_000 {
+                if !Bps::from_raw(u32::from(deviation_bps)).is_within_whole() {
                     push_unsafe(
                         diagnostics,
                         format!("{context}: policy max_oracle_deviation_bps exceeds 10000"),
@@ -999,7 +999,7 @@ fn verify_trading_operation(trading: &TradingOperation, context: &str, diagnosti
                     );
                 }
             }
-            if policy.max_flash_fee_bps > 10_000 {
+            if !Bps::from_raw(u32::from(policy.max_flash_fee_bps)).is_within_whole() {
                 push_unsafe(
                     diagnostics,
                     format!("{context}: policy max_flash_fee_bps exceeds 10000"),

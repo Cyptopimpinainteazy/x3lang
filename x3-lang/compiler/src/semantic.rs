@@ -42,7 +42,7 @@
 use crate::ir::{Condition, FailureAction, Operation, X3IR};
 use std::collections::{HashMap, HashSet};
 use x3_lang_ast::ast::{AtomicSwapDecl, Expression, Item, LiteralExpr, Program};
-use x3_lang_common::{ErrorAccumulator, Span, Spanned, X3Error};
+use x3_lang_common::{Bps, ErrorAccumulator, Span, Spanned, X3Error};
 
 /// Maximum number of cross-VM operations allowed in a single atomic block.
 /// This is a hard production safety limit: 8 is the contract default.
@@ -1672,17 +1672,17 @@ pub fn verify_venue_decls(program: &Program, acc: &mut ErrorAccumulator) {
         }
         seen.push(name);
 
-        // `>=`, not `>`: 10_000 bps *is* the whole amount, so a fee that high is
-        // not a venue. The message said "at or above" while the code checked
-        // strictly above, which is how the boundary case went unchecked.
-        if venue.fee_bps >= 10_000 {
+        // `>=`, not `>`: the whole (`Bps::WHOLE`) *is* the whole amount, so a fee
+        // that high is not a venue. The message said "at or above" while the code
+        // checked strictly above, which is how the boundary case went unchecked.
+        if venue.fee_bps >= Bps::WHOLE.raw() {
             acc.add_error(err(format!(
                 "venue '{name}' declares a fee of {} bps; a fee at or above 10_000 bps is the whole \
                  amount",
                 venue.fee_bps
             )));
         }
-        if venue.slippage_bps > 10_000 {
+        if !Bps::from_raw(venue.slippage_bps).is_within_whole() {
             acc.add_error(err(format!(
                 "venue '{name}' declares {} bps of slippage, above 10_000 bps",
                 venue.slippage_bps

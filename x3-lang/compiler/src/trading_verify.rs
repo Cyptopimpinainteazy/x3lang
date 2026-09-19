@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use x3_lang_ast::ast::{Expression, Item, LiteralExpr, Program};
 use x3_lang_ast::{AtomicTradeDecl, DebtId, TradeStmt};
-use x3_lang_common::{Span, X3Error};
+use x3_lang_common::{Bps, Span, X3Error};
 
 use crate::semantic::CompilationMode;
 use crate::trading_semantic::TradingSymbols;
@@ -274,7 +274,7 @@ fn enforce_policy_bounds(
     span: Span,
     errors: &mut Vec<X3Error>,
 ) {
-    if policy.max_slippage_bps > 10_000 {
+    if !Bps::from_raw(u32::from(policy.max_slippage_bps)).is_within_whole() {
         errors.push(semantic_error(
             format!(
                 "risk policy '{}' has max_slippage {} bps above the 10000 bps ceiling",
@@ -285,7 +285,7 @@ fn enforce_policy_bounds(
         ));
     }
     if let Some(deviation_bps) = policy.max_oracle_deviation_bps {
-        if deviation_bps > 10_000 {
+        if !Bps::from_raw(u32::from(deviation_bps)).is_within_whole() {
             errors.push(semantic_error(
                 format!(
                     "risk policy '{}' has max_oracle_deviation {deviation_bps} bps above the 10000 bps ceiling",
@@ -295,7 +295,7 @@ fn enforce_policy_bounds(
             ));
         }
     }
-    if policy.max_flash_fee_bps > 10_000 {
+    if !Bps::from_raw(u32::from(policy.max_flash_fee_bps)).is_within_whole() {
         errors.push(semantic_error(
             format!(
                 "risk policy '{}' has max_flash_fee {} bps above the 10000 bps ceiling",

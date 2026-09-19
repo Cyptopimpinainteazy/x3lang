@@ -228,3 +228,24 @@ fn all_public_trading_types_implement_serde() {
     assert_serde::<AtomicTradeDecl>();
     assert_serde::<TradeStmt>();
 }
+
+#[test]
+fn the_ast_re_exports_the_arithmetic_rounding_mode_rather_than_a_second_one() {
+    // PHASE 43. A compile-time identity, not a runtime comparison: if the AST declared
+    // its own `RoundingMode` this would not typecheck. The arithmetic lives below the
+    // AST, so the direction written in a declaration and the direction an amount
+    // conversion obeys have to be one value rather than two that happen to agree.
+    fn takes_the_arithmetic_mode(mode: x3_lang_common::fixed::RoundingMode) -> x3_lang_common::fixed::RoundingMode {
+        mode
+    }
+
+    let declared: RoundingMode = RoundingMode::Up;
+    assert_eq!(
+        takes_the_arithmetic_mode(declared),
+        x3_lang_common::fixed::RoundingMode::Up
+    );
+
+    // And the other direction, so the identity is not one-way.
+    let arithmetic: x3_lang_common::fixed::RoundingMode = RoundingMode::Exact;
+    assert_eq!(arithmetic, RoundingMode::Exact);
+}

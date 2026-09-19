@@ -12,7 +12,7 @@ use std::fmt;
 use indexmap::IndexMap;
 use x3_lang_ast::ast::{Expression, Item, LiteralExpr, Program};
 use x3_lang_ast::{AmountExpr, AssetId, AtomicTradeDecl, RoundingMode, TradeRiskPolicy, TradeStmt};
-use x3_lang_common::{Span, Symbol, X3Error};
+use x3_lang_common::{Bps, Span, Symbol, X3Error};
 
 use crate::semantic::CompilationMode;
 
@@ -144,7 +144,7 @@ fn validate_policy_asset(
             validate_amount(amount, assets, field, span, errors);
         }
     }
-    if policy.max_slippage_bps > 10_000 {
+    if !Bps::from_raw(u32::from(policy.max_slippage_bps)).is_within_whole() {
         errors.push(semantic_error(
             format!(
                 "risk policy '{}' has max_slippage above 10000 bps",
@@ -153,7 +153,7 @@ fn validate_policy_asset(
             span,
         ));
     }
-    if policy.max_flash_fee_bps > 10_000 {
+    if !Bps::from_raw(u32::from(policy.max_flash_fee_bps)).is_within_whole() {
         errors.push(semantic_error(
             format!(
                 "risk policy '{}' has max_flash_fee above 10000 bps",

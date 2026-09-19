@@ -5,6 +5,7 @@
 pub mod capability;
 pub mod diagnostic;
 pub mod error;
+pub mod fixed;
 pub mod source;
 pub mod span;
 pub mod symbol;
@@ -17,6 +18,7 @@ pub use capability::{
 };
 pub use diagnostic::{Diagnostic, DiagnosticBuilder, DiagnosticLevel};
 pub use error::{ErrorAccumulator, ErrorReporter, X3Error, X3Result};
+pub use fixed::{pow10, Bps, Decimal, Price, Rate, Ratio, RoundingMode, MAX_SCALE};
 pub use source::{SourceFile, SourceMap};
 pub use span::{BytePos, Span, Spanned};
 pub use symbol::{Symbol, SymbolInterner};
