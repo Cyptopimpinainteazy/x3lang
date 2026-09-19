@@ -70,12 +70,22 @@ fn rejects_nested_atomic_scope() {
 }
 
 #[test]
-fn rejects_zero_iteration_loop() {
+fn a_loop_is_refused_because_the_vm_cannot_execute_one() {
+    // This test used to assert the zero-iteration check. That check is gone with
+    // the arm it lived in: a `Loop` is refused outright now, so its iteration
+    // count is not a fact anything reads. The refusal is what the test asserts,
+    // message included, because "some UnsafeIr" would also be satisfied by the
+    // nested-op checks this replaced.
     let ir = ir_with(vec![Operation::Loop {
         max_iterations: 0,
         body: vec![Operation::Nop],
     }]);
-    assert_eq!(codes(&ir), vec![DiagnosticCode::UnsafeIr]);
+    let diagnostics = verify_ir(&ir).expect_err("a loop has no target this VM could jump back to");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        diagnostics[0].message.contains("`loop` cannot be executed") && diagnostics[0].message.contains("padded"),
+        "the refusal must say what the VM branches on and what the stream is: {diagnostics:?}"
+    );
 }
 
 #[test]
@@ -95,19 +105,19 @@ fn rejects_invalid_multisig_threshold() {
 
 #[test]
 fn recursively_rejects_unsafe_nested_control_flow() {
-    let ir = ir_with(vec![Operation::If {
-        condition: x3_lang_compiler::ir::Condition::True,
-        then_ops: vec![Operation::ScheduledDispatch {
-            period_blocks: 0,
-            entry: vec![Operation::Nop],
+    // The nested-walk coverage moves from `If` (refused outright, so nothing
+    // inside it is ever walked) to a construct that is emitted: a scheduled
+    // dispatch whose entry carries an unsafe operation. The defect is two levels
+    // down, so a walk that stopped at the top level would miss it.
+    let ir = ir_with(vec![Operation::ScheduledDispatch {
+        period_blocks: 0,
+        entry: vec![Operation::Simulate {
+            body: vec![Operation::MultisigCheck { required: 3, total: 2 }],
+            receipt_slot: "evidence".to_owned(),
         }],
-        else_ops: Some(vec![Operation::Emit {
-            name: "ok".to_owned(),
-            data: HashMap::new(),
-        }]),
     }]);
 
-    assert_eq!(codes(&ir), vec![DiagnosticCode::UnsafeIr]);
+    assert_eq!(codes(&ir), vec![DiagnosticCode::UnsafeIr, DiagnosticCode::UnsafeIr]);
 }
 
 fn asset(symbol: &str) -> AssetKey {

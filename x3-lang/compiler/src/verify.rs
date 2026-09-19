@@ -288,24 +288,42 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     atomic_depth -= 1;
                 }
             }
-            Operation::If { then_ops, else_ops, .. } => {
-                verify_sequence(then_ops, &format!("{op_context}.then"), diagnostics);
-                if let Some(else_ops) = else_ops {
-                    verify_sequence(else_ops, &format!("{op_context}.else"), diagnostics);
-                }
-            }
-            Operation::Loop { max_iterations, body } => {
-                if *max_iterations == 0 {
-                    push_unsafe(
-                        diagnostics,
-                        format!("{op_context}: loop max_iterations must be greater than zero"),
-                    );
-                }
-                if body.is_empty() {
-                    push_unsafe(diagnostics, format!("{op_context}: loop body must not be empty"));
-                }
-                verify_sequence(body, &format!("{op_context}.loop"), diagnostics);
-            }
+            // A nested branch is refused rather than walked.
+            //
+            // The VM branches on a *register* and skips a fixed number of
+            // four-byte instructions, while a compiler stream frames instructions
+            // with a width that varies (`3 + payload_len`, four for `REQUIRE`) and
+            // pads each one to the next absolute multiple of four. Nothing
+            // evaluates a condition into a register either — the compiler emits no
+            // arithmetic at all. So an emitted branch is an instruction whose
+            // operands no reader can follow and no executor can act on: measured on
+            // `strategy TriDexArb { execute { if 1 > 0 { require profit >= 5 } } }`,
+            // the artifact built, `x3c explain` printed the condition as opcodes,
+            // and `x3c run` failed with `X3_VERIFY_FAILED: OutOfBounds(292)`.
+            //
+            // Refusing here is the fail-closed half of the feature rather than the
+            // feature: TICKET-058 carries the work (an explicit branch target in
+            // the record, a reader rule for it in `spec/opcodes.rs`, and expression
+            // codegen for the condition). Refusing it in this layer and not only in
+            // the emitter is what keeps `x3c check` from accepting what `x3c build`
+            // then has to refuse.
+            Operation::If { .. } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: `if` cannot be executed — this VM branches on a register and skips \
+                     four-byte instructions, and a compiler stream is framed with variable widths and \
+                     padded, so the branch has no target it could jump to and no condition it could \
+                     read"
+                ),
+            ),
+            Operation::Loop { .. } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: `loop` cannot be executed — this VM branches on a register and skips \
+                     four-byte instructions, and a compiler stream is framed with variable widths and \
+                     padded, so the loop has no target it could jump back to"
+                ),
+            ),
             Operation::Lock {
                 chain,
                 asset,

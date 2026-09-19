@@ -127,42 +127,46 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             then_ops,
             else_ops,
         } => {
-            bytecode.write_all(&[IF])?;
-            let cond_str = format!("{:?}", condition);
-            bytecode.write_all(&(cond_str.len() as u16).to_le_bytes())?;
-            bytecode.write_all(cond_str.as_bytes())?;
-
-            // Then branch length
-            let mut then_bytecode = Vec::new();
-            for op in then_ops {
-                emit_operation(op, &mut then_bytecode)?;
-            }
-            bytecode.write_all(&(then_bytecode.len() as u32).to_le_bytes())?;
-            bytecode.write_all(&then_bytecode)?;
-
-            // Else branch (if exists)
-            if let Some(else_blk) = else_ops {
-                let mut else_bytecode = Vec::new();
-                for op in else_blk {
-                    emit_operation(op, &mut else_bytecode)?;
-                }
-                bytecode.write_all(&(else_bytecode.len() as u32).to_le_bytes())?;
-                bytecode.write_all(&else_bytecode)?;
-            } else {
-                bytecode.write_all(&0u32.to_le_bytes())?;
-            }
+            // Refused rather than written.
+            //
+            // This is refused here as well as in the IR verifier because
+            // `emit_x3ir` is public: a caller that assembles an IR by hand gets a
+            // refusal instead of a record no reader can follow.
+            //
+            // The record this used to write was `[IF][u16 cond_len][cond][u32
+            // then_len][then][u32 else_len][else]` with each branch emitted into
+            // its own vector — so the branch's inner instructions were padded to a
+            // boundary of the *branch* rather than of the stream — while the VM's
+            // `IF` reads a register and skips whole four-byte instructions. Neither
+            // half can be repaired on its own: the stream frames instructions with
+            // a width that varies and pads them absolutely, so a branch needs an
+            // explicit target rather than a count of instructions, and the
+            // condition needs codegen into a register, which the compiler does not
+            // emit at all. Measured before this refusal: the artifact built,
+            // `x3c explain` printed the condition text as opcodes, and `x3c run`
+            // failed with `X3_VERIFY_FAILED: OutOfBounds(292)`. TICKET-058.
+            let _ = (condition, then_ops, else_ops);
+            return Err(X3Error::CodegenError {
+                message: "cannot emit `if`: this VM branches on a register and skips whole four-byte \
+                          instructions, while a compiler stream frames instructions with a width that \
+                          varies and pads them to absolute four-byte boundaries, so the record would \
+                          have no target a reader could follow or an executor could jump to"
+                    .to_string(),
+                span: None,
+            });
         }
         Operation::Loop { max_iterations, body } => {
-            bytecode.write_all(&[LOOP])?;
-            bytecode.write_all(&max_iterations.to_le_bytes())?;
-
-            // Loop body
-            let mut body_bytecode = Vec::new();
-            for op in body {
-                emit_operation(op, &mut body_bytecode)?;
-            }
-            bytecode.write_all(&(body_bytecode.len() as u32).to_le_bytes())?;
-            bytecode.write_all(&body_bytecode)?;
+            // Refused for the same reason as `if`; see the comment there.
+            let _ = (max_iterations, body);
+            return Err(X3Error::CodegenError {
+                message: "cannot emit `loop`: this VM branches on a register and skips whole \
+                          four-byte instructions, while a compiler stream frames instructions with a \
+                          width that varies and pads them to absolute four-byte boundaries, so the \
+                          record would have no target a reader could follow or an executor could jump \
+                          back to"
+                    .to_string(),
+                span: None,
+            });
         }
         Operation::Require { .. } => {
             // `[REQUIRE][comparison][threshold u16]`, always STATIC today.

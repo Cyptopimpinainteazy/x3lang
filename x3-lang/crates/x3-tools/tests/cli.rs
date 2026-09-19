@@ -1125,3 +1125,61 @@ fn cli_fusion_never_internalizes_an_intent_that_did_not_opt_in() {
         "and nothing may be reported as fusable: {stdout}"
     );
 }
+
+/// `if`/`loop` were emitted as records no reader could follow.
+///
+/// Measured on this program before the refusal: `x3c build` wrote 320 bytes,
+/// `x3c explain` printed the condition text as opcodes, and `x3c run` failed with
+/// `X3_VERIFY_FAILED: OutOfBounds(292)`. The IR verifier and the emitter refuse
+/// now, and the refusal has to reach *both* commands — a `check` that accepted
+/// what `build` refuses is the split this test exists to prevent — and neither may
+/// leave an artifact behind.
+#[test]
+fn cli_refuses_a_branch_no_reader_could_follow_instead_of_writing_one() {
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("the crate lives under x3-lang")
+        .join("examples")
+        .join("strategy_module.x3");
+    let source = std::fs::read_to_string(&example).expect("the strategy example must be readable");
+    let anchor = "        require profit >= 5\n";
+    assert!(
+        source.contains(anchor),
+        "this test wraps one guard in an `if`, so the guard has to still be there: {example:?}"
+    );
+    let branched = source.replace(
+        anchor,
+        "        if 1 > 0 {\n            require profit >= 5\n        }\n",
+    );
+    let fixture = write_fixture("cli_strategy_with_a_branch.x3", &branched);
+
+    let check = x3c().arg("check").arg(&fixture).output().expect("run x3c check");
+    let check_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(!check.status.success(), "check must refuse the branch: {check_output}");
+    assert!(
+        check_output.contains("`if` cannot be executed"),
+        "and it must say which construct and why: {check_output}"
+    );
+
+    let out = std::env::temp_dir().join("cli_strategy_with_a_branch.x3b");
+    let _ = std::fs::remove_file(&out);
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("run x3c build");
+    let build_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(!build.status.success(), "build must refuse the branch: {build_output}");
+    assert!(!out.exists(), "and no artifact may be written next to it");
+}
