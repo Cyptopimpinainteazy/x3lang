@@ -59,6 +59,7 @@ use x3_lang_ast::ast::{ArbDecl, Expression, Item, Program, RequireKind};
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
 
 use crate::lowering;
+use crate::opportunity::{path_reject_reason, reject_reason, OpportunityConstraints, OpportunityGraph};
 use crate::semantic;
 
 /// The pipeline PHASE 37 names, and where each stage lives today.
@@ -300,6 +301,120 @@ pub fn policy(decl: &ArbDecl) -> Result<ArbPolicy, String> {
     })
 }
 
+/// The constraints a routing stage would search under, built from the scope.
+///
+/// This is the mapping PHASE 37 asks for: the declaration is the source-level spelling
+/// of what the opportunity search takes, so the compiler can *run* the filter the plan
+/// would run rather than trusting that the declaration's numbers are compatible with
+/// the graph. The units line up by construction — slippage and the fee ceiling are both
+/// in basis points, the liquidity floor is an amount — except for the deadline:
+///
+/// `max_latency_ms` is left unset, and that is a statement rather than an omission. The
+/// policy records the deadline in *blocks*, a venue declares its latency in
+/// *milliseconds*, and `expression_to_blocks` rounds up to whole blocks — the safe
+/// direction for a window, the permissive one for a filter. Deriving one figure from the
+/// other would let a venue through that the declared budget excludes, so that comparison
+/// belongs to the plan generator (TICKET-073) rather than to a loose reading here.
+/// `max_finality_blocks`, `max_risk` and `require_proof` are unset because the scope
+/// states nothing about them: they are the objective's and the venue's vocabulary, and
+/// inventing a value would be a bound nobody wrote.
+pub fn search_constraints(policy: &ArbPolicy) -> OpportunityConstraints {
+    OpportunityConstraints {
+        max_hops: policy.max_hops as usize,
+        // The set, not a count: `chains = [a, b]` says which chains, and the count is a
+        // consequence of that statement rather than the statement itself.
+        max_chains: None,
+        allowed_chains: Some(policy.chains.clone()),
+        max_fee_bps: Some(u32::from(policy.max_total_fee_bps)),
+        max_slippage_bps: Some(u32::from(policy.max_slippage_bps)),
+        min_liquidity: Some(policy.liquidity_min.0),
+        max_latency_ms: None,
+        max_finality_blocks: None,
+        max_risk: None,
+        require_proof: false,
+    }
+}
+
+/// The declared venues the scope's own bounds admit, and why each of the rest is out.
+///
+/// A venue is admitted when it survives both functions the search itself uses: the
+/// per-venue bounds ([`reject_reason`]) and the path bounds as they apply to the shortest
+/// path through it ([`path_reject_reason`] on a one-hop path). The second call is what
+/// gives the fee ceiling and the chain set teeth, because those are properties of a path
+/// rather than of any single edge. One hop is the weakest claim the graph can support,
+/// and it is exactly the claim this check makes: *something* is there to rank.
+///
+/// The wording of each refusal is the reason enum's `Debug`, which is the rendering
+/// `x3c optimize` already ships for the same refusals: one presentation rather than two
+/// that drift.
+pub fn admitted_venues(program: &Program, policy: &ArbPolicy) -> (Vec<String>, Vec<(String, String)>) {
+    let graph = OpportunityGraph::from_program(program);
+    let constraints = search_constraints(policy);
+    let mut admitted: Vec<String> = Vec::new();
+    let mut refused: Vec<(String, String)> = Vec::new();
+    for edge in &graph.edges {
+        let reason = reject_reason(edge, &constraints)
+            .map(|reason| format!("{reason:?}"))
+            .or_else(|| {
+                let venues = vec![edge.venue.clone()];
+                let assets = vec![edge.from.clone(), edge.to.clone()];
+                path_reject_reason(&venues, &assets, &graph, &constraints).map(|reason| format!("{reason:?}"))
+            });
+        match reason {
+            Some(reason) => refused.push((edge.venue.clone(), reason)),
+            None => admitted.push(edge.venue.clone()),
+        }
+    }
+    (admitted, refused)
+}
+
+/// Refuse a scope whose own bounds leave the routing stages nothing to rank.
+///
+/// A declaration states a search space; this runs the search's own filter over the
+/// program's declared venues, so a scope this compiler accepts cannot be one the search
+/// would refuse. A scope that admits nothing says "no opportunity exists" while looking
+/// like a strategy, and the refusal names every declared venue and the bound that removed
+/// it rather than reporting an empty result the author has to guess at.
+///
+/// The three answers that are not "there is something to rank" are separated, because
+/// they need different fixes: no venue is declared at all (write one), no venue is on a
+/// chain the scope names (widen the scope or move the venue), and venues exist on those
+/// chains but every one breaks a bound (loosen the bound or deepen the venue).
+fn scope_admits_a_venue(program: &Program, policy: &ArbPolicy) -> Result<Vec<String>, String> {
+    let admitted = admitted_venues(program, policy);
+    if !admitted.0.is_empty() {
+        return Ok(admitted.0);
+    }
+    let graph = OpportunityGraph::from_program(program);
+    let detail = if graph.edges.is_empty() {
+        "no `venue` is declared, so the opportunity graph is empty and the routing stages \
+         would search nothing — the phase's own pipeline starts at that graph"
+            .to_string()
+    } else {
+        let named: Vec<String> = admitted
+            .1
+            .iter()
+            .map(|(venue, reason)| format!("{venue} (refused: {reason})"))
+            .collect();
+        format!(
+            "the {} declared venue(s) are refused by the scope's own bounds — {}",
+            named.len(),
+            named.join(", ")
+        )
+    };
+    Err(format!(
+        "the arb '{}' declares a scope whose bounds admit no venue to rank, so the search \
+         would report an empty plan as a strategy: over chains [{}], with a liquidity floor \
+         of {} {}, a slippage ceiling of {}bps and a fee ceiling of {}bps, {detail}",
+        policy.name,
+        policy.chains.join(", "),
+        policy.liquidity_min.0,
+        policy.liquidity_min.1,
+        policy.max_slippage_bps,
+        policy.max_total_fee_bps
+    ))
+}
+
 /// Decide which guard, if any, enforces a declared profit floor.
 ///
 /// A floor with nothing enforcing it is a label, so the two answers that are not a
@@ -352,26 +467,34 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
         };
         match policy(decl) {
             Err(reason) => acc.add_error(semantic_error(reason)),
-            Ok(decided) => match enforcement(program, decided.min_profit_bps) {
-                Enforcement::Guarded { .. } => {}
-                Enforcement::Contradicted { owner, bound_bps } => acc.add_error(semantic_error(format!(
-                    "the arb '{}' declares `min_profit = {}bps` and the guard in '{owner}' permits \
+            Ok(decided) => {
+                // Both questions are asked even when the first fails: an author fixing the
+                // scope should not have to rediscover the floor question afterwards, and
+                // an empty search space and an unenforced floor are different mistakes.
+                if let Err(reason) = scope_admits_a_venue(program, &decided) {
+                    acc.add_error(semantic_error(reason));
+                }
+                match enforcement(program, decided.min_profit_bps) {
+                    Enforcement::Guarded { .. } => {}
+                    Enforcement::Contradicted { owner, bound_bps } => acc.add_error(semantic_error(format!(
+                        "the arb '{}' declares `min_profit = {}bps` and the guard in '{owner}' permits \
                      {bound_bps}bps; the guard allows what the declaration forbids",
-                    decided.name, decided.min_profit_bps
-                ))),
-                Enforcement::Unverifiable { owner, bound } => acc.add_error(semantic_error(format!(
-                    "the arb '{}' declares `min_profit = {}bps` and the guard in '{owner}' bounds \
+                        decided.name, decided.min_profit_bps
+                    ))),
+                    Enforcement::Unverifiable { owner, bound } => acc.add_error(semantic_error(format!(
+                        "the arb '{}' declares `min_profit = {}bps` and the guard in '{owner}' bounds \
                      profit at '{bound}', which is not a basis-point figure, so whether it enforces \
                      the declared floor cannot be decided; write the guard's bound in bps",
-                    decided.name, decided.min_profit_bps
-                ))),
-                Enforcement::Unguarded => acc.add_error(semantic_error(format!(
-                    "the arb '{}' declares `min_profit = {}bps` and no `require profit >= …` guard \
+                        decided.name, decided.min_profit_bps
+                    ))),
+                    Enforcement::Unguarded => acc.add_error(semantic_error(format!(
+                        "the arb '{}' declares `min_profit = {}bps` and no `require profit >= …` guard \
                      enforces it, so the floor is a label nothing acts on; a declared bound with \
                      nothing enforcing it is the defect PHASE 15's own comment names",
-                    decided.name, decided.min_profit_bps
-                ))),
-            },
+                        decided.name, decided.min_profit_bps
+                    ))),
+                }
+            }
         }
     }
 }

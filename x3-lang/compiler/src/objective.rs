@@ -257,6 +257,11 @@ pub fn constraints_for(
     crate::opportunity::OpportunityConstraints {
         max_hops: objective.max_hops.map(|hops| hops as usize).unwrap_or(0),
         max_chains: objective.max_chains,
+        // An objective constrains paths by *count*, not by name: `max_chains` says how
+        // many chains a path may touch and nothing in its grammar says which ones. The
+        // `arb` scope is where a chain set is stated, so it is the caller that fills
+        // this in (PHASE 37).
+        allowed_chains: None,
         max_fee_bps: tighten(objective.max_fees_bps, policy.map(|policy| policy.max_total_fee_bps)),
         max_slippage_bps: tighten(objective.max_slippage_bps, policy.map(|policy| policy.max_slippage_bps)),
         // `capital <= N <ASSET>` is the size the program means to commit, and

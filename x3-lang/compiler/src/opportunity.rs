@@ -202,6 +202,18 @@ pub struct OpportunityConstraints {
     /// chain are one chain's worth of exposure no matter how many assets they
     /// move between.
     pub max_chains: Option<u32>,
+    /// The chains a path may touch, when the caller names them.
+    ///
+    /// A set rather than a count, because `chains = [x3, ethereum, base]` and
+    /// "at most three chains" are different statements and only the first is what a
+    /// discovery scope says (spec PHASE 37). `None` leaves the graph unbounded; an
+    /// empty set admits nothing, which is the honest reading of an empty declaration
+    /// rather than a licence to search everything.
+    ///
+    /// Comparison is case-insensitive and by chain name, the way every other chain
+    /// reference in this compiler is compared: `Ethereum` in a venue declaration and
+    /// `ethereum` in a constraint are the same chain.
+    pub allowed_chains: Option<Vec<String>>,
     /// Largest fee sum the path may incur, in basis points.
     pub max_fee_bps: Option<u32>,
     /// Largest slippage any single venue on the path may declare.
@@ -269,6 +281,8 @@ impl Opportunity {
 pub enum RejectionReason {
     TooManyHops,
     TooManyChains,
+    /// The path touches a chain outside the set the caller allowed.
+    ChainNotAllowed,
     FeeAboveBound,
     SlippageAboveBound,
     LiquidityBelowBound,
@@ -474,6 +488,18 @@ pub fn path_reject_reason(
     if let Some(bound) = constraints.max_chains {
         if distinct_chains(assets, graph).len() > bound as usize {
             return Some(RejectionReason::TooManyChains);
+        }
+    }
+    if let Some(allowed) = &constraints.allowed_chains {
+        // Read the chains from the graph's own asset nodes rather than from the
+        // labels, so an asset whose name contains a dot cannot be read as a chain
+        // boundary and a chain the graph does not host cannot be smuggled in by
+        // spelling one of its labels that way.
+        if distinct_chains(assets, graph)
+            .iter()
+            .any(|chain| !allowed.iter().any(|permitted| permitted.eq_ignore_ascii_case(chain)))
+        {
+            return Some(RejectionReason::ChainNotAllowed);
         }
     }
     None

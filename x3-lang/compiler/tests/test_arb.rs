@@ -12,10 +12,48 @@ use std::path::Path;
 
 use x3_lang_compiler::arb::{self, Enforcement};
 
+/// The venues the scope searches.
+///
+/// Declared rather than left out, because a scope whose own bounds admit no venue is
+/// refused (`arb::admitted_venues`): the phase's pipeline starts at the opportunity
+/// graph, and a scope over a graph with nothing in it is a declaration that says no
+/// opportunity exists while looking like a strategy. Both venues sit inside the sound
+/// scope's bounds — ethereum and solana are in `chains`, and each declares enough depth,
+/// little enough slippage and a low enough fee to survive it.
+const VENUES: &str = r#"venue arb_spot {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.USDC
+    asset_out ethereum.ETH
+    fee_bps 5
+    liquidity 1_000_000
+    slippage_bps 6
+    latency_ms 120
+    finality_blocks 12
+    risk 2
+}
+
+venue solana_pool {
+    kind pool
+    chain solana
+    domain svm
+    asset_in solana.SOL
+    asset_out solana.USDC
+    fee_bps 6
+    liquidity 900_000
+    slippage_bps 8
+    latency_ms 200
+    finality_blocks 32
+    risk 3
+}
+
+"#;
+
 /// The `arb` block, with each of its four parts supplied by the caller.
 fn arb_source(discover: &str, capital: &str, execution: &str, risk: &str) -> String {
     format!(
-        "intent spread_trade {{\n    \
+        "{VENUES}intent spread_trade {{\n    \
              from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
              to solana.USDC receiver 0xA2\n    \
              route {{\n        \
@@ -145,6 +183,71 @@ fn the_deadline_is_read_by_the_same_reader_every_other_duration_uses() {
         "60s is ten blocks at {}s/block",
         x3_lang_compiler::lowering::SECONDS_PER_BLOCK
     );
+}
+
+#[test]
+fn the_scope_admits_exactly_the_venues_its_own_bounds_allow() {
+    let program = parse(&sound());
+    let policy = decided(&sound());
+    let (admitted, refused) = arb::admitted_venues(&program, &policy);
+    assert_eq!(admitted, vec!["arb_spot", "solana_pool"]);
+    assert!(refused.is_empty(), "both venues survive: {refused:?}");
+
+    // The fee ceiling is a property of a *path*, not of one venue, so it is the second
+    // function the search uses that refuses over it: `reject_reason` cannot see a fee
+    // bound at all, and a check that looked at one edge at a time would admit a pool the
+    // scope's own ceiling excludes.
+    let tight = clause("risk", "max_total_fee = 6bps;", "max_total_fee = 5bps;");
+    let program = parse(&tight);
+    let policy = decided(&tight);
+    let (admitted, refused) = arb::admitted_venues(&program, &policy);
+    assert_eq!(admitted, vec!["arb_spot"], "arb_spot charges exactly 5bps");
+    assert_eq!(
+        refused,
+        vec![("solana_pool".to_string(), "FeeAboveBound".to_string())],
+        "solana_pool charges 6bps"
+    );
+}
+
+#[test]
+fn a_scope_whose_bounds_admit_no_venue_is_refused_with_the_venues_and_the_bound() {
+    // One basis point of slippage: neither pool declares that little, so the scope has
+    // nothing to rank and the search would report an empty plan as a strategy.
+    let reason = refusal(&clause("risk", "max_slippage = 8bps;", "max_slippage = 1bps;"));
+    assert!(reason.contains("admit no venue to rank"), "{reason}");
+    assert!(
+        reason.contains("arb_spot") && reason.contains("solana_pool") && reason.contains("SlippageAboveBound"),
+        "every venue and the bound that removed it are named: {reason}"
+    );
+    assert!(
+        reason.contains("a slippage ceiling of 1bps"),
+        "the figures are quoted: {reason}"
+    );
+}
+
+#[test]
+fn a_scope_over_chains_with_no_venue_is_refused_rather_than_searching_an_empty_graph() {
+    // The scope moves to x3 alone, and the floor and ceiling with it; no venue is
+    // declared on x3, so the scope's own chain *set* removes every candidate. The graph
+    // has venues — just not there — which is why this is not the empty-graph case below.
+    let moved = sound()
+        .replace("chains = [x3, ethereum, solana]", "chains = [x3]")
+        .replace("500_000 ethereum.USDC", "500_000 x3.USDC")
+        .replace("50_000_000 ethereum.USDC", "50_000_000 x3.USDC");
+    let reason = refusal(&moved);
+    assert!(reason.contains("admit no venue to rank"), "{reason}");
+    assert!(reason.contains("over chains [x3]"), "the scope is quoted: {reason}");
+    assert!(
+        reason.contains("ChainNotAllowed"),
+        "the set, not a count of chains, is what refused them: {reason}"
+    );
+
+    // A program with no venue at all says that, rather than reporting an empty search:
+    // the opportunity graph is where the phase's own pipeline starts.
+    let venue_less = sound().replace(VENUES, "");
+    let reason = refusal(&venue_less);
+    assert!(reason.contains("no `venue` is declared"), "{reason}");
+    assert!(reason.contains("opportunity graph is empty"), "{reason}");
 }
 
 #[test]

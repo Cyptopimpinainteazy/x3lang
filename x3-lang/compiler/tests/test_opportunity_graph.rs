@@ -251,6 +251,58 @@ fn a_required_proof_filters_out_venues_that_declare_none() {
 }
 
 #[test]
+fn a_chain_set_admits_paths_by_name_not_by_count() {
+    // `chains = [x3, ethereum, solana]` is a set, not "at most three chains". The two
+    // readings agree on a path's size and differ on which chains it may use, so a bound
+    // that only counted would let a path through a chain nobody allowed.
+    let graph = graph_from(TWO_WAYS);
+    let ethereum_only = OpportunityConstraints {
+        max_hops: 4,
+        allowed_chains: Some(vec!["ethereum".to_string()]),
+        ..Default::default()
+    };
+    // The route to solana.SOL crosses into solana, so the set refuses it...
+    let refused = found(search(&graph, "ethereum.USDC", "solana.SOL", &ethereum_only));
+    assert!(refused.is_empty(), "solana is not in the set: {refused:?}");
+    // ...while the routes inside ethereum survive it.
+    let inside = found(search(&graph, "ethereum.USDC", "ethereum.ETH", &ethereum_only));
+    assert_eq!(inside.len(), 2, "both pools are on ethereum: {inside:?}");
+
+    // Chain names are compared case-insensitively, the way every other chain reference in
+    // this compiler is, so a declaration's spelling is not a second constraint.
+    let capitalised = OpportunityConstraints {
+        max_hops: 4,
+        allowed_chains: Some(vec!["Ethereum".to_string()]),
+        ..Default::default()
+    };
+    assert_eq!(
+        found(search(&graph, "ethereum.USDC", "ethereum.ETH", &capitalised)).len(),
+        2
+    );
+
+    // The refusal is the same judgement the search made, not a second opinion computed
+    // beside it: the CLI prints these reasons.
+    assert_eq!(
+        x3_lang_compiler::opportunity::path_reject_reason(
+            &["to_solana".to_string()],
+            &["ethereum.ETH".to_string(), "solana.SOL".to_string()],
+            &graph,
+            &ethereum_only,
+        ),
+        Some(RejectionReason::ChainNotAllowed)
+    );
+
+    // An empty set admits nothing, which is the honest reading of an empty declaration
+    // rather than a licence to search everything.
+    let no_chains = OpportunityConstraints {
+        max_hops: 4,
+        allowed_chains: Some(Vec::new()),
+        ..Default::default()
+    };
+    assert!(found(search(&graph, "ethereum.USDC", "ethereum.ETH", &no_chains)).is_empty());
+}
+
+#[test]
 fn the_rejection_reason_names_the_bound_that_refused_the_edge() {
     // The CLI prints these, so they have to be the same judgement the search
     // made rather than a second opinion computed beside it.

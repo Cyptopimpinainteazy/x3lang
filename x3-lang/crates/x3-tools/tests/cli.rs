@@ -1738,7 +1738,36 @@ fn cli_check_refuses_a_netting_book_because_nothing_settles_the_residual() {
 /// missing rather than with silence.
 #[test]
 fn cli_refuses_an_arb_scope_and_names_the_pipeline_stages_that_are_missing() {
-    let source = "intent spread_trade {\n    \
+    // The venues the scope searches: a scope whose own bounds admit no declared venue is
+    // refused before the pipeline question is reached (`arb::scope_admits_a_venue`), so a
+    // fixture without them would test that refusal instead of this one.
+    let source = "venue arb_spot {\n    \
+                      kind pool\n    \
+                      chain ethereum\n    \
+                      domain evm\n    \
+                      asset_in ethereum.USDC\n    \
+                      asset_out ethereum.ETH\n    \
+                      fee_bps 5\n    \
+                      liquidity 1_000_000\n    \
+                      slippage_bps 6\n    \
+                      latency_ms 120\n    \
+                      finality_blocks 12\n    \
+                      risk 2\n\
+                  }\n\n\
+                  venue solana_pool {\n    \
+                      kind pool\n    \
+                      chain solana\n    \
+                      domain svm\n    \
+                      asset_in solana.SOL\n    \
+                      asset_out solana.USDC\n    \
+                      fee_bps 6\n    \
+                      liquidity 900_000\n    \
+                      slippage_bps 8\n    \
+                      latency_ms 200\n    \
+                      finality_blocks 32\n    \
+                      risk 3\n\
+                  }\n\n\
+                  intent spread_trade {\n    \
                       from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
                       to solana.USDC receiver 0xA2\n    \
                       route {\n        \
