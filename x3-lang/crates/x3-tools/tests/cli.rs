@@ -2185,3 +2185,54 @@ fn cli_refuses_a_hyperarb_leg_that_names_nothing_and_lowers_the_one_that_does() 
         "the refusal must name the stages and the leg count: {output}"
     );
 }
+
+/// `x3c lanes` — spec PHASE 30.
+///
+/// The compiler module has its own tests (`compiler/tests/test_lanes.rs`), but those
+/// call `lanes::classify` on hand-built IR. This is the reachability the policy
+/// needs: the lane has to be decided from a *program*, and the serving order has to
+/// be printed, because a policy a reader has to infer from behaviour is not the
+/// auditable one the phase asks for.
+#[test]
+fn cli_lanes_reports_each_declarations_lane_and_the_serving_order() {
+    let source = "intent only_moves {\n    from ethereum.USDC amount 100 receiver 0xA1\n    to \
+                  ethereum.USDC receiver 0xA2\n    require nonce unused only_moves_nonce\n    \
+                  timeout 30s refund ethereum.USDC to sender\n    on_fail rollback\n}\n\
+                  intent trades {\n    from ethereum.USDC amount 100 receiver 0xA1\n    to \
+                  ethereum.SOL receiver 0xA2\n    route {\n        swap uniswap ethereum.USDC -> \
+                  ethereum.SOL amount 100 min_output 90\n    }\n    require nonce unused \
+                  trades_nonce\n    timeout 30s refund ethereum.USDC to sender\n    on_fail \
+                  rollback\n}\n\
+                  intent crosses {\n    from ethereum.USDC amount 100 receiver 0xA1\n    to \
+                  solana.USDC receiver 0xA2\n    route {\n        swap uniswap ethereum.USDC -> \
+                  solana.USDC amount 100 min_output 90\n    }\n    require nonce unused \
+                  crosses_nonce\n    timeout 30s refund ethereum.USDC to sender\n    on_fail \
+                  rollback\n}\n";
+    let fixture = write_fixture("cli_lanes.x3", source);
+    let output = x3c().arg("lanes").arg(&fixture).output().expect("run x3c lanes");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "lanes must exit 0: {stdout}");
+    assert!(
+        stdout.contains("liquidation -> atomic_cross_domain -> trading -> settlement -> standard"),
+        "the serving order must be printed, not inferred: {stdout}"
+    );
+    assert!(
+        stdout.contains("crosses: atomic_cross_domain")
+            && stdout.contains("trades: trading")
+            && stdout.contains("only_moves: settlement"),
+        "each declaration's lane must be decided from its operations: {stdout}"
+    );
+    assert!(
+        stdout.contains("arrival order is preserved"),
+        "the fairness rule must be stated in the report: {stdout}"
+    );
+    // The report is printed in the serving order, so the three appear in it.
+    let crosses = stdout.find("crosses: atomic_cross_domain").expect("crosses");
+    let trades = stdout.find("trades: trading").expect("trades");
+    let only_moves = stdout.find("only_moves: settlement").expect("only_moves");
+    assert!(
+        crosses < trades && trades < only_moves,
+        "the report must be in the order the policy serves: {stdout}"
+    );
+}

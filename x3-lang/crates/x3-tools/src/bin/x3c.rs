@@ -212,6 +212,9 @@ enum Cmd {
     Fusion { input: PathBuf },
     /// Offset a book of obligations and report what has to move afterwards.
     Netting { input: PathBuf },
+    /// Report the execution lane of every declaration in a program, and the order
+    /// the lanes are served in.
+    Lanes { input: PathBuf },
     /// Print a compiled strategy's marketplace metadata: what it is, what it
     /// needs, and what it does not expose.
     Metadata {
@@ -415,6 +418,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         } => cmd_optimize(&input, &from, &to, objective.as_deref(), max_hops, max_slippage_bps),
         Cmd::Fusion { input } => cmd_fusion(&input),
         Cmd::Netting { input } => cmd_netting(&input),
+        Cmd::Lanes { input } => cmd_lanes(&input),
         Cmd::Metadata { input, out } => cmd_metadata(&input, out.as_ref(), mode),
         Cmd::Score { input } => cmd_score(&input, mode),
         Cmd::Test {
@@ -650,6 +654,60 @@ fn cmd_fusion(input: &PathBuf) -> Result<ExitCode, String> {
             );
         }
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `x3c lanes` — which execution lane each declaration is in (spec PHASE 30).
+///
+/// The lane is decided from the declaration's *lowered operations*, so this runs the
+/// same classification the runtime would, and it prints the cross-lane order as
+/// well: the policy is a fixed sequence a reader can audit, not a score they have to
+/// infer from behaviour.
+fn cmd_lanes(input: &PathBuf) -> Result<ExitCode, String> {
+    use x3_lang_compiler::lanes::{classify_program, Lane, PRIORITY};
+
+    let source = read_source(input)?;
+    let program = x3_lang_compiler::parser::parse_source(&source).map_err(|e| format!("parse error: {e}"))?;
+    let found = classify_program(&program);
+
+    println!(
+        "x3c lanes: serving order {}",
+        PRIORITY
+            .iter()
+            .map(|lane| lane.as_str())
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    );
+    println!("  (within a lane, arrival order is preserved; nothing a participant controls changes either)");
+    if found.is_empty() {
+        println!(
+            "  no declaration in {} has a lane: nothing in it lowers to operations",
+            input.display()
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    // Print in the serving order, so the report and the policy read the same way. A
+    // declaration that does not lower is printed with its reason rather than being
+    // given a lane it does not have.
+    let mut ordered = found;
+    ordered.sort_by_key(|(_, lane)| lane.as_ref().map(|lane| lane.rank()).unwrap_or(usize::MAX));
+    for (name, lane) in &ordered {
+        match lane {
+            Ok(lane) => println!("  {name}: {}", lane.as_str()),
+            Err(reason) => println!("  {name}: NOT CLASSIFIED — {reason}"),
+        }
+    }
+    let standard = ordered
+        .iter()
+        .filter(|(_, lane)| lane.as_ref() == Ok(&Lane::Standard))
+        .count();
+    let unclassified = ordered.iter().filter(|(_, lane)| lane.is_err()).count();
+    println!(
+        "  {} declaration(s); {standard} in the standard lane, which is where a declaration whose \
+         operations imply no lane of their own lands; {unclassified} could not be lowered and \
+         therefore have no lane",
+        ordered.len()
+    );
     Ok(ExitCode::SUCCESS)
 }
 

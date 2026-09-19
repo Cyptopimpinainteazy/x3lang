@@ -24,6 +24,7 @@ pub mod hyperarb;
 pub mod intent_bridge;
 pub mod intent_emit;
 pub mod ir;
+pub mod lanes;
 pub mod linter;
 pub mod liquidation;
 pub mod lowering;
