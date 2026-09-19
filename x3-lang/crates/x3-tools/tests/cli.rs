@@ -1728,3 +1728,117 @@ fn cli_check_refuses_a_netting_book_because_nothing_settles_the_residual() {
     assert!(!build.status.success(), "the artifact must not be emitted: {text}");
     assert!(text.contains("book_a"), "the emitter must give the same reason: {text}");
 }
+
+/// `x3c check` on an `arb` — spec PHASE 37.
+///
+/// The compiler module has its own tests (`compiler/tests/test_arb.rs`), but those
+/// call `arb::policy` and `arb::verify` directly. This is the reachability the
+/// feature needs: the declaration has to reach the *binary*, and the command that
+/// says whether a program can run has to refuse it with the stages that are
+/// missing rather than with silence.
+#[test]
+fn cli_refuses_an_arb_scope_and_names_the_pipeline_stages_that_are_missing() {
+    let source = "intent spread_trade {\n    \
+                      from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
+                      to solana.USDC receiver 0xA2\n    \
+                      route {\n        \
+                          swap uniswap ethereum.USDC -> solana.USDC amount 1_000_000 min_output \
+                          1_001_000\n    \
+                      }\n    \
+                      require profit >= 20\n    \
+                      require slippage <= 50\n    \
+                      timeout 30s refund ethereum.USDC to sender\n    \
+                      on_fail rollback\n\
+                  }\n\n\
+                  arb spread {\n    \
+                      discover { chains = [x3, ethereum, solana]; max_hops = 4; liquidity_min = \
+                      500_000 ethereum.USDC; }\n    \
+                      capital { flash = disabled; max = 50_000_000 ethereum.USDC; }\n    \
+                      execution { atomic = true; parallel = true; private = false; }\n    \
+                      risk { min_profit = 20bps; max_slippage = 8bps; max_total_fee = 6bps; \
+                      deadline = 220ms; }\n\
+                  }\n";
+    let fixture = write_fixture("cli_arb_sound.x3", source);
+
+    let check = x3c().arg("check").arg(&fixture).output().expect("x3c check");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        !check.status.success(),
+        "no pipeline can turn the scope into legs: {output}"
+    );
+    assert!(
+        output.contains("Execution Plan") && output.contains("Atomic Settlement"),
+        "the refusal must name the stages with no implementation: {output}"
+    );
+    let refusal = output
+        .lines()
+        .find(|line| line.contains("cannot be executed"))
+        .expect("the refusal must be in the output");
+    assert!(
+        !refusal.trim().contains("  "),
+        "the refusal must not carry spacing artefacts from the literal: {refusal}"
+    );
+
+    // `build` must give the same answer, so check and build cannot disagree.
+    let out = std::env::temp_dir().join("cli_arb_sound.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(!build.status.success(), "the artifact must not be emitted: {text}");
+    assert!(
+        text.contains("spread") && text.contains("Execution Plan"),
+        "the emitter must give the same reason: {text}"
+    );
+}
+
+/// `x3c lower` shows what the arb's verifier decided.
+#[test]
+fn cli_lower_shows_the_decided_arb_scope() {
+    let source = "arb spread {\n    discover { chains = [x3, ethereum]; max_hops = 3; \
+                  liquidity_min = 500_000 ethereum.USDC; }\n    capital { flash = disabled; max \
+                  = 50_000_000 ethereum.USDC; }\n    execution { atomic = true; parallel = true; \
+                  private = false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; \
+                  max_total_fee = 6bps; deadline = 60s; }\n}\n";
+    let fixture = write_fixture("cli_arb_lower.x3", source);
+    let out = std::env::temp_dir().join("cli_arb_lower.json");
+    let lower = x3c()
+        .arg("lower")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c lower");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&lower.stdout),
+        String::from_utf8_lossy(&lower.stderr)
+    );
+    assert!(lower.status.success(), "lowering must succeed: {text}");
+
+    let json = std::fs::read_to_string(&out).expect("the IR document");
+    assert!(
+        json.contains("\"chains\"") && json.contains("\"ethereum\""),
+        "the decided scope must be in the IR: {json}"
+    );
+    assert!(
+        json.contains("\"min_profit_bps\": 20") && json.contains("\"max_hops\": 3"),
+        "the decided bounds must be in the IR: {json}"
+    );
+    assert!(
+        json.contains("\"deadline_blocks\": 10"),
+        "60s must have been read as ten blocks: {json}"
+    );
+}

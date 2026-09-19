@@ -580,3 +580,32 @@ fn a_netting_book_is_refused_until_something_can_settle_the_residual() {
         "the refusal must name the book, the residual and what is missing: {diagnostics:?}"
     );
 }
+
+#[test]
+fn an_arb_scope_is_refused_naming_the_pipeline_stages_that_do_not_exist() {
+    // PHASE 37's scope and risk bounds are decided on the AST (`arb::verify`); what
+    // is missing is the pipeline that turns a scope into legs. Six of the phase's
+    // seven stages are implemented elsewhere in this compiler, so the refusal names
+    // the two that are not rather than saying "not implemented" and reading as
+    // though none of it existed.
+    let ir = ir_with(vec![Operation::Arb {
+        name: "spread".to_owned(),
+        chains: vec!["x3".to_owned(), "ethereum".to_owned()],
+        max_hops: 4,
+        min_profit_bps: 20,
+        max_slippage_bps: 8,
+        max_total_fee_bps: 6,
+        deadline_blocks: 1,
+        parallel: true,
+    }]);
+    let diagnostics = verify_ir(&ir).expect_err("no pipeline can turn the scope into legs");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        diagnostics[0].message.contains("cannot be executed")
+            && diagnostics[0].message.contains("spread")
+            && diagnostics[0].message.contains("Execution Plan")
+            && diagnostics[0].message.contains("Atomic Settlement")
+            && !diagnostics[0].message.contains("  "),
+        "the refusal must name the arb and the missing stages: {diagnostics:?}"
+    );
+}

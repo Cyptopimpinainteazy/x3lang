@@ -12,6 +12,7 @@
 //!    allow-lists, refund paths, explicit finality/proofs, route scores,
 //!    invariant rules, compile-mode gating, and risk scoring).
 
+pub mod arb;
 pub mod cost;
 pub mod dag;
 pub mod diagnostic;
@@ -217,6 +218,9 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     // A book of obligations has to be one the parties agreed to and one whose
     // offsetting leaves every position alone (PHASE 22).
     netting::verify(program, &mut acc);
+    // An arbitrage scope's bounds have to be bounds, and its declared profit floor
+    // has to be enforced by a guard rather than merely written down (PHASE 37).
+    arb::verify(program, &mut acc);
     errors.extend(acc.errors().iter().cloned());
 
     // Layer 1 of the pipeline described at the top of this file. It was

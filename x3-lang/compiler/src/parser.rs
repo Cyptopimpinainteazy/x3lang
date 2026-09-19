@@ -304,6 +304,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "atomic_liquidation" => self.parse_atomic_liquidation_item(),
             Tok::Ident(ref s) if s == "rebalance" => self.parse_rebalance_item(),
             Tok::Ident(ref s) if s == "netting" => self.parse_netting_item(),
+            Tok::Ident(ref s) if s == "arb" => self.parse_arb_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
@@ -3641,6 +3642,438 @@ impl<'a> Parser<'a> {
             consent,
             obligations,
         }))
+    }
+
+    /// `arb <name> { discover { … } capital { … } execution { … } risk { … } }` —
+    /// spec PHASE 37.
+    ///
+    /// Four blocks, each `<clause> = <value>;`. Nothing is validated here: which
+    /// hop bounds are sane, whether a chain in scope can reach an asset, whether
+    /// flash capital is allowed to ship at all, and whether the declared risk
+    /// floor is enforced by a guard are decided in `compiler/src/arb.rs`, where
+    /// the reason can be stated with figures. The parser's job is to say what was
+    /// written, including refusing a clause it has already seen — a block that
+    /// says `max_hops` twice has two answers and no way to pick between them.
+    fn parse_arb_item(&mut self) -> Result<Item, X3Error> {
+        self.advance();
+        let name = Symbol::new(&self.expect_ident("arb name")?);
+        self.expect(Tok::LBrace, "expected '{' after the arb name")?;
+
+        let mut discover: Option<ArbDiscover> = None;
+        let mut capital: Option<ArbCapital> = None;
+        let mut execution: Option<ArbExecution> = None;
+        let mut risk: Option<ArbRisk> = None;
+
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let block = self.peek_word().ok_or_else(|| {
+                parse_err(
+                    "expected `discover { … }`, `capital { … }`, `execution { … }` or `risk { … }`".into(),
+                    self.peek(),
+                )
+            })?;
+            self.advance();
+            let slot_name = match block.as_str() {
+                "discover" | "capital" | "execution" | "risk" => block.clone(),
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown arb block '{other}'; an `arb` declares `discover`, `capital`, \
+                             `execution` and `risk`"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            };
+            self.expect(Tok::LBrace, &format!("expected '{{' after `{block}`"))?;
+            match block.as_str() {
+                "discover" => {
+                    if discover.is_some() {
+                        return Err(parse_err("duplicate `discover` block in arb".into(), self.peek()));
+                    }
+                    discover = Some(self.parse_arb_discover()?);
+                }
+                "capital" => {
+                    if capital.is_some() {
+                        return Err(parse_err("duplicate `capital` block in arb".into(), self.peek()));
+                    }
+                    capital = Some(self.parse_arb_capital()?);
+                }
+                "execution" => {
+                    if execution.is_some() {
+                        return Err(parse_err("duplicate `execution` block in arb".into(), self.peek()));
+                    }
+                    execution = Some(self.parse_arb_execution()?);
+                }
+                _ => {
+                    if risk.is_some() {
+                        return Err(parse_err("duplicate `risk` block in arb".into(), self.peek()));
+                    }
+                    risk = Some(self.parse_arb_risk()?);
+                }
+            }
+            self.expect(Tok::RBrace, &format!("expected '}}' after the `{slot_name}` block"))?;
+            self.opt_semi();
+        }
+        self.expect(Tok::RBrace, "expected '}' after the arb")?;
+
+        // Built here rather than borrowed from the lowerer: this is a syntax
+        // error about a missing block, and the lowerer's `semantic` helper is not
+        // reachable from the parser.
+        let written = name.as_str().to_string();
+        let missing = |what: &str| {
+            parse_err(
+                format!("the arb '{written}' has no `{what}` block; a scope without it is not a strategy"),
+                Tok::RBrace,
+            )
+        };
+        Ok(Item::Arb(ArbDecl {
+            name,
+            discover: discover.ok_or_else(|| missing("discover"))?,
+            capital: capital.ok_or_else(|| missing("capital"))?,
+            execution: execution.ok_or_else(|| missing("execution"))?,
+            risk: risk.ok_or_else(|| missing("risk"))?,
+        }))
+    }
+
+    /// The clause name and its `=`, or a refusal naming the shape.
+    ///
+    /// The name is read as a *word* rather than as an identifier, because one of
+    /// them — `atomic` — is a keyword token everywhere else in the language and
+    /// would otherwise never reach an `execution` block.
+    fn parse_arb_field(&mut self, block: &str) -> Result<String, X3Error> {
+        let Some(field) = self.peek_word() else {
+            return Err(parse_err(format!("a `{block}` clause"), self.peek()));
+        };
+        self.advance();
+        if self.peek() != Tok::Eq {
+            return Err(parse_err(
+                format!("`{block}` clause '{field}' needs `= <value>`"),
+                self.peek(),
+            ));
+        }
+        self.advance();
+        Ok(field)
+    }
+
+    /// `enabled` and `disabled` are accepted alongside `true` and `false`: the
+    /// phase's own example writes `flash = enabled`, and a language that refused
+    /// its own spec's spelling would be refusing nothing useful.
+    fn parse_arb_flag(&mut self, field: &str) -> Result<bool, X3Error> {
+        // `true` and `false` are keyword tokens of their own; `enabled` and
+        // `disabled` are ordinary words. All four spell a flag, so all four are
+        // read here rather than only the pair the lexer ranked.
+        match self.peek() {
+            Tok::KwTrue => {
+                self.advance();
+                Ok(true)
+            }
+            Tok::KwFalse => {
+                self.advance();
+                Ok(false)
+            }
+            Tok::Ident(ref word) if word.as_str() == "enabled" => {
+                self.advance();
+                Ok(true)
+            }
+            Tok::Ident(ref word) if word.as_str() == "disabled" => {
+                self.advance();
+                Ok(false)
+            }
+            Tok::Ident(ref word) => {
+                let other = word.as_str().to_string();
+                Err(parse_err(
+                    format!(
+                        "`{field}` is a flag: write `true`, `false`, `enabled` or `disabled`, not \
+                         '{other}'"
+                    ),
+                    self.peek(),
+                ))
+            }
+            _ => Err(parse_err(
+                format!("`{field}` is a flag: write `true`, `false`, `enabled` or `disabled`"),
+                self.peek(),
+            )),
+        }
+    }
+
+    /// `<n>bps` or `<n> bps` — a bound in basis points.
+    ///
+    /// The unit is **required** here, unlike `risk_policy`'s fields whose names
+    /// already end in `_bps`: this block's clause is called `min_profit`, and
+    /// `min_profit = 20` could as easily be twenty USDC as twenty basis points.
+    /// Requiring the unit is what keeps the declaration from meaning two things.
+    ///
+    /// The attached spelling arrives as one word because the lexer joins a number
+    /// to the word after it, so it is split here rather than refused — the phase's
+    /// own example writes `20bps`.
+    fn parse_arb_bps(&mut self, field: &str) -> Result<u16, X3Error> {
+        let (value, consumed_attached) = match self.peek() {
+            Tok::Int(value) => (value, false),
+            Tok::Ident(word) => {
+                let text = word.as_str().to_string();
+                let Some(digits) = text.strip_suffix("bps") else {
+                    return Err(parse_err(
+                        format!(
+                            "`{field}` is a bound in basis points: write `{field} = <n>bps`, found \
+                             '{text}'"
+                        ),
+                        self.peek(),
+                    ));
+                };
+                let digits = digits.trim_end_matches('_').replace('_', "");
+                if digits.is_empty() || digits.contains('.') {
+                    return Err(parse_err(
+                        format!("`{field}` is a whole number of basis points; '{text}' is not one"),
+                        self.peek(),
+                    ));
+                }
+                let value: u128 = digits.parse().map_err(|_| {
+                    parse_err(
+                        format!("`{field}` is written '{text}', which has no number in it"),
+                        self.peek(),
+                    )
+                })?;
+                (value, true)
+            }
+            _ => {
+                return Err(parse_err(
+                    format!("`{field}` is a bound in basis points: write `{field} = <n>bps`"),
+                    self.peek(),
+                ))
+            }
+        };
+        if !consumed_attached {
+            self.advance();
+            if self.peek_word().as_deref() != Some("bps") {
+                return Err(parse_err(
+                    format!("`{field}` is a bound in basis points: write `{field} = {value}bps`"),
+                    self.peek(),
+                ));
+            }
+            self.advance();
+        } else {
+            self.advance();
+        }
+        u16::try_from(value).map_err(|_| {
+            parse_err(
+                format!("`{field} = {value}bps` is larger than a basis-point bound can be"),
+                self.peek(),
+            )
+        })
+    }
+
+    /// `<n> <ASSET>` — an amount and the asset it is denominated in.
+    fn parse_arb_amount(&mut self, field: &str) -> Result<(u128, AssetRef), X3Error> {
+        let amount = match self.peek() {
+            Tok::Int(value) => {
+                self.advance();
+                value
+            }
+            _ => {
+                return Err(parse_err(
+                    format!("`{field}` is an amount: write `<n> <ASSET>`"),
+                    self.peek(),
+                ))
+            }
+        };
+        let asset = self.parse_hedge_asset()?;
+        Ok((amount, asset))
+    }
+
+    fn parse_arb_discover(&mut self) -> Result<ArbDiscover, X3Error> {
+        let mut chains: Option<Vec<ChainRef>> = None;
+        let mut max_hops: Option<u32> = None;
+        let mut liquidity_min: Option<(u128, AssetRef)> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let field = self.parse_arb_field("discover")?;
+            match field.as_str() {
+                "chains" => {
+                    if chains.is_some() {
+                        return Err(parse_err("duplicate 'chains' in discover".into(), self.peek()));
+                    }
+                    self.expect(Tok::LBracket, "expected '[' after `chains =`")?;
+                    let mut found: Vec<ChainRef> = Vec::new();
+                    while self.peek() != Tok::RBracket && self.peek() != Tok::Eof {
+                        found.push(self.parse_chain_ref()?);
+                        if self.peek() == Tok::Comma {
+                            self.advance();
+                        }
+                    }
+                    self.expect(Tok::RBracket, "expected ']' after the chain list")?;
+                    chains = Some(found);
+                }
+                "max_hops" => {
+                    if max_hops.is_some() {
+                        return Err(parse_err("duplicate 'max_hops' in discover".into(), self.peek()));
+                    }
+                    // A count, not an identifier: `max_hops = 4 x` would be a hop
+                    // count with a unit, which is a mistake about what is being
+                    // counted, so the number is read as a number and the rest is
+                    // left to become an unknown clause.
+                    let value = match self.peek() {
+                        Tok::Int(value) => {
+                            self.advance();
+                            value
+                        }
+                        _ => {
+                            return Err(parse_err(
+                                "`max_hops` is a count of hops: write `max_hops = <n>`".into(),
+                                self.peek(),
+                            ))
+                        }
+                    };
+                    max_hops = Some(u32::try_from(value).map_err(|_| {
+                        parse_err(
+                            format!("`max_hops = {value}` is larger than a hop count can be"),
+                            self.peek(),
+                        )
+                    })?);
+                }
+                "liquidity_min" => {
+                    if liquidity_min.is_some() {
+                        return Err(parse_err("duplicate 'liquidity_min' in discover".into(), self.peek()));
+                    }
+                    liquidity_min = Some(self.parse_arb_amount("liquidity_min")?);
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown `discover` clause '{other}'; it declares `chains`, `max_hops` \
+                             and `liquidity_min`"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        Ok(ArbDiscover {
+            chains: chains.unwrap_or_default(),
+            max_hops: max_hops.unwrap_or(0),
+            liquidity_min,
+        })
+    }
+
+    fn parse_arb_capital(&mut self) -> Result<ArbCapital, X3Error> {
+        let mut flash: Option<bool> = None;
+        let mut max: Option<(u128, AssetRef)> = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let field = self.parse_arb_field("capital")?;
+            match field.as_str() {
+                "flash" => {
+                    if flash.is_some() {
+                        return Err(parse_err("duplicate 'flash' in capital".into(), self.peek()));
+                    }
+                    flash = Some(self.parse_arb_flag("flash")?);
+                }
+                "max" => {
+                    if max.is_some() {
+                        return Err(parse_err("duplicate 'max' in capital".into(), self.peek()));
+                    }
+                    max = Some(self.parse_arb_amount("max")?);
+                }
+                other => {
+                    return Err(parse_err(
+                        format!("unknown `capital` clause '{other}'; it declares `flash` and `max`"),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        Ok(ArbCapital {
+            flash: flash.unwrap_or(false),
+            max,
+        })
+    }
+
+    fn parse_arb_execution(&mut self) -> Result<ArbExecution, X3Error> {
+        let mut atomic = None;
+        let mut parallel = None;
+        let mut private = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let field = self.parse_arb_field("execution")?;
+            match field.as_str() {
+                "atomic" => {
+                    if atomic.is_some() {
+                        return Err(parse_err("duplicate 'atomic' in execution".into(), self.peek()));
+                    }
+                    atomic = Some(self.parse_arb_flag("atomic")?);
+                }
+                "parallel" => {
+                    if parallel.is_some() {
+                        return Err(parse_err("duplicate 'parallel' in execution".into(), self.peek()));
+                    }
+                    parallel = Some(self.parse_arb_flag("parallel")?);
+                }
+                "private" => {
+                    if private.is_some() {
+                        return Err(parse_err("duplicate 'private' in execution".into(), self.peek()));
+                    }
+                    private = Some(self.parse_arb_flag("private")?);
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown `execution` clause '{other}'; it declares `atomic`, `parallel` \
+                             and `private`"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        Ok(ArbExecution {
+            atomic: atomic.unwrap_or(false),
+            parallel: parallel.unwrap_or(false),
+            private: private.unwrap_or(false),
+        })
+    }
+
+    fn parse_arb_risk(&mut self) -> Result<ArbRisk, X3Error> {
+        let mut min_profit_bps = None;
+        let mut max_slippage_bps = None;
+        let mut max_total_fee_bps = None;
+        let mut deadline = None;
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let field = self.parse_arb_field("risk")?;
+            match field.as_str() {
+                "min_profit" | "max_slippage" | "max_total_fee" => {
+                    let value = self.parse_arb_bps(&field)?;
+                    let slot = match field.as_str() {
+                        "min_profit" => &mut min_profit_bps,
+                        "max_slippage" => &mut max_slippage_bps,
+                        _ => &mut max_total_fee_bps,
+                    };
+                    if slot.replace(value).is_some() {
+                        return Err(parse_err(format!("duplicate '{field}' in risk"), self.peek()));
+                    }
+                }
+                "deadline" => {
+                    if deadline.is_some() {
+                        return Err(parse_err("duplicate 'deadline' in risk".into(), self.peek()));
+                    }
+                    deadline = Some(self.parse_duration_expr("an arb deadline")?);
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown `risk` clause '{other}'; it declares `min_profit`, \
+                             `max_slippage`, `max_total_fee` and `deadline`"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            }
+            self.opt_semi();
+        }
+        Ok(ArbRisk {
+            min_profit_bps,
+            max_slippage_bps,
+            max_total_fee_bps,
+            deadline,
+        })
     }
 
     /// A metric name, read through the objective's table so the two constructs cannot

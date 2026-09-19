@@ -67,6 +67,9 @@ pub enum Item {
     Rebalance(RebalanceDecl),
     /// `netting <name> { … }` — spec PHASE 22.
     Netting(NettingDecl),
+    /// `arb <name> { discover { … } capital { … } execution { … } risk { … } }` —
+    /// spec PHASE 37.
+    Arb(ArbDecl),
     ParallelDecl(ParallelDecl),
     ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
@@ -1725,4 +1728,79 @@ pub struct ObligationDecl {
     /// fractional unit would have to name its rounding.
     pub amount: u128,
     pub asset: AssetRef,
+}
+
+/// `arb <name> { discover { … } capital { … } execution { … } risk { … } }` — spec
+/// PHASE 37.
+///
+/// The declaration is a *scope and a policy* for arbitrage: which chains may be
+/// searched, how far, how much capital may be committed, what execution
+/// guarantees are claimed, and the risk bounds the trade must satisfy. Nothing
+/// here executes. The phase's own lowering pipeline is
+/// "Opportunity Graph → Candidate Routes → Filter → Dependency DAG → Risk
+/// Verification → Execution Plan → Atomic Settlement", and most of those stages
+/// already exist in this compiler for other constructs — `compiler/src/arb.rs`
+/// names which module implements which, and which one does not exist at all.
+/// The IR verifier and the emitter refuse the operation while any stage is
+/// missing, so `check` and `build` agree that this program cannot run yet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbDecl {
+    pub name: Symbol,
+    pub discover: ArbDiscover,
+    pub capital: ArbCapital,
+    pub execution: ArbExecution,
+    pub risk: ArbRisk,
+}
+
+/// `discover { chains = […]; max_hops = <n>; liquidity_min = <n> <ASSET>; }`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbDiscover {
+    /// The chains the search may look at, in the order written. An asset outside
+    /// this set is outside the scope, and the analysis refuses it rather than
+    /// silently widening the search.
+    pub chains: Vec<ChainRef>,
+    /// The longest path the search may take. A hop count of zero is not a search.
+    pub max_hops: u32,
+    /// The least liquidity a candidate pool must carry to be considered.
+    pub liquidity_min: Option<(u128, AssetRef)>,
+}
+
+/// `capital { flash = <bool>; max = <n> <ASSET>; }`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbCapital {
+    /// Whether the trade intends to borrow its principal. `true` is refused: spec
+    /// PHASE 20 forbids shipping flash collateral before a formal safety proof,
+    /// and a declaration that says `enabled` would be a claim the runtime cannot
+    /// honour.
+    pub flash: bool,
+    /// The ceiling on committed capital. Required, because a strategy with no
+    /// capital bound is not bounded (`compiler/src/arb.rs`).
+    pub max: Option<(u128, AssetRef)>,
+}
+
+/// `execution { atomic = <bool>; parallel = <bool>; private = <bool>; }`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbExecution {
+    /// Required to be `true`: an arbitrage whose legs may settle separately is a
+    /// set of positions, not a trade.
+    pub atomic: bool,
+    /// Whether independent legs may run concurrently (PHASE 16's plan).
+    pub parallel: bool,
+    /// Whether the trade claims private submission. `true` is refused: no private
+    /// submission path exists in this compiler or VM, so the claim would be false.
+    pub private: bool,
+}
+
+/// `risk { min_profit = <n>bps; max_slippage = <n>bps; max_total_fee = <n>bps;
+/// deadline = <n><unit>; }`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArbRisk {
+    /// The floor the trade must clear. Required: a risk block with no profit floor
+    /// is a strategy with no floor.
+    pub min_profit_bps: Option<u16>,
+    pub max_slippage_bps: Option<u16>,
+    pub max_total_fee_bps: Option<u16>,
+    /// A duration expression, converted to blocks by the same reader every other
+    /// duration in the language uses.
+    pub deadline: Option<Expression>,
 }

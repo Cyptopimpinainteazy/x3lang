@@ -1214,7 +1214,13 @@ pub(crate) fn extract_int_from_expr(expr: &Expression) -> Option<u128> {
 /// collect them into a `requires` list. A verifier that walks one shape skips
 /// the others silently, so the guard-versus-declaration checks share this
 /// enumeration instead of each one re-deriving it.
-fn require_guards(program: &Program) -> Vec<(&str, &x3_lang_ast::ast::RequireGuard)> {
+/// Every `require` guard in a program, with the declaration that owns it.
+///
+/// `pub(crate)` because PHASE 37's `arb` analysis asks the same question the risk
+/// policy check asks — "is this declared bound enforced by a guard, or is it a
+/// label nothing acts on?" — and one walk of the guards is what keeps the two
+/// answers from drifting apart.
+pub(crate) fn require_guards(program: &Program) -> Vec<(&str, &x3_lang_ast::ast::RequireGuard)> {
     let mut guards: Vec<(&str, &x3_lang_ast::ast::RequireGuard)> = Vec::new();
     for item in &program.items {
         match &item.node {

@@ -4,6 +4,7 @@
 //! which is a semantic representation suitable for verification, optimization,
 //! and code generation.
 
+use crate::arb;
 use crate::hedge;
 use crate::intent_emit;
 use crate::ir::{
@@ -784,6 +785,21 @@ pub fn lower_program_with_mode(
                 ir.push(Operation::Netting {
                     book: analysed.name.clone(),
                     transfers,
+                });
+            }
+            Item::Arb(arb_decl) => {
+                // The decided scope travels in the operation: `x3c lower` is where the
+                // chain list, the hop bound and the risk bounds are visible today.
+                let decided = arb::policy(arb_decl).map_err(|reason| semantic(&reason))?;
+                ir.push(Operation::Arb {
+                    name: decided.name.clone(),
+                    chains: decided.chains.clone(),
+                    max_hops: decided.max_hops,
+                    min_profit_bps: decided.min_profit_bps,
+                    max_slippage_bps: decided.max_slippage_bps,
+                    max_total_fee_bps: decided.max_total_fee_bps,
+                    deadline_blocks: decided.deadline_blocks,
+                    parallel: decided.parallel,
                 });
             }
             Item::AtomicLiquidation(liquidation_decl) => {

@@ -342,6 +342,18 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     transfers.len()
                 ),
             ),
+            // An arbitrage scope's bounds are decided (`arb::verify`); what is missing is
+            // the pipeline that would turn the scope into legs. Naming the missing stages
+            // here rather than saying "not implemented" is the point: the phase's own
+            // pipeline is mostly implemented, and a refusal that said otherwise would
+            // read as though none of it existed.
+            Operation::Arb { name, .. } => push_unsafe(
+                diagnostics,
+                format!(
+                    "{op_context}: the arb '{name}' cannot be executed — its scope and risk bounds are decided, and the pipeline that turns them into legs has no implementation for: {}",
+                    crate::arb::missing_stages().join(", ")
+                ),
+            ),
             Operation::Liquidation { position, .. } => push_unsafe(
                 diagnostics,
                 format!(

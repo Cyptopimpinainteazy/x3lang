@@ -180,6 +180,7 @@ impl X3Formatter {
             Item::AtomicLiquidation(liquidation) => self.format_atomic_liquidation(liquidation),
             Item::Rebalance(rebalance) => self.format_rebalance(rebalance),
             Item::Netting(netting) => self.format_netting(netting),
+            Item::Arb(arb) => self.format_arb(arb),
             Item::ProofsRequired(p) => self.format_proofs_required(p),
             Item::VmTarget(t) => self.format_vm_target(t),
             Item::AssetDecl(decl) => self.format_asset_decl(decl),
@@ -1263,6 +1264,88 @@ impl X3Formatter {
         self.write("}\n");
         self.write_indent();
         self.write("atomic;\n");
+        self.dedent();
+        self.write("}\n");
+    }
+
+    /// `arb <name> { discover { … } capital { … } execution { … } risk { … } }`
+    fn format_arb(&mut self, arb: &ArbDecl) {
+        let flag = |value: bool| if value { "enabled" } else { "disabled" };
+        self.write("arb ");
+        self.write(arb.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        self.write_indent();
+        self.write("discover {\n");
+        self.indent();
+        self.write_indent();
+        self.write("chains = [");
+        for (index, chain) in arb.discover.chains.iter().enumerate() {
+            if index > 0 {
+                self.write(", ");
+            }
+            self.write(chain.as_str());
+        }
+        self.write("];\n");
+        self.write_indent();
+        self.write(&format!("max_hops = {};\n", arb.discover.max_hops));
+        if let Some((amount, asset)) = &arb.discover.liquidity_min {
+            self.write_indent();
+            self.write(&format!("liquidity_min = {amount} "));
+            self.format_asset_ref(asset);
+            self.write(";\n");
+        }
+        self.dedent();
+        self.write_indent();
+        self.write("}\n");
+        self.write_indent();
+        self.write("capital {\n");
+        self.indent();
+        self.write_indent();
+        self.write(&format!("flash = {};\n", flag(arb.capital.flash)));
+        if let Some((amount, asset)) = &arb.capital.max {
+            self.write_indent();
+            self.write(&format!("max = {amount} "));
+            self.format_asset_ref(asset);
+            self.write(";\n");
+        }
+        self.dedent();
+        self.write_indent();
+        self.write("}\n");
+        self.write_indent();
+        self.write("execution {\n");
+        self.indent();
+        self.write_indent();
+        self.write(&format!("atomic = {};\n", flag(arb.execution.atomic)));
+        self.write_indent();
+        self.write(&format!("parallel = {};\n", flag(arb.execution.parallel)));
+        self.write_indent();
+        self.write(&format!("private = {};\n", flag(arb.execution.private)));
+        self.dedent();
+        self.write_indent();
+        self.write("}\n");
+        self.write_indent();
+        self.write("risk {\n");
+        self.indent();
+        for (field, value) in [
+            ("min_profit", arb.risk.min_profit_bps),
+            ("max_slippage", arb.risk.max_slippage_bps),
+            ("max_total_fee", arb.risk.max_total_fee_bps),
+        ] {
+            if let Some(bps) = value {
+                self.write_indent();
+                self.write(&format!("{field} = {bps}bps;\n"));
+            }
+        }
+        if let Some(deadline) = &arb.risk.deadline {
+            self.write_indent();
+            self.write("deadline = ");
+            self.format_expression(deadline);
+            self.write(";\n");
+        }
+        self.dedent();
+        self.write_indent();
+        self.write("}\n");
         self.dedent();
         self.write("}\n");
     }
