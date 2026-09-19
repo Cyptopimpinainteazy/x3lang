@@ -221,3 +221,63 @@ fn every_example_that_requires_a_route_score_declares_one() {
     }
     assert_eq!(checked, 6, "six examples require a route score; found {checked}");
 }
+
+#[test]
+fn a_vm_guard_needs_a_declaration_that_uses_that_vm() {
+    // `require vm_supported <vm>` is a claim about the artifact's own adapters, so
+    // the compiler decides it: the program's `vm`, `target` and `venue`
+    // declarations say which families it uses, and the guard is compared through
+    // the family map the parser already uses for chain prefixes — `solana` and
+    // `svm` are one family, so a guard is not refused over a spelling.
+    fn errors(source: &str) -> Vec<String> {
+        match x3_lang_compiler::check_source_diagnostics(source) {
+            Ok((_, _, outcome)) => outcome.errors.iter().map(|error| error.to_string()).collect(),
+            Err(error) => vec![format!("{error}")],
+        }
+    }
+    let with_vm = |declaration: &str, guard: &str| format!("{declaration}\n{}", program("", guard));
+
+    // Declared, and declared under another spelling of the same family.
+    assert_eq!(
+        errors(&with_vm(
+            "vm {\n    chain arbitrum\n    adapter evm\n}",
+            "    require vm_supported evm"
+        )),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        errors(&with_vm(
+            "target svm {\n    adapter svm_adapter\n}",
+            "    require vm_supported solana"
+        )),
+        Vec::<String>::new(),
+        "`solana` and `svm` are the same family"
+    );
+
+    // Not declared.
+    let refused = errors(&with_vm(
+        "vm {\n    chain arbitrum\n    adapter evm\n}",
+        "    require vm_supported movevm",
+    ));
+    assert!(
+        refused
+            .iter()
+            .any(|error| error.contains("requires the VM 'movevm'") && error.contains("declares {evm}")),
+        "the message must name the VM and what is declared: {refused:?}"
+    );
+
+    // Nothing declared at all, and a guard that names nothing.
+    let undeclared = errors(&with_vm("", "    require vm_supported evm"));
+    assert!(
+        undeclared.iter().any(|error| error.contains("declares no `vm`")),
+        "{undeclared:?}"
+    );
+    let nameless = errors(&with_vm(
+        "vm {\n    chain arbitrum\n    adapter evm\n}",
+        "    require vm_supported",
+    ));
+    assert!(
+        nameless.iter().any(|error| error.contains("without naming the VM")),
+        "{nameless:?}"
+    );
+}

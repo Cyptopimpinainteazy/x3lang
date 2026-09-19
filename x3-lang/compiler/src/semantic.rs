@@ -289,6 +289,71 @@ fn err(message: impl Into<String>) -> X3Error {
     }
 }
 
+/// A `require vm_supported <vm>` guard needs a declaration that uses that VM.
+///
+/// The guard asserts the artifact runs on a VM family; a program says which
+/// families it uses in its `vm`, `target` and `venue` declarations. So the guard
+/// is a claim the *compiler* can decide — TICKET-027's other branch ("or is
+/// evaluated by the compiler") — rather than an assertion the executor treats as
+/// true.
+///
+/// Compared through the family map the parser already uses for chain prefixes, so
+/// a guard's `solana` matches a declared `svm` and a declared `sol` matches either:
+/// the families are the language's closed set, and comparing the spelling would
+/// refuse a correct program over a word.
+pub fn verify_vm_supported_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    let mut declared: Vec<String> = Vec::new();
+    for item in &program.items {
+        match &item.node {
+            Item::VmDecl(vm) => declared.push(vm.adapter.as_str().to_string()),
+            Item::VmTarget(target) => {
+                declared.push(target.vm.as_str().to_string());
+                declared.push(target.adapter.as_str().to_string());
+            }
+            Item::VenueDecl(venue) => declared.push(venue.domain.as_str().to_string()),
+            _ => {}
+        }
+    }
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::VmSupported {
+            continue;
+        }
+        let Some(named) = guard.subject.as_ref() else {
+            acc.add_error(err(format!(
+                "declaration '{owner}' requires `vm_supported` without naming the VM; every program \
+                 runs on some VM, so the guard says nothing — write `require vm_supported <vm>`"
+            )));
+            continue;
+        };
+        let wanted = vm_family(named.as_str());
+        if !declared.iter().any(|declaration| vm_family(declaration) == wanted) {
+            acc.add_error(err(if declared.is_empty() {
+                format!(
+                    "declaration '{owner}' requires the VM '{}' to be supported, and the program \
+                     declares no `vm`, `target` or `venue` at all — the guard has nothing to be \
+                     backed by",
+                    named.as_str()
+                )
+            } else {
+                format!(
+                    "declaration '{owner}' requires the VM '{}' to be supported, and the program \
+                     declares {{{}}} — a VM no declaration uses is one no adapter here provides",
+                    named.as_str(),
+                    declared.join(", ")
+                )
+            }));
+        }
+    }
+}
+
+/// The family a VM or chain name belongs to, or the name itself.
+fn vm_family(name: &str) -> String {
+    crate::parser::parse_vm_family(name)
+        .map(str::to_string)
+        .unwrap_or_else(|| name.to_ascii_lowercase())
+}
+
 /// A `risk_policy { max_slippage M }` is a ceiling the guards must respect.
 ///
 /// The policy says "no route of mine slips more than M percent"; a guard says
