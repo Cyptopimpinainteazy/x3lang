@@ -23,6 +23,7 @@ pub mod linter;
 pub mod lowering;
 pub mod metadata;
 pub mod numeric;
+pub mod objective;
 pub mod opportunity;
 pub mod optimizer;
 pub mod parser;
@@ -175,6 +176,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_privacy_decls(program, &mut acc);
     verify_venue_decls(program, &mut acc);
     strategy::verify_strategy_modules(program, &mut acc);
+    objective::verify_objective_decls(program, &mut acc);
     verify_parallel_decls(program, &mut acc);
     verify_solver_bond_declared(program, &mut acc);
     verify_relayer_quorum_declared(program, &mut acc);

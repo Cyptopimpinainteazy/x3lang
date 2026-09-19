@@ -13,9 +13,10 @@
 //!   order over the path itself, and nothing iterates a `HashMap`. Two runs over
 //!   the same program produce the same ranking, and so does a run on a machine
 //!   with a different hash seed.
-//! - **Bounded.** The search is hop-bounded and never revisits an asset in a
-//!   path, so a cyclic graph cannot produce an unbounded or infinite family of
-//!   opportunities. An unbounded search is not a planner, it is a hang.
+//! - **Bounded.** The search is hop-bounded and chain-bounded, and never
+//!   revisits an asset in a path, so a cyclic graph cannot produce an unbounded
+//!   or infinite family of opportunities. An unbounded search is not a planner,
+//!   it is a hang.
 //!
 //! What it deliberately does *not* do: model price impact as a function. A
 //! venue declares a slippage bound at its declared liquidity, and the search
@@ -195,6 +196,12 @@ impl OpportunityGraph {
 pub struct OpportunityConstraints {
     /// Maximum hops.
     pub max_hops: usize,
+    /// Largest number of distinct chains the path may touch.
+    ///
+    /// A path's chains are counted, not its assets: two venues on the same
+    /// chain are one chain's worth of exposure no matter how many assets they
+    /// move between.
+    pub max_chains: Option<u32>,
     /// Largest fee sum the path may incur, in basis points.
     pub max_fee_bps: Option<u32>,
     /// Largest slippage any single venue on the path may declare.
@@ -261,6 +268,7 @@ impl Opportunity {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RejectionReason {
     TooManyHops,
+    TooManyChains,
     FeeAboveBound,
     SlippageAboveBound,
     LiquidityBelowBound,
@@ -352,27 +360,34 @@ fn walk(
         if !edge_is_within_bounds(edge, constraints) {
             continue;
         }
-
         venues.push(edge.venue.clone());
         assets.push(edge.to.clone());
         visited.push(edge.to.clone());
 
-        if edge.to == target {
-            found.push(summarize(venues, assets, graph));
-        } else if walk(
-            graph,
-            &edge.to,
-            target,
-            constraints,
-            max_hops,
-            budget,
-            examined,
-            venues,
-            assets,
-            visited,
-            found,
-        ) {
-            return true;
+        // Constraints that only a whole path can answer are checked on the
+        // extended path, so a path that is over its budget is never extended
+        // further and never reported as an opportunity.
+        if path_reject_reason(venues, assets, graph, constraints).is_none() {
+            if edge.to == target {
+                found.push(summarize(venues, assets, graph));
+            } else if walk(
+                graph,
+                &edge.to,
+                target,
+                constraints,
+                max_hops,
+                budget,
+                examined,
+                venues,
+                assets,
+                visited,
+                found,
+            ) {
+                venues.pop();
+                assets.pop();
+                visited.pop();
+                return true;
+            }
         }
 
         venues.pop();
@@ -423,8 +438,76 @@ fn edge_is_within_bounds(edge: &GraphEdge, constraints: &OpportunityConstraints)
     reject_reason(edge, constraints).is_none()
 }
 
+/// Why a path as a whole cannot be used, or `None` if it can.
+///
+/// [`reject_reason`] answers for a single edge. A constraint that is a property
+/// of the path rather than of any edge on it cannot be answered there, so it is
+/// answered here — and the search asks this of every path it extends, so the
+/// budget that refuses a path and the diagnostic that explains the refusal are
+/// the same code.
+pub fn path_reject_reason(
+    venues: &[String],
+    assets: &[String],
+    graph: &OpportunityGraph,
+    constraints: &OpportunityConstraints,
+) -> Option<RejectionReason> {
+    if let Some(bound) = constraints.max_fee_bps {
+        if path_fee_bps(venues, graph) > bound {
+            return Some(RejectionReason::FeeAboveBound);
+        }
+    }
+    if let Some(bound) = constraints.max_chains {
+        if distinct_chains(assets, graph).len() > bound as usize {
+            return Some(RejectionReason::TooManyChains);
+        }
+    }
+    None
+}
+
+/// What a path costs in fees: the sum of its venues', in basis points.
+///
+/// A total is a property of the path, not of any edge, which is why it is here
+/// rather than in [`reject_reason`]: a bound on the total cannot be checked one
+/// venue at a time.
+fn path_fee_bps(venues: &[String], graph: &OpportunityGraph) -> u32 {
+    venues
+        .iter()
+        .filter_map(|venue| graph.venue(venue))
+        .fold(0u32, |sum, edge| sum.saturating_add(edge.attributes.fee_bps))
+}
+
+/// The distinct chains a path touches, in the order it first touches them.
+fn distinct_chains(assets: &[String], graph: &OpportunityGraph) -> Vec<String> {
+    let mut chains: Vec<String> = Vec::new();
+    for asset in assets {
+        let chain = chain_of(graph, asset);
+        if !chain.is_empty() && !chains.contains(&chain) {
+            chains.push(chain);
+        }
+    }
+    chains
+}
+
+/// The chain an `chain.ASSET` node label belongs to.
+///
+/// Read from the graph's own asset nodes rather than by splitting the label, so
+/// an asset whose name contains a dot cannot be read as a chain boundary. A
+/// label with no node behind it — the caller's own `from`, when it names an
+/// asset no venue touches — falls back to its prefix, which is all there is to
+/// go on.
+fn chain_of(graph: &OpportunityGraph, asset: &str) -> String {
+    graph
+        .nodes
+        .iter()
+        .find_map(|node| match node {
+            GraphNode::Asset { chain, asset: name } if format!("{chain}.{name}") == *asset => Some(chain.clone()),
+            _ => None,
+        })
+        .or_else(|| asset.split('.').next().map(str::to_string))
+        .unwrap_or_default()
+}
+
 fn summarize(venues: &[String], assets: &[String], graph: &OpportunityGraph) -> Opportunity {
-    let mut fee_bps = 0u32;
     let mut slippage_bps = 0u32;
     let mut max_risk = 0u32;
     let mut latency_ms = 0u32;
@@ -432,7 +515,6 @@ fn summarize(venues: &[String], assets: &[String], graph: &OpportunityGraph) -> 
     let mut min_liquidity = u128::MAX;
     for venue in venues {
         if let Some(edge) = graph.venue(venue) {
-            fee_bps = fee_bps.saturating_add(edge.attributes.fee_bps);
             slippage_bps = slippage_bps.max(edge.attributes.slippage_bps);
             max_risk = max_risk.max(edge.attributes.risk);
             latency_ms = latency_ms.saturating_add(edge.attributes.latency_ms);
@@ -443,7 +525,7 @@ fn summarize(venues: &[String], assets: &[String], graph: &OpportunityGraph) -> 
     Opportunity {
         venues: venues.to_vec(),
         assets: assets.to_vec(),
-        fee_bps,
+        fee_bps: path_fee_bps(venues, graph),
         slippage_bps,
         max_risk,
         latency_ms,

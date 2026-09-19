@@ -60,6 +60,7 @@ pub enum Item {
     TradeRiskPolicy(TradeRiskPolicy),
     VenueDecl(VenueDecl),
     ParallelDecl(ParallelDecl),
+    ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
 }
 
@@ -616,6 +617,141 @@ pub struct ParallelLeg {
 pub struct ParallelDecl {
     pub name: Symbol,
     pub legs: Vec<ParallelLeg>,
+}
+
+/// `objective { maximize net_profit; constraints { … } }` — what a program is
+/// asking the planner to do, declared rather than passed on a command line.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectiveDecl {
+    pub name: Symbol,
+    pub metric: ObjectiveMetric,
+    pub constraints: ObjectiveConstraints,
+}
+
+/// What is being maximised or minimised.
+///
+/// The spec lists eight; this carries all eight so the compiler can say *why*
+/// one of them is not usable rather than failing to parse it. Whether the
+/// optimizer can rank it is a separate question, answered in the compiler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ObjectiveMetric {
+    MaximizeProfit,
+    MaximizeOutput,
+    MinimizeFees,
+    MinimizeSlippage,
+    MinimizeExecutionTime,
+    MinimizeExternalLiquidity,
+    MinimizeRisk,
+    MaximizeCapitalEfficiency,
+    /// Not in the spec's list, but a venue declares it and the optimizer ranks
+    /// it, so it would be odd to leave it out of the surface.
+    MinimizeFinality,
+}
+
+impl ObjectiveMetric {
+    /// Whether the metric is maximised or minimised.
+    ///
+    /// The direction is part of the metric rather than a modifier on it: there
+    /// is no such thing as maximising fees, and a program that says so has a
+    /// mistake the parser can name instead of a keyword it never heard of.
+    pub fn direction(self) -> &'static str {
+        match self {
+            ObjectiveMetric::MaximizeProfit
+            | ObjectiveMetric::MaximizeOutput
+            | ObjectiveMetric::MaximizeCapitalEfficiency => "maximize",
+            ObjectiveMetric::MinimizeFees
+            | ObjectiveMetric::MinimizeSlippage
+            | ObjectiveMetric::MinimizeExecutionTime
+            | ObjectiveMetric::MinimizeExternalLiquidity
+            | ObjectiveMetric::MinimizeRisk
+            | ObjectiveMetric::MinimizeFinality => "minimize",
+        }
+    }
+
+    /// The metric itself, without its direction.
+    ///
+    /// This, not the phrase, is what the parser matches: the direction is read
+    /// separately so `maximize fees` is a mismatch with an explanation rather
+    /// than an unknown word.
+    pub fn name(self) -> &'static str {
+        match self {
+            ObjectiveMetric::MaximizeProfit => "profit",
+            ObjectiveMetric::MaximizeOutput => "output",
+            ObjectiveMetric::MinimizeFees => "fees",
+            ObjectiveMetric::MinimizeSlippage => "slippage",
+            ObjectiveMetric::MinimizeExecutionTime => "execution_time",
+            ObjectiveMetric::MinimizeExternalLiquidity => "external_liquidity",
+            ObjectiveMetric::MinimizeRisk => "risk",
+            ObjectiveMetric::MaximizeCapitalEfficiency => "capital_efficiency",
+            ObjectiveMetric::MinimizeFinality => "finality",
+        }
+    }
+
+    /// The phrase the spec and the diagnostics use.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ObjectiveMetric::MaximizeProfit => "maximize profit",
+            ObjectiveMetric::MaximizeOutput => "maximize output",
+            ObjectiveMetric::MinimizeFees => "minimize fees",
+            ObjectiveMetric::MinimizeSlippage => "minimize slippage",
+            ObjectiveMetric::MinimizeExecutionTime => "minimize execution time",
+            ObjectiveMetric::MinimizeExternalLiquidity => "minimize external liquidity",
+            ObjectiveMetric::MinimizeRisk => "minimize risk",
+            ObjectiveMetric::MaximizeCapitalEfficiency => "maximize capital efficiency",
+            ObjectiveMetric::MinimizeFinality => "minimize finality",
+        }
+    }
+
+    pub const ALL: [ObjectiveMetric; 9] = [
+        ObjectiveMetric::MaximizeProfit,
+        ObjectiveMetric::MaximizeOutput,
+        ObjectiveMetric::MinimizeFees,
+        ObjectiveMetric::MinimizeSlippage,
+        ObjectiveMetric::MinimizeExecutionTime,
+        ObjectiveMetric::MinimizeExternalLiquidity,
+        ObjectiveMetric::MinimizeRisk,
+        ObjectiveMetric::MaximizeCapitalEfficiency,
+        ObjectiveMetric::MinimizeFinality,
+    ];
+
+    /// The metric a bare name denotes, ignoring whether it is maximised or
+    /// minimised. The caller checks the direction, so it can say *why* a name
+    /// and a direction do not go together.
+    pub fn by_name(name: &str) -> Option<ObjectiveMetric> {
+        ObjectiveMetric::ALL
+            .iter()
+            .copied()
+            .find(|metric| metric.name() == name)
+    }
+}
+
+/// A ceiling the planner must respect.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ObjectiveConstraints {
+    pub max_hops: Option<u32>,
+    /// Distinct chains a route may touch.
+    pub max_chains: Option<u32>,
+    pub max_risk: Option<RiskBound>,
+    pub max_execution_time_ms: Option<u32>,
+    pub max_fees_bps: Option<u32>,
+    pub max_slippage_bps: Option<u32>,
+    pub max_finality_blocks: Option<u32>,
+    /// The size the route must be able to absorb, from `capital <= <N> <ASSET>`.
+    pub capital: Option<crate::trading::AmountExpr>,
+    /// `private` — the submission has to travel privately.
+    pub private: bool,
+    /// `atomic` — the execution has to be all-or-nothing. Recorded rather than
+    /// checked: everything this language lowers is atomic already.
+    pub atomic: bool,
+}
+
+/// Either a number or the enclosing strategy module's declared profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RiskBound {
+    Score(u32),
+    /// `risk <= strategy.policy` — bound risk by what the module declared,
+    /// rather than restating a number that could drift from it.
+    StrategyPolicy,
 }
 
 /// What kind of node a `venue` declaration introduces.

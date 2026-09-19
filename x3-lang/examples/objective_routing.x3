@@ -1,0 +1,121 @@
+// Objective-driven programs — spec PHASE 15.
+//
+// What to rank, and the ceilings the ranking must respect, declared in the
+// program instead of repeated on every command line:
+//
+//   x3c optimize examples/objective_routing.x3 \
+//       --from ethereum.USDC --to solana.SOL
+//
+//     x3c optimize: minimize_fees (declared by objective 'cheapest_route')
+//       wide_pool -> x3_bridge  (6 bps fee, 21 bps slippage, risk 4, …)
+//       within 3 hop(s), considered 1 route(s); the objective decided
+//
+// `x3c optimize` follows the declaration: the metric and every ceiling under
+// `constraints` are the ones the run uses, and the output names the objective it
+// followed rather than presenting a default as the program's own choice.
+//
+// `--objective` and `--max-hops` still override, because a flag is an
+// instruction about this run — but a flag that *contradicts* the declaration is
+// refused rather than silently preferred. The compiler follows one of the two
+// rankings, and a caller that believes it followed the other has been misled
+// about the choice.
+//
+// `capital <= 25_000 USDC` is the size the program means to commit, so every
+// venue on a route has to be deep enough to absorb it: `wide_pool`'s 100_000
+// qualifies, and a venue declaring less than the size is not a route for it.
+//
+// `risk <= strategy.policy` bounds risk by the module's own declared profile
+// rather than by a number restated here that could drift away from it. A
+// profile states its bounds as ceilings on slippage and total fee, and both are
+// taken as they are — `max_total_fee_bps 8` is what removes `deep_pool` from
+// this graph, since that route charges 9 bps. The clause needs exactly one
+// module declaring a profile: with two there is no answer, and the compiler says
+// so instead of picking one.
+//
+// Note what is *not* declarable. PHASE 15 lists maximizing profit and output,
+// and neither is accepted, because the opportunity graph holds venue attributes
+// rather than amounts or prices. Ranking by profit would fall to whatever solver
+// ran, which is exactly what the phase forbids — so the compiler refuses the
+// metric with that reason rather than accepting a ranking it cannot compute.
+
+strategy RoutePolicy {
+    input ethereum.USDC amount 25_000
+    output ethereum.ETH
+    effects [swap]
+    guarantees [min_profit]
+    domains [ethereum]
+    risk { max_slippage_bps 50 max_total_fee_bps 8 }
+    bounds { max_steps 10 max_gas 200_000 }
+    execute {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1_000 min_output 1
+        require slippage <= 50
+        require profit >= 5
+        on_fail refund ethereum.USDC to sender
+    }
+}
+
+objective cheapest_route {
+    minimize fees
+    constraints {
+        hops <= 3
+        chains <= 2
+        risk <= strategy.policy
+        execution_time <= 2_000 ms
+        fees <= 100 bps
+        slippage <= 100 bps
+        finality <= 64 blocks
+        capital <= 25_000 USDC
+        atomic
+    }
+}
+
+// The two ways out of USDC are deliberately unlike each other: `deep_pool` is
+// dearer and tighter, `wide_pool` is cheaper and slippier. Both are on the same
+// chain, so a route through either of them has touched one chain by the time it
+// reaches the bridge.
+venue deep_pool {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.USDC
+    asset_out ethereum.ETH
+    fee_bps 7
+    liquidity 4_000_000
+    slippage_bps 8
+    latency_ms 12
+    finality_blocks 12
+    risk 2
+    proof source_lock_proof
+}
+
+venue wide_pool {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.USDC
+    asset_out ethereum.ETH
+    fee_bps 4
+    liquidity 100_000
+    slippage_bps 21
+    latency_ms 14
+    finality_blocks 12
+    risk 3
+    proof source_lock_proof
+}
+
+// A bridge adapter is a venue like any other, so it is an edge in the same
+// graph and counts as a second chain for `chains <= 2`.
+venue x3_bridge {
+    kind bridge
+    chain ethereum
+    domain evm
+    asset_in ethereum.ETH
+    asset_out solana.SOL
+    fee_bps 2
+    liquidity 500_000
+    slippage_bps 5
+    latency_ms 900
+    finality_blocks 32
+    risk 4
+    proof destination_fill_proof
+}

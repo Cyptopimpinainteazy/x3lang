@@ -68,6 +68,7 @@ impl X3Formatter {
             Item::AtomicChoice(c) => self.format_atomic_choice(c),
             Item::VenueDecl(v) => self.format_venue_decl(v),
             Item::ParallelDecl(p) => self.format_parallel_decl(p),
+            Item::ObjectiveDecl(o) => self.format_objective_decl(o),
             Item::Strategy(s) => self.format_strategy(s),
             Item::Proposal(p) => self.format_proposal(p),
             Item::IntentDecl(i) => self.format_intent(i),
@@ -435,6 +436,68 @@ impl X3Formatter {
         for stmt in &a.body {
             self.format_statement(stmt);
         }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_objective_decl(&mut self, o: &ObjectiveDecl) {
+        self.write("objective ");
+        self.write(o.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        self.write_indent();
+        self.write(o.metric.direction());
+        self.write(" ");
+        self.write(o.metric.name());
+        self.write("\n");
+        self.write_indent();
+        self.write("constraints {\n");
+        self.indent();
+        let c = &o.constraints;
+        for (name, value) in [
+            ("hops", c.max_hops),
+            ("chains", c.max_chains),
+            ("execution_time", c.max_execution_time_ms),
+            ("fees", c.max_fees_bps),
+            ("slippage", c.max_slippage_bps),
+            ("finality", c.max_finality_blocks),
+        ] {
+            if let Some(value) = value {
+                self.write_indent();
+                self.write(name);
+                self.write(" <= ");
+                self.write(&value.to_string());
+                self.write("\n");
+            }
+        }
+        if let Some(risk) = &c.max_risk {
+            self.write_indent();
+            self.write("risk <= ");
+            match risk {
+                RiskBound::Score(score) => self.write(&score.to_string()),
+                RiskBound::StrategyPolicy => self.write("strategy.policy"),
+            }
+            self.write("\n");
+        }
+        if let Some(capital) = &c.capital {
+            self.write_indent();
+            self.write("capital <= ");
+            self.format_expression(&capital.value);
+            self.write(" ");
+            self.write(capital.asset.as_str());
+            self.write("\n");
+        }
+        if c.private {
+            self.write_indent();
+            self.write("private\n");
+        }
+        if c.atomic {
+            self.write_indent();
+            self.write("atomic\n");
+        }
+        self.dedent();
+        self.write_indent();
+        self.write("}\n");
         self.dedent();
         self.write("}\n");
     }

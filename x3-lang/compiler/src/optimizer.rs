@@ -26,8 +26,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::opportunity::{
-    reject_reason, search_with_budget, Opportunity, OpportunityConstraints, OpportunityGraph, RejectionReason,
-    SearchOutcome,
+    path_reject_reason, reject_reason, search_with_budget, Opportunity, OpportunityConstraints, OpportunityGraph,
+    RejectionReason, SearchOutcome,
 };
 
 /// What a route is being optimized for.
@@ -186,6 +186,40 @@ pub fn optimize_with_budget(
             .iter()
             .filter_map(|edge| reject_reason(edge, constraints).map(|reason| (edge.venue.clone(), reason)))
             .collect();
+        if refused.is_empty() {
+            // No single edge was refused, so what removed the routes was a
+            // bound only a whole path can break: the fee sum, or the count of
+            // chains. Those routes are still in the graph, so report them with
+            // the reason each was refused rather than saying there is no route
+            // to a target a route does reach.
+            let per_edge = OpportunityConstraints {
+                max_chains: None,
+                max_fee_bps: None,
+                ..constraints.clone()
+            };
+            let refused: Vec<(String, RejectionReason)> =
+                match search_with_budget(graph, from, to, &per_edge, max_expansions) {
+                    SearchOutcome::Found(paths) => paths
+                        .iter()
+                        .filter_map(|path| {
+                            path_reject_reason(&path.venues, &path.assets, graph, constraints)
+                                .map(|reason| (path.venues.join(" -> "), reason))
+                        })
+                        .collect(),
+                    SearchOutcome::BudgetExhausted { .. } => Vec::new(),
+                };
+            return OptimizationReport {
+                chosen: None,
+                objective_value: None,
+                considered: 0,
+                tied: Vec::new(),
+                no_route: Some(if refused.is_empty() {
+                    NoRoute::None
+                } else {
+                    NoRoute::AllRefused { refused }
+                }),
+            };
+        }
         return OptimizationReport {
             chosen: None,
             objective_value: None,

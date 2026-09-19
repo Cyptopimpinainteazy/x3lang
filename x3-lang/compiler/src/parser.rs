@@ -302,6 +302,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "finality_policy" => self.parse_finality_policy_item(),
             Tok::Ident(ref s) if s == "venue" => self.parse_venue_decl().map(Item::VenueDecl),
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
+            Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
             Tok::Ident(ref s) if s == "error" => self.parse_error_decl_item(),
             _ => Err(parse_err("expected top-level item".into(), self.peek())),
         }
@@ -2164,6 +2165,267 @@ impl<'a> Parser<'a> {
                 to: target,
             }),
         }
+    }
+
+    /// The word the current token spells, whether the lexer ranked it a keyword
+    /// or an identifier.
+    ///
+    /// Constraint and metric names are ordinary words, and some of them —
+    /// `slippage`, `finality`, `risk`, `atomic` — are keywords elsewhere in the
+    /// language, so reading them as identifiers would refuse a legal objective.
+    fn peek_word(&self) -> Option<String> {
+        match self.peek() {
+            Tok::Ident(word) => Some(word),
+            // `atomic` is lexed as a keyword and has a token of its own; the
+            // other words a constraint or metric can use that are also keywords
+            // elsewhere (`risk`, `slippage`, `finality`, `profit`) fall back to
+            // `Tok::Ident` and are read above.
+            Tok::KwAtomic => Some("atomic".to_string()),
+            _ => None,
+        }
+    }
+
+    /// `objective [<name>] { <maximize|minimize> <metric>; constraints { … } }`
+    ///
+    /// The metric is parsed from the spec's whole list rather than only from the
+    /// ones the optimizer can rank, so that `maximize profit` reaches the
+    /// verifier and is refused with a reason instead of failing to parse.
+    fn parse_objective_decl(&mut self) -> Result<ObjectiveDecl, X3Error> {
+        self.advance(); // consume `objective`
+        let name = if let Tok::Ident(candidate) = self.peek() {
+            if candidate.as_str() == "maximize" || candidate.as_str() == "minimize" {
+                "objective"
+            } else {
+                self.advance();
+                return self.parse_objective_body(candidate);
+            }
+        } else {
+            "objective"
+        };
+        self.parse_objective_body(name.to_string())
+    }
+
+    fn parse_objective_body(&mut self, name: String) -> Result<ObjectiveDecl, X3Error> {
+        self.expect(Tok::LBrace, "expected '{' after objective")?;
+        let mut metric: Option<ObjectiveMetric> = None;
+        let mut constraints = ObjectiveConstraints::default();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let section = self.expect_ident("objective section")?;
+            match section.as_str() {
+                "maximize" | "minimize" => {
+                    if metric.is_some() {
+                        return Err(parse_err(
+                            "objective declares its metric twice; one objective ranks one thing".into(),
+                            self.peek(),
+                        ));
+                    }
+                    let Some(wanted) = self.peek_word() else {
+                        return Err(parse_err(
+                            "expected a metric name after the direction".into(),
+                            self.peek(),
+                        ));
+                    };
+                    self.advance();
+                    let found = ObjectiveMetric::by_name(&wanted).ok_or_else(|| {
+                        let allowed: Vec<String> = ObjectiveMetric::ALL
+                            .iter()
+                            .map(|m| format!("{} {}", m.direction(), m.name()))
+                            .collect();
+                        parse_err(
+                            format!(
+                                "unknown objective metric '{wanted}'; the set is the spec's: {}",
+                                allowed.join(", ")
+                            ),
+                            self.peek(),
+                        )
+                    })?;
+                    // `maximize fees` is not an unknown word, it is the wrong
+                    // direction for a known one, and the message says so.
+                    if found.direction() != section.as_str() {
+                        return Err(parse_err(
+                            format!(
+                                "'{wanted}' is a metric to {}, not to {section}; the direction is \
+                                 part of the metric",
+                                found.direction()
+                            ),
+                            self.peek(),
+                        ));
+                    }
+                    metric = Some(found);
+                    self.opt_semi();
+                }
+                "constraints" => {
+                    self.expect(Tok::LBrace, "expected '{' after constraints")?;
+                    while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                        self.parse_objective_constraint(&mut constraints)?;
+                    }
+                    self.expect(Tok::RBrace, "expected '}' to close constraints")?;
+                }
+                other => {
+                    return Err(parse_err(
+                        format!("unknown objective section '{other}'; expected maximize, minimize or constraints"),
+                        self.peek(),
+                    ))
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close the objective")?;
+        Ok(ObjectiveDecl {
+            name: Symbol::new(&name),
+            metric: metric.ok_or_else(|| {
+                parse_err(
+                    "objective states no metric; an objective that does not say what to rank is a heading".into(),
+                    self.peek(),
+                )
+            })?,
+            constraints,
+        })
+    }
+
+    /// One `name <= value` line inside `constraints`, or one of the two flags.
+    fn parse_objective_constraint(&mut self, constraints: &mut ObjectiveConstraints) -> Result<(), X3Error> {
+        let key = self.peek_word().ok_or_else(|| {
+            parse_err(
+                "expected a constraint name; the set is capital, hops, chains, risk, execution_time, \
+                 fees, slippage, finality, private and atomic"
+                    .into(),
+                self.peek(),
+            )
+        })?;
+        self.advance();
+        match key.as_str() {
+            "private" => {
+                constraints.private = true;
+                self.opt_semi();
+                Ok(())
+            }
+            "atomic" => {
+                constraints.atomic = true;
+                self.opt_semi();
+                Ok(())
+            }
+            "capital" => {
+                self.expect(Tok::Le, "expected '<=' after capital")?;
+                let value = self.parse_expr()?;
+                let asset = self.expect_ident("capital asset")?;
+                constraints.capital = Some(AmountExpr {
+                    value,
+                    asset: Symbol::new(&asset),
+                });
+                self.opt_semi();
+                Ok(())
+            }
+            "risk" => {
+                self.expect(Tok::Le, "expected '<=' after risk")?;
+                constraints.max_risk = Some(match self.peek() {
+                    // `strategy` is a keyword rather than an identifier, so
+                    // `strategy.policy` starts with its own token.
+                    Tok::KwStrategy => {
+                        self.advance();
+                        self.expect(Tok::Dot, "expected '.' in `strategy.policy`")?;
+                        let field = self.expect_ident("strategy field")?;
+                        if field != "policy" {
+                            return Err(parse_err(
+                                format!("unknown strategy field '{field}'; expected `strategy.policy`"),
+                                self.peek(),
+                            ));
+                        }
+                        RiskBound::StrategyPolicy
+                    }
+                    _ => RiskBound::Score(self.parse_constraint_number("risk", None)?),
+                });
+                self.opt_semi();
+                Ok(())
+            }
+            _ => {
+                self.expect(Tok::Le, "expected '<=' in the constraint")?;
+                match key.as_str() {
+                    "hops" => constraints.max_hops = Some(self.parse_constraint_number("hops", None)?),
+                    "chains" => constraints.max_chains = Some(self.parse_constraint_number("chains", None)?),
+                    "execution_time" => {
+                        constraints.max_execution_time_ms =
+                            Some(self.parse_constraint_number("execution_time", Some("ms"))?)
+                    }
+                    "fees" => constraints.max_fees_bps = Some(self.parse_constraint_number("fees", Some("bps"))?),
+                    "slippage" => {
+                        constraints.max_slippage_bps = Some(self.parse_constraint_number("slippage", Some("bps"))?)
+                    }
+                    "finality" => {
+                        constraints.max_finality_blocks =
+                            Some(self.parse_constraint_number("finality", Some("blocks"))?)
+                    }
+                    other => {
+                        return Err(parse_err(
+                            format!(
+                                "unknown constraint '{other}'; expected capital, hops, chains, risk, \
+                                 execution_time, fees, slippage, finality, private or atomic"
+                            ),
+                            self.peek(),
+                        ))
+                    }
+                }
+                self.opt_semi();
+                Ok(())
+            }
+        }
+    }
+
+    /// An integer inside `constraints`, with the unit the field is measured in.
+    ///
+    /// The unit is optional and written for the reader — the field's name is
+    /// what fixes the meaning (`execution_time` is milliseconds, `fees` and
+    /// `slippage` are basis points, `finality` is blocks). So the accepted unit
+    /// is consumed and any other word is left where it is, which makes
+    /// `slippage <= 30 seconds` an unknown clause rather than a silently
+    /// different number.
+    fn parse_constraint_number(&mut self, field: &str, unit: Option<&str>) -> Result<u32, X3Error> {
+        // `2000ms` is one word to the lexer rather than a number and a unit, so
+        // it arrives here as an identifier. The alternative message would be
+        // about an integer literal the program believes it wrote.
+        if let Tok::Ident(word) = self.peek() {
+            let text = word.as_str();
+            let digits = text.trim_end_matches(|ch: char| ch.is_ascii_alphabetic());
+            if !digits.is_empty() && digits.len() != text.len() {
+                let digits = digits.trim_end_matches('_');
+                let hint = match unit {
+                    Some(unit) => format!("{digits} {unit}"),
+                    None => digits.to_string(),
+                };
+                return Err(parse_err(
+                    format!(
+                        "objective constraint '{field}' is written '{text}'; a number and its unit \
+                         have to be separate words, so write '{hint}'"
+                    ),
+                    self.peek(),
+                ));
+            }
+        }
+        let expr = self.parse_expr()?;
+        let value = expr_to_u128(&expr).map_err(|_| {
+            parse_err(
+                format!(
+                    "objective constraint '{field}' must be an integer literal the compiler can \
+                     evaluate"
+                ),
+                self.peek(),
+            )
+        })?;
+        let value = u32::try_from(value).map_err(|_| {
+            parse_err(
+                format!(
+                    "objective constraint '{field}' is {value}, above the largest value the planner \
+                     compares ({})",
+                    u32::MAX
+                ),
+                self.peek(),
+            )
+        })?;
+        if let (Some(unit), Tok::Ident(ref written)) = (unit, self.peek()) {
+            if written.as_str() == unit {
+                self.advance();
+            }
+        }
+        Ok(value)
     }
 
     /// `parallel <name> { leg <name> { <route steps> } ... }`

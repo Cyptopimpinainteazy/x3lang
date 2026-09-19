@@ -170,12 +170,14 @@ enum Cmd {
         /// Asset to reach, as `chain.ASSET`.
         #[arg(long)]
         to: String,
-        /// What to optimize for.
-        #[arg(long, default_value = "minimize_fees")]
-        objective: String,
-        /// Maximum hops.
-        #[arg(long, default_value_t = 4)]
-        max_hops: usize,
+        /// What to optimize for. Defaults to the program's `objective`
+        /// declaration if it has one, and to `minimize_fees` if it has neither.
+        #[arg(long)]
+        objective: Option<String>,
+        /// Maximum hops. Defaults to the bound the program's `objective`
+        /// declaration states, and to 4 if it states none.
+        #[arg(long)]
+        max_hops: Option<usize>,
         /// Reject venues that declare more slippage than this, in bps.
         #[arg(long)]
         max_slippage_bps: Option<u32>,
@@ -349,7 +351,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             objective,
             max_hops,
             max_slippage_bps,
-        } => cmd_optimize(&input, &from, &to, &objective, max_hops, max_slippage_bps),
+        } => cmd_optimize(&input, &from, &to, objective.as_deref(), max_hops, max_slippage_bps),
         Cmd::Fusion { input } => cmd_fusion(&input),
         Cmd::Metadata { input, out } => cmd_metadata(&input, out.as_ref(), mode),
         Cmd::Score { input } => cmd_score(&input, mode),
@@ -590,25 +592,20 @@ fn cmd_optimize(
     input: &PathBuf,
     from: &str,
     to: &str,
-    objective_name: &str,
-    max_hops: usize,
+    objective_name: Option<&str>,
+    max_hops: Option<usize>,
     max_slippage_bps: Option<u32>,
 ) -> Result<ExitCode, String> {
     use x3_lang_compiler::optimizer::{optimize, NoRoute, Objective};
-
-    let Some(objective) = Objective::parse(objective_name) else {
-        let allowed: Vec<&str> = Objective::ALL.iter().map(|objective| objective.as_str()).collect();
-        return Err(format!(
-            "unknown objective '{objective_name}'; the optimizer can only rank what it can \
-             evaluate, so the set is closed: {}",
-            allowed.join(", ")
-        ));
-    };
 
     let source = read_source(input)?;
     let program = x3_lang_compiler::parser::parse_source(&source).map_err(|e| format!("parse error: {e}"))?;
     let mut acc = x3_lang_common::ErrorAccumulator::new();
     x3_lang_compiler::semantic::verify_venue_decls(&program, &mut acc);
+    // The declaration is checked here as well as in `check`, because this is
+    // the command that follows it: an objective the optimizer cannot rank must
+    // not be quietly replaced by a default.
+    x3_lang_compiler::objective::verify_objective_decls(&program, &mut acc);
     if acc.has_errors() {
         for error in acc.errors() {
             print_error(&format!("{error}"));
@@ -616,20 +613,93 @@ fn cmd_optimize(
         return Ok(ExitCode::from(1));
     }
 
+    let declared = x3_lang_compiler::objective::declaration_of(&program);
+
+    // The command line and the program can each say what to rank. When they
+    // disagree the compiler still follows one of them, so saying which by
+    // refusing to guess is the only honest answer.
+    let (objective, origin): (Objective, String) = match (objective_name, declared) {
+        (Some(name), declared) => {
+            let Some(from_flag) = Objective::parse(name) else {
+                let allowed: Vec<&str> = Objective::ALL.iter().map(|objective| objective.as_str()).collect();
+                return Err(format!(
+                    "unknown objective '{name}'; the optimizer can only rank what it can \
+                     evaluate, so the set is closed: {}",
+                    allowed.join(", ")
+                ));
+            };
+            if let Some(declared) = declared {
+                let from_decl = match x3_lang_compiler::objective::criterion_for(declared.metric) {
+                    Ok(objective) => objective,
+                    Err(reason) => {
+                        return Err(format!(
+                            "objective '{}' cannot rank '{}': {reason}",
+                            declared.name.as_str(),
+                            declared.metric.as_str()
+                        ))
+                    }
+                };
+                if from_decl != from_flag {
+                    return Err(format!(
+                        "the program declares objective '{}' ({}), and --objective says {}; the \
+                         compiler follows one of them, so drop whichever is wrong",
+                        declared.name.as_str(),
+                        declared.metric.as_str(),
+                        from_flag.as_str()
+                    ));
+                }
+                (from_decl, format!("declared by objective '{}'", declared.name.as_str()))
+            } else {
+                (from_flag, "--objective".to_string())
+            }
+        }
+        (None, Some(declared)) => {
+            let from_decl = match x3_lang_compiler::objective::criterion_for(declared.metric) {
+                Ok(objective) => objective,
+                Err(reason) => {
+                    return Err(format!(
+                        "objective '{}' cannot rank '{}': {reason}",
+                        declared.name.as_str(),
+                        declared.metric.as_str()
+                    ))
+                }
+            };
+            (from_decl, format!("declared by objective '{}'", declared.name.as_str()))
+        }
+        (None, None) => (
+            Objective::MinimizeFees,
+            "the default, since the program declares no objective".to_string(),
+        ),
+    };
+
+    // A declared ceiling is part of the program; a flag is an instruction about
+    // this run, so a flag wins where it is given.
+    let mut constraints = match declared {
+        Some(declared) => x3_lang_compiler::objective::constraints_for(&declared.constraints, &program),
+        None => x3_lang_compiler::opportunity::OpportunityConstraints::default(),
+    };
+    if let Some(hops) = max_hops {
+        constraints.max_hops = hops;
+    }
+    if let Some(bound) = max_slippage_bps {
+        constraints.max_slippage_bps = Some(bound);
+    }
+
     let graph = x3_lang_compiler::opportunity::OpportunityGraph::from_program(&program);
-    let constraints = x3_lang_compiler::opportunity::OpportunityConstraints {
-        max_hops,
-        max_slippage_bps,
-        ..Default::default()
+    // A hop bound of zero is "nothing was declared", which the search reads as
+    // its own default; the message below has to say the same number it uses.
+    let effective_hops = if constraints.max_hops == 0 {
+        x3_lang_compiler::opportunity::DEFAULT_MAX_PATH_HOPS
+    } else {
+        constraints.max_hops
     };
     let report = optimize(&graph, from, to, objective, &constraints);
 
     match (&report.chosen, &report.no_route) {
         (Some(chosen), _) => {
+            println!("x3c optimize: {} ({origin})", objective.as_str());
             println!(
-                "x3c optimize: {} — {}  ({} bps fee, {} bps slippage, risk {}, {}ms, {} block(s) \
-                 finality)",
-                objective.as_str(),
+                "  {}  ({} bps fee, {} bps slippage, risk {}, {}ms, {} block(s) finality)",
                 chosen.venues.join(" -> "),
                 chosen.fee_bps,
                 chosen.slippage_bps,
@@ -638,7 +708,7 @@ fn cmd_optimize(
                 chosen.finality_blocks
             );
             println!(
-                "  considered {} route(s); {}",
+                "  within {effective_hops} hop(s), considered {} route(s); {}",
                 report.considered,
                 if report.decided_by_objective() {
                     "the objective decided".to_string()
@@ -676,7 +746,7 @@ fn cmd_optimize(
             Ok(ExitCode::from(1))
         }
         (None, _) => {
-            print_error(&format!("no route from {from} to {to} within {max_hops} hop(s)"));
+            print_error(&format!("no route from {from} to {to} within {effective_hops} hop(s)"));
             Ok(ExitCode::from(1))
         }
     }
