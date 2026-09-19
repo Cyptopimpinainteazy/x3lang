@@ -80,9 +80,36 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
         // Fetch instruction
         let opcode = vm.code.as_slice()[vm.state.pc];
         let _flags = vm.code.as_slice().get(vm.state.pc + 1).copied().unwrap_or(0);
-        let operand = read_u16_le(vm.code.as_slice(), vm.state.pc + 2).unwrap_or(0);
+        // The operand is as wide as the frame that carries it: four bytes for
+        // `REQUIRE` (a real `u16` threshold), one byte for every other fixed
+        // frame in a compiler stream, whose high half is the padding the emitter
+        // writes. Both widths live in `spec/opcodes.rs`, the table the compiler
+        // and the verifier read, so a frame cannot be wide to one reader and
+        // narrow to another. Reading four bytes of a three-byte frame is how a
+        // `feature_allow` guard at offset 1 presented feature code 0x5683 to
+        // this VM — the high half was the next instruction's opcode.
+        let operand = if is_payload_opcode(opcode, has_compiler_header) {
+            read_u16_le(vm.code.as_slice(), vm.state.pc + 2).unwrap_or(0)
+        } else {
+            fixed_frame_operand(
+                opcode,
+                has_compiler_header,
+                vm.code.as_slice().get(vm.state.pc + 2).copied().unwrap_or(0),
+                vm.code.as_slice().get(vm.state.pc + 3).copied().unwrap_or(0),
+            )
+        };
+        // The next instruction: a compiler stream frames a fixed instruction in
+        // three bytes (four for `REQUIRE`) and pads to the next absolute
+        // multiple of four, while a raw stream's fixed instructions are four
+        // bytes with no padding.
         let pc_next = if has_compiler_header {
-            align4(vm.state.pc + 3)
+            if is_payload_opcode(opcode, true) {
+                // Payload arms read the length and set `pc` themselves; this is
+                // the value they would use if they did not.
+                align4(vm.state.pc + 3)
+            } else {
+                align4(vm.state.pc + fixed_frame_content_len(opcode))
+            }
         } else {
             vm.state.pc + 4
         };

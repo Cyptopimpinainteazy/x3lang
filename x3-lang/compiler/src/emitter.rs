@@ -1093,10 +1093,18 @@ pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
         let entry = disassemble_op(opcode, payload, flags, operand);
         out.push_str(&format!("  {idx:04}  0x{opcode:02x}  {entry}\n"));
         idx += 1;
+        // Advance by what the writer wrote, then by the padding it added:
+        // `align4(pc + content_len)`. A fixed frame is three bytes, or four for
+        // `REQUIRE`, and the two widths round to different boundaries when the
+        // frame sits at an offset congruent to one mod four — which is where
+        // the first instruction of a stream without metadata sits. Advancing a
+        // fixed frame by four regardless walked one byte into a leading guard's
+        // operand and then onto its padding, which this pass printed as opcodes.
+        // The widths come from `spec/opcodes.rs`, the table the VM reads too.
         if is_payload_opcode(opcode, true) {
             pc = payload_end;
         } else {
-            pc += 4;
+            pc = align4(pc + fixed_frame_content_len(opcode));
         }
     }
     Ok(out)
@@ -1165,6 +1173,24 @@ mod tests {
         ChainMetricKind, CrdtKind, EmergencyKind, LifecycleKind, ProofKind, SerialFormat, StorageKind, VectorOp,
     };
     use x3_lang_common::{decode_capability_payload, CapabilityPayload};
+
+    /// The number of instructions a trace lists.
+    ///
+    /// The entry lines are `  {index}  0x{opcode}  {detail}` and the metadata
+    /// lines are `  {index}  meta.{record} = …`, so the second column is what
+    /// separates them — counting lines that contain `0x` anywhere counts the
+    /// version banner too, which is how the first version of this assertion was
+    /// off by one in the direction that looks like a passing test.
+    fn instruction_lines(trace: &str) -> usize {
+        trace
+            .lines()
+            .filter(|line| {
+                line.split_whitespace()
+                    .nth(1)
+                    .is_some_and(|column| column.starts_with("0x"))
+            })
+            .count()
+    }
 
     #[test]
     fn emits_all_capability_opcodes_0x80_through_0x9a() {
@@ -1344,8 +1370,16 @@ mod tests {
         // the walker read `[comparison][threshold_lo]` as a length: a guard with
         // comparison 1 and threshold 4 (`0x0401`) jumped a kilobyte past the end
         // of the stream and everything after it vanished from the listing.
+        //
+        // The stream below is the one the emitter writes for a guard at the head
+        // of a program: the guard's four bytes at offset 1 — over the version
+        // byte — then the padding that puts the next instruction on the next
+        // absolute multiple of four, then `HALT`. Because the guard's content is
+        // four bytes rather than three, the instruction after it starts at 8, so
+        // a reader that assumed three bytes landed on the padding instead.
         let mut bytes = vec![BYTECODE_VERSION_1];
         bytes.extend_from_slice(&[REQUIRE, 0x01, 0x04, 0x00]); // comparison GE, threshold 4
+        bytes.extend_from_slice(&[0x00, 0x00, 0x00]); // the padding `pad_to_4` writes
         bytes.extend_from_slice(&[HALT, 0x00, 0x00, 0x00]);
 
         let trace = disassemble(&bytes).expect("should disassemble");
@@ -1353,6 +1387,71 @@ mod tests {
         assert!(
             trace.contains("HALT"),
             "the instruction after it must be listed: {trace}"
+        );
+    }
+
+    #[test]
+    fn a_payload_first_program_is_walked_at_the_writers_boundaries() {
+        // The same property as the guard-first test above, for the other shape a
+        // program can start with, and asserted against the emitter rather than
+        // against a hand-built stream: every operation the lowering emitted must
+        // appear once, and nothing else may appear.
+        //
+        // A payload frame at offset 1 is `3 + len` bytes and the reader advances
+        // by `align4(pc + 3 + len)`, whatever `pc` is, so this shape was already
+        // walked correctly — it is here to keep the two shapes measured
+        // together, because the defect was a reader that treated "offset 1" as
+        // if it were "offset 0".
+        let source = "intent payload_first {\n    from ethereum.USDC amount 1\n    to \
+                      solana.SOL\n    route {\n        swap uniswap ethereum.USDC -> solana.SOL \
+                      amount 1 min_output 1\n    }\n}\n";
+        let program = crate::parser::parse_source(source).expect("source should parse");
+        let ir = crate::compile_to_ir(&program).expect("source should lower");
+        let bytecode = emit_x3ir(&ir).expect("should emit");
+
+        let trace = disassemble(&bytecode).expect("should disassemble");
+        assert!(
+            !trace.contains("UNKNOWN"),
+            "no byte of the stream may be presented as an instruction the language does not have: {trace}"
+        );
+        assert_eq!(
+            instruction_lines(&trace),
+            ir.operations.iter().filter(|op| !matches!(op, Operation::Nop)).count(),
+            "the walk must visit exactly the instructions the writer wrote: {trace}"
+        );
+    }
+
+    #[test]
+    fn a_guard_first_program_is_walked_at_the_writers_boundaries() {
+        // `risk_policy { max_slippage 120 }` lowers the guard to the program's
+        // first instruction, so the stream is `[version][REQUIRE][flags][threshold
+        // u16]` followed by padding. The reader advanced four bytes from offset 1
+        // — onto the guard's own padding — and printed the padding and the next
+        // operation's payload as opcodes: eighteen lines of `UNKNOWN` for the ten
+        // instructions below. The property is agreement, so it is asserted as a
+        // count of listed instructions against the IR, and as the absence of any
+        // name the language does not define.
+        let source = "risk_policy {\n    max_slippage 120\n}\n\nintent guard_first {\n    from \
+                      ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        swap uniswap \
+                      ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    require \
+                      slippage <= 120\n    on_fail refund ethereum.USDC to sender\n}\n";
+        let program = crate::parser::parse_source(source).expect("source should parse");
+        let ir = crate::compile_to_ir(&program).expect("source should lower");
+        let bytecode = emit_x3ir(&ir).expect("should emit");
+
+        assert_eq!(
+            bytecode[1], REQUIRE,
+            "the fixture is only a regression test if the guard really is the first instruction"
+        );
+        let trace = disassemble(&bytecode).expect("should disassemble");
+        assert!(
+            !trace.contains("UNKNOWN"),
+            "no byte of the stream may be presented as an instruction the language does not have: {trace}"
+        );
+        assert_eq!(
+            instruction_lines(&trace),
+            ir.operations.iter().filter(|op| !matches!(op, Operation::Nop)).count(),
+            "the walk must visit exactly the instructions the writer wrote: {trace}"
         );
     }
 

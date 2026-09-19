@@ -206,6 +206,57 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
         )
 }
 
+/// How many bytes a fixed-frame instruction's own record occupies in a compiler
+/// stream: three, or four for `REQUIRE`.
+///
+/// `REQUIRE` writes `[opcode][flags][threshold u16]`, all four bytes
+/// meaningful — the flags byte carries the comparison mode and the guard's
+/// operator, and the operand is a real `u16` threshold. Every other fixed frame
+/// writes `[opcode][flags][operand]` and lets the padding byte the emitter adds
+/// complete the operand.
+///
+/// The distinction only shows up when a frame starts at an offset congruent to
+/// one mod four, which is where the first instruction of a compiler stream
+/// without metadata sits (byte zero is the version byte). There the two widths
+/// round to different boundaries: `align4(1 + 3) == 4`, but `align4(1 + 4) == 8`.
+/// A reader that assumed three bytes advanced one byte into the guard's own
+/// operand and then onto its padding, recorded a boundary that is not an
+/// instruction, and read the padding — and the payload after it — as opcodes:
+/// `x3c explain` printed eighteen lines of `UNKNOWN` for a six-instruction
+/// program whose first instruction is a `risk_policy` guard.
+///
+/// Not meaningful for a payload opcode: those are `3 + payload_len` bytes and
+/// the caller has the length. `is_payload_opcode` answers that question.
+pub const fn fixed_frame_content_len(opcode: u8) -> usize {
+    if opcode == REQUIRE {
+        4
+    } else {
+        3
+    }
+}
+
+/// The `u16` operand of a fixed-frame instruction, as the frame carries it.
+///
+/// In a compiler stream a three-byte frame stores only the operand's low byte:
+/// the high byte is the padding the emitter writes to reach the next four-byte
+/// boundary, so reading four bytes takes it from *outside* the frame. That
+/// byte is zero for every frame that got its padding, which is why the bug
+/// stayed invisible until a reader met a three-byte frame at an offset
+/// congruent to one mod four — the first instruction of a stream without
+/// metadata. There the high half came from the next instruction's opcode: a
+/// `feature_allow` guard at offset 1 presented itself as "feature code
+/// 0x5683" and the VM refused its own compiler's artifact.
+///
+/// Do not call this for a payload opcode: its second and third bytes are the
+/// length prefix, and callers that read a payload use the payload reader.
+pub const fn fixed_frame_operand(opcode: u8, compiler_stream: bool, bytes_lo: u8, bytes_hi: u8) -> u16 {
+    if !compiler_stream || fixed_frame_content_len(opcode) >= 4 {
+        (bytes_lo as u16) | ((bytes_hi as u16) << 8)
+    } else {
+        bytes_lo as u16
+    }
+}
+
 /// The name of an instruction, as the disassembler, the executor's diagnostics and
 /// any tooling should print it.
 ///

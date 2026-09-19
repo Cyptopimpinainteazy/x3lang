@@ -50,7 +50,11 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         }
 
         let _flags = bytes[pc + 1];
-        let operand = u16::from_le_bytes([bytes[pc + 2], bytes[pc + 3]]);
+        // A fixed frame's operand is as wide as the frame: four bytes for
+        // `REQUIRE`, whose operand is a real `u16`, and one byte for every other
+        // fixed frame, whose high half is the padding the emitter writes. The
+        // width comes from `spec/opcodes.rs` so it cannot drift from the writer.
+        let operand = fixed_frame_operand(opcode, compiler_stream, bytes[pc + 2], bytes[pc + 3]);
         // check flags & operand ranges depending on opcode (simplified)
         // for branches ensure destination is inside code and aligned
         match opcode {
@@ -99,21 +103,28 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
             RET => { /* RET - valid */ }
             _ => {}
         }
-        // The same advance the executor makes, for the same reason: in a
+        // The same advance the executor makes, from the same table: in a
         // compiler stream the first instruction sits at offset 1 (the version
-        // byte is byte 0), so the next instruction is the next *absolute*
-        // multiple of four — which is what the emitter pads for. `pc + 4` is
-        // that only when `pc` is a multiple of four itself, so a program whose
-        // bytecode is a compiler stream with an op at offset 1 walked out of
-        // step: the verifier read padding bytes as opcodes and refused an
-        // artifact the executor runs. Measured on a program whose first item is
-        // `risk_policy` — `[0x01][REQUIRE][flags][00 00]` then padding — where
-        // the walk desynchronised at `pc` 73 and reported a payload length that
-        // ran off the end (`X3_VERIFY_FAILED: OutOfBounds(73)`).
-        //
-        // For raw bytecode, which starts at offset 0, `align4(pc + 3)` and
-        // `pc + 4` are the same number, so this changes nothing there.
-        pc = align4(pc + 3);
+        // byte is byte 0), so what bounds it is the next *absolute* multiple of
+        // four after the frame's own bytes — which is what the emitter pads for.
+        // `pc + 4` is that only when `pc` is a multiple of four itself, and for
+        // a frame whose content is four bytes rather than three the boundary is
+        // two alignments away, so both the width and the alignment are read
+        // rather than assumed. Getting this wrong is how the verifier refused an
+        // artifact the executor runs (`X3_VERIFY_FAILED: OutOfBounds(73)`) and
+        // how `x3c explain` printed a six-instruction program as eighteen lines
+        // of `UNKNOWN`.
+        // A compiler stream frames a fixed instruction in three bytes (four for
+        // `REQUIRE`) and pads; a raw stream's fixed instructions are four bytes
+        // with no padding. The two agree today only because raw streams start at
+        // zero and stay aligned, so the bound is written out rather than
+        // inferred from the offset.
+        let content_len = if compiler_stream {
+            fixed_frame_content_len(opcode)
+        } else {
+            4
+        };
+        pc = align4(pc + content_len);
     }
     Ok(boundaries)
 }

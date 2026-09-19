@@ -376,3 +376,45 @@ fn a_guard_first_program_verifies_and_runs() {
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
     vm.execute().expect("the executor must run it");
 }
+
+#[test]
+fn the_readers_visit_exactly_the_instructions_the_writer_wrote() {
+    // The guard-first program above is the shape that broke every reader in the
+    // pipeline, because `REQUIRE` occupies four bytes and sits at offset 1 — over
+    // the version byte — so the instruction after it starts at 8, not at 4.
+    //
+    // The property is agreement, and it is asserted as two equalities rather
+    // than a shape: the verifier's boundary set is exactly the set of
+    // instructions the lowering emitted, and the executor dispatches one
+    // instruction per operation. A reader that walked onto the guard's padding
+    // satisfies neither — it invents a boundary and dispatches a padding byte as
+    // `NOP` (the padding is four zero bytes, and `NOP` is `0x00`), so the counts
+    // move in opposite directions and either assertion catches it alone.
+    let source = "risk_policy {\n    max_slippage 120\n}\n\nintent guard_first {\n    from \
+                  ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        swap uniswap \
+                  ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    require slippage <= \
+                  120\n    on_fail refund ethereum.USDC to sender\n}\n";
+    let program = x3_lang_compiler::parser::parse_source(source).expect("source should parse");
+    let ir = x3_lang_compiler::compile_to_ir(&program).expect("source should lower");
+    let bytecode = x3_lang_compiler::compile_program(&program).expect("program should compile");
+
+    let emitted = ir.operations.iter().filter(|op| !matches!(op, Operation::Nop)).count();
+    let boundaries = verify(&InstructionStream::new(bytecode.clone())).expect("the verifier must accept the artifact");
+    assert_eq!(
+        boundaries.len(),
+        emitted,
+        "the verifier's boundaries must be the writer's instructions, no more and no fewer: {boundaries:?}"
+    );
+    assert!(
+        boundaries.contains(&1) && boundaries.contains(&8),
+        "the guard is at 1 and the instruction after its four bytes and three bytes of padding is at \
+         8: {boundaries:?}"
+    );
+
+    let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
+    vm.execute().expect("the executor must run it");
+    assert_eq!(
+        vm.state.instruction_count, emitted as u128,
+        "the executor must dispatch one instruction per emitted operation"
+    );
+}
