@@ -10,12 +10,16 @@
 //! - the fees its own `venue` declarations state (`fee_bps`), applied to what each
 //!   leg promises at minimum (`min_output`).
 //!
-//! A venue charges its fee on what the swap delivers, and `min_output` is the least
-//! the leg may deliver, so `min_output × fee_bps / 10_000` is a *floor* on that
-//! leg's fee: the leg cannot cost less than that and still satisfy its own bound.
-//! When the declared floor is below the sum of those floors, the program cannot
-//! satisfy its declared minimum profit under its own numbers, and the warning names
-//! each part rather than asserting a verdict.
+//! Both sides are taken at the value the program itself commits to: the input it
+//! spends (`amount`), the least it accepts back (`min_output`) and the fee the venue
+//! declares on that output. `net at the declared minimum = min_output − amount −
+//! fees`, and the program is warned when its own floor is above that. The figure is
+//! a *minimum*, not a prediction: a route that delivers more than `min_output` can
+//! net more, which is why this is a warning about declarations and never a claim
+//! that the route is unprofitable.
+//!
+//! A floor compared against the fee *alone* would be unsound — a large gross can
+//! absorb a large fee — so the net is what is compared.
 //!
 //! What this is not: a quote. It knows no prices, so it can never say a route *is*
 //! profitable — only that a program's own declarations cannot add up. Assets are
@@ -29,25 +33,36 @@ use x3_lang_common::{Span, X3Error};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeclaredFee {
     pub asset: String,
+    /// The fee the venue's declaration implies on the leg's minimum output.
     pub amount: u128,
+    /// What the leg nets at that same minimum: `min_output − spent − fee`, saturating
+    /// at zero because a negative net is reported as zero here and shown in the
+    /// sentence.
+    pub net_at_minimum: u128,
+    pub minimum_output: u128,
+    pub spent: u128,
     pub because: String,
 }
 
 /// What the declarations say about a program's own floor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
-    /// The declared fees cannot be below the declared floor's asset total.
+    /// At the output the program itself promises at minimum, its declared costs
+    /// leave less than the floor it claims.
     CannotSatisfy {
         asset: String,
         floor: u128,
+        /// The net at the declared minimum: `min_output − spent − fees`.
+        net_at_minimum: u128,
         cost: u128,
         parts: Vec<DeclaredFee>,
     },
-    /// The floor is at or above the declared fees — which says nothing about
-    /// whether the route will really earn it.
+    /// The floor is at or below the net the leg's own declared minimum leaves —
+    /// which says nothing about whether the route will really earn it.
     Satisfiable {
         asset: String,
         floor: u128,
+        net_at_minimum: u128,
         cost: u128,
     },
     NotAnalysed(String),
@@ -88,7 +103,11 @@ pub fn analyse(program: &Program) -> Verdict {
         let mut parts = Vec::new();
         for statement in all_statements {
             let Statement::Swap {
-                to, dex, min_output, ..
+                from,
+                to,
+                route,
+                dex,
+                min_output,
             } = statement
             else {
                 continue;
@@ -102,13 +121,31 @@ pub fn analyse(program: &Program) -> Verdict {
             let Some(minimum) = min_output.as_ref().and_then(literal_int) else {
                 continue;
             };
-            let amount = minimum.saturating_mul(u128::from(*fee_bps)) / 10_000;
+            // The step's input amount. The parser stores it in `Statement::Swap`'s
+            // `route` field, whose name is wrong — the field holds `amount <expr>`
+            // (see the ticket on the field) — so it is read here with that said out
+            // loud rather than silently.
+            let Some(spent) = route.as_ref().and_then(literal_int) else {
+                continue;
+            };
+            // Same-asset legs only: comparing what is spent with what is returned
+            // needs one asset, and prices are a host fact.
+            if asset_key(to) != asset_key(from) {
+                continue;
+            }
+            let fee = minimum.saturating_mul(u128::from(*fee_bps)) / 10_000;
+            let gross = minimum.saturating_sub(spent);
+            let net = gross.saturating_sub(fee);
             parts.push(DeclaredFee {
                 asset: asset_out.clone(),
-                amount,
+                amount: fee,
+                net_at_minimum: net,
+                minimum_output: minimum,
+                spent,
                 because: format!(
-                    "venue '{venue_name}' declares {fee_bps} bps, applied to the leg's minimum output \
-                     of {minimum} {}",
+                    "venue '{venue_name}' declares {fee_bps} bps on the leg's minimum output of \
+                     {minimum} {}: after spending {spent} and paying at least {fee}, the leg nets \
+                     {net}",
                     asset_key(to)
                 ),
             });
@@ -143,10 +180,15 @@ pub fn analyse(program: &Program) -> Verdict {
         }
 
         let cost: u128 = parts.iter().map(|part| part.amount).fold(0u128, u128::saturating_add);
-        if cost > floor.0 {
+        // The *net* at the declared minimum is what the floor is about: comparing
+        // the floor with the fee alone would warn about a route whose gross absorbs
+        // it, which is the false positive this check must not produce.
+        let net_at_minimum: u128 = parts.iter().map(|part| part.net_at_minimum).min().unwrap_or(0);
+        if net_at_minimum < floor.0 {
             return Verdict::CannotSatisfy {
                 asset: floor_asset,
                 floor: floor.0,
+                net_at_minimum,
                 cost,
                 parts,
             };
@@ -154,6 +196,7 @@ pub fn analyse(program: &Program) -> Verdict {
         return Verdict::Satisfiable {
             asset: floor_asset,
             floor: floor.0,
+            net_at_minimum,
             cost,
         };
     }
@@ -171,6 +214,7 @@ pub fn warnings(program: &Program) -> Vec<X3Error> {
         Verdict::CannotSatisfy {
             asset,
             floor,
+            net_at_minimum,
             cost,
             parts,
         } => {
@@ -180,11 +224,12 @@ pub fn warnings(program: &Program) -> Vec<X3Error> {
                 .collect();
             vec![X3Error::SemanticError {
                 message: format!(
-                    "route cannot satisfy declared minimum profit: the program requires at least \
-                     {floor} {asset} but the fees its own venue declarations state already come to \
-                     {cost} {asset} — {}.\nThis is a comparison of declarations, not a quote: it says \
-                     the program's own numbers cannot add up, and says nothing about whether a route \
-                     would really earn the floor (PHASE 36)",
+                    "route cannot satisfy its declared minimum profit at the output it itself \
+                     promises: the program requires at least {floor} {asset}, and at the least its \
+                     legs may deliver it nets {net_at_minimum} {asset} after {cost} {asset} of fees — \
+                     {}.\nThis is a comparison of the program's own declarations, not a quote: a route \
+                     that delivers more than its minimum can net more, and nothing here says whether \
+                     one will (PHASE 36)",
                     parts.join(", ")
                 ),
                 span: Span::DUMMY,
@@ -293,67 +338,89 @@ mod tests {
                          liquidity 1_000_000\n    slippage_bps 5\n    latency_ms 10\n    \
                          finality_blocks 12\n    risk 3\n    proof source_lock_proof\n}\n\n";
 
-    fn intent(floor: u128) -> String {
+    fn intent(spent: u128, min_output: u128, floor: u128) -> String {
         format!(
-            "intent route_probe {{\n    from ethereum.USDC amount 1_000\n    to ethereum.USDC\n    \
-             route {{\n        swap costly_pool ethereum.USDC -> ethereum.USDC amount 1_000 \
-             min_output 1_000\n    }}\n    require profit >= {floor}\n    on_fail refund \
+            "intent route_probe {{\n    from ethereum.USDC amount {spent}\n    to ethereum.USDC\n    \
+             route {{\n        swap costly_pool ethereum.USDC -> ethereum.USDC amount {spent} \
+             min_output {min_output}\n    }}\n    require profit >= {floor}\n    on_fail refund \
              ethereum.USDC to sender\n}}\n"
         )
     }
 
     #[test]
-    fn a_floor_below_the_declared_fees_cannot_be_satisfied() {
-        // 500 bps of at least 1_000 is 50: a floor of 10 is below the fee the
-        // program's own venue declares.
-        let verdict = analyse(&program(&format!("{VENUE}{}", intent(10))));
+    fn a_floor_above_what_the_declared_minimum_nets_cannot_be_satisfied() {
+        // Spending 1_000 and accepting at least 1_000 back, minus 500 bps of that
+        // 1_000 (50), nets nothing at the leg's own minimum: a floor of 10 is above it.
+        let verdict = analyse(&program(&format!("{VENUE}{}", intent(1_000, 1_000, 10))));
         let Verdict::CannotSatisfy {
             asset,
             floor,
+            net_at_minimum,
             cost,
             parts,
         } = verdict
         else {
             panic!("expected a refusal, got {verdict:?}");
         };
-        assert_eq!((asset.as_str(), floor, cost), ("ethereum.USDC", 10, 50));
+        assert_eq!(
+            (asset.as_str(), floor, net_at_minimum, cost),
+            ("ethereum.USDC", 10, 0, 50)
+        );
         assert_eq!(parts.len(), 1, "{parts:?}");
         assert!(parts[0].because.contains("costly_pool"), "{parts:?}");
     }
 
     #[test]
-    fn a_floor_above_the_declared_fees_is_not_warned_about() {
-        let verdict = analyse(&program(&format!("{VENUE}{}", intent(500))));
+    fn a_floor_at_or_below_what_the_declared_minimum_nets_is_not_warned_about() {
+        // 2_000 − 1_000 − 100 of fees nets 900, so a floor of 500 holds.
+        let program = program(&format!("{VENUE}{}", intent(1_000, 2_000, 500)));
         assert_eq!(
-            verdict,
+            analyse(&program),
             Verdict::Satisfiable {
                 asset: "ethereum.USDC".to_string(),
                 floor: 500,
-                cost: 50,
+                net_at_minimum: 900,
+                cost: 100,
             }
         );
+        assert!(warnings(&program).is_empty(), "a satisfiable floor produces no warning");
+    }
+
+    #[test]
+    fn a_fee_larger_than_the_floor_is_not_enough_to_warn() {
+        // The soundness property, and the reason the net is compared rather than the
+        // fee: 500 bps of a 20_000 minimum is a 1_000 fee — above the 900 floor — but
+        // the leg still nets 18_000 at its own minimum, so its declared numbers add
+        // up. Comparing the floor with the fee alone would warn here.
+        let program = program(&format!("{VENUE}{}", intent(1_000, 20_000, 900)));
+        let Verdict::Satisfiable {
+            net_at_minimum, cost, ..
+        } = analyse(&program)
+        else {
+            panic!("a large gross absorbs the fee: {:?}", analyse(&program));
+        };
+        assert_eq!((cost, net_at_minimum), (1_000, 18_000));
         assert!(
-            warnings(&program(&format!("{VENUE}{}", intent(500)))).is_empty(),
-            "a satisfiable floor produces no warning"
+            warnings(&program).is_empty(),
+            "a route whose minimum nets far above its floor must not be warned about"
         );
     }
 
     #[test]
-    fn the_warning_names_every_part_and_admits_what_it_is_not() {
-        let program = program(&format!("{VENUE}{}", intent(10)));
+    fn the_warning_names_the_net_the_floor_and_the_fee_and_admits_what_it_is_not() {
+        let program = program(&format!("{VENUE}{}", intent(1_000, 2_000, 1_000)));
         let warnings = warnings(&program);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         let message = format!("{}", warnings[0]);
         assert!(
-            message.contains("route cannot satisfy declared minimum profit"),
-            "{message}"
+            message.contains("promises"),
+            "the claim is about the declared minimum: {message}"
         );
+        assert!(message.contains("at least 1000 ethereum.USDC"), "{message}");
+        assert!(message.contains("nets 900 ethereum.USDC"), "{message}");
+        assert!(message.contains("100 ethereum.USDC of fees"), "{message}");
         assert!(
-            message.contains("10 ethereum.USDC") && message.contains("50 ethereum.USDC"),
-            "{message}"
-        );
-        assert!(
-            message.contains("not a quote") && message.contains("says nothing about whether"),
+            message.contains("not a quote") && message.contains("can net more"),
             "the warning must not claim more than it knows: {message}"
         );
     }
@@ -361,7 +428,7 @@ mod tests {
     #[test]
     fn assets_that_differ_are_not_compared_through_an_invented_rate() {
         let venue = VENUE.replace("asset_out ethereum.USDC", "asset_out solana.SOL");
-        let verdict = analyse(&program(&format!("{venue}{}", intent(10))));
+        let verdict = analyse(&program(&format!("{venue}{}", intent(1_000, 2_000, 10))));
         let Verdict::NotAnalysed(reason) = verdict else {
             panic!("a cross-asset comparison must not be made: {verdict:?}");
         };
@@ -369,10 +436,26 @@ mod tests {
     }
 
     #[test]
+    fn a_leg_that_crosses_assets_is_not_compared_with_a_same_asset_floor() {
+        // `swap costly_pool ethereum.USDC -> ethereum.ETH`: what is spent and what is
+        // returned are different assets, so the net is not a number this compiler can
+        // compute without a price.
+        let cross = intent(1_000, 2_000, 10).replace(
+            "swap costly_pool ethereum.USDC -> ethereum.USDC",
+            "swap costly_pool ethereum.USDC -> ethereum.ETH",
+        );
+        let verdict = analyse(&program(&format!("{VENUE}{cross}")));
+        let Verdict::NotAnalysed(reason) = verdict else {
+            panic!("a cross-asset leg must not be compared: {verdict:?}");
+        };
+        assert!(reason.contains("no leg whose venue declares"), "{reason}");
+    }
+
+    #[test]
     fn a_ceiling_is_not_read_as_a_floor() {
         let source = format!(
             "{VENUE}{}",
-            intent(10).replace("require profit >= 10", "require profit <= 10")
+            intent(1_000, 1_000, 10).replace("require profit >= 10", "require profit <= 10")
         );
         let verdict = analyse(&program(&source));
         assert!(

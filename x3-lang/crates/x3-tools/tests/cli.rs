@@ -1395,17 +1395,23 @@ fn cli_warns_when_a_declared_floor_is_below_the_declared_fees() {
                  asset_in ethereum.USDC\n    asset_out ethereum.USDC\n    fee_bps 500\n    liquidity \
                  1_000_000\n    slippage_bps 5\n    latency_ms 10\n    finality_blocks 12\n    risk \
                  3\n    proof source_lock_proof\n}\n\n";
-    let intent = |floor: u128| {
+    // Spends `spent`, accepts at least `min_output` back, and claims `floor` of net
+    // profit; 500 bps of the minimum is the venue's declared fee.
+    let intent = |spent: u128, min_output: u128, floor: u128| {
         format!(
-            "intent profit_probe {{\n    from ethereum.USDC amount 1_000\n    to ethereum.USDC\n    \
-             route {{\n        swap costly_lending ethereum.USDC -> ethereum.USDC amount 1_000 \
-             min_output 1_000\n    }}\n    require slippage <= 50\n    require profit >= {floor}\n    \
+            "intent profit_probe {{\n    from ethereum.USDC amount {spent}\n    to ethereum.USDC\n    \
+             route {{\n        swap costly_lending ethereum.USDC -> ethereum.USDC amount {spent} \
+             min_output {min_output}\n    }}\n    require slippage <= 50\n    require profit >= {floor}\n    \
              on_fail refund ethereum.USDC to sender\n}}\n"
         )
     };
 
-    // 500 bps of at least 1_000 is 50, so a floor of 10 cannot be met.
-    let unreachable = write_fixture("cli_profitability_bad.x3", &format!("{venue}{}", intent(10)));
+    // At the leg's own minimum (2_000 − 1_000 − 100 of fees) the route nets 900, so a
+    // floor of 1_000 is above what the declarations support.
+    let unreachable = write_fixture(
+        "cli_profitability_bad.x3",
+        &format!("{venue}{}", intent(1_000, 2_000, 1_000)),
+    );
     let check = x3c().arg("check").arg(&unreachable).output().expect("x3c check");
     let output = format!(
         "{}{}",
@@ -1413,12 +1419,14 @@ fn cli_warns_when_a_declared_floor_is_below_the_declared_fees() {
         String::from_utf8_lossy(&check.stderr)
     );
     assert!(
-        output.contains("route cannot satisfy declared minimum profit"),
+        output.contains("route cannot satisfy its declared minimum profit at the output it itself"),
         "the declaration mismatch must be reported: {output}"
     );
     assert!(
-        output.contains("50 ethereum.USDC") && output.contains("10 ethereum.USDC"),
-        "with both figures: {output}"
+        output.contains("at least 1000 ethereum.USDC")
+            && output.contains("nets 900 ethereum.USDC")
+            && output.contains("100 ethereum.USDC of fees"),
+        "with the floor, the net and the fee: {output}"
     );
     assert!(
         output.contains("not a quote"),
@@ -1434,8 +1442,11 @@ fn cli_warns_when_a_declared_floor_is_below_the_declared_fees() {
         .expect("x3c check --deny-warnings");
     assert!(!deny.status.success(), "--deny-warnings must turn it into a failure");
 
-    // The same program with a floor above the declared fees is not warned about.
-    let satisfied = write_fixture("cli_profitability_ok.x3", &format!("{venue}{}", intent(500)));
+    // The same program with a floor its declared minimum covers is not warned about.
+    let satisfied = write_fixture(
+        "cli_profitability_ok.x3",
+        &format!("{venue}{}", intent(1_000, 2_000, 500)),
+    );
     let check = x3c().arg("check").arg(&satisfied).output().expect("x3c check");
     let output = format!(
         "{}{}",
