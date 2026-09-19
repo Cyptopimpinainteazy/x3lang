@@ -38,6 +38,11 @@ use std::process::ExitCode;
 #[path = "../provenance.rs"]
 mod provenance;
 
+// The simulation state and its arithmetic live at the crate root, next to
+// `provenance`, for the same reason: a reusable module, not a command body (PHASE 54).
+#[path = "../simulation.rs"]
+mod simulation;
+
 use clap::{Parser, Subcommand};
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha256};
@@ -107,11 +112,24 @@ enum Cmd {
         #[arg(long)]
         provenance: Option<PathBuf>,
     },
-    /// Run bytecode on the dry-run VM, print stats.
+    /// Simulate a strategy against a state snapshot, and optionally explain it.
+    ///
+    /// With `--state`, the snapshot supplies the market observation the run is judged
+    /// against and the accounting is reported (PHASE 54). Without it, this is the
+    /// dry-run it has always been.
     Simulate {
         input: PathBuf,
         #[arg(long, default_value_t = 1_000_000u128)]
         gas: u128,
+        /// A state snapshot: the route, capital, gross and fees the host observed, as
+        /// JSON. It is the same fact as `--measured-*` stated as an accounting, so the
+        /// two cannot be combined.
+        #[arg(long)]
+        state: Option<PathBuf>,
+        /// Print the economic summary — the route, the accounting, the artifact's
+        /// minimum and the verdict.
+        #[arg(long)]
+        explain: bool,
         /// The realised profit, in basis points, that a plan's `profit >= <n>` floor is
         /// judged against. A dry run has no prices, so this *states* the market outcome
         /// rather than letting the floor pass on a number nobody measured.
@@ -406,10 +424,19 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Simulate {
             input,
             gas,
+            state,
+            explain,
             measured_profit_bps,
             measured_slippage_bps,
-        }
-        | Cmd::Run {
+        } => cmd_simulate(
+            &input,
+            gas,
+            state.as_ref(),
+            explain,
+            measured_profit_bps,
+            measured_slippage_bps,
+        ),
+        Cmd::Run {
             input,
             gas,
             measured_profit_bps,
@@ -1291,6 +1318,166 @@ fn cmd_run(
                 "x3c run: ok — {} asset ops, {} bridge ops, {} receipts, gas remaining {}",
                 asset_ops, bridge_ops, receipts, vm.state.gas
             );
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => {
+            print_error(&format!("VM error: {err:?}"));
+            Ok(ExitCode::from(1))
+        }
+    }
+}
+
+/// The floors an artifact states, read from its own instructions.
+///
+/// A simulation judged against a floor the caller could *state* would pass whenever
+/// the caller wanted it to, so the floor comes from the artifact and the snapshot
+/// supplies only what the market did.
+///
+/// An artifact may state more than one measured guard. Every one of them has to hold,
+/// so the binding profit floor is the largest and the binding slippage ceiling is the
+/// smallest; either is a deterministic choice over the instruction stream, and the
+/// report says which figure it used.
+fn artifact_floors(bytecode: &[u8]) -> Result<simulation::ArtifactFloors, String> {
+    use x3_lang_compiler::spec::opcodes;
+
+    let mut floors = simulation::ArtifactFloors::default();
+    let instructions = x3_lang_compiler::emitter::instructions(bytecode)
+        .map_err(|error| format!("the artifact could not be walked: {error}"))?;
+    for instruction in instructions {
+        if instruction.opcode != opcodes::REQUIRE {
+            continue;
+        }
+        let threshold = u32::from(instruction.operand);
+        // The comparison mode shares the flags byte with the guard's own operator, so
+        // it is read through the one reader rather than by masking here — masking by
+        // hand is what made this reader miss both measured guards in an artifact that
+        // had them.
+        match opcodes::require_comparison(instruction.flags) {
+            opcodes::REQUIRE_COMPARE_MEASURED_PROFIT => {
+                floors.profit_floor_bps = Some(floors.profit_floor_bps.map_or(threshold, |held| held.max(threshold)));
+            }
+            opcodes::REQUIRE_COMPARE_MEASURED_SLIPPAGE => {
+                floors.slippage_ceiling_bps = Some(
+                    floors
+                        .slippage_ceiling_bps
+                        .map_or(threshold, |held| held.min(threshold)),
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok(floors)
+}
+
+/// Simulate an artifact against a state snapshot (PHASE 54).
+///
+/// The two ways of stating what the market did are mutually exclusive, because they
+/// are the same fact: `--measured-profit-bps` states the conclusion, and `--state`
+/// states the accounting the conclusion is derived from. Accepting both would mean
+/// deciding which one to believe.
+fn cmd_simulate(
+    input: &PathBuf,
+    gas: u128,
+    state: Option<&PathBuf>,
+    explain: bool,
+    measured_profit_bps: Option<u128>,
+    measured_slippage_bps: Option<u128>,
+) -> Result<ExitCode, String> {
+    if state.is_some() && (measured_profit_bps.is_some() || measured_slippage_bps.is_some()) {
+        return Err(
+            "`--state` and `--measured-profit-bps`/`--measured-slippage-bps` state the same market \
+             outcome two ways — the snapshot is the accounting and the measured figures are its \
+             conclusion. Give one of them."
+                .into(),
+        );
+    }
+    if explain && state.is_none() {
+        return Err(
+            "`--explain` reports an accounting — the route, the capital, the net and the artifact's \
+             minimum — and a dry run with no `--state` has none to report. Give `--state \
+             <snapshot.json>`."
+                .into(),
+        );
+    }
+
+    let bytecode = std::fs::read(input).map_err(|error| format!("read {input:?}: {error}"))?;
+    if bytecode.is_empty() {
+        return Err("bytecode is empty".into());
+    }
+    let floors = artifact_floors(&bytecode)?;
+    let snapshot = state
+        .map(|path| simulation::SimulationSnapshot::read(path))
+        .transpose()?;
+
+    let mut vm = VM::new(bytecode, VMConfig::default(), gas);
+    match (&snapshot, measured_profit_bps, measured_slippage_bps) {
+        (Some(snapshot), _, _) => {
+            let profit = u128::from(snapshot.measured_profit_bps().map_err(|error| error.to_string())?);
+            // `None` here means the artifact states no slippage ceiling, so nothing in it
+            // compares this value and there is nothing for it to be wrong about. A stated
+            // ceiling with no observation is refused by the same call.
+            let slippage = u128::from(
+                snapshot
+                    .measured_slippage_bps(&floors)
+                    .map_err(|error| error.to_string())?
+                    .unwrap_or(0),
+            );
+            vm.report_measurement(profit, slippage);
+        }
+        (None, Some(profit), Some(slippage)) => vm.report_measurement(profit, slippage),
+        (None, None, None) => {}
+        (None, profit, slippage) => {
+            return Err(format!(
+                "state both measurements or neither: `--measured-profit-bps` was {} and \
+                 `--measured-slippage-bps` was {}",
+                profit
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "not given".to_string()),
+                slippage
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "not given".to_string()),
+            ));
+        }
+    }
+
+    // The run first, then the report: a refusal *is* the thing the report is for, so
+    // the accounting is rendered either way and the failure is reported after it.
+    let execution = vm.execute();
+
+    if let Some(snapshot) = &snapshot {
+        // The approved venue list is only known once the artifact has run, because the
+        // compiler emits it as a record the executor reads.
+        let mut floors = floors;
+        for group in &vm.state.route_fallbacks {
+            for venue in group {
+                if !floors.approved_venues.contains(venue) {
+                    floors.approved_venues.push(venue.clone());
+                }
+            }
+        }
+        let outcome = snapshot.evaluate(&floors).map_err(|error| error.to_string())?;
+        if explain {
+            print!("{}", simulation::render(&outcome));
+        } else {
+            println!(
+                "x3c simulate: net {} {} ({}bps) — {}",
+                outcome.net,
+                outcome.asset,
+                outcome.net_bps,
+                outcome.verdict.label()
+            );
+        }
+    }
+
+    match execution {
+        Ok(()) => {
+            if snapshot.is_none() {
+                let (asset_ops, bridge_ops, receipts) = collect_stats(&vm.state);
+                println!(
+                    "x3c simulate: ok — {} asset ops, {} bridge ops, {} receipts, gas remaining {}",
+                    asset_ops, bridge_ops, receipts, vm.state.gas
+                );
+            }
             Ok(ExitCode::SUCCESS)
         }
         Err(err) => {

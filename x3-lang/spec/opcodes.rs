@@ -277,6 +277,17 @@ pub const fn require_guard_operator(flags: u8) -> u8 {
     (flags >> 2) & 0x07
 }
 
+/// The comparison mode recorded in a `REQUIRE` flags byte.
+///
+/// The reader that belongs with [`require_flags`]. The mode and the operator share the
+/// byte, so reading the mode is a mask, and a reader that masks it by hand is a reader
+/// that can forget to: the VM, the disassembler and the simulation's floor reader each
+/// did, and the simulation's compared the raw byte, so it found no measured guard in an
+/// artifact that had two. One mask, in one place.
+pub const fn require_comparison(flags: u8) -> u8 {
+    flags & REQUIRE_COMPARE_MASK
+}
+
 /// Criterion codes for `ATOMIC_CHOICE`, carried in the instruction's flags
 /// byte; the operand packs `paths << 8 | selected`.
 ///

@@ -2121,6 +2121,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "reqwest",
+ "serde",
  "serde_json",
  "sha2",
  "sha3",

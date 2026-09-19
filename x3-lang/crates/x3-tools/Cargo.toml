@@ -10,6 +10,7 @@ x3-lang-common = { path = "../x3-common" }
 x3-lang-ast = { path = "../x3-ast" }
 x3-lang-compiler = { path = "../../compiler" }
 x3-lang-vm = { path = "../../vm" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 sha3 = { workspace = true }

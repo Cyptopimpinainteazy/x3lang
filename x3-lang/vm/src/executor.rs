@@ -354,7 +354,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 // mask them off before reading the comparison mode, or a
                 // `require slippage <= 50` would arrive as comparison code 8 and
                 // be refused as unimplemented.
-                let satisfied = match _flags & REQUIRE_COMPARE_MASK {
+                let satisfied = match require_comparison(_flags) {
                     // An assertion about the artifact's configuration. The
                     // compiler has already checked it and there is no run-time
                     // quantity to test, so the instruction stands as a record

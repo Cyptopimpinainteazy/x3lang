@@ -2831,3 +2831,167 @@ fn cli_refuses_a_hedge_whose_legs_do_not_net() {
         "the refusal must give the delta it computed: {output}"
     );
 }
+
+/// One program that reaches the whole PHASE 54 path: `arb` with real venues, so the
+/// plan lowers a measured profit floor and an approved venue list into the artifact.
+fn arb_scope_source() -> &'static str {
+    "intent spread_trade {\n    from ethereum.USDC amount 1_000_000 receiver 0xA1\n    \
+     to ethereum.USDC receiver 0xA2\n    require profit >= 20\n    require \
+     slippage <= 50\n    timeout 30s refund ethereum.USDC to sender\n    on_fail \
+     rollback\n}\n\
+     venue usdc_to_eth {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+     asset_in ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps 3\n    \
+     liquidity 1_000_000\n    slippage_bps 8\n    latency_ms 12\n    \
+     finality_blocks 12\n    risk 2\n}\n\
+     venue eth_to_usdc {\n    kind pool\n    chain ethereum\n    domain evm\n    \
+     asset_in ethereum.ETH\n    asset_out ethereum.USDC\n    fee_bps 2\n    \
+     liquidity 900_000\n    slippage_bps 6\n    latency_ms 12\n    \
+     finality_blocks 12\n    risk 2\n}\n\
+     arb spread {\n    discover { chains = [ethereum]; max_hops = 4; liquidity_min = \
+     500_000 ethereum.USDC; }\n    capital { flash = disabled; max = 25_000_000 \
+     ethereum.USDC; }\n    execution { atomic = true; parallel = true; private = \
+     false; }\n    risk { min_profit = 20bps; max_slippage = 8bps; max_total_fee = \
+     6bps; deadline = 220ms; }\n}\n"
+}
+
+fn arb_snapshot(capital: u128, gross: u128, fees: u128, slippage_bps: Option<u32>) -> String {
+    let slippage = match slippage_bps {
+        Some(bps) => format!(",\n  \"slippage_bps\": {bps}"),
+        None => String::new(),
+    };
+    format!(
+        "{{\n  \"version\": 1,\n  \
+         \"route\": {{ \"chains\": [\"ethereum\"], \"venues\": [\"usdc_to_eth\", \"eth_to_usdc\"] }},\n  \
+         \"capital\": {{ \"asset\": \"ethereum.USDC\", \"amount\": {capital} }},\n  \
+         \"gross\":   {{ \"asset\": \"ethereum.USDC\", \"amount\": {gross} }},\n  \
+         \"fees\":    {{ \"asset\": \"ethereum.USDC\", \"amount\": {fees} }}{slippage}\n}}\n"
+    )
+}
+
+/// PHASE 54's whole path, through the binary: an artifact whose floors come from its
+/// own instructions, a snapshot whose accounting comes from the host, and a report in
+/// the shape the phase's example shows.
+#[test]
+fn cli_simulates_against_a_state_snapshot_and_explains_the_economics() {
+    let fixture = write_fixture("cli_simulate_arb.x3", arb_scope_source());
+    let out = std::env::temp_dir().join("cli_simulate_arb.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    assert!(
+        build.status.success(),
+        "the arb scope must build: {}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    // 20bps of 1,000,000 is 200,000; the snapshot nets 250,000, so the floor is cleared.
+    let snapshot = write_fixture(
+        "cli_simulate_pass.json",
+        &arb_snapshot(1_000_000, 1_258_119, 8_119, Some(6)),
+    );
+    let run = x3c()
+        .arg("simulate")
+        .arg(&out)
+        .arg("--state")
+        .arg(&snapshot)
+        .arg("--explain")
+        .output()
+        .expect("x3c simulate");
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(run.status.success(), "the run should settle: {report}");
+
+    // The floor is the artifact's own, and the asset figure it implies is derived from
+    // the capital the snapshot states: 20bps of 1,000,000 is 2,000.
+    for expected in [
+        "Route selected:\nethereum",
+        "Capital:\n1,000,000 ethereum.USDC",
+        "Gross:\n1,258,119 ethereum.USDC",
+        "Fees:\n8,119 ethereum.USDC",
+        "Net:\n250,000 ethereum.USDC",
+        "Minimum required:\n2,000 ethereum.USDC (20bps of capital)",
+        "Result:\nPASS (net 2500bps)",
+    ] {
+        assert!(
+            report.contains(expected),
+            "the report must state {expected:?}; it was:\n{report}"
+        );
+    }
+    // The observed venues were checked against the artifact's approved list, and the
+    // report says so rather than leaving a reader to assume it.
+    assert!(
+        report.contains("Venues (checked against the artifact):\nusdc_to_eth, eth_to_usdc"),
+        "{report}"
+    );
+
+    // The same artifact under a snapshot that does not clear its floor. 20bps of
+    // 1,000,000 is 2,000, and this nets 1,000 — 10bps — so the guard refuses and the
+    // report still states the accounting the refusal is about.
+    let short = write_fixture(
+        "cli_simulate_fail.json",
+        &arb_snapshot(1_000_000, 1_001_000, 0, Some(6)),
+    );
+    let run = x3c()
+        .arg("simulate")
+        .arg(&out)
+        .arg("--state")
+        .arg(&short)
+        .arg("--explain")
+        .output()
+        .expect("x3c simulate");
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        !run.status.success(),
+        "1,000 against a 2,000 floor should refuse: {report}"
+    );
+    assert!(report.contains("Net:\n1,000 ethereum.USDC"), "{report}");
+    assert!(
+        report.contains("Result:\nFAIL (net 10bps against a required 20bps)"),
+        "{report}"
+    );
+    assert!(
+        report.contains("X3_PROFIT_BELOW_FLOOR"),
+        "the guard's own refusal must be reported too: {report}"
+    );
+
+    // A venue the artifact did not approve is refused before anything is simulated, and
+    // the refusal names the list.
+    let rogue = write_fixture(
+        "cli_simulate_rogue.json",
+        "{\n  \"version\": 1,\n  \
+         \"route\": { \"chains\": [\"ethereum\"], \"venues\": [\"some_other_pool\"] },\n  \
+         \"capital\": { \"asset\": \"ethereum.USDC\", \"amount\": 1000000 },\n  \
+         \"gross\":   { \"asset\": \"ethereum.USDC\", \"amount\": 1258119 },\n  \
+         \"fees\":    { \"asset\": \"ethereum.USDC\", \"amount\": 8119 },\n  \
+         \"slippage_bps\": 6\n}\n",
+    );
+    let run = x3c()
+        .arg("simulate")
+        .arg(&out)
+        .arg("--state")
+        .arg(&rogue)
+        .output()
+        .expect("x3c simulate");
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(!run.status.success(), "{report}");
+    assert!(
+        report.contains("some_other_pool") && report.contains("usdc_to_eth"),
+        "the refusal must name the venue and the approved list: {report}"
+    );
+}

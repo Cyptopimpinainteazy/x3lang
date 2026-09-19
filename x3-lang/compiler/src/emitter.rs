@@ -1319,7 +1319,7 @@ fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String
     // threshold is not carried (`REQUIRE static 0`), and a run-time comparison
     // says which mode it is in (`REQUIRE ge 1`, the nonce guard).
     if opcode == REQUIRE {
-        let mode = match flags & REQUIRE_COMPARE_MASK {
+        let mode = match require_comparison(flags) {
             REQUIRE_COMPARE_STATIC => "static",
             REQUIRE_COMPARE_GE => "ge",
             _ => "?",

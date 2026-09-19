@@ -222,3 +222,63 @@ fn a_guard_before_a_timeout_leaves_the_timeout_alone() {
         "the guard must not have taken the timeout clause with it"
     );
 }
+
+/// The `REQUIRE` flags byte carries two things: the comparison mode in bits 0-1 and the
+/// guard's own operator in bits 2-4. Reading either one by masking by hand is a reader
+/// that can forget to mask — the VM, the disassembler and the simulator's floor reader
+/// each did, and the simulator's compared the raw byte, so it found **no** measured
+/// guard in an artifact that carried two (PHASE 54, `1a9274900`'s follow-up).
+///
+/// This pins the writer and the reader as inverses over every combination, so a new
+/// mode or a new operator cannot be added to one side only.
+#[test]
+fn the_require_flags_writer_and_readers_are_inverses() {
+    use x3_lang_compiler::spec::opcodes::{
+        require_comparison, require_flags, require_guard_operator, GUARD_OP_EQ, GUARD_OP_GE, GUARD_OP_GT, GUARD_OP_LE,
+        GUARD_OP_LT, GUARD_OP_NE, REQUIRE_COMPARE_GE, REQUIRE_COMPARE_MEASURED_PROFIT,
+        REQUIRE_COMPARE_MEASURED_SLIPPAGE, REQUIRE_COMPARE_STATIC,
+    };
+
+    let modes = [
+        REQUIRE_COMPARE_STATIC,
+        REQUIRE_COMPARE_GE,
+        REQUIRE_COMPARE_MEASURED_PROFIT,
+        REQUIRE_COMPARE_MEASURED_SLIPPAGE,
+    ];
+    let operators = [
+        GUARD_OP_LT,
+        GUARD_OP_LE,
+        GUARD_OP_GT,
+        GUARD_OP_GE,
+        GUARD_OP_EQ,
+        GUARD_OP_NE,
+    ];
+
+    for mode in modes {
+        for operator in operators {
+            let flags = require_flags(mode, operator);
+            assert_eq!(
+                require_comparison(flags),
+                mode,
+                "mode {mode} was lost with operator {operator} (flags {flags:#04x})"
+            );
+            assert_eq!(
+                require_guard_operator(flags),
+                operator,
+                "operator {operator} was lost with mode {mode} (flags {flags:#04x})"
+            );
+        }
+    }
+
+    // The measured modes are 2 and 3, so their flags bytes differ from the mode alone —
+    // which is exactly what a reader that skips the mask gets wrong, and what makes this
+    // test meaningful rather than a tautology.
+    assert_ne!(
+        require_flags(REQUIRE_COMPARE_MEASURED_PROFIT, GUARD_OP_GE),
+        REQUIRE_COMPARE_MEASURED_PROFIT
+    );
+    assert_ne!(
+        require_flags(REQUIRE_COMPARE_MEASURED_SLIPPAGE, GUARD_OP_LE),
+        REQUIRE_COMPARE_MEASURED_SLIPPAGE
+    );
+}
