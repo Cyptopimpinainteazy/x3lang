@@ -334,6 +334,68 @@ pub fn verify_invariant_guards_declared(program: &Program, acc: &mut ErrorAccumu
     }
 }
 
+/// A `require bridge_liquidity >= N` guard needs bridges that declare that depth.
+///
+/// The guard asserts the bridges this program uses can absorb N. A `venue { kind
+/// bridge … liquidity … }` declaration is where a program states a bridge's depth,
+/// so the claim is decidable against it: every declared bridge must have at least
+/// the required liquidity, and a program that declares no bridge at all has
+/// nothing the guard could be about — the same shape as `solver_bond` against
+/// `solver_market` and `relayer_quorum` against `relayers`.
+///
+/// Every declared bridge rather than any one of them: a route may take whichever
+/// the planner finds, so a depth requirement that held for one and not another
+/// would be a claim the program cannot keep.
+pub fn verify_bridge_liquidity_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    let declared: Vec<(&str, u128)> = program
+        .items
+        .iter()
+        .filter_map(|item| match &item.node {
+            Item::VenueDecl(venue) if venue.kind == x3_lang_ast::ast::VenueKind::Bridge => {
+                Some((venue.name.as_str(), venue.liquidity))
+            }
+            _ => None,
+        })
+        .collect();
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::BridgeLiquidity {
+            continue;
+        }
+        // A floor, like the other liquidity claims: written as a ceiling it would
+        // say the bridges may not be deep.
+        if !guard.comparison.is_some_and(|op| op.is_lower_bound()) {
+            acc.add_error(err(format!(
+                "declaration '{owner}' states `require bridge_liquidity` without a `>=` bound; a \
+                 liquidity guard is a floor, and the check reads it as one"
+            )));
+            continue;
+        }
+        let Some(required) = guard.value.as_ref().and_then(extract_int_from_expr) else {
+            acc.add_error(err(format!(
+                "declaration '{owner}' requires bridge liquidity of a value the compiler cannot read \
+                 as a number; the check compares it against what a venue declares"
+            )));
+            continue;
+        };
+        if declared.is_empty() {
+            acc.add_error(err(format!(
+                "declaration '{owner}' requires {required} of bridge liquidity, and the program \
+                 declares no `venue {{ kind bridge … }}` — the guard has nothing to compare against"
+            )));
+            continue;
+        }
+        for (venue, liquidity) in &declared {
+            if *liquidity < required {
+                acc.add_error(err(format!(
+                    "declaration '{owner}' requires {required} of bridge liquidity, and the bridge \
+                     '{venue}' declares {liquidity}"
+                )));
+            }
+        }
+    }
+}
+
 /// A `require vm_supported <vm>` guard needs a declaration that uses that VM.
 ///
 /// The guard asserts the artifact runs on a VM family; a program says which

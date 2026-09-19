@@ -80,13 +80,14 @@ fn a_guard_kind_the_compiler_does_not_know_is_refused() {
 
 #[test]
 fn a_known_kind_with_no_checker_yet_is_not_refused_here() {
-    // This check is about *unknown* kinds. `bridge_liquidity` is a known kind
-    // whose evaluation is still missing (TICKET-049: nothing declares the
-    // liquidity a route must have), and refusing it *here* would be a different
-    // change than the one this test is about — the ledger says so, and this test
-    // keeps the two from being confused. `route_score` was this test's example
-    // until it gained a checker; the kind used has to be one that has none.
-    let source = program("", "    require bridge_liquidity >= 1_000");
+    // This check is about *unknown* kinds. `audit_gate` is a known kind whose
+    // evaluation is still missing (TICKET-049: nothing declares an audit for it to
+    // be about), and refusing it *here* would be a different change than the one
+    // this test is about — the ledger says so, and this test keeps the two from
+    // being confused. `route_score` and then `bridge_liquidity` were this test's
+    // examples until they gained checkers; the kind used has to be one that has
+    // none.
+    let source = program("", "    require audit_gate iso_27001");
     let errors = errors(&source);
     assert!(
         !errors.iter().any(|error| error.contains("not a guard kind")),
@@ -324,5 +325,69 @@ fn an_invariant_guard_needs_a_declared_invariant() {
     assert!(
         nameless.iter().any(|error| error.contains("without naming it")),
         "{nameless:?}"
+    );
+}
+
+#[test]
+fn a_bridge_liquidity_guard_needs_bridges_that_deep() {
+    // The guard asserts the bridges this program uses can absorb N, and a
+    // `venue { kind bridge … liquidity … }` declaration is where a program states a
+    // bridge's depth. Every declared bridge rather than any one of them: a route may
+    // take whichever the planner finds.
+    fn errors(source: &str) -> Vec<String> {
+        match x3_lang_compiler::check_source_diagnostics(source) {
+            Ok((_, _, outcome)) => outcome.errors.iter().map(|error| error.to_string()).collect(),
+            Err(error) => vec![format!("{error}")],
+        }
+    }
+    let venue = |name: &str, liquidity: u128| {
+        format!(
+            "venue {name} {{\n    kind bridge\n    chain ethereum\n    domain evm\n    asset_in ethereum.USDC\n    asset_out solana.SOL\n    fee_bps 2\n    liquidity {liquidity}\n    slippage_bps 5\n    latency_ms 900\n    finality_blocks 32\n    risk 4\n    proof destination_fill_proof\n}}\n"
+        )
+    };
+    let with_venues = |venues: &str, guard: &str| format!("{venues}\n{}", program("", guard));
+
+    // Deep enough.
+    assert_eq!(
+        errors(&with_venues(
+            &venue("x3_bridge", 500_000),
+            "    require bridge_liquidity >= 100_000"
+        )),
+        Vec::<String>::new()
+    );
+
+    // Too thin, and the message says which bridge and by how much.
+    let thin = errors(&with_venues(
+        &venue("x3_bridge", 5_000),
+        "    require bridge_liquidity >= 100_000",
+    ));
+    assert!(
+        thin.iter()
+            .any(|error| error.contains("'x3_bridge'") && error.contains("declares 5000")),
+        "the message must name the bridge and its depth: {thin:?}"
+    );
+
+    // Every declared bridge: the deep one does not cover for the thin one.
+    let mixed = errors(&with_venues(
+        &format!("{}{}", venue("deep_bridge", 500_000), venue("thin_bridge", 1_000)),
+        "    require bridge_liquidity >= 100_000",
+    ));
+    assert_eq!(mixed.len(), 1, "one bridge is too thin: {mixed:?}");
+    assert!(mixed[0].contains("thin_bridge"), "{mixed:?}");
+
+    // Nothing to be about, and a ceiling instead of a floor.
+    let none = errors(&with_venues("", "    require bridge_liquidity >= 100_000"));
+    assert!(
+        none.iter()
+            .any(|error| error.contains("declares no `venue { kind bridge")),
+        "{none:?}"
+    );
+    let ceiling = errors(&with_venues(
+        &venue("x3_bridge", 500_000),
+        "    require bridge_liquidity <= 100_000",
+    ));
+    assert!(
+        ceiling.iter().any(|error| error.contains("without a `>=` bound")),
+        "{ceiling:?}"
     );
 }
