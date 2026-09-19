@@ -687,3 +687,79 @@ fn a_hop_ceiling_is_reported_as_its_own_reason() {
         Some(RejectionReason::TooManyHops)
     );
 }
+
+#[test]
+fn an_exhausted_second_search_is_not_reported_as_no_route() {
+    // When every route breaks a *path-level* bound the optimizer searches again
+    // without those bounds, to report the reasons rather than say there is no
+    // route. That second search explores more, because the bounds were pruning
+    // it, so it can run out of budget where the first finished — and then
+    // "nothing there" is the one wrong answer available.
+    use x3_lang_compiler::optimizer::{optimize_with_budget, NoRoute, Objective};
+
+    let source = r#"
+venue one {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.A
+    asset_out ethereum.B
+    fee_bps 10
+    liquidity 1_000
+    slippage_bps 1
+    latency_ms 1
+    finality_blocks 1
+    risk 1
+    proof p
+}
+venue two {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.B
+    asset_out ethereum.C
+    fee_bps 10
+    liquidity 1_000
+    slippage_bps 1
+    latency_ms 1
+    finality_blocks 1
+    risk 1
+    proof p
+}
+venue three {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.C
+    asset_out ethereum.D
+    fee_bps 10
+    liquidity 1_000
+    slippage_bps 1
+    latency_ms 1
+    finality_blocks 1
+    risk 1
+    proof p
+}
+"#;
+    let graph = graph_from(source);
+    // 5 bps is below every venue's 10, so the first hop is over the bound and
+    // the bounded search stops after examining one edge.
+    let constraints = OpportunityConstraints {
+        max_hops: 4,
+        max_fee_bps: Some(5),
+        ..Default::default()
+    };
+    let report = optimize_with_budget(
+        &graph,
+        "ethereum.A",
+        "ethereum.D",
+        Objective::MinimizeFees,
+        &constraints,
+        2,
+    );
+    assert_eq!(
+        report.no_route,
+        Some(NoRoute::BudgetExhausted { examined: 3, budget: 2 }),
+        "a search that stopped looking did not find nothing"
+    );
+}

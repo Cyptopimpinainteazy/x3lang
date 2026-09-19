@@ -206,7 +206,20 @@ pub fn optimize_with_budget(
                                 .map(|reason| (path.venues.join(" -> "), reason))
                         })
                         .collect(),
-                    SearchOutcome::BudgetExhausted { .. } => Vec::new(),
+                    // The second search explores more — the path-level bounds
+                    // were pruning it — so it can run out where the first
+                    // finished. "I stopped looking" is its own answer, and
+                    // reporting it as "no route" would be a lie about a route
+                    // that was never ruled out.
+                    SearchOutcome::BudgetExhausted { examined, budget } => {
+                        return OptimizationReport {
+                            chosen: None,
+                            objective_value: None,
+                            considered: 0,
+                            tied: Vec::new(),
+                            no_route: Some(NoRoute::BudgetExhausted { examined, budget }),
+                        }
+                    }
                 };
             return OptimizationReport {
                 chosen: None,
