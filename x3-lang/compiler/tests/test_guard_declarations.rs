@@ -861,3 +861,84 @@ mod a_guard_is_checked_wherever_it_is_written {
         );
     }
 }
+
+/// An economic guard carries its bound and is judged against what a host measured.
+///
+/// The two halves are one defect apart: the bound did not travel (two programs with different
+/// ceilings compiled to identical bytes) and nothing tested it (the executor treats a `static`
+/// guard as satisfied). Either half alone would leave the guard a comment in the source.
+mod an_economic_guard_travels_and_is_judged {
+    use x3_lang_compiler::compile_source;
+    use x3_lang_vm::x3_lang_vm::{VMConfig, VM};
+
+    /// A swap intent whose only economic guard is the ceiling given.
+    fn with_ceiling(ceiling: u32) -> String {
+        format!(
+            "intent bounded {{\n\
+             \x20   from ethereum.USDC amount 1_000 receiver 0x1111111111111111111111111111111111111111\n\
+             \x20   to ethereum.ETH receiver 0x1111111111111111111111111111111111111111\n\
+             \x20   route {{\n\
+             \x20       swap uniswap ethereum.USDC -> ethereum.ETH amount 1_000 min_output 1\n\
+             \x20   }}\n\
+             \x20   require slippage <= {ceiling}\n\
+             \x20   timeout 30s refund ethereum.USDC to sender\n\
+             \x20   on_fail rollback\n\
+             }}\n"
+        )
+    }
+
+    fn artifact(ceiling: u32) -> Vec<u8> {
+        compile_source(&with_ceiling(ceiling)).unwrap_or_else(|error| panic!("ceiling {ceiling}: {error:?}"))
+    }
+
+    fn run_with(ceiling: u32, measured: Option<u128>) -> Result<VM, String> {
+        let mut vm = VM::new(artifact(ceiling), VMConfig::default(), 1_000_000);
+        if let Some(slippage) = measured {
+            vm.report_outcome(Some(10), Some(slippage), None);
+        }
+        vm.execute().map_err(|error| format!("{error:?}"))?;
+        Ok(vm)
+    }
+
+    #[test]
+    fn the_bound_reaches_the_artifact() {
+        // The whole point: these were byte-identical before the bound travelled.
+        assert_ne!(
+            artifact(7),
+            artifact(99),
+            "two programs with different slippage ceilings must not compile to the same bytes"
+        );
+    }
+
+    #[test]
+    fn the_artifact_says_the_guard_is_judged_and_of_what() {
+        let trace = x3_lang_compiler::emitter::disassemble(&artifact(7)).expect("it must disassemble");
+        assert!(
+            trace.contains("REQUIRE measured slippage 7"),
+            "the guard must name the quantity and the bound it is judged against: {trace}"
+        );
+    }
+
+    #[test]
+    fn a_slippage_above_the_ceiling_is_refused_with_both_figures() {
+        let error = run_with(7, Some(90)).expect_err("90bps is above a 7bps ceiling");
+        assert!(
+            error.contains("X3_SLIPPAGE_ABOVE_CEILING") && error.contains("90bps") && error.contains("7bps"),
+            "the refusal must give what was realised and what was allowed: {error}"
+        );
+    }
+
+    #[test]
+    fn a_slippage_within_the_ceiling_runs() {
+        run_with(7, Some(7)).expect("a realised slippage at the ceiling satisfies a ceiling");
+    }
+
+    #[test]
+    fn an_unmeasured_slippage_is_refused_rather_than_assumed() {
+        let error = run_with(7, None).expect_err("nothing measured a slippage");
+        assert!(
+            error.contains("X3_GUARD_UNMEASURED") && error.contains("slippage <= 7bps"),
+            "the refusal must say which guard needed which quantity: {error}"
+        );
+    }
+}
