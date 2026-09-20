@@ -289,3 +289,94 @@ fn formatting_preserves_every_annotation_the_parser_accepts() {
         );
     }
 }
+
+/// A declaration's clauses are what `x3c fmt` is most likely to delete, twice over.
+///
+/// `format_bridge` wrote only the statement body: a bridge declaring a replay-protection nonce guard
+/// and a refund path came back with neither, which is the defect `format_atomic_swap` had already
+/// been fixed for one declaration over. And the *parser* had been throwing half of every refund
+/// clause away — `refund <chain.ASSET> to <receiver>` left `to <receiver>` in the token stream, where
+/// the enclosing body read it as two statements that lower to nothing, so the receiver never reached
+/// the action and the formatter wrote `to;` and `sender;` back out as statements.
+mod clauses_survive_formatting {
+    use super::parse;
+    use x3_lang_ast::ast::{FailureAction, Item, Statement};
+    use x3_lang_compiler::formatter::X3Formatter;
+
+    fn format(source: &str) -> String {
+        let program = parse(source).unwrap_or_else(|error| panic!("must parse: {error}\n{source}"));
+        X3Formatter::new().format_program(&program)
+    }
+
+    #[test]
+    fn a_bridge_keeps_its_guards_and_its_failure_action() {
+        let source = "bridge my_bridge ethereum.USDC to solana.USDC {\n    require nonce unused \
+                      bridge_nonce_1\n    require slippage <= 50\n    on_fail rollback\n}\n";
+        let formatted = format(source);
+        for clause in [
+            "require nonce unused bridge_nonce_1",
+            "require slippage <= 50",
+            "on_fail rollback",
+        ] {
+            assert!(
+                formatted.contains(clause),
+                "`{clause}` must be written back, not deleted: {formatted}"
+            );
+        }
+        // And the bytes agree, which is the claim that matters: the clauses a program states are the
+        // artifact it produces.
+        let before = x3_lang_compiler::compile_source(source).expect("the original compiles");
+        let after = x3_lang_compiler::compile_source(&formatted).expect("the formatted text compiles");
+        assert_eq!(before, after, "formatting must not change the artifact: {formatted}");
+    }
+
+    #[test]
+    fn a_refund_keeps_its_receiver_and_leaves_no_residue() {
+        let source = "bridge my_bridge ethereum.USDC to solana.USDC {\n    on_fail refund \
+                      ethereum.USDC to alice\n}\n";
+        let formatted = format(source);
+        assert!(
+            !formatted.contains("to;") && !formatted.contains("alice;"),
+            "the receiver is part of the clause, not a statement after it: {formatted}"
+        );
+        // The receiver survives: the re-parsed action names `alice`.
+        let reparsed = parse(&formatted).expect("what the formatter writes must parse");
+        let Item::Bridge(bridge) = &reparsed.items[0].node else {
+            panic!("the fixture declares a bridge");
+        };
+        let Some(FailureAction::Refund(expression)) = &bridge.on_fail else {
+            panic!("the bridge states a refund");
+        };
+        let text = format!("{expression:?}");
+        assert!(
+            text.contains("alice"),
+            "the refund must still name the receiver it was written with: {text}"
+        );
+    }
+
+    #[test]
+    fn a_module_body_keeps_its_refund_receiver() {
+        // The same clause in a statement position, which is where the corpus writes it.
+        let source = "strategy S {\n    input ethereum.USDC amount 1_000\n    output ethereum.ETH\n    \
+                      effects [swap]\n    domains [ethereum]\n    risk { max_slippage_bps 50 \
+                      max_total_fee_bps 8 }\n    bounds { max_steps 10 max_gas 200_000 }\n    execute {\n\
+                      \x20       swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n\
+                      \x20       require slippage <= 50\n        on_fail refund ethereum.USDC to alice\n\
+                      \x20   }\n}\n";
+        let formatted = format(source);
+        assert!(
+            !formatted.contains("to;"),
+            "no half-clause is left as a statement: {formatted}"
+        );
+        let reparsed = parse(&formatted).expect("what the formatter writes must parse");
+        let Item::Strategy(module) = &reparsed.items[0].node else {
+            panic!("the fixture declares a strategy");
+        };
+        let refund = module.body.iter().find_map(|statement| match statement {
+            Statement::OnFail(FailureAction::Refund(expression)) => Some(expression),
+            _ => None,
+        });
+        let text = format!("{:?}", refund.expect("the body states a refund"));
+        assert!(text.contains("alice"), "the receiver must survive: {text}");
+    }
+}

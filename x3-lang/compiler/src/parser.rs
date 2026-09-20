@@ -5829,8 +5829,30 @@ impl<'a> Parser<'a> {
             }
             Tok::Ident(ref s) if s == "refund" => {
                 self.advance();
-                let expr = self.parse_expr()?;
-                Ok(FailureAction::Refund(expr))
+                // The clause is `refund <chain.ASSET> to <receiver>`, and this arm used to read only
+                // the first half: `to <receiver>` was left in the token stream, where the enclosing
+                // body parsed it as two expression statements (`to;` and `sender;`) that lower to
+                // nothing. The receiver — the whole point of naming a refund — never reached the
+                // action, and `x3c fmt` wrote the residue back out as statements. Folded the way the
+                // intent path folds it (`chain.ASSET:receiver`, receiver defaulting to `sender`, which
+                // the formatter splits back with `refund_target`), so one clause has one shape.
+                let asset = self.parse_asset_ref()?;
+                let mut receiver = None;
+                if matches!(self.peek(), Tok::Ident(ref s) if s == "to") {
+                    self.advance();
+                    receiver = Some(self.parse_expr()?);
+                }
+                let receiver = receiver
+                    .map(|expr| expression_debug_string(&expr))
+                    .unwrap_or_else(|| "sender".to_string());
+                Ok(FailureAction::Refund(Expression::Literal(LiteralExpr::String(
+                    Symbol::new(&format!(
+                        "{}.{}:{}",
+                        asset.chain.as_str(),
+                        asset.name.as_str(),
+                        receiver
+                    )),
+                ))))
             }
             Tok::Ident(ref s) if s == "halt" => {
                 self.advance();

@@ -560,6 +560,38 @@ impl X3Formatter {
         self.format_asset_ref(&b.to_asset);
         self.write(" {\n");
         self.indent();
+        // Every clause the parser reads has to be written back, which is the lesson
+        // `format_atomic_swap` below records: this arm wrote only the statement body, so
+        // `x3c fmt` deleted a bridge's guards and its failure action — a program that named a
+        // replay-protection nonce guard and a refund path came back with neither, and the
+        // artifact changed by the difference. The two writers are one fix apart because the two
+        // declarations are one shape apart.
+        for guard in &b.requires {
+            self.write_indent();
+            self.write("require ");
+            self.format_require_guard(guard);
+            self.write("\n");
+        }
+        if let Some(timeout) = &b.timeout {
+            self.write_indent();
+            self.write("on_timeout ");
+            self.format_expression(timeout);
+            // The clause's action is required by the parser, and the AST holds one action for both
+            // clauses (`on_timeout` fills `on_fail` when it is not already stated), so the action is
+            // written in both places rather than invented as a new field: the re-parsed program is
+            // the same one, which is what the round trip is for.
+            if let Some(action) = &b.on_fail {
+                self.write(" ");
+                self.format_failure_action(action);
+            }
+            self.write("\n");
+        }
+        if let Some(action) = &b.on_fail {
+            self.write_indent();
+            self.write("on_fail ");
+            self.format_failure_action(action);
+            self.write("\n");
+        }
         for s in &b.body {
             self.format_statement(s);
         }
