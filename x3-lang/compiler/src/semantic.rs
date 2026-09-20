@@ -734,9 +734,23 @@ pub fn verify_finality_guards_declared(program: &Program, acc: &mut ErrorAccumul
         .collect();
 
     for (owner, guard) in require_guards(program) {
-        if guard.kind != x3_lang_ast::ast::RequireKind::Finality {
+        // Both spellings of one claim: `require finality.<chain> >= 32` and `require
+        // finality_explicit <chain> >= 32`. The second is listed in `REQUIRE_KIND_NAMES`, is read by
+        // the JSON intent bridge (which maps its kind string to the same variant), and was checked by
+        // **nothing** — a program writing it got a guard whose depth or mode reached neither a
+        // declaration nor the artifact, and `x3c check` said nothing (TICKET-027's last kind).
+        if !matches!(
+            guard.kind,
+            x3_lang_ast::ast::RequireKind::Finality | x3_lang_ast::ast::RequireKind::FinalityExplicit
+        ) {
             continue;
         }
+        // The guard as the program wrote it, so a refusal names the spelling the author used rather
+        // than the other one.
+        let spelling = |chain: &str| match guard.kind {
+            x3_lang_ast::ast::RequireKind::FinalityExplicit => format!("finality_explicit {chain}"),
+            _ => format!("finality.{chain}"),
+        };
         // `require source_finality` / `dest_finality` name a side of the program
         // rather than a chain, and no declaration states what such a side must
         // reach; they are decided by the program's own finality pass.
@@ -751,10 +765,10 @@ pub fn verify_finality_guards_declared(program: &Program, acc: &mut ErrorAccumul
             acc.add_error(err(
                 DiagnosticCode::GuardClaimUnbacked,
                 format!(
-                    "declaration '{owner}' requires `finality.{}`, but no `finality_policy` names that \
+                    "declaration '{owner}' requires `{}`, but no `finality_policy` names that \
                  chain — the guard has nothing to compare against. Write `finality_policy <mode> {{ \
                  chain {} requirement finalized blocks <n> }}`",
-                    chain.as_str(),
+                    spelling(chain.as_str()),
                     chain.as_str()
                 ),
             ));
@@ -779,12 +793,11 @@ pub fn verify_finality_guards_declared(program: &Program, acc: &mut ErrorAccumul
             acc.add_error(err(
                 DiagnosticCode::GuardClaimUnbacked,
                 format!(
-                    "declaration '{owner}' states `require finality.{}` with no depth and no mode; write \
-                 a floor (`require finality.{} >= 32`) or a mode (`require finality.{} == \
-                 finalized`)",
-                    chain.as_str(),
-                    chain.as_str(),
-                    chain.as_str()
+                    "declaration '{owner}' states `require {}` with no depth and no mode; write a \
+                 floor (`{} >= 32`) or a mode (`{} == finalized`)",
+                    spelling(chain.as_str()),
+                    spelling(chain.as_str()),
+                    spelling(chain.as_str())
                 ),
             ));
             continue;
@@ -798,10 +811,10 @@ pub fn verify_finality_guards_declared(program: &Program, acc: &mut ErrorAccumul
                 acc.add_error(err(
                     DiagnosticCode::GuardClaimUnbacked,
                     format!(
-                        "declaration '{owner}' states `require finality.{}` without a `>=` bound; a \
-                     finality depth is a floor — write `require finality.{} >= {required}`",
-                        chain.as_str(),
-                        chain.as_str()
+                        "declaration '{owner}' states `require {}` without a `>=` bound; a finality \
+                     depth is a floor — write `require {} >= {required}`",
+                        spelling(chain.as_str()),
+                        spelling(chain.as_str())
                     ),
                 ));
                 continue;
@@ -821,10 +834,10 @@ pub fn verify_finality_guards_declared(program: &Program, acc: &mut ErrorAccumul
                     format!(
                         "declaration '{owner}' requires only {required} blocks of finality on '{}', while \
                      the policy declared for that chain requires {declared}: the guard would pass at \
-                     a depth the program itself says is not final. Write `require finality.{} >= \
-                     {declared}`, or lower the policy if {required} is what the program means",
+                     a depth the program itself says is not final. Write `require {} >= {declared}`, \
+                     or lower the policy if {required} is what the program means",
                         chain.as_str(),
-                        chain.as_str()
+                        spelling(chain.as_str())
                     ),
                 )),
                 Some(_) => {}
@@ -836,12 +849,11 @@ pub fn verify_finality_guards_declared(program: &Program, acc: &mut ErrorAccumul
             acc.add_error(err(
                 DiagnosticCode::GuardClaimUnbacked,
                 format!(
-                    "declaration '{owner}' compares `finality.{}` against something that is neither a \
-                 depth nor a mode; write `require finality.{} >= <blocks>` or `require finality.{} \
-                 == <mode>`",
-                    chain.as_str(),
-                    chain.as_str(),
-                    chain.as_str()
+                    "declaration '{owner}' compares `{}` against something that is neither a depth \
+                 nor a mode; write `{} >= <blocks>` or `{} == <mode>`",
+                    spelling(chain.as_str()),
+                    spelling(chain.as_str()),
+                    spelling(chain.as_str())
                 ),
             ));
             continue;

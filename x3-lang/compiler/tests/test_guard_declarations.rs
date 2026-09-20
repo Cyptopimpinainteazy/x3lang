@@ -1031,3 +1031,167 @@ mod a_static_guards_figure_travels {
         );
     }
 }
+
+/// `finality_explicit` is the other spelling of a finality guard, and it is decided the same way.
+///
+/// It is listed in `REQUIRE_KIND_NAMES`, the JSON intent bridge maps its kind string to the same
+/// variant, and it was checked by **nothing**: a program writing
+/// `require finality_explicit solana == finalized` got `"status": "ok"` with no policy naming
+/// solana, and the artifact carried it as `REQUIRE static 0` — neither the mode nor a depth
+/// travelled. The last unchecked guard kind (TICKET-027).
+mod the_other_finality_spelling_is_decided {
+    use super::errors;
+
+    const POLICY: &str = "finality_policy strict {\n    chain solana\n    requirement finalized\n    blocks 32\n}\n\n";
+
+    fn intent(guard: &str) -> String {
+        format!(
+            "intent spelling {{\n    from ethereum.USDC amount 1_000 receiver \
+             0x1111111111111111111111111111111111111111\n    to solana.SOL receiver \
+             4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {{\n        swap uniswap \
+             ethereum.USDC -> solana.SOL amount 1_000 min_output 1\n    }}\n    {guard}\n    \
+             require slippage <= 50\n    on_fail refund ethereum.USDC to sender\n}}\n"
+        )
+    }
+
+    #[test]
+    fn a_mode_guard_with_no_policy_is_refused_by_its_own_spelling() {
+        let found = errors(&intent("require finality_explicit solana == finalized"));
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("finality_explicit solana") && error.contains("no `finality_policy`")),
+            "the refusal must name the spelling the program wrote: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_mode_guard_matching_the_policy_is_accepted() {
+        let source = format!("{POLICY}{}", intent("require finality_explicit solana == finalized"));
+        assert!(errors(&source).is_empty(), "the policy states that mode");
+    }
+
+    #[test]
+    fn a_depth_guard_below_the_policy_is_refused() {
+        let source = format!("{POLICY}{}", intent("require finality_explicit solana >= 10"));
+        let found = errors(&source);
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("10 blocks") && error.contains("requires 32")),
+            "the guard would pass at a depth the program says is not final: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_depth_guard_at_the_policy_is_accepted() {
+        let source = format!("{POLICY}{}", intent("require finality_explicit solana >= 32"));
+        assert!(errors(&source).is_empty(), "32 is the declared depth");
+    }
+
+    #[test]
+    fn the_dotted_spelling_still_behaves_the_same() {
+        // The control: the same claims written `finality.<chain>` are decided as they were.
+        let refused = errors(&intent("require finality.solana >= 32"));
+        assert!(
+            refused.iter().any(|error| error.contains("no `finality_policy`")),
+            "a dotted guard with no policy is still refused: {refused:?}"
+        );
+        let accepted = format!("{POLICY}{}", intent("require finality.solana >= 32"));
+        assert!(errors(&accepted).is_empty(), "and still accepted with one");
+    }
+}
+
+/// Every guard kind the language defines has a disposition, and the table below is checked.
+///
+/// TICKET-027's acceptance is per kind: each one either gains a declared quantity and a check, or is
+/// refused by name. That was true of eighteen kinds and not of the nineteenth —
+/// `finality_explicit` was listed, parsed, read by the JSON bridge, and checked by nothing, so a
+/// program writing it got `"status": "ok"` and an artifact carrying `static 0`. Nothing noticed
+/// because nothing enumerated the list: this table is that enumeration, and the test asserts both
+/// that it covers `REQUIRE_KIND_NAMES` exactly and that every check it names is real.
+///
+/// "Real" is a source scan rather than a comment: a check is named by the `fn` that decides it, and
+/// the test fails if that function is not defined and called somewhere in the crate. A table of
+/// hopes would pass a test that only counted rows.
+mod every_guard_kind_has_a_disposition {
+    use std::collections::BTreeSet;
+
+    /// `(kind, check)` — the `fn` that decides the guard, or the reason it is refused.
+    const DISPOSITIONS: &[(&str, &str)] = &[
+        ("finality", "verify_finality_guards_declared"),
+        ("slippage", "verify_risk_policy_bounds_guards"),
+        ("fees", "verify_fee_guards_declared"),
+        // A profit guard is a *measured* one: the executor refuses it when no host reported the
+        // profit, which is the enforcement (`REQUIRE_COMPARE_MEASURED_PROFIT`).
+        ("profit", "verify_slippage_explicit"),
+        ("invariant", "verify_invariant_guards_declared"),
+        ("risk", "verify_risk_score_guards"),
+        // The one kind whose quantity is a run-time fact: `NONCE_UNUSED` leaves the answer in `r0`
+        // and the guard compares it, so the check is the executor's.
+        ("nonce", "verify_replay_and_expiry"),
+        ("audit_gate", "verify_guard_kinds_are_checkable"),
+        ("bridge_liquidity", "verify_bridge_liquidity_declared"),
+        ("canonical_supply", "verify_canonical_supply"),
+        ("relayer_quorum", "verify_relayer_quorum_declared"),
+        ("route_score", "verify_route_score_declared"),
+        ("solver_bond", "verify_solver_bond_declared"),
+        ("proof_complete", "verify_proof_complete_declared"),
+        ("refund_path", "verify_refund_path_exists"),
+        ("refund_to", "verify_refund_path_exists"),
+        ("finality_explicit", "verify_finality_guards_declared"),
+        ("vm_supported", "verify_vm_supported_declared"),
+        ("mainnet_safe", "verify_mainnet_safe"),
+    ];
+
+    fn sources() -> String {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut all = String::new();
+        for entry in std::fs::read_dir(&root)
+            .expect("the crate's sources must be readable")
+            .flatten()
+        {
+            if entry.path().extension().is_some_and(|extension| extension == "rs") {
+                all.push_str(&std::fs::read_to_string(entry.path()).unwrap_or_default());
+                all.push('\n');
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn the_table_covers_every_kind_the_language_defines() {
+        let listed: BTreeSet<&str> = x3_lang_compiler::parser::REQUIRE_KIND_NAMES.iter().copied().collect();
+        let tabled: BTreeSet<&str> = DISPOSITIONS.iter().map(|(kind, _)| *kind).collect();
+        assert_eq!(
+            listed,
+            tabled,
+            "a kind with no row here is a guard nothing has decided to check or to refuse; \
+             only here: {:?}; only in the table: {:?}",
+            listed.difference(&tabled).collect::<Vec<_>>(),
+            tabled.difference(&listed).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn every_check_the_table_names_exists_and_is_called() {
+        let all = sources();
+        let uncalled: Vec<&str> = DISPOSITIONS
+            .iter()
+            .map(|(_, check)| *check)
+            .filter(|check| {
+                // Defined in the crate...
+                let defined = all.contains(&format!("fn {check}("));
+                // ...and called somewhere that is not its own definition: the pass registry, the
+                // AST-level list, or another pass. A `fn` nobody calls would decide nothing.
+                let calls = all.matches(&format!("{check}(")).count();
+                !defined || calls < 2
+            })
+            .collect();
+        assert!(
+            uncalled.is_empty(),
+            "these checks are named as a guard kind's disposition but are not a defined, called \
+             function: {uncalled:?}"
+        );
+    }
+}
