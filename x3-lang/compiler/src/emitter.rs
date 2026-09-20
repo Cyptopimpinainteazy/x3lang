@@ -543,12 +543,12 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&[ON_TIMEOUT])?;
             bytecode.write_all(&0u16.to_le_bytes())?;
         }
-        Operation::Emit { name, data } => {
-            bytecode.write_all(&[EMIT])?;
-            let payload = format!("{}:{:?}", name, data);
-            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
-            bytecode.write_all(payload.as_bytes())?;
-        }
+        // Both of these used to write `format!("{name}:{args:?}")` here, which is two defects in
+        // one line: the payload was the compiler's Rust `Debug` output rather than a record, and
+        // the shared decoder had no arm for either opcode, so the artifact could not be verified —
+        // `emit` and every call lowered to `CALL_HOST` built successfully and then failed to run.
+        Operation::Emit { .. } => emit_payload_op(EMIT, op, bytecode)?,
+        Operation::Call { .. } => emit_payload_op(CALL_HOST, op, bytecode)?,
         // `[ROUTE_FALLBACK][u16 len][venue,venue,...]`. The approved list is
         // the payload because a runtime can only restrict itself to the
         // compiler's approvals if the approvals travel with the artifact; a
@@ -710,12 +710,6 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 });
             }
             bytecode.write_all(&[VENUE_SETTLEMENT])?;
-            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
-            bytecode.write_all(payload.as_bytes())?;
-        }
-        Operation::Call { function, args } => {
-            bytecode.write_all(&[CALL_HOST])?;
-            let payload = format!("{}:{:?}", function, args);
             bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
             bytecode.write_all(payload.as_bytes())?;
         }
@@ -1260,6 +1254,19 @@ fn operation_to_payload(op: &Operation) -> Result<CapabilityPayload, X3Error> {
             target: target.clone(),
             after_blocks: *after_blocks,
         },
+        // `emit` and a host call are capability payloads like every other opcode that carries one.
+        // They were the two exceptions: written where they were emitted, by hand, as a formatted
+        // string, which is how the payload drifted out of the decoder's reach (see
+        // `CapabilityPayload::EmitEvent`). The `data` map reaches the artifact's bytes, so it is
+        // read in the order it states — the lowering builds it sorted by argument name.
+        Operation::Emit { name, data } => CapabilityPayload::EmitEvent {
+            name: name.clone(),
+            fields: data.iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
+        },
+        Operation::Call { function, args } => CapabilityPayload::HostCall {
+            function: function.clone(),
+            args: args.clone(),
+        },
         _ => {
             return Err(X3Error::CodegenError {
                 message: "operation is not a capability payload".to_string(),
@@ -1655,7 +1662,10 @@ fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
         let shape = if shape.is_empty() { "none" } else { shape };
         return Ok(format!("venue {venue} settles {shape}"));
     }
-    if (0x80..=0x9C).contains(&opcode) || (0xA0..=0xAB).contains(&opcode) {
+    // `EMIT` and `CALL_HOST` are capability records too — they are the two this range used to
+    // leave out, so a reader saw the raw payload as lossy UTF-8 instead of the event or the call
+    // it states.
+    if opcode == EMIT || opcode == CALL_HOST || (0x80..=0x9C).contains(&opcode) || (0xA0..=0xAB).contains(&opcode) {
         let p = decode_capability_payload(opcode, payload).map_err(|_| X3Error::CodegenError {
             message: "bad capability payload".into(),
             span: None,

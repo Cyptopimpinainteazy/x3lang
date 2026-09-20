@@ -1627,6 +1627,16 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
             vm.state.failure_handlers.push(after_blocks as usize);
             Ok(vec![])
         }
+        // Neither of these is served from here. `EMIT` and `CALL_HOST` have their own arms in
+        // the execution loop, and those hand the raw payload to the EVM and SVM backends rather
+        // than to a typed host method — so a record reaching this dispatcher means the
+        // instruction was routed a second way, which is refused by name instead of being
+        // answered by whichever arm happened to look closest.
+        CapabilityPayload::EmitEvent { .. } | CapabilityPayload::HostCall { .. } => {
+            return Err(ExecError::Panic(format!(
+                "X3_HOST_OPCODE_MISROUTED: 0x{opcode:02x} is dispatched by the execution loop, not by the capability dispatcher"
+            )));
+        }
     }?;
     Ok(result)
 }

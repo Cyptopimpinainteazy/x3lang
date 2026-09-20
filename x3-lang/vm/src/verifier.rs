@@ -656,6 +656,22 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize, stream_len: us
                 return Err(VerifyError::InvalidOperand(pc));
             }
         }
+        CapabilityPayload::EmitEvent { name, fields } => {
+            // An event with no name is an event no consumer can subscribe to, and an
+            // argument with no name is one the event's own reader cannot address — the
+            // record would carry a value nobody could bind to a parameter.
+            if name.is_empty() || fields.iter().any(|(key, value)| key.is_empty() || value.is_empty()) {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+        }
+        CapabilityPayload::HostCall { function, .. } => {
+            // The host is asked for a function *by name*: `CALL_HOST` carries no other
+            // selector, so an empty one is a call the host cannot route and must not
+            // receive as a no-op.
+            if function.is_empty() {
+                return Err(VerifyError::InvalidOperand(pc));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -917,6 +933,101 @@ mod tests {
         assert!(
             boundaries.contains(&expected),
             "the first instruction must be found at {expected}, got {boundaries:?}"
+        );
+    }
+
+    /// An event a host cannot name is refused where it is read.
+    ///
+    /// The compiler states the same rule, so no artifact it writes can carry an empty name — this
+    /// is the hand-assembled case, and it is the one that matters: `EMIT`'s only routing
+    /// information is the name, so a host receiving an unnamed event has nothing to dispatch on
+    /// while the VM reports that it emitted one.
+    #[test]
+    fn verifier_refuses_an_event_that_names_nothing() {
+        let empty_name = payload_code(
+            EMIT,
+            CapabilityPayload::EmitEvent {
+                name: String::new(),
+                fields: vec![("arg0".to_string(), "1".to_string())],
+            },
+        );
+        assert!(
+            matches!(verify(&empty_name), Err(VerifyError::InvalidOperand(_))),
+            "an event with no name must be refused as an invalid operand"
+        );
+
+        // The same record with a name verifies, so the refusal above is the name and not the
+        // record's shape.
+        let named = payload_code(
+            EMIT,
+            CapabilityPayload::EmitEvent {
+                name: "TransferDone".to_string(),
+                fields: vec![("arg0".to_string(), "1".to_string())],
+            },
+        );
+        assert!(verify(&named).is_ok(), "the same event with a name must verify");
+
+        let unnamed_argument = payload_code(
+            EMIT,
+            CapabilityPayload::EmitEvent {
+                name: "TransferDone".to_string(),
+                fields: vec![(String::new(), "1".to_string())],
+            },
+        );
+        assert!(
+            matches!(verify(&unnamed_argument), Err(VerifyError::InvalidOperand(_))),
+            "an argument no reader can bind to a parameter must be refused"
+        );
+    }
+
+    /// `CALL_HOST` carries no selector other than the function's name.
+    #[test]
+    fn verifier_refuses_a_host_call_that_names_nothing() {
+        let empty_function = payload_code(
+            CALL_HOST,
+            CapabilityPayload::HostCall {
+                function: String::new(),
+                args: vec![],
+            },
+        );
+        assert!(
+            matches!(verify(&empty_function), Err(VerifyError::InvalidOperand(_))),
+            "a call naming no function must be refused rather than answered as a no-op"
+        );
+
+        let named = payload_code(
+            CALL_HOST,
+            CapabilityPayload::HostCall {
+                function: "charge_subscription".to_string(),
+                args: vec!["keeper".to_string(), "100".to_string()],
+            },
+        );
+        assert!(verify(&named).is_ok(), "a named call with arguments must verify");
+    }
+
+    /// The bytes the emitter used to write for these two opcodes are refused, not reinterpreted.
+    ///
+    /// Before this record existed the payload was `"{name}:{data:?}"` — a formatted string with no
+    /// length prefix for the name and no field count. It could never be executed (the decoder had no
+    /// arm for either opcode), so no artifact anywhere depends on it; the assertion is here because
+    /// "nothing depended on it" should be a checked statement rather than an assumption, and because
+    /// the new record's first field is also a string, which is exactly the shape a lenient decoder
+    /// would read the old payload's prefix as.
+    #[test]
+    fn the_old_hand_written_event_payload_is_refused_rather_than_misread() {
+        let old_form = b"TransferDone:{\"arg0\": \"Literal(Int { value: 1, base: Decimal, suffix: None })\"}";
+        let mut bytes = vec![EMIT];
+        bytes.extend_from_slice(&(old_form.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(old_form);
+        while bytes.len() % 4 != 0 {
+            bytes.push(0);
+        }
+        assert!(
+            matches!(
+                verify(&InstructionStream::new(bytes)),
+                Err(VerifyError::InvalidOperand(_))
+            ),
+            "the old payload is not an `EmitEvent` and must not be read as one"
         );
     }
 }

@@ -384,12 +384,13 @@ pub enum Operation {
         name: String,
         /// The event's payload, keyed by argument name.
         ///
-        /// A `BTreeMap` and not a `HashMap`, because this map reaches the artifact's
-        /// **bytes**: the emitter renders it with `{:?}`, and a `HashMap`'s `Debug` prints
-        /// in iteration order, which for `RandomState` differs between two maps built from
-        /// the same entries in the same process. Measured before the fix: twelve
-        /// identical compiles of one source produced **six** distinct artifacts, and the
-        /// only difference was this field's order
+        /// A `BTreeMap` and not a `HashMap`, because this map's **order** reaches the
+        /// artifact's bytes: the emitter writes it into the `EmitEvent` record in
+        /// iteration order (it used to be rendered with `{:?}` into a hand-written
+        /// payload), and a `HashMap` iterates in an order that for `RandomState` differs
+        /// between two maps built from the same entries in the same process. Measured
+        /// before the fix: twelve identical compiles of one source produced **six**
+        /// distinct artifacts, and the only difference was this field's order
         /// (`{"arg2": …, "arg1": …, "arg0": …}` against `{"arg1": …, "arg2": …, "arg0": …}`).
         /// A `BTreeMap` gives the bytes an order that comes from the program rather than
         /// from a per-instance seed (PHASE 42).

@@ -210,6 +210,34 @@ pub enum CapabilityPayload {
         target: String,
         after_blocks: u32,
     },
+    /// `emit Name(arg, …)` (`EMIT`, `0x60`) — a named event and what it carries.
+    ///
+    /// This record had no arm anywhere until now: the emitter wrote the payload by hand as
+    /// `format!("{name}:{data:?}")` and the shared decoder rejected `0x60` outright, so every
+    /// program containing an `emit` statement built an artifact the verifier refused with
+    /// `InvalidOperand`. The hand-written form also reached the host as Rust `Debug` text —
+    /// `TransferDone:{"arg0": "Literal(Int { value: 1, … })"}` — which is the compiler's own AST
+    /// representation and not a payload any consumer could agree on.
+    ///
+    /// `fields` is a sequence rather than a map because the order reaches the artifact's bytes and
+    /// a map's iteration order is a property of its implementation; the lowering sorts by argument
+    /// name before it gets here, so the order is the program's, not the runtime's.
+    EmitEvent {
+        name: String,
+        /// Argument name (`arg0`, …) and the expression the program wrote, rendered as source.
+        fields: Vec<(String, String)>,
+    },
+    /// A call to a named host function (`CALL_HOST`, `0x61`).
+    ///
+    /// What `@subscription`, `@subscribe`, `@sponsor`, `diff before after`, a subscription
+    /// declaration and an unclaimed function call all lower to. It is the IR's untyped host call:
+    /// the name says what is asked for and the arguments are the source text of each, so a host
+    /// that does not know the function can still refuse it by name instead of acting on a number
+    /// it was handed without context.
+    HostCall {
+        function: String,
+        args: Vec<String>,
+    },
 }
 
 /// What a `Release` **does**. One opcode, three acts (TICKET-001).
@@ -562,6 +590,18 @@ pub fn encode_capability_payload(payload: &CapabilityPayload) -> Result<Vec<u8>,
             write_string(&mut out, action)?;
             write_string(&mut out, target)?;
             write_u32(&mut out, *after_blocks);
+        }
+        CapabilityPayload::EmitEvent { name, fields } => {
+            write_string(&mut out, name)?;
+            write_u16(&mut out, fields.len() as u16);
+            for (key, value) in fields {
+                write_string(&mut out, key)?;
+                write_string(&mut out, value)?;
+            }
+        }
+        CapabilityPayload::HostCall { function, args } => {
+            write_string(&mut out, function)?;
+            write_string_vec(&mut out, args)?;
         }
     }
     Ok(out)
@@ -940,6 +980,28 @@ pub fn decode_capability_payload(opcode: u8, bytes: &[u8]) -> Result<CapabilityP
             action: reader.read_string()?,
             target: reader.read_string()?,
             after_blocks: reader.read_u32()?,
+        },
+        // `EMIT` and `CALL_HOST` reach this decoder from the verifier, which routes every payload
+        // opcode it has no earlier rule for here. They used to fall to `_`, so the two opcodes the
+        // emitter writes for an `emit` statement and a host call were refused as "not a payload
+        // this runtime has" — which is exactly what an artifact-level decoder cannot know, since
+        // the opcode is one the spec defines.
+        0x60 => CapabilityPayload::EmitEvent {
+            name: reader.read_string()?,
+            fields: {
+                let count = reader.read_u16()? as usize;
+                let mut fields = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let key = reader.read_string()?;
+                    let value = reader.read_string()?;
+                    fields.push((key, value));
+                }
+                fields
+            },
+        },
+        0x61 => CapabilityPayload::HostCall {
+            function: reader.read_string()?,
+            args: reader.read_string_vec()?,
         },
         _ => return Err(CapabilityCodecError::InvalidOpcode(opcode)),
     };

@@ -165,9 +165,18 @@ pub fn lower_program_with_mode(
                 lower_function_body(&intent.body, &mut ir)?;
             }
             Item::SubscriptionDecl(sub) => {
+                // The cadence travels with the charge. It was read off the declaration and dropped
+                // here — `subscription keeper: 100, 30 { … }` charged `keeper` 100 with nothing
+                // saying how often, so the one fact that makes a subscription periodic was the one
+                // fact the host could not see. A host call is a list of strings, so the period is
+                // the third: name, amount, period in blocks.
                 ir.push(Operation::Call {
                     function: "charge_subscription".to_string(),
-                    args: vec![sub.name.as_str().to_string(), sub.amount.to_string()],
+                    args: vec![
+                        sub.name.as_str().to_string(),
+                        sub.amount.to_string(),
+                        sub.period_blocks.to_string(),
+                    ],
                 });
                 lower_function_body(&sub.body, &mut ir)?;
             }
@@ -1193,7 +1202,12 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             // per-instance hash seed (PHASE 42).
             let mut data = std::collections::BTreeMap::new();
             for (i, arg) in event.payload.iter().enumerate() {
-                data.insert(format!("arg{}", i), format!("{:?}", arg));
+                // The source text of the argument, not its `Debug` form: this string is the
+                // event's payload in the artifact, and `{:?}` put the compiler's own AST
+                // representation in it (`Literal(Int { value: 1, base: Decimal, suffix: None })`),
+                // which no consumer of an event could agree on. Same renderer every other
+                // payload field uses.
+                data.insert(format!("arg{}", i), expression_to_string(arg));
             }
             ir.push(Operation::Emit {
                 name: event.name.as_str().to_string(),
@@ -1641,10 +1655,6 @@ fn lower_annotations_prefix(annotations: &[Annotation], ir: &mut X3IR) -> Result
                     total: *total,
                 });
             }
-            Annotation::Subscription(amount, period) => ir.push(Operation::Call {
-                function: "charge_subscription".to_string(),
-                args: vec![amount.to_string(), period.to_string()],
-            }),
             Annotation::Subscribe(event) => ir.push(Operation::Call {
                 function: "subscribe_event".to_string(),
                 args: vec![event.as_str().to_string()],

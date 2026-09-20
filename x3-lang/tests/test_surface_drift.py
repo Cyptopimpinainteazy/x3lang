@@ -134,6 +134,7 @@ READS = {
 REFUSES = {
     "atomic_choice.x3": "X3_PARSE_NO_INTENT",
     "atomic_swap.x3": "X3_PARSE_NO_INTENT",
+    "events_and_host_calls.x3": "X3_PARSE_NO_INTENT",
     "flagship_b52.x3": "X3_PARSE_NO_INTENT",
     "mainnet_safe_swap.x3": "X3_PARSE_NO_INTENT",
     "objective_routing.x3": "X3_PARSE_NO_INTENT",
