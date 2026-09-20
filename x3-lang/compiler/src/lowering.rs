@@ -1684,11 +1684,20 @@ fn lower_annotations_prefix(annotations: &[Annotation], ir: &mut X3IR) -> Result
                 params: vec![],
                 ret: "()".to_string(),
             }),
-            Annotation::GasAdaptive => ir.push(Operation::GasAdaptive {
-                high_gas_ops: vec![Operation::Nop],
-                low_gas_ops: vec![Operation::Nop],
-            }),
+            // `@gas_adaptive` states two gas paths, and the *annotation* has no way to name them —
+            // it takes no arguments. The artifact's record demands two non-empty bodies
+            // (`verify_ir`: "gas-adaptive branches must not be empty"), so this arm used to satisfy
+            // that rule with `vec![Operation::Nop]` on each side: a record claiming the program has
+            // two paths, neither of which is one, and both of whose bodies were four zero bytes no
+            // reader can see (TICKET-110).
+            //
+            // So it lowers to nothing, like every other modifier the artifact has no form for
+            // (`NoHeap`, `OnChain`, `Payable`, `Simd`, … below). The opcode stays — it is a real VM
+            // capability (`GAS_ADAPTIVE`, and `bridge.gas_adaptive_select()` is what answers it) and a
+            // hand-built IR can still carry it — but a *source* surface for it needs syntax the
+            // annotation does not have, which is TICKET-111's question rather than this arm's.
             Annotation::NoHeap
+            | Annotation::GasAdaptive
             | Annotation::NoRecursion(_)
             | Annotation::OnChain
             | Annotation::OffChain

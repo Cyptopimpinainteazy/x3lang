@@ -152,3 +152,28 @@ fn the_statements_this_compiler_does_support_still_reach_the_ir() {
         ir.operations
     );
 }
+
+/// Nothing in `lowering.rs` constructs an operation whose record no reader can see.
+///
+/// `Operation::Nop` is written as four zero bytes, which the compiler's own instruction walker skips
+/// as padding and the VM's verifier stops at as the end of the stream — so a `Nop` in the
+/// *lowerer* is a statement or an annotation that left no trace, which is what TICKET-109
+/// (`_ => push(Nop)`) and TICKET-110 (`@gas_adaptive`'s placeholder bodies) both were. `Operation::Nop`
+/// is still a record the IR may carry — a hand-built IR, or a future construct with nothing to say —
+/// and this file asserts the *lowerer* is not where one comes from.
+///
+/// A source scan rather than a compile-time check because the property is about the source: a `Nop`
+/// construction is legal Rust and compiles, and its failure is a program that checks clean and runs
+/// as if a statement had not been written.
+#[test]
+fn the_lowerer_constructs_no_invisible_operation() {
+    const LOWERING: &str = include_str!("../src/lowering.rs");
+    let code_lines = LOWERING.lines().filter(|line| !line.trim_start().starts_with("//"));
+    let invisible: Vec<&str> = code_lines
+        .filter(|line| line.contains("Operation::Nop") || line.contains("Operation::GasAdaptive {"))
+        .collect();
+    assert!(
+        invisible.is_empty(),
+        "these lines construct an operation whose record no reader can see: {invisible:?}"
+    );
+}
