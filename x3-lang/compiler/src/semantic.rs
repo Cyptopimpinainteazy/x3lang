@@ -39,6 +39,7 @@
 //! Diagnostics accumulate via [`ErrorAccumulator`] so a single `check`
 //! call reports every problem rather than failing on the first one.
 
+use crate::diagnostic::{CompilerDiagnostic, DiagnosticSeverity};
 use crate::ir::{Condition, FailureAction, Operation, ReleaseAct, X3IR};
 use std::collections::{HashMap, HashSet};
 use x3_lang_ast::ast::{AtomicSwapDecl, Expression, Item, LiteralExpr, Program};
@@ -146,6 +147,28 @@ impl VerifyOutcome {
     /// True when nothing rejected the program. Warnings do not fail a program.
     pub fn is_ok(&self) -> bool {
         self.errors.is_empty()
+    }
+
+    /// File a coded diagnostic in the vector its own severity names.
+    ///
+    /// The two vectors are this accumulator's severity channel — `X3Error` carries no level — so
+    /// "which vector" is the severity decision, and a caller that picks it by hand has decided the
+    /// same thing twice: once when it built the diagnostic and once when it chose the vector. This
+    /// is the single place that choice is made, and it is made from the diagnostic's own field.
+    /// Before it, a warning-severity diagnostic could not be built at all, so nothing suffered; the
+    /// moment one could, the hand-chosen vector was the drift severity-as-a-field exists to prevent
+    /// (TICKET-104).
+    ///
+    /// Note that the *ticket* that asked for this said the accumulator "already accepts"
+    /// `x3-common`'s `Diagnostic`. It does not: both vectors are `Vec<X3Error>`. That is why this
+    /// method exists in the shape it does — the severity is carried by the channel and the faithful
+    /// conversion (`Diagnostic::from`) is what a consumer with a richer type takes.
+    pub fn push_diagnostic(&mut self, diagnostic: CompilerDiagnostic) {
+        if diagnostic.severity == DiagnosticSeverity::Error {
+            self.errors.push(diagnostic.into_error());
+        } else {
+            self.warnings.push(diagnostic.into_warning());
+        }
     }
 
     pub fn into_result(self) -> Result<(), Vec<X3Error>> {
