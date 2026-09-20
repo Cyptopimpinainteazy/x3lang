@@ -435,3 +435,70 @@ mod bounded_slippage_is_a_guarantee_a_body_can_discharge {
         );
     }
 }
+
+/// A module's declared `max_steps` is a cap on what its body lowers to (PHASE 41).
+///
+/// Measured before this: a module declaring `bounds { max_steps 1 }` and a body that lowers to 74
+/// operations *compiled and ran to completion* — nothing compared the number the module declared
+/// with the number it produced. PHASE 41's own words are "prevent pathological execution graphs",
+/// which is a property of the graph the compiler builds, so the cap is checked where both figures
+/// are known.
+mod the_declared_step_cap_bounds_the_body {
+    use super::module;
+
+    fn with_max_steps(steps: u32) -> String {
+        let sections = format!(
+            "    effects [swap]\n    domains [ethereum]\n    risk {{ max_slippage_bps 50 \
+             max_total_fee_bps 8 }}\n    bounds {{ max_steps {steps} max_gas 200_000 }}\n"
+        );
+        let execute = "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        \
+                       require slippage <= 50\n        on_fail refund ethereum.USDC to sender";
+        module(execute, &sections)
+    }
+
+    #[test]
+    fn a_body_that_exceeds_the_cap_is_refused_with_both_figures() {
+        let found = super::errors(&with_max_steps(1));
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("max_steps 1") && error.contains("lowers to")),
+            "the refusal must give the declared cap and what the body lowers to: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_body_within_the_cap_is_accepted() {
+        // Non-vacuous: the same module with a cap its body fits.
+        let found = super::errors(&with_max_steps(1_000));
+        assert!(found.is_empty(), "a thousand steps is room for this body: {found:?}");
+    }
+
+    #[test]
+    fn the_cap_counts_the_modules_own_operations_and_the_boundary_is_exact() {
+        // The count is read out of the refusal rather than written down here: a cap of 1 always
+        // fails and the message states what the body lowers to, so the test derives the figure and
+        // then asserts both sides of it — the exact count passes, one less is refused. A number
+        // typed into the test would be a second opinion about the lowering, which is the thing this
+        // is checking.
+        let refusal = super::errors(&with_max_steps(1));
+        let count: u32 = refusal
+            .iter()
+            .find_map(|error| {
+                let (_, rest) = error.split_once("lowers to ")?;
+                rest.split_whitespace().next()?.parse().ok()
+            })
+            .unwrap_or_else(|| panic!("the refusal must state the count: {refusal:?}"));
+        assert!(count > 1, "the body must lower to more than one operation: {count}");
+        assert!(
+            super::errors(&with_max_steps(count)).is_empty(),
+            "a cap equal to the body's own count is a cap the body fits: {count}"
+        );
+        assert!(
+            super::errors(&with_max_steps(count - 1))
+                .iter()
+                .any(|error| error.contains("max_steps")),
+            "and one below it is refused: {count}"
+        );
+    }
+}

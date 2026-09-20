@@ -627,6 +627,12 @@ pub fn lower_program_with_mode(
                 }
                 // Lower strategy as constrained execution
                 ir.push(Operation::AtomicBegin);
+                // PHASE 41's `bounds { max_steps … }` is a cap on what the module *does*, so it is
+                // checked against what the module contributes rather than against the whole
+                // artifact (two modules in one program each have their own bound). The count is the
+                // one the VM charges instructions in: every operation this arm pushes from here to
+                // `AtomicEnd`.
+                let module_steps_from = ir.operations.len();
 
                 // Add requires guards first
                 for require in &strategy.requires {
@@ -653,6 +659,27 @@ pub fn lower_program_with_mode(
                 }
 
                 ir.push(Operation::AtomicEnd);
+                // The measured defect: `bounds { max_steps 1 }` on a body that lowers to 74
+                // operations compiled and ran to completion, because nothing compared the number
+                // the module declared with the number it produced. PHASE 41's own words are
+                // "prevent pathological execution graphs", which is a property of the graph the
+                // compiler builds — so the cap is enforced here, where both figures are known, and
+                // the refusal gives both.
+                if let Some(declared) = strategy
+                    .max_steps
+                    .as_ref()
+                    .and_then(|steps| expression_to_u128(steps).ok())
+                {
+                    let steps = (ir.operations.len() - module_steps_from) as u128;
+                    if steps > declared {
+                        return Err(semantic(&format!(
+                            "strategy '{}' declares `max_steps {declared}` and its body lowers to \
+                             {steps} operations: the bound is a cap on what the module does, so a body \
+                             that exceeds it is refused rather than published as bounded",
+                            strategy.name.as_str()
+                        )));
+                    }
+                }
             }
             Item::VmDecl(vm) => {
                 ir.push(Operation::VmAdapterCall {
