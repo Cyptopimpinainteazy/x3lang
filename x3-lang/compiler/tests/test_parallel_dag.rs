@@ -54,6 +54,17 @@ fn parallel(legs: &str) -> String {
     format!("parallel block {{\n{legs}}}\n")
 }
 
+/// The finality policy a `require finality.<chain> >= n` guard is decided against.
+///
+/// A guard is a claim, and the depth it names has to be declared somewhere (TICKET-049). The
+/// sources below carry the guard inside a `leg`, which used to put it out of reach of every check
+/// that reads a program's guards — so these fixtures compiled without the declaration until the
+/// walk in `semantic::require_guards` learned to descend into a leg. Writing the policy here is
+/// what the guard always needed; the hole is what hid it.
+fn finality(chain: &str, blocks: u32) -> String {
+    format!("finality_policy strict {{\n    chain {chain}\n    requirement finalized\n    blocks {blocks}\n}}\n")
+}
+
 #[test]
 fn independent_legs_share_a_wave() {
     // Two legs whose assets are disjoint: nothing orders them, so they run
@@ -254,7 +265,10 @@ fn a_cross_chain_leg_without_a_bridge_step_is_refused() {
 #[test]
 fn a_cross_chain_leg_with_a_bridge_step_is_accepted() {
     // Non-vacuous: the same movement, said out loud, is fine.
-    let source = r#"parallel cross {
+    let source = format!(
+        "{}{}",
+        finality("ethereum", 12),
+        r#"parallel cross {
     leg a {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
         require slippage <= 50
@@ -273,7 +287,8 @@ fn a_cross_chain_leg_with_a_bridge_step_is_accepted() {
         on_fail refund ethereum.ETH to sender
     }
 }
-"#;
+"#
+    );
     let found = errors(&source);
     assert!(
         found.is_empty(),
@@ -367,7 +382,10 @@ fn settlement(source: &str) -> Vec<(usize, Vec<String>, Vec<String>, bool)> {
 
 /// A parallel block where the last leg bridges to another chain.
 fn bridging_plan() -> String {
-    r#"parallel cross {
+    format!(
+        "{}{}",
+        finality("ethereum", 12),
+        r#"parallel cross {
     leg alpha {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
         require slippage <= 50
@@ -387,7 +405,7 @@ fn bridging_plan() -> String {
     }
 }
 "#
-    .to_string()
+    )
 }
 
 #[test]
@@ -470,8 +488,9 @@ fn a_bridge_without_its_proof_inputs_reports_them_as_outstanding() {
 fn a_bridge_with_its_proof_inputs_reports_none_outstanding() {
     // Non-vacuous: the same bridge, said with its proofs, owes nothing.
     let source = format!(
-        "{}{}",
+        "{}{}{}",
         vm("ethereum", "evm"),
+        finality("ethereum", 12),
         r#"parallel cross {
     leg alpha {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1

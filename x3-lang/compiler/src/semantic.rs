@@ -1364,11 +1364,7 @@ pub(crate) fn require_guards(program: &Program) -> Vec<(&str, &x3_lang_ast::ast:
     for item in &program.items {
         match &item.node {
             Item::IntentDecl(intent) => {
-                for statement in &intent.body.stmts {
-                    if let x3_lang_ast::ast::Statement::Require(guard) = statement {
-                        guards.push((intent.name.as_str(), guard));
-                    }
-                }
+                collect_block_guards(&intent.body, intent.name.as_str(), &mut guards);
             }
             Item::Bridge(decl) => {
                 guards.extend(decl.requires.iter().map(|guard| (decl.name.as_str(), guard)));
@@ -1378,14 +1374,104 @@ pub(crate) fn require_guards(program: &Program) -> Vec<(&str, &x3_lang_ast::ast:
             }
             Item::Strategy(decl) => {
                 guards.extend(decl.requires.iter().map(|guard| (decl.name.as_str(), guard)));
+                collect_statement_guards(&decl.body, decl.name.as_str(), &mut guards);
             }
             Item::Proposal(decl) => {
                 guards.extend(decl.requires.iter().map(|guard| (decl.name.as_str(), guard)));
+            }
+            // Every other place a guard can be written. A guard is a claim that something backs it,
+            // and where it is written does not change that — so a check that reads this list must
+            // read all of it, or the trailing half of a program is unchecked. The list is
+            // item-shaped rather than statement-shaped because a guard can only appear inside a
+            // body, and these are the items that have one (the declaration kinds that carry fields
+            // instead — `arb`, `netting`, `atomic hedge` — generate their guards during lowering,
+            // which is why those are `measured: true`).
+            Item::Function(function) => {
+                collect_block_guards(&function.body, function.name.as_str(), &mut guards);
+            }
+            Item::Agent(agent) => {
+                for method in &agent.methods {
+                    collect_block_guards(&method.node.body, method.node.name.as_str(), &mut guards);
+                }
+                for strategy in &agent.strategies {
+                    collect_block_guards(&strategy.node.body, strategy.node.name.as_str(), &mut guards);
+                }
+            }
+            Item::GpuBlock(block) => collect_block_guards(&block.body, "gpu block", &mut guards),
+            Item::SimulateDecl(decl) => {
+                collect_block_guards(&decl.body, decl.name.as_str(), &mut guards);
+            }
+            Item::ScheduledTask(task) => {
+                collect_block_guards(&task.body, task.name.as_str(), &mut guards);
+            }
+            Item::SubscriptionDecl(decl) => {
+                collect_block_guards(&decl.body, decl.name.as_str(), &mut guards);
+            }
+            Item::AtomicChoice(choice) => {
+                for path in &choice.paths {
+                    collect_statement_guards(&path.body, path.name.as_str(), &mut guards);
+                }
+            }
+            Item::ParallelDecl(parallel) => {
+                for leg in &parallel.legs {
+                    collect_statement_guards(&leg.body, leg.name.as_str(), &mut guards);
+                }
             }
             _ => {}
         }
     }
     guards
+}
+
+/// Every guard in a block, including the ones inside nested blocks.
+///
+/// This walked the *top level* of an intent body only, so a guard one block down was invisible to
+/// every check built on it — thirteen of them, by `grep require_guards` — and the most common place
+/// to write one is a block: `fallback { require slippage <= 7 }` is how the corpus bounds a
+/// substitution. Measured: `require slippage <= 99` inside a `fallback` block compiled against
+/// `risk_policy { max_slippage 50 }`, while the same guard at the top level of the intent was
+/// refused (`X3E4027: permits a slippage of 50 while the risk policy accepts at most 1`). A guard
+/// that the checks cannot see is a guard the compiler never bothered to back, which is the state
+/// TICKET-027 exists to end — and it reads as enforced in the source either way.
+fn collect_block_guards<'a>(
+    block: &'a x3_lang_ast::ast::Block,
+    owner: &'a str,
+    guards: &mut Vec<(&'a str, &'a x3_lang_ast::ast::RequireGuard)>,
+) {
+    collect_statement_guards(&block.stmts, owner, guards);
+}
+
+fn collect_statement_guards<'a>(
+    statements: &'a [x3_lang_ast::ast::Statement],
+    owner: &'a str,
+    guards: &mut Vec<(&'a str, &'a x3_lang_ast::ast::RequireGuard)>,
+) {
+    use x3_lang_ast::ast::Statement;
+
+    for statement in statements {
+        match statement {
+            Statement::Require(guard) => guards.push((owner, guard)),
+            // A fallback's bounds are ordinary guards, kept in their own list because the block
+            // they bound is a list of replacements rather than a body.
+            Statement::RouteFallback { requires, .. } => {
+                guards.extend(requires.iter().map(|guard| (owner, guard)));
+            }
+            Statement::If {
+                then_block, else_block, ..
+            } => {
+                collect_block_guards(then_block, owner, guards);
+                if let Some(else_block) = else_block {
+                    collect_block_guards(else_block, owner, guards);
+                }
+            }
+            Statement::While { body, .. } | Statement::For { body, .. } => {
+                collect_block_guards(body, owner, guards);
+            }
+            Statement::Loop(body) => collect_block_guards(body, owner, guards),
+            Statement::Atomic(atomic) => collect_block_guards(&atomic.body, owner, guards),
+            _ => {}
+        }
+    }
 }
 
 /// How many hops a path's body represents, when it is written as statements.

@@ -786,3 +786,78 @@ fn a_finality_depth_of_zero_or_beyond_the_operand_is_refused() {
         "{too_deep:?}"
     );
 }
+
+/// A guard is checked wherever it is written, including one block down.
+///
+/// Every pass that reads a program's guards does it through `semantic::require_guards`, and that
+/// walk read the **top level** of an intent's body only. A guard inside a `fallback` block, a
+/// `leg`, an `atomic` block or an `if` branch was therefore invisible to all thirteen checks built
+/// on it — while reading, in the source, exactly like the ones that were checked. Measured: a
+/// `fallback` block whose `require slippage <= 99` sat under `risk_policy { max_slippage 50 }`
+/// compiled, and the same guard at the top level of the intent was refused.
+mod a_guard_is_checked_wherever_it_is_written {
+    use super::errors;
+
+    /// The corpus's own shape: a route with a fallback, bounded by guards.
+    fn with_fallback(policy_max_slippage: u32, fallback_bound: u32) -> String {
+        format!(
+            "risk_policy {{\n    max_slippage {policy_max_slippage}\n}}\n\n\
+             intent probe {{\n\
+             \x20   from ethereum.USDC amount 1_000 receiver 0x1111111111111111111111111111111111111111\n\
+             \x20   to ethereum.ETH receiver 0x1111111111111111111111111111111111111111\n\
+             \x20   route {{\n\
+             \x20       swap uniswap ethereum.USDC -> ethereum.ETH amount 1_000 min_output 1\n\
+             \x20       fallback {{\n\
+             \x20           replace with curve\n\
+             \x20           require slippage <= {fallback_bound}\n\
+             \x20       }}\n\
+             \x20   }}\n\
+             \x20   require slippage <= 50\n\
+             \x20   on_fail refund ethereum.USDC to sender\n\
+             }}\n"
+        )
+    }
+
+    #[test]
+    fn a_fallback_guard_above_the_policy_is_refused() {
+        // 99 > 50: the block allows what the policy forbids, which is what the check exists for.
+        let errors = errors(&with_fallback(50, 99));
+        assert!(
+            errors.iter().any(|error| error.contains("99") && error.contains("50")),
+            "the refusal must name both numbers: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_fallback_guard_within_the_policy_is_accepted() {
+        // Non-vacuous: the same program with a bound the policy permits.
+        let errors = errors(&with_fallback(50, 7));
+        assert!(errors.is_empty(), "7 is within 50: {errors:?}");
+    }
+
+    #[test]
+    fn a_guard_inside_a_leg_is_checked() {
+        // A `parallel` leg's guard names a chain no `finality_policy` declares, which is the
+        // refusal the fixtures in `test_parallel_dag.rs` met once this walk was fixed.
+        let source = r#"parallel cross {
+    leg a {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1
+        on_fail refund ethereum.USDC to sender
+    }
+    leg b {
+        bridge x3 ethereum.ETH -> solana.SOL amount 1 receiver 0x1
+        require finality.ethereum >= 12
+        timeout 30s refund ethereum.ETH to sender
+        on_fail refund ethereum.ETH to sender
+    }
+}
+"#;
+        let errors = errors(source);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("finality.ethereum") && error.contains("finality_policy")),
+            "the guard must be decided against a declaration, and the message must say so: {errors:?}"
+        );
+    }
+}
