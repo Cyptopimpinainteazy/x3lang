@@ -1306,31 +1306,21 @@ fn cmd_run(
         return Err("bytecode is empty".into());
     }
     let mut vm = VM::new(bytecode, VMConfig::default(), gas);
-    // A dry run has no prices, so a plan's economic floor has nothing to be judged
-    // against unless the caller states what the market did. Stating it is explicit and
-    // the floor is *then* enforced against it; leaving either half out makes the floor
-    // refuse rather than pass on a number nobody measured, and stating only one half is
-    // refused because the other would have to be invented.
-    match (measured_profit_bps, measured_slippage_bps) {
-        // The two travel together because one call answers both of the guards a plan emits.
-        // The delta is independent: a hedge states neither of those and a plan states no
-        // delta, so requiring all three would make a caller invent the ones its program
-        // never reads. Stating none is allowed and makes a measured guard refuse rather
-        // than pass on a number nobody measured.
-        (Some(_), None) | (None, Some(_)) => {
-            return Err(format!(
-                "state both measurements or neither: `--measured-profit-bps` was {} and \
-                 `--measured-slippage-bps` was {}",
-                measured_profit_bps
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "not given".to_string()),
-                measured_slippage_bps
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "not given".to_string()),
-            ));
-        }
-        (profit, slippage) => vm.report_outcome(profit, slippage, measured_delta_bps),
-    }
+    // A dry run has no prices, so a plan's economic floor has nothing to be judged against
+    // unless the caller states what the market did. Every quantity is independent, because a
+    // *program* states which ones it has: a plan states a profit floor and a slippage
+    // ceiling, a liquidation states a profit floor and no ceiling, and a hedge states a delta
+    // and neither of those. The rule used to be "state the profit and the slippage, or
+    // neither", which was true of a plan and made a liquidation unable to state the one
+    // quantity it is bounded by.
+    //
+    // Dropping the pair rule does not make a missing measurement silent: a measured guard
+    // whose quantity nobody stated refuses with `X3_GUARD_UNMEASURED`, naming the guard and
+    // the quantity — a better diagnosis than the one this replaced, which named neither. The
+    // property is the same (nothing is invented); the surface is where the guard is instead
+    // of where the flags are.
+    vm.report_outcome(measured_profit_bps, measured_slippage_bps, measured_delta_bps);
+
     match vm.execute() {
         Ok(()) => {
             let (asset_ops, bridge_ops, receipts) = collect_stats(&vm.state);
@@ -1465,20 +1455,9 @@ fn cmd_simulate(
             );
             vm.report_measurement(profit, slippage);
         }
-        (None, Some(profit), Some(slippage)) => vm.report_measurement(profit, slippage),
-        (None, None, None) => {}
-        (None, profit, slippage) => {
-            return Err(format!(
-                "state both measurements or neither: `--measured-profit-bps` was {} and \
-                 `--measured-slippage-bps` was {}",
-                profit
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "not given".to_string()),
-                slippage
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "not given".to_string()),
-            ));
-        }
+        // Each quantity is independent and a guard whose quantity is absent refuses by name,
+        // for the reason `cmd_run` gives.
+        (None, profit, slippage) => vm.report_outcome(profit, slippage, None),
     }
 
     // The run first, then the report: a refusal *is* the thing the report is for, so

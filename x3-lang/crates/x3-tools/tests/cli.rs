@@ -1832,19 +1832,58 @@ fn cli_lowers_a_liquidation_to_its_calls_and_runs_it() {
         "the net-profit floor must travel as a guard: {ir}"
     );
 
-    // The floor is a *constraint* here rather than a measured guard, because the plan's
-    // conversion is a `Swap` — an asset-op record that never reaches the host, so no reply
-    // could carry a measurement. It derives from the declared `min_output` the verifier
-    // already checked against the repayment, so the plan runs with nothing to measure.
-    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
-    let run_text = format!(
+    // The floor is a **post-condition** on the net the venue's orders realised (TICKET-100).
+    // It used to be a constraint, because the conversion is a `Swap` — an asset-op record the
+    // executor resolves locally, so no reply could carry what was seized. The quantity the
+    // floor is about is the net, and the two venue orders above are the calls that seized:
+    // they reach the host, and a venue that reports a net answers this guard.
+    let explain = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let disassembly = format!(
         "{}{}",
-        String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
+        String::from_utf8_lossy(&explain.stdout),
+        String::from_utf8_lossy(&explain.stderr)
     );
     assert!(
-        run.status.success() && run_text.contains("x3c run: ok"),
-        "the liquidation's plan must run: {run_text}"
+        disassembly.contains("REQUIRE measured profit 100"),
+        "the floor must say it is judged against a measurement, and of what: {disassembly}"
+    );
+
+    let run = |args: &[&str]| {
+        let mut command = x3c();
+        command.arg("run").args(args).arg(&out);
+        let output = command.output().expect("x3c run");
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    };
+
+    // A venue that reported nothing does not satisfy it.
+    let unmeasured = run(&[]);
+    assert!(
+        unmeasured.contains("X3_GUARD_UNMEASURED") && unmeasured.contains("profit >= 100bps"),
+        "an unmeasured net must refuse rather than pass: {unmeasured}"
+    );
+
+    // A net at or above the floor settles. Stated *without* a slippage, because a liquidation
+    // states a floor and no ceiling — the pair rule that used to require both is what made
+    // this program's own quantity unstateable.
+    let cleared = run(&["--measured-profit-bps", "100"]);
+    assert!(
+        cleared.contains("x3c run: ok"),
+        "a net at the floor must settle, and a profit must be stateable without a slippage: {cleared}"
+    );
+
+    // And a seizure that realised less than the floor is refused **at the guard**, which is
+    // the half the compiler's own check cannot see: it knows the declared `min_output`, not
+    // what the venue did.
+    let short = run(&["--measured-profit-bps", "40"]);
+    assert!(
+        short.contains("X3_PROFIT_BELOW_FLOOR")
+            && short.contains("realised 40bps")
+            && short.contains("at least 100bps"),
+        "the refusal must carry both figures: {short}"
     );
 }
 
@@ -2940,11 +2979,19 @@ fn cli_enforces_a_plans_floor_against_a_measured_outcome() {
         "the refusal must give what was realised and what was allowed: {slippy}"
     );
 
-    // Half a measurement is refused rather than completed by inventing the other half.
+    // Half a measurement is not completed by inventing the other half — the *guard* for the
+    // unstated quantity is what refuses, and it names the quantity. The rule used to be
+    // "state the profit and the slippage, or neither", which was true of this plan and made a
+    // liquidation unable to state the one quantity it is bounded by (TICKET-100); the property
+    // is the same, and the diagnosis is better because the old message named neither guard.
     let half = run(&["--measured-profit-bps", "100"]);
     assert!(
-        half.contains("state both measurements or neither"),
-        "a half-stated measurement must be refused: {half}"
+        !half.contains("x3c run: ok"),
+        "a program with a slippage ceiling must not settle when no slippage was measured: {half}"
+    );
+    assert!(
+        half.contains("X3_GUARD_UNMEASURED") && half.contains("slippage"),
+        "and the refusal must name the quantity it is missing: {half}"
     );
 
     // And a *program's* guard is a different thing: `simple_swap`'s `require slippage <= 50`

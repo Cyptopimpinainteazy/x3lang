@@ -977,14 +977,19 @@ pub fn lower_program_with_mode(
                     min_output: ledger.min_output,
                     dex: None,
                 });
-                // The floor travels as a *constraint* rather than a measured guard, and the
-                // difference is the conversion: a plan's measured floors follow a host call
-                // whose reply carries a measurement, and a `Swap` is an asset-op *record* —
-                // it never reaches the host, so no reply could carry one. What the floor is
-                // derived from is the swap's declared `min_output` against the repayment,
-                // which `liquidation::verify` already checks at compile time. Enforcing the
-                // realised net instead needs the conversion to report an output, which the
-                // asset-op path does not do (TICKET-069).
+                // The floor travels as a **post-condition**. It used to be a constraint,
+                // because the conversion is a `Swap` — an asset-op *record* the executor
+                // resolves locally from the declaration's own amounts, so no reply could
+                // carry what was seized (TICKET-069).
+                //
+                // It does not need the conversion to change shape. The quantity the floor is
+                // about is the **net the seizure realised**, and the venue orders above are
+                // the calls that did the seizing: `liquidate` and `receive_collateral` reach
+                // the host, and a venue that reports a net answers this guard. The compile-time
+                // check stays what it was — `liquidation::verify` refuses a swap whose declared
+                // minimum cannot repay — so the compiler bounds the plan and the runtime
+                // measures it, the same division of labour as a plan's profit floor
+                // (TICKET-027) and a hedge's delta (TICKET-068).
                 if let Some(floor) = ledger.profit_floor {
                     let guard = arb::Guard {
                         kind: ast::RequireKind::Profit,
@@ -997,11 +1002,9 @@ pub fn lower_program_with_mode(
                         subject: Some(ledger.debt_asset.clone()),
                         condition: guard_condition(&bps_guard(&guard))?,
                         error_msg: None,
-                        // Still a *constraint*: the net is derived from the amounts the
-                        // declaration states, and nothing reports what was actually seized —
-                        // the conversion is a `Swap`, an asset-op record that never reaches
-                        // the host, so no reply could carry a measurement (TICKET-069).
-                        measured: false,
+                        // Measured: the quantity is the net the venue's orders realised, and
+                        // the executor refuses when no venue reported one.
+                        measured: true,
                         comparison: Some(guard.comparison),
                     });
                 }

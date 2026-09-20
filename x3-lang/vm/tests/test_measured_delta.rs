@@ -33,22 +33,39 @@ fn an_unstated_delta_is_not_reported_at_all() {
     );
 }
 
-/// The separation that makes the unit code load-bearing: a **plan's** profit-and-slippage
-/// measurement rides the swap call, and it must not answer a hedge's delta guard.
+/// The separation that makes the unit code load-bearing: a quantity is only ever read against
+/// the guard that asked for it.
 ///
-/// If it did, a program whose venue reported a profit would satisfy a bound about a delta —
-/// two different quantities compared as one, which is the units mismatch the measured modes
-/// exist to prevent.
+/// A stated profit reaches the venue order as **a profit**, because a liquidation's floor
+/// follows the orders that seized the collateral (TICKET-100). What must never happen is that
+/// it arrives as a delta — a guard about what the hedge left open, compared against a number
+/// about what the trade earned, is the units mismatch the measured modes exist to prevent.
 #[test]
-fn a_plans_profit_and_slippage_do_not_answer_a_hedges_delta_guard() {
+fn a_stated_profit_reaches_a_venue_order_as_a_profit_and_never_as_a_delta() {
     let bridge = DryRunBridge::with_measurement(500, 3);
     let reply = bridge.venue_order(b"order").expect("a dry run answers");
+    let carried = opcodes::read_measured_replies(&reply);
+
     assert!(
-        opcodes::read_measured_replies(&reply).is_empty(),
-        "a stated profit is not a measured delta: {reply:?}"
+        carried
+            .iter()
+            .all(|(unit, _)| *unit != opcodes::MEASURED_UNIT_DELTA_BPS),
+        "a stated profit must never arrive as a delta: {carried:?}"
+    );
+    assert_eq!(
+        carried,
+        vec![(opcodes::MEASURED_UNIT_PROFIT_BPS, 500)],
+        "it arrives as the profit, which is the quantity a liquidation's floor is about"
+    );
+    assert!(
+        carried
+            .iter()
+            .all(|(unit, _)| *unit != opcodes::MEASURED_UNIT_SLIPPAGE_BPS),
+        "and a venue order does not answer a slippage guard — a liquidation states its ceiling \
+         as a program-written constraint, which the compiler checks: {carried:?}"
     );
 
-    // And it does arrive where a plan asks for it.
+    // A plan's call reports both, and the delta is still the only thing that answers a delta.
     let swap_reply = bridge.multi_hop_swap(b"path", 1).expect("a dry run answers");
     assert_eq!(
         opcodes::read_measured_replies(&swap_reply),
@@ -57,6 +74,13 @@ fn a_plans_profit_and_slippage_do_not_answer_a_hedges_delta_guard() {
             (opcodes::MEASURED_UNIT_SLIPPAGE_BPS, 3),
         ],
         "the profit and the slippage belong to the call a plan makes"
+    );
+
+    let hedging = DryRunBridge::with_outcome(None, None, Some(7));
+    assert_eq!(
+        opcodes::read_measured_replies(&hedging.venue_order(b"order").expect("a dry run answers")),
+        vec![(opcodes::MEASURED_UNIT_DELTA_BPS, 7)],
+        "and a delta reaches only the call a hedge makes"
     );
 }
 
