@@ -99,3 +99,77 @@ def test_every_example_the_suite_uses_is_readable_by_this_surface():
             failures.append(f"{os.path.basename(path)}: {error}")
 
     assert not failures, "every example must be readable by this surface:\n" + "\n".join(failures)
+
+
+#: What this surface reads today, and what it refuses **and why**, one entry per file.
+#:
+#: The scope is stated in `cli.py`'s module doc — one `intent` per file, nine guard kinds of the
+#: compiler's eighteen, a stricter address shape. This is that statement turned into a contract:
+#: a file that starts being read, or one that stops, fails here rather than being discovered by
+#: hand. The refusal *code* is part of the entry because a refusal for a different reason is a
+#: different boundary, and the codes are what `cli.py` promises a caller.
+#:
+#: Not a claim that the boundary is right. Two entries here are the compiler accepting something
+#: this surface refuses (`X3_PARSE_RECEIVER`, the address shape — TICKET-091) and three are guard
+#: kinds outside `registry.REQUIRE_KINDS`. The assertion is that the boundary is *known*.
+READS = {
+    "arb_solana_eth.x3",
+    "timeout_refund.x3",
+    "timeout_refund_minimal.x3",
+}
+
+REFUSES = {
+    "arb_scope.x3": "X3_PARSE_RECEIVER",
+    "atomic_choice.x3": "X3_PARSE_NO_INTENT",
+    "atomic_swap.x3": "X3_PARSE_NO_INTENT",
+    "flagship_b52.x3": "X3_PARSE_NO_INTENT",
+    "intent_fusion.x3": "X3_PARSE_RECEIVER",
+    "mainnet_safe_swap.x3": "X3_PARSE_NO_INTENT",
+    "multi_leg_route.x3": "X3_PARSE_REQUIRE",
+    "objective_routing.x3": "X3_PARSE_NO_INTENT",
+    "opportunity_graph.x3": "X3_PARSE_NO_INTENT",
+    "parallel_dag.x3": "X3_PARSE_NO_INTENT",
+    "route_fallback.x3": "X3_PARSE_OPERATION",
+    "simple_swap.x3": "X3_PARSE_REQUIRE",
+    "staking_intent.x3": "X3_PARSE_REQUIRE",
+    "strategy_module.x3": "X3_PARSE_NO_INTENT",
+    "trading_core_v1.x3": "X3_PARSE_NO_INTENT",
+    "trading_effects.x3": "X3_PARSE_NO_INTENT",
+}
+
+
+def test_the_accept_refuse_set_is_what_this_surface_reads():
+    """Every example is either read or refused **for the reason recorded here**."""
+    root = Path(__file__).resolve().parents[1]
+    examples = sorted(glob.glob(str(root / "examples" / "*.x3")))
+    assert len(examples) > 10, (
+        f"found {len(examples)} examples under {root / 'examples'}, which is too few to be "
+        "the directory this test thinks it is reading"
+    )
+
+    pinned = set(READS) | set(REFUSES)
+    assert not (set(READS) & set(REFUSES)), "a file cannot be read and refused"
+    unclassified = sorted(os.path.basename(path) for path in examples if os.path.basename(path) not in pinned)
+    assert not unclassified, (
+        "these examples are not in the table below, so nothing says whether this surface is "
+        "supposed to read them. Classify each as read, or as refused with the code it refuses "
+        "with:\n  " + "\n  ".join(unclassified)
+    )
+
+    wrong = []
+    for path in examples:
+        name = os.path.basename(path)
+        expected = "reads" if name in READS else REFUSES[name]
+        try:
+            cli.parse_file(path)
+            outcome = "reads"
+        except cli.X3ParseError as error:
+            outcome = error.code
+        if outcome != expected:
+            wrong.append(f"{name}: expected {expected!r}, got {outcome!r}")
+
+    assert not wrong, (
+        "the boundary this surface draws moved. If that is intended, move the entry with it — "
+        "the numbers are the point, because a file that *starts* being read is as much a change "
+        "as one that stops:\n  " + "\n  ".join(wrong)
+    )
