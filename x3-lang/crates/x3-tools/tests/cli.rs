@@ -2453,7 +2453,12 @@ fn hex_encode_bytes(bytes: &[u8]) -> String {
 
 /// A signed opportunity packet, optionally with one term edited after signing
 /// so the packet's own hash no longer covers it.
-fn opportunity_packet_json(tamper: bool) -> String {
+/// A signed packet as JSON, with the requirements its signer stated **before** signing.
+///
+/// The requirements are a parameter because they are part of the packet's execution terms: editing them
+/// into the JSON of an already-signed packet changes what the commitment covers, and the packet refuses
+/// on `ExecutionCommitmentMismatch` — which is what the first version of the TICKET-074 test did.
+fn opportunity_packet_json_with(requirements: &[&str], tamper: bool) -> String {
     use std::collections::{BTreeMap, BTreeSet};
 
     use x3_lang_compiler::opportunity::Opportunity;
@@ -2481,7 +2486,14 @@ fn opportunity_packet_json(tamper: bool) -> String {
         maximum_fee: 2_000,
         maximum_slippage_bps: 50,
         deadline_blocks: 500,
-        proof_requirements: BTreeSet::from(["state".to_string()]),
+        // No requirements: this fixture is about the packet's *form* — its commitments, its
+        // signature, its deadline — and a packet's claims are checked in
+        // `packet_verify_checks_the_requirements_a_packet_declares` against host evidence
+        // (TICKET-074). The name it carried before ("state") had no verifier behind it.
+        proof_requirements: requirements
+            .iter()
+            .map(|requirement| (*requirement).to_string())
+            .collect::<BTreeSet<String>>(),
         execution_commitment: [0u8; 32],
         packet_hash: [0u8; 32],
         signature: None,
@@ -2491,6 +2503,10 @@ fn opportunity_packet_json(tamper: bool) -> String {
         packet.expected_output += 1;
     }
     serde_json::to_string_pretty(&packet).expect("packet serializes")
+}
+
+fn opportunity_packet_json(tamper: bool) -> String {
+    opportunity_packet_json_with(&[], tamper)
 }
 
 #[test]
@@ -3792,5 +3808,96 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         "every `.x3` file outside the named non-language directories must check ({} walked):\n{}",
         found.len(),
         failures.join("\n")
+    );
+}
+
+/// TICKET-074: `packet verify` checks what a packet *claims*, against the facts a host states, and
+/// reports which requirements it checked.
+///
+/// The fixture this file carries for the form cases declares no requirements, so before this the only
+/// thing a packet's `proof_requirements` ever did was travel: a packet could promise freshness and
+/// venue prices and be verified for its signature. The two halves here are the reporting and the
+/// refusals — a requirement nothing could check must not read as verified.
+#[test]
+fn packet_verify_checks_the_requirements_a_packet_declares() {
+    let trusted = format!(
+        "cli-solver={}",
+        hex_encode_bytes(&packet_solver_key().verifying_key().to_bytes())
+    );
+    // The route is uniswap-v3 at 20bps and raydium at 10bps — 30bps in total, which is the route's own
+    // `fee_bps` — and its `min_liquidity` is 1,000,000.
+    let required = write_fixture(
+        "cli_packet_requirements.json",
+        &opportunity_packet_json_with(&["state_root_freshness", "venue_price_attestation"], false),
+    );
+    let verify = |args: &[&str]| {
+        let mut command = x3c();
+        command.args(["packet", "verify"]).arg(&required);
+        command.args(["--block", "100", "--trusted", &trusted]);
+        command.args(args);
+        let output = command.output().expect("x3c packet verify");
+        (
+            output.status.success(),
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        )
+    };
+
+    // No evidence: the packet promised two checks and nothing stated the facts, so it is refused
+    // naming them rather than reported as verified for its form.
+    let (ok, report) = verify(&[]);
+    assert!(
+        !ok,
+        "a packet with requirements and no evidence must not verify: {report}"
+    );
+    assert!(
+        report.contains("state_root_freshness") && report.contains("venue_price_attestation"),
+        "the refusal must name what could not be checked: {report}"
+    );
+
+    // Evidence that holds: the root was read one block ago within a window of ten, and both venues
+    // will fill at the route's own liquidity and fees.
+    let fresh = write_fixture(
+        "cli_packet_evidence_fresh.json",
+        "{\n  \"state_root_blocks\": { \"ethereum\": 99 },\n  \"observed_block\": 100,\n  \"max_state_root_age_blocks\": 10,\n  \
+         \"venues\": [\n    { \"venue\": \"uniswap-v3\", \"liquidity\": 1500000, \"fee_bps\": 20 },\n    \
+         { \"venue\": \"raydium\", \"liquidity\": 2000000, \"fee_bps\": 10 }\n  ]\n}\n",
+    );
+    let (ok, report) = verify(&["--evidence", fresh.to_str().expect("utf-8 path")]);
+    assert!(ok, "evidence that holds must verify the packet: {report}");
+    assert!(
+        report.contains("requirements checked: state_root_freshness, venue_price_attestation"),
+        "and the report must say which requirements were checked: {report}"
+    );
+
+    // A stale root: the refusal names both block numbers.
+    let stale = write_fixture(
+        "cli_packet_evidence_stale.json",
+        "{\n  \"state_root_blocks\": { \"ethereum\": 50 },\n  \"observed_block\": 100,\n  \"max_state_root_age_blocks\": 10,\n  \
+         \"venues\": [\n    { \"venue\": \"uniswap-v3\", \"liquidity\": 1500000, \"fee_bps\": 20 },\n    \
+         { \"venue\": \"raydium\", \"liquidity\": 2000000, \"fee_bps\": 10 }\n  ]\n}\n",
+    );
+    let (ok, report) = verify(&["--evidence", stale.to_str().expect("utf-8 path")]);
+    assert!(!ok, "a stale root must refuse: {report}");
+    assert!(
+        report.contains("block 50") && report.contains("block 100"),
+        "with both block numbers in the refusal: {report}"
+    );
+
+    // A venue that will not fill at the route's terms: the refusal names the two figures.
+    let thin = write_fixture(
+        "cli_packet_evidence_thin.json",
+        "{\n  \"state_root_blocks\": { \"ethereum\": 99 },\n  \"observed_block\": 100,\n  \"max_state_root_age_blocks\": 10,\n  \
+         \"venues\": [\n    { \"venue\": \"uniswap-v3\", \"liquidity\": 1500000, \"fee_bps\": 20 },\n    \
+         { \"venue\": \"raydium\", \"liquidity\": 999999, \"fee_bps\": 10 }\n  ]\n}\n",
+    );
+    let (ok, report) = verify(&["--evidence", thin.to_str().expect("utf-8 path")]);
+    assert!(!ok, "a venue below the route's liquidity must refuse: {report}");
+    assert!(
+        report.contains("999999") && report.contains("1000000"),
+        "the refusal must state both figures: {report}"
     );
 }

@@ -208,6 +208,58 @@ pub enum OpportunityPacketError {
     InvalidSignature,
     /// This exact packet (by `packet_hash`) has already been admitted once.
     PacketAlreadySeen([u8; 32]),
+    /// A proof requirement this build has no check for.
+    ///
+    /// Refused rather than carried: a requirement name nothing can check is a promise a packet
+    /// makes and no verifier keeps, which is the silent pass this vocabulary exists to end
+    /// (TICKET-074).
+    UnknownProofRequirement {
+        requirement: String,
+    },
+    /// Nothing stated the block a domain's state root was read at.
+    StateRootBlockUnstated {
+        domain: String,
+    },
+    /// A state root is from a block the verifier has not reached.
+    StateRootFromTheFuture {
+        domain: String,
+        block: u64,
+        observed_block: u64,
+    },
+    /// A state root is older than the packet's own freshness window.
+    ///
+    /// The refusal names **both block numbers** — where the root was taken and where the verifier is
+    /// reading — because the one thing its reader has to decide is whether the host is behind or the
+    /// window is too tight.
+    StateRootStale {
+        domain: String,
+        block: u64,
+        observed_block: u64,
+        max_age_blocks: u64,
+    },
+    /// A venue the route names attested nothing.
+    VenueUnattested {
+        venue: String,
+    },
+    /// The fees the venues attested are not the fee the route was scored from.
+    VenueFeeDisagrees {
+        attested_bps: u32,
+        route_bps: u32,
+    },
+    /// A venue attested less liquidity than the route's own claim requires.
+    VenueLiquidityBelowRoute {
+        venue: String,
+        attested: u128,
+        route_min_liquidity: u128,
+    },
+    /// No trusted key signed the packet's execution commitment.
+    StrategyCommitmentUnattested {
+        commitment: [u8; 32],
+    },
+    /// An attestation of the commitment is not one a trusted key could have made.
+    StrategyCommitmentUnproven {
+        key_id: String,
+    },
 }
 
 impl fmt::Display for OpportunityPacketError {
@@ -291,11 +343,334 @@ impl fmt::Display for OpportunityPacketError {
             Self::UntrustedSigner(key_id) => write!(f, "opportunity packet signer '{key_id}' is not trusted"),
             Self::InvalidSignature => write!(f, "opportunity packet signature is invalid"),
             Self::PacketAlreadySeen(hash) => write!(f, "opportunity packet {hash:?} has already been admitted"),
+            Self::UnknownProofRequirement { requirement } => write!(
+                f,
+                "opportunity packet requires '{requirement}', which this verifier has no check for; the \
+                 requirements it can check are {}",
+                requirements::ALL.join(", ")
+            ),
+            Self::StateRootBlockUnstated { domain } => write!(
+                f,
+                "the packet requires `{}` and nothing stated the block the '{domain}' state root was read \
+                 at, so its freshness cannot be checked",
+                requirements::STATE_ROOT_FRESHNESS
+            ),
+            Self::StateRootFromTheFuture {
+                domain,
+                block,
+                observed_block,
+            } => write!(
+                f,
+                "the '{domain}' state root is from block {block} and the verifier is reading at block \
+                 {observed_block}: a root cannot be newer than the chain it was taken from"
+            ),
+            Self::StateRootStale {
+                domain,
+                block,
+                observed_block,
+                max_age_blocks,
+            } => write!(
+                f,
+                "the '{domain}' state root is stale: it was taken at block {block}, the verifier is \
+                 reading at block {observed_block}, and the packet allows at most {max_age_blocks} blocks \
+                 of age"
+            ),
+            Self::VenueUnattested { venue } => write!(
+                f,
+                "the packet requires `{}` and venue '{venue}' attested no liquidity or fee, so the route \
+                 it was scored from cannot be checked against what the venue will fill at",
+                requirements::VENUE_PRICE_ATTESTATION
+            ),
+            Self::VenueFeeDisagrees {
+                attested_bps,
+                route_bps,
+            } => write!(
+                f,
+                "the venues the route names attested {attested_bps}bps of fees in total and the route \
+                 was scored from {route_bps}bps"
+            ),
+            Self::VenueLiquidityBelowRoute {
+                venue,
+                attested,
+                route_min_liquidity,
+            } => write!(
+                f,
+                "venue '{venue}' attested a liquidity of {attested} and the route's own claim requires at \
+                 least {route_min_liquidity}"
+            ),
+            Self::StrategyCommitmentUnattested { commitment } => write!(
+                f,
+                "the packet requires `{}` and no trusted key signed its execution commitment {commitment:?}: \
+                 a commitment the seller cannot have another party attest is a restatement of the seller's \
+                 own claim",
+                requirements::STRATEGY_COMMITMENT
+            ),
+            Self::StrategyCommitmentUnproven { key_id } => write!(
+                f,
+                "the attestation of the packet's execution commitment is not one key '{key_id}' could have \
+                 made: its signature does not verify over the commitment, or the key it names is not \
+                 trusted"
+            ),
         }
     }
 }
 
 impl std::error::Error for OpportunityPacketError {}
+
+/// The proof requirements this verifier can check.
+///
+/// A **closed set**, and the reason it is closed: `proof_requirements` was a set of free names, so a
+/// packet could promise evidence and no verifier could say whether it had been given any — the packet
+/// was verified for its signature and its own arithmetic and nothing else (TICKET-074). Each name here
+/// is a fact a host can state and this module can compare against the packet's own terms.
+pub mod requirements {
+    /// Each domain's state root is the one that was read at a block a host attests, and no older than
+    /// the packet allows.
+    ///
+    /// The packet carries `state_roots` per domain; the host states the block each was read at, the
+    /// block it is reading at, and how many blocks of age the packet permits. Freshness is the question
+    /// "is this the root the opportunity was observed against, or a snapshot of a market that has
+    /// moved" — answerable only with both block numbers.
+    pub const STATE_ROOT_FRESHNESS: &str = "state_root_freshness";
+    /// Every venue the route names attests the liquidity and the fee the route was scored from.
+    ///
+    /// This is the "are the prices that will fill the prices the route was scored from" question, and
+    /// it is answered from what the *route itself carries*: `min_liquidity` is the smallest declared
+    /// liquidity on the path and `fee_bps` is the sum of the venues' fees, so a host's attestation per
+    /// venue is comparable figure for figure. A per-leg *price* would need per-leg amounts the packet
+    /// does not carry, and inventing a scaling for one would compare two different things.
+    pub const VENUE_PRICE_ATTESTATION: &str = "venue_price_attestation";
+    /// The packet's `execution_commitment` is backed by a strategy a **trusted** key signed.
+    ///
+    /// The packet reveals the route and hides the strategy, so the commitment is the only link to one —
+    /// and a commitment attested by the seller alone is a restatement of the seller's own claim. A
+    /// signature over the commitment by a key the verifier already trusts is what makes the linkage one
+    /// the seller cannot forge.
+    pub const STRATEGY_COMMITMENT: &str = "strategy_commitment";
+
+    /// Every requirement this verifier can check.
+    pub const ALL: &[&str] = &[STATE_ROOT_FRESHNESS, VENUE_PRICE_ATTESTATION, STRATEGY_COMMITMENT];
+
+    /// Whether this verifier has a check for `name`.
+    pub fn is_known(name: &str) -> bool {
+        ALL.contains(&name)
+    }
+}
+
+/// What a venue attests it will fill at, in the route's own units.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VenueAttestation {
+    /// The venue's name, as the route spells it.
+    pub venue: String,
+    /// The input-asset units the venue says it will absorb.
+    pub liquidity: u128,
+    /// The fee the venue says it will charge, in basis points.
+    pub fee_bps: u32,
+}
+
+/// A trusted key's attestation that a strategy holds an execution commitment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StrategyAttestation {
+    /// The commitment being attested — the packet's own `execution_commitment`, if this is to count.
+    pub commitment: [u8; 32],
+    /// Which trusted key made it.
+    pub key_id: String,
+    /// That key's public key, checked against the trusted set rather than taken from here.
+    pub public_key: [u8; 32],
+    /// The signature over `commitment`.
+    pub signature: Vec<u8>,
+}
+
+/// The facts a host states, as the evidence a packet's proof requirements are checked against.
+///
+/// Data in, verdict out: nothing here is trusted for being present, and every check compares a field
+/// against the packet's own terms rather than against another field of the evidence.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PacketEvidence {
+    /// The block each domain's state root was read at.
+    #[serde(default)]
+    pub state_root_blocks: BTreeMap<String, u64>,
+    /// The block the verifier is reading at: a root cannot be newer than it, and its age is measured
+    /// from it.
+    #[serde(default)]
+    pub observed_block: u64,
+    /// How many blocks of age the packet permits for a state root.
+    #[serde(default)]
+    pub max_state_root_age_blocks: u64,
+    /// What each venue attests it will fill at.
+    #[serde(default)]
+    pub venues: Vec<VenueAttestation>,
+    /// Commitments trusted keys have signed.
+    #[serde(default)]
+    pub strategies: Vec<StrategyAttestation>,
+}
+
+impl PacketEvidence {
+    /// Read evidence from a file, or say why it is not evidence.
+    pub fn read(path: &std::path::Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|error| format!("read {path:?}: {error}"))?;
+        Self::from_json(&text)
+    }
+
+    /// Parse evidence from JSON.
+    ///
+    /// `deny_unknown_fields` on this type is deliberate: a misspelled field is a fact the host meant to
+    /// state and this verifier cannot see, and ignoring it would check a requirement against nothing
+    /// while reporting it as checked.
+    pub fn from_json(text: &str) -> Result<Self, String> {
+        serde_json::from_str(text).map_err(|error| format!("the evidence is not a PacketEvidence: {error}"))
+    }
+}
+
+/// What a verification checked, when it succeeded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PacketVerification {
+    /// The requirements that were checked, in the vocabulary's own spelling.
+    ///
+    /// A verifier that reported only "verified" would leave its reader unable to tell a packet whose
+    /// three requirements held from one that declared none — which is the difference this module exists
+    /// for, so the list is what a caller reports.
+    pub checked: Vec<&'static str>,
+}
+
+/// Verify a packet's form **and** its proof requirements against the facts a host stated.
+///
+/// Each requirement is checked against the packet's own terms, and one that cannot be checked is a
+/// refusal that names it: a packet that promised evidence and was given none has not been verified, it
+/// has been verified *partly*, and reporting that as success is the silent pass this exists to end.
+pub fn verify_packet_with_evidence(
+    packet: &OpportunityPacket,
+    trusted_keys: &BTreeMap<String, [u8; 32]>,
+    at_block: u64,
+    evidence: &PacketEvidence,
+) -> Result<PacketVerification, OpportunityPacketError> {
+    verify_packet(packet, trusted_keys, at_block)?;
+    let mut checked = Vec::new();
+    for requirement in &packet.proof_requirements {
+        match requirement.as_str() {
+            requirements::STATE_ROOT_FRESHNESS => {
+                check_state_root_freshness(packet, evidence)?;
+                checked.push(requirements::STATE_ROOT_FRESHNESS);
+            }
+            requirements::VENUE_PRICE_ATTESTATION => {
+                check_venue_price_attestation(packet, evidence)?;
+                checked.push(requirements::VENUE_PRICE_ATTESTATION);
+            }
+            requirements::STRATEGY_COMMITMENT => {
+                check_strategy_commitment(packet, trusted_keys, evidence)?;
+                checked.push(requirements::STRATEGY_COMMITMENT);
+            }
+            // `validate_proof_requirements` refuses a name outside the vocabulary, so no entry point
+            // can reach this arm — and reaching it would still refuse rather than skip, because a
+            // requirement this loop passed over would be reported as neither checked nor refused.
+            other => {
+                return Err(OpportunityPacketError::UnknownProofRequirement {
+                    requirement: other.to_string(),
+                })
+            }
+        }
+    }
+    Ok(PacketVerification { checked })
+}
+
+/// Every domain's state root is the one read at a block the host attested, and fresh enough.
+fn check_state_root_freshness(
+    packet: &OpportunityPacket,
+    evidence: &PacketEvidence,
+) -> Result<(), OpportunityPacketError> {
+    for domain in packet.state_roots.keys() {
+        let Some(block) = evidence.state_root_blocks.get(domain) else {
+            return Err(OpportunityPacketError::StateRootBlockUnstated { domain: domain.clone() });
+        };
+        if *block > evidence.observed_block {
+            return Err(OpportunityPacketError::StateRootFromTheFuture {
+                domain: domain.clone(),
+                block: *block,
+                observed_block: evidence.observed_block,
+            });
+        }
+        let age = evidence.observed_block - block;
+        if age > evidence.max_state_root_age_blocks {
+            return Err(OpportunityPacketError::StateRootStale {
+                domain: domain.clone(),
+                block: *block,
+                observed_block: evidence.observed_block,
+                max_age_blocks: evidence.max_state_root_age_blocks,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Every venue the route names attests at least the liquidity the route claims, and the fees the venues
+/// attest sum to the fee the route was scored from.
+fn check_venue_price_attestation(
+    packet: &OpportunityPacket,
+    evidence: &PacketEvidence,
+) -> Result<(), OpportunityPacketError> {
+    let mut attested_fee_bps: u32 = 0;
+    for venue in &packet.route.venues {
+        let Some(attested) = evidence.venues.iter().find(|entry| entry.venue == *venue) else {
+            return Err(OpportunityPacketError::VenueUnattested { venue: venue.clone() });
+        };
+        if attested.liquidity < packet.route.min_liquidity {
+            return Err(OpportunityPacketError::VenueLiquidityBelowRoute {
+                venue: venue.clone(),
+                attested: attested.liquidity,
+                route_min_liquidity: packet.route.min_liquidity,
+            });
+        }
+        attested_fee_bps = attested_fee_bps.saturating_add(attested.fee_bps);
+    }
+    if attested_fee_bps != packet.route.fee_bps {
+        return Err(OpportunityPacketError::VenueFeeDisagrees {
+            attested_bps: attested_fee_bps,
+            route_bps: packet.route.fee_bps,
+        });
+    }
+    Ok(())
+}
+
+/// A trusted key signed the packet's execution commitment.
+///
+/// The verifying key comes from the **trusted set**, never from the attestation's own `public_key`
+/// field: a key that arrived beside the signature it checks is a restatement of the packet's own claim,
+/// not a check — the same rule `verify_packet_signature` states for the packet itself.
+fn check_strategy_commitment(
+    packet: &OpportunityPacket,
+    trusted_keys: &BTreeMap<String, [u8; 32]>,
+    evidence: &PacketEvidence,
+) -> Result<(), OpportunityPacketError> {
+    let attested = evidence
+        .strategies
+        .iter()
+        .find(|entry| entry.commitment == packet.execution_commitment)
+        .ok_or(OpportunityPacketError::StrategyCommitmentUnattested {
+            commitment: packet.execution_commitment,
+        })?;
+    let trusted =
+        trusted_keys
+            .get(&attested.key_id)
+            .ok_or_else(|| OpportunityPacketError::StrategyCommitmentUnproven {
+                key_id: attested.key_id.clone(),
+            })?;
+    if trusted != &attested.public_key {
+        return Err(OpportunityPacketError::StrategyCommitmentUnproven {
+            key_id: attested.key_id.clone(),
+        });
+    }
+    let unproven = || OpportunityPacketError::StrategyCommitmentUnproven {
+        key_id: attested.key_id.clone(),
+    };
+    let verifying_key = VerifyingKey::from_bytes(trusted).map_err(|_| unproven())?;
+    let signature_bytes: [u8; 64] = attested.signature.as_slice().try_into().map_err(|_| unproven())?;
+    verifying_key
+        .verify(&attested.commitment, &Signature::from_bytes(&signature_bytes))
+        .map_err(|_| unproven())
+}
 
 /// The packet terms an `execution_commitment` covers.
 ///
@@ -541,6 +916,18 @@ fn validate_economics(packet: &OpportunityPacket) -> Result<(), OpportunityPacke
     {
         return Err(OpportunityPacketError::UnnamedProofRequirement);
     }
+    // The vocabulary, enforced where every entry point passes: a requirement this build has no check
+    // for is a promise no verifier keeps, and carrying it would let a packet look evidenced while
+    // nothing had read it (TICKET-074).
+    if let Some(unknown) = packet
+        .proof_requirements
+        .iter()
+        .find(|requirement| !requirements::is_known(requirement))
+    {
+        return Err(OpportunityPacketError::UnknownProofRequirement {
+            requirement: unknown.clone(),
+        });
+    }
 
     Ok(())
 }
@@ -598,6 +985,13 @@ pub fn verify_packet_signature(
 /// Full admission check: structure and commitments, then expiry, then
 /// signature. Replay is the ledger's job, because it needs state this function
 /// must not carry.
+///
+/// **What this does not check is the packet's `proof_requirements`.** An operator admitting a packet
+/// has no host evidence in hand, so this is the check of the packet's *form*;
+/// [`verify_packet_with_evidence`] is where its claims are checked, and the two are separate because
+/// a verifier that conflated them would either refuse every honest packet or accept every claim.
+/// The *vocabulary* is enforced here, in `validate_proof_requirements`: a requirement name nothing
+/// can check is refused by every entry point, not only by the one with evidence.
 pub fn verify_packet(
     packet: &OpportunityPacket,
     trusted_keys: &BTreeMap<String, [u8; 32]>,
@@ -701,7 +1095,7 @@ mod tests {
             maximum_fee: 2_000,
             maximum_slippage_bps: 50,
             deadline_blocks: 500,
-            proof_requirements: BTreeSet::from(["state".to_string()]),
+            proof_requirements: BTreeSet::from([requirements::STATE_ROOT_FRESHNESS.to_string()]),
             execution_commitment: [0u8; 32],
             packet_hash: [0u8; 32],
             signature: None,
@@ -727,8 +1121,8 @@ mod tests {
         assert_ne!(packet.execution_commitment, [0u8; 32]);
         assert!(verify_packet(&packet, &trusted(), 100).is_ok());
         assert!(verify_packet(&packet, &trusted(), 499).is_ok());
-        assert!(packet.requires_proof("state"));
-        assert!(!packet.requires_proof("execution"));
+        assert!(packet.requires_proof(requirements::STATE_ROOT_FRESHNESS));
+        assert!(!packet.requires_proof(requirements::STRATEGY_COMMITMENT));
     }
 
     #[test]
@@ -738,16 +1132,24 @@ mod tests {
             packet.state_roots.insert("ethereum".to_string(), [9u8; 32]);
             packet.state_roots.insert("solana".to_string(), [4u8; 32]);
             packet.proof_requirements = BTreeSet::new();
-            packet.proof_requirements.insert("state".to_string());
-            packet.proof_requirements.insert("execution".to_string());
+            packet
+                .proof_requirements
+                .insert(requirements::STATE_ROOT_FRESHNESS.to_string());
+            packet
+                .proof_requirements
+                .insert(requirements::STRATEGY_COMMITMENT.to_string());
         });
         let two = signed_after(|packet| {
             packet.state_roots = BTreeMap::new();
             packet.state_roots.insert("solana".to_string(), [4u8; 32]);
             packet.state_roots.insert("ethereum".to_string(), [9u8; 32]);
             packet.proof_requirements = BTreeSet::new();
-            packet.proof_requirements.insert("execution".to_string());
-            packet.proof_requirements.insert("state".to_string());
+            packet
+                .proof_requirements
+                .insert(requirements::STRATEGY_COMMITMENT.to_string());
+            packet
+                .proof_requirements
+                .insert(requirements::STATE_ROOT_FRESHNESS.to_string());
         });
         assert_eq!(one.packet_hash, two.packet_hash);
         assert_eq!(one.execution_commitment, two.execution_commitment);

@@ -361,6 +361,12 @@ enum PacketAction {
     /// operator names, so `--trusted` is required: a signature checked against
     /// a key that arrived inside the packet is not a check, it is a restatement
     /// of the packet's own claim.
+    ///
+    /// `--evidence` is the facts a host states, and it is what the packet's `proof_requirements` are
+    /// checked against: freshness of its state roots, whether the venues will fill at the liquidity
+    /// and fee the route was scored from, and whether a trusted key signed its execution commitment.
+    /// A packet that requires any of those and is given no evidence is refused naming what could not
+    /// be checked, rather than reported as verified for its form (TICKET-074).
     Verify {
         input: PathBuf,
         /// Block height the packet is being admitted at, checked against its
@@ -371,6 +377,9 @@ enum PacketAction {
         /// so a rotation or a marketplace of solvers is one invocation.
         #[arg(long = "trusted", value_name = "KEY_ID=HEX", required = true)]
         trusted: Vec<String>,
+        /// The facts a host states, as JSON, for the packet's proof requirements.
+        #[arg(long, value_name = "EVIDENCE.JSON")]
+        evidence: Option<PathBuf>,
     },
 }
 
@@ -528,7 +537,12 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         },
         Cmd::Packet { action } => match action {
             PacketAction::Inspect { input } => cmd_packet_inspect(&input),
-            PacketAction::Verify { input, block, trusted } => cmd_packet_verify(&input, block, &trusted),
+            PacketAction::Verify {
+                input,
+                block,
+                trusted,
+                evidence,
+            } => cmd_packet_verify(&input, block, &trusted, evidence.as_ref()),
         },
     }
 }
@@ -3194,16 +3208,49 @@ fn cmd_packet_inspect(input: &PathBuf) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_packet_verify(input: &PathBuf, block: u64, trusted_specs: &[String]) -> Result<ExitCode, String> {
+fn cmd_packet_verify(
+    input: &PathBuf,
+    block: u64,
+    trusted_specs: &[String],
+    evidence: Option<&PathBuf>,
+) -> Result<ExitCode, String> {
     let packet = read_packet(input)?;
     let trusted = parse_trusted_keys(trusted_specs)?;
-    match x3_lang_vm::opportunity_packet::verify_packet(&packet, &trusted, block) {
-        Ok(()) => {
+    // A packet that promises evidence and is given none has not been verified — it has been verified
+    // partly — so the requirements are named rather than passed over. The verifier would refuse the
+    // same packet with the first requirement it could not check, and this says why *before* it: the
+    // caller has not stated the facts (TICKET-074).
+    let evidence = match evidence {
+        Some(path) => x3_lang_vm::opportunity_packet::PacketEvidence::read(path)?,
+        None if packet.proof_requirements.is_empty() => Default::default(),
+        None => {
+            return Err(format!(
+                "the packet requires {} and no `--evidence <file>` was given, so none of them could be \
+                 checked; `x3c packet verify` checks a packet's claims against the facts a host states",
+                packet
+                    .proof_requirements
+                    .iter()
+                    .map(|requirement| format!("`{requirement}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        }
+    };
+    match x3_lang_vm::opportunity_packet::verify_packet_with_evidence(&packet, &trusted, block, &evidence) {
+        Ok(verification) => {
             println!(
                 "packet verified: strategy '{}', {} venue(s), expires at block {}",
                 packet.strategy_id,
                 packet.route.venues.len(),
                 packet.deadline_blocks
+            );
+            println!(
+                "requirements checked: {}",
+                if verification.checked.is_empty() {
+                    "none declared".to_string()
+                } else {
+                    verification.checked.join(", ")
+                }
             );
             Ok(ExitCode::SUCCESS)
         }
