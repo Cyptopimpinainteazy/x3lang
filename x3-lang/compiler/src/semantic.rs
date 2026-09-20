@@ -2449,26 +2449,33 @@ pub fn verify_invariants_on_intent(ir: &X3IR, invariants: &[InvariantRule]) -> V
     violations
 }
 
-/// Verify invariants and emit structured warnings via the ErrorAccumulator.
+/// Report a violated invariant rule as **an error**.
 ///
-/// NOTE (2026-09-18): these rules are unsound for `intent` programs and must
-/// not be promoted to errors yet. They reason about linear position in
-/// `ir.operations`, but intent lowering emits the `from`/`to` endpoints
-/// *before* the route body, and it uses `Release` for the destination endpoint
-/// rather than for a source-chain claim. A well-formed intent such as
-/// `internal_swap.x3` therefore trips four of the six rules — double-claim,
-/// both claim/refund orderings, and destination-fill-before-claim — which
-/// makes them false positives against the intent surface rather than findings.
-/// See `.ai/reports/x3lang-intent-guards-20260918.md`.
+/// They were warnings, and this note used to say why: the rules reasoned about linear position in
+/// `ir.operations` while intent lowering emits the `from`/`to` endpoints *before* the route body and a
+/// timeout/on-fail handler *after* it, so a well-formed intent tripped four of the six. A warning
+/// nobody can promote is a rule that protects nothing — it is invisible in a build and green in the
+/// corpus gates — which is why "all are errors" is part of TICKET-002b rather than a nicety.
+///
+/// What makes the promotion sound is the scoping, not a change of mind: the four positional rules read
+/// [`atomic_scoped_operations`] (operations that actually execute together, so a body nested in a
+/// branch or loop is still seen), `destination_fill_before_source_claim` returns early for a route that
+/// does not bridge, and the claim/refund rules count per lock rather than per program. Measured after
+/// that: **every `.x3` outside the skipped directories checks with zero invariant findings** (25 files),
+/// and `tests/test_invariant_rules.rs` holds the discriminating half — for each of the six there is an
+/// input that violates *that* rule and leaves the other five silent, so a rule that had become noise
+/// would fail its own case rather than hide among warnings.
 pub fn verify_invariants_structured(ir: &X3IR, invariants: &[InvariantRule], acc: &mut ErrorAccumulator) {
     for rule in invariants {
         match (rule.check_fn)(ir) {
             Ok(()) => {}
             Err(msg) => {
-                acc.add_warning(X3Error::SemanticError {
-                    message: format!("invariant '{}' violated: {}", rule.name, msg),
-                    span: Span::DUMMY,
-                });
+                // An invariant the program states is a rejection, so it carries the IR class and the
+                // rule's own name: tooling keys on the code and a reader needs the rule.
+                acc.add_error(err(
+                    DiagnosticCode::UnsafeIr,
+                    format!("invariant '{}' violated: {}", rule.name, msg),
+                ));
             }
         }
     }
@@ -2550,6 +2557,24 @@ fn refund_lock(op: &Operation) -> Option<(&str, &str)> {
         | Operation::OnFail {
             action: FailureAction::Refund { chain, asset, .. },
         } => Some((chain.as_str(), asset.as_str())),
+        _ => None,
+    }
+}
+
+/// The lock a refund handler refunds, **and which exit path it fires on**.
+///
+/// `true` for `OnTimeout`, `false` for `OnFail`. The distinction is the difference between two
+/// handlers that can both run and two that cannot: a run leaves through one of them, so "refunded
+/// twice" is a claim about one path rather than about the program (TICKET-002b).
+fn refund_lock_with_path(op: &Operation) -> Option<((&str, &str), bool)> {
+    match op {
+        Operation::OnTimeout {
+            action: FailureAction::Refund { chain, asset, .. },
+            ..
+        } => Some(((chain.as_str(), asset.as_str()), true)),
+        Operation::OnFail {
+            action: FailureAction::Refund { chain, asset, .. },
+        } => Some(((chain.as_str(), asset.as_str()), false)),
         _ => None,
     }
 }
@@ -2701,18 +2726,31 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
                 // swap: `examples/atomic_swap.x3` refunds `eth.USDC` on the
                 // source timeout and `sol.SOL` on the destination timeout, and
                 // those are two different locks, not one lock refunded twice.
-                let mut refunds: Vec<(&str, &str)> = Vec::new();
+                //
+                // Counted **per lock and per exit path**, which is what "twice" means: `OnTimeout`
+                // fires on the timeout path and `OnFail` on the failure path, so a program that
+                // refunds one lock on each of them has two handlers and two ways out — not one refund
+                // taken twice. The canonical bridged `parallel` leg writes exactly that
+                // (`timeout 30s refund ethereum.ETH to sender` beside `on_fail refund ethereum.ETH to
+                // sender`), and it compiled warning-free until this rule became an error: the
+                // promotion is what made the false positive visible, which is the whole argument for
+                // "all are errors" in TICKET-002b.
+                let mut refunds: Vec<(&str, &str, bool)> = Vec::new();
                 for op in &ir.operations {
-                    let Some(lock) = refund_lock(op) else {
+                    let Some((lock, on_timeout)) = refund_lock_with_path(op) else {
                         continue;
                     };
-                    if refunds.contains(&lock) {
+                    if refunds.contains(&(lock.0, lock.1, on_timeout)) {
                         return Err(format!(
-                            "multiple refund operations found for the same lock ({}.{})",
-                            lock.0, lock.1
+                            "multiple {} refund operations found for the same lock ({}.{}): a run takes \
+                             one exit path, so two handlers on the same one cannot both be about a \
+                             single refund",
+                            if on_timeout { "timeout" } else { "failure" },
+                            lock.0,
+                            lock.1
                         ));
                     }
-                    refunds.push(lock);
+                    refunds.push((lock.0, lock.1, on_timeout));
                 }
                 Ok(())
             },
@@ -2726,7 +2764,15 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
                     if is_refund_action(op) {
                         found_refund = true;
                     }
-                    if found_refund && matches!(op, Operation::Release { .. }) {
+                    // A **claim**, not any release: `Release` means two things in this IR — claiming an
+                    // escrow the program locked, and paying out the asset a route delivered — and the
+                    // rule is about claims. Reading a payout as one called the canonical bridged
+                    // `parallel` leg (a bridge, then a timeout refund and an on-fail refund, then the
+                    // destination payout) a claim-after-refund; its sibling `no_refund_after_claim` was
+                    // corrected for exactly this with `release_lock`, and this arm kept the broader
+                    // reading until the rules became errors (TICKET-035's defect, TICKET-002b's
+                    // promotion).
+                    if found_refund && release_lock(op).is_some() {
                         return Err("Release (claim) found after refund".into());
                     }
                 }
@@ -3822,12 +3868,25 @@ mod tests {
 
     #[test]
     fn no_double_refund_counts_on_fail_refunds_as_well_as_timeout_refunds() {
-        // "At most one refund handler" is the property; counting only timeout
-        // handlers missed an on-fail refund alongside a timeout refund.
+        // The property is "at most one refund **per exit path**", and both kinds count: an `OnFail`
+        // refund executes on the failure path and an `OnTimeout` refund is the timeout path's. Counting
+        // only timeouts missed an on-fail refund beside one (why this test exists), and counting both
+        // kinds as one number refused a program the language writes on purpose — see the pair below,
+        // which the canonical bridged `parallel` leg is (TICKET-002b).
         let mut ir = empty_ir();
         ir.operations = vec![
             Operation::OnTimeout {
                 duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+            // A second *timeout* refund of the same lock is a violation: two deadlines for one lock are
+            // two declarations about the same exit, and the engine can only honour one.
+            Operation::OnTimeout {
+                duration_blocks: 60,
                 action: FailureAction::Refund {
                     chain: "solana".into(),
                     asset: "USDC".into(),
@@ -3846,7 +3905,35 @@ mod tests {
             invariant_violations(&ir)
                 .iter()
                 .any(|v| v.starts_with("no_double_refund")),
-            "two refund handlers must be reported regardless of which handler kind they are"
+            "two refund handlers on one exit path must be reported"
+        );
+
+        // And the pair that is *not* a violation: one handler per path. The failure handler is what the
+        // artifact carries; the timeout's refund is a declaration the emitter does not write (it writes
+        // `[ON_TIMEOUT][0]` and leaves `duration_blocks` to the timeout/refund engine), so a run leaves
+        // through one of them and neither is a second refund of the same escrow.
+        let mut pair = empty_ir();
+        pair.operations = vec![
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+            Operation::OnFail {
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+        ];
+        assert!(
+            invariant_violations(&pair).is_empty(),
+            "one handler per exit path is not one refund taken twice: {:?}",
+            invariant_violations(&pair)
         );
     }
 
@@ -4972,12 +5059,43 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "alice".into(),
-                act: ReleaseAct::Payout,
+                // A **claim**. This fixture used `ReleaseAct::Payout` until TICKET-002b: a payout is
+                // what a route delivers rather than an escrow the program locked, and the rule is about
+                // claims — the distinction TICKET-101 added the act field for. The pair below is what
+                // keeps the narrowing honest.
+                act: ReleaseAct::Claims(0),
             },
             Operation::AtomicEnd,
         ];
         let violations = verify_invariants_on_intent(&ir, &invariants);
         assert!(violations.iter().any(|v| v.contains("no_claim_after_refund")));
+
+        // A payout after a refund is not a claim after a refund, so it is not this rule's business:
+        // the canonical bridged `parallel` leg pays the destination out after its two refund handlers.
+        let mut payout = empty_ir();
+        payout.operations = vec![
+            Operation::AtomicBegin,
+            Operation::OnTimeout {
+                duration_blocks: 30,
+                action: FailureAction::Refund {
+                    chain: "solana".into(),
+                    asset: "USDC".into(),
+                    to: "sender".into(),
+                },
+            },
+            Operation::Release {
+                chain: "solana".into(),
+                asset: "SOL".into(),
+                to: "alice".into(),
+                act: ReleaseAct::Payout,
+            },
+            Operation::AtomicEnd,
+        ];
+        let after_payout = verify_invariants_on_intent(&payout, &invariants);
+        assert!(
+            !after_payout.iter().any(|v| v.contains("no_claim_after_refund")),
+            "a payout is not a claim: {after_payout:?}"
+        );
     }
 
     // ───── Risk score tests ──────────────────────────────────────────────
