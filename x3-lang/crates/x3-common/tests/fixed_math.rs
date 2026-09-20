@@ -325,3 +325,34 @@ fn the_module_itself_holds_no_float_type() {
         );
     }
 }
+
+/// The rounding decision is one function, so the language's decimal-literal conversion and
+/// this module's arithmetic cannot disagree about it (TICKET-081).
+///
+/// `compiler/src/trading_semantic.rs::decimal_to_base_units` decides the direction from string
+/// digits, because it carries up to 38 asset decimals where this module's scale is 18 — the
+/// arithmetic cannot be shared across that boundary, but the decision can, and a rule stated
+/// twice is a rule that drifts. `compiler/tests/test_amount_conversion_agreement.rs` walks a
+/// table of cases through both and asserts they agree; this pins the rule they share.
+#[test]
+fn the_rounding_decision_is_one_function() {
+    use x3_lang_common::fixed::apply_rounding;
+
+    // Nothing discarded: every direction is the identity, including `Exact`.
+    for rounding in [RoundingMode::Down, RoundingMode::Up, RoundingMode::Exact] {
+        assert_eq!(apply_rounding(7, false, rounding), Some(7));
+    }
+
+    // Something discarded: `Down` truncates, `Up` rounds away from the remainder, and
+    // `Exact` refuses rather than stating the loss.
+    assert_eq!(apply_rounding(7, true, RoundingMode::Down), Some(7));
+    assert_eq!(apply_rounding(7, true, RoundingMode::Up), Some(8));
+    assert_eq!(apply_rounding(7, true, RoundingMode::Exact), None);
+
+    // A rounded value that does not fit is not a value: `Up` at the top of the range
+    // refuses instead of wrapping, which is the same rule `checked_*` follows everywhere
+    // else in this module.
+    assert_eq!(apply_rounding(u128::MAX, true, RoundingMode::Up), None);
+    assert_eq!(apply_rounding(u128::MAX, false, RoundingMode::Up), Some(u128::MAX));
+    assert_eq!(apply_rounding(u128::MAX, true, RoundingMode::Down), Some(u128::MAX));
+}

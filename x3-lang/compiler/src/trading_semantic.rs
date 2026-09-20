@@ -480,10 +480,16 @@ pub fn decimal_to_base_units(literal: &str, decimals: u8, rounding: RoundingMode
     let mut base = whole_scaled
         .checked_add(fraction_value)
         .ok_or(TradingTypeError::Overflow)?;
-    if rounding == RoundingMode::Up && discarded_nonzero {
-        base = base.checked_add(1).ok_or(TradingTypeError::Overflow)?;
-    }
-    Ok(base)
+    // The direction is applied through the one place that decides it (PHASE 43, TICKET-081).
+    // The *arithmetic* above cannot be shared with `fixed::Decimal`: this path carries up to
+    // `MAX_DECIMALS` (38) decimals and that type's scale is `MAX_SCALE` (18), so `10^decimals`
+    // is computed here and an asset finer than eighteen decimals is this path's alone —
+    // asserted in `compiler/tests/test_amount_conversion_agreement.rs`.
+    //
+    // `Exact` cannot refuse here: the lossy case returned above, before any of this ran, so
+    // that a literal which is both lossy and too large still reports the loss. Every value
+    // reaching this line is one `Exact` accepts.
+    x3_lang_common::fixed::apply_rounding(base, discarded_nonzero, rounding).ok_or(TradingTypeError::Overflow)
 }
 
 fn semantic_error(message: impl Into<String>, span: Span) -> X3Error {

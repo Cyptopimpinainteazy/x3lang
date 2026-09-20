@@ -261,31 +261,35 @@ impl<const SCALE: u8> Decimal<SCALE> {
     }
 }
 
+/// What a rounding direction does to a quotient that had a remainder.
+///
+/// The one place the three directions are decided. `div_rounded` uses it, and so does the
+/// language's literal-to-base-units conversion in `trading_semantic` — which re-implements
+/// this rule over string digits because it carries up to `MAX_DECIMALS` (38) decimals where
+/// this module's scale is [`MAX_SCALE`] (18). The **arithmetic** cannot be shared across
+/// that boundary; the **decision** can, and a rule stated twice is a rule that drifts
+/// (TICKET-081).
+///
+/// `None` means "the direction refuses this result": `Exact` with something discarded. `Up`
+/// with a quotient at the top of the range also returns `None`, because a rounded value that
+/// does not fit is not a value.
+pub fn apply_rounding(quotient: u128, discarded: bool, rounding: RoundingMode) -> Option<u128> {
+    match rounding {
+        RoundingMode::Down => Some(quotient),
+        RoundingMode::Up if discarded => quotient.checked_add(1),
+        RoundingMode::Up => Some(quotient),
+        RoundingMode::Exact if discarded => None,
+        RoundingMode::Exact => Some(quotient),
+    }
+}
+
 /// `value / divisor`, rounded as asked. `None` on a zero divisor, on overflow, and when
 /// `Exact` was asked for and the division would lose something.
 fn div_rounded(value: u128, divisor: u128, rounding: RoundingMode) -> Option<u128> {
     if divisor == 0 {
         return None;
     }
-    let quotient = value / divisor;
-    let remainder = value % divisor;
-    match rounding {
-        RoundingMode::Down => Some(quotient),
-        RoundingMode::Up => {
-            if remainder == 0 {
-                Some(quotient)
-            } else {
-                quotient.checked_add(1)
-            }
-        }
-        RoundingMode::Exact => {
-            if remainder == 0 {
-                Some(quotient)
-            } else {
-                None
-            }
-        }
-    }
+    apply_rounding(value / divisor, value % divisor != 0, rounding)
 }
 
 /// `10^n` for the intermediate powers this module needs, which reach past [`MAX_SCALE`]
