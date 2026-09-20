@@ -3154,6 +3154,119 @@ fn arb_snapshot(capital: u128, gross: u128, fees: u128, slippage_bps: Option<u32
     )
 }
 
+/// The same snapshot with a venue-reported **delta** instead of a slippage.
+///
+/// A hedge's quantity, and the one the simulation did not model: `require delta <= 0.01%` is a
+/// measured guard with the profit's comparison mode and the delta's unit code, and reading it by
+/// mode alone would have compared a floor against a delta (TICKET-068, TICKET-099).
+fn hedge_snapshot(capital: u128, gross: u128, fees: u128, delta_bps: Option<u32>) -> String {
+    let delta = match delta_bps {
+        Some(bps) => format!(",\n  \"delta_bps\": {bps}"),
+        None => String::new(),
+    };
+    format!(
+        "{{\n  \"version\": 1,\n  \
+         \"route\": {{ \"chains\": [\"ethereum\"], \"venues\": [\"cex_hedge\"] }},\n  \
+         \"capital\": {{ \"asset\": \"ethereum.ETH\", \"amount\": {capital} }},\n  \
+         \"gross\":   {{ \"asset\": \"ethereum.ETH\", \"amount\": {gross} }},\n  \
+         \"fees\":    {{ \"asset\": \"ethereum.ETH\", \"amount\": {fees} }}{delta}\n}}\n"
+    )
+}
+
+/// PHASE 54 and TICKET-099 through the binary: a hedge's delta bound is decided by the simulation
+/// against the delta the venue reported, and a bound with nothing to measure is refused.
+///
+/// Before this, `artifact_floors` refused *every* artifact stating a delta bound — the fail-closed
+/// half, because a simulation that read the bound as a profit floor would compare two different
+/// quantities and one that ignored it would report a verdict as if the artifact had no bound. The
+/// measurement was missing rather than the rule; now it is a snapshot field, and the three outcomes
+/// are a run inside the bound, a run outside it, and a snapshot that states nothing.
+#[test]
+fn cli_simulates_a_hedge_against_its_delta_bound() {
+    let fixture = write_fixture(
+        "cli_simulate_hedge.x3",
+        "atomic_hedge {\n    buy 1_000 ethereum.ETH spot;\n    short equivalent ethereum.ETH perp;\n\n    \
+         require delta <= 0.01%;\n}\n",
+    );
+    let out = std::env::temp_dir().join("cli_simulate_hedge.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    assert!(
+        build.status.success(),
+        "the hedge must build: {}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let simulate = |snapshot: &std::path::Path| {
+        let run = x3c()
+            .arg("simulate")
+            .arg(&out)
+            .arg("--state")
+            .arg(snapshot)
+            .arg("--explain")
+            .output()
+            .expect("x3c simulate");
+        let report = format!(
+            "{}{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        (run.status.success(), report)
+    };
+
+    // `require delta <= 0.01%` is 1bp. A venue that left 1bp of the position open is at the bound,
+    // and the bound is a ceiling: at it is inside it.
+    let within = write_fixture(
+        "cli_simulate_hedge_within.json",
+        &hedge_snapshot(1_000_000, 1_000_100, 100, Some(1)),
+    );
+    let (ok, report) = simulate(&within);
+    assert!(ok, "a hedge inside its bound must settle: {report}");
+    assert!(
+        report.contains("Delta:\n1bps against a ceiling of 1bps — within"),
+        "the report must state the delta and its bound, the way it states the slippage: {report}"
+    );
+
+    // 250bps against a 1bp ceiling: the venue left a quarter of the position open.
+    let over = write_fixture(
+        "cli_simulate_hedge_over.json",
+        &hedge_snapshot(1_000_000, 1_000_100, 100, Some(250)),
+    );
+    let (ok, report) = simulate(&over);
+    assert!(
+        !ok,
+        "a hedge outside its bound must not settle — the artifact's own guard refuses it: {report}"
+    );
+    assert!(
+        report.contains("Delta:\n250bps against a ceiling of 1bps — OVER"),
+        "with both figures, so the reader can see what was left open: {report}"
+    );
+
+    // And a snapshot that states no delta is refused rather than passed: the bound was never
+    // measured, so nothing may be said about whether it held. Measured before the fix, this was the
+    // only outcome a hedge could produce — for *every* hedge artifact, bound violated or not.
+    let unstated = write_fixture(
+        "cli_simulate_hedge_unstated.json",
+        &hedge_snapshot(1_000_000, 1_000_100, 100, None),
+    );
+    let (ok, report) = simulate(&unstated);
+    assert!(!ok, "a bound nothing measured must not pass: {report}");
+    assert!(
+        report.contains("hedge delta ceiling of 1bps") && report.contains("states no delta"),
+        "the refusal must name the quantity that is missing: {report}"
+    );
+    assert!(
+        !report.contains("slippage"),
+        "and must not be confused with the slippage refusal: {report}"
+    );
+}
+
 /// PHASE 54's whole path, through the binary: an artifact whose floors come from its
 /// own instructions, a snapshot whose accounting comes from the host, and a report in
 /// the shape the phase's example shows.

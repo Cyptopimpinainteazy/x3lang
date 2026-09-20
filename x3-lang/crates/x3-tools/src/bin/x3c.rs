@@ -1372,17 +1372,12 @@ fn artifact_floors(bytecode: &[u8]) -> Result<simulation::ArtifactFloors, String
                 // compare a floor against a delta — two different quantities, and the
                 // mismatch this reader's own sibling rule exists to refuse.
                 //
-                // So it refuses rather than skips: a simulation that ignored the bound
-                // would report a verdict as if the artifact had none, which is the silent
-                // pass this whole reader is built not to give. Modelling the delta means a
-                // snapshot field to measure it against, and that is TICKET-099.
-                return Err(
-                    "this artifact states a measured `delta` bound, which a simulation does not \
-                     model: a hedge's delta is not a plan's profit, so reading it as one would \
-                     compare the wrong quantity. The bound is enforced when the artifact runs \
-                     (`x3c run --measured-delta-bps <n>`)."
-                        .to_string(),
-                );
+                // It used to refuse the whole artifact, because a simulation that read the bound as a
+                // profit floor would compare the wrong quantity and one that skipped it would report
+                // a verdict as if the artifact had no bound at all. Both were the wrong answer to a
+                // missing field: the snapshot carries the delta now, and the ceiling is the smallest
+                // one the artifact states, exactly as the slippage ceiling is (TICKET-099).
+                floors.delta_ceiling_bps = Some(floors.delta_ceiling_bps.map_or(threshold, |held| held.min(threshold)));
             }
             opcodes::REQUIRE_COMPARE_MEASURED_PROFIT => {
                 floors.profit_floor_bps = Some(floors.profit_floor_bps.map_or(threshold, |held| held.max(threshold)));
@@ -1453,7 +1448,16 @@ fn cmd_simulate(
                     .map_err(|error| error.to_string())?
                     .unwrap_or(0),
             );
-            vm.report_measurement(profit, slippage);
+            // The delta is the third quantity and it used to be `None` here — an artifact that
+            // states a delta bound was refused before it got this far, so the placeholder was
+            // unreachable. Now that a hedge's bound is decidable against a snapshot, the figure has
+            // to reach the VM: a run judged against a delta the VM was never told would refuse
+            // `X3_GUARD_UNMEASURED` while the report said it was inside the bound (TICKET-099).
+            let delta = snapshot
+                .measured_delta_bps(&floors)
+                .map_err(|error| error.to_string())?
+                .map(u128::from);
+            vm.report_outcome(Some(profit), Some(slippage), delta);
         }
         // Each quantity is independent and a guard whose quantity is absent refuses by name,
         // for the reason `cmd_run` gives.

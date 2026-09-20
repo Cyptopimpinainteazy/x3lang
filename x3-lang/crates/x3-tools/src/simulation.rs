@@ -75,6 +75,24 @@ pub struct SimulationSnapshot {
     /// carries a measured slippage ceiling — see [`SimulationError::SlippageUnstated`].
     #[serde(default)]
     pub slippage_bps: Option<u32>,
+    /// The residual delta a venue reported for a hedge, in basis points of the notional being
+    /// hedged.
+    ///
+    /// Optional, and `#[serde(default)]`, for the same reason as the slippage above: a program need
+    /// not state a delta bound, and a value nothing compares should not be required. It **is**
+    /// required when the artifact carries a measured delta ceiling — see
+    /// [`SimulationError::DeltaUnstated`].
+    ///
+    /// **Schema decision: `SNAPSHOT_VERSION` does not move for this field.** It is additive and
+    /// optional, so this build reads a snapshot written before it existed and reports the same
+    /// accounting. The compatibility is one-way on purpose: a build from before this field refuses
+    /// a snapshot that *has* it, because `deny_unknown_fields` on this struct refuses a field it
+    /// cannot see — and that is the fail-closed direction, since an older reader that ignored the
+    /// delta would compare nothing and report a verdict as if the artifact stated no bound. The
+    /// version number is for changes an old reader would silently *mis-read*; a change it refuses
+    /// needs no number.
+    #[serde(default)]
+    pub delta_bps: Option<u32>,
 }
 
 /// The route the host observed the trade take.
@@ -129,6 +147,14 @@ pub enum SimulationError {
     },
     /// The artifact states a slippage ceiling and the snapshot states no slippage.
     SlippageUnstated {
+        ceiling_bps: u32,
+    },
+    /// The artifact states a delta ceiling and the snapshot states no delta.
+    ///
+    /// Its own variant rather than sharing [`SimulationError::SlippageUnstated`], because the two
+    /// name different quantities and a refusal has to say which one is missing: a hedge's delta is
+    /// the notional a venue left open, and a slippage is the price the trade moved through.
+    DeltaUnstated {
         ceiling_bps: u32,
     },
     /// The artifact states a profit floor and the capital is too large for the floor
@@ -186,6 +212,12 @@ impl fmt::Display for SimulationError {
                  no slippage for the run to be judged against; the ceiling would otherwise be \
                  compared against a number this tool invented"
             ),
+            Self::DeltaUnstated { ceiling_bps } => write!(
+                f,
+                "the artifact states a hedge delta ceiling of {ceiling_bps}bps and the snapshot \
+                 states no delta for the hedge to be judged against; a hedge whose residual was \
+                 never measured cannot be said to have stayed inside its bound"
+            ),
             Self::FloorNotRepresentable { floor_bps, capital } => write!(
                 f,
                 "the artifact's profit floor of {floor_bps}bps applied to a capital of {capital} \
@@ -213,6 +245,15 @@ pub struct ArtifactFloors {
     pub profit_floor_bps: Option<u32>,
     /// The `slippage <= <n>bps` ceiling the artifact states, if it states one.
     pub slippage_ceiling_bps: Option<u32>,
+    /// The `delta <= <n>bps` ceiling the artifact states, if it states one.
+    ///
+    /// A hedge's bound is a measured guard with the **profit's comparison mode** and the delta's
+    /// unit code — the mode field's four values were spent before a third measured quantity
+    /// existed, so the unit code is what tells them apart (TICKET-068). Reading it by mode alone
+    /// made it a `profit_floor_bps`, which compared a floor against a delta: two different
+    /// quantities, and exactly the units mismatch the measured modes exist to prevent. This field
+    /// is where the reader puts it instead (TICKET-099).
+    pub delta_ceiling_bps: Option<u32>,
     /// Every venue the artifact approved, flattened across its approved lists. Empty
     /// means the artifact declares no venue restriction at all.
     pub approved_venues: Vec<String>,
@@ -225,6 +266,14 @@ pub enum Verdict {
     Pass,
     /// The artifact states a floor and the net did not clear it.
     BelowFloor { net_bps: u32, required_bps: u32 },
+    /// The artifact states a hedge delta ceiling and the run's residual is above it.
+    ///
+    /// A ceiling breached is a hedge that did not hedge: the venue left more of the position open
+    /// than the program allowed, so the run is a failure whether or not the net cleared the profit
+    /// floor. It is its own variant rather than a `BelowFloor` because the two say different things
+    /// to whoever has to act — one is a trade that under-earned, the other is a hedge that left the
+    /// position open (TICKET-099).
+    DeltaAboveCeiling { delta_bps: u32, ceiling_bps: u32 },
     /// The artifact states no profit floor, so there is nothing for the net to pass.
     /// This is a *finding*, not a pass: a strategy with no floor can lose money and
     /// still settle.
@@ -235,7 +284,7 @@ impl Verdict {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Pass => "PASS",
-            Self::BelowFloor { .. } => "FAIL",
+            Self::BelowFloor { .. } | Self::DeltaAboveCeiling { .. } => "FAIL",
             Self::NoFloorStated => "NO FLOOR STATED",
         }
     }
@@ -265,6 +314,10 @@ pub struct EconomicOutcome {
     pub slippage_bps: Option<u32>,
     /// The ceiling that slippage was compared with, when the artifact states one.
     pub slippage_ceiling_bps: Option<u32>,
+    /// The residual delta the hedge was judged on, when the artifact states a ceiling.
+    pub delta_bps: Option<u32>,
+    /// The ceiling that delta was compared with, when the artifact states one.
+    pub delta_ceiling_bps: Option<u32>,
     pub verdict: Verdict,
 }
 
@@ -310,6 +363,7 @@ impl SimulationSnapshot {
     pub fn evaluate(&self, floors: &ArtifactFloors) -> Result<EconomicOutcome, SimulationError> {
         let (net, net_bps) = self.accounting()?;
         let slippage_bps = self.measured_slippage_bps(floors)?;
+        let delta_bps = self.measured_delta_bps(floors)?;
 
         // The floor is the artifact's, and so is the asset figure it implies.
         let minimum_required = match floors.profit_floor_bps {
@@ -326,6 +380,20 @@ impl SimulationSnapshot {
             Some(required_bps) if net_bps >= required_bps => Verdict::Pass,
             Some(required_bps) => Verdict::BelowFloor { net_bps, required_bps },
             None => Verdict::NoFloorStated,
+        };
+        // A hedge's bound is folded into the verdict rather than only reported. It converts a
+        // *non-failing* verdict into a failure — including `NoFloorStated`, which is a hedge's
+        // normal shape (a hedge states a delta bound and no profit floor), and including `Pass`,
+        // which is the case this exists for: the trade made money on a position the program required
+        // to be closed. A verdict that already failed on profit stays as it is, because it is
+        // already a failure and the report renders the delta against its ceiling either way. Leaving
+        // `NoFloorStated` alone would have been a silent pass: the one combination a hedge is most
+        // likely to be in.
+        let verdict = match (verdict, delta_bps, floors.delta_ceiling_bps) {
+            (Verdict::Pass | Verdict::NoFloorStated, Some(delta_bps), Some(ceiling_bps)) if delta_bps > ceiling_bps => {
+                Verdict::DeltaAboveCeiling { delta_bps, ceiling_bps }
+            }
+            (verdict, _, _) => verdict,
         };
 
         // The observed route is a claim about the market; the artifact's approved lists
@@ -357,6 +425,8 @@ impl SimulationSnapshot {
             minimum_required,
             slippage_bps,
             slippage_ceiling_bps: floors.slippage_ceiling_bps,
+            delta_bps,
+            delta_ceiling_bps: floors.delta_ceiling_bps,
             verdict,
         })
     }
@@ -373,6 +443,22 @@ impl SimulationSnapshot {
         match (self.slippage_bps, floors.slippage_ceiling_bps) {
             (Some(stated), _) => Ok(Some(stated)),
             (None, Some(ceiling_bps)) => Err(SimulationError::SlippageUnstated { ceiling_bps }),
+            (None, None) => Ok(None),
+        }
+    }
+
+    /// The delta this run is judged against, or `None` when the artifact states no ceiling for it to
+    /// be compared with.
+    ///
+    /// The same shape as [`SimulationSnapshot::measured_slippage_bps`], for the same reason: the
+    /// ceiling is the artifact's and the observation has to be the host's, so a ceiling with nothing
+    /// to measure against is refused rather than compared with a number this tool invented. The
+    /// quantity is separate from the slippage because a hedge can be reported with one and not the
+    /// other, and stating the wrong one would pass a bound nothing measured.
+    pub fn measured_delta_bps(&self, floors: &ArtifactFloors) -> Result<Option<u32>, SimulationError> {
+        match (self.delta_bps, floors.delta_ceiling_bps) {
+            (Some(stated), _) => Ok(Some(stated)),
+            (None, Some(ceiling_bps)) => Err(SimulationError::DeltaUnstated { ceiling_bps }),
             (None, None) => Ok(None),
         }
     }
@@ -503,12 +589,20 @@ pub fn render(outcome: &EconomicOutcome) -> String {
             if slippage_bps <= ceiling_bps { "within" } else { "OVER" }
         ));
     }
+    if let (Some(delta_bps), Some(ceiling_bps)) = (outcome.delta_bps, outcome.delta_ceiling_bps) {
+        out.push_str(&format!(
+            "Delta:\n{delta_bps}bps against a ceiling of {ceiling_bps}bps — {}\n\n",
+            if delta_bps <= ceiling_bps { "within" } else { "OVER" }
+        ));
+    }
     out.push_str(&format!(
         "Result:\n{} (net {}bps{})\n",
         outcome.verdict.label(),
         outcome.net_bps,
         match &outcome.verdict {
             Verdict::BelowFloor { required_bps, .. } => format!(" against a required {required_bps}bps"),
+            Verdict::DeltaAboveCeiling { delta_bps, ceiling_bps } =>
+                format!(" with a delta of {delta_bps}bps against a ceiling of {ceiling_bps}bps"),
             _ => String::new(),
         }
     ));
@@ -549,8 +643,94 @@ mod tests {
         ArtifactFloors {
             profit_floor_bps,
             slippage_ceiling_bps: None,
+            delta_ceiling_bps: None,
             approved_venues: approved.iter().map(|venue| (*venue).to_string()).collect(),
         }
+    }
+
+    /// The phase's example snapshot with a venue-reported delta, and a hedge's shape of floors: a
+    /// delta ceiling and *no* profit floor.
+    fn hedge_snapshot(delta_bps: Option<u32>) -> SimulationSnapshot {
+        let delta = match delta_bps {
+            Some(delta) => format!(",\n                \"delta_bps\": {delta}"),
+            None => String::new(),
+        };
+        SimulationSnapshot::from_json(&format!(
+            r#"{{
+                "version": 1,
+                "route": {{ "chains": ["ethereum"], "venues": ["cex_hedge"] }},
+                "capital": {{ "asset": "ethereum.ETH", "amount": 1000000 }},
+                "gross":   {{ "asset": "ethereum.ETH", "amount": 1000100 }},
+                "fees":    {{ "asset": "ethereum.ETH", "amount": 100 }}{delta}
+            }}"#
+        ))
+        .expect("the hedge snapshot is a schema-1 snapshot")
+    }
+
+    fn hedge_floors() -> ArtifactFloors {
+        ArtifactFloors {
+            profit_floor_bps: None,
+            slippage_ceiling_bps: None,
+            delta_ceiling_bps: Some(1),
+            approved_venues: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_hedge_inside_its_delta_bound_is_reported_within_it() {
+        // The defect this replaces: `artifact_floors` refused every artifact that stated a delta
+        // bound, so no hedge could be simulated at all — the fail-closed half. The bound is
+        // decidable now, and a venue that left 1bps of a 1bps bound open is inside it.
+        let outcome = hedge_snapshot(Some(1))
+            .evaluate(&hedge_floors())
+            .expect("a hedge with a measured delta must simulate");
+        assert_eq!(outcome.delta_bps, Some(1));
+        assert_eq!(outcome.delta_ceiling_bps, Some(1));
+        assert_eq!(
+            outcome.verdict,
+            Verdict::NoFloorStated,
+            "the hedge states no profit floor, so the floor verdict is the finding it is — not a \
+             pass — and the delta is inside its bound"
+        );
+    }
+
+    #[test]
+    fn a_hedge_outside_its_delta_bound_fails_and_the_report_names_both_figures() {
+        let outcome = hedge_snapshot(Some(250))
+            .evaluate(&hedge_floors())
+            .expect("a hedge with a measured delta must simulate");
+        assert_eq!(
+            outcome.verdict,
+            Verdict::DeltaAboveCeiling {
+                delta_bps: 250,
+                ceiling_bps: 1
+            },
+            "a hedge that left 250bps of a 1bps bound open did not hedge"
+        );
+        assert_eq!(outcome.verdict.label(), "FAIL");
+        let rendered = render(&outcome);
+        assert!(
+            rendered.contains("250bps against a ceiling of 1bps — OVER"),
+            "the report must state the figure and the bound it broke: {rendered}"
+        );
+        assert!(
+            rendered.contains("250bps against a ceiling of 1bps"),
+            "and so must the result line: {rendered}"
+        );
+    }
+
+    #[test]
+    fn a_delta_ceiling_with_no_stated_delta_is_refused() {
+        // The fail-closed half, kept: a bound nothing measured cannot be reported as satisfied. The
+        // refusal names the quantity, so it cannot be confused with the slippage refusal.
+        let error = hedge_snapshot(None)
+            .evaluate(&hedge_floors())
+            .expect_err("a ceiling with no observation must be refused");
+        assert_eq!(error, SimulationError::DeltaUnstated { ceiling_bps: 1 });
+        assert!(error.to_string().contains("delta ceiling"), "{error}");
+        // And it is *not* the slippage refusal: the two quantities are different and a program that
+        // stated one is not a program that stated the other.
+        assert!(!error.to_string().contains("slippage"), "{error}");
     }
 
     #[test]
@@ -751,6 +931,7 @@ mod tests {
         let floors = ArtifactFloors {
             profit_floor_bps: Some(50),
             slippage_ceiling_bps: Some(25),
+            delta_ceiling_bps: None,
             approved_venues: Vec::new(),
         };
         let snapshot = SimulationSnapshot::from_json(
