@@ -1158,7 +1158,18 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             });
         }
         Statement::While { cond, body } => {
-            let _cond_ir = expression_to_condition(cond)?;
+            // The condition is decided by the same folder `if` uses, and it travels with the loop
+            // either way. `while false { … }` is a body that never runs — the language's meaning,
+            // and a decision the compiler may make because `fold_condition` only decides literals,
+            // arithmetic on them and logical combinations, so nothing in the decision is a call
+            // with a side effect. Everything else keeps its condition as `Condition::Expression`,
+            // which is what lets the verifier and the emitter name the guard they refuse
+            // (TICKET-098).
+            let cond_ir = match fold_condition(cond) {
+                Some(true) => Condition::True,
+                Some(false) => Condition::False,
+                None => expression_to_condition(cond)?,
+            };
             let body_ops = {
                 let mut temp_ir = X3IR::new();
                 lower_function_body(body, &mut temp_ir)?;
@@ -1167,6 +1178,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
 
             ir.push(Operation::Loop {
                 max_iterations: 1000, // Safe default limit
+                condition: cond_ir,
                 body: body_ops,
             });
         }
@@ -2157,9 +2169,18 @@ pub(crate) fn expression_to_string(expr: &Expression) -> String {
         Expression::FieldAccess { target, field } => {
             format!("{}.{}", expression_to_string(target), field.as_str())
         }
+        // `{:?}` on the operator renders its Rust *variant* name, so `while steps < 10` reached the
+        // IR, `x3c lower` and every diagnostic that names a condition as `steps Lt 10` — a guard
+        // the program never wrote, in a spelling no reader of this language can parse back. `BinOp`
+        // already implements `Display` with the language's own symbols, which is the one fact that
+        // makes this a rendering choice rather than a second grammar (TICKET-098).
         Expression::Binary { op, lhs, rhs } => {
-            format!("{} {:?} {}", expression_to_string(lhs), op, expression_to_string(rhs))
+            format!("{} {} {}", expression_to_string(lhs), op, expression_to_string(rhs))
         }
+        // The same defect one arm down: a unary condition was rendered as `{:?}`, so `while !ready`
+        // would have arrived as `Unary { op: Not, … }` — a Rust debug string in a diagnostic that
+        // is supposed to name the guard the program wrote.
+        Expression::Unary { op, expr } => format!("{}{}", op, expression_to_string(expr)),
         Expression::Call { callee, args } => format!(
             "{}({})",
             expression_to_string(callee),

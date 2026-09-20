@@ -201,19 +201,33 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 emit_operation(nested, bytecode)?;
             }
         }
-        Operation::Loop { max_iterations, body } => {
-            // Refused for the same reason as `if`; see the comment there.
-            let _ = (max_iterations, body);
-            return Err(X3Error::CodegenError {
-                message: "cannot emit `loop`: this VM branches on a register and skips whole \
-                          four-byte instructions, while a compiler stream frames instructions with a \
-                          width that varies and pads them to absolute four-byte boundaries, so the \
-                          record would have no target a reader could follow or an executor could jump \
-                          back to"
-                    .to_string(),
-                span: None,
-            });
-        }
+        Operation::Loop {
+            condition,
+            max_iterations,
+            body,
+        } => match condition {
+            // A loop the compiler decided false never runs its body, so there is nothing to test at
+            // run time and nothing to jump back to: writing nothing is the loop's meaning, exactly
+            // as an `if` decided false with no `else` writes nothing. The body stays in the IR, so
+            // `x3c lower` still shows the program's own text beside the decision.
+            Condition::False => {
+                let _ = (max_iterations, body);
+            }
+            // Refused for the same reason as an undecidable `if`; see the comment there.
+            other => {
+                return Err(X3Error::CodegenError {
+                    message: format!(
+                        "cannot emit `loop` over `{}`: this VM branches on a register and skips \
+                         whole four-byte instructions, while a compiler stream frames instructions \
+                         with a width that varies and pads them to absolute four-byte boundaries, so \
+                         the record would have no target a reader could follow or an executor could \
+                         jump back to, and no instruction that puts its condition in a register",
+                        other.describe()
+                    ),
+                    span: None,
+                });
+            }
+        },
         Operation::Require { .. } => {
             // `[REQUIRE][comparison][threshold u16]`. Mostly STATIC: a guard a program
             // writes is a constraint the compiler checks against the declarations, so

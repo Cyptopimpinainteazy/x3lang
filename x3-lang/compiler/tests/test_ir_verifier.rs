@@ -72,20 +72,43 @@ fn rejects_nested_atomic_scope() {
 #[test]
 fn a_loop_is_refused_because_the_vm_cannot_execute_one() {
     // This test used to assert the zero-iteration check. That check is gone with
-    // the arm it lived in: a `Loop` is refused outright now, so its iteration
-    // count is not a fact anything reads. The refusal is what the test asserts,
-    // message included, because "some UnsafeIr" would also be satisfied by the
-    // nested-op checks this replaced.
+    // the arm it lived in: a `Loop` whose condition is not decided false is
+    // refused outright now, so its iteration count is not a fact anything reads.
+    // The refusal is what the test asserts, message included, because "some
+    // UnsafeIr" would also be satisfied by the nested-op checks this replaced —
+    // and since TICKET-098 the message names the guard the loop tests, which is
+    // the fact the IR used to throw away (`test_loop_condition.rs` is where that
+    // is held in full).
     let ir = ir_with(vec![Operation::Loop {
         max_iterations: 0,
+        condition: Condition::Expression {
+            expr: "steps < 10".to_string(),
+        },
         body: vec![Operation::Nop],
     }]);
     let diagnostics = verify_ir(&ir).expect_err("a loop has no target this VM could jump back to");
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert!(
-        diagnostics[0].message.contains("`loop` cannot be executed") && diagnostics[0].message.contains("padded"),
-        "the refusal must say what the VM branches on and what the stream is: {diagnostics:?}"
+        diagnostics[0]
+            .message
+            .contains("`loop` over `steps < 10` cannot be executed")
+            && diagnostics[0].message.contains("padded"),
+        "the refusal must name the guard, and say what the VM branches on and what the stream is: \
+         {diagnostics:?}"
     );
+}
+
+#[test]
+fn a_loop_the_compiler_decided_false_is_not_refused() {
+    // `while <false> { … }` runs its body zero times, so there is no target to jump back to and
+    // nothing for this verifier to refuse — the emitter writes no record for it at all. The other
+    // half of the rule, and what keeps the refusal above from being universal.
+    let ir = ir_with(vec![Operation::Loop {
+        max_iterations: 1000,
+        condition: Condition::False,
+        body: vec![Operation::Nop],
+    }]);
+    assert_eq!(codes(&ir), Vec::<DiagnosticCode>::new(), "nothing to refuse");
 }
 
 #[test]

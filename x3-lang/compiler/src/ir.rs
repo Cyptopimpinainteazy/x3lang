@@ -209,6 +209,18 @@ pub enum Operation {
     /// Loop (bounded by step count)
     Loop {
         max_iterations: u32,
+        /// What the loop tests before each iteration.
+        ///
+        /// Carried rather than discarded. Lowering used to convert the condition and drop it on
+        /// the floor (`let _cond_ir = …`), so the IR stated a loop with a fixed iteration cap and
+        /// nothing saying what it looped on: `x3c lower` printed a `Loop` that a reader could not
+        /// relate to the `while` the program wrote, and the refusal the verifier and the emitter
+        /// both raise could not name the guard it was refusing (TICKET-098).
+        ///
+        /// It is the same `Condition` an `Operation::If` carries, decided by the same
+        /// `lowering::fold_condition`, because "the compiler knows which way this went" is one
+        /// question about a program and not two.
+        condition: Condition,
         body: Vec<Operation>,
     },
     /// Mark beginning of atomic block (all-or-nothing)
@@ -911,6 +923,41 @@ pub enum Condition {
     True,
     /// Always false
     False,
+}
+
+impl Condition {
+    /// How the condition reads, for a diagnostic that has to name the guard it refused.
+    ///
+    /// One renderer for the whole workspace. The verifier and the emitter both refuse a
+    /// construct whose condition they cannot execute, and two renderings of the same condition
+    /// would let the two refusals disagree about what the program said — which is how a reader
+    /// ends up fixing the construct the diagnostic named instead of the one the program wrote.
+    ///
+    /// `Expression` is the source text as written, so a reader sees their own spelling; the
+    /// typed variants are rendered in the shape the language spells them.
+    pub fn describe(&self) -> String {
+        match self {
+            Condition::BalanceGte {
+                chain,
+                asset,
+                account,
+                amount,
+            } => format!("balance({chain}.{asset}, {account}) >= {amount}"),
+            Condition::NonceEq { account, expected } => format!("nonce({account}) == {expected}"),
+            Condition::ProofValid { proof, expected_hash } => format!("verify_proof({proof}, {expected_hash})"),
+            Condition::FinalityPolicy {
+                name,
+                requirement,
+                blocks,
+            } => match blocks {
+                Some(blocks) => format!("finality_policy {name} ({requirement}, {blocks})"),
+                None => format!("finality_policy {name} ({requirement})"),
+            },
+            Condition::Expression { expr } => expr.clone(),
+            Condition::True => "true".to_string(),
+            Condition::False => "false".to_string(),
+        }
+    }
 }
 
 /// Types of require guards (for invariant/correctness checks)

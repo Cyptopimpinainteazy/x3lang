@@ -428,14 +428,29 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     ),
                 ),
             },
-            Operation::Loop { .. } => push_unsafe(
-                diagnostics,
-                format!(
-                    "{op_context}: `loop` cannot be executed — this VM branches on a register and skips \
-                     four-byte instructions, and a compiler stream is framed with variable widths and \
-                     padded, so the loop has no target it could jump back to"
+            Operation::Loop { condition, .. } => match condition {
+                // `while <decided false> { … }` never runs its body. That is the language's
+                // meaning and a decision the compiler made, so there is no target to jump back to
+                // and nothing to refuse: the emitter writes no record at all, the way an `if`
+                // decided false with no `else` writes nothing.
+                Condition::False => {}
+                // Anything else needs the register codegen TICKET-058 names — a condition in a
+                // register and a target in stream coordinates — and is refused rather than written.
+                // The refusal names the guard the program wrote, not only the construct: with
+                // several `while`s in a program, "the loop cannot be executed" left its reader to
+                // guess which one, and the loop's own condition was the one fact the IR had thrown
+                // away (TICKET-098).
+                other => push_unsafe(
+                    diagnostics,
+                    format!(
+                        "{op_context}: `loop` over `{}` cannot be executed — this VM branches on a \
+                         register and skips four-byte instructions, and a compiler stream is framed \
+                         with variable widths and padded, so the loop has no target it could jump \
+                         back to and no instruction that puts its condition in a register",
+                        other.describe()
+                    ),
                 ),
-            ),
+            },
             Operation::Lock {
                 chain,
                 asset,
