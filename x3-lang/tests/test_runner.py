@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -44,4 +45,40 @@ def test_runner_defaults_to_fail_closed_without_backend():
     assert any(
         e.get('code') == 'X3_BACKEND_REQUIRED'
         for e in result.get('execution', [])
+    )
+
+
+def test_runner_reports_a_parse_failure_as_a_structured_error():
+    """A file this surface cannot read is a diagnosis, not a traceback.
+
+    Five of the repository's examples declare no `intent`, and this surface reads one intent
+    per file. It used to raise `IndexError: list index out of range` from inside
+    `parse_file`, and the runner let even a clean `X3ParseError` escape as a Python stack —
+    so the one surface a user actually runs reported neither a code nor a line. It reports
+    both now, in the same JSON shape as a typechecker failure, and exits 1.
+    """
+    root = Path(__file__).resolve().parents[2]
+    runner = root / "x3-lang" / "runner.py"
+    # Its own fixture rather than one of the repository's examples: the subject is *a file
+    # with no intent*, and writing it here keeps this test from being coupled to a file that
+    # someone may later fix — and, since `tests/test_surface_drift.py` derives its list of
+    # examples from this suite's source, from pulling an unreadable example into that gate.
+    no_intent = Path(tempfile.mkdtemp()) / "no_intent.x3"
+    no_intent.write_text(
+        "parallel two_way_arb {\n    settlement atomic;\n}\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(runner), "--dry-run", str(no_intent)], capture_output=True
+    )
+    assert proc.returncode == 1, "a refusal must not be reported as success"
+    assert b"Traceback" not in proc.stderr, (
+        f"a refusal must not be a traceback: {proc.stderr.decode()}"
+    )
+    result = json.loads(proc.stdout.decode())
+    assert result["status"] == "error"
+    error = result["errors"][0]
+    assert error["code"] == "X3_PARSE_NO_INTENT"
+    assert isinstance(error["line"], int) and error["line"] > 0, (
+        "a diagnosis without a line is half a diagnosis"
     )

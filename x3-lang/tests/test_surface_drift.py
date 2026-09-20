@@ -39,6 +39,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cli  # noqa: E402  (the path insert has to come first)
 
 
+def test_no_example_makes_this_surface_raise_anything_but_a_parse_error():
+    """Every example is either read or refused by name — nothing crashes.
+
+    This is the part of the boundary that is not a scope decision. The surface reads one
+    `intent` per file, nine guard kinds of the compiler's eighteen, and a stricter address
+    shape than the compiler's, so it refuses a good many of the repository's examples — and
+    each of those refusals has to be a `X3ParseError` with a code and a line. Five examples
+    used to raise `IndexError: list index out of range` instead, from a file with no
+    `intent` in it: a caller had nothing to catch and no line number to report.
+
+    Scoped to the whole `examples/` directory rather than to the suite's fixtures, because
+    the claim — nothing crashes — is true of all of them and does not depend on the scope
+    question above.
+    """
+    root = Path(__file__).resolve().parents[1]
+    examples = sorted(glob.glob(str(root / "examples" / "*.x3")))
+    assert len(examples) > 10, (
+        f"found {len(examples)} examples under {root / 'examples'}, which is too few to be "
+        "the directory this test thinks it is reading"
+    )
+
+    crashes = []
+    for path in examples:
+        try:
+            cli.parse_file(path)
+        except cli.X3ParseError:
+            pass  # refused by name, which is what this asserts
+        except Exception as error:  # noqa: BLE001 - any other type is the defect
+            crashes.append(f"{os.path.basename(path)}: {type(error).__name__}: {error}")
+
+    assert not crashes, (
+        "these examples failed with something other than X3ParseError, so a caller has "
+        "nothing to catch:\n" + "\n".join(crashes)
+    )
+
+
 def test_every_example_the_suite_uses_is_readable_by_this_surface():
     root = Path(__file__).resolve().parents[1]
     # Derived from the suite rather than listed, so a test that starts using a new example

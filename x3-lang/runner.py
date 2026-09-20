@@ -161,7 +161,26 @@ def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle
     dry_run = explicit_dry_run
     production_mode = not dry_run
 
-    intent = cli.parse_file(input_path)
+    try:
+        intent = cli.parse_file(input_path)
+    except cli.X3ParseError as error:
+        # The parser has always raised a structured error — a code, a message, a line and a
+        # field — and this entry point let it escape as a Python traceback, so the one
+        # surface a user actually runs reported a stack where it had a diagnosis ready. This
+        # belongs here rather than in `main()`: `cli` is loaded per call by `load_module`,
+        # so a second load would give a *different* `X3ParseError` class and an `except` in
+        # `main()` would not match the one the parser raised.
+        return {
+            'status': 'error',
+            'errors': [
+                {
+                    'code': error.code,
+                    'message': error.message,
+                    'line': error.line,
+                    'field': error.field,
+                }
+            ],
+        }
     if not no_schema:
         validate_schema(intent, os.path.join(root, 'schema.json'))
 

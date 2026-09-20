@@ -13,6 +13,32 @@ intent name {
   timeout 30s refund Solana.USDC to sender
   on_fail refund Solana.USDC to sender
 }
+
+## Scope, stated so it does not have to be inferred
+
+**One `intent` per file.** Every other top-level item — `finality_policy`, `risk_policy`,
+`venue`, `proofs required`, `atomic_choice`, `objective`, `parallel`, `strategy`, … — is
+*skipped*, not read, because this surface's output is a `validated_intent_v1` for the
+runner and the legacy planner, and those consume an intent. A file whose subject is a bare
+`atomic_choice` or `strategy` block is a program for the compiler and has no intent to
+offer; the refusal says so by name (`X3_PARSE_NO_INTENT`) rather than crashing on the line
+after the last one.
+
+**Nine guard kinds of the compiler's eighteen.** `registry.py::REQUIRE_KINDS` is the list
+and it is a deliberate subset — telemetry, audit and solver-bond guards are not this
+surface's business. A guard outside it is refused as `malformed require '<kind>'`, which
+is accurate but does not say that the compiler would accept it; the list in `registry.py`
+is where that boundary is written down.
+
+**Addresses are validated for shape, and the shape is stricter than the compiler's.** A
+40-hex-character `0x…` is required here, where the language accepts a short placeholder
+like `0xA1` — which is what several of the repository's own examples use. That is drift
+rather than scope, and it is TICKET-091: this surface refuses files the compiler accepts.
+
+**Nothing here may raise anything but `X3ParseError`.** A parser with no error surface is
+the one part of this boundary that is not a scope decision: callers get a code, a message
+and a line, or they get a result. `tests/test_surface_drift.py` asserts it over every
+example in the repository.
 """
 import argparse
 import json
@@ -241,10 +267,40 @@ def parse_file(path):
     if not lines:
         raise X3ParseError("X3_PARSE_EMPTY", "input file is empty")
     start = _intent_line_index(lines)
+    if start >= len(lines):
+        # `_intent_line_index` walks past the last line when a file declares no `intent` at
+        # all — every top-level item is a declaration it skips — and it returned that index
+        # to here, where `lines[start]` raised `IndexError`. Five of the repository's
+        # examples are shaped that way, so this surface *crashed* on valid input instead of
+        # refusing it: a parser with no error surface is worse than a narrow one. Its own
+        # docstring already said the caller refuses what it does not recognise, and this is
+        # that refusal.
+        raise X3ParseError(
+            "X3_PARSE_NO_INTENT",
+            "this file declares no `intent`: this surface reads one intent per file, and every "
+            "top-level item here is a declaration it skips. A file whose subject is a bare "
+            "`atomic_choice`, `strategy`, `objective` or `parallel` block is a program for the "
+            "compiler, not an intent for this surface",
+            lines[-1].no,
+            "intent",
+        )
+
     first = lines[start].text
     m = re.match(r"intent\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{?", first)
     if not m:
-        raise X3ParseError("X3_PARSE_INTENT", "expected intent <name> {", lines[start].no, "intent")
+        # The line is neither an intent nor a declaration `_intent_line_index` skips, so the
+        # file has no intent to read. Saying "expected intent <name> {" at that line sent a
+        # reader looking for a typo in a construct that is correct in the language and
+        # simply is not what this surface reads.
+        raise X3ParseError(
+            "X3_PARSE_NO_INTENT",
+            f"this file declares no `intent`; the first top-level item this surface does not "
+            f"recognise is {first!r}. It reads one intent per file, so a program built from "
+            f"`atomic_choice`, `objective`, `parallel`, `strategy` or similar declarations is "
+            f"for the compiler rather than for this surface",
+            lines[start].no,
+            "intent",
+        )
     result: Dict[str, Any] = {"intent": m.group(1), "from": {}, "to": {}, "route": [], "path": [], "requires": [], "constraints": {}, "policies": {}}
 
     i = start + 1
