@@ -459,10 +459,29 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     );
                 }
             }
-            Operation::Release { chain, asset, to } => {
+            Operation::Release {
+                chain,
+                asset,
+                to,
+                claims,
+            } => {
                 require_non_empty(diagnostics, &op_context, "chain", chain);
                 require_non_empty(diagnostics, &op_context, "asset", asset);
                 require_non_empty(diagnostics, &op_context, "to", to);
+                // The claim names a lock by its position among the route's locks, which is what
+                // lets two same-asset transfers in one route be told apart (TICKET-080).
+                //
+                // It is **not** checked against the route here, and the reason is a distinction
+                // this IR already makes: `Release` means both *claiming an escrow this program
+                // locked* and *paying out the asset a route delivered* (`no_refund_after_claim`
+                // spells that out, and had to, because reading a payout as a claim warned on
+                // every canonical example). A range check needs to know which of the two a
+                // release is, and nothing in the IR says — so a rule that guessed would refuse
+                // payouts, which is what the first attempt at this did: four tests over a
+                // cross-chain parallel plan failed with "the release claims lock #0 of its
+                // route, which has written 0 lock(s) so far". Telling the two apart is its own
+                // change, with its own reasoning, rather than a line here.
+                let _ = claims;
             }
             Operation::Swap {
                 from_chain,

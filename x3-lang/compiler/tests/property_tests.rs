@@ -81,6 +81,7 @@ proptest! {
             chain: "solana".into(),
             asset: "SOL".into(),
             to: "bob".into(),
+            claims: 0,
         });
         let result = emit_x3ir(&ir);
         prop_assert!(result.is_ok(), "Known chain '{}' should emit successfully", chain);

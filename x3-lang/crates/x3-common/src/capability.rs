@@ -250,6 +250,13 @@ pub enum AssetOpPayload {
         chain: String,
         asset: String,
         to: String,
+        /// The index of the lock this release claims within its atomic route, counted among
+        /// that route's `Lock`s in order. Assigned by the compiler when it pairs the two, and
+        /// carried so a replayer can check the pairing rather than infer it (TICKET-080).
+        ///
+        /// Appended to this record rather than inserted, so a payload written before the field
+        /// existed ends early and is **refused** as short rather than read as a whole claim.
+        claims: u32,
     },
     Swap {
         from_chain: String,
@@ -570,10 +577,16 @@ pub fn encode_asset_op_payload(payload: &AssetOpPayload) -> Result<Vec<u8>, Capa
             write_u128(&mut out, *amount);
             write_string(&mut out, from)?;
         }
-        AssetOpPayload::Release { chain, asset, to } => {
+        AssetOpPayload::Release {
+            chain,
+            asset,
+            to,
+            claims,
+        } => {
             write_string(&mut out, chain)?;
             write_string(&mut out, asset)?;
             write_string(&mut out, to)?;
+            write_u32(&mut out, *claims);
         }
         AssetOpPayload::Swap {
             from_chain,
@@ -621,6 +634,7 @@ pub fn decode_asset_op_payload(opcode: u8, bytes: &[u8]) -> Result<AssetOpPayloa
             chain: reader.read_string()?,
             asset: reader.read_string()?,
             to: reader.read_string()?,
+            claims: reader.read_u32()?,
         },
         0x24 => AssetOpPayload::Swap {
             from_chain: reader.read_string()?,

@@ -93,6 +93,17 @@ pub enum Operation {
         chain: String,
         asset: String,
         to: String,
+        /// Which of its route's locks this release claims, counted among the `Lock`s of the
+        /// same atomic block in order — an index the compiler assigns when it pairs a lock
+        /// with its release, so an artifact's reader can check the pairing instead of
+        /// inferring it.
+        ///
+        /// A release used to name its claim by asset alone, which made two transfers of one
+        /// asset in one route two claims nobody could tell apart — and the static rules
+        /// refused them for that reason, one route per transfer. A book nets within one
+        /// asset, so that is the normal case rather than a corner: the index is what lets one
+        /// route carry several claims of one asset and still settle as one unit (TICKET-080).
+        claims: u32,
     },
 
     // ===== Swap Operations =====

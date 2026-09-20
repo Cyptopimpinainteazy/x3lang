@@ -186,6 +186,8 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
         chain: intent.to.chain.to_ascii_lowercase(),
         asset: intent.to.asset.clone(),
         to: intent.to.receiver.clone().unwrap_or_else(|| "receiver".to_string()),
+        // The only lock this route holds: the source endpoint's.
+        claims: 0,
     });
 
     ir.push(Operation::AtomicBegin);
@@ -304,7 +306,12 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
         // failure action also emits a concrete `Release` op so the refund
         // is actually executed by the VM, not just recorded as metadata.
         if let FailureAction::Refund { chain, asset, to } = action {
-            ir.push(Operation::Release { chain, asset, to });
+            ir.push(Operation::Release {
+                chain,
+                asset,
+                to,
+                claims: 0,
+            });
         }
     }
 

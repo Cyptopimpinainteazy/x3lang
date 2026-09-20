@@ -643,6 +643,7 @@ fn the_operations_a_netting_book_lowers_to_pass_the_structural_verifier() {
             chain: "ethereum".to_owned(),
             asset: "USDC".to_owned(),
             to: "0xB1".to_owned(),
+            claims: 0,
         },
         Operation::Lock {
             chain: "ethereum".to_owned(),
@@ -654,6 +655,7 @@ fn the_operations_a_netting_book_lowers_to_pass_the_structural_verifier() {
             chain: "ethereum".to_owned(),
             asset: "USDC".to_owned(),
             to: "0xB1".to_owned(),
+            claims: 0,
         },
         Operation::AtomicEnd,
     ]);

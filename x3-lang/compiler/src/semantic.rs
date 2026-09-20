@@ -887,7 +887,7 @@ fn verify_symbols(ir: &X3IR, acc: &mut ErrorAccumulator) {
                 check_safe_symbol("asset", asset, acc);
                 check_safe_symbol("from", from, acc);
             }
-            Operation::Release { chain, asset, to } => {
+            Operation::Release { chain, asset, to, .. } => {
                 check_safe_symbol("chain", chain, acc);
                 check_safe_symbol("asset", asset, acc);
                 check_safe_symbol("to", to, acc);
@@ -2304,6 +2304,10 @@ fn refund_lock(op: &Operation) -> Option<(&str, &str)> {
 /// That route's refund path is its own rollback, which is a real mechanism and not an
 /// exemption: a route that fails records no asset operations at all.
 fn escrows_claimed_in_their_own_route(ir: &X3IR) -> bool {
+    // Escrow-level, deliberately: the question is whether *this program's* escrow of an asset
+    // is claimed again inside the route that locked it, and a refund path is keyed by asset
+    // rather than by which of a route's locks it names. The claim *index* is what
+    // `no_double_claim` needs, and it is read there (TICKET-080).
     let mut locks: Vec<(&str, &str)> = Vec::new();
     let mut claims: Vec<(&str, &str)> = Vec::new();
     let mut depth = 0usize;
@@ -2333,10 +2337,25 @@ fn escrows_claimed_in_their_own_route(ir: &X3IR) -> bool {
     false
 }
 
-/// The lock a claim releases, as `(chain, asset)`.
+/// The escrow a claim releases, as `(chain, asset)`.
+///
+/// Escrow-level, for the rules that reason about *which asset* an escrow is: a refund is
+/// keyed by asset, so `no_refund_after_claim` compares like with like.
 fn release_lock(op: &Operation) -> Option<(&str, &str)> {
     match op {
         Operation::Release { chain, asset, .. } => Some((chain.as_str(), asset.as_str())),
+        _ => None,
+    }
+}
+
+/// Which of its route's locks a claim names.
+///
+/// This is the identity `no_double_claim` needs: two releases of one asset in one route name
+/// two different locks, and without the index they were the same claim to every reader — which
+/// is what forced a book to settle one transfer per route (TICKET-080).
+fn claimed_lock(op: &Operation) -> Option<u32> {
+    match op {
+        Operation::Release { claims, .. } => Some(*claims),
         _ => None,
     }
 }
@@ -2412,7 +2431,7 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
                 // Per route rather than per program because a route is the unit that
                 // settles: claims in two routes are two settlements, not one claim made
                 // twice.
-                let mut claims: Vec<(&str, &str)> = Vec::new();
+                let mut claims: Vec<(&str, &str, u32)> = Vec::new();
                 let mut depth = 0usize;
                 for op in &ir.operations {
                     match op {
@@ -2425,14 +2444,15 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
                             claims.clear();
                         }
                         _ if depth > 0 => {
-                            let Some(lock) = release_lock(op) else {
+                            let (Some((chain, asset)), Some(index)) = (release_lock(op), claimed_lock(op)) else {
                                 continue;
                             };
+                            let lock = (chain, asset, index);
                             if claims.contains(&lock) {
                                 return Err(format!(
                                     "multiple Release (claim) operations found for the same lock \
-                                     ({}.{}) inside one atomic route",
-                                    lock.0, lock.1
+                                     ({chain}.{asset}, lock #{} of its route) inside one atomic route",
+                                    lock.2
                                 ));
                             }
                             claims.push(lock);
@@ -3288,6 +3308,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "4Nd1".into(),
+                claims: 0,
             },
             Operation::AtomicBegin,
             Operation::Bridge {
@@ -3323,6 +3344,7 @@ mod tests {
                 chain: "ethereum".into(),
                 asset: "USDC".into(),
                 to: "sender".into(),
+                claims: 0,
             },
             Operation::OnFail {
                 action: FailureAction::Rollback,
@@ -3364,11 +3386,13 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
+                claims: 0,
             },
             Operation::Release {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "b".into(),
+                claims: 0,
             },
         ]);
         assert!(
@@ -3399,6 +3423,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
+                claims: 0,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -3438,6 +3463,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "SOL".into(),
                 to: "4Nd1".into(),
+                claims: 0,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -3477,6 +3503,7 @@ mod tests {
             chain: "solana".into(),
             asset: "USDC".into(),
             to: "a".into(),
+            claims: 0,
         }]);
         assert!(
             !invariant_violations(&same_chain)
@@ -3492,6 +3519,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
+                claims: 0,
             },
             Operation::Bridge {
                 via: "x3".into(),
@@ -3682,6 +3710,7 @@ mod tests {
                 chain: "ethereum".into(),
                 asset: "ETH".into(),
                 to: "0x1".into(),
+                claims: 0,
             },
         ];
         let outcome = verify_collect(&ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS, None);
@@ -4619,11 +4648,13 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "alice".into(),
+                claims: 0,
             },
             Operation::Release {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "bob".into(),
+                claims: 0,
             },
             Operation::AtomicEnd,
         ];
@@ -4660,6 +4691,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "alice".into(),
+                claims: 0,
             },
             Operation::AtomicEnd,
         ];
@@ -4807,6 +4839,7 @@ mod refund_path_tests {
                 chain: "ethereum".into(),
                 asset: "USDC".into(),
                 to: "0xB1".into(),
+                claims: 0,
             },
             Operation::AtomicEnd,
         ]);
@@ -4851,6 +4884,7 @@ mod refund_path_tests {
                 chain: "ethereum".into(),
                 asset: "ETH".into(),
                 to: "0xB1".into(),
+                claims: 0,
             },
             Operation::AtomicEnd,
         ]);

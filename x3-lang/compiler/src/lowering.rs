@@ -465,6 +465,8 @@ pub fn lower_program_with_mode(
                         chain: atomic.to_asset.chain.as_str().to_string(),
                         asset: atomic.to_asset.name.as_str().to_string(),
                         to: receiver_str,
+                        // The lock above, which is this route's only one.
+                        claims: 0,
                     });
                 }
 
@@ -792,15 +794,18 @@ pub fn lower_program_with_mode(
                 // book binds each party to. The offsets are decided (`netting::verify`)
                 // and this is what executes them.
                 let settled = netting::settlement(netting_decl).map_err(|reason| semantic(&reason))?;
-                // One atomic route per residual transfer, not one for the book. A route
-                // carries one claim (`no_double_claim`), and a `Release` does not name the
-                // lock it claims — so two transfers of the same asset in one route are two
-                // claims a replayer cannot tell apart. Each transfer's own atomicity is
-                // real and complete: lock, release, and a refund if the release does not
-                // happen. What is *not* expressed is settlement of the whole residual set
-                // as one unit, and that needs a release that names its lock (TICKET-080).
-                for transfer in &settled.transfers {
-                    ir.push(Operation::AtomicBegin);
+                // **One atomic route for the whole book**, which is what makes netting valid:
+                // if some residual transfers settle and others do not, the positions that
+                // result are not the positions the offsetting preserved.
+                //
+                // It used to be one route per transfer, because a `Release` named its claim by
+                // asset alone — so two transfers of one asset in a route were two claims no
+                // reader could tell apart, and `no_double_claim` refused them. A book nets
+                // *within* one asset, so that was the normal case rather than a corner. Each
+                // release names its own lock's position among this route's locks now, so the
+                // claims are distinguishable and one route settles the set (TICKET-080).
+                ir.push(Operation::AtomicBegin);
+                for (index, transfer) in settled.transfers.iter().enumerate() {
                     // The debtor's value is locked before it is released: a release with
                     // nothing locked in front of it is a mint, and the pair is the idiom
                     // every other settlement path in this language uses.
@@ -814,14 +819,17 @@ pub fn lower_program_with_mode(
                         chain: transfer.domain.clone(),
                         asset: transfer.asset.clone(),
                         to: transfer.creditor_account.clone(),
+                        // This transfer's own lock, counted among this route's locks in the
+                        // order they are written.
+                        claims: u32::try_from(index)
+                            .map_err(|_| semantic("a book has more transfers than a claim index can name"))?,
                     });
-                    // No refund handler, and none is wanted: a route that fails rolls
-                    // back, so the lock never takes effect and the value never left. A
-                    // handler here would refund an escrow this route claims, which
-                    // `no_refund_after_claim` refuses — correctly, because the handler
-                    // would be describing a path the route cannot reach.
-                    ir.push(Operation::AtomicEnd);
                 }
+                // No refund handler, and none is wanted: a route that fails rolls back, so no
+                // lock takes effect and no value left. A handler here would refund an escrow
+                // this route claims, which `no_refund_after_claim` refuses — correctly,
+                // because the handler would describe a path the route cannot reach.
+                ir.push(Operation::AtomicEnd);
             }
             Item::Arb(arb_decl) => {
                 // The declaration lowers to the *plan*: an atomic block holding the asset
@@ -1213,6 +1221,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 chain: chain_to_string(chain),
                 asset: asset.name.as_str().to_string(),
                 to: expression_to_string(to),
+                claims: 0,
             });
         }
         Statement::Swap {
@@ -1396,6 +1405,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                         chain: chain.to_ascii_lowercase(),
                         asset,
                         to,
+                        claims: 0,
                     });
                 }
             }

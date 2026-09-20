@@ -290,7 +290,7 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
                     return Err(VerifyError::InvalidOperand(pc));
                 }
             }
-            AssetOpPayload::Release { chain, asset, to } => {
+            AssetOpPayload::Release { chain, asset, to, .. } => {
                 if chain.is_empty() || asset.is_empty() || to.is_empty() {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
