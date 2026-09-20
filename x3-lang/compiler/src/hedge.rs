@@ -127,16 +127,19 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
         let exposure = match exposure(decl) {
             Ok(exposure) => exposure,
             Err(reason) => {
-                acc.add_error(err(reason));
+                acc.add_error(coded_error(crate::diagnostic::DiagnosticCode::RiskPolicyBound, reason));
                 continue;
             }
         };
         let Some(bound) = decl.delta_bound_bps else {
-            acc.add_error(err(format!(
-                "the hedge on '{}' states no `require delta <= <pct>` bound, so nothing checks that \
+            acc.add_error(coded_error(
+                crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                format!(
+                    "the hedge on '{}' states no `require delta <= <pct>` bound, so nothing checks that \
                  it hedges anything: the legs are recorded and the net they leave is not claimed",
-                exposure.asset
-            )));
+                    exposure.asset
+                ),
+            ));
             continue;
         };
         let delta = exposure.delta_bps();
@@ -148,22 +151,25 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
             } else {
                 ("short", "long")
             };
-            acc.add_error(err(format!(
-                "the hedge on '{}' leaves a delta of {delta} bps, above the declared bound of {bound} \
+            acc.add_error(coded_error(
+                crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                format!(
+                    "the hedge on '{}' leaves a delta of {delta} bps, above the declared bound of {bound} \
                  bps: {larger} {} against {smaller} {} (of the {} notional being hedged)",
-                exposure.asset,
-                if larger == "long" {
-                    exposure.long
-                } else {
-                    exposure.short
-                },
-                if larger == "long" {
-                    exposure.short
-                } else {
-                    exposure.long
-                },
-                exposure.long.max(exposure.short)
-            )));
+                    exposure.asset,
+                    if larger == "long" {
+                        exposure.long
+                    } else {
+                        exposure.short
+                    },
+                    if larger == "long" {
+                        exposure.short
+                    } else {
+                        exposure.long
+                    },
+                    exposure.long.max(exposure.short)
+                ),
+            ));
         }
     }
 }
@@ -185,11 +191,12 @@ pub fn needs_external_venue(leg: &HedgeLeg) -> bool {
     leg.venue == HedgeVenue::Perp
 }
 
-fn err(message: impl Into<String>) -> X3Error {
-    X3Error::SemanticError {
-        message: message.into(),
-        span: Span::DUMMY,
-    }
+/// A diagnostic with the code for its class (PHASE 52, TICKET-021).
+///
+/// Two arguments rather than three: these modules' diagnostics carry `Span::DUMMY`, because
+/// they are decided from a declaration's own numbers rather than from a source position.
+fn coded_error(code: crate::diagnostic::DiagnosticCode, message: impl Into<String>) -> X3Error {
+    crate::diagnostic::CompilerDiagnostic::error(code, message, Span::DUMMY).into_error()
 }
 
 #[cfg(test)]

@@ -160,16 +160,17 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
             continue;
         };
         if let Err(reason) = portfolio(decl) {
-            acc.add_error(err(reason));
+            acc.add_error(coded_error(crate::diagnostic::DiagnosticCode::TradeDeclaration, reason));
         }
     }
 }
 
-fn err(message: impl Into<String>) -> X3Error {
-    X3Error::SemanticError {
-        message: message.into(),
-        span: Span::DUMMY,
-    }
+/// A diagnostic with the code for its class (PHASE 52, TICKET-021).
+///
+/// Two arguments rather than three: these modules' diagnostics carry `Span::DUMMY`, because
+/// they are decided from a declaration's own numbers rather than from a source position.
+fn coded_error(code: crate::diagnostic::DiagnosticCode, message: impl Into<String>) -> X3Error {
+    crate::diagnostic::CompilerDiagnostic::error(code, message, Span::DUMMY).into_error()
 }
 
 #[cfg(test)]
