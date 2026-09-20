@@ -185,6 +185,12 @@ fn bridge_rejects_undeclared_destination_asset() {
         has_message(&errors, "MISSING_ASSET") && has_message(&errors, "undeclared"),
         "the diagnostic must identify the undeclared destination asset: {errors:?}"
     );
+    // The asset class has a code, and it is the one the catalogue already had for it
+    // (PHASE 52, TICKET-021).
+    assert!(
+        has_message(&errors, "X3E2107"),
+        "an asset that is not the operation's own is the `asset type mismatch` class: {errors:?}"
+    );
 }
 
 #[test]

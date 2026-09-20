@@ -70,7 +70,8 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
         match &item.node {
             Item::AssetDecl(decl) => {
                 if decl.asset.decimals > MAX_DECIMALS {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
                         format!(
                             "asset '{}' declares {} decimals; maximum is {MAX_DECIMALS}",
                             decl.name.as_str(),
@@ -83,7 +84,8 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
                     || decl.asset.chain.as_str().is_empty()
                     || decl.asset.canonical_id.as_str().is_empty()
                 {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
                         format!(
                             "asset '{}' must declare a non-empty vm family, chain, and canonical identifier",
                             decl.name.as_str()
@@ -92,7 +94,8 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
                     ));
                 }
                 if symbols.assets.insert(decl.name.clone(), decl.asset.clone()).is_some() {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
                         format!("duplicate asset declaration '{}'", decl.name.as_str()),
                         item.span,
                     ));
@@ -100,7 +103,8 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
             }
             Item::TradeRiskPolicy(policy) => {
                 if symbols.policies.insert(policy.name.clone(), policy.clone()).is_some() {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
                         format!("duplicate trading risk policy '{}'", policy.name.as_str()),
                         item.span,
                     ));
@@ -145,7 +149,8 @@ fn validate_policy_asset(
         }
     }
     if !Bps::from_raw(u32::from(policy.max_slippage_bps)).is_within_whole() {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::RiskPolicyBound,
             format!(
                 "risk policy '{}' has max_slippage above 10000 bps",
                 policy.name.as_str()
@@ -154,7 +159,8 @@ fn validate_policy_asset(
         ));
     }
     if !Bps::from_raw(u32::from(policy.max_flash_fee_bps)).is_within_whole() {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::RiskPolicyBound,
             format!(
                 "risk policy '{}' has max_flash_fee above 10000 bps",
                 policy.name.as_str()
@@ -166,7 +172,8 @@ fn validate_policy_asset(
 
 fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span: Span, errors: &mut Vec<X3Error>) {
     if !symbols.policies.contains_key(&trade.risk_policy) {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::TradeDeclaration,
             format!(
                 "atomic trade '{}' references unknown risk policy '{}'",
                 trade.name.as_str(),
@@ -185,7 +192,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
             TradeStmt::Borrow { amount, debt, .. } => {
                 validate_amount(amount, &symbols.assets, "borrow amount", span, errors);
                 if debts.insert(debt.0.clone(), amount.asset.clone()).is_some() {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::DebtLifecycle,
                         format!(
                             "atomic trade '{}' declares debt '{}' more than once",
                             trade.name.as_str(),
@@ -217,7 +225,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                     ));
                 }
                 if min_output.asset != *to_asset {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                         format!(
                             "atomic trade '{}' swap min_out is denominated in '{}' but the destination is '{}'",
                             trade.name.as_str(),
@@ -228,7 +237,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                     ));
                 }
                 if !symbols.assets.contains_key(from_asset) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                         format!(
                             "atomic trade '{}' uses undeclared asset '{}'",
                             trade.name.as_str(),
@@ -238,7 +248,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                     ));
                 }
                 if !symbols.assets.contains_key(to_asset) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                         format!(
                             "atomic trade '{}' uses undeclared asset '{}'",
                             trade.name.as_str(),
@@ -249,7 +260,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                 }
                 match referenced_value_asset(&input.value, &bindings, &debts) {
                     Ok(Some((reference, actual))) if actual != *from_asset => {
-                        errors.push(semantic_error(
+                        errors.push(coded_error(
+                            crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                             format!(
                                 "atomic trade '{}' swap source binding is typed '{}', not '{}' (source '{}')",
                                 trade.name.as_str(),
@@ -261,13 +273,15 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                         ));
                     }
                     Ok(_) => {}
-                    Err(message) => errors.push(semantic_error(
+                    Err(message) => errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                         format!("atomic trade '{}': {message}", trade.name.as_str()),
                         span,
                     )),
                 }
                 if bindings.insert(binding.clone(), to_asset.clone()).is_some() {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
                         format!(
                             "atomic trade '{}' binds '{}' more than once",
                             trade.name.as_str(),
@@ -297,7 +311,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                     ));
                 }
                 if !symbols.assets.contains_key(from_asset) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                         format!(
                             "atomic trade '{}' uses undeclared asset '{}'",
                             trade.name.as_str(),
@@ -307,7 +322,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                     ));
                 }
                 if !symbols.assets.contains_key(to_asset) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                         format!(
                             "atomic trade '{}' uses undeclared asset '{}'",
                             trade.name.as_str(),
@@ -318,7 +334,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                 }
                 match referenced_value_asset(&input.value, &bindings, &debts) {
                     Ok(Some((reference, actual))) if actual != *from_asset => {
-                        errors.push(semantic_error(
+                        errors.push(coded_error(
+                            crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                             format!(
                                 "atomic trade '{}' bridge source binding is typed '{}', not '{}' (source '{}')",
                                 trade.name.as_str(),
@@ -330,13 +347,15 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                         ));
                     }
                     Ok(_) => {}
-                    Err(message) => errors.push(semantic_error(
+                    Err(message) => errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                         format!("atomic trade '{}': {message}", trade.name.as_str()),
                         span,
                     )),
                 }
                 if !matches!(receiver, Expression::Literal(LiteralExpr::String(_))) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
                         format!(
                             "atomic trade '{}' bridge receiver must be a string literal address",
                             trade.name.as_str()
@@ -347,7 +366,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
             }
             TradeStmt::Repay { debt } => {
                 if !debts.contains_key(&debt.0) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::DebtLifecycle,
                         format!(
                             "atomic trade '{}' repays undeclared debt '{}'",
                             trade.name.as_str(),
@@ -407,7 +427,8 @@ fn validate_amount(
     errors: &mut Vec<X3Error>,
 ) {
     let Some(asset) = assets.get(&amount.asset) else {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
             format!("{context} references undeclared asset '{}'", amount.asset.as_str()),
             span,
         ));
@@ -415,7 +436,11 @@ fn validate_amount(
     };
     if let Some(literal) = amount_literal_text(&amount.value) {
         if let Err(err) = decimal_to_base_units(&literal, asset.decimals, RoundingMode::Exact) {
-            errors.push(semantic_error(format!("{context}: {err}"), span));
+            errors.push(coded_error(
+                crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
+                format!("{context}: {err}"),
+                span,
+            ));
         }
     }
 }
@@ -492,11 +517,9 @@ pub fn decimal_to_base_units(literal: &str, decimals: u8, rounding: RoundingMode
     x3_lang_common::fixed::apply_rounding(base, discarded_nonzero, rounding).ok_or(TradingTypeError::Overflow)
 }
 
-fn semantic_error(message: impl Into<String>, span: Span) -> X3Error {
-    X3Error::SemanticError {
-        message: message.into(),
-        span,
-    }
+/// A trading diagnostic with the code for its class (PHASE 52, TICKET-021).
+fn coded_error(code: crate::diagnostic::DiagnosticCode, message: impl Into<String>, span: Span) -> X3Error {
+    crate::diagnostic::CompilerDiagnostic::error(code, message, span).into_error()
 }
 
 /// An asset mismatch, with the code the catalogue gives that class

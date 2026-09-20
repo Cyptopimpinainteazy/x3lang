@@ -146,6 +146,13 @@ fn a_body_touching_two_chains_needs_the_cross_domain_permission() {
             .any(|error| error.contains("cross_domain") && error.contains("permission")),
         "doing more than the module declared must be refused: {found:?}"
     );
+    // And it carries the catalogue's code for the class: a build system keys on the code, a
+    // person reads the message, and a code that renders on one check and not another is the
+    // drift the catalogue exists to stop (PHASE 52, TICKET-021).
+    assert!(
+        found.iter().any(|error| error.contains("X3E4025")),
+        "the declaration that its body exceeds is the `declaration` class: {found:?}"
+    );
 }
 
 #[test]

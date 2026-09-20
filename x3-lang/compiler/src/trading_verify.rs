@@ -129,7 +129,7 @@ fn verify_atomic_trade_at_span(
                 stmt,
                 TradeStmt::Borrow { .. } | TradeStmt::Swap { .. } | TradeStmt::Repay { .. }
             ) {
-                errors.push(coded_error(crate::diagnostic::DiagnosticCode::TradingSequence, 
+                errors.push(coded_error(crate::diagnostic::DiagnosticCode::TradingSequence,
                     format!(
                         "atomic trade '{}' has a source-chain statement after bridging via '{}' — nothing can operate on the source chain once its proceeds have moved to another chain",
                         trade.name.as_str(),
@@ -170,7 +170,7 @@ fn verify_atomic_trade_at_span(
                 bridged = Some(via.clone());
                 if let (Some(from), Some(to)) = (symbols.assets.get(from_asset), symbols.assets.get(to_asset)) {
                     if from.chain.as_str() == to.chain.as_str() {
-                        errors.push(coded_error(crate::diagnostic::DiagnosticCode::TradingSequence, 
+                        errors.push(coded_error(crate::diagnostic::DiagnosticCode::TradingSequence,
                             format!(
                                 "atomic trade '{}' bridges '{}' to '{}', both on chain '{}' — a bridge must move between two different chains",
                                 trade.name.as_str(),
@@ -326,7 +326,7 @@ fn enforce_policy_bounds(
         ));
     }
     if mode == CompilationMode::Mainnet && policy.require_private_submission {
-        errors.push(coded_error(crate::diagnostic::DiagnosticCode::RiskPolicyBound, 
+        errors.push(coded_error(crate::diagnostic::DiagnosticCode::RiskPolicyBound,
             format!(
                 "risk policy '{}' requires private submission but no production private-submission capability is attested",
                 policy.name.as_str()
@@ -384,7 +384,7 @@ fn check_same_chain(
         None => *trade_chain = Some((chain, symbol.clone())),
         Some((expected_chain, first_symbol)) => {
             if *expected_chain != chain {
-                errors.push(coded_error(crate::diagnostic::DiagnosticCode::AssetTypeMismatch, 
+                errors.push(coded_error(crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                     format!(
                         "atomic trade '{trade_name}' mixes chains: '{}' is on '{expected_chain}' but '{}' is on '{chain}' — a plain swap/borrow is single-chain; cross-chain movement needs a bridge, not this asset reference",
                         first_symbol.as_str(),

@@ -45,13 +45,6 @@ use x3_lang_ast::trading::{TradeEffect, TradeGuarantee};
 /// rather than spelled as a literal (PHASE 43).
 const MAX_BPS: u32 = Bps::WHOLE.raw();
 
-fn err(message: String) -> X3Error {
-    X3Error::SemanticError {
-        message,
-        span: x3_lang_common::Span::DUMMY,
-    }
-}
-
 /// A diagnostic a build system can key on: the code says *what kind* of thing is
 /// wrong, which a message cannot (PHASE 52, TICKET-021). The effects and
 /// guarantees checks below report as `X3E4021` — "unresolved economic effect" —
@@ -118,50 +111,71 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
 
         // ── the declarations that are simply required ──────────────────────
         if module.inputs.is_empty() {
-            acc.add_error(err(format!(
-                "strategy '{name}' declares no input; a reusable module that does not say what it is \
+            acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                format!(
+                    "strategy '{name}' declares no input; a reusable module that does not say what it is \
                  handed cannot be instantiated"
-            )));
+                ),
+            ));
         }
         for input in &module.inputs {
             if input.amount.is_none() {
-                acc.add_error(err(format!(
-                    "strategy '{name}' input {}.{} states no amount; capital nobody bounded is capital \
+                acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "strategy '{name}' input {}.{} states no amount; capital nobody bounded is capital \
                      nobody agreed to",
-                    input.asset.chain.as_str(),
-                    input.asset.name.as_str()
-                )));
+                        input.asset.chain.as_str(),
+                        input.asset.name.as_str()
+                    ),
+                ));
             }
         }
         if module.outputs.is_empty() {
-            acc.add_error(err(format!(
-                "strategy '{name}' declares no output; a module that does not say what it produces \
+            acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                format!(
+                    "strategy '{name}' declares no output; a module that does not say what it produces \
                  cannot be composed"
-            )));
+                ),
+            ));
         }
         if module.domains.is_empty() {
-            acc.add_error(err(format!(
-                "strategy '{name}' declares no required domains; the plan cannot know which VMs it \
+            acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                format!(
+                    "strategy '{name}' declares no required domains; the plan cannot know which VMs it \
                  needs"
-            )));
+                ),
+            ));
         }
         match &module.risk {
-            None => acc.add_error(err(format!(
-                "strategy '{name}' declares no risk profile; the bounds it accepts are part of the \
+            None => acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                format!(
+                    "strategy '{name}' declares no risk profile; the bounds it accepts are part of the \
                  module, not an operator's setting"
-            ))),
+                ),
+            )),
             Some(risk) => {
                 if risk.max_slippage_bps > MAX_BPS {
-                    acc.add_error(err(format!(
-                        "strategy '{name}' declares max_slippage_bps {}, above {MAX_BPS}",
-                        risk.max_slippage_bps
-                    )));
+                    acc.add_error(coded_err(
+                        crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                        format!(
+                            "strategy '{name}' declares max_slippage_bps {}, above {MAX_BPS}",
+                            risk.max_slippage_bps
+                        ),
+                    ));
                 }
                 if risk.max_total_fee_bps > MAX_BPS {
-                    acc.add_error(err(format!(
-                        "strategy '{name}' declares max_total_fee_bps {}, above {MAX_BPS}",
-                        risk.max_total_fee_bps
-                    )));
+                    acc.add_error(coded_err(
+                        crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                        format!(
+                            "strategy '{name}' declares max_total_fee_bps {}, above {MAX_BPS}",
+                            risk.max_total_fee_bps
+                        ),
+                    ));
                 }
             }
         }
@@ -170,16 +184,23 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
             module.max_gas.as_ref().and_then(expression_to_u128),
         ) {
             (Some(steps), _) if steps > 0 => {}
-            (Some(_), _) => acc.add_error(err(format!("strategy '{name}' bounds max_steps at zero"))),
-            (None, _) => acc.add_error(err(format!(
-                "strategy '{name}' declares no max_steps bound; an unbounded module is not a bounded \
+            (Some(_), _) => acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                format!("strategy '{name}' bounds max_steps at zero"),
+            )),
+            (None, _) => acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                format!(
+                    "strategy '{name}' declares no max_steps bound; an unbounded module is not a bounded \
                  strategy"
-            ))),
+                ),
+            )),
         }
         if module.max_gas.is_none() {
-            acc.add_error(err(format!(
-                "strategy '{name}' declares no max_gas bound; resource bounds are part of the module"
-            )));
+            acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                format!("strategy '{name}' declares no max_gas bound; resource bounds are part of the module"),
+            ));
         }
 
         // ── effects, discharged by the body ───────────────────────────────
@@ -232,22 +253,28 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
         // ── permissions: the body may not exceed them ─────────────────────
         let body_chains = chains(&statements);
         if body_chains.len() > 1 && !module.permissions.contains(&StrategyPermission::CrossDomain) {
-            acc.add_error(err(format!(
-                "strategy '{name}' `execute` touches {} chains ({}) but the module does not declare \
+            acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                format!(
+                    "strategy '{name}' `execute` touches {} chains ({}) but the module does not declare \
                  the `cross_domain` permission",
-                body_chains.len(),
-                body_chains.iter().cloned().collect::<Vec<_>>().join(", ")
-            )));
+                    body_chains.len(),
+                    body_chains.iter().cloned().collect::<Vec<_>>().join(", ")
+                ),
+            ));
         }
         if statements
             .iter()
             .any(|statement| matches!(statement, Statement::Allow { .. }))
             && !module.permissions.contains(&StrategyPermission::IntentFusion)
         {
-            acc.add_error(err(format!(
-                "strategy '{name}' `execute` opts into intent fusion but the module does not declare \
+            acc.add_error(coded_err(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                format!(
+                    "strategy '{name}' `execute` opts into intent fusion but the module does not declare \
                  the `intent_fusion` permission"
-            )));
+                ),
+            ));
         }
 
         // ── required domains: every chain the body reaches must be declared ─
@@ -258,11 +285,14 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
             .collect();
         for chain in &body_chains {
             if !declared.contains(chain) {
-                acc.add_error(err(format!(
-                    "strategy '{name}' `execute` touches chain '{chain}' but the module's domains do \
+                acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "strategy '{name}' `execute` touches chain '{chain}' but the module's domains do \
                      not include it; a module that reaches a chain it never listed has not declared \
                      its requirements"
-                )));
+                    ),
+                ));
             }
         }
 
@@ -276,28 +306,37 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
         if let Some(split) = &module.split {
             let total: u32 = split.shares.iter().map(|(_, bps)| *bps).sum();
             if total != MAX_BPS {
-                acc.add_error(err(format!(
-                    "strategy '{name}' profit split totals {total} bps, not 10_000; a split that does \
+                acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "strategy '{name}' profit split totals {total} bps, not 10_000; a split that does \
                      not add up is distributing something it does not have, or leaving part of the \
                      profit unassigned"
-                )));
+                    ),
+                ));
             }
             let mut seen: Vec<&str> = Vec::new();
             for (recipient, bps) in &split.shares {
                 if seen.contains(&recipient.as_str()) {
-                    acc.add_error(err(format!(
-                        "strategy '{name}' profit split names '{}' twice; the shares would be \
+                    acc.add_error(coded_err(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                        format!(
+                            "strategy '{name}' profit split names '{}' twice; the shares would be \
                          ambiguous",
-                        recipient.as_str()
-                    )));
+                            recipient.as_str()
+                        ),
+                    ));
                 }
                 seen.push(recipient.as_str());
                 if *bps == 0 {
-                    acc.add_error(err(format!(
-                        "strategy '{name}' profit split gives '{}' nothing; leave the recipient out \
+                    acc.add_error(coded_err(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                        format!(
+                            "strategy '{name}' profit split gives '{}' nothing; leave the recipient out \
                          rather than writing a zero share",
-                        recipient.as_str()
-                    )));
+                            recipient.as_str()
+                        ),
+                    ));
                 }
             }
 
@@ -312,11 +351,14 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
                 _ => false,
             });
             if !has_floor {
-                acc.add_error(err(format!(
-                    "strategy '{name}' splits profit but asserts no profit floor; distribution \
+                acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "strategy '{name}' splits profit but asserts no profit floor; distribution \
                      happens after final net profit is known, so the body has to say what that is \
                      (`require profit >= <amount>`)"
-                )));
+                    ),
+                ));
             }
 
             // The royalty the licence promises must be a share the split pays.
@@ -330,37 +372,49 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
                     .map(|(_, bps)| *bps)
                     .unwrap_or(0);
                 if paid < license.profit_share_bps {
-                    acc.add_error(err(format!(
-                        "strategy '{name}' licence grants the author {} bps of profit but the split \
+                    acc.add_error(coded_err(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                        format!(
+                            "strategy '{name}' licence grants the author {} bps of profit but the split \
                          pays {} bps; the royalty has to be a share the split actually pays",
-                        license.profit_share_bps, paid
-                    )));
+                            license.profit_share_bps, paid
+                        ),
+                    ));
                 }
             }
         } else if let Some(license) = &module.license {
             // A licence that grants a profit share and no split to pay it from
             // is the same unkept promise, one step earlier.
             if license.profit_share_bps > 0 {
-                acc.add_error(err(format!(
-                    "strategy '{name}' licence grants the author {} bps of profit but the module \
+                acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "strategy '{name}' licence grants the author {} bps of profit but the module \
                      declares no `split profit`; there is nothing for the royalty to be paid from",
-                    license.profit_share_bps
-                )));
+                        license.profit_share_bps
+                    ),
+                ));
             }
         }
 
         if let Some(license) = &module.license {
             if license.profit_share_bps > MAX_BPS {
-                acc.add_error(err(format!(
-                    "strategy '{name}' licence share {} bps exceeds {MAX_BPS}",
-                    license.profit_share_bps
-                )));
+                acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                    format!(
+                        "strategy '{name}' licence share {} bps exceeds {MAX_BPS}",
+                        license.profit_share_bps
+                    ),
+                ));
             }
             if license.executions == Some(0) {
-                acc.add_error(err(format!(
-                    "strategy '{name}' licence grants zero executions; that is not a licence to run \
+                acc.add_error(coded_err(
+                    crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "strategy '{name}' licence grants zero executions; that is not a licence to run \
                      the module"
-                )));
+                    ),
+                ));
             }
         }
 
@@ -384,12 +438,15 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
                                 .flatten()
                         }) {
                             if bound > u128::from(risk.max_slippage_bps) {
-                                acc.add_error(err(format!(
-                                    "strategy '{name}' `execute` relies on `require slippage <= \
+                                acc.add_error(coded_err(
+                                    crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                                    format!(
+                                        "strategy '{name}' `execute` relies on `require slippage <= \
                                      {bound}`, above the module's declared max_slippage_bps {}; the \
                                      risk profile has to bound what the body accepts",
-                                    risk.max_slippage_bps
-                                )));
+                                        risk.max_slippage_bps
+                                    ),
+                                ));
                             }
                         }
                     }
