@@ -1361,16 +1361,30 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 // guard because the guard tests `r0` and nothing else writes it.
                 ir.push(Operation::NonceUnused { nonce });
             }
+            // An economic guard is enforced by the VM against what the host measured — that is
+            // what the language says it is for ("economic constraints enforced by the VM"), and
+            // it is what the plan-generated floors have done since TICKET-106. Without this the
+            // guard was a `STATIC` record with threshold **zero**: measured on the corpus,
+            // `require slippage <= 7` and `require slippage <= 99` compiled to byte-identical
+            // artifacts, so the bound reached neither the artifact nor the runtime.
+            //
+            // The bound travels in the instruction's operand, which is where a measured guard's
+            // threshold goes, so it has to be basis points — the same reading the linter and the
+            // risk-policy check already give a guard's literal. A guard whose direction is not the
+            // one its quantity means (`slippage >= n`, `profit <= n`) is left as the static record
+            // it was: those are refused where they matter, and inverting the comparison here would
+            // enforce the opposite of what the program wrote.
+            let enforced = enforceable_economic_guard(guard);
             ir.push(Operation::Require {
                 kind: require_kind_to_ir(&guard.kind),
                 subject: guard.subject.as_ref().map(|s| s.as_str().to_string()),
-                condition: guard_condition(guard)?,
+                condition: guard_condition(enforced.as_ref().unwrap_or(guard))?,
                 error_msg: None,
-                measured: false,
+                measured: enforced.is_some(),
                 comparison: guard.comparison,
             });
         }
-        Statement::RouteFallback { replacements, .. } => {
+        Statement::RouteFallback { replacements, requires } => {
             // The approvals are the record. Each one was verified as a route in
             // its own right by `verify_route_fallbacks` before lowering ran, so
             // this arm only materialises the list the artifact has to carry —
@@ -1381,6 +1395,25 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                     .map(|replacement| replacement.venue.as_str().to_string())
                     .collect(),
             });
+            // The block's own bounds are guards, and they were lowered to **nothing**: this arm
+            // destructured the list away with `..`, so `fallback { require profit >= 0 }` reached
+            // neither the artifact nor the runtime. The slippage half is still enforced where it
+            // is decided — every approved venue's declared slippage is checked against the bound
+            // before the list is admitted (`verify_route_fallbacks`) — but a bound on what the
+            // substitution *realises* is a post-condition on the trade, and the same guard is a
+            // measured one outside the block, so dropping it here made the block the one place a
+            // guard meant less.
+            for guard in requires {
+                let enforced = enforceable_economic_guard(guard);
+                ir.push(Operation::Require {
+                    kind: require_kind_to_ir(&guard.kind),
+                    subject: guard.subject.as_ref().map(|s| s.as_str().to_string()),
+                    condition: guard_condition(enforced.as_ref().unwrap_or(guard))?,
+                    error_msg: None,
+                    measured: enforced.is_some(),
+                    comparison: guard.comparison,
+                });
+            }
         }
         Statement::Allow { feature } => {
             // The consent is the point, so it goes in the artifact. An opt-in
@@ -2053,6 +2086,41 @@ fn bps_guard(guard: &arb::Guard) -> ast::RequireGuard {
             suffix: None,
         })),
     }
+}
+
+/// The guard with its bound stated in basis points, when the VM is the thing that enforces it.
+///
+/// `None` means "the static record it already was". Two quantities are enforced by the VM — a
+/// slippage ceiling and a profit floor — because they are the two the host measures and reports
+/// (PHASE 7's native risk policy, and the spec's "economic constraints enforced by the VM"). Every
+/// other guard kind is a claim about the artifact's *configuration*, which the compile-time pass
+/// for that kind decides, and its bound stays where the pass read it.
+///
+/// The unit is basis points because the bound becomes the instruction's operand and the executor
+/// compares it against a measurement in basis points. The reading of a bare number is the one the
+/// linter and the risk-policy check already use, so `require slippage <= 50` and
+/// `risk_policy { max_slippage 50 }` mean the same figure rather than two.
+fn enforceable_economic_guard(guard: &ast::RequireGuard) -> Option<ast::RequireGuard> {
+    let comparison = guard.comparison?;
+    let is_ceiling = comparison.is_upper_bound();
+    let wanted_ceiling = match guard.kind {
+        ast::RequireKind::Slippage => true,
+        ast::RequireKind::Profit => false,
+        _ => return None,
+    };
+    if is_ceiling != wanted_ceiling {
+        return None;
+    }
+    let bound = crate::semantic::slippage_bps_from_text(&expression_to_string(guard.value.as_ref()?))?;
+    let bound = u16::try_from(bound).ok()?;
+    Some(ast::RequireGuard {
+        value: Some(Expression::Literal(LiteralExpr::Int {
+            value: u128::from(bound),
+            base: x3_lang_common::IntBase::Decimal,
+            suffix: None,
+        })),
+        ..guard.clone()
+    })
 }
 
 fn require_kind_to_ir(kind: &ast::RequireKind) -> ir::RequireKind {

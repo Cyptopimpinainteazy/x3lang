@@ -35,6 +35,10 @@ fn run_pipeline(source: &str) -> Result<Vec<u8>, String> {
 
 fn assert_vm_executes(bytecode: Vec<u8>) {
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000u128);
+    // These fixtures write economic guards (`require slippage <= 50`), and a guard is judged
+    // against what a host measured rather than assumed, so the caller states the outcome: no
+    // slippage and a profit above the floors the fixtures write.
+    vm.report_outcome(Some(10), Some(0), None);
     vm.execute()
         .expect("VM must execute atomic bytecode successfully — AtomicBegin/AtomicEnd are wired");
 }

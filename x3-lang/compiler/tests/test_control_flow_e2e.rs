@@ -22,6 +22,12 @@ const GAS: u128 = 1_000_000;
 fn run(source: &str) -> VM {
     let bytecode = compile_source(source).unwrap_or_else(|e| panic!("source compilation failed: {e:?}"));
     let mut vm = VM::new(bytecode, VMConfig::default(), GAS);
+    // A program with an economic guard is judged against what a host measured — that is what makes
+    // the guard enforced rather than recorded — so a dry run has to *state* the market outcome the
+    // way a host would. The figures are the ones these fixtures' guards ask for: no slippage, and
+    // the 5bps floor the strategy below writes, because a run that realised nothing does not
+    // satisfy a floor and the VM says so.
+    vm.report_outcome(Some(10), Some(0), None);
     vm.execute().unwrap_or_else(|e| panic!("VM execution failed: {e:?}"));
     vm
 }
@@ -125,6 +131,9 @@ fn a_swap_intent_runs_and_its_asset_operations_reach_the_state() {
     assert!(!bytecode.is_empty(), "swap bytecode should not be empty");
 
     let mut vm = VM::new(bytecode, VMConfig::default(), GAS);
+    // `require slippage <= 50` is a measured guard, so the caller states the slippage the run
+    // realised; without one the VM refuses rather than assuming a number nobody measured.
+    vm.report_outcome(Some(0), Some(0), None);
     vm.execute()
         .expect("the intent runs; a bridge would answer a dry-run host call, not fail the VM");
     // The property: the intent's operations reach the VM's state rather than being recorded and

@@ -29,6 +29,10 @@ fn compiled(source: &str) -> Vec<u8> {
 fn vm_with(bytecode: Vec<u8>, used: &[&str]) -> VM {
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
     vm.state.used_nonces = used.iter().map(|nonce| nonce.to_string()).collect();
+    // The fixtures carry `require slippage <= 50` alongside the nonce guard, and a measured guard
+    // is judged against what a host reported — so the caller states the outcome. These tests are
+    // about the nonce, and the slippage is stated to satisfy its ceiling rather than to be tested.
+    vm.report_outcome(Some(10), Some(0), None);
     vm
 }
 

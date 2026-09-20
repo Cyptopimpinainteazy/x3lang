@@ -75,6 +75,9 @@ fn an_artifact_that_carries_a_settlement_record_still_executes() {
     verify(&InstructionStream::new(bytecode.clone())).expect("a carried declaration must verify");
 
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
+    // The fixture writes `require slippage <= 50`, a measured guard, so the run states the
+    // slippage it realised — the same way a host does.
+    vm.report_outcome(Some(10), Some(0), None);
     vm.execute()
         .expect("recording how a leg settles must not stop the leg from executing");
 }
@@ -149,5 +152,6 @@ fn a_venue_that_states_no_settlement_is_well_formed() {
     );
     verify(&InstructionStream::new(bytecode.clone())).expect("no shape stated is a valid record");
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
+    vm.report_outcome(Some(10), Some(0), None);
     vm.execute().expect("and it must run");
 }

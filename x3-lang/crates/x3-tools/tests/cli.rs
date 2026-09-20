@@ -482,7 +482,15 @@ fn cli_run_executes_atomic_bytecode_successfully() {
         .arg(&bytecode)
         .status()
         .expect("build");
-    let out = x3c().arg("run").arg(&bytecode).output().expect("x3c run");
+    // `GOOD_SOURCE` writes `require slippage <= 50`, which the VM judges against what a host
+    // measured — so the run states the slippage it realised rather than leaving the guard to pass
+    // on a number nobody took.
+    let out = x3c()
+        .arg("run")
+        .args(["--measured-slippage-bps", "0"])
+        .arg(&bytecode)
+        .output()
+        .expect("x3c run");
     assert!(
         out.status.success(),
         "run must succeed — AtomicBegin/AtomicEnd are wired, got stdout: {}, stderr: {}",
@@ -1859,26 +1867,32 @@ fn cli_lowers_a_liquidation_to_its_calls_and_runs_it() {
         )
     };
 
-    // A venue that reported nothing does not satisfy it.
-    let unmeasured = run(&[]);
+    // A venue that reported nothing does not satisfy it. The slippage *is* stated, because the
+    // program writes its own ceiling (`require slippage <= 50`) and that guard is judged first —
+    // leaving it unstated would make this test about the wrong guard.
+    let unmeasured = run(&["--measured-slippage-bps", "0"]);
     assert!(
         unmeasured.contains("X3_GUARD_UNMEASURED") && unmeasured.contains("profit >= 100bps"),
         "an unmeasured net must refuse rather than pass: {unmeasured}"
     );
 
-    // A net at or above the floor settles. Stated *without* a slippage, because a liquidation
-    // states a floor and no ceiling — the pair rule that used to require both is what made
-    // this program's own quantity unstateable.
-    let cleared = run(&["--measured-profit-bps", "100"]);
+    // A net at or above the floor settles. The *plan* states a floor and no ceiling — the pair
+    // rule that used to require both is what made this program's own quantity unstateable — but
+    // the program writes a ceiling of its own, and a ceiling is judged, so the slippage is stated
+    // too. Stating it is the caller's half of a guard the VM enforces; leaving it out would make
+    // this case about the ceiling rather than the floor.
+    let cleared = run(&["--measured-profit-bps", "100", "--measured-slippage-bps", "0"]);
     assert!(
         cleared.contains("x3c run: ok"),
-        "a net at the floor must settle, and a profit must be stateable without a slippage: {cleared}"
+        "a net at the floor must settle: {cleared}"
     );
 
     // And a seizure that realised less than the floor is refused **at the guard**, which is
     // the half the compiler's own check cannot see: it knows the declared `min_output`, not
     // what the venue did.
-    let short = run(&["--measured-profit-bps", "40"]);
+    // The slippage is stated for the same reason as above: the program's own ceiling is judged
+    // before the plan's floor, and this case is about the floor.
+    let short = run(&["--measured-profit-bps", "40", "--measured-slippage-bps", "0"]);
     assert!(
         short.contains("X3_PROFIT_BELOW_FLOOR")
             && short.contains("realised 40bps")
@@ -3048,11 +3062,14 @@ fn cli_enforces_a_plans_floor_against_a_measured_outcome() {
         "the refusal must give what was realised and what was required: {below}"
     );
 
-    // Measured above the slippage ceiling: refused, with both figures.
-    let slippy = run(&["--measured-profit-bps", "100", "--measured-slippage-bps", "90"]);
+    // Measured above the *plan's* ceiling: refused, with both figures. The figure is 40 rather
+    // than 90 because the program writes a ceiling of its own (`require slippage <= 50`), and a
+    // slippage that breaks both would be refused by whichever instruction comes first — which is
+    // the program's guard, not the plan's floor this case is about.
+    let slippy = run(&["--measured-profit-bps", "100", "--measured-slippage-bps", "40"]);
     assert!(
         slippy.contains("X3_SLIPPAGE_ABOVE_CEILING")
-            && slippy.contains("realised 90bps")
+            && slippy.contains("realised 40bps")
             && slippy.contains("at most 8bps"),
         "the refusal must give what was realised and what was allowed: {slippy}"
     );
@@ -3098,7 +3115,18 @@ fn cli_enforces_a_plans_floor_against_a_measured_outcome() {
         .output()
         .expect("x3c build");
     assert!(build.status.success(), "the source-guard program must build");
-    let output = x3c().arg("run").arg(&source_artifact).output().expect("x3c run");
+    // A program's own economic guard is judged by the VM against what the host measured, so the
+    // run states the slippage it realised. This case used to assert the opposite — that such a
+    // guard was a compile-time constraint and the run proceeded unmeasured — which was true while
+    // the emitter recorded the guard with a threshold of zero and the executor treated every
+    // static guard as satisfied. The spec's rule for these two kinds is that they are "enforced by
+    // the VM", so the unmeasured case is a refusal now and the measured one is the success.
+    let output = x3c()
+        .arg("run")
+        .args(["--measured-slippage-bps", "0"])
+        .arg(&source_artifact)
+        .output()
+        .expect("x3c run");
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -3106,7 +3134,22 @@ fn cli_enforces_a_plans_floor_against_a_measured_outcome() {
     );
     assert!(
         output.status.success() && text.contains("x3c run: ok"),
-        "a program's own guard is a compile-time constraint and must still run unmeasured: {text}"
+        "a program's own slippage ceiling is enforced against the stateable outcome, which is what \
+         makes it a constraint rather than a record: {text}"
+    );
+    // And the half that makes the previous assertion mean something: nothing stated is a refusal,
+    // not a pass.
+    let unmeasured = x3c().arg("run").arg(&source_artifact).output().expect("x3c run");
+    let unmeasured_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&unmeasured.stdout),
+        String::from_utf8_lossy(&unmeasured.stderr)
+    );
+    assert!(
+        !unmeasured.status.success()
+            && unmeasured_text.contains("X3_GUARD_UNMEASURED")
+            && unmeasured_text.contains("slippage <= 50bps"),
+        "an unmeasured slippage must refuse rather than pass: {unmeasured_text}"
     );
 }
 
@@ -3184,9 +3227,12 @@ fn cli_branches_on_a_quantity_a_host_measured() {
             .unwrap_or_else(|| panic!("no gas figure in: {report}"))
     };
 
-    let (ok, entered) = run(&["--measured-profit-bps", "25"]);
+    // The slippage is stated because the fixture carries the language's own ceiling
+    // (`require slippage <= 50`) as well as the branch's bound, and a measured guard refuses when
+    // nothing reported the quantity it compares.
+    let (ok, entered) = run(&["--measured-profit-bps", "25", "--measured-slippage-bps", "0"]);
     assert!(ok, "25 is at or above the bound, so the body runs: {entered}");
-    let (ok, skipped) = run(&["--measured-profit-bps", "5"]);
+    let (ok, skipped) = run(&["--measured-profit-bps", "5", "--measured-slippage-bps", "0"]);
     assert!(ok, "5 is below the bound, so the empty branch runs: {skipped}");
     assert!(
         gas_of(&skipped) > gas_of(&entered),
@@ -3196,11 +3242,18 @@ fn cli_branches_on_a_quantity_a_host_measured() {
         gas_of(&entered)
     );
 
-    // And nothing measured refuses rather than choosing a path nobody measured.
-    let (ok, unmeasured) = run(&[]);
+    // And nothing measured refuses rather than choosing a path nobody measured — with the
+    // slippage stated, so the guard that refuses is the branch's quantity and not the program's
+    // ceiling, which is checked first.
+    // Nothing measured refuses rather than choosing a path nobody measured. The refusal names the
+    // program's own floor rather than the branch's bound, and that is the design: the floor is an
+    // instruction before the branch and reads the same quantity, so an unmeasured profit is refused
+    // at the guard — the branch is unreachable unmeasured, which is stronger than a branch that
+    // declines to decide.
+    let (ok, unmeasured) = run(&["--measured-slippage-bps", "0"]);
     assert!(!ok, "an unmeasured branch must not pick a path: {unmeasured}");
     assert!(
-        unmeasured.contains("X3_GUARD_UNMEASURED") && unmeasured.contains("profit >= 20bps"),
+        unmeasured.contains("X3_GUARD_UNMEASURED") && unmeasured.contains("profit >= 5bps"),
         "and must say which quantity and which bound: {unmeasured}"
     );
 }

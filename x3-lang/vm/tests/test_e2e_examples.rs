@@ -338,6 +338,9 @@ fn b52_simple_executes_through_vm() {
     let src = example_source("simple_swap.x3");
     let bytecode = compile_source(&src).expect("simple_swap.x3 should compile");
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000u128);
+    // The example writes an economic guard (`require slippage <= 50`), which the VM judges
+    // against what a host measured: a dry run states the outcome rather than assuming one.
+    vm.report_outcome(Some(10), Some(0), None);
     vm.execute().expect("simple_swap VM execution should succeed");
 }
 
@@ -377,6 +380,9 @@ fn a_guard_first_program_verifies_and_runs() {
     );
 
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
+    // The example writes an economic guard (`require slippage <= 50`), which the VM judges
+    // against what a host measured: a dry run states the outcome rather than assuming one.
+    vm.report_outcome(Some(10), Some(0), None);
     vm.execute().expect("the executor must run it");
 }
 
@@ -423,6 +429,9 @@ fn the_readers_visit_exactly_the_instructions_the_writer_wrote() {
     );
 
     let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
+    // The example writes an economic guard (`require slippage <= 50`), which the VM judges
+    // against what a host measured: a dry run states the outcome rather than assuming one.
+    vm.report_outcome(Some(10), Some(0), None);
     vm.execute().expect("the executor must run it");
     assert_eq!(
         vm.state.instruction_count, emitted as u128,
