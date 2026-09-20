@@ -30,6 +30,7 @@ be readable, so the three drifts above cannot come back unnoticed.
 """
 
 import glob
+import importlib
 import os
 import sys
 from pathlib import Path
@@ -113,25 +114,31 @@ def test_every_example_the_suite_uses_is_readable_by_this_surface():
 #: this surface refuses (`X3_PARSE_RECEIVER`, the address shape — TICKET-091) and three are guard
 #: kinds outside `registry.REQUIRE_KINDS`. The assertion is that the boundary is *known*.
 READS = {
+    "arb_scope.x3",
     "arb_solana_eth.x3",
+    "intent_fusion.x3",
+    "multi_leg_route.x3",
+    "route_fallback.x3",
+    "simple_swap.x3",
+    "staking_intent.x3",
     "timeout_refund.x3",
     "timeout_refund_minimal.x3",
 }
 
+#: The rest are refused for **one** reason now, and it is the stated scope rather than drift: a
+#: file whose subject is a compiler program (a bare `atomic_choice`, `strategy`, `parallel`, …)
+#: has no `intent` to offer this surface. It used to be three reasons — an address shape and a
+#: guard-kind list stricter than the language's, and a `fallback` block that was a route step the
+#: compiler has and this surface did not — and those are gone (TICKET-091). A refusal that is not
+#: this one is a drift and belongs in the table above.
 REFUSES = {
-    "arb_scope.x3": "X3_PARSE_RECEIVER",
     "atomic_choice.x3": "X3_PARSE_NO_INTENT",
     "atomic_swap.x3": "X3_PARSE_NO_INTENT",
     "flagship_b52.x3": "X3_PARSE_NO_INTENT",
-    "intent_fusion.x3": "X3_PARSE_RECEIVER",
     "mainnet_safe_swap.x3": "X3_PARSE_NO_INTENT",
-    "multi_leg_route.x3": "X3_PARSE_REQUIRE",
     "objective_routing.x3": "X3_PARSE_NO_INTENT",
     "opportunity_graph.x3": "X3_PARSE_NO_INTENT",
     "parallel_dag.x3": "X3_PARSE_NO_INTENT",
-    "route_fallback.x3": "X3_PARSE_OPERATION",
-    "simple_swap.x3": "X3_PARSE_REQUIRE",
-    "staking_intent.x3": "X3_PARSE_REQUIRE",
     "strategy_module.x3": "X3_PARSE_NO_INTENT",
     "trading_core_v1.x3": "X3_PARSE_NO_INTENT",
     "trading_effects.x3": "X3_PARSE_NO_INTENT",
@@ -172,4 +179,44 @@ def test_the_accept_refuse_set_is_what_this_surface_reads():
         "the boundary this surface draws moved. If that is intended, move the entry with it — "
         "the numbers are the point, because a file that *starts* being read is as much a change "
         "as one that stops:\n  " + "\n  ".join(wrong)
+    )
+
+
+def test_the_guard_kind_vocabulary_is_the_compilers():
+    """The guard names this surface knows are the compiler's, not a subset of them.
+
+    This is the drift TICKET-091 is about, and the reason it is a *test* rather than a comment:
+    the surface knew nine of the compiler's eighteen names, so it refused `require route_score >=
+    90` — written by three shipped examples the compiler accepts — as a malformed guard. A
+    hand-maintained list in one language cannot be kept equal to a list in another by care, so the
+    Rust array is read here and compared.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    parser = (root / "compiler" / "src" / "parser.rs").read_text()
+    match = re.search(r"pub const REQUIRE_KIND_NAMES: &\[&str\] = &\[(.*?)\];", parser, re.S)
+    assert match, (
+        "the compiler's guard-kind list was not found in compiler/src/parser.rs — if it moved, "
+        "this test is reading the wrong file and would pass vacuously"
+    )
+    compiler_kinds = set(re.findall(r'"([a-z_]+)"', match.group(1)))
+    assert len(compiler_kinds) > 10, (
+        f"found {len(compiler_kinds)} names, which is too few to be the compiler's list: "
+        f"{sorted(compiler_kinds)}"
+    )
+
+    registry = importlib.import_module("registry")
+    ours = set(registry.REQUIRE_KINDS)
+    # The one name this surface has that the compiler does not, deliberately: it read `proof`
+    # before the compiler called the guard `proof_complete`, and both spellings are accepted so a
+    # program written against either works. It is named here so it cannot grow into a habit.
+    ours_aliases = {"proof"}
+
+    assert ours - ours_aliases == compiler_kinds, (
+        "the guard kinds this surface knows have drifted from the compiler's.\n"
+        f"  only here: {sorted(ours - ours_aliases - compiler_kinds)}\n"
+        f"  only there: {sorted(compiler_kinds - ours)}\n"
+        "A name the compiler has and this surface does not is a guard it refuses that the "
+        "language accepts — which is refusing a shipped example."
     )

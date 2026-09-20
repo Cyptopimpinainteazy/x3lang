@@ -37,16 +37,38 @@ SUPPORTED_OPERATIONS = {'swap', 'bridge', 'lock', 'mint', 'burn', 'release'}
 # compiler's kind list has no `proof`, so `require proof verified` is refused there. Both
 # spellings are read so a program written against either works, and which one the source
 # used is preserved rather than rewritten.
+#
+# **These names are the compiler's**, and that is a fact a test asserts rather than a comment:
+# `compiler/src/parser.rs::REQUIRE_KIND_NAMES` is the list, and `tests/test_surface_drift.py`
+# reads it and compares. The two had drifted — this surface knew nine of the eighteen, so
+# `require route_score >= 90`, which three shipped examples use and the compiler accepts, was
+# refused here as `malformed require 'route_score'` (TICKET-091). A guard kind this surface
+# does not *model* is still carried: `runner.rust_intent_envelope` passes `requires` through to
+# the compiler verbatim, so refusing one was the surface claiming authority over a list it does
+# not own.
 REQUIRE_KINDS = {
     'finality',
     'slippage',
     'profit',
+    'invariant',
+    'risk',
     'nonce',
-    'proof',
-    'proof_complete',
+    'audit_gate',
     'bridge_liquidity',
     'canonical_supply',
-    'invariant',
+    'relayer_quorum',
+    'route_score',
+    'solver_bond',
+    'proof_complete',
+    'refund_path',
+    'refund_to',
+    'finality_explicit',
+    'vm_supported',
+    'mainnet_safe',
+    # The compiler's list has no `proof`; this surface read that spelling before it read
+    # `proof_complete`, and both are accepted so a program written against either works. It is
+    # the one entry here that is not the compiler's, and the test asserts exactly that.
+    'proof',
 }
 
 DEX_LIQUIDITY = {
@@ -90,7 +112,15 @@ def is_valid_receiver(chain, receiver):
     chain = normalize_chain(chain)
     kind = CHAIN_DOMAINS.get(chain, {}).get('address')
     if kind == 'evm':
-        return re.fullmatch(r'0x[a-fA-F0-9]{40}', str(receiver)) is not None
+        # **Any `0x`-prefixed hex**, not exactly forty digits. The compiler validates no
+        # address shape at all, so requiring forty here made this surface refuse files the
+        # language accepts — `examples/arb_scope.x3` writes `receiver 0xA1` and
+        # `examples/intent_fusion.x3` writes `0x1`, both of which the compiler checks and
+        # builds (TICKET-091). What is still refused is something that is not an address shape
+        # at all, which is the typo this check is for: `not-an-evm-address` has no `0x` and no
+        # hex in it. A placeholder short enough to be one is accepted *and* is what the
+        # repository's own examples use.
+        return re.fullmatch(r'0x[a-fA-F0-9]+', str(receiver)) is not None
     if kind == 'base58':
         return re.fullmatch(r'[1-9A-HJ-NP-Za-km-z]{32,44}', str(receiver)) is not None
     if kind == 'btc':

@@ -24,16 +24,20 @@ runner and the legacy planner, and those consume an intent. A file whose subject
 offer; the refusal says so by name (`X3_PARSE_NO_INTENT`) rather than crashing on the line
 after the last one.
 
-**Nine guard kinds of the compiler's eighteen.** `registry.py::REQUIRE_KINDS` is the list
-and it is a deliberate subset — telemetry, audit and solver-bond guards are not this
-surface's business. A guard outside it is refused as `malformed require '<kind>'`, which
-is accurate but does not say that the compiler would accept it; the list in `registry.py`
-is where that boundary is written down.
+**The guard kinds are the compiler's, not a subset of them.** `registry.py::REQUIRE_KINDS`
+holds the list and `_parse_require` reads any name in it the same way (a comparison is
+`<kind> <op> <value>`, a bare guard is `<kind> <value>`), so a kind this surface does not
+*model* is carried rather than refused — `runner.rust_intent_envelope` passes `requires` to
+the compiler verbatim. It used to know nine of the eighteen and refuse the rest as
+`malformed require`, which refused `require route_score >= 90` — written by three shipped
+examples the compiler accepts (TICKET-091). A word the compiler does not know either is
+refused by name, with the vocabulary listed.
 
-**Addresses are validated for shape, and the shape is stricter than the compiler's.** A
-40-hex-character `0x…` is required here, where the language accepts a short placeholder
-like `0xA1` — which is what several of the repository's own examples use. That is drift
-rather than scope, and it is TICKET-091: this surface refuses files the compiler accepts.
+**Addresses are validated for shape, and only for shape.** Any `0x`-prefixed hex is
+accepted, because the language validates none and the repository's own examples write short
+placeholders (`0xA1`, `0x1`); what is refused is a string that is not an address shape at
+all. Requiring exactly forty hex characters here was drift rather than scope — this surface
+refusing files the compiler accepts (TICKET-091).
 
 **Nothing here may raise anything but `X3ParseError`.** A parser with no error surface is
 the one part of this boundary that is not a scope decision: callers get a code, a message
@@ -41,11 +45,22 @@ and a line, or they get a result. `tests/test_surface_drift.py` asserts it over 
 example in the repository.
 """
 import argparse
+import importlib.util
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional
+
+
+def _registry():
+    """`registry.py`, loaded by path: this module is not a package."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registry.py")
+    spec = importlib.util.spec_from_file_location("registry", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class X3ParseError(Exception):
@@ -98,10 +113,14 @@ def _parse_receiver(tokens: List[str], line: int) -> Optional[str]:
         if idx + 1 >= len(tokens):
             raise X3ParseError("X3_PARSE_RECEIVER", "receiver requires an address", line, "receiver")
         address = tokens[idx + 1].strip('"')
-        # Basic validation: Ethereum hex address should start with 0x and be 42 chars (0x + 40 hex)
-        if address.startswith("0x"):
-            if not re.fullmatch(r"0x[0-9a-fA-F]{40}", address):
-                raise X3ParseError("X3_PARSE_RECEIVER", f"invalid Ethereum address '{address}'", line, "receiver")
+        # **Any `0x`-prefixed hex**, not exactly forty digits. The compiler validates no address
+        # shape at all, so requiring forty here made this surface refuse files the language
+        # accepts: `examples/arb_scope.x3` writes `receiver 0xA1` and `examples/intent_fusion.x3`
+        # writes `0x1`, and the compiler checks and builds both (TICKET-091). What is still
+        # refused is a string that is not an address shape at all — `not-an-evm-address` has no
+        # `0x` and no hex in it — which is the typo this check is for.
+        if address.startswith("0x") and not re.fullmatch(r"0x[0-9a-fA-F]+", address):
+            raise X3ParseError("X3_PARSE_RECEIVER", f"invalid Ethereum address '{address}'", line, "receiver")
         # Additional address formats can be added here (e.g., base58 for Solana)
         return address
     return None
@@ -174,7 +193,83 @@ def _parse_require(ln: SourceLine) -> Dict[str, Any]:
         return {"kind": "bridge_liquidity", "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind in {"canonical_supply", "invariant"} and len(tokens) >= 3:
         return {"kind": kind, "value": " ".join(tokens[2:])}
-    raise X3ParseError("X3_PARSE_REQUIRE", f"malformed require {kind!r}", ln.no, "require")
+    # Every *other* name in the compiler's vocabulary is read the same way: a guard that states
+    # a comparison is `<kind> <op> <value>`, and one that does not is `<kind> <value>`. One rule
+    # for the list rather than one branch per name — the branches are what drifted. This surface
+    # knew nine of the compiler's eighteen kinds and refused the rest as `malformed require`,
+    # which is the one thing an unknown *guard* is not: the compiler would have accepted it, and
+    # `require route_score >= 90` is written by three shipped examples (TICKET-091). A word the
+    # compiler does not know either is still refused, by name.
+    if kind in _registry().REQUIRE_KINDS:
+        if len(tokens) >= 4:
+            return {"kind": kind, "op": tokens[2], "value": " ".join(tokens[3:])}
+        if len(tokens) >= 3:
+            return {"kind": kind, "value": " ".join(tokens[2:])}
+    raise X3ParseError(
+        "X3_PARSE_REQUIRE",
+        f"malformed require {kind!r}: it is not one of the guard kinds the language defines "
+        f"({', '.join(sorted(_registry().REQUIRE_KINDS))})",
+        ln.no,
+        "require",
+    )
+
+
+def _parse_fallback(lines: List[SourceLine], i: int) -> tuple:
+    """A `fallback { … }` block: the venues a route may substitute, and its own guards.
+
+    The compiler carries the approved list in `Operation::RouteFallback`, because a runtime
+    can only restrict itself to the compiler's approvals if the approvals are in the
+    artifact — so the list travels here too, as a route step. Each `replace with <venue>` is
+    one approval, and a `min_output` beside it is the floor that substitution must clear.
+
+    Read as a block rather than a line because that is the grammar; this surface refused
+    `examples/route_fallback.x3` as `unsupported route operation 'fallback'` while the
+    compiler checks and builds it (TICKET-091).
+    """
+    if not lines[i].text.startswith("fallback"):
+        raise X3ParseError("X3_PARSE_FALLBACK", "expected a fallback block", lines[i].no, "route.fallback")
+    i += 1
+    replacements: List[Dict[str, Any]] = []
+    guards: List[Dict[str, Any]] = []
+    while i < len(lines) and lines[i].text != "}":
+        text = lines[i].text
+        if text.startswith("replace "):
+            tokens = text.split()
+            # `replace with <venue> [min_output <n>]`
+            if len(tokens) < 3 or tokens[1] != "with":
+                raise X3ParseError(
+                    "X3_PARSE_FALLBACK",
+                    f"expected `replace with <venue>` [min_output <n>], got {text!r}",
+                    lines[i].no,
+                    "route.fallback.replace",
+                )
+            entry: Dict[str, Any] = {"venue": tokens[2].lower()}
+            if "min_output" in tokens:
+                entry["min_output"] = tokens[tokens.index("min_output") + 1]
+            replacements.append(entry)
+        elif text.startswith("require "):
+            # The substitution's *own* guards, which the compiler reads as the fallback's
+            # conditions rather than as the route's — so they stay in this step and are not
+            # added to the intent's `requires`.
+            guards.append(_parse_require(lines[i]))
+        else:
+            raise X3ParseError(
+                "X3_PARSE_FALLBACK",
+                f"unsupported fallback clause {text!r}: the block takes `replace with <venue>` and "
+                "`require <guard>` only",
+                lines[i].no,
+                "route.fallback",
+            )
+        i += 1
+    if not replacements:
+        raise X3ParseError(
+            "X3_PARSE_FALLBACK",
+            "a fallback block with no `replace with <venue>` approves nothing, which is not a "
+            "fallback",
+            lines[i].no if i < len(lines) else 0,
+            "route.fallback",
+        )
+    return {"type": "fallback", "replacements": replacements, "requires": guards}, i + 1
 
 
 def _parse_route_step(ln: SourceLine) -> Dict[str, Any]:
@@ -317,6 +412,11 @@ def parse_file(path):
         elif (text.startswith("route") or text.startswith("path")) and "{" in text:
             i += 1
             while i < len(lines) and lines[i].text != "}":
+                if lines[i].text.startswith("fallback") and "{" in lines[i].text:
+                    step, i = _parse_fallback(lines, i)
+                    result["route"].append(step)
+                    result["path"].append(step)  # compatibility with planner/schema
+                    continue
                 step = _parse_route_step(lines[i])
                 result["route"].append(step)
                 result["path"].append(step)  # compatibility with planner/schema
