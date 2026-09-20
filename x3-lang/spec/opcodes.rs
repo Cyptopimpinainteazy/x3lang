@@ -159,6 +159,17 @@ pub const NOP: u8 = 0x00;
 /// every code it prices (the table used to be a list of bare hex).
 pub const ADD: u8 = 0x01;
 pub const SUB: u8 = 0x02;
+/// The power primitive, on the same footing as `ADD`/`SUB` and for the same reason: nothing in
+/// `opcodes.yaml` declares it, and the VM executes it (`POW_RRR`, `ra = rb ^ rc` saturating) and the
+/// cost table prices it.
+///
+/// It was the case TICKET-107 is about, and the two halves of the format disagreed about it: the
+/// executor had an arm for `0x0A` while the cost table carried `0x0A => 50` under the comment "no
+/// instruction in this catalogue" — so the table charged 50 gas for a code it said was not an
+/// instruction, in the file the VM reads. The comment was wrong; the arm is right. It is named now so
+/// the cost table, the executor and `OPCODE_SET` say the same thing, and so `x3c explain` can print a
+/// hand-assembled `POW` as `POW` rather than `UNKNOWN`.
+pub const POW: u8 = 0x0A;
 pub const BYTECODE_VERSION_1: u8 = 0x01;
 
 /// The second bytecode version, reserved for the next change to the opcode set.
@@ -191,14 +202,13 @@ pub const CURRENT_BYTECODE_VERSION: u8 = BYTECODE_VERSION_2;
 /// greatest version any opcode in it was introduced in, so adding an opcode is a decision that
 /// has to be taken *and* stated rather than one that can be forgotten.
 ///
-/// `0x0A` is registered without a named constant because the executor executes it (`POW_RRR`) and
-/// the cost table prices it (50); the catalogue has no name for it, which is a gap this table
-/// records rather than one it hides. Nothing else is registered that is not a `pub const` in this
-/// file, and `compiler/tests/test_bytecode_version_gate.rs` walks the source to prove it: a new
-/// opcode constant that nobody registered fails that test by name.
+/// Every entry is a `pub const` in this file, and every entry has a name in `opcode_name`:
+/// `compiler/tests/test_bytecode_version_gate.rs` walks the source to prove both — a new opcode
+/// constant that nobody registered fails that test by name, and a registered opcode nobody can print
+/// fails it too (`0x0A` was registered and unnamed until TICKET-107 named it `POW`).
 pub const OPCODE_SET: &[(u8, u8)] = &[
     (NOP, BYTECODE_VERSION_1), (ADD, BYTECODE_VERSION_1), (SUB, BYTECODE_VERSION_1),
-    (0x0A, BYTECODE_VERSION_1), (META_NONCE, BYTECODE_VERSION_1), (META_CHAIN_ID, BYTECODE_VERSION_1),
+    (POW, BYTECODE_VERSION_1), (META_NONCE, BYTECODE_VERSION_1), (META_CHAIN_ID, BYTECODE_VERSION_1),
     (META_VERSIONS, BYTECODE_VERSION_1), (LOCK, BYTECODE_VERSION_1), (MINT, BYTECODE_VERSION_1),
     (BURN, BYTECODE_VERSION_1), (RELEASE, BYTECODE_VERSION_1), (SWAP, BYTECODE_VERSION_1),
     (BRIDGE, BYTECODE_VERSION_1), (IF, BYTECODE_VERSION_1), (LOOP, BYTECODE_VERSION_1),
@@ -714,11 +724,13 @@ pub const fn fixed_frame_operand(opcode: u8, compiler_stream: bool, bytes_lo: u8
 /// needs its own spelling of that maps it.
 pub const fn opcode_name(opcode: u8) -> &'static str {
     match opcode {
-        // The two arithmetic opcodes have no named constant of their own; every
-        // other arm is written with the constant so the value and the name cannot
-        // drift apart.
-        0x01 => "ADD",
-        0x02 => "SUB",
+        // Every arm is written with the constant, so the value and the name cannot drift apart. The
+        // three arithmetic primitives were written as bare hex here and only here, which is how
+        // `0x0A` came to be a code with an executor arm, a gas price and no name (TICKET-107).
+        NOP => "NOP",
+        ADD => "ADD",
+        SUB => "SUB",
+        POW => "POW",
         META_NONCE => "META_NONCE",
         META_CHAIN_ID => "META_CHAIN_ID",
         META_VERSIONS => "META_VERSIONS",
@@ -741,6 +753,10 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
         ATOMIC_ROLLBACK => "ATOMIC_ROLLBACK",
         ATOMIC_CHOICE => "ATOMIC_CHOICE",
         ROUTE_FALLBACK => "ROUTE_FALLBACK",
+        // Registered, emitted for every `allow <feature>` statement, and unnamed until TICKET-107's
+        // gate found it: `x3c explain` printed `0x56 UNKNOWN` for `examples/intent_fusion.x3`, which
+        // writes three of them.
+        FEATURE_ALLOW => "FEATURE_ALLOW",
         VENUE_SETTLEMENT => "VENUE_SETTLEMENT",
         PARALLEL_PLAN => "PARALLEL_PLAN",
         STRATEGY_LICENSE => "STRATEGY_LICENSE",
@@ -811,10 +827,12 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
 /// This table *is* the charge: `vm/src/executor.rs` reads it rather than keeping a
 /// copy, so a compile-time estimate (PHASE 35) can never disagree with what a run
 /// costs. It used to live in the executor as a list of bare hex codes, which is a
-/// second statement of the opcode catalogue and drifts from it silently — the
-/// comments there had to explain what `0x0A` and `0x70` were, and no opcode in this
-/// file has ever had those values, so both are kept only because this is a move of
-/// the table rather than a redesign of what the VM charges.
+/// second statement of the opcode catalogue and drifts from it silently — its comments had to
+/// explain what `0x0A` and `0x70` were, and the two turned out to be different things: `0x0A` is
+/// the power primitive the VM executes (now `POW`), and `0x70` is a code no instruction in this
+/// format has ever had, kept only because the table was being moved rather than redesigned. The
+/// move is done, so `0x70`'s row is gone and **every code this table prices is an opcode
+/// `OPCODE_SET` defines** — `test_bytecode_version_gate` walks both to prove it (TICKET-107).
 ///
 /// The numbers are consensus-relevant: changing one changes what a program costs.
 /// What the estimate report prints as the basis of its weight figure: the charge
@@ -823,9 +841,10 @@ pub const BASE_WEIGHT_TABLE_IS_THE_CHARGE: &str = "the table vm/src/executor.rs 
 
 pub const fn base_gas_cost(opcode: u8) -> u128 {
     match opcode {
-        // 0x0A: no instruction in this catalogue. Kept so the table is the VM's
-        // own, unchanged.
-        0x0A => 50,
+        // The power primitive. The comment here used to say "no instruction in this catalogue, kept
+        // so the table is the VM's own" while `vm/src/executor.rs` has had an arm for it all along —
+        // so the table charged 50 gas for a code it called no instruction (TICKET-107).
+        POW => 50,
         ADD | SUB => 1,
         META_NONCE | META_CHAIN_ID => 5,
         META_VERSIONS => 11,
@@ -836,8 +855,6 @@ pub const fn base_gas_cost(opcode: u8) -> u128 {
         REQUIRE => 10,
         ATOMIC_BEGIN | ATOMIC_END => 250,
         EMIT | CALL_HOST => 100,
-        // 0x70: no instruction in this catalogue, for the same reason as 0x0A.
-        0x70 => 2,
         GPU_DISPATCH => 500,
         SIMULATE => 200,
         SCHEDULED_DISPATCH => 100,

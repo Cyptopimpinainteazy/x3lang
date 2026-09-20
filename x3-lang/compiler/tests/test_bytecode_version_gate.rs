@@ -223,3 +223,125 @@ fn an_artifact_this_reader_does_know_is_still_walked() {
         "and executable by the VM it was written for"
     );
 }
+
+/// The registry, the names, the executor and the cost table agree about which codes are instructions
+/// (TICKET-107).
+///
+/// Three facts, each a source scan, because each is a fact about source that compiles: a registered
+/// opcode nobody can print, an executor arm for a code the format does not define, and a price for a
+/// code nothing executes. `0x0A` was all three at once — the executor executed it as the power
+/// primitive, the cost table charged 50 for it under a comment saying it was no instruction, and
+/// `opcode_name` printed `UNKNOWN` for it — which is why the checks are here rather than in a comment.
+#[test]
+fn the_catalogue_the_executor_and_the_cost_table_agree() {
+    const SPEC: &str = include_str!("../../spec/opcodes.rs");
+    const EXECUTOR: &str = include_str!("../../vm/src/executor.rs");
+
+    let constants = spec_constants(SPEC);
+    let name_arms = SPEC
+        .split_once("pub const fn opcode_name")
+        .expect("the name map must exist")
+        .1
+        .split("\n}\n")
+        .next()
+        .expect("the map has a body");
+
+    // 1. Every registered opcode has a name. A code the reader cannot print is a code nobody can read
+    //    in an artifact or a diagnostic.
+    let unnamed: Vec<String> = OPCODE_SET
+        .iter()
+        .filter(|(opcode, _)| {
+            !constants
+                .iter()
+                .any(|(name, value)| value == opcode && name_arms.contains(&format!("{name} =>")))
+        })
+        .map(|(opcode, _)| format!("0x{opcode:02X}"))
+        .collect();
+    assert!(
+        unnamed.is_empty(),
+        "these registered opcodes have no arm in `opcode_name` built from a constant, so a reader          would print UNKNOWN for them: {unnamed:?}"
+    );
+    assert!(
+        !name_arms.contains("0x0A => \"") && !name_arms.contains("0x01 => \""),
+        "the name map must be written with the constants: a bare hex arm there is how `0x0A` came to be          registered, priced and nameless at once"
+    );
+
+    // 2. The executor matches opcodes by name, so the catalogue can be checked against it. `0x0A` was
+    //    the one arm written as a bare value, and its absence from the catalogue is what let the other
+    //    two drifts stand.
+    let bare_arms: Vec<&str> = EXECUTOR
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("0x") && line.ends_with("=> {") && line.len() == 9)
+        .collect();
+    assert!(
+        bare_arms.is_empty(),
+        "the executor matches these codes by value rather than by name: {bare_arms:?}"
+    );
+
+    // 3. Every code the cost table prices is an opcode this format defines. `0x70` was priced for a code
+    //    no instruction has ever had.
+    let gas_table = SPEC
+        .split_once("pub const fn base_gas_cost")
+        .expect("the cost table must exist")
+        .1
+        .split("\n}\n")
+        .next()
+        .expect("the table has a body");
+    let mut priced_not_defined = Vec::new();
+    for line in gas_table.lines() {
+        let Some((left, _)) = line.split_once("=>") else {
+            continue;
+        };
+        for token in left.split('|') {
+            let token = token.trim();
+            if token.is_empty() || token == "_" {
+                continue;
+            }
+            // A range prices every code between its ends, so every one of them has to be an opcode —
+            // `ROUTE_SCORE..=REFUND_POLICY` and `TRADING_BEGIN..=TRADING_BRIDGE` are the two.
+            let (first, last) = match token.split_once("..=") {
+                Some((first, last)) => (first.trim(), last.trim()),
+                None => (token, token),
+            };
+            let value = |token: &str| -> Option<u8> {
+                if let Some(hex) = token.strip_prefix("0x") {
+                    u8::from_str_radix(hex, 16).ok()
+                } else {
+                    constants
+                        .iter()
+                        .find(|(name, _)| *name == token)
+                        .map(|(_, value)| *value)
+                }
+            };
+            let unpriced = match (value(first), value(last)) {
+                (Some(first), Some(last)) => (first..=last)
+                    .filter(|code| opcode_version(*code).is_none())
+                    .map(|code| format!("0x{code:02X}"))
+                    .collect::<Vec<_>>(),
+                _ => vec![token.to_string()],
+            };
+            if !unpriced.is_empty() {
+                priced_not_defined.push(format!("{token} -> {}", unpriced.join(", ")));
+            }
+        }
+    }
+    assert!(
+        priced_not_defined.is_empty(),
+        "the cost table prices these codes and `OPCODE_SET` does not define them: {priced_not_defined:?}"
+    );
+}
+
+/// The `pub const <name>: u8 = 0x..;` constants in `spec/opcodes.rs`, with their values.
+///
+/// Decimal-valued constants are skipped: the opcode catalogue is hex by convention, and the decimal
+/// `u8`s in that file are masks and code words rather than instructions.
+fn spec_constants(spec: &str) -> Vec<(&str, u8)> {
+    spec.lines()
+        .filter_map(|line| {
+            let (name, rest) = line.trim().strip_prefix("pub const ")?.split_once(": u8 = 0x")?;
+            let value = u8::from_str_radix(rest.trim_end_matches(';'), 16).ok()?;
+            Some((name, value))
+        })
+        .collect()
+}

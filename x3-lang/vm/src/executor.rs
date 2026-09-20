@@ -155,7 +155,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
         // This inline check catches explicit panic opcodes within scopes.
 
         match opcode {
-            0x0A => {
+            POW => {
                 // POW_RRR - power: ra = rb ^ rc (saturating)
                 let (ra, rb, rc) = decode_regtriplet(operand);
                 let base = vm.state.registers[rb as usize];
@@ -164,14 +164,14 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 let result = base.saturating_pow(exp as u32);
                 vm.state.registers[ra as usize] = result;
             }
-            0x01 => {
+            ADD => {
                 // ADD_RRR - REG-REG-REG: operand encodes registers
                 // flags: REG3
                 let (ra, rb, rc) = decode_regtriplet(operand);
                 vm.state.registers[ra as usize] =
                     vm.state.registers[rb as usize].wrapping_add(vm.state.registers[rc as usize]);
             }
-            0x02 => {
+            SUB => {
                 // SUB_RRR
                 let (ra, rb, rc) = decode_regtriplet(operand);
                 vm.state.registers[ra as usize] =
@@ -1163,7 +1163,7 @@ fn gas_cost_for_opcode(opcode: u8) -> u128 {
 /// exponent magnitude, memory access depth). Returns 0 for most opcodes.
 fn gas_surcharge(opcode: u8, vm: &VM, operand: u16) -> u128 {
     match opcode {
-        0x0A => {
+        POW => {
             let (_ra, _rb, rc) = decode_regtriplet(operand);
             let exp = vm.state.registers.get(rc as usize).copied().unwrap_or(0);
             (exp / 32).saturating_mul(10)
