@@ -1302,13 +1302,20 @@ fn cli_folds_a_decidable_branch_and_writes_the_branch_that_runs() {
 
     let (_, _, true_records) = counts[0];
     let (_, _, false_records) = counts[1];
-    assert_eq!(
-        true_records, 8,
-        "`if 1 > 0` takes the one-guard branch, and nothing of the other one is written: {counts:?}"
+    // The claim is the **difference**: the branch not taken writes nothing, so the program that
+    // folds to the one-guard branch is exactly one record shorter than the one that folds to the
+    // two-guard branch. Two absolutes would also pin every unrelated record — the module's declared
+    // fee ceiling is one, and it shifted both counts by one when the emitter started carrying it —
+    // and a count that moves for a reason the test is not about is a test that has to be edited
+    // every time the emitter grows.
+    assert!(
+        true_records > 0,
+        "the folded program must have a body at all: {counts:?}"
     );
     assert_eq!(
-        false_records, 9,
-        "`if 1 > 2` takes the two-guard branch, one record longer: {counts:?}"
+        false_records,
+        true_records + 1,
+        "`if 1 > 2` takes the two-guard branch, one record longer than `if 1 > 0`: {counts:?}"
     );
 }
 

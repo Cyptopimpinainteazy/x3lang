@@ -564,12 +564,22 @@ pub const GUARD_QUANTITY_SCORE: u8 = 4;
 pub const GUARD_QUANTITY_COUNT: u8 = 5;
 /// A depth in blocks: the finality a policy declares.
 pub const GUARD_QUANTITY_BLOCKS: u8 = 6;
+/// A rate in basis points that is *not* a measurement: the fee ceiling a risk policy declares.
+///
+/// Distinct from the measured slippage code although both count basis points, because a reader has
+/// to be able to tell a bound on fees from a bound on slippage — they are different quantities, and
+/// printing one as the other is the failure the closed set exists to prevent.
+pub const GUARD_QUANTITY_FEES_BPS: u8 = 7;
 
 /// Whether a static guard's quantity code is one this format defines.
 ///
 /// The set is closed for the reason the measured units' is: a code outside it would be printed by
 /// `x3c explain` as a quantity the guard is not about, which is a reader inventing a claim — the
 /// failure the measured guard's own closed set exists to prevent (TICKET-068), one field over.
+///
+/// The three bits are **full** now: every one of the eight codes names a quantity. That is why the
+/// measured set is still the meaningful closure — a measured guard that borrows a static code is a
+/// comparison against something nobody measured, and `is_known_measured_unit_code` refuses it.
 pub const fn is_known_guard_quantity(code: u8) -> bool {
     matches!(
         code,
@@ -578,6 +588,7 @@ pub const fn is_known_guard_quantity(code: u8) -> bool {
             | GUARD_QUANTITY_SCORE
             | GUARD_QUANTITY_COUNT
             | GUARD_QUANTITY_BLOCKS
+            | GUARD_QUANTITY_FEES_BPS
     )
 }
 
@@ -589,6 +600,7 @@ pub const fn guard_quantity_name(code: u8) -> Option<&'static str> {
         GUARD_QUANTITY_SCORE => "score",
         GUARD_QUANTITY_COUNT => "count",
         GUARD_QUANTITY_BLOCKS => "blocks",
+        GUARD_QUANTITY_FEES_BPS => "fees",
         _ => return None,
     })
 }

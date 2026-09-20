@@ -859,7 +859,8 @@ fn guard_bps(expr: &str, what: &str) -> Result<u16, X3Error> {
 fn static_guard_quantity(op: &Operation) -> Result<(u16, u8), X3Error> {
     use crate::ir::{Condition, RequireKind};
     use crate::spec::opcodes::{
-        GUARD_QUANTITY_AMOUNT, GUARD_QUANTITY_COUNT, GUARD_QUANTITY_SCORE, MEASURED_UNIT_CODE_PROFIT_BPS,
+        GUARD_QUANTITY_AMOUNT, GUARD_QUANTITY_COUNT, GUARD_QUANTITY_FEES_BPS, GUARD_QUANTITY_SCORE,
+        MEASURED_UNIT_CODE_PROFIT_BPS,
     };
 
     let Operation::Require { kind, condition, .. } = op else {
@@ -869,6 +870,7 @@ fn static_guard_quantity(op: &Operation) -> Result<(u16, u8), X3Error> {
         RequireKind::RouteScore | RequireKind::RiskScore => GUARD_QUANTITY_SCORE,
         RequireKind::SolverBond | RequireKind::BridgeLiquidity => GUARD_QUANTITY_AMOUNT,
         RequireKind::RelayerQuorum => GUARD_QUANTITY_COUNT,
+        RequireKind::FeeCeiling => GUARD_QUANTITY_FEES_BPS,
         _ => return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS)),
     };
     // The guard's own check refuses a bound it cannot read, so this is the figure the compiler

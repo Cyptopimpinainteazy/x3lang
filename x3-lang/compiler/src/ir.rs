@@ -1087,6 +1087,15 @@ pub enum RequireKind {
     RefundPath,
     /// Explicit finality check
     FinalityExplicit,
+    /// The fee ceiling a **declaration** states, not a guard the body wrote.
+    ///
+    /// `risk { max_total_fee_bps N }` bounds what a module may spend on fees, and nothing else
+    /// carried it: the slippage ceiling reaches the artifact because the body writes
+    /// `require slippage <= N` (the emitter's `SlippageTolerance`), but the language has no statement
+    /// that writes a fee ceiling, so a runtime reading only the artifact could not tell what the
+    /// module requires. PHASE 7's rule is "risk policy must compile into the artifact", and this is
+    /// the same shape as `FinalityExplicit`: a declaration, recorded with the figure it states.
+    FeeCeiling,
     /// Check VM is supported
     VmSupported,
     /// Mainnet safety check

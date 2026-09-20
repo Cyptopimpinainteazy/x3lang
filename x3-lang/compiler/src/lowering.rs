@@ -605,6 +605,26 @@ pub fn lower_program_with_mode(
                         restriction: format!("private_{}", submission.private.as_str()),
                     });
                 }
+                if let Some(risk) = &strategy.risk {
+                    // The fee ceiling the module states travels with it. The *slippage* ceiling
+                    // reaches the artifact through the guard the body writes (`require slippage <=
+                    // 50` lowers to a `SlippageTolerance` record whose figure the emitter carries),
+                    // but no statement writes a fee ceiling, so a runtime reading only the artifact
+                    // could not tell what the module accepts. PHASE 7: "risk policy must compile
+                    // into the artifact". Same shape as the finality policy's depth: a declaration,
+                    // recorded with the figure it states, and decided at compile time by the check
+                    // that compares it against the venues the body routes through.
+                    ir.push(Operation::Require {
+                        kind: ir::RequireKind::FeeCeiling,
+                        subject: None,
+                        condition: ir::Condition::Expression {
+                            expr: risk.max_total_fee_bps.to_string(),
+                        },
+                        error_msg: None,
+                        measured: false,
+                        comparison: Some(ir::ComparisonOp::LessOrEqual),
+                    });
+                }
                 // Lower strategy as constrained execution
                 ir.push(Operation::AtomicBegin);
 

@@ -200,11 +200,12 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                     }
                 } else if mode == REQUIRE_COMPARE_STATIC {
                     // A static guard's operand carries the figure it was *checked against* — a
-                    // bond, a score, a depth — and the same three bits say what that figure
-                    // counts. The set is closed for the reason the measured units' is: a code
-                    // outside it would be printed by a reader as a quantity the guard is not
-                    // about. Zero means "no figure carried", which is what every artifact
-                    // written before the figure was carried reads as.
+                    // bond, a score, a depth, a fee ceiling — and the same three bits say what
+                    // that figure counts. Every one of the eight codes now names a quantity, so
+                    // there is nothing left "outside the set"; the check stays because it names
+                    // the set in one place and a fourth bit would have to widen it deliberately.
+                    // Zero means "no figure carried", which is what every artifact written
+                    // before the figure was carried reads as.
                     if !is_known_guard_quantity(unit_code) {
                         return Err(VerifyError::InvalidOperand(pc));
                     }
@@ -1057,8 +1058,13 @@ mod static_guard_quantity_tests {
     /// code would name a quantity the guard is not about. Zero is "no figure carried", which is
     /// what every artifact written before the figure was carried reads as — so this is the
     /// backward-compatibility assertion as much as it is the acceptance of the codes.
+    /// Every static code names a quantity, and a *measured* guard may not borrow one.
+    ///
+    /// The two sets are separate claims: a measured code names something a host reported, a static
+    /// code names a figure the compiler checked. A measured guard carrying a static code would be a
+    /// comparison against something nobody measured, which is what this refuses.
     #[test]
-    fn verifier_accepts_the_quantities_a_static_guard_can_count_and_refuses_the_rest() {
+    fn verifier_accepts_every_static_quantity_and_no_measured_guard_borrows_one() {
         assert!(
             verify(&require(require_flags(REQUIRE_COMPARE_STATIC, GUARD_OP_GE))).is_ok(),
             "a static guard carrying no figure must still verify"
@@ -1068,6 +1074,7 @@ mod static_guard_quantity_tests {
             GUARD_QUANTITY_SCORE,
             GUARD_QUANTITY_COUNT,
             GUARD_QUANTITY_BLOCKS,
+            GUARD_QUANTITY_FEES_BPS,
         ] {
             assert!(
                 verify(&require(require_flags_measured(
@@ -1079,10 +1086,11 @@ mod static_guard_quantity_tests {
                 "code {code} is one this format defines"
             );
         }
-        // 7 is the highest the three bits can hold and no quantity at all.
+        // 7 is the fee ceiling, and the three bits are now full.
         assert!(
-            verify(&require(require_flags_measured(REQUIRE_COMPARE_STATIC, GUARD_OP_GE, 7))).is_err(),
-            "a code outside the set names a quantity the guard is not about"
+            verify(&require(require_flags_measured(REQUIRE_COMPARE_STATIC, GUARD_OP_GE, 7))).is_ok(),
+            "the last code is the fee ceiling's: the three bits are full, and every code names a \
+             quantity"
         );
         // And a measured guard may not borrow a static quantity's code: the two sets are separate
         // because a measurement and a compile-time figure are different claims.

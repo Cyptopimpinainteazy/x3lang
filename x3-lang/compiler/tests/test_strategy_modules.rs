@@ -276,3 +276,41 @@ mod the_declared_fee_ceiling_bounds_the_route {
         );
     }
 }
+
+/// The declared fee ceiling reaches the artifact.
+///
+/// PHASE 7: "Risk policy must compile into the artifact". The *slippage* ceiling arrives through the
+/// guard the body writes; the fee ceiling had no statement that wrote it, so it arrived nowhere.
+/// It is a declaration record now, the shape the finality policy's depth already uses, and the
+/// emitter carries its figure the way it carries any static guard's (TICKET-114).
+mod the_declared_fee_ceiling_travels {
+    use super::module;
+    use x3_lang_compiler::compile_source;
+
+    fn artifact(ceiling: u32) -> Vec<u8> {
+        let sections = format!(
+            "    effects [swap]\n    domains [ethereum]\n    risk {{ max_slippage_bps 50 \
+             max_total_fee_bps {ceiling} }}\n    bounds {{ max_steps 10 max_gas 200_000 }}\n"
+        );
+        let execute = "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        require slippage <= 50\n        on_fail refund ethereum.USDC to sender";
+        compile_source(&module(execute, &sections)).unwrap_or_else(|error| panic!("ceiling {ceiling}: {error:?}"))
+    }
+
+    #[test]
+    fn the_artifact_states_the_ceiling_and_what_it_counts() {
+        let trace = x3_lang_compiler::emitter::disassemble(&artifact(8)).expect("it must disassemble");
+        assert!(
+            trace.contains("REQUIRE static fees 8"),
+            "a reader of the artifact must be able to see the ceiling the module declared: {trace}"
+        );
+    }
+
+    #[test]
+    fn two_different_ceilings_are_two_different_artifacts() {
+        assert_ne!(
+            artifact(8),
+            artifact(3),
+            "two modules accepting different fee ceilings must not compile to the same bytes"
+        );
+    }
+}
