@@ -400,7 +400,50 @@ impl X3Formatter {
         self.write(";\n");
     }
 
+    /// The `@name(...)` lines a declaration carries, written above it.
+    ///
+    /// The formatter had no notion of annotations at all — `format_function` wrote `async fn …`
+    /// and every `@…` above it disappeared — so `x3c fmt` changed what a program *means*:
+    /// `@subscribe(TransferDone)` and `@sponsor` are host calls, and formatting a program that
+    /// carries them produced text that no longer compiles to the same artifact. It went unnoticed
+    /// because no file in the corpus had an annotation on it, which is what the example beside
+    /// the round-trip test now supplies.
+    ///
+    /// The word comes from `annotations::spelling`, which is already the inverse of the parser's
+    /// name map (and is tested as such); a second table here would be a second answer to "what is
+    /// this annotation called", which is how the two drift apart.
+    fn format_annotations(&mut self, annotations: &[Annotation]) {
+        for annotation in annotations {
+            self.format_annotation(annotation);
+        }
+    }
+
+    fn format_annotation(&mut self, annotation: &Annotation) {
+        self.write("@");
+        self.write(crate::annotations::spelling(annotation));
+        // Only the variants that carry one. The rest are written bare, which is the form the
+        // parser reads back: an empty `@hot()` is not `@hot`.
+        let arguments: Vec<String> = match annotation {
+            Annotation::NoRecursion(depth) => vec![depth.to_string()],
+            Annotation::Multisig(required, total) => vec![required.to_string(), total.to_string()],
+            Annotation::Role(role) => vec![role.as_str().to_string()],
+            Annotation::Version(version) => vec![version.as_str().to_string()],
+            Annotation::UpgradeFrom(version) => vec![version.as_str().to_string()],
+            Annotation::Whitelist(entries) => entries.iter().map(|entry| entry.as_str().to_string()).collect(),
+            Annotation::Scheduled(period_blocks) => vec![period_blocks.to_string()],
+            Annotation::Subscribe(event) => vec![event.as_str().to_string()],
+            _ => vec![],
+        };
+        if !arguments.is_empty() {
+            self.write("(");
+            self.write(&arguments.join(", "));
+            self.write(")");
+        }
+        self.write("\n");
+    }
+
     fn format_function(&mut self, f: &Function) {
+        self.format_annotations(&f.annotations);
         if f.is_async {
             self.write("async ");
         }
@@ -432,6 +475,8 @@ impl X3Formatter {
     }
 
     fn format_agent(&mut self, a: &Agent) {
+        // An agent carries annotations of its own, not only its methods'.
+        self.format_annotations(&a.annotations);
         self.write("agent ");
         self.write(a.name.as_str());
         self.write(" {\n");
@@ -1074,6 +1119,14 @@ impl X3Formatter {
         self.write(s.name.as_str());
         self.write(": ");
         self.write(&s.amount.to_string());
+        // The cadence. The parser defaults it to one block when the comma is absent, so writing
+        // it only when it is not that default keeps the text as short as the program that omitted
+        // it while still round-tripping to the same value — the formatter used to drop the period
+        // here, which turned `subscription keeper: 100, 30` into one charged every block.
+        if s.period_blocks != 1 {
+            self.write(", ");
+            self.write(&s.period_blocks.to_string());
+        }
         self.write(" ");
         self.format_block(&s.body, true);
     }

@@ -226,3 +226,66 @@ fn an_invariant_body_is_source_text_and_survives_formatting() {
         "and mean the same thing"
     );
 }
+
+/// Every `@annotation` the parser accepts survives formatting.
+///
+/// The corpus check above only catches what the corpus contains, and no file in it carried an
+/// annotation — so the formatter could drop every one of them, and did: `format_function` wrote
+/// `async fn …` with nothing above it. `@subscribe(TransferDone)` and `@sponsor` are host calls
+/// (`CALL_HOST` records in the artifact), so formatting those programs silently deleted two
+/// instructions from them.
+///
+/// The spellings are listed here rather than read from `annotations::spelling`, because a list
+/// derived from the thing under test cannot notice a variant the table forgot; the policy test
+/// beside this one already checks that the table and the parser agree.
+#[test]
+fn formatting_preserves_every_annotation_the_parser_accepts() {
+    let spellings = [
+        "@no_heap",
+        "@no_recursion(4)",
+        "@hot",
+        "@audit",
+        "@role(admin)",
+        "@multisig(2, 3)",
+        "@version(1)",
+        "@upgrade_from(0)",
+        "@on_chain",
+        "@off_chain",
+        "@sandbox",
+        "@whitelist(a, b)",
+        "@concurrent",
+        "@scheduled(30)",
+        "@extern",
+        "@payable",
+        "@simd",
+        "@subscribe(TransferDone)",
+        "@sponsor",
+        "@gas_adaptive",
+    ];
+
+    let annotations = |program: &Program| -> String {
+        let item = program.items.first().expect("the fixture declares one item");
+        match &item.node {
+            x3_lang_ast::ast::Item::Function(function) => format!("{:?}", function.annotations),
+            other => panic!("the fixture is a function, found {other:?}"),
+        }
+    };
+
+    for spelling in spellings {
+        let source = format!("{spelling}\nfn probe() {{ }}\n");
+        let program = parse(&source).unwrap_or_else(|error| panic!("{spelling} must parse: {error}"));
+        let formatted = X3Formatter::new().format_program(&program);
+        let reparsed = parse(&formatted).unwrap_or_else(|error| {
+            panic!("{spelling}: the formatter wrote text the parser does not read: {error}\n{formatted}")
+        });
+        assert_eq!(
+            annotations(&program),
+            annotations(&reparsed),
+            "{spelling}: the formatted text must carry the same annotation:\n{formatted}"
+        );
+        assert!(
+            formatted.contains(spelling),
+            "{spelling}: the annotation must be written back, not only preserved in the AST:\n{formatted}"
+        );
+    }
+}

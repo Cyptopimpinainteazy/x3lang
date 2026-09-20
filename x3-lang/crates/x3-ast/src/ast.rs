@@ -415,7 +415,6 @@ pub enum Annotation {
     Whitelist(Vec<Symbol>),
     Concurrent,
     Scheduled(u64),
-    Subscription(u128, u64),
     Extern,
     Payable,
     Simd,

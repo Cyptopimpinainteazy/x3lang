@@ -125,7 +125,6 @@ pub fn spelling(annotation: &Annotation) -> &'static str {
         Annotation::Whitelist(_) => "whitelist",
         Annotation::Concurrent => "concurrent",
         Annotation::Scheduled(_) => "scheduled",
-        Annotation::Subscription(_, _) => "subscription",
         Annotation::Extern => "extern",
         Annotation::Payable => "payable",
         Annotation::Simd => "simd",
