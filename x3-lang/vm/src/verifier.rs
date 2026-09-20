@@ -485,6 +485,29 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         return Ok(());
     }
 
+    if opcode == VENUE_SETTLEMENT {
+        // `venue:shape`, a plain payload the capability decoder below cannot read — the
+        // same shape as the branch above, and it needs the same handling for the same
+        // reason: without it the fall-through rejects the opcode and every program that
+        // declares a venue fails verification while the executor can run it.
+        //
+        // The shape vocabulary is checked here as well as in the executor, against the
+        // compiler's own `SettlementGuarantee`, so a hand-assembled artifact carrying
+        // `settlement vibes` is refused at the door rather than at the leg it describes.
+        let text = std::str::from_utf8(payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
+        let (venue, shape) = text.split_once(':').ok_or(VerifyError::InvalidOperand(pc))?;
+        // `trim()` to match the compiler's rule (`semantic`/`verify` refuse a name that
+        // is blank rather than only one that is empty), so the two cannot disagree about a
+        // name the other refuses to emit.
+        if venue.trim().is_empty() || shape.contains(':') {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        if !shape.is_empty() && x3_lang_compiler::ir::SettlementGuarantee::parse(shape).is_none() {
+            return Err(VerifyError::InvalidOperand(pc));
+        }
+        return Ok(());
+    }
+
     let payload = decode_capability_payload(opcode, payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
     match payload {
         CapabilityPayload::ScheduledDispatch { period_blocks, .. } => {

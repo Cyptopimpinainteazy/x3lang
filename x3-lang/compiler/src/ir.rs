@@ -17,6 +17,10 @@ pub use x3_lang_ast::ast::ChoiceCriterion;
 /// Re-exported for the same reason: one definition of what a guard's operator
 /// is, so the AST and the IR cannot disagree about `<=`.
 pub use x3_lang_ast::ast::ComparisonOp;
+/// Re-exported for the same reason again: PHASE 39's settlement shapes are a closed
+/// set, and an IR that could name a shape the AST does not have would be a way for an
+/// unverified claim to reach the artifact.
+pub use x3_lang_ast::ast::SettlementGuarantee;
 
 /// Root IR program - list of operations to execute in sequence
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,6 +219,33 @@ pub enum Operation {
     RouteFallback {
         /// Venues approved as substitutes, in declaration order.
         approved: Vec<String>,
+    },
+    /// How a declared venue's leg actually settles — spec PHASE 39.
+    ///
+    /// Carried in the artifact because the guarantee is the *assumption the trade
+    /// rests on*, and an assumption only the source states is one a counterparty, an
+    /// auditor or a replayer cannot see. The phase's sentence is "do not claim atomic
+    /// CEX execution unless the external venue exposes enforceable settlement
+    /// semantics", and a claim that does not reach the artifact is exactly the claim
+    /// nobody can check. This is the same rule the finality depth follows
+    /// (TICKET-059) and the same reason the rebalance portfolio travels in
+    /// [`Operation::Rebalance`].
+    ///
+    /// `guarantee` is `None` for a venue that states none, which is a different fact
+    /// from six shapes and is why it is an `Option` rather than a defaulted
+    /// [`SettlementGuarantee::Atomic`]: the compiler *requires* a guarantee of an
+    /// `orderbook` venue and leaves an on-chain venue that states none alone, so
+    /// defaulting here would invent the one claim PHASE 39 introduces this clause to
+    /// stop.
+    ///
+    /// It records; it does not execute. Nothing in the VM acts on a settlement
+    /// guarantee, and pretending otherwise would be the defect this variant exists to
+    /// prevent.
+    VenueSettlement {
+        /// The venue's declared name, as written.
+        venue: String,
+        /// How its leg settles, when the program says.
+        guarantee: Option<SettlementGuarantee>,
     },
     /// The execution plan a `parallel` block produced.
     ///

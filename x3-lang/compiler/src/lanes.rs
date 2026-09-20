@@ -159,6 +159,11 @@ pub fn classify(ir: &X3IR) -> Lane {
             Operation::Release { .. } | Operation::Mint { .. } | Operation::Burn { .. } | Operation::Lock { .. } => {
                 lanes.insert(Lane::Settlement);
             }
+            // A venue settlement record is deliberately in the catch-all: it is a
+            // statement about *how* a leg that already has a lane settles, and it
+            // executes nothing, so it constrains no lane. Putting it in `Settlement`
+            // because of its name would move every program that declares a venue into
+            // that lane on the strength of a record the VM skips.
             _ => {}
         }
     }

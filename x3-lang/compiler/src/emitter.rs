@@ -450,6 +450,31 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
             bytecode.write_all(payload.as_bytes())?;
         }
+        // `[VENUE_SETTLEMENT][u16 len][venue:shape]`. The separator and the empty
+        // second field are what `spec/opcodes.rs` documents; the encoder is the only
+        // place that writes them, so a shape word and a venue name can never be
+        // re-split differently by a second writer.
+        Operation::VenueSettlement { venue, guarantee } => {
+            if venue.is_empty() {
+                return Err(X3Error::CodegenError {
+                    message: "a venue settlement record must name its venue".to_string(),
+                    span: None,
+                });
+            }
+            // A colon cannot appear in a venue name, and the shape comes from a closed
+            // set whose words contain none, so this cannot produce a record that reads
+            // back as something else.
+            let payload = format!("{venue}:{}", guarantee.map(|shape| shape.as_str()).unwrap_or(""));
+            if payload.len() > u16::MAX as usize {
+                return Err(X3Error::CodegenError {
+                    message: format!("venue settlement payload too large: {} bytes", payload.len()),
+                    span: None,
+                });
+            }
+            bytecode.write_all(&[VENUE_SETTLEMENT])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
         Operation::Call { function, args } => {
             bytecode.write_all(&[CALL_HOST])?;
             let payload = format!("{}:{:?}", function, args);
@@ -1355,6 +1380,21 @@ fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
             span: None,
         })?;
         return Ok(format!("{p:?}"));
+    }
+    if opcode == VENUE_SETTLEMENT {
+        // Rendered as the two facts the record carries rather than as raw bytes: the
+        // artifact is what a counterparty or an auditor reads the settlement
+        // assumption out of, and `x3c inspect` is where they read it.
+        let text = std::str::from_utf8(payload).map_err(|_| X3Error::CodegenError {
+            message: "VENUE_SETTLEMENT payload is not UTF-8".into(),
+            span: None,
+        })?;
+        let (venue, shape) = text.split_once(':').ok_or_else(|| X3Error::CodegenError {
+            message: "VENUE_SETTLEMENT record carries no separator".into(),
+            span: None,
+        })?;
+        let shape = if shape.is_empty() { "none" } else { shape };
+        return Ok(format!("venue {venue} settles {shape}"));
     }
     if (0x80..=0x9C).contains(&opcode) || (0xA0..=0xAB).contains(&opcode) {
         let p = decode_capability_payload(opcode, payload).map_err(|_| X3Error::CodegenError {

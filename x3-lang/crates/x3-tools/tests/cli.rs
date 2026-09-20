@@ -3131,3 +3131,93 @@ fn every_example_checks_and_builds() {
         failures.join("\n")
     );
 }
+
+/// PHASE 39's settlement guarantee is readable from the artifact (TICKET-075).
+///
+/// The phase's clause was enforced at compile time and carried nowhere, so a counterparty,
+/// an auditor or a replayer holding only the `.x3b` could not tell a leg the VM settles
+/// both sides of from one an off-chain venue fills and something else makes whole. The
+/// criterion is stated against this surface on purpose — `x3c inspect` is what a reader
+/// without the source actually runs.
+#[test]
+fn cli_inspect_shows_how_each_venue_settles() {
+    let source = write_fixture(
+        "cli_venue_settlement.x3",
+        r#"intent probe {
+    from ethereum.USDC amount 100 receiver 0x1
+    to ethereum.ETH receiver 0x2
+    route {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 100 min_output 1
+    }
+    require slippage <= 50
+    on_fail refund ethereum.USDC to sender
+}
+
+venue cex_hedge {
+    kind orderbook
+    chain ethereum
+    domain evm
+    asset_in ethereum.USDC
+    asset_out ethereum.ETH
+    fee_bps 5
+    liquidity 10_000_000
+    slippage_bps 4
+    latency_ms 20
+    finality_blocks 0
+    risk 40
+    settlement compensating
+}
+
+venue pool_plain {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.ETH
+    asset_out ethereum.USDC
+    fee_bps 3
+    liquidity 5_000_000
+    slippage_bps 6
+    latency_ms 12
+    finality_blocks 12
+    risk 2
+}
+"#,
+    );
+
+    let out = std::env::temp_dir().join("cli_venue_settlement.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&source)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    let built = format!(
+        "{}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.status.success(), "the program must build: {built}");
+
+    // Everything below reads the artifact. The source variable is not consulted again, so
+    // "recovering it does not require the source" is what the test does rather than what it
+    // says.
+    let inspect = x3c().arg("inspect").arg(&out).output().expect("x3c inspect");
+    let disassembly = format!(
+        "{}{}",
+        String::from_utf8_lossy(&inspect.stdout),
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    assert!(
+        inspect.status.success(),
+        "inspect must read the artifact: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("venue cex_hedge settles compensating"),
+        "the off-chain leg's guarantee must be in the artifact: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("venue pool_plain settles none"),
+        "and a venue that states none must say none rather than be given a default: {disassembly}"
+    );
+}

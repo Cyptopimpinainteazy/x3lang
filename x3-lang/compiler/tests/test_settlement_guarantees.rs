@@ -11,6 +11,31 @@
 
 use x3_lang_compiler::semantic::CompilationMode;
 
+use x3_lang_compiler::ir::{Operation, SettlementGuarantee};
+
+/// The operations a program lowers to, and the disassembly of the artifact it emits.
+///
+/// The second half is the half that matters for TICKET-075: everything asserted against
+/// `trace` is read out of the **artifact**, through the artifact's own decode path, with
+/// no access to the source that produced it.
+fn artifact(source: &str) -> (Vec<Operation>, String) {
+    let (_, ir, outcome) =
+        x3_lang_compiler::check_source_diagnostics_with_mode(source, CompilationMode::Dev).expect("source must lower");
+    assert!(outcome.errors.is_empty(), "unexpected errors: {:?}", outcome.errors);
+    let bytecode = x3_lang_compiler::emitter::emit_x3ir(&ir).expect("the program must emit");
+    let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("its own artifact must disassemble");
+    (ir.operations, trace)
+}
+
+fn carried_settlement(ops: &[Operation]) -> (String, Option<SettlementGuarantee>) {
+    ops.iter()
+        .find_map(|operation| match operation {
+            Operation::VenueSettlement { venue, guarantee } => Some((venue.clone(), *guarantee)),
+            _ => None,
+        })
+        .expect("a declared venue's settlement must reach the artifact")
+}
+
 fn errors(source: &str) -> Vec<String> {
     match x3_lang_compiler::check_source_diagnostics_with_mode(source, CompilationMode::Dev) {
         Ok((_, _, outcome)) => outcome.errors.iter().map(|error| error.to_string()).collect(),
@@ -162,4 +187,104 @@ fn a_serialized_venue_from_before_the_clause_still_loads() {
         venue.settlement, None,
         "an AST with no guarantee loads with none, and the `orderbook` rule then asks for one"
     );
+}
+
+// ===== the guarantee reaches the artifact (TICKET-075) =====
+
+/// PHASE 39's clause was enforced at compile time and carried nowhere. The emitted
+/// bytecode said nothing about whether a leg is atomic, escrowed, pre-funded, attested or
+/// merely compensated, so a counterparty, an auditor or a replayer reading the *artifact*
+/// could not see the assumption the trade rests on — which is half of what the phase asks
+/// for, and the half a reader who does not have the source depends on.
+#[test]
+fn every_shape_reaches_the_artifact_and_the_artifact_decodes_it_back() {
+    for shape in SettlementGuarantee::ALL {
+        let source = venue_of_kind("hedge_venue", "pool", Some(shape.as_str()));
+        let (ops, trace) = artifact(&source);
+
+        assert_eq!(
+            carried_settlement(&ops),
+            ("hedge_venue".to_string(), Some(shape)),
+            "{shape:?} must travel as a typed value, not as a string a reader re-parses"
+        );
+        let expected = format!("venue hedge_venue settles {}", shape.as_str());
+        assert!(
+            trace.contains(&expected),
+            "the artifact's own decode must state `{expected}`:\n{trace}"
+        );
+    }
+}
+
+/// The `Option` is load-bearing: the compiler *requires* a guarantee of an `orderbook`
+/// venue and leaves an on-chain venue that states none alone, so "states none" and
+/// "states atomic" are two different facts about a trade. A record that defaulted the
+/// absent case would invent the one claim PHASE 39 adds this clause to stop, which is why
+/// this asserts the *absence* rather than only that something arrived.
+#[test]
+fn a_venue_that_states_no_shape_travels_as_none_rather_than_as_atomic() {
+    let (ops, trace) = artifact(&venue_of_kind("pool_plain", "pool", None));
+
+    assert_eq!(
+        carried_settlement(&ops),
+        ("pool_plain".to_string(), None),
+        "a venue that states no settlement must not be given one"
+    );
+    assert!(
+        trace.contains("venue pool_plain settles none"),
+        "and the artifact must say so rather than stay silent:\n{trace}"
+    );
+}
+
+/// This is the acceptance criterion in the phase's own words — "a host or replayer that
+/// recovers it can tell an `atomic` leg from a `compensating` one" — and the two artifacts
+/// are compared with nothing else in scope, so nothing but the artifact's own decode is
+/// doing the telling.
+#[test]
+fn an_atomic_leg_and_a_compensating_leg_are_distinguishable_from_the_artifact_alone() {
+    let (_, atomic_trace) = artifact(&venue_of_kind("leg", "pool", Some("atomic")));
+    let (_, compensating_trace) = artifact(&venue_of_kind("leg", "orderbook", Some("compensating")));
+
+    assert!(
+        atomic_trace.contains("venue leg settles atomic"),
+        "an on-chain leg's artifact says atomic:\n{atomic_trace}"
+    );
+    assert!(
+        compensating_trace.contains("venue leg settles compensating"),
+        "an off-chain leg's artifact says compensating:\n{compensating_trace}"
+    );
+    assert_ne!(
+        atomic_trace, compensating_trace,
+        "the two assumptions must not produce the same artifact"
+    );
+}
+
+/// The record names its venue, so the guarantee can be attributed to the leg that rests on
+/// it. A record a reader cannot attribute is a guarantee about nothing, and declaration
+/// order is what lets a reader line the records up with the source it no longer has.
+#[test]
+fn each_record_names_the_venue_it_belongs_to_in_declaration_order() {
+    let source = format!(
+        "{}{}",
+        venue_of_kind("first_venue", "pool", Some("atomic")),
+        venue_of_kind("second_venue", "orderbook", Some("escrow"))
+    );
+    let (ops, trace) = artifact(&source);
+
+    let carried: Vec<(String, Option<SettlementGuarantee>)> = ops
+        .iter()
+        .filter_map(|operation| match operation {
+            Operation::VenueSettlement { venue, guarantee } => Some((venue.clone(), *guarantee)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        carried,
+        vec![
+            ("first_venue".to_string(), Some(SettlementGuarantee::Atomic)),
+            ("second_venue".to_string(), Some(SettlementGuarantee::Escrow)),
+        ],
+        "each record belongs to its own venue, in declaration order"
+    );
+    assert!(trace.contains("venue first_venue settles atomic"), "{trace}");
+    assert!(trace.contains("venue second_venue settles escrow"), "{trace}");
 }

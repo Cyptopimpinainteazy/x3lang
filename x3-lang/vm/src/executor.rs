@@ -964,6 +964,34 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
+            VENUE_SETTLEMENT => {
+                // `[VENUE_SETTLEMENT][u16 len][venue:shape]`.
+                //
+                // A carried declaration, and the VM does not act on it: nothing in the
+                // language gives a settlement guarantee an action to take. It exists so
+                // that the assumption a leg rests on — PHASE 39's `atomic` versus one of
+                // the five honest ways an off-chain leg settles — can be read out of the
+                // artifact rather than out of the source.
+                //
+                // What the VM owes a record is to refuse one that does not describe what it
+                // claims to — and that refusal lives in `verifier::verify`, not here. Every
+                // public entry to execution goes through it (`x3_lang_vm.rs`'s
+                // `verify_and_execute`, the only caller of `execute_unverified`), so a
+                // second copy of the rule here would be a rule no reachable path exercises.
+                // The verifier checks the shape vocabulary against the compiler's own
+                // `SettlementGuarantee`, and a malformed record never reaches this arm.
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(payload) => payload.to_vec(),
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                vm.state.pc = align4(vm.state.pc + 3 + payload.len());
+                continue;
+            }
             HALT => {
                 // HALT
                 return Ok(());

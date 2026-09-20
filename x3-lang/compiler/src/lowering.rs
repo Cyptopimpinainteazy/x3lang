@@ -712,6 +712,19 @@ pub fn lower_program_with_mode(
                     comparison: None,
                 });
             }
+            Item::VenueDecl(venue) => {
+                // A venue's *attributes* reach the artifact through the plan a route
+                // produced, and they always did. Its **settlement guarantee** did not:
+                // the plan carries which legs run, not how each one finally settles, so
+                // a reader of the artifact could not tell a leg the VM executes both
+                // sides of from one an off-chain venue fills and something else makes
+                // whole. PHASE 39's whole point is that distinction, so it travels here
+                // the way the finality depth does (TICKET-059).
+                ir.push(Operation::VenueSettlement {
+                    venue: venue.name.as_str().to_string(),
+                    guarantee: venue.settlement,
+                });
+            }
             Item::ProofsRequired(proofs) => {
                 for proof in &proofs.proofs {
                     ir.push(Operation::ProofRequired {
@@ -1060,10 +1073,11 @@ pub fn lower_program_with_mode(
                 // What the optimizer should rank by. The ranking happens at compile
                 // time, and the choice it produced is what the artifact carries.
             }
-            Item::AssetDecl(_) | Item::TradeRiskPolicy(_) | Item::VenueDecl(_) => {
+            Item::AssetDecl(_) | Item::TradeRiskPolicy(_) => {
                 // Declarations the verifier and the opportunity graph read. A venue is
                 // an edge in a graph, not an instruction, and its attributes reach the
-                // artifact through the plan a route produced.
+                // artifact through the plan a route produced. Its settlement guarantee
+                // does not — see the `Item::VenueDecl` arm above.
             }
         }
     }

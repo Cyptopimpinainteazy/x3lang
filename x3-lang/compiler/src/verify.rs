@@ -278,6 +278,39 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     );
                 }
             }
+            Operation::VenueSettlement { venue, guarantee } => {
+                // An unnamed venue makes the record unattributable — a reader could not
+                // tell which declaration the guarantee belongs to, and that attribution
+                // is the whole content of the record.
+                if venue.trim().is_empty() {
+                    push_unsafe(
+                        diagnostics,
+                        format!("{op_context}: venue settlement record names no venue"),
+                    );
+                }
+                // The separator is what the encoding splits on and the shape word is
+                // written after it, so a name carrying either would read back as a
+                // different venue or a different shape. Refused rather than escaped: no
+                // real venue name needs one.
+                if venue.contains(':') || venue.contains(',') {
+                    push_unsafe(
+                        diagnostics,
+                        format!(
+                            "{op_context}: venue '{venue}' contains the payload separator, so its \
+                             settlement record would not read back as this venue"
+                        ),
+                    );
+                }
+                // The shape is a closed enum, so the only way to reach the artifact with a
+                // word the VM does not know is to change the enum without changing the
+                // word it renders, which the round-trip test covers.
+                if let Some(shape) = guarantee {
+                    debug_assert!(
+                        x3_lang_ast::ast::SettlementGuarantee::parse(shape.as_str()) == Some(*shape),
+                        "a settlement guarantee must round-trip through its own word"
+                    );
+                }
+            }
             Operation::AtomicEnd => {
                 if atomic_depth == 0 {
                     push_unsafe(

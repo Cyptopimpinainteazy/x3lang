@@ -26,6 +26,16 @@ pub const ROUTE_FALLBACK: u8 = 0x54;
 pub const PARALLEL_PLAN: u8 = 0x55;
 pub const FEATURE_ALLOW: u8 = 0x56;
 pub const STRATEGY_LICENSE: u8 = 0x57;
+/// How a declared venue's leg settles (`[VENUE_SETTLEMENT][u16 len][venue:shape]`, the
+/// whole record padded to four bytes). The payload is the venue's declared name, a
+/// colon, and the shape word from PHASE 39's closed set — or nothing after the colon
+/// for a venue that states none.
+///
+/// The colon cannot appear in a venue name (a name is an identifier), so the two
+/// fields cannot be confused with one; and `guarantee: None` is spelled as an empty
+/// second field rather than by omitting the separator, so a record that is merely
+/// truncated is refused instead of read as "no guarantee stated".
+pub const VENUE_SETTLEMENT: u8 = 0x58;
 
 /// Feature codes for `FEATURE_ALLOW`.
 ///
@@ -333,6 +343,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
         || matches!(
             opcode,
             EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK | PARALLEL_PLAN | STRATEGY_LICENSE
+                | VENUE_SETTLEMENT
                 | NONCE_UNUSED
                 | GPU_DISPATCH..=REBALANCE_TARGET
                 | ROUTE_SCORE..=REFUND_POLICY
@@ -429,6 +440,7 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
         ATOMIC_ROLLBACK => "ATOMIC_ROLLBACK",
         ATOMIC_CHOICE => "ATOMIC_CHOICE",
         ROUTE_FALLBACK => "ROUTE_FALLBACK",
+        VENUE_SETTLEMENT => "VENUE_SETTLEMENT",
         PARALLEL_PLAN => "PARALLEL_PLAN",
         STRATEGY_LICENSE => "STRATEGY_LICENSE",
         EMIT => "EMIT",
