@@ -479,9 +479,43 @@ impl X3Formatter {
         self.format_annotations(&a.annotations);
         self.write("agent ");
         self.write(a.name.as_str());
+        // The grammar reads **three** blocks in order — a context, a state, and the body — and the
+        // first `{` is always the context. This wrote the methods into the first block, so
+        // `x3c fmt` turned every agent into text the parser refuses ("context key: expected
+        // identifier") — the writer's defect was invisible because nothing in the corpus declares an
+        // agent, and a round-trip test only covers what a fixture contains. Empty blocks are written
+        // as `{ }` rather than omitted: an omitted one shifts the block that follows it.
         self.write(" {\n");
+        if let Some(context) = &a.context {
+            self.indent();
+            for (key, value) in &context.entries {
+                self.write_indent();
+                self.write(key.as_str());
+                self.write(": ");
+                self.format_expression(value);
+                self.write(",\n");
+            }
+            self.dedent();
+        }
+        self.write("}\n{\n");
+        if !a.state.is_empty() {
+            self.indent();
+            for field in &a.state {
+                self.write_indent();
+                self.write(field.name.as_str());
+                self.write(": ");
+                self.format_type(&field.ty);
+                self.write(",\n");
+            }
+            self.dedent();
+        }
+        self.write("}\n{\n");
         self.indent();
         for m in &a.methods {
+            // A method is written where a top-level function is written, and that arm's caller writes
+            // the indent — inside a block nobody did, so every method of an agent came out at column
+            // zero while its body was indented one level deeper.
+            self.write_indent();
             self.format_function(&m.node);
         }
         for s in &a.strategies {

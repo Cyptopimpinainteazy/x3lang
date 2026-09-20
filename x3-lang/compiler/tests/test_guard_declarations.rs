@@ -1266,3 +1266,50 @@ mod a_declaration_nothing_reads_is_refused {
         );
     }
 }
+
+/// An agent's own two blocks are read by nothing, and an empty one is the grammar's braces.
+///
+/// The check that refuses a declaration nothing reads (`verify_declarations_have_a_reader`) covers the
+/// seven item kinds; an agent's `context` and `state` are the same finding one level into a
+/// declaration — its methods and strategies lower to the artifact, and its context entries and state
+/// fields reach no pass, no artifact and no reader.
+mod an_agents_blocks_have_to_be_read_by_something {
+    use super::errors;
+
+    #[test]
+    fn a_context_with_entries_is_refused() {
+        let source = "agent A {\n    venue: \"uniswap\",\n}\n{\n}\n{\n    fn step() {\n        \
+                      emit Step(1);\n    }\n}\n";
+        let found = errors(source);
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("context") && error.contains("nothing reads it")),
+            "a context block's entries are configuration nothing consults: {found:?}"
+        );
+    }
+
+    #[test]
+    fn state_fields_are_refused() {
+        let source = "agent A {\n}\n{\n    position: i64,\n}\n{\n    fn step() {\n        emit \
+                      Step(1);\n    }\n}\n";
+        let found = errors(source);
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("state") && error.contains("nothing reads")),
+            "declared state reaches neither a pass nor the artifact: {found:?}"
+        );
+    }
+
+    #[test]
+    fn an_agent_with_empty_blocks_is_accepted() {
+        // The control: the braces are the syntax, so an agent that claims nothing is fine.
+        let source = "agent A {\n}\n{\n}\n{\n    fn step() {\n        emit Step(1);\n    }\n}\n";
+        let found = errors(source);
+        assert!(
+            !found.iter().any(|error| error.contains("nothing reads")),
+            "an empty block is not a claim: {found:?}"
+        );
+    }
+}

@@ -593,6 +593,42 @@ pub fn verify_risk_policy_bounds_guards(program: &Program, acc: &mut ErrorAccumu
 /// compiler does with what it parsed.
 pub fn verify_declarations_have_a_reader(program: &Program, acc: &mut ErrorAccumulator) {
     for item in &program.items {
+        // An agent's own two blocks, which nothing reads either: its methods and strategies lower to
+        // the artifact, and its `context` (key/value pairs) and `state` (typed fields) reach no pass,
+        // no artifact and no reader — the same finding as the seven declarations below, one level
+        // into a declaration. They are refused rather than left as decoration, and `x3c fmt` had been
+        // deleting them, which is what decoration looks like when a writer is honest about it.
+        if let Item::Agent(agent) = &item.node {
+            // An **empty** context block is the grammar's braces rather than a claim: the parser reads
+            // the first `{ }` after an agent's name as the context, so refusing an empty one would
+            // make an agent unwritable. Content is the claim, and content is what nothing reads.
+            if agent
+                .context
+                .as_ref()
+                .is_some_and(|context| !context.entries.is_empty())
+            {
+                acc.add_error(err(
+                    DiagnosticCode::UnresolvedEconomicEffect,
+                    format!(
+                        "agent '{}' declares a `context` block and nothing reads it: no pass, no \
+                         artifact and no command consults an agent's context, so the entries would be \
+                         configuration the runtime never sees",
+                        agent.name.as_str()
+                    ),
+                ));
+            }
+            if !agent.state.is_empty() {
+                acc.add_error(err(
+                    DiagnosticCode::UnresolvedEconomicEffect,
+                    format!(
+                        "agent '{}' declares `state` fields and nothing reads them: the VM holds \
+                         registers and a call stack, and an agent's declared state reaches neither a \
+                         pass nor the artifact",
+                        agent.name.as_str()
+                    ),
+                ));
+            }
+        }
         let (what, why) = match &item.node {
             Item::Struct(_) | Item::Enum(_) => (
                 "a type declaration",

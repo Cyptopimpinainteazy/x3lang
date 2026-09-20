@@ -380,3 +380,49 @@ mod clauses_survive_formatting {
         assert!(text.contains("alice"), "the receiver must survive: {text}");
     }
 }
+
+/// An agent is three blocks, and the formatter used to write one.
+///
+/// The grammar reads a context block, then a state block, then the body — the first `{` after the
+/// name is always the context. The writer put the methods into the first block, so `x3c fmt` turned
+/// every agent into text the parser refuses (`context key: expected identifier`). Nothing in the
+/// corpus declares an agent, which is why a round-trip test over the corpus never saw it.
+mod an_agent_survives_formatting {
+    use super::parse;
+    use x3_lang_compiler::formatter::X3Formatter;
+
+    #[test]
+    fn the_formatted_text_parses_and_states_three_blocks() {
+        let source = "agent Trader {\n    venue: \"uniswap\",\n    max_slippage: 50,\n}\n{\n    \
+                      position: i64,\n}\n{\n    fn step() {\n        emit Step(1);\n    }\n}\n";
+        let program = parse(source).expect("an agent parses");
+        let formatted = X3Formatter::new().format_program(&program);
+        assert_eq!(
+            formatted.matches("\n{\n").count(),
+            2,
+            "a context, a state and a body are three blocks: {formatted}"
+        );
+        assert!(
+            formatted.contains("venue: \"uniswap\"") && formatted.contains("position: i64"),
+            "the blocks' content is the declaration: {formatted}"
+        );
+        // Formatting is compared rather than compilation: this fixture's context and state are
+        // *refused* when compiled (`verify_declarations_have_a_reader` — nothing reads them), and a
+        // program the compiler refuses is still one the formatter must not corrupt. Idempotence is the
+        // property: what the first pass writes, the second pass leaves alone.
+        let reparsed = parse(&formatted)
+            .unwrap_or_else(|error| panic!("the formatter wrote text the parser refuses: {error}\n{formatted}"));
+        let twice = X3Formatter::new().format_program(&reparsed);
+        assert_eq!(formatted, twice, "formatting must be idempotent");
+    }
+
+    #[test]
+    fn an_agent_with_empty_blocks_round_trips() {
+        // An empty context is the grammar's braces rather than a claim — the parser reads the first
+        // block as the context, so an agent that declares neither must still write both.
+        let source = "agent Bare {\n}\n{\n}\n{\n    fn step() {\n        emit Step(1);\n    }\n}\n";
+        let program = parse(source).expect("an agent with empty blocks parses");
+        let formatted = X3Formatter::new().format_program(&program);
+        parse(&formatted).unwrap_or_else(|error| panic!("must re-parse: {error}\n{formatted}"));
+    }
+}
