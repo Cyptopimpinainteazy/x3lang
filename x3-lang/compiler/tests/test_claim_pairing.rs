@@ -40,7 +40,7 @@ fn ir_with(operations: Vec<Operation>) -> X3IR {
     }
 }
 
-fn lock_to_release(ir: &X3IR) -> Vec<(usize, u32)> {
+fn lock_to_release(ir: &X3IR) -> Vec<(usize, Option<u32>)> {
     // `(locks written so far, the claim index)` for each release, in order — which is exactly
     // the pairing a replayer does from the artifact.
     let mut locks = 0usize;
@@ -81,7 +81,7 @@ fn a_book_with_two_same_asset_transfers_settles_as_one_route() {
     let pairs = lock_to_release(&ir);
     assert_eq!(
         pairs,
-        vec![(1, 0), (2, 1)],
+        vec![(1, Some(0)), (2, Some(1))],
         "each release names the lock it claims: the first the route's first lock, the second the \
          second. Two claims of one asset, told apart — which is what the field is for"
     );
@@ -111,7 +111,7 @@ fn the_pairing_reaches_the_artifact() {
     let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("its own artifact must disassemble");
 
     assert!(
-        trace.contains("claims: 0") && trace.contains("claims: 1"),
+        trace.contains("claims: Some(0)") && trace.contains("claims: Some(1)"),
         "both claims must be readable out of the artifact:\n{trace}"
     );
 }
@@ -133,13 +133,13 @@ fn a_route_claiming_one_lock_twice_is_refused() {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xB1".into(),
-            claims: 0,
+            claims: Some(0),
         },
         Operation::Release {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xC1".into(),
-            claims: 0,
+            claims: Some(0),
         },
         Operation::AtomicEnd,
     ]);
@@ -170,7 +170,7 @@ fn a_route_claiming_one_lock_twice_is_refused() {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xB1".into(),
-            claims: 0,
+            claims: Some(0),
         },
         Operation::Lock {
             chain: "ethereum".into(),
@@ -182,9 +182,85 @@ fn a_route_claiming_one_lock_twice_is_refused() {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xB1".into(),
-            claims: 1,
+            claims: Some(1),
         },
         Operation::AtomicEnd,
     ]);
     (rule.check_fn)(&ok).expect("two locks claimed once each is the case this exists for");
+}
+
+/// The distinction that had to exist before the range check could: a **payout** claims no lock,
+/// so a release with no lock in its route is not a claim about a lock that is not there.
+///
+/// The first attempt at the range check could not tell the two apart and refused four cross-chain
+/// parallel-plan cases with "the release claims lock #0 of its route, which has written 0 lock(s)
+/// so far" — every one of them a payout (TICKET-101).
+#[test]
+fn a_payout_claims_no_lock_and_is_not_checked_against_the_route() {
+    let ir = ir_with(vec![
+        Operation::AtomicBegin,
+        Operation::Release {
+            chain: "solana".into(),
+            asset: "SOL".into(),
+            to: "4Nd1".into(),
+            claims: None,
+        },
+        Operation::AtomicEnd,
+    ]);
+    x3_lang_compiler::verify::verify_ir(&ir)
+        .expect("a route may pay out an asset it did not lock; that is not a claim");
+}
+
+/// And a claim naming a lock its route does not have is refused, with the lock and the count in
+/// the message — the check the distinction bought.
+#[test]
+fn a_claim_naming_a_lock_the_route_does_not_have_is_refused() {
+    let ir = ir_with(vec![
+        Operation::AtomicBegin,
+        Operation::Lock {
+            chain: "ethereum".into(),
+            asset: "USDC".into(),
+            amount: 10,
+            from: "0xA1".into(),
+        },
+        Operation::Release {
+            chain: "ethereum".into(),
+            asset: "USDC".into(),
+            to: "0xB1".into(),
+            claims: Some(3),
+        },
+        Operation::AtomicEnd,
+    ]);
+    let errors = x3_lang_compiler::verify::verify_ir(&ir).expect_err("a claim on lock #3 of a route with one lock");
+    let rendered = format!("{errors:?}");
+    assert!(
+        rendered.contains("claims lock #3") && rendered.contains("1 lock(s)"),
+        "the refusal must name the lock it claims and what the route has: {rendered}"
+    );
+}
+
+/// A claim is about a lock **its own route** wrote, so one outside any atomic route has nothing to
+/// name and is refused.
+#[test]
+fn a_claim_outside_an_atomic_route_is_refused() {
+    let ir = ir_with(vec![
+        Operation::Lock {
+            chain: "ethereum".into(),
+            asset: "USDC".into(),
+            amount: 10,
+            from: "0xA1".into(),
+        },
+        Operation::Release {
+            chain: "ethereum".into(),
+            asset: "USDC".into(),
+            to: "0xB1".into(),
+            claims: Some(0),
+        },
+    ]);
+    let errors = x3_lang_compiler::verify::verify_ir(&ir).expect_err("a claim outside a route");
+    let rendered = format!("{errors:?}");
+    assert!(
+        rendered.contains("not inside an atomic route"),
+        "the refusal must say why there is no lock to name: {rendered}"
+    );
 }

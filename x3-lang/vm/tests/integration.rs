@@ -78,7 +78,7 @@ fn compiler_asset_op_payloads_execute_with_real_fields() {
         chain: "ethereum".into(),
         asset: "USDC".into(),
         to: "0xsender".into(),
-        claims: 0,
+        claims: None,
     });
     ir.push(Operation::Swap {
         from_chain: "ethereum".into(),
@@ -119,7 +119,7 @@ fn compiler_asset_op_payloads_execute_with_real_fields() {
                 chain: "ethereum".into(),
                 asset: "USDC".into(),
                 to: "0xsender".into(),
-                claims: 0,
+                claims: None,
             },
             AssetOpPayload::Swap {
                 from_chain: "ethereum".into(),

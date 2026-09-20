@@ -47,11 +47,16 @@ fn require_non_empty(diagnostics: &mut Vec<CompilerDiagnostic>, context: &str, f
 
 fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
     let mut atomic_depth: i32 = 0;
+    // How many locks the atomic block currently open has written, so a *claim* can be checked
+    // against the route it names a lock in. A payout names no lock and is not checked
+    // (TICKET-101).
+    let mut locks_in_block: usize = 0;
 
     for (index, op) in ops.iter().enumerate() {
         let op_context = format!("{context}[{index}]");
         match op {
             Operation::AtomicBegin => {
+                locks_in_block = 0;
                 if atomic_depth > 0 {
                     push_unsafe(
                         diagnostics,
@@ -449,6 +454,10 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 amount,
                 from,
             } => {
+                // A `Lock` is what a claim names; a mint or a burn creates no claimable escrow.
+                if matches!(op, Operation::Lock { .. }) && atomic_depth > 0 {
+                    locks_in_block += 1;
+                }
                 require_non_empty(diagnostics, &op_context, "chain", chain);
                 require_non_empty(diagnostics, &op_context, "asset", asset);
                 require_non_empty(diagnostics, &op_context, "account", from);
@@ -468,20 +477,30 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 require_non_empty(diagnostics, &op_context, "chain", chain);
                 require_non_empty(diagnostics, &op_context, "asset", asset);
                 require_non_empty(diagnostics, &op_context, "to", to);
-                // The claim names a lock by its position among the route's locks, which is what
-                // lets two same-asset transfers in one route be told apart (TICKET-080).
-                //
-                // It is **not** checked against the route here, and the reason is a distinction
-                // this IR already makes: `Release` means both *claiming an escrow this program
-                // locked* and *paying out the asset a route delivered* (`no_refund_after_claim`
-                // spells that out, and had to, because reading a payout as a claim warned on
-                // every canonical example). A range check needs to know which of the two a
-                // release is, and nothing in the IR says — so a rule that guessed would refuse
-                // payouts, which is what the first attempt at this did: four tests over a
-                // cross-chain parallel plan failed with "the release claims lock #0 of its
-                // route, which has written 0 lock(s) so far". Telling the two apart is its own
-                // change, with its own reasoning, rather than a line here.
-                let _ = claims;
+                // `Some(index)` claims a lock; `None` pays out an asset. That distinction is
+                // what lets this check exist at all: the first attempt at it had to guess which
+                // of the two a release was, refused payouts, and failed four cross-chain
+                // parallel-plan tests (TICKET-101).
+                if let Some(index) = claims {
+                    if atomic_depth == 0 {
+                        push_unsafe(
+                            diagnostics,
+                            format!(
+                                "{op_context}: the release claims lock #{index}, and it is not \
+                                 inside an atomic route — a claim is about a lock its own route \
+                                 wrote, and there is no route here"
+                            ),
+                        );
+                    } else if usize::try_from(*index).map_or(true, |position| position >= locks_in_block) {
+                        push_unsafe(
+                            diagnostics,
+                            format!(
+                                "{op_context}: the release claims lock #{index} of its route, which \
+                                 has written {locks_in_block} lock(s) so far"
+                            ),
+                        );
+                    }
+                }
             }
             Operation::Swap {
                 from_chain,

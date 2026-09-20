@@ -103,7 +103,15 @@ pub enum Operation {
         /// refused them for that reason, one route per transfer. A book nets within one
         /// asset, so that is the normal case rather than a corner: the index is what lets one
         /// route carry several claims of one asset and still settle as one unit (TICKET-080).
-        claims: u32,
+        ///
+        /// **`None` says this release claims nothing**, and the distinction is load-bearing
+        /// rather than decorative: `Release` is used for two different acts — claiming an
+        /// escrow this program locked, and paying out the asset a route delivered — and the
+        /// rules could only tell them apart by inference (`no_refund_after_claim` requires the
+        /// asset to have been locked, which is one such inference). An inherited default index
+        /// would have made every payout a claim on lock #0, which is what a range check refused
+        /// four cross-chain plans for (TICKET-101).
+        claims: Option<u32>,
     },
 
     // ===== Swap Operations =====

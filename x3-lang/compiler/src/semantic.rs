@@ -2337,64 +2337,35 @@ fn escrows_claimed_in_their_own_route(ir: &X3IR) -> bool {
     false
 }
 
-/// The escrow a claim releases, as `(chain, asset)`.
+/// The escrow a claim releases, as `(chain, asset)`, **for a release that claims one**.
 ///
-/// Escrow-level, for the rules that reason about *which asset* an escrow is: a refund is
-/// keyed by asset, so `no_refund_after_claim` compares like with like.
+/// A payout is not a claim and does not appear here. That distinction used to be inferred —
+/// `no_refund_after_claim` kept a `locked_escrows` guard because a payout of an asset nobody
+/// locked was being read as a claim, and the canonical two-legged swap warned on every check and
+/// build for it (TICKET-035). The IR says which a release is now, so the rule reads it
+/// (TICKET-101).
 fn release_lock(op: &Operation) -> Option<(&str, &str)> {
     match op {
-        Operation::Release { chain, asset, .. } => Some((chain.as_str(), asset.as_str())),
+        Operation::Release {
+            chain,
+            asset,
+            claims: Some(_),
+            ..
+        } => Some((chain.as_str(), asset.as_str())),
         _ => None,
     }
 }
 
-/// Which of its route's locks a claim names.
+/// Which of its route's locks a claim names, or `None` for a release that claims nothing.
 ///
 /// This is the identity `no_double_claim` needs: two releases of one asset in one route name
 /// two different locks, and without the index they were the same claim to every reader — which
 /// is what forced a book to settle one transfer per route (TICKET-080).
 fn claimed_lock(op: &Operation) -> Option<u32> {
     match op {
-        Operation::Release { claims, .. } => Some(*claims),
+        Operation::Release { claims, .. } => *claims,
         _ => None,
     }
-}
-
-/// The escrows a program creates, as `(chain, asset)`, wherever they are.
-///
-/// Program-wide rather than atomic-scoped, and that asymmetry is the point:
-/// whether an asset was locked is a property of the program, while *when* it was
-/// claimed and refunded is a property of a position inside one atomic route. An
-/// escrow locked at the top level — which is where intent lowering puts the `from`
-/// endpoint — is still the escrow a claim and a refund inside the route refer to,
-/// so a rule that only looked inside the block would lose the genuine case.
-fn locked_escrows(ir: &X3IR) -> Vec<(&str, &str)> {
-    fn collect<'a>(operations: &'a [Operation], out: &mut Vec<(&'a str, &'a str)>) {
-        for op in operations {
-            match op {
-                Operation::Lock { chain, asset, .. } => out.push((chain.as_str(), asset.as_str())),
-                Operation::If { then_ops, else_ops, .. } => {
-                    collect(then_ops, out);
-                    if let Some(else_ops) = else_ops {
-                        collect(else_ops, out);
-                    }
-                }
-                Operation::Loop { body, .. } | Operation::Simulate { body, .. } => collect(body, out),
-                Operation::ScheduledDispatch { entry, .. } => collect(entry, out),
-                Operation::GasAdaptive {
-                    high_gas_ops,
-                    low_gas_ops,
-                } => {
-                    collect(high_gas_ops, out);
-                    collect(low_gas_ops, out);
-                }
-                _ => {}
-            }
-        }
-    }
-    let mut out = Vec::new();
-    collect(&ir.operations, &mut out);
-    out
 }
 
 /// Return the list of built-in invariant rules for static analysis.
@@ -2523,14 +2494,18 @@ pub fn get_builtin_invariants() -> Vec<InvariantRule> {
                 // payout of an asset nobody locked is not a claim this rule is
                 // about, while a claim of a locked escrow that is refunded later in
                 // the same route is still caught.
-                let locked = locked_escrows(ir);
                 let mut claimed: Vec<(&str, &str)> = Vec::new();
                 for op in atomic_scoped_operations(ir) {
                     if let Some(lock) = release_lock(op) {
                         claimed.push(lock);
                     }
                     if let Some(lock) = refund_lock(op) {
-                        if claimed.contains(&lock) && locked.contains(&lock) {
+                        // No `locked` guard: a release that appears in `claimed` **is** a claim,
+                        // and a claim names a lock its route holds — so the escrow exists by
+                        // construction rather than by a second lookup. The guard was here
+                        // because a payout of an unlocked asset used to be indistinguishable
+                        // from a claim; the IR says which is which now (TICKET-101).
+                        if claimed.contains(&lock) {
                             return Err(format!(
                                 "Refund of {}.{} found after its Release (claim)",
                                 lock.0, lock.1
@@ -3308,7 +3283,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "4Nd1".into(),
-                claims: 0,
+                claims: Some(0),
             },
             Operation::AtomicBegin,
             Operation::Bridge {
@@ -3344,7 +3319,7 @@ mod tests {
                 chain: "ethereum".into(),
                 asset: "USDC".into(),
                 to: "sender".into(),
-                claims: 0,
+                claims: None,
             },
             Operation::OnFail {
                 action: FailureAction::Rollback,
@@ -3382,17 +3357,19 @@ mod tests {
         // Non-vacuous: scoping the rules must not turn them off.
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
+            // Two claims of the *same* lock: one lock claimed twice is the violation the rule
+            // names, and two claims of two different locks are what TICKET-080 made possible.
             Operation::Release {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
-                claims: 0,
+                claims: Some(0),
             },
             Operation::Release {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "b".into(),
-                claims: 0,
+                claims: Some(0),
             },
         ]);
         assert!(
@@ -3423,7 +3400,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
-                claims: 0,
+                claims: Some(0),
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -3463,7 +3440,9 @@ mod tests {
                 chain: "solana".into(),
                 asset: "SOL".into(),
                 to: "4Nd1".into(),
-                claims: 0,
+                // The destination asset's payout, which claims no lock — which is what this
+                // fixture exists to say, in the IR's own terms now rather than by proxy.
+                claims: None,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -3503,7 +3482,7 @@ mod tests {
             chain: "solana".into(),
             asset: "USDC".into(),
             to: "a".into(),
-            claims: 0,
+            claims: None,
         }]);
         assert!(
             !invariant_violations(&same_chain)
@@ -3519,7 +3498,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
-                claims: 0,
+                claims: None,
             },
             Operation::Bridge {
                 via: "x3".into(),
@@ -3710,7 +3689,7 @@ mod tests {
                 chain: "ethereum".into(),
                 asset: "ETH".into(),
                 to: "0x1".into(),
-                claims: 0,
+                claims: Some(0),
             },
         ];
         let outcome = verify_collect(&ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS, None);
@@ -4648,13 +4627,15 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "alice".into(),
-                claims: 0,
+                claims: Some(0),
             },
             Operation::Release {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "bob".into(),
-                claims: 0,
+                // The same lock, claimed a second time — which is the violation, and the
+                // index is how the rule can now tell that from two claims of two locks.
+                claims: Some(0),
             },
             Operation::AtomicEnd,
         ];
@@ -4691,7 +4672,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "alice".into(),
-                claims: 0,
+                claims: None,
             },
             Operation::AtomicEnd,
         ];
@@ -4839,7 +4820,7 @@ mod refund_path_tests {
                 chain: "ethereum".into(),
                 asset: "USDC".into(),
                 to: "0xB1".into(),
-                claims: 0,
+                claims: Some(0),
             },
             Operation::AtomicEnd,
         ]);
@@ -4884,7 +4865,7 @@ mod refund_path_tests {
                 chain: "ethereum".into(),
                 asset: "ETH".into(),
                 to: "0xB1".into(),
-                claims: 0,
+                claims: Some(0),
             },
             Operation::AtomicEnd,
         ]);

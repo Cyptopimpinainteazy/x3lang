@@ -251,12 +251,14 @@ pub enum AssetOpPayload {
         asset: String,
         to: String,
         /// The index of the lock this release claims within its atomic route, counted among
-        /// that route's `Lock`s in order. Assigned by the compiler when it pairs the two, and
-        /// carried so a replayer can check the pairing rather than infer it (TICKET-080).
+        /// that route's `Lock`s in order, or **`None` when it claims nothing** — the record a
+        /// route writes when it pays out the asset it delivered rather than claiming an escrow.
         ///
-        /// Appended to this record rather than inserted, so a payload written before the field
-        /// existed ends early and is **refused** as short rather than read as a whole claim.
-        claims: u32,
+        /// A tag byte precedes the index, so the absence is *written* rather than inferred from
+        /// a sentinel — the same shape as a venue stating no settlement. Appended to this record
+        /// rather than inserted, so a payload written before the fields existed ends early and
+        /// is **refused** as short rather than read as a whole claim.
+        claims: Option<u32>,
     },
     Swap {
         from_chain: String,
@@ -293,6 +295,12 @@ pub enum CapabilityCodecError {
     InvalidOpcode(u8),
     TrailingBytes,
     PayloadTooLarge,
+    /// A record carried a tag the encoder does not write.
+    ///
+    /// Its own variant rather than a fall-through to a default: the tags in this format say
+    /// *which* of two acts a record describes, so a tag nobody wrote must be refused rather
+    /// than read as the one that happens to be the default (TICKET-101).
+    UnknownTag(u8),
 }
 
 impl std::fmt::Display for CapabilityCodecError {
@@ -586,7 +594,15 @@ pub fn encode_asset_op_payload(payload: &AssetOpPayload) -> Result<Vec<u8>, Capa
             write_string(&mut out, chain)?;
             write_string(&mut out, asset)?;
             write_string(&mut out, to)?;
-            write_u32(&mut out, *claims);
+            // A tag byte rather than a sentinel index: `claims: Some(0)` and "claims nothing"
+            // are different facts and neither may be spelled as the other.
+            match claims {
+                Some(index) => {
+                    write_u8(&mut out, 1);
+                    write_u32(&mut out, *index);
+                }
+                None => write_u8(&mut out, 0),
+            }
         }
         AssetOpPayload::Swap {
             from_chain,
@@ -634,7 +650,13 @@ pub fn decode_asset_op_payload(opcode: u8, bytes: &[u8]) -> Result<AssetOpPayloa
             chain: reader.read_string()?,
             asset: reader.read_string()?,
             to: reader.read_string()?,
-            claims: reader.read_u32()?,
+            claims: match reader.read_u8()? {
+                0 => None,
+                1 => Some(reader.read_u32()?),
+                // A tag the encoder never writes is a record this reader does not understand,
+                // and reading it as "no claim" would be the inference the tag exists to remove.
+                other => return Err(CapabilityCodecError::UnknownTag(other)),
+            },
         },
         0x24 => AssetOpPayload::Swap {
             from_chain: reader.read_string()?,

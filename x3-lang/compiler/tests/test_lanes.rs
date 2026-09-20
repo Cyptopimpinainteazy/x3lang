@@ -85,7 +85,7 @@ fn a_program_that_only_moves_value_is_in_the_settlement_lane() {
                 chain: "ethereum".to_owned(),
                 asset: "USDC".to_owned(),
                 to: "receiver".to_owned(),
-                claims: 0,
+                claims: Some(0),
             },
         ]),
         Lane::Settlement

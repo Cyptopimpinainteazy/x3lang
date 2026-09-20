@@ -131,7 +131,7 @@ fn test_ir_operation_types() {
         chain: "x3".to_string(),
         asset: "USDC".to_string(),
         to: "x3_addr".to_string(),
-        claims: 0,
+        claims: None,
     };
 
     let _swap = Operation::Swap {

@@ -465,8 +465,11 @@ pub fn lower_program_with_mode(
                         chain: atomic.to_asset.chain.as_str().to_string(),
                         asset: atomic.to_asset.name.as_str().to_string(),
                         to: receiver_str,
-                        // The lock above, which is this route's only one.
-                        claims: 0,
+                        // A **payout**, not a claim: this pays out the asset the route
+                        // delivered. The escrow the source lock created is claimed by the
+                        // route's own settlement, and reading this as a claim is what made
+                        // `no_refund_after_claim` warn on every canonical example (TICKET-035).
+                        claims: None,
                     });
                 }
 
@@ -820,9 +823,11 @@ pub fn lower_program_with_mode(
                         asset: transfer.asset.clone(),
                         to: transfer.creditor_account.clone(),
                         // This transfer's own lock, counted among this route's locks in the
-                        // order they are written.
-                        claims: u32::try_from(index)
-                            .map_err(|_| semantic("a book has more transfers than a claim index can name"))?,
+                        // order they are written — a claim of the escrow written just above.
+                        claims: Some(
+                            u32::try_from(index)
+                                .map_err(|_| semantic("a book has more transfers than a claim index can name"))?,
+                        ),
                     });
                 }
                 // No refund handler, and none is wanted: a route that fails rolls back, so no
@@ -1216,12 +1221,13 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             });
         }
         Statement::Release { chain, asset, to } => {
-            // release CHAIN.ASSET to ADDR
+            // release CHAIN.ASSET to ADDR — a payout of an asset the program holds or a route
+            // delivered, which claims no escrow (TICKET-101).
             ir.push(Operation::Release {
                 chain: chain_to_string(chain),
                 asset: asset.name.as_str().to_string(),
                 to: expression_to_string(to),
-                claims: 0,
+                claims: None,
             });
         }
         Statement::Swap {
@@ -1405,7 +1411,10 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                         chain: chain.to_ascii_lowercase(),
                         asset,
                         to,
-                        claims: 0,
+                        // A refund *returns* the escrow to the payer; it is the inverse of a
+                        // lock rather than a claim on one, which is what `no_refund_after_claim`
+                        // needs to be able to say (TICKET-101).
+                        claims: None,
                     });
                 }
             }
