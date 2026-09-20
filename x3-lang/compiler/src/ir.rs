@@ -132,6 +132,10 @@ pub enum Operation {
     /// (TICKET-070).
     Rebalance {
         name: String,
+        /// `chain.ASSET` and what the account holds of it, in the asset's own units, in the
+        /// order written. Empty means the program stated no holdings — a different fact from
+        /// holding nothing, and the one the target alone leaves a host with (TICKET-070).
+        holdings: Vec<(String, u128)>,
         /// `chain.ASSET` and its weight in percent, in the order written.
         weights: Vec<(String, u32)>,
         /// The first `minimize` target's name: the metric an optimizer would rank by.

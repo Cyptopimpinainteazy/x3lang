@@ -1254,6 +1254,23 @@ impl X3Formatter {
         self.write(rebalance.name.as_str());
         self.write(" {\n");
         self.indent();
+        // The holdings first, in the clause the parser reads them from, and only when the
+        // program stated any: writing an empty `holds { }` would be a clause the formatter
+        // invented, and dropping a stated one would lose the input the trades need
+        // (TICKET-070). Both directions are round-trip tested.
+        if !rebalance.holdings.is_empty() {
+            self.write_indent();
+            self.write("holds {\n");
+            self.indent();
+            for (asset, amount) in &rebalance.holdings {
+                self.write_indent();
+                self.format_asset_ref(asset);
+                self.write(&format!(" = {amount};\n"));
+            }
+            self.dedent();
+            self.write_indent();
+            self.write("}\n");
+        }
         for (asset, percent) in &rebalance.weights {
             self.write_indent();
             self.format_asset_ref(asset);

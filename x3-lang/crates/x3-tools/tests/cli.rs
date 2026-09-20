@@ -1951,6 +1951,68 @@ fn cli_decides_a_rebalances_weights_and_carries_the_target() {
         "the target must reach the host: {run_text}"
     );
 
+    // A portfolio may state what it holds, and then the artifact carries **both ends** of the
+    // move — which is the input the target alone lacked, because every trade to the target
+    // depends on where the portfolio starts (TICKET-070).
+    let with_holds = write_fixture(
+        "cli_rebalance_with_holdings.x3",
+        &sound.replace(
+            "    BTC = 40%;",
+            "    holds {\n        ethereum.BTC = 5;\n        ethereum.ETH = 40;\n    }\n\n    BTC = 40%;",
+        ),
+    );
+    let out = std::env::temp_dir().join("cli_rebalance_with_holdings.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&with_holds)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(
+        build.status.success(),
+        "a portfolio that states its holdings must build: {text}"
+    );
+
+    let explain = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let disassembly = format!(
+        "{}{}",
+        String::from_utf8_lossy(&explain.stdout),
+        String::from_utf8_lossy(&explain.stderr)
+    );
+    // The record's payload is rendered as its bytes, so the evidence is the held assets
+    // themselves. It is unambiguous here: this fixture writes its weights without a chain
+    // (`BTC = 40%`), which lower as `unknown.BTC`, so a chain-qualified name in the record can
+    // only have come from `holds`.
+    assert!(
+        disassembly.contains("ethereum.BTC") && disassembly.contains("ethereum.ETH"),
+        "the artifact must carry what is held as well as what is wanted: {disassembly}"
+    );
+    assert!(
+        disassembly.contains("unknown.BTC"),
+        "and what is wanted is still there beside it, so the two ends are both in the record: \
+         {disassembly}"
+    );
+
+    // And the clause survives a reformat, so `x3c fmt` cannot delete the input the trades need.
+    let formatted = x3c().arg("fmt").arg(&with_holds).output().expect("x3c fmt");
+    let formatted_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&formatted.stdout),
+        String::from_utf8_lossy(&formatted.stderr)
+    );
+    assert!(formatted.status.success(), "it must format: {formatted_text}");
+    let after = std::fs::read_to_string(&with_holds).expect("the formatted fixture");
+    assert!(
+        after.contains("holds {") && after.contains("ethereum.BTC = 5;"),
+        "the holdings must survive `x3c fmt`: {after}"
+    );
+
     let unbalanced = write_fixture("cli_rebalance_unbalanced.x3", &sound.replace("SOL = 15%", "SOL = 5%"));
     let check = x3c().arg("check").arg(&unbalanced).output().expect("x3c check");
     let output = format!(

@@ -3082,9 +3082,13 @@ pub trait BridgeAdapter {
     fn venue_order(&self, order: &[u8]) -> BridgeResult;
     /// Move an account to a target portfolio.
     ///
-    /// `portfolio\x1fasset:percent,…\x1fcriterion`. The compiler decides the target and
-    /// the criterion; the trades that reach them depend on the account's current holdings,
-    /// which only the host has.
+    /// `portfolio\x1fasset:amount,…\x1fasset:percent,…\x1fcriterion` — both ends of the move,
+    /// because the trades that reach a target depend on where the portfolio starts.
+    ///
+    /// The compiler decides the target and the criterion. The second field carries what the
+    /// program stated it holds (`holds { … }`), and is **empty** when it stated none — a host
+    /// can tell that from holding nothing, and a target with no origin is what it could not
+    /// act on before (TICKET-070).
     fn rebalance_target(&self, target: &[u8]) -> BridgeResult;
     fn bridge_transfer(
         &self,

@@ -323,13 +323,14 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
             }
             Operation::Rebalance {
                 name,
+                holdings,
                 weights,
                 criterion,
             } => {
-                // A target portfolio is an instruction, not a graph: nothing in the language
-                // or the compiler holds the *current* portfolio, and every trade that reaches
-                // the target depends on it. So what is checked here is what the instruction
-                // says, and what it says is refused when it is empty.
+                // A target portfolio is an instruction, not a graph: every trade that reaches
+                // the target depends on where the portfolio starts. The program may state it
+                // now — `holds { … }` — and when it does it travels, so what is checked here
+                // is what the instruction says, and what it says is refused when it is empty.
                 require_non_empty(diagnostics, &op_context, "portfolio", name);
                 require_non_empty(diagnostics, &op_context, "criterion", criterion);
                 if weights.is_empty() {
@@ -337,6 +338,36 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                         diagnostics,
                         format!("{op_context}: the rebalance '{name}' carries no weights to reach"),
                     );
+                }
+                // A holding named twice is a defect `rebalance::portfolio` already refuses, so
+                // reaching here with one means an IR assembled by hand. The second amount would
+                // replace the first and one of them would not be in force.
+                let mut held: Vec<&str> = Vec::new();
+                for (asset, _) in holdings {
+                    if held.contains(&asset.as_str()) {
+                        push_unsafe(
+                            diagnostics,
+                            format!(
+                                "{op_context}: the rebalance '{name}' states what it holds of \
+                                     '{asset}' twice, so one of the two amounts would not be in \
+                                     force"
+                            ),
+                        );
+                    }
+                    held.push(asset.as_str());
+                }
+                // A holding of nothing is a statement about nothing: `holds { X = 0; }` is how
+                // zero is written, and an empty asset name is not a holding at all.
+                for (asset, _) in holdings {
+                    if asset.trim().is_empty() {
+                        push_unsafe(
+                            diagnostics,
+                            format!(
+                                "{op_context}: the rebalance '{name}' states a holding with no \
+                                     asset"
+                            ),
+                        );
+                    }
                 }
             }
             Operation::VenueOrder {

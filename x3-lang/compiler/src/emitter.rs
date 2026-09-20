@@ -902,10 +902,12 @@ fn operation_to_payload(op: &Operation) -> Result<CapabilityPayload, X3Error> {
     let payload = match op {
         Operation::Rebalance {
             name,
+            holdings,
             weights,
             criterion,
         } => CapabilityPayload::RebalanceTarget {
             portfolio: name.clone(),
+            holdings: holdings.clone(),
             weights: weights
                 .iter()
                 .map(|(asset, percent)| (asset.clone(), *percent))

@@ -598,6 +598,7 @@ fn the_operations_a_rebalance_lowers_to_pass_the_structural_verifier() {
     // instruction, so what has to hold is that this layer accepts it and refuses the empties.
     let ir = ir_with(vec![Operation::Rebalance {
         name: "portfolio".to_owned(),
+        holdings: Vec::new(),
         weights: vec![("unknown.BTC".to_owned(), 40), ("unknown.ETH".to_owned(), 60)],
         criterion: "fees".to_owned(),
     }]);
@@ -612,6 +613,7 @@ fn the_operations_a_rebalance_lowers_to_pass_the_structural_verifier() {
 fn a_target_portfolio_with_no_weights_is_refused() {
     let ir = ir_with(vec![Operation::Rebalance {
         name: "portfolio".to_owned(),
+        holdings: Vec::new(),
         weights: vec![],
         criterion: "fees".to_owned(),
     }]);

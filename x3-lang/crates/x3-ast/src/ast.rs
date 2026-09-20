@@ -1702,6 +1702,20 @@ pub struct LiquidationSwap {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RebalanceDecl {
     pub name: Symbol,
+    /// `holds { ethereum.BTC = 5; … }` — what the account holds **now**, in each asset's
+    /// own units.
+    ///
+    /// The phase says the compiler should "eventually" generate the transaction graph that
+    /// reaches the target, and this is the input it was missing: every trade to the target
+    /// depends on where the portfolio starts, and a compiler has no state. With the
+    /// holdings stated, the artifact carries both ends — what is held and what is wanted —
+    /// and a host that prices them can compute the trades. Without it the target is a
+    /// direction with no origin, which is what the artifact carried before (TICKET-070).
+    ///
+    /// `#[serde(default)]`: an AST stored before the clause existed carries no holdings,
+    /// and "nothing was written" is the honest answer for it rather than a load failure.
+    #[serde(default)]
+    pub holdings: Vec<(AssetRef, u128)>,
     /// `BTC = 40%` — the target weight of each asset, in percent.
     pub weights: Vec<(AssetRef, u32)>,
     /// `minimize { fees; slippage; }` — in the order written. The first is the

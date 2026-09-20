@@ -1236,18 +1236,27 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
         }
         CapabilityPayload::RebalanceTarget {
             portfolio,
+            holdings,
             weights,
             criterion,
         } => {
-            // The target and the criterion, asked of a host that knows the account's current
-            // holdings. A rebalance's *trades* depend on that state, which the compiler does
-            // not have, so the instruction is what the language can honestly carry.
+            // Both ends of the move, asked of a host that can price them: where the portfolio
+            // is (when the program stated it) and where it is wanted. A rebalance's *trades*
+            // depend on the current holdings, which a compiler has no state for — carrying
+            // them is what lets a host compute the trades it could not before (TICKET-070).
+            // The holdings field is empty when the program stated none, which a host can tell
+            // from holding nothing because the field is present and empty.
+            let held = holdings
+                .iter()
+                .map(|(asset, amount)| format!("{asset}:{amount}"))
+                .collect::<Vec<_>>()
+                .join(",");
             let flattened = weights
                 .iter()
                 .map(|(asset, percent)| format!("{asset}:{percent}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            let order = format!("{portfolio}\u{1f}{flattened}\u{1f}{criterion}");
+            let order = format!("{portfolio}\u{1f}{held}\u{1f}{flattened}\u{1f}{criterion}");
             let reply = bridge_result(vm.bridge.rebalance_target(order.as_bytes()))?;
             record_measurement(vm, &reply);
             Ok(reply)

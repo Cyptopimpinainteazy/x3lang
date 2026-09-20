@@ -142,6 +142,12 @@ pub enum CapabilityPayload {
     /// `spec::opcodes::REBALANCE_TARGET`.
     RebalanceTarget {
         portfolio: String,
+        /// `chain.ASSET` and what the account holds, in the asset's own units. Empty when the
+        /// program stated none. Carried because the trades to the target depend on where the
+        /// portfolio starts, which is the input the target alone lacks (TICKET-070); appended
+        /// to this record's fields rather than inserted, so a payload written before it existed
+        /// ends early and is **refused** as short rather than misread.
+        holdings: Vec<(String, u128)>,
         weights: Vec<(String, u32)>,
         criterion: String,
     },
@@ -426,10 +432,16 @@ pub fn encode_capability_payload(payload: &CapabilityPayload) -> Result<Vec<u8>,
         // ===== B-52 Feature Lock encode =====
         CapabilityPayload::RebalanceTarget {
             portfolio,
+            holdings,
             weights,
             criterion,
         } => {
             write_string(&mut out, portfolio)?;
+            write_u16(&mut out, holdings.len() as u16);
+            for (key, amount) in holdings {
+                write_string(&mut out, key)?;
+                write_u128(&mut out, *amount);
+            }
             write_u16(&mut out, weights.len() as u16);
             for (key, percent) in weights {
                 write_string(&mut out, key)?;
@@ -791,6 +803,16 @@ pub fn decode_capability_payload(opcode: u8, bytes: &[u8]) -> Result<CapabilityP
         // ===== B-52 Feature Lock decode =====
         0x9E => CapabilityPayload::RebalanceTarget {
             portfolio: reader.read_string()?,
+            holdings: {
+                let hlen = reader.read_u16()? as usize;
+                let mut h = Vec::with_capacity(hlen);
+                for _ in 0..hlen {
+                    let k = reader.read_string()?;
+                    let v = reader.read_u128()?;
+                    h.push((k, v));
+                }
+                h
+            },
             weights: {
                 let wlen = reader.read_u16()? as usize;
                 let mut w = Vec::with_capacity(wlen);

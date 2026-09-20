@@ -34,6 +34,10 @@ use x3_lang_common::{ErrorAccumulator, Span, X3Error};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Portfolio {
     pub name: String,
+    /// `chain.ASSET` and what is held of it now, in the asset's own units, in the order
+    /// written. Empty means the program stated no holdings, which is a different fact from
+    /// holding nothing and is why the artifact says which it is.
+    pub holdings: Vec<(String, u128)>,
     /// `chain.ASSET` and its weight in percent, in the order written.
     pub weights: Vec<(String, u32)>,
     /// The metric a generated plan would be ranked by: the first target.
@@ -58,6 +62,20 @@ pub fn portfolio(decl: &RebalanceDecl) -> Result<Portfolio, String> {
             decl.name.as_str(),
             decl.weights.len()
         ));
+    }
+    // A holding named twice is the same defect as a weight named twice: the second would
+    // replace the first and one of them would not be in force.
+    let mut held: Vec<String> = Vec::new();
+    for (asset, _amount) in &decl.holdings {
+        let key = format!("{}.{}", asset.chain.as_str(), asset.name.as_str());
+        if held.contains(&key) {
+            return Err(format!(
+                "the rebalance '{}' states what it holds of '{key}' twice; the second amount would \
+                 replace the first, so one of them would not be in force",
+                decl.name.as_str()
+            ));
+        }
+        held.push(key);
     }
     let mut seen: Vec<String> = Vec::new();
     for (asset, percent) in &decl.weights {
@@ -124,6 +142,11 @@ pub fn portfolio(decl: &RebalanceDecl) -> Result<Portfolio, String> {
 
     Ok(Portfolio {
         name: decl.name.as_str().to_string(),
+        holdings: decl
+            .holdings
+            .iter()
+            .map(|(asset, amount)| (format!("{}.{}", asset.chain.as_str(), asset.name.as_str()), *amount))
+            .collect(),
         weights,
         criterion: decl.minimize[0],
         minimize: decl.minimize.clone(),

@@ -778,6 +778,10 @@ pub fn lower_program_with_mode(
                 let portfolio = rebalance::portfolio(rebalance_decl).map_err(|reason| semantic(&reason))?;
                 ir.push(Operation::Rebalance {
                     name: portfolio.name.clone(),
+                    // What the account holds now, when the program states it. The trades to
+                    // the target are computed from where the portfolio starts, so this is
+                    // the input the target alone leaves a host without (TICKET-070).
+                    holdings: portfolio.holdings.clone(),
                     weights: portfolio.weights.clone(),
                     criterion: portfolio.criterion.name().to_string(),
                 });

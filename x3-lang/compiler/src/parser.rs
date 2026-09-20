@@ -3488,6 +3488,7 @@ impl<'a> Parser<'a> {
         let name = Symbol::new(&self.expect_ident("rebalance name")?);
         self.expect(Tok::LBrace, "expected '{' after the rebalance name")?;
         let mut weights: Vec<(AssetRef, u32)> = Vec::new();
+        let mut holdings: Vec<(AssetRef, u128)> = Vec::new();
         let mut minimize: Vec<ObjectiveMetric> = Vec::new();
         let mut atomic = false;
 
@@ -3498,9 +3499,40 @@ impl<'a> Parser<'a> {
                 atomic = true;
                 continue;
             }
-            let clause = self
-                .peek_word()
-                .ok_or_else(|| parse_err("expected a weight, `minimize { … }` or `atomic;`".into(), self.peek()))?;
+            let clause = self.peek_word().ok_or_else(|| {
+                parse_err(
+                    "expected a weight, `holds { … }`, `minimize { … }` or `atomic;`".into(),
+                    self.peek(),
+                )
+            })?;
+            if clause == "holds" {
+                // What the account holds now, which is the input the target alone lacks.
+                self.advance();
+                self.expect(Tok::LBrace, "expected '{' after `holds`")?;
+                while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+                    let asset = self.parse_hedge_asset()?;
+                    self.expect(Tok::Eq, "expected '=' after the asset in a holding")?;
+                    let amount = match self.peek() {
+                        Tok::Int(value) => {
+                            self.advance();
+                            value
+                        }
+                        _ => {
+                            return Err(parse_err(
+                                "a holding is an amount in the asset's own units: write \
+                                 `<chain.ASSET> = <n>`"
+                                    .into(),
+                                self.peek(),
+                            ))
+                        }
+                    };
+                    self.opt_semi();
+                    holdings.push((asset, amount));
+                }
+                self.expect(Tok::RBrace, "expected '}' after the holdings")?;
+                self.opt_semi();
+                continue;
+            }
             if clause == "minimize" {
                 self.advance();
                 self.expect(Tok::LBrace, "expected '{' after `minimize`")?;
@@ -3570,6 +3602,7 @@ impl<'a> Parser<'a> {
         }
         Ok(Item::Rebalance(RebalanceDecl {
             name,
+            holdings,
             weights,
             minimize,
         }))
