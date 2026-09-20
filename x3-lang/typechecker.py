@@ -70,8 +70,12 @@ def typecheck(intent: dict) -> Tuple[bool, List[Any]]:
         if endpoint == 'from' and val.get('amount') is not None:
             try:
                 parse_positive_decimal(val.get('amount'))
-            except NumericParseError:
-                _err(errors, 'X3_INVALID_AMOUNT', 'amount must be positive numeric', endpoint + '.amount', val.get('amount'))
+            except NumericParseError as exc:
+                # The reason travels with the refusal. `1e400` is positive and it is
+                # numeric, so "amount must be positive numeric" would send its reader to
+                # the sign and the spelling while the defect is that no `float` can hold
+                # it — and every downstream stage narrows to `float`.
+                _err(errors, 'X3_INVALID_AMOUNT', f'amount must be positive numeric ({exc})', endpoint + '.amount', val.get('amount'))
 
     route = intent.get('route') or intent.get('path')
     if not isinstance(route, list) or not route:

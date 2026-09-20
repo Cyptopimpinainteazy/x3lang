@@ -134,8 +134,15 @@ def rust_intent_envelope(intent):
         'from': intent['from'],
         'to': intent['to'],
         'path': intent.get('path') or intent.get('route') or [],
-        'requires': intent.get('requires', []),
-        'policies': intent.get('policies', {}),
+        # `or`, not the two-argument `get`: the default applies only when the key is
+        # *absent*, and a validated intent may carry `"requires": null`. The typechecker
+        # decides that null means absent — it normalizes `policies is None` to `{}`
+        # itself — so a consumer that disagreed was rejecting a value the validator had
+        # just blessed. The compiler's side of this contract declares
+        # `requires: Vec<Requirement>` and `policies: Policies`, which serde refuses for
+        # a null, so the envelope must not carry one.
+        'requires': intent.get('requires') or [],
+        'policies': intent.get('policies') or {},
     }
 
 
@@ -193,8 +200,8 @@ def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle
     plan['validated_intent_v1'] = rust_contract
     # Surface constraints / requires / policies for downstream evaluators and
     # human-readable run output.
-    plan.setdefault('requires', list(intent.get('requires', [])))
-    plan.setdefault('policies', dict(intent.get('policies', {})))
+    plan.setdefault('requires', list(intent.get('requires') or []))
+    plan.setdefault('policies', dict(intent.get('policies') or {}))
     plan = simulator.simulate(plan)
 
     # Two-phase commit simulation: prepare (emit payloads), then simulate execution

@@ -82,3 +82,44 @@ def test_runner_reports_a_parse_failure_as_a_structured_error():
     assert isinstance(error["line"], int) and error["line"] > 0, (
         "a diagnosis without a line is half a diagnosis"
     )
+
+
+def test_runner_refuses_an_amount_it_cannot_represent_instead_of_reporting_nan():
+    # End to end, because the defect was end to end: the parser accepted the literal, the
+    # typechecker accepted the `Decimal`, `planner.py` narrowed it with `float()` and got
+    # `inf`, and the run finished with `status: rolled_back` and an estimates block
+    # carrying `NaN` and `Infinity`. Nothing raised, so nothing said so — the only visible
+    # sign was that the output document stopped being JSON.
+    root = Path(__file__).resolve().parents[2]
+    runner = root / "x3-lang" / "runner.py"
+    source = "\n".join(
+        [
+            "intent overflow {",
+            "    from ethereum.USDC amount 1e400 receiver 0x1111111111111111111111111111111111111111",
+            "",
+            "    route {",
+            "        swap Uniswap ethereum.USDC -> ethereum.WETH amount 1000 min_output 900",
+            "    }",
+            "",
+            "    to ethereum.WETH receiver 0x1111111111111111111111111111111111111111",
+            "    require finality.ethereum >= 12",
+            "}",
+            "",
+        ]
+    )
+    path = Path(tempfile.mkdtemp()) / "overflow.x3"
+    path.write_text(source)
+
+    proc = subprocess.run(
+        [sys.executable, str(runner), "--no-schema", str(path)], capture_output=True
+    )
+    document = proc.stdout.decode()
+    assert proc.returncode == 1, "an unrepresentable amount must not be reported as success"
+    assert b"Traceback" not in proc.stderr, (
+        f"a refusal must be a diagnosis, not a traceback: {proc.stderr.decode()}"
+    )
+    result = json.loads(document)
+    assert result["status"] == "error", document
+    assert [e["code"] for e in result["errors"]] == ["X3_INVALID_AMOUNT"], document
+    # The two tokens the float narrowing produced, neither of which is JSON.
+    assert "Infinity" not in document and "NaN" not in document, document
