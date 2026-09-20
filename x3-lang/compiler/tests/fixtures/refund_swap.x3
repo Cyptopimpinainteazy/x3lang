@@ -11,13 +11,12 @@ finality_policy strict {
 }
 
 intent refundable_swap {
-    from ethereum.USDC amount 1000 sender 0x1234
+    from ethereum.USDC amount 1000 receiver 0x1111111111111111111111111111111111111111
     to solana.SOL receiver 0x5678
 
     require slippage <= 1
     require finality.ethereum >= 12
     require finality.solana >= 32
 
-    timeout 3600s
-    on_fail refund sender 0x1234
+    timeout 3600s refund ethereum.USDC to 0x1111111111111111111111111111111111111111
 }

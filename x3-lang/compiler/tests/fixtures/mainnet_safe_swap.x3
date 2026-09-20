@@ -23,9 +23,20 @@ rpc_quorum {
     reject_on [receipt_disagree]
 }
 
+// The bridge above cannot be claimed on the far side without evidence that the source chain
+// locked the funds and that the destination filled them. The compiler requires both of a
+// bridging program in mainnet mode; this fixture predated the rule.
+proofs required {
+    source_lock_proof
+    destination_fill_proof
+}
+
 risk_policy {
     max_slippage 1
     max_position 500000
+    // The floor the declaration's `require route_score >= 80` is checked against: a guard with
+    // nothing to compare it to is refused, which this fixture did not state.
+    min_route_score 80
 }
 
 finality_policy strict {
@@ -41,13 +52,15 @@ finality_policy strict {
 }
 
 intent mainnet_swap {
-    from ethereum.USDC amount 1000 sender 0x1234
+    from ethereum.USDC amount 1000 receiver 0x1111111111111111111111111111111111111111
     to solana.SOL receiver 0x5678
 
     route {
         bridge x3 ethereum.USDC -> solana.SOL amount 1000
     }
 
+    // Replay protection, which a bridge requires and this fixture did not state.
+    require nonce unused mainnet_swap_001
     require slippage <= 1
     require finality.ethereum >= 12
     require finality.solana >= 32
@@ -55,6 +68,5 @@ intent mainnet_swap {
     require relayer_quorum >= 3
     require route_score >= 80
 
-    timeout 3600s
-    on_fail refund sender 0x1234
+    timeout 3600s refund ethereum.USDC to 0x1111111111111111111111111111111111111111
 }

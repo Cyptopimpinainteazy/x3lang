@@ -3507,3 +3507,73 @@ venue pool_plain {
         "and a venue that states none must say none rather than be given a default: {disassembly}"
     );
 }
+
+/// Every `.x3` file the tooling treats as a program must be one.
+///
+/// The gate above covers `examples/*.x3`, and the harness reads named fixtures rather than
+/// globbing — so two files under `tests/` sat unparseable for as long as nobody opened them
+/// (TICKET-014). A `.x3` file in a directory the tooling walks is a claim that it is a
+/// program, and this is where the claim is checked.
+///
+/// Two directories are skipped **by name**, and both say so in a README beside their
+/// contents: `examples/legacy/` (subjects with no current form, five files) and
+/// `tests/sketches/` (subjects with no surface yet, two files). `tests/conformance/invalid/`
+/// is skipped for the opposite reason — those files are *meant* to be refused, and requiring
+/// them to check would delete the only fixtures that assert refusals happen.
+#[test]
+fn every_x3_file_the_tooling_walks_is_a_program() {
+    fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.filter_map(|entry| entry.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                // Not programs by construction, and each names why in its own README.
+                let skipped = matches!(
+                    name.as_str(),
+                    "target" | "node_modules" | "__pycache__" | "legacy" | "sketches" | "invalid" | "archive"
+                );
+                if !skipped {
+                    collect(&path, out);
+                }
+            } else if path.extension().is_some_and(|extension| extension == "x3") {
+                out.push(path);
+            }
+        }
+    }
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("the crate lives under x3-lang")
+        .to_path_buf();
+    let mut found = Vec::new();
+    collect(&root, &mut found);
+    found.sort();
+
+    assert!(
+        found.len() > 20,
+        "the gate found {} files under {}, which is too few to be reading the tree it thinks it \
+         is reading",
+        found.len(),
+        root.display()
+    );
+
+    let mut failures = Vec::new();
+    for file in &found {
+        let check = x3c().arg("check").arg(file).output().expect("x3c check");
+        if !check.status.success() {
+            let relative = file.strip_prefix(&root).unwrap_or(file).display().to_string();
+            failures.push(format!("{relative}: {}", String::from_utf8_lossy(&check.stdout).trim()));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "every `.x3` file outside the named non-language directories must check ({} walked):\n{}",
+        found.len(),
+        failures.join("\n")
+    );
+}

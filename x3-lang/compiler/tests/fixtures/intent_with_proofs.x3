@@ -1,3 +1,12 @@
+// A `require finality.<chain>` guard is compared against a `finality_policy` that names that
+// chain, so the policy has to be here — the fixture predates that rule and stated the guard
+// without the declaration it is checked against.
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
 // `proofs required` is a file-scope declaration: it records which proofs the
 // program depends on. It used to be written inside the intent body, where the
 // intent-clause parser did not recognise it and silently parsed it as an
@@ -11,13 +20,17 @@ proofs required {
 }
 
 intent proven_swap {
-    from ethereum.USDC amount 1000 sender 0xsender
+    from ethereum.USDC amount 1000 receiver 0x1111111111111111111111111111111111111111
     to solana.SOL receiver 0xreceiver
 
     route {
         bridge x3 ethereum.USDC -> solana.SOL amount 1000
     }
 
-    timeout 3600s
-    on_fail refund sender 0xsender
+    // Replay protection and an explicit finality depth, both of which the compiler requires of
+    // a bridge and neither of which this fixture stated — it predates the rules.
+    require nonce unused proven_swap_1
+    require finality.ethereum >= 12
+
+    timeout 3600s refund ethereum.USDC to 0x1111111111111111111111111111111111111111
 }

@@ -13,7 +13,8 @@ use x3_lang_compiler::formatter::X3Formatter;
 use x3_lang_compiler::parser::parse_source;
 
 pub const TRADING_CORE_V1_SOURCE: &str = include_str!("fixtures/trading_core_v1.x3");
-pub const TRADING_INVALID_MISSING_MIN_OUT_SOURCE: &str = include_str!("fixtures/trading_invalid_missing_min_out.x3");
+pub const TRADING_INVALID_MISSING_MIN_OUT_SOURCE: &str =
+    include_str!("fixtures/invalid/trading_invalid_missing_min_out.x3");
 
 fn find_items(program: &Program) -> (Vec<&AssetDecl>, Option<&TradeRiskPolicy>, Option<&AtomicTradeDecl>) {
     let mut assets = Vec::new();
