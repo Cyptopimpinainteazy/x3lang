@@ -37,8 +37,11 @@ fn pad_to_4(bytecode: &mut Vec<u8>) {
 pub fn emit_x3ir(ir: &X3IR) -> Result<Vec<u8>, X3Error> {
     let mut bytecode = Vec::new();
 
-    // Header: version + metadata
-    bytecode.write_all(&[BYTECODE_VERSION_1])?;
+    // Header: version + metadata. `CURRENT_BYTECODE_VERSION` is the greatest version any opcode in
+    // `OPCODE_SET` was introduced in — asserted at compile time in `spec/opcodes.rs` — so the byte
+    // this writes is a function of the opcode set rather than a counter someone has to remember to
+    // move (TICKET-097).
+    bytecode.write_all(&[CURRENT_BYTECODE_VERSION])?;
 
     // Encode metadata
     if let Some(nonce) = &ir.metadata.nonce {
@@ -723,7 +726,18 @@ pub fn decode_trading_operation(opcode: u8, payload: &[u8]) -> Result<TradingOpe
 /// This decoder is intentionally strict for trading payloads: malformed
 /// lengths, unknown trading opcodes, or opcode/payload mismatches fail closed.
 pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, X3Error> {
-    if bytecode.first().copied() != Some(BYTECODE_VERSION_1) {
+    // The refusal names the version rather than only saying the version is unsupported: which
+    // version to rebuild for is the one fact its reader needs, and it is the fact a bare
+    // "unsupported or missing bytecode version" leaves out (TICKET-097).
+    if let Some(version) = bytecode.first().copied() {
+        if let Some(refusal) = crate::spec::opcodes::version_refusal(version) {
+            return Err(X3Error::CodegenError {
+                message: refusal,
+                span: None,
+            });
+        }
+    }
+    if bytecode.first().copied() != Some(CURRENT_BYTECODE_VERSION) {
         return Err(X3Error::CodegenError {
             message: "unsupported or missing bytecode version".to_string(),
             span: None,
@@ -1233,6 +1247,17 @@ pub fn instructions(bytecode: &[u8]) -> Result<Vec<StreamInstruction<'_>>, X3Err
             span: None,
         });
     }
+    // The version is checked before anything is walked, and an opcode the artifact's own version
+    // does not contain is refused where it is met rather than advanced over: this walker's whole
+    // job is to say where each instruction starts, and the width of an instruction from a version
+    // the artifact does not state is exactly what it cannot know (TICKET-097).
+    if let Some(refusal) = crate::spec::opcodes::version_refusal(bytecode[0]) {
+        return Err(X3Error::CodegenError {
+            message: refusal,
+            span: None,
+        });
+    }
+    let artifact_version = bytecode[0];
     let mut found = Vec::new();
     let mut pc = first_instruction_offset(bytecode);
     while pc + 4 <= bytecode.len() {
@@ -1241,6 +1266,12 @@ pub fn instructions(bytecode: &[u8]) -> Result<Vec<StreamInstruction<'_>>, X3Err
             continue;
         }
         let opcode = bytecode[pc];
+        if let Some(refusal) = crate::spec::opcodes::opcode_version_refusal(opcode, artifact_version) {
+            return Err(X3Error::CodegenError {
+                message: format!("at pc {pc}: {refusal}"),
+                span: None,
+            });
+        }
         let payload_len = u16::from_le_bytes([bytecode[pc + 1], bytecode[pc + 2]]) as usize;
         let payload_end = align4(pc + 3 + payload_len);
         let safe_end = payload_end.min(bytecode.len());

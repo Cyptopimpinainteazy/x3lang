@@ -1033,7 +1033,9 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
 }
 
 fn has_compiler_header(bytes: &[u8]) -> bool {
-    bytes.first() == Some(&BYTECODE_VERSION_1) && bytes.get(1).copied().unwrap_or(NOP) != NOP
+    // A version byte this format *defines* followed by a real record — see the verifier's copy for
+    // why it is `is_defined_version` and not the version this reader supports (TICKET-097).
+    is_defined_version(bytes.first().copied().unwrap_or(0)) && bytes.get(1).copied().unwrap_or(NOP) != NOP
 }
 
 fn first_instruction_pc(bytes: &[u8]) -> ExecResult<usize> {

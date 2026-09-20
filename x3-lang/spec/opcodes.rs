@@ -144,6 +144,171 @@ pub const NOP: u8 = 0x00;
 pub const ADD: u8 = 0x01;
 pub const SUB: u8 = 0x02;
 pub const BYTECODE_VERSION_1: u8 = 0x01;
+
+/// The second bytecode version, reserved for the next change to the opcode set.
+///
+/// Nothing in this repository emits it: `CURRENT_BYTECODE_VERSION` is still version 1 and every
+/// opcode registered in `OPCODE_SET` was introduced in version 1. It exists so that the gate
+/// below has a *number* to move to rather than a rule to invent — an opcode registered at version
+/// 2 is a compile error until the version the writer writes moves with it.
+pub const BYTECODE_VERSION_2: u8 = 0x02;
+
+/// The version byte this pipeline writes into every artifact it emits.
+///
+/// This is the **greatest** version in `OPCODE_SET`, asserted below at compile time. The two are
+/// the same fact — an artifact's version byte says which opcode set it may contain — and they
+/// were two different facts before (TICKET-097): the version byte stayed `0x01` while
+/// `ROUTE_FALLBACK`, `PARALLEL_PLAN`, `FEATURE_ALLOW`, `STRATEGY_LICENSE`, `VENUE_SETTLEMENT`, the
+/// capability block and the trading block were all added, so a reader that predated any of them
+/// had no way to refuse one. `is_payload_opcode` says why that is worse than a refusal: "A reader
+/// that classifies a payload-carrying instruction as fixed-width advances four bytes and then
+/// reads bytes that are not instructions" — a refusal is visible and a misparse is a different
+/// program.
+pub const CURRENT_BYTECODE_VERSION: u8 = BYTECODE_VERSION_1;
+
+/// Every opcode this format defines, as `(opcode, the version that introduced it)`.
+///
+/// One table, and the gate below reads it: the version byte an artifact carries must be the
+/// greatest version any opcode in it was introduced in, so adding an opcode is a decision that
+/// has to be taken *and* stated rather than one that can be forgotten.
+///
+/// `0x0A` is registered without a named constant because the executor executes it (`POW_RRR`) and
+/// the cost table prices it (50); the catalogue has no name for it, which is a gap this table
+/// records rather than one it hides. Nothing else is registered that is not a `pub const` in this
+/// file, and `compiler/tests/test_bytecode_version_gate.rs` walks the source to prove it: a new
+/// opcode constant that nobody registered fails that test by name.
+pub const OPCODE_SET: &[(u8, u8)] = &[
+    (NOP, BYTECODE_VERSION_1), (ADD, BYTECODE_VERSION_1), (SUB, BYTECODE_VERSION_1),
+    (0x0A, BYTECODE_VERSION_1), (META_NONCE, BYTECODE_VERSION_1), (META_CHAIN_ID, BYTECODE_VERSION_1),
+    (META_VERSIONS, BYTECODE_VERSION_1), (LOCK, BYTECODE_VERSION_1), (MINT, BYTECODE_VERSION_1),
+    (BURN, BYTECODE_VERSION_1), (RELEASE, BYTECODE_VERSION_1), (SWAP, BYTECODE_VERSION_1),
+    (BRIDGE, BYTECODE_VERSION_1), (IF, BYTECODE_VERSION_1), (LOOP, BYTECODE_VERSION_1),
+    (CALL, BYTECODE_VERSION_1), (RET, BYTECODE_VERSION_1), (REQUIRE, BYTECODE_VERSION_1),
+    (ON_FAIL, BYTECODE_VERSION_1), (ON_TIMEOUT, BYTECODE_VERSION_1), (ATOMIC_BEGIN, BYTECODE_VERSION_1),
+    (ATOMIC_END, BYTECODE_VERSION_1), (ATOMIC_ROLLBACK, BYTECODE_VERSION_1), (ATOMIC_CHOICE, BYTECODE_VERSION_1),
+    (ROUTE_FALLBACK, BYTECODE_VERSION_1), (PARALLEL_PLAN, BYTECODE_VERSION_1), (FEATURE_ALLOW, BYTECODE_VERSION_1),
+    (STRATEGY_LICENSE, BYTECODE_VERSION_1), (VENUE_SETTLEMENT, BYTECODE_VERSION_1), (EMIT, BYTECODE_VERSION_1),
+    (CALL_HOST, BYTECODE_VERSION_1), (GPU_DISPATCH, BYTECODE_VERSION_1), (SIMULATE, BYTECODE_VERSION_1),
+    (SCHEDULED_DISPATCH, BYTECODE_VERSION_1), (INTENT_RESOLVE, BYTECODE_VERSION_1), (CRDT_OP, BYTECODE_VERSION_1),
+    (PROOF_VERIFY, BYTECODE_VERSION_1), (STORAGE_OP, BYTECODE_VERSION_1), (PATHFIND, BYTECODE_VERSION_1),
+    (MEMPOOL_SCAN, BYTECODE_VERSION_1), (ORACLE_REQUEST, BYTECODE_VERSION_1), (EMERGENCY_CONTROL, BYTECODE_VERSION_1),
+    (LIFECYCLE, BYTECODE_VERSION_1), (SERIALIZE, BYTECODE_VERSION_1), (DESERIALIZE, BYTECODE_VERSION_1),
+    (GAS_ESTIMATE, BYTECODE_VERSION_1), (CHAIN_METRIC, BYTECODE_VERSION_1), (EVENT_PROVENANCE, BYTECODE_VERSION_1),
+    (MULTI_HOP_SWAP, BYTECODE_VERSION_1), (VECTOR_MATH, BYTECODE_VERSION_1), (ROLE_CHECK, BYTECODE_VERSION_1),
+    (MULTISIG_CHECK, BYTECODE_VERSION_1), (VERSION_META, BYTECODE_VERSION_1), (STORAGE_NAMESPACE, BYTECODE_VERSION_1),
+    (ABI_EXPORT, BYTECODE_VERSION_1), (DOC_EMBED, BYTECODE_VERSION_1), (GAS_ADAPTIVE, BYTECODE_VERSION_1),
+    (BOUNTY, BYTECODE_VERSION_1), (SUB_EXEC, BYTECODE_VERSION_1), (NONCE_UNUSED, BYTECODE_VERSION_1),
+    (VENUE_ORDER, BYTECODE_VERSION_1), (REBALANCE_TARGET, BYTECODE_VERSION_1), (ROUTE_SCORE, BYTECODE_VERSION_1),
+    (SOLVER_BID, BYTECODE_VERSION_1), (RELAYER_ATTEST, BYTECODE_VERSION_1), (RPC_CONSENSUS, BYTECODE_VERSION_1),
+    (RISK_SCORE, BYTECODE_VERSION_1), (INVARIANT_CHECK, BYTECODE_VERSION_1), (PRIVACY_COMMIT, BYTECODE_VERSION_1),
+    (PROOF_REQUIRED, BYTECODE_VERSION_1), (VM_ADAPTER_CALL, BYTECODE_VERSION_1), (MODE_CHECK, BYTECODE_VERSION_1),
+    (PACKAGE_IMPORT, BYTECODE_VERSION_1), (REFUND_POLICY, BYTECODE_VERSION_1), (TRADING_BEGIN, BYTECODE_VERSION_1),
+    (TRADING_OPEN_DEBT, BYTECODE_VERSION_1), (TRADING_EXECUTE_SWAP, BYTECODE_VERSION_1), (TRADING_CLOSE_DEBT, BYTECODE_VERSION_1),
+    (TRADING_ASSERT_MIN_PROFIT, BYTECODE_VERSION_1), (TRADING_ASSERT_ALL_DEBTS, BYTECODE_VERSION_1), (TRADING_EMIT_RECEIPT, BYTECODE_VERSION_1),
+    (TRADING_COMMIT, BYTECODE_VERSION_1), (TRADING_ABORT, BYTECODE_VERSION_1), (TRADING_ASSERT_INVARIANT, BYTECODE_VERSION_1),
+    (TRADING_BRIDGE, BYTECODE_VERSION_1), (HALT, BYTECODE_VERSION_1),
+];
+
+/// The versions this reader knows how to walk.
+pub const SUPPORTED_BYTECODE_VERSIONS: &[u8] = &[BYTECODE_VERSION_1];
+
+/// The opcode set's own version: the greatest version any registered opcode was introduced in.
+///
+/// A `while` loop in a `const fn`, so the assertion below is the compiler's and not a test's.
+pub const fn max_opcode_version() -> u8 {
+    let mut greatest = 0u8;
+    let mut index = 0usize;
+    while index < OPCODE_SET.len() {
+        if OPCODE_SET[index].1 > greatest {
+            greatest = OPCODE_SET[index].1;
+        }
+        index += 1;
+    }
+    greatest
+}
+
+/// The version an opcode was introduced in, or `None` when this format has no such opcode.
+pub const fn opcode_version(opcode: u8) -> Option<u8> {
+    let mut index = 0usize;
+    while index < OPCODE_SET.len() {
+        if OPCODE_SET[index].0 == opcode {
+            return Some(OPCODE_SET[index].1);
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Whether this reader can execute an artifact that states `version`.
+pub const fn is_supported_version(version: u8) -> bool {
+    let mut index = 0usize;
+    while index < SUPPORTED_BYTECODE_VERSIONS.len() {
+        if SUPPORTED_BYTECODE_VERSIONS[index] == version {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+/// Whether `version` is a bytecode version this format *defines*, whether or not this reader
+/// supports it.
+///
+/// Distinct from [`is_supported_version`] on purpose. This is the framing question — does a stream
+/// that starts with this byte claim to be a compiler stream — and the other is the compatibility
+/// question. A reader that conflated them would treat an artifact from a newer version as raw
+/// bytecode and walk it, which is the misparse this whole file exists to prevent.
+pub const fn is_defined_version(version: u8) -> bool {
+    version == BYTECODE_VERSION_1 || version == BYTECODE_VERSION_2
+}
+
+/// Why an artifact stating this version must not be walked, when it must not.
+///
+/// The message names the version and the set this reader knows, because the one fact a reader of
+/// the refusal needs is which version to rebuild or downgrade for.
+pub fn version_refusal(version: u8) -> Option<String> {
+    if !is_defined_version(version) || is_supported_version(version) {
+        return None;
+    }
+    Some(format!(
+        "the artifact states bytecode version {version}, and this reader knows version(s) \
+         {SUPPORTED_BYTECODE_VERSIONS:?}: an opcode introduced after a version this reader does not \
+         know would be read as a different instruction, or as the length of one, so the artifact is \
+         refused rather than walked"
+    ))
+}
+
+/// Why an opcode must not be walked in an artifact that states `artifact_version`, when it must
+/// not.
+///
+/// An opcode this format does not define, and an opcode defined after the version the artifact
+/// states, are the same refusal for the same reason: the reader would otherwise advance by that
+/// instruction's *own* width from a table the artifact's version does not promise.
+pub fn opcode_version_refusal(opcode: u8, artifact_version: u8) -> Option<String> {
+    match opcode_version(opcode) {
+        None => Some(format!(
+            "opcode 0x{opcode:02X} is not in this format's opcode set, at any version, so it cannot \
+             be walked as an instruction"
+        )),
+        Some(version) if version > artifact_version => Some(format!(
+            "opcode 0x{opcode:02X} was introduced in bytecode version {version} and this artifact \
+             states version {artifact_version}, so its width is not one this artifact's version \
+             promises"
+        )),
+        Some(_) => None,
+    }
+}
+
+/// The gate that the version byte is a function of the opcode set, checked by the compiler rather
+/// than by a test: an opcode registered at a version above the one the writer writes is a build
+/// error, and the way to fix it is to move `CURRENT_BYTECODE_VERSION` (and with it every reader's
+/// `SUPPORTED_BYTECODE_VERSIONS`) or to register the opcode against the version it really is.
+const _: () = assert!(
+    CURRENT_BYTECODE_VERSION == max_opcode_version(),
+    "the version byte this pipeline writes is not the greatest version in OPCODE_SET: an opcode \
+     has been registered at a version the writer does not write, so a reader of the version the \
+     artifact states could not know the opcode's width (TICKET-097)"
+);
 pub const META_NONCE: u8 = 0x10;
 pub const META_CHAIN_ID: u8 = 0x11;
 /// The record that binds an artifact to the versions that produced and run it — spec
@@ -676,7 +841,11 @@ pub fn metadata_record(bytes: &[u8], pc: usize) -> Option<(usize, &'static str, 
 /// `vm/src/verifier.rs` refuses, because an artifact that binds to nothing cannot be shown
 /// to be one this runtime may execute.
 pub fn version_binding(bytes: &[u8]) -> Option<(u16, u16, u16, u16, u16)> {
-    if bytes.first() != Some(&BYTECODE_VERSION_1) {
+    // A version this format defines is enough to look for the binding record: the caller decides
+    // whether the version is one it supports, and a version-2 artifact that was not recognised
+    // here would be read as one with no binding at all — a different refusal, for the wrong reason
+    // (TICKET-097).
+    if !is_defined_version(bytes.first().copied().unwrap_or(0)) {
         return None;
     }
     let mut pc = 1usize;

@@ -32,6 +32,26 @@ pub enum VerifyError {
         bound: u16,
         supported: u16,
     },
+    /// The artifact states a bytecode version this reader does not know.
+    ///
+    /// Its own variant rather than reading one byte as an opcode: a version this reader does not
+    /// know says the *opcode set* is not one it knows, so every width after the first byte is a
+    /// guess. Refusing is the only answer that cannot be a misparse (TICKET-097), and the message
+    /// comes from `spec::opcodes::version_refusal` so the reader and the writer's own refusal name
+    /// the same version.
+    UnsupportedBytecodeVersion(u8),
+    /// An opcode that the version the artifact states does not contain — either because this format
+    /// does not define it at all, or because it was introduced after that version.
+    ///
+    /// Separate from `InvalidOpcode` because the two say different things to whoever has to fix
+    /// it: an opcode no version defines is a malformed artifact, and an opcode from a *later*
+    /// version is a well-formed artifact this reader must not walk — the same distinction
+    /// `VersionMismatch` draws one level up.
+    OpcodeNotInVersion {
+        opcode: u8,
+        version: u8,
+        pc: usize,
+    },
 }
 
 impl std::fmt::Display for VerifyError {
@@ -45,6 +65,21 @@ impl std::fmt::Display for VerifyError {
                 f,
                 "X3_VERSION_MISMATCH: the artifact binds {field} version {bound} and this runtime \
                  supports {supported}, so it is not one this VM may execute"
+            ),
+            VerifyError::UnsupportedBytecodeVersion(version) => write!(
+                f,
+                "X3_BYTECODE_VERSION_UNSUPPORTED: {}",
+                crate::spec::opcodes::version_refusal(*version).unwrap_or_else(|| format!(
+                    "the artifact states bytecode version {version} and this reader does not know it"
+                ))
+            ),
+            VerifyError::OpcodeNotInVersion { opcode, version, pc } => write!(
+                f,
+                "X3_OPCODE_NOT_IN_VERSION: at pc {pc}, {}",
+                crate::spec::opcodes::opcode_version_refusal(*opcode, *version).unwrap_or_else(|| format!(
+                    "opcode 0x{opcode:02X} is not one this reader may walk in an artifact stating \
+                     bytecode version {version}"
+                ))
             ),
             other => write!(f, "{other:?}"),
         }
@@ -61,9 +96,24 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
     let mut boundaries = HashSet::new();
     let bytes = code.as_slice();
     let compiler_stream = has_compiler_header(bytes);
+    // Which opcode set the artifact's own version promises. A raw stream (no version byte) is not
+    // an artifact and has no other version to bind to than this build's, which is what an
+    // in-process caller that assembles instructions by hand means by them.
+    let artifact_version = if compiler_stream {
+        bytes[0]
+    } else {
+        crate::spec::opcodes::CURRENT_BYTECODE_VERSION
+    };
     // The version binding is checked before anything is read: an artifact this runtime
     // must not execute is refused whether or not the rest of it decodes (PHASE 45).
     if compiler_stream {
+        // A *defined* version this reader does not know is refused by name. It is not treated as
+        // raw bytecode: the first byte of an artifact is a version, and walking it as an
+        // instruction is the misparse — with a newer version it would be a different instruction,
+        // and with a payload opcode it would be `3 + whatever the next two bytes say`.
+        if crate::spec::opcodes::version_refusal(bytes[0]).is_some() {
+            return Err(VerifyError::UnsupportedBytecodeVersion(bytes[0]));
+        }
         verify_version_binding(bytes)?;
     }
     let mut pc = first_instruction_pc(bytes);
@@ -73,8 +123,25 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         }
         boundaries.insert(pc);
         let opcode = bytes[pc];
-        if !valid_opcode(opcode) {
-            return Err(VerifyError::InvalidOpcode(opcode, pc));
+        // The acceptance set is `spec/opcodes.rs`'s one table of registered opcodes, not a list of
+        // ranges kept here. The range list this replaced is why: the trading range was missing from
+        // it, so `verify` rejected every artifact a trading-core program produces with
+        // `X3_VERIFY_FAILED: InvalidOpcode(176, 1)`, and it accepted every unassigned byte in
+        // 0x00..=0xAB — leaving the executor to refuse them one instruction later, at the wrong
+        // place and for the wrong reason (TICKET-097).
+        match crate::spec::opcodes::opcode_version(opcode) {
+            // Not an instruction at any version: a malformed artifact.
+            None => return Err(VerifyError::InvalidOpcode(opcode, pc)),
+            // An instruction from a version this artifact does not state, so this reader has no
+            // width for it. Refused by name rather than guessed at (TICKET-097).
+            Some(version) if version > artifact_version => {
+                return Err(VerifyError::OpcodeNotInVersion {
+                    opcode,
+                    version: artifact_version,
+                    pc,
+                })
+            }
+            Some(_) => {}
         }
         if is_payload_opcode(opcode, compiler_stream) {
             let payload = read_payload(bytes, pc)?;
@@ -240,7 +307,14 @@ fn has_compiler_header(bytes: &[u8]) -> bool {
     // Same rule as the executor's `has_compiler_header`: a version byte
     // followed by a real record. A stream of `[0x01][0x00..]` is raw bytecode
     // that happens to start with the version byte, not a compiler stream.
-    bytes.first() == Some(&BYTECODE_VERSION_1) && bytes.get(1).copied().unwrap_or(NOP) != NOP
+    //
+    // The first byte must be a version this format *defines* rather than only the one this reader
+    // supports: a version-2 artifact has to arrive here so `verify` can refuse it by name, and if
+    // it were not recognised as a stream it would be walked as raw bytecode instead — the misparse
+    // this whole file exists to prevent (TICKET-097). `is_defined_version` answers the framing
+    // question; `is_supported_version` answers the compatibility one, and they are asked in that
+    // order.
+    is_defined_version(bytes.first().copied().unwrap_or(0)) && bytes.get(1).copied().unwrap_or(NOP) != NOP
 }
 
 // The classification comes from `spec/opcodes.rs`, shared with the compiler's
@@ -568,24 +642,6 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
         _ => {}
     }
     Ok(())
-}
-
-fn valid_opcode(op: u8) -> bool {
-    // Accept every opcode the emitter can produce, including
-    // asset ops (0x20-0x24), control (0x30-0x33), guards
-    // (0x40-0x44), atomic (0x50-0x52), emit/call (0x60-0x66),
-    // vector (0x70-0x73), capability payloads (0x80-0x9B),
-    // extras (0xA0-0xAB) and the trading core (0xB0-0xBA). Halt (0xFF)
-    // and reserved (0x00-0x18) are also valid. Anything outside
-    // 0x00-0xFF is impossible.
-    //
-    // The trading range was missing, so `verify` rejected every bytecode a
-    // trading-core program produces: `x3c run examples/trading_core_v1.x3`
-    // failed with `X3_VERIFY_FAILED: InvalidOpcode(176, 1)` — 0xB0 is
-    // TRADING_BEGIN, the first instruction of the stream. The compiler's
-    // disassembler already carries this range, and carries a comment about
-    // having been fixed for the same reason.
-    op <= 0xAB || (TRADING_BEGIN..=TRADING_BRIDGE).contains(&op) || op == HALT
 }
 
 #[cfg(test)]

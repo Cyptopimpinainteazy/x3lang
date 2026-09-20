@@ -321,7 +321,11 @@ impl VM {
     }
 
     pub fn verify_and_execute(&mut self) -> ExecResult<()> {
-        crate::verifier::verify(&self.code).map_err(|err| ExecError::Panic(format!("X3_VERIFY_FAILED: {err:?}")))?;
+        // `Display`, not `Debug`: the variants that carry a reason — a version the runtime does not
+        // support and an opcode the artifact's version does not contain (TICKET-097), and the PHASE
+        // 45 binding mismatch — render a sentence here, and the rest fall back to their own `Debug`
+        // spelling inside `Display`, so every existing message is unchanged.
+        crate::verifier::verify(&self.code).map_err(|err| ExecError::Panic(format!("X3_VERIFY_FAILED: {err}")))?;
         self.execute_unverified()
     }
 
