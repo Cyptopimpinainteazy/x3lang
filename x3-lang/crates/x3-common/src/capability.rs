@@ -206,6 +206,22 @@ pub enum CapabilityPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssetOpPayload {
+    /// `lock chain.ASSET amount V from ADDR` — escrow `amount` on the source chain.
+    ///
+    /// **`from` is the payer**: the account on *this* endpoint's chain whose funds are
+    /// held, which is what a host debits. TICKET-072 read it as the payee and reported a
+    /// mis-debit; it is not one. An intent writes `from <chain.ASSET> … receiver <addr>`,
+    /// and that endpoint's `receiver` is an account on the **from** chain — the Python
+    /// validator checks it against `from.chain`, and the destination side's account is the
+    /// `to` endpoint's own receiver, which is what [`AssetOpPayload::Release`] carries.
+    /// Each endpoint names the account on its own chain, so a lock naming its payer and a
+    /// release naming its payee are the same rule read twice.
+    ///
+    /// Two spellings reach this field for the same quantity: a concrete address (an
+    /// intent's endpoint receiver) and the keyword `"sender"` (the atomic-swap path, where
+    /// the payer is whoever submitted the trade). They agree about *what* the field is;
+    /// they differ about how a host resolves it, which is the residual this doc records
+    /// rather than a defect it hides.
     Lock {
         chain: String,
         asset: String,
