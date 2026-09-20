@@ -14,12 +14,18 @@
 //! The remaining three items are covered elsewhere and are named here so the gap is
 //! visible rather than implied:
 //!
-//! - **unordered maps**: surveyed but not gated. 68 `HashMap`/`HashSet` mentions across
-//!   14 files in these crates; the survey found the only *iteration* of one is an
-//!   existence test (`regalloc.rs`, `values().any(…)`, order-independent) and the rest
-//!   are keyed lookups and membership tests. That is a survey, not a classification of
-//!   all 68 sites — **TICKET-086**. A file-level gate is the cheap half; a per-site
-//!   allowlist with reasons is the honest one.
+//! - **unordered maps**: classified, and the census re-measured here rather than left at
+//!   the figure the classification started from. **50** `HashMap`/`HashSet` mentions across
+//!   **12** files in these crates, down from the 68 across 14 that round 57 went through
+//!   site by site (TICKET-086, closed in `cb72223a4`). The difference is this session's own
+//!   fixes — the two IR fields that reached the artifact's bytes (`ir.rs`), the bridge's
+//!   storage and lifecycle states and `lowering.rs`'s route payload — plus `regalloc.rs`,
+//!   deleted in TICKET-085. Every remaining mention is a keyed lookup or a membership test;
+//!   the one *iteration* the classification found was `regalloc.rs`'s
+//!   `temp_to_reg.values().any(…)`, an existence test, and it went with the file. The
+//!   item-by-item record is `.ai/reports/x3lang-round57-20260919.md`, and the byte-identity
+//!   tests below are what bite if a new one drifts — a type scan cannot see a clock reached
+//!   through a dependency, and these can.
 //! - **floating-point ambiguity**: PHASE 43. `crates/x3-common/src/fixed.rs` is the
 //!   vocabulary and `crates/x3-common/tests/fixed_math.rs` answers the audit item by
 //!   item; the one live `f64` is a Solana wire field, documented at the field.

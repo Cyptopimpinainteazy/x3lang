@@ -37,7 +37,6 @@ pub mod optimizer;
 pub mod parser;
 pub mod profitability;
 pub mod rebalance;
-pub mod regalloc;
 pub mod risk;
 pub mod semantic;
 pub mod strategy;
@@ -55,7 +54,6 @@ use diagnostic::{CompilerDiagnostic, DiagnosticSeverity};
 use emitter::emit_x3ir;
 use lowering::{lower_program, lower_program_with_mode, LowerCtx};
 use parser::parse_source;
-use regalloc::{allocate, AllocationResult};
 use semantic::verify_atomic_swap_decls;
 use semantic::verify_with_config as verify_semantics;
 use semantic::{
@@ -81,7 +79,6 @@ pub use trading_verify::{verify_atomic_trade, verify_trading_program, DebtFlowSt
 
 // Re-export register-allocation entry points so callers (and tests) can run
 // allocation as a standalone pass without going through the full pipeline.
-pub use regalloc::{allocate as allocate_registers, AllocationResult as RegisterAllocationResult};
 
 /// Everything that has to be checked before bytecode may be emitted, and the IR
 /// those checks ran against.
@@ -264,49 +261,6 @@ fn diagnostic_to_error(diagnostic: &CompilerDiagnostic) -> X3Error {
 /// Pipeline: AST → X3IR → Bytecode
 pub fn compile_program(program: &Program) -> Result<Vec<u8>, X3Error> {
     compile_program_with_context(program, LowerCtx::new())
-}
-
-/// Compile an X3 AST program with the register-allocation pass wired in.
-///
-/// Pipeline: AST → X3IR → register-allocate (assigns physical regs/spill
-/// slots to logical temporaries) → Bytecode. The allocation result is
-/// returned alongside the bytecode so callers can inspect the register
-/// pressure (`registers_used`, `spills_used`) for diagnostics.
-///
-/// # The pass runs here, and it does not change the artifact
-///
-/// This comment used to say that this function "promotes `regalloc::allocate` from a
-/// library-only function to a real pass in the production compilation pipeline", and
-/// that without it the allocator "is dead code as far as the compiled binary is
-/// concerned". The second half is true and the first half is not: the pass **runs** and
-/// its result is **discarded**, because `regalloc::patch_operation` is a documented
-/// no-op — the v0.1 IR carries no explicit operand slots for it to rewrite.
-///
-/// So the bytecode this returns is byte-identical to [`compile_program`]'s, and the
-/// entry point is reachable only from this module's own tests: `x3c build` does not
-/// call it. What it produces is the *record* of what a register allocator would decide
-/// (`AllocationResult`), not an allocation applied to the artifact. Nothing downstream
-/// reads it either — `vm/src` never mentions `register_assignments` or `spill_slots`.
-///
-/// `the_regalloc_entry_point_emits_the_same_bytes_as_the_plain_one` below pins the
-/// byte-identity, so wiring the rewrite is a test failure rather than a silent change
-/// to consensus-relevant bytecode (PHASE 42), and TICKET-085 records what wiring it
-/// needs.
-pub fn compile_program_with_regalloc(program: &Program) -> Result<(Vec<u8>, AllocationResult), X3Error> {
-    let pre = run_pre_emission_layers(program, CompilationMode::Dev)?;
-    if !pre.errors.is_empty() {
-        return Err(format_pipeline_errors(&pre.errors));
-    }
-    let ir = pre.ir;
-    let _alloc = allocate(&ir.operations);
-    // The v0.1 pipeline records allocation metadata without rewriting
-    // the IR (see `patch_operation` in `regalloc.rs`). Future versions
-    // will mutate `ir.operations` to carry `Operand::Reg(r)` /
-    // `Operand::Spill(s)` slots directly. Until then the allocation
-    // result is the canonical record of physical-register decisions.
-    let bytecode = emit_x3ir(&ir)?;
-    verify_bytecode(&bytecode)?;
-    Ok((bytecode, _alloc))
 }
 
 /// Parse, verify, lower, and compile X3 source for the currently supported
@@ -497,137 +451,4 @@ fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod regalloc_wiring_tests {
-    use super::*;
-    use x3_lang_ast::ast::{AssetRef, AtomicSwapDecl, ChainRef, Expression, HashlockSpec, Item, LiteralExpr, Program};
-    use x3_lang_common::Spanned;
-
-    /// The new `compile_program_with_regalloc` entry point runs the full
-    /// pipeline (parse → lower → register-allocate → emit → verify). This
-    /// test builds a valid `Program` directly so it doesn't depend on the
-    /// surface syntax changing across compiler versions — we just need to
-    /// prove the regalloc pass is reachable from the public API.
-    fn regalloc_fixture_program() -> Program {
-        let swap = AtomicSwapDecl {
-            name: "test_swap".into(),
-            from_asset: AssetRef::new(ChainRef("eth".into()), "USDC".into()),
-            to_asset: AssetRef::new(ChainRef("sol".into()), "USDC".into()),
-            source_vm: None,
-            dest_vm: None,
-            amount: Some(Expression::Literal(LiteralExpr::Int {
-                value: 100,
-                base: x3_lang_common::IntBase::Decimal,
-                suffix: None,
-            })),
-            receiver: None,
-            hashlock: Some(HashlockSpec {
-                hash_fn: "sha256".into(),
-                secret: Box::new(Expression::Literal(LiteralExpr::String("my_secret".into()))),
-            }),
-            body: vec![],
-            requires: vec![],
-            on_fail: None,
-            timeout_source: Some(Expression::Literal(LiteralExpr::Duration {
-                value: 3600,
-                unit: x3_lang_common::DurationUnit::Seconds,
-            })),
-            timeout_destination: Some(Expression::Literal(LiteralExpr::Duration {
-                value: 1800,
-                unit: x3_lang_common::DurationUnit::Seconds,
-            })),
-        };
-        Program {
-            items: vec![Spanned::dummy(Item::AtomicSwap(swap))],
-        }
-    }
-
-    #[test]
-    fn compile_program_with_regalloc_runs_full_pipeline() {
-        let program = regalloc_fixture_program();
-        // This fixture used to be rejected by lowering, so the call below
-        // always returned `Err` and everything the `Ok` arm asserted went
-        // unexercised — including `alloc.len() == 0`, which the arm only
-        // stopped agreeing with once the pipeline started succeeding. The
-        // fixture is valid, so the pipeline must succeed; tolerating `Err` was
-        // how the untested arm survived.
-        let (bytecode, alloc) = compile_program_with_regalloc(&program)
-            .expect("a valid hand-built program must compile through the regalloc-wired pipeline");
-        assert!(!bytecode.is_empty(), "bytecode must be non-empty");
-        assert_eq!(bytecode[0], 0x01, "bytecode version must be 0x01");
-        assert_eq!(bytecode.len() % 4, 0, "bytecode must be 4-byte aligned");
-        // What the allocation record owes is to mirror the IR the pass was
-        // handed. `registers_used` and `spills_used` are legitimately zero
-        // here: the fixture is Lock/Release/OnTimeout, which carry no register
-        // operands, so there is no temporary to place. Asserting those two are
-        // zero would be asserting the pass found nothing to do; asserting the
-        // record is empty was asserting the same, and was false.
-        let ir_len = compile_to_ir(&program).expect("lowering must succeed").operations.len();
-        assert_eq!(
-            alloc.operations.len(),
-            ir_len,
-            "the allocation record must mirror the IR operation list"
-        );
-    }
-
-    /// Fails fast on a syntactically broken source, proving the parse →
-    /// regalloc path is wired into the same error surface as the standard
-    /// `compile_program` entry point.
-    #[test]
-    fn compile_program_with_regalloc_propagates_parse_errors() {
-        let result = compile_program_with_regalloc_str("this is not x3-lang");
-        assert!(result.is_err(), "garbage source must error out");
-    }
-
-    /// String-source convenience wrapper that mirrors `compile_source` but
-    /// goes through the regalloc-wired pipeline.
-    pub fn compile_program_with_regalloc_str(source: &str) -> Result<Vec<u8>, X3Error> {
-        let program = parse_source(source)?;
-        compile_program_with_regalloc(&program).map(|(bc, _)| bc)
-    }
-
-    /// The allocation pass runs, records, and does **not** change the artifact.
-    ///
-    /// `regalloc::patch_operation` is a documented no-op — the v0.1 IR carries no
-    /// explicit operand slots for the assignment to rewrite — so the allocation is a
-    /// record rather than a rewrite and the bytecode must be byte-identical to
-    /// `compile_program`'s.
-    ///
-    /// A ratchet, not a celebration: it fails the moment the rewrite is wired, which is
-    /// exactly when the doc comments on `compile_program_with_regalloc` and
-    /// `regalloc::rewrite_operations` have to stop saying "placeholder". It fails loudly
-    /// rather than letting a half-wired allocator move consensus-relevant bytecode with
-    /// nothing watching (PHASE 42 — non-deterministic optimizer output must not reach a
-    /// consensus decision). TICKET-085 records what the wiring needs.
-    #[test]
-    fn the_regalloc_entry_point_emits_the_same_bytes_as_the_plain_one() {
-        let program = regalloc_fixture_program();
-        let plain = compile_program(&program).expect("the fixture compiles");
-        let (allocated, allocation) =
-            compile_program_with_regalloc(&program).expect("the fixture compiles with the pass");
-
-        assert_eq!(
-            allocated, plain,
-            "the register-allocation entry point changed the artifact; if the rewrite has \
-             been wired, update the doc on `compile_program_with_regalloc` and this test \
-             together — the byte-identity is what says the allocator is a record rather \
-             than a rewrite"
-        );
-
-        // The record is not empty of structure: it mirrors the IR it was handed, and the
-        // allocation it holds is an assignment table rather than a summary.
-        assert_eq!(
-            allocation.operations.len(),
-            compile_to_ir(&program).expect("lowering").operations.len(),
-            "the allocation record must cover the IR it was handed"
-        );
-        assert!(
-            allocation.register_assignments.is_empty(),
-            "the fixture is Lock/Release/OnTimeout and carries no temporaries, so the \
-             assignment table is empty — and it is a table, not a count, because the \
-             backend is meant to consume it"
-        );
-    }
 }
