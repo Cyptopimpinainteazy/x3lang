@@ -361,72 +361,46 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     // of the guard rather than a test.
                     REQUIRE_COMPARE_STATIC => true,
                     REQUIRE_COMPARE_GE => value >= threshold,
-                    // A measured guard: the quantity is what a host reported, in the
-                    // operand's own unit, and the instruction refuses rather than
-                    // comparing when nothing did. That refusal is the point — a guard
-                    // that passed because `r0` happened to hold a large number would be
-                    // worse than no guard at all.
-                    REQUIRE_COMPARE_MEASURED_PROFIT => match require_measured_unit_code(_flags) {
-                        // A hedge's bound is a *ceiling* on what the venue left open, so it
-                        // compares the other way round from a profit floor — and it is about
-                        // the quantity the venue was asked for, which is why the unit travels
-                        // in the flags rather than being inferred from the mode (TICKET-068).
-                        MEASURED_UNIT_CODE_DELTA_BPS => match vm.state.measured_delta_bps {
-                            Some(measured) if measured <= threshold => true,
-                            Some(measured) => {
-                                return Err(ExecError::Panic(format!(
-                                    "X3_DELTA_ABOVE_BOUND: the venue left a delta of {measured}bps \
-                                     and the program allows at most {threshold}bps"
-                                )));
+                    // A measured guard. The quantity is what a host reported, and the instruction
+                    // refuses rather than comparing when nothing did — that refusal is the point, and
+                    // it is the one place this comparison is evaluated: `IF_MEASURED` forks on the
+                    // same verdict, so a guard and a branch cannot describe the same quantity
+                    // differently (TICKET-106).
+                    REQUIRE_COMPARE_MEASURED_PROFIT => {
+                        // An unknown unit code reads as the profit floor, which is what this mode
+                        // meant before the unit code existed, so an artifact emitted then still
+                        // reads as the guard it was.
+                        let unit = match require_measured_unit_code(_flags) {
+                            MEASURED_UNIT_CODE_DELTA_BPS => MEASURED_UNIT_CODE_DELTA_BPS,
+                            _ => MEASURED_UNIT_CODE_PROFIT_BPS,
+                        };
+                        match measured_comparison(vm, unit, threshold, "guard") {
+                            Some(MeasuredVerdict::Holds) => true,
+                            Some(MeasuredVerdict::Fails(message) | MeasuredVerdict::Unmeasured(message)) => {
+                                return Err(ExecError::Panic(message))
                             }
                             None => {
                                 return Err(ExecError::Panic(format!(
-                                    "X3_GUARD_UNMEASURED: the guard `delta <= {threshold}bps` needs a \
-                                     delta the venue measured, and no venue reported one for this hedge"
+                                    "X3_REQUIRE_FAILED: unknown measured unit code {unit} at pc {}",
+                                    vm.state.pc
                                 )))
                             }
-                        },
-                        // Code 0 is the profit floor — what this mode meant before the unit
-                        // code existed, so an artifact emitted then still reads as the guard
-                        // it was.
-                        _ => match vm.state.measured_profit_bps {
-                            Some(measured) if measured >= threshold => true,
-                            Some(measured) => {
-                                // A measured floor is a *refusal*, not a branch: the trade
-                                // did not clear what the program required, so it does not
-                                // settle. It is reported here with both figures rather than
-                                // dispatched to a handler, because the handler mechanism
-                                // takes its target from `r0` (`ON_FAIL` reads a register, not
-                                // an address — TICKET-058) and a failure routed through
-                                // residue lands mid-instruction.
-                                return Err(ExecError::Panic(format!(
-                                    "X3_PROFIT_BELOW_FLOOR: the trade realised {measured}bps and the \
-                                     program requires at least {threshold}bps"
-                                )));
+                        }
+                    }
+                    REQUIRE_COMPARE_MEASURED_SLIPPAGE => {
+                        match measured_comparison(vm, MEASURED_UNIT_CODE_SLIPPAGE_BPS, threshold, "guard") {
+                            Some(MeasuredVerdict::Holds) => true,
+                            Some(MeasuredVerdict::Fails(message) | MeasuredVerdict::Unmeasured(message)) => {
+                                return Err(ExecError::Panic(message))
                             }
                             None => {
                                 return Err(ExecError::Panic(format!(
-                                    "X3_GUARD_UNMEASURED: the guard `profit >= {threshold}bps` needs a \
-                                     profit the host measured, and no host reported one for this trade"
+                                    "X3_REQUIRE_FAILED: unknown measured unit code at pc {}",
+                                    vm.state.pc
                                 )))
                             }
-                        },
-                    },
-                    REQUIRE_COMPARE_MEASURED_SLIPPAGE => match vm.state.measured_slippage_bps {
-                        Some(measured) if measured <= threshold => true,
-                        Some(measured) => {
-                            return Err(ExecError::Panic(format!(
-                                "X3_SLIPPAGE_ABOVE_CEILING: the trade realised {measured}bps and the \
-                                 program allows at most {threshold}bps"
-                            )));
                         }
-                        None => {
-                            return Err(ExecError::Panic(format!(
-                                "X3_GUARD_UNMEASURED: the guard `slippage <= {threshold}bps` needs a \
-                                 slippage the host measured, and no host reported one for this trade"
-                            )))
-                        }
-                    },
+                    }
                     // A comparison this VM does not implement must not pass by
                     // default.
                     other => {
@@ -445,6 +419,65 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                         vm.state.pc
                     )));
                 }
+            }
+            IF_MEASURED => {
+                // `[IF_MEASURED][u16 len][unit:invert:threshold:skip]` — a branch on a quantity a
+                // host measured (TICKET-106).
+                //
+                // The record says which quantity, whether this is the negation of that quantity's own
+                // comparison, the bound in basis points, and how many instructions to skip when the
+                // comparison does not hold. That is the whole of an `if` over a measured quantity:
+                // the emitter writes the body inline and a second record after it to skip the other
+                // body, because this format has no unconditional jump.
+                let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
+                    Ok(payload) => payload.to_vec(),
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                let Some((unit, invert, threshold_bps, skip)) = parse_if_measured(&payload) else {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::InvalidOperand);
+                };
+                let base = match measured_comparison(vm, unit, u128::from(threshold_bps), "branch") {
+                    Some(MeasuredVerdict::Holds) => true,
+                    Some(MeasuredVerdict::Fails(_)) => false,
+                    // A quantity nothing reported refuses in a branch too: a fork on a figure that
+                    // was never measured would pick a path nobody chose, which is worse than
+                    // refusing — the same rule the guard states.
+                    Some(MeasuredVerdict::Unmeasured(message)) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(message));
+                    }
+                    None => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(ExecError::Panic(format!(
+                            "X3_GUARD_UNMEASURED: the branch names measured quantity {unit}, which \
+                             this VM does not hold"
+                        )));
+                    }
+                };
+                let taken = if invert { !base } else { base };
+                let after = align4(vm.state.pc + 3 + payload.len());
+                if taken {
+                    vm.state.pc = after;
+                } else {
+                    let target = after.saturating_add((skip as usize).saturating_mul(4));
+                    if target >= vm.code.len() {
+                        return Ok(());
+                    }
+                    vm.state.pc = target;
+                }
+                continue;
             }
             ON_FAIL => {
                 // ON_FAIL: ra=handler_pc_target. Push a failure handler entry:
@@ -1033,9 +1066,9 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
 }
 
 fn has_compiler_header(bytes: &[u8]) -> bool {
-    // A version byte this format *defines* followed by a real record — see the verifier's copy for
-    // why it is `is_defined_version` and not the version this reader supports (TICKET-097).
-    is_defined_version(bytes.first().copied().unwrap_or(0)) && bytes.get(1).copied().unwrap_or(NOP) != NOP
+    // A *reserved* version byte followed by a real record — see the verifier's copy for why it is the
+    // reservation and not the version this reader supports (TICKET-097, TICKET-105).
+    is_reserved_version_byte(bytes.first().copied().unwrap_or(0)) && bytes.get(1).copied().unwrap_or(NOP) != NOP
 }
 
 fn first_instruction_pc(bytes: &[u8]) -> ExecResult<usize> {
@@ -1159,6 +1192,77 @@ fn gas_surcharge(opcode: u8, vm: &VM, operand: u16) -> u128 {
         }
         _ => 0,
     }
+}
+
+/// What a measured comparison says about a quantity a host reported.
+enum MeasuredVerdict {
+    /// The comparison holds.
+    Holds,
+    /// It does not hold, and the message is the refusal a *guard* makes of that — so a branch and a
+    /// guard cannot describe the same quantity differently.
+    Fails(String),
+    /// Nothing reported the quantity this comparison is about.
+    Unmeasured(String),
+}
+
+/// Evaluate a measured comparison against the quantity a host reported.
+///
+/// `None` when `unit_code` is not a quantity this build holds, which is a refusal at the caller
+/// rather than a comparison that passes by default.
+///
+/// **One implementation for the two instructions that make this comparison**: `REQUIRE`, where a
+/// failure is a refusal, and `IF_MEASURED`, where it is a fork (TICKET-106). The direction is the
+/// quantity's own — `>=` for the profit floor, `<=` for the slippage and delta ceilings — because
+/// that is what a guard on it means; a branch's `invert` selects the negation of that, which is the
+/// second shape a branch needs to skip a body.
+///
+/// The two verdicts are handled differently by design: a *failure* is a refusal in a guard and a
+/// fork in a branch, while a quantity **nothing reported** is a refusal in both. A branch that
+/// picked a path on a figure nobody measured would be a path nobody chose.
+fn measured_comparison(vm: &VM, unit_code: u8, threshold: u128, what: &str) -> Option<MeasuredVerdict> {
+    let measured = match unit_code {
+        MEASURED_UNIT_CODE_PROFIT_BPS => vm.state.measured_profit_bps,
+        MEASURED_UNIT_CODE_DELTA_BPS => vm.state.measured_delta_bps,
+        MEASURED_UNIT_CODE_SLIPPAGE_BPS => vm.state.measured_slippage_bps,
+        _ => return None,
+    };
+    let Some(measured) = measured else {
+        return Some(MeasuredVerdict::Unmeasured(match unit_code {
+            MEASURED_UNIT_CODE_PROFIT_BPS => format!(
+                "X3_GUARD_UNMEASURED: the {what} `profit >= {threshold}bps` needs a profit the host \
+                 measured, and no host reported one for this trade"
+            ),
+            MEASURED_UNIT_CODE_DELTA_BPS => format!(
+                "X3_GUARD_UNMEASURED: the {what} `delta <= {threshold}bps` needs a delta the venue \
+                 measured, and no venue reported one for this hedge"
+            ),
+            _ => format!(
+                "X3_GUARD_UNMEASURED: the {what} `slippage <= {threshold}bps` needs a slippage the \
+                 host measured, and no host reported one for this trade"
+            ),
+        }));
+    };
+    let holds = match unit_code {
+        MEASURED_UNIT_CODE_PROFIT_BPS => measured >= threshold,
+        _ => measured <= threshold,
+    };
+    if holds {
+        return Some(MeasuredVerdict::Holds);
+    }
+    Some(MeasuredVerdict::Fails(match unit_code {
+        MEASURED_UNIT_CODE_PROFIT_BPS => format!(
+            "X3_PROFIT_BELOW_FLOOR: the trade realised {measured}bps and the program requires at \
+             least {threshold}bps"
+        ),
+        MEASURED_UNIT_CODE_DELTA_BPS => format!(
+            "X3_DELTA_ABOVE_BOUND: the venue left a delta of {measured}bps and the program allows at \
+             most {threshold}bps"
+        ),
+        _ => format!(
+            "X3_SLIPPAGE_ABOVE_CEILING: the trade realised {measured}bps and the program allows at \
+             most {threshold}bps"
+        ),
+    }))
 }
 
 fn read_len_payload(bytes: &[u8], pc: usize) -> ExecResult<&[u8]> {

@@ -13,6 +13,22 @@ pub const IF: u8 = 0x30;
 pub const LOOP: u8 = 0x31;
 pub const CALL: u8 = 0x32;
 pub const RET: u8 = 0x33;
+/// Branch on a quantity a host measured: `[IF_MEASURED][u16 len][payload]` with
+/// `payload = "<unit>:<invert>:<threshold_bps>:<skip>"`.
+///
+/// `IF` branches on the zero-ness of a register, and this compiler emits no arithmetic and has no
+/// immediate-load instruction, so no source-level condition can be put in one — which is why
+/// `if <undecidable condition>` was refused rather than compiled (TICKET-058). The quantities a
+/// `.x3` program *can* name are the ones a host measures and reports, and the VM already holds
+/// them; this instruction is the branch position of the same comparison `REQUIRE`'s measured modes
+/// make, so a program can choose between two plans on what a venue actually reported instead of
+/// only refusing when it is bad (TICKET-106).
+///
+/// `unit` is a `MEASURED_UNIT_CODE_*` value, `invert` is 0 or 1 and selects the *negation* of that
+/// quantity's own direction (`>=` for a profit floor, `<=` for a slippage or delta ceiling), and
+/// `skip` is in instructions — four-byte units from the instruction after this record, which is
+/// where every instruction in a compiler stream starts.
+pub const IF_MEASURED: u8 = 0x34;
 
 pub const REQUIRE: u8 = 0x40;
 pub const ON_FAIL: u8 = 0x41;
@@ -153,18 +169,21 @@ pub const BYTECODE_VERSION_1: u8 = 0x01;
 /// 2 is a compile error until the version the writer writes moves with it.
 pub const BYTECODE_VERSION_2: u8 = 0x02;
 
-/// The version byte this pipeline writes into every artifact it emits.
+/// The greatest version this writer may write — the ceiling, not what every artifact carries.
 ///
-/// This is the **greatest** version in `OPCODE_SET`, asserted below at compile time. The two are
-/// the same fact — an artifact's version byte says which opcode set it may contain — and they
-/// were two different facts before (TICKET-097): the version byte stayed `0x01` while
+/// This is the **greatest** version in `OPCODE_SET`, asserted below at compile time. An artifact's
+/// own byte is narrower: `emitter::emit_x3ir` writes this value first and then narrows the byte to
+/// the greatest version among the opcodes the artifact actually contains, so a program that uses
+/// nothing new stays readable by a reader that knows only the older version (TICKET-105). The two
+/// halves are one fact — an artifact's version byte says which opcode set it may contain — and they
+/// were no fact at all before TICKET-097: the version byte stayed `0x01` while
 /// `ROUTE_FALLBACK`, `PARALLEL_PLAN`, `FEATURE_ALLOW`, `STRATEGY_LICENSE`, `VENUE_SETTLEMENT`, the
 /// capability block and the trading block were all added, so a reader that predated any of them
 /// had no way to refuse one. `is_payload_opcode` says why that is worse than a refusal: "A reader
 /// that classifies a payload-carrying instruction as fixed-width advances four bytes and then
 /// reads bytes that are not instructions" — a refusal is visible and a misparse is a different
 /// program.
-pub const CURRENT_BYTECODE_VERSION: u8 = BYTECODE_VERSION_1;
+pub const CURRENT_BYTECODE_VERSION: u8 = BYTECODE_VERSION_2;
 
 /// Every opcode this format defines, as `(opcode, the version that introduced it)`.
 ///
@@ -184,6 +203,9 @@ pub const OPCODE_SET: &[(u8, u8)] = &[
     (BURN, BYTECODE_VERSION_1), (RELEASE, BYTECODE_VERSION_1), (SWAP, BYTECODE_VERSION_1),
     (BRIDGE, BYTECODE_VERSION_1), (IF, BYTECODE_VERSION_1), (LOOP, BYTECODE_VERSION_1),
     (CALL, BYTECODE_VERSION_1), (RET, BYTECODE_VERSION_1), (REQUIRE, BYTECODE_VERSION_1),
+    // The first opcode this format has introduced since the version byte became a function of the
+    // opcode set (TICKET-097), which is why its version is stated rather than inherited.
+    (IF_MEASURED, BYTECODE_VERSION_2),
     (ON_FAIL, BYTECODE_VERSION_1), (ON_TIMEOUT, BYTECODE_VERSION_1), (ATOMIC_BEGIN, BYTECODE_VERSION_1),
     (ATOMIC_END, BYTECODE_VERSION_1), (ATOMIC_ROLLBACK, BYTECODE_VERSION_1), (ATOMIC_CHOICE, BYTECODE_VERSION_1),
     (ROUTE_FALLBACK, BYTECODE_VERSION_1), (PARALLEL_PLAN, BYTECODE_VERSION_1), (FEATURE_ALLOW, BYTECODE_VERSION_1),
@@ -210,7 +232,12 @@ pub const OPCODE_SET: &[(u8, u8)] = &[
 ];
 
 /// The versions this reader knows how to walk.
-pub const SUPPORTED_BYTECODE_VERSIONS: &[u8] = &[BYTECODE_VERSION_1];
+///
+/// Version 2 is where `IF_MEASURED` was introduced, so this build emits artifacts that carry it and
+/// reads artifacts that carry it. Version 1 stays supported: narrowing the version byte per
+/// artifact is what lets a program that uses nothing new remain readable by a reader that never
+/// learned version 2 (TICKET-105).
+pub const SUPPORTED_BYTECODE_VERSIONS: &[u8] = &[BYTECODE_VERSION_1, BYTECODE_VERSION_2];
 
 /// The opcode set's own version: the greatest version any registered opcode was introduced in.
 ///
@@ -251,15 +278,34 @@ pub const fn is_supported_version(version: u8) -> bool {
     false
 }
 
-/// Whether `version` is a bytecode version this format *defines*, whether or not this reader
-/// supports it.
+/// Whether `version` is a *named* bytecode version in this build — the two this file declares, as
+/// opposed to the wider space [`is_reserved_version_byte`] claims.
 ///
-/// Distinct from [`is_supported_version`] on purpose. This is the framing question — does a stream
-/// that starts with this byte claim to be a compiler stream — and the other is the compatibility
-/// question. A reader that conflated them would treat an artifact from a newer version as raw
-/// bytecode and walk it, which is the misparse this whole file exists to prevent.
+/// Distinct from [`is_supported_version`] on purpose. A build that declares a version normally
+/// supports it; the two differ when a version is reserved for a change that is not implemented yet,
+/// which is how `BYTECODE_VERSION_2` began (TICKET-097).
 pub const fn is_defined_version(version: u8) -> bool {
     version == BYTECODE_VERSION_1 || version == BYTECODE_VERSION_2
+}
+
+/// The byte values this format reserves for the bytecode version byte.
+///
+/// A **reservation**, not a list of the versions that exist: a reader cannot know which versions will
+/// exist, and the only way it can refuse one is to have claimed the space in advance. `0x01` and
+/// `0x02` are versions this build knows; a stream that starts with any other reserved byte and a
+/// non-zero second byte is a versioned artifact from a build this one cannot read, and it is refused
+/// *by name* rather than walked as raw instructions — which is the misparse TICKET-097 exists to
+/// prevent, and the hole that opened when version 2 became supported: with `is_defined_version` as
+/// the only gate, a version-3 artifact would have been read as raw bytecode on the grounds that
+/// nothing defined version 3 (TICKET-105).
+///
+/// The range collides with three raw instruction codes — `ADD` `0x01`, `SUB` `0x02`, `POW` `0x0A` —
+/// and the format already resolves that collision the only way it can: `has_compiler_header` asks for
+/// a *record* after the byte, so `[0x01][0x00…]` is raw bytecode and `[0x01][opcode…]` is a stream.
+/// `BYTECODE_VERSION_1` itself is `0x01`, so this ambiguity is the format's own, not one this
+/// reservation introduces.
+pub const fn is_reserved_version_byte(byte: u8) -> bool {
+    byte >= 0x01 && byte <= 0x0F
 }
 
 /// Why an artifact stating this version must not be walked, when it must not.
@@ -267,7 +313,7 @@ pub const fn is_defined_version(version: u8) -> bool {
 /// The message names the version and the set this reader knows, because the one fact a reader of
 /// the refusal needs is which version to rebuild or downgrade for.
 pub fn version_refusal(version: u8) -> Option<String> {
-    if !is_defined_version(version) || is_supported_version(version) {
+    if !is_reserved_version_byte(version) || is_supported_version(version) {
         return None;
     }
     Some(format!(
@@ -472,10 +518,56 @@ pub const MEASURED_UNIT_CODE_MASK: u8 = 0xE0;
 pub const MEASURED_UNIT_CODE_PROFIT_BPS: u8 = 0;
 /// `r0 <= operand`, where `r0` is the hedge delta a host measured.
 pub const MEASURED_UNIT_CODE_DELTA_BPS: u8 = 1;
+/// The slippage a host measured.
+///
+/// Slippage had its own comparison *mode* before a third measured quantity needed a unit code, so
+/// it needed no code of its own — but a measured *branch* has no mode field (its payload names the
+/// unit directly), and a branch on slippage is as meaningful as a guard on it. The code space is
+/// three bits, so this is a value nothing else used (TICKET-106).
+pub const MEASURED_UNIT_CODE_SLIPPAGE_BPS: u8 = 2;
 
 /// One of the unit codes a measured `REQUIRE` may carry.
 pub const fn is_known_measured_unit_code(code: u8) -> bool {
-    matches!(code, MEASURED_UNIT_CODE_PROFIT_BPS | MEASURED_UNIT_CODE_DELTA_BPS)
+    matches!(
+        code,
+        MEASURED_UNIT_CODE_PROFIT_BPS | MEASURED_UNIT_CODE_DELTA_BPS | MEASURED_UNIT_CODE_SLIPPAGE_BPS
+    )
+}
+
+/// The payload of an `IF_MEASURED`: `"<unit>:<invert>:<threshold_bps>:<skip>"`.
+///
+/// One writer and one reader, so the two halves cannot disagree about the spelling — the reason
+/// `VENUE_SETTLEMENT`'s separator exists. Every field is a decimal number and `:` separates them, so
+/// no field can be confused with a separator; the length prefix means a truncated record is refused
+/// by the length rather than read as a short one.
+pub fn if_measured_payload(unit_code: u8, invert: bool, threshold_bps: u16, skip: u32) -> String {
+    format!("{unit_code}:{}:{threshold_bps}:{skip}", u8::from(invert))
+}
+
+/// The fields of an `IF_MEASURED` payload, or `None` when it is not one.
+///
+/// `None` for a unit code this format has no measured quantity for, an `invert` that is not 0 or 1,
+/// a field that is not a decimal number, or a missing or extra field: a reader that guessed at a
+/// malformed record would branch on a quantity the artifact never named, and a branch is worse than
+/// a refusal because the program then runs a path nobody chose.
+pub fn parse_if_measured(payload: &[u8]) -> Option<(u8, bool, u16, u32)> {
+    let text = std::str::from_utf8(payload).ok()?;
+    let mut fields = text.split(':');
+    let unit = fields.next()?.parse::<u8>().ok()?;
+    if !is_known_measured_unit_code(unit) {
+        return None;
+    }
+    let invert = match fields.next()? {
+        "0" => false,
+        "1" => true,
+        _ => return None,
+    };
+    let threshold_bps = fields.next()?.parse::<u16>().ok()?;
+    let skip = fields.next()?.parse::<u32>().ok()?;
+    if fields.next().is_some() {
+        return None;
+    }
+    Some((unit, invert, threshold_bps, skip))
 }
 
 /// Pack a `REQUIRE` flags byte whose measured comparison names its unit.
@@ -552,6 +644,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
             EMIT | CALL_HOST | ATOMIC_CHOICE | ROUTE_FALLBACK | PARALLEL_PLAN | STRATEGY_LICENSE
                 | VENUE_SETTLEMENT
                 | NONCE_UNUSED
+                | IF_MEASURED
                 | GPU_DISPATCH..=REBALANCE_TARGET
                 | ROUTE_SCORE..=REFUND_POLICY
                 | TRADING_BEGIN..=TRADING_BRIDGE
@@ -636,6 +729,7 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
         SWAP => "SWAP",
         BRIDGE => "BRIDGE",
         IF => "IF",
+        IF_MEASURED => "IF_MEASURED",
         LOOP => "LOOP",
         CALL => "CALL",
         RET => "RET",
@@ -737,7 +831,7 @@ pub const fn base_gas_cost(opcode: u8) -> u128 {
         META_VERSIONS => 11,
         LOCK | MINT => 1,
         BRIDGE => 100,
-        IF | LOOP => 2,
+        IF | IF_MEASURED | LOOP => 2,
         CALL | RET => 5,
         REQUIRE => 10,
         ATOMIC_BEGIN | ATOMIC_END => 250,
@@ -845,7 +939,7 @@ pub fn version_binding(bytes: &[u8]) -> Option<(u16, u16, u16, u16, u16)> {
     // whether the version is one it supports, and a version-2 artifact that was not recognised
     // here would be read as one with no binding at all — a different refusal, for the wrong reason
     // (TICKET-097).
-    if !is_defined_version(bytes.first().copied().unwrap_or(0)) {
+    if !is_reserved_version_byte(bytes.first().copied().unwrap_or(0)) {
         return None;
     }
     let mut pc = 1usize;

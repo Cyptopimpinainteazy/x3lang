@@ -3094,6 +3094,101 @@ fn cli_enforces_a_plans_floor_against_a_measured_outcome() {
     );
 }
 
+/// TICKET-106 through the binary: an `if` on a quantity a host measured is decided by the figure the
+/// caller stated, and a quantity nothing stated refuses.
+///
+/// The observation is gas. Which body ran is not in the summary — but the body's instructions cost
+/// gas, so a run that entered it has strictly less left than one that skipped it, and that difference
+/// is the skip working. Before this, the program could not be compiled at all: `if` was refused
+/// unless the compiler could decide it, and the one class it could decide was literals.
+#[test]
+fn cli_branches_on_a_quantity_a_host_measured() {
+    let fixture = write_fixture(
+        "cli_measured_branch.x3",
+        "strategy Measured {\n\
+         \x20   input ethereum.USDC amount 25_000_000 max 50_000_000\n\
+         \x20   output ethereum.ETH\n\
+         \x20   effects [swap]\n\
+         \x20   guarantees [min_profit]\n\
+         \x20   domains [ethereum]\n\
+         \x20   risk { max_slippage_bps 50 max_total_fee_bps 8 }\n\
+         \x20   bounds { max_steps 10 max_gas 200_000 }\n\
+         \x20   execute {\n\
+         \x20       swap uniswap ethereum.USDC -> ethereum.ETH amount 1_000 min_output 1\n\
+         \x20       require slippage <= 50\n\
+         \x20       require profit >= 5\n\
+         \x20       if profit >= 20 {\n\
+         \x20           mempool_scan(max_results=10);\n\
+         \x20       }\n\
+         \x20       on_fail refund ethereum.USDC to sender\n\
+         \x20   }\n\
+         }\n",
+    );
+    let out = std::env::temp_dir().join("cli_measured_branch.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&fixture)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .expect("x3c build");
+    assert!(
+        build.status.success(),
+        "an `if` on a measured quantity must build: {}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    // The artifact says the branch is on the profit and which way it goes.
+    let trace = x3c().arg("explain").arg(&out).output().expect("x3c explain");
+    let trace = String::from_utf8_lossy(&trace.stdout).to_string();
+    assert!(
+        trace.contains("IF_MEASURED profit >= 20bps"),
+        "the branch must be readable in the artifact: {trace}"
+    );
+
+    let run = |args: &[&str]| -> (bool, String) {
+        let mut command = x3c();
+        command.arg("run").args(args).arg(&out);
+        let output = command.output().expect("x3c run");
+        (
+            output.status.success(),
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        )
+    };
+    let gas_of = |report: &str| -> u128 {
+        report
+            .split("gas remaining ")
+            .nth(1)
+            .and_then(|rest| rest.trim().parse::<u128>().ok())
+            .unwrap_or_else(|| panic!("no gas figure in: {report}"))
+    };
+
+    let (ok, entered) = run(&["--measured-profit-bps", "25"]);
+    assert!(ok, "25 is at or above the bound, so the body runs: {entered}");
+    let (ok, skipped) = run(&["--measured-profit-bps", "5"]);
+    assert!(ok, "5 is below the bound, so the empty branch runs: {skipped}");
+    assert!(
+        gas_of(&skipped) > gas_of(&entered),
+        "the body's instructions cost gas, so a run that skipped it has more left — {} against {}: \
+         {entered}\n{skipped}",
+        gas_of(&skipped),
+        gas_of(&entered)
+    );
+
+    // And nothing measured refuses rather than choosing a path nobody measured.
+    let (ok, unmeasured) = run(&[]);
+    assert!(!ok, "an unmeasured branch must not pick a path: {unmeasured}");
+    assert!(
+        unmeasured.contains("X3_GUARD_UNMEASURED") && unmeasured.contains("profit >= 20bps"),
+        "and must say which quantity and which bound: {unmeasured}"
+    );
+}
+
 /// PHASE 9's other verdict: a hedge whose legs do not net is refused with the delta.
 #[test]
 fn cli_refuses_a_hedge_whose_legs_do_not_net() {

@@ -919,6 +919,24 @@ pub enum Condition {
     },
     /// Boolean expression evaluation
     Expression { expr: String },
+    /// A comparison of a quantity the runtime measured, as an `if` states it.
+    ///
+    /// The only runtime values a `.x3` program can name are the ones a host measures and reports —
+    /// the profit a trade realised, the slippage it moved through, the delta a hedge left open —
+    /// and the VM already holds all three. This variant is that closed set in a branch position;
+    /// it is what lets an `if` be decided at run time when the compiler emits no arithmetic and has
+    /// no immediate-load instruction to put any other condition in a register (TICKET-106).
+    ///
+    /// The comparison is the one the program *wrote*, and the VM has a direction for each quantity
+    /// — a profit floor, a slippage ceiling, a delta ceiling — so the two comparisons a quantity
+    /// supports are its own direction and its negation. [`MeasuredQuantity::supports`] is that rule
+    /// in one place; the emitter refuses anything else rather than inventing a direction.
+    Measured {
+        quantity: MeasuredQuantity,
+        comparison: ComparisonOp,
+        /// The bound, in basis points.
+        threshold_bps: u16,
+    },
     /// Always true
     True,
     /// Always false
@@ -954,9 +972,81 @@ impl Condition {
                 None => format!("finality_policy {name} ({requirement})"),
             },
             Condition::Expression { expr } => expr.clone(),
+            Condition::Measured {
+                quantity,
+                comparison,
+                threshold_bps,
+            } => format!("{} {} {}bps", quantity.spelling(), comparison.as_str(), threshold_bps),
             Condition::True => "true".to_string(),
             Condition::False => "false".to_string(),
         }
+    }
+}
+
+/// A quantity a host measures and reports, as this language's guards and branches name it.
+///
+/// Three names, because they are the three the VM holds and the three the language's guards already
+/// bind: `require profit >= 5`, `require slippage <= 50`, `require delta <= 0.01%`. A branch on any
+/// of them is the same comparison in a different position — a guard refuses when it fails, a branch
+/// chooses (TICKET-106).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MeasuredQuantity {
+    /// The profit a trade realised, in basis points of its capital. A guard on it is a **floor**.
+    ProfitBps,
+    /// The slippage a trade moved through, in basis points. A guard on it is a **ceiling**.
+    SlippageBps,
+    /// The residual delta a hedge left open, in basis points of the notional. A **ceiling**.
+    DeltaBps,
+}
+
+impl MeasuredQuantity {
+    /// The word the language spells this quantity with.
+    pub fn spelling(self) -> &'static str {
+        match self {
+            MeasuredQuantity::ProfitBps => "profit",
+            MeasuredQuantity::SlippageBps => "slippage",
+            MeasuredQuantity::DeltaBps => "delta",
+        }
+    }
+
+    /// The quantity a `.x` program's identifier names, if it names one.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "profit" => Some(MeasuredQuantity::ProfitBps),
+            "slippage" => Some(MeasuredQuantity::SlippageBps),
+            "delta" => Some(MeasuredQuantity::DeltaBps),
+            _ => None,
+        }
+    }
+
+    /// The comparison this quantity's own *guard* makes — the direction the VM has a mode for.
+    pub fn guard_comparison(self) -> ComparisonOp {
+        match self {
+            // A profit floor: `require profit >= 5` is the guard, so `>=` is the direction.
+            MeasuredQuantity::ProfitBps => ComparisonOp::GreaterOrEqual,
+            // A ceiling: `require slippage <= 50`, `require delta <= 0.01%`.
+            MeasuredQuantity::SlippageBps | MeasuredQuantity::DeltaBps => ComparisonOp::LessOrEqual,
+        }
+    }
+
+    /// The negation of [`MeasuredQuantity::guard_comparison`] — the other comparison a branch on this
+    /// quantity can make, because a branch needs both a body and the way around it.
+    pub fn complement_comparison(self) -> ComparisonOp {
+        match self.guard_comparison() {
+            ComparisonOp::GreaterOrEqual => ComparisonOp::Less,
+            ComparisonOp::LessOrEqual => ComparisonOp::Greater,
+            other => other,
+        }
+    }
+
+    /// The two comparisons a program may write for this quantity, and what it supports.
+    ///
+    /// `==` and `!=` are not among them: the VM's measured modes compare a quantity against a
+    /// bound, and "the profit was exactly 5bps" is a different instruction this format does not
+    /// have. Refusing them is what stops a program being accepted for a comparison nothing
+    /// executes.
+    pub fn supports(self, comparison: ComparisonOp) -> bool {
+        comparison == self.guard_comparison() || comparison == self.complement_comparison()
     }
 }
 

@@ -33,14 +33,89 @@ fn pad_to_4(bytecode: &mut Vec<u8>) {
     }
 }
 
+/// The unit code a measured quantity travels as.
+///
+/// The same three codes a measured `REQUIRE` carries in its flags — one vocabulary for "which
+/// quantity", so a reader that has decoded one record can decode the other.
+fn measured_unit_code(quantity: crate::ir::MeasuredQuantity) -> u8 {
+    use crate::ir::MeasuredQuantity;
+    match quantity {
+        MeasuredQuantity::ProfitBps => MEASURED_UNIT_CODE_PROFIT_BPS,
+        MeasuredQuantity::DeltaBps => MEASURED_UNIT_CODE_DELTA_BPS,
+        MeasuredQuantity::SlippageBps => MEASURED_UNIT_CODE_SLIPPAGE_BPS,
+    }
+}
+
+/// A branch body's instructions, in their own buffer, so the branch's skip is known before the body
+/// is written.
+///
+/// The buffer's length is the skip the record needs, and it does **not** depend on where the body
+/// lands: every instruction in a compiler stream starts at a multiple of four — the emitter pads
+/// each operation to the stream's alignment and a payload frame ends on `align4` — so a body's byte
+/// length is the same at any aligned offset. That is what lets this write the record first instead
+/// of patching a placeholder afterwards, which is the shape that produced desynchronised streams
+/// here before.
+fn branch_body(ops: &[Operation]) -> Result<Vec<u8>, X3Error> {
+    let mut bytes = Vec::new();
+    for op in ops {
+        emit_operation(op, &mut bytes)?;
+    }
+    if bytes.len() % 4 != 0 {
+        return Err(X3Error::CodegenError {
+            message: format!(
+                "a branch body of {} bytes is not a whole number of four-byte instructions, so the \
+                 branch's skip cannot be written in the units the VM skips in",
+                bytes.len()
+            ),
+            span: None,
+        });
+    }
+    Ok(bytes)
+}
+
+/// The instructions a body's byte length covers.
+fn skip_of(bytes: &[u8]) -> Result<u32, X3Error> {
+    u32::try_from(bytes.len() / 4).map_err(|_| X3Error::CodegenError {
+        message: format!("a branch body of {} bytes is too long to skip", bytes.len()),
+        span: None,
+    })
+}
+
+/// Write one `IF_MEASURED` record.
+///
+/// The record is padded to `align4(pc + 3 + len)` **before** the caller appends the body: a payload
+/// frame's next instruction is the expression the writer pads by, so a body written into the
+/// unpadded bytes would start somewhere the reader would never look.
+fn write_if_measured(
+    bytecode: &mut Vec<u8>,
+    unit_code: u8,
+    invert: bool,
+    threshold_bps: u16,
+    skip: u32,
+) -> Result<(), X3Error> {
+    let payload = crate::spec::opcodes::if_measured_payload(unit_code, invert, threshold_bps, skip);
+    if payload.len() > u16::MAX as usize {
+        return Err(X3Error::CodegenError {
+            message: format!("branch payload too large: {} bytes", payload.len()),
+            span: None,
+        });
+    }
+    bytecode.write_all(&[IF_MEASURED])?;
+    bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+    bytecode.write_all(payload.as_bytes())?;
+    pad_to_4(bytecode);
+    Ok(())
+}
+
 /// Emit X3IR to bytecode suitable for the X3 runtime
 pub fn emit_x3ir(ir: &X3IR) -> Result<Vec<u8>, X3Error> {
     let mut bytecode = Vec::new();
 
-    // Header: version + metadata. `CURRENT_BYTECODE_VERSION` is the greatest version any opcode in
-    // `OPCODE_SET` was introduced in — asserted at compile time in `spec/opcodes.rs` — so the byte
-    // this writes is a function of the opcode set rather than a counter someone has to remember to
-    // move (TICKET-097).
+    // Header: version + metadata. The version is written as the greatest this writer may write and
+    // **narrowed** to the greatest version the artifact actually contains at the end of this
+    // function: a program that uses no version-2 opcode stays a version-1 artifact, so a reader
+    // that never learned version 2 keeps reading it (TICKET-105). Writing the ceiling first is what
+    // lets the narrowing walk read the stream the same way its own reader does.
     bytecode.write_all(&[CURRENT_BYTECODE_VERSION])?;
 
     // Encode metadata
@@ -79,7 +154,49 @@ pub fn emit_x3ir(ir: &X3IR) -> Result<Vec<u8>, X3Error> {
         bytecode.push(0);
     }
 
+    // Narrow the version byte to what this artifact needs. The walk is `instructions`' framing —
+    // payload frames advance by their length, fixed frames by `fixed_frame_content_len`, and a
+    // zeroed four-byte group is padding — so the writer's own notion of where an instruction starts
+    // is the reader's, and an opcode this format does not define is a refusal here rather than a
+    // version byte that promises less than the stream contains.
+    bytecode[0] = artifact_version(&bytecode)?;
+
     Ok(bytecode)
+}
+
+/// The greatest bytecode version among the opcodes in `stream`.
+///
+/// One walk, and it is the reader's walk: the same `is_payload_opcode`, the same
+/// `fixed_frame_content_len` and the same `align4`, all from `spec/opcodes.rs`. A second walk with
+/// its own idea of a frame width is how this format has desynced before.
+fn artifact_version(stream: &[u8]) -> Result<u8, X3Error> {
+    let mut pc = first_instruction_offset(stream);
+    let mut greatest = BYTECODE_VERSION_1;
+    while pc + 4 <= stream.len() {
+        if stream[pc..pc + 4].iter().all(|byte| *byte == 0) {
+            pc += 4;
+            continue;
+        }
+        let opcode = stream[pc];
+        let Some(version) = crate::spec::opcodes::opcode_version(opcode) else {
+            return Err(X3Error::CodegenError {
+                message: format!(
+                    "the emitter wrote opcode 0x{opcode:02X} at pc {pc}, which is not in this \
+                     format's opcode set: register it in `OPCODE_SET` with the version that \
+                     introduced it before emitting it (TICKET-097, TICKET-106)"
+                ),
+                span: None,
+            });
+        };
+        greatest = greatest.max(version);
+        pc = if is_payload_opcode(opcode, true) {
+            let length = u16::from_le_bytes([stream[pc + 1], stream[pc + 2]]) as usize;
+            align4(pc + 3 + length)
+        } else {
+            align4(pc + fixed_frame_content_len(opcode))
+        };
+    }
+    Ok(greatest)
 }
 
 /// Emit a single operation to bytecode
@@ -182,6 +299,47 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                     Some(body) => body,
                     None => &[],
                 },
+                // A branch on a quantity a host measured, which is the one condition this VM can
+                // decide without arithmetic: it holds the quantity and has a comparison mode for it,
+                // so the branch is decided by what a venue actually reported (TICKET-106).
+                //
+                // Two records, and no unconditional jump, because this format has none: `CALL`
+                // pushes a return address and `RET` pops it, so neither is a jump. The shape is
+                // therefore
+                //
+                //     IF_MEASURED(<quantity>, invert = c is the negation of the guard)
+                //       <then body>
+                //     IF_MEASURED(<quantity>, invert = c is the guard's own direction)
+                //       <else body>
+                //
+                // — the first record skips the then body when the comparison does *not* hold, the
+                // second skips the else body when it does. An `if` with no `else` needs only the
+                // first: skipping past the body is the empty branch.
+                //
+                // A measured failure is a *fork* here, where the same comparison in a `REQUIRE` is a
+                // refusal; a quantity nothing reported refuses in both, which is the fail-closed
+                // half and lives in the VM's one measured-comparison helper.
+                Condition::Measured {
+                    quantity,
+                    comparison,
+                    threshold_bps,
+                } => {
+                    let unit = measured_unit_code(*quantity);
+                    let invert = *comparison != quantity.guard_comparison();
+                    let then_bytes = branch_body(then_ops)?;
+                    write_if_measured(bytecode, unit, invert, *threshold_bps, skip_of(&then_bytes)?)?;
+                    bytecode.extend_from_slice(&then_bytes);
+                    if let Some(else_ops) = else_ops.as_deref() {
+                        let else_bytes = branch_body(else_ops)?;
+                        write_if_measured(bytecode, unit, !invert, *threshold_bps, skip_of(&else_bytes)?)?;
+                        bytecode.extend_from_slice(&else_bytes);
+                    }
+                    // The record and every body instruction are padded individually, so the stream
+                    // is aligned here; the tail's `pad_to_4` is not reached because the bodies were
+                    // written by this arm rather than by the `taken` walk below.
+                    pad_to_4(bytecode);
+                    return Ok(());
+                }
                 // Refused rather than written, here as well as in the IR verifier because
                 // `emit_x3ir` is public: a caller that assembles an IR by hand gets the refusal
                 // instead of a record no reader could follow. Measured before the refusal
@@ -737,7 +895,12 @@ pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, 
             });
         }
     }
-    if bytecode.first().copied() != Some(CURRENT_BYTECODE_VERSION) {
+    // Any version this build supports, not the one it writes: a trading artifact whose opcodes are all
+    // version 1 carries version 1, because the emitter narrows the byte to what the artifact contains
+    // (TICKET-105). Demanding the writer's ceiling here refused every trading program this build had
+    // just compiled — measured, before this: `emitted trading bytecode must decode: CodegenError {
+    // message: "unsupported or missing bytecode version" }` in `test_trading_core_e2e`.
+    if !bytecode.first().copied().is_some_and(is_supported_version) {
         return Err(X3Error::CodegenError {
             message: "unsupported or missing bytecode version".to_string(),
             span: None,
@@ -1471,6 +1634,32 @@ fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String
             other => format!("?{other}"),
         };
         return format!("{name} {mode} {operand}");
+    }
+    if opcode == IF_MEASURED {
+        // The branch as the *comparison* a reader can check against the source: the quantity, the
+        // direction (the base one for that quantity, or its negation when `invert` is set), the bound
+        // and the distance skipped. A record that only said "measured" would leave its reader unable
+        // to tell a profit floor from a delta ceiling — the defect TICKET-068's unit code exists to
+        // prevent, one instruction over.
+        return match crate::spec::opcodes::parse_if_measured(payload) {
+            Some((unit, invert, threshold_bps, skip)) => {
+                let quantity = match unit {
+                    MEASURED_UNIT_CODE_PROFIT_BPS => "profit",
+                    MEASURED_UNIT_CODE_DELTA_BPS => "delta",
+                    _ => "slippage",
+                };
+                let comparison = match (unit, invert) {
+                    (MEASURED_UNIT_CODE_PROFIT_BPS, false) => ">=",
+                    (MEASURED_UNIT_CODE_PROFIT_BPS, true) => "<",
+                    (_, false) => "<=",
+                    (_, true) => ">",
+                };
+                format!("{name} {quantity} {comparison} {threshold_bps}bps, skip {skip}")
+            }
+            // A malformed record is the verifier's refusal to make, and this renderer says what it
+            // saw rather than guessing at fields.
+            None => format!("{name} <malformed payload of {} bytes>", payload.len()),
+        };
     }
     if !is_payload_opcode(opcode, true) {
         return name.to_string();

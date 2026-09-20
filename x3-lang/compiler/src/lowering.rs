@@ -1922,9 +1922,98 @@ fn expression_to_condition(expr: &Expression) -> Result<Condition, x3_lang_commo
         Expression::Literal(LiteralExpr::Bool(true)) => Ok(Condition::True),
         Expression::Literal(LiteralExpr::Bool(false)) => Ok(Condition::False),
         Expression::Call { callee, args } => condition_from_call(callee, args),
+        // `if profit >= 20` — a comparison of a quantity a host measures, which is the one class of
+        // condition this VM can decide without arithmetic: it holds the quantity and has a mode for
+        // the comparison. Anything else stays `Condition::Expression` and is refused downstream,
+        // which is TICKET-106's boundary and not a gap in this arm.
+        Expression::Binary { op, lhs, rhs } => match measured_condition(op, lhs, rhs)? {
+            Some(condition) => Ok(condition),
+            None => Ok(Condition::Expression {
+                expr: expression_to_string(expr),
+            }),
+        },
         _ => Ok(Condition::Expression {
             expr: expression_to_string(expr),
         }),
+    }
+}
+
+/// `Ident(<measured quantity>) <comparison> <bound>` as a [`Condition::Measured`], or `None` when
+/// the expression is not that shape.
+///
+/// `Err` — rather than `None` — when the left-hand side *is* a measured quantity and the comparison
+/// is one the VM has no direction for: `if profit == 20` names a quantity the runtime holds and
+/// asks a question nothing executes, and answering it with the generic "the condition is not
+/// decidable at compile time" would send its author looking for a way to make it decidable. The
+/// bound is read by the same exact converter the guards use, so `if profit >= 0.05%` means the same
+/// figure as `require profit >= 0.05%` or neither does.
+fn measured_condition(
+    op: &x3_lang_common::BinOp,
+    lhs: &Expression,
+    rhs: &Expression,
+) -> Result<Option<Condition>, x3_lang_common::X3Error> {
+    let Some(quantity) = measured_quantity_of(lhs) else {
+        return Ok(None);
+    };
+    let Some(comparison) = comparison_of(op) else {
+        return Ok(None);
+    };
+    if !quantity.supports(comparison) {
+        return Err(semantic(&format!(
+            "`{} {} …` is not a comparison this runtime makes about the {} a host measures: a branch \
+             on it is `{} {} <bound>` or `{} {} <bound>`",
+            quantity.spelling(),
+            comparison.as_str(),
+            quantity.spelling(),
+            quantity.spelling(),
+            quantity.guard_comparison().as_str(),
+            quantity.spelling(),
+            quantity.complement_comparison().as_str(),
+        )));
+    }
+    let Some(bps) = crate::semantic::bound_bps_from_expr(rhs) else {
+        return Err(semantic(&format!(
+            "`{} {} {}` — the bound has to be a whole number of basis points, a percentage \
+             (`0.05%`), or a bare fraction of one; a sub-basis-point bound is not a figure this \
+             runtime can compare and is refused rather than rounded",
+            quantity.spelling(),
+            comparison.as_str(),
+            expression_to_string(rhs)
+        )));
+    };
+    let threshold_bps = u16::try_from(bps).map_err(|_| {
+        semantic(&format!(
+            "the bound {bps}bps is larger than a measured comparison's operand, which is a `u16`"
+        ))
+    })?;
+    Ok(Some(Condition::Measured {
+        quantity,
+        comparison,
+        threshold_bps,
+    }))
+}
+
+/// The measured quantity an expression names, if it names one at all.
+fn measured_quantity_of(expr: &Expression) -> Option<ir::MeasuredQuantity> {
+    match expr {
+        Expression::Ident(name) => ir::MeasuredQuantity::from_name(name.as_str()),
+        _ => None,
+    }
+}
+
+/// The IR comparison an operator is, if it is one.
+///
+/// `&&` and `||` are not: a branch on two measurements at once is two branches, and combining them
+/// would need a value in a register, which is the thing this compiler cannot make.
+fn comparison_of(op: &x3_lang_common::BinOp) -> Option<ir::ComparisonOp> {
+    match op {
+        x3_lang_common::BinOp::Lt => Some(ir::ComparisonOp::Less),
+        x3_lang_common::BinOp::Le => Some(ir::ComparisonOp::LessOrEqual),
+        x3_lang_common::BinOp::Gt => Some(ir::ComparisonOp::Greater),
+        x3_lang_common::BinOp::Ge => Some(ir::ComparisonOp::GreaterOrEqual),
+        x3_lang_common::BinOp::EqEq => Some(ir::ComparisonOp::Equal),
+        x3_lang_common::BinOp::Ne => Some(ir::ComparisonOp::NotEqual),
+        _ => None,
     }
 }
 

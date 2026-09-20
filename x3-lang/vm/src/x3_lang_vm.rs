@@ -261,6 +261,16 @@ impl VM {
     /// guard is about. It belongs to the **host**, which is why this replaces the adapter
     /// rather than setting a field a guard could read before anything executed.
     pub fn report_measurement(&mut self, profit_bps: u128, slippage_bps: u128) {
+        // The caller's statement is recorded in the *state* as well as in the bridge. `IF_MEASURED`
+        // and a measured guard read the state, and a caller that states the outcome of a run has
+        // stated it for the run — a figure only the bridge held was reachable after the first call
+        // that answers with a measurement, which left a branch on a quantity the caller had already
+        // given unable to see it (TICKET-106). The bridge still carries it, so a venue that answers a
+        // trade with its own figure replaces the statement, and the calls that answer about a trade
+        // still clear it, so no value outlives the instruction it belongs to.
+        self.state.measured_profit_bps = Some(profit_bps);
+        self.state.measured_slippage_bps = Some(slippage_bps);
+        self.state.measured_delta_bps = None;
         self.bridge = Box::new(crate::bridge::DryRunBridge::with_measurement(profit_bps, slippage_bps));
     }
 
@@ -272,6 +282,12 @@ impl VM {
     /// measured guard refusing with `X3_GUARD_UNMEASURED`, which is the fail-closed
     /// direction and is what a real host that answered nothing would produce.
     pub fn report_outcome(&mut self, profit_bps: Option<u128>, slippage_bps: Option<u128>, delta_bps: Option<u128>) {
+        // See `report_measurement` for why the state carries the caller's statement as well as the
+        // bridge. Each quantity is seeded from its own argument, so stating a profit never satisfies
+        // a ceiling and stating nothing invents nothing.
+        self.state.measured_profit_bps = profit_bps;
+        self.state.measured_slippage_bps = slippage_bps;
+        self.state.measured_delta_bps = delta_bps;
         self.bridge = Box::new(crate::bridge::DryRunBridge::with_outcome(
             profit_bps,
             slippage_bps,

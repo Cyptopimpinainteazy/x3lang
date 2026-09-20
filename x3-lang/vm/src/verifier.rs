@@ -145,7 +145,7 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         }
         if is_payload_opcode(opcode, compiler_stream) {
             let payload = read_payload(bytes, pc)?;
-            validate_payload_opcode(opcode, payload, pc)?;
+            validate_payload_opcode(opcode, payload, pc, bytes.len())?;
             pc = align4(pc + 3 + payload.len());
             continue;
         }
@@ -311,10 +311,11 @@ fn has_compiler_header(bytes: &[u8]) -> bool {
     // The first byte must be a version this format *defines* rather than only the one this reader
     // supports: a version-2 artifact has to arrive here so `verify` can refuse it by name, and if
     // it were not recognised as a stream it would be walked as raw bytecode instead — the misparse
-    // this whole file exists to prevent (TICKET-097). `is_defined_version` answers the framing
-    // question; `is_supported_version` answers the compatibility one, and they are asked in that
-    // order.
-    is_defined_version(bytes.first().copied().unwrap_or(0)) && bytes.get(1).copied().unwrap_or(NOP) != NOP
+    // this whole file exists to prevent (TICKET-097). `is_reserved_version_byte` answers the framing
+    // question — it claims the space, so a version from a *future* build is a stream to refuse rather
+    // than raw bytecode to walk — and `is_supported_version` answers the compatibility one, which
+    // `version_refusal` applies before anything is read (TICKET-105).
+    is_reserved_version_byte(bytes.first().copied().unwrap_or(0)) && bytes.get(1).copied().unwrap_or(NOP) != NOP
 }
 
 // The classification comes from `spec/opcodes.rs`, shared with the compiler's
@@ -338,7 +339,7 @@ fn read_payload(bytes: &[u8], pc: usize) -> Result<&[u8], VerifyError> {
     Ok(&bytes[start..end])
 }
 
-fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), VerifyError> {
+fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize, stream_len: usize) -> Result<(), VerifyError> {
     if matches!(opcode, LOCK | MINT | BURN | RELEASE | SWAP) {
         let payload = decode_asset_op_payload(opcode, payload).map_err(|_| VerifyError::InvalidOperand(pc))?;
         match payload {
@@ -531,6 +532,22 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize) -> Result<(), 
             if parts[1] != "-" && parts[1].contains('+') && parts[3] == "local" {
                 return Err(VerifyError::InvalidOperand(pc));
             }
+        }
+        return Ok(());
+    }
+
+    if opcode == IF_MEASURED {
+        // `unit:invert:threshold:skip`. Every field is checked, and the skip is checked against where
+        // it lands: a branch whose target is outside the stream, or inside the middle of an
+        // instruction, is a record no execution could follow, and the executor would compute it from
+        // the same figures — so this is where it is caught rather than at the jump.
+        let Some((_, _, _, skip)) = parse_if_measured(payload) else {
+            return Err(VerifyError::InvalidOperand(pc));
+        };
+        let after = align4(pc + 3 + payload.len());
+        let target = after.saturating_add((skip as usize).saturating_mul(4));
+        if target > stream_len {
+            return Err(VerifyError::InvalidOperand(pc));
         }
         return Ok(());
     }

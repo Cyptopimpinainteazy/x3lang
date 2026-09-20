@@ -413,6 +413,11 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 // A `False` is written by writing its `else`, or by writing nothing when there is
                 // none — which is the language's meaning for `if c { a }` with `c` false.
                 Condition::False => {}
+                // A branch on a quantity a host measured is emittable: the record carries the
+                // quantity, the comparison's direction, the bound and the distance to skip, and the
+                // VM decides it from what a venue actually reported (TICKET-106). The body it does
+                // not take is written beside it, so a reader sees both paths.
+                Condition::Measured { .. } => {}
                 // Undecidable, so this VM cannot run it: it branches on a register and skips whole
                 // four-byte instructions, and a compiler stream is framed with variable widths and
                 // padded, so the branch has no target it could jump to and no condition it could

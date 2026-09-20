@@ -20,7 +20,7 @@ use x3_lang_compiler::emitter::{emit_x3ir, first_instruction_offset, instruction
 use x3_lang_compiler::semantic::CompilationMode;
 use x3_lang_compiler::spec::opcodes::{
     is_supported_version, max_opcode_version, opcode_version, BYTECODE_VERSION_1, BYTECODE_VERSION_2,
-    CURRENT_BYTECODE_VERSION, OPCODE_SET,
+    CURRENT_BYTECODE_VERSION, IF_MEASURED, OPCODE_SET,
 };
 use x3_lang_vm::verifier::{verify, VerifyError};
 use x3_lang_vm::x3_lang_vm::InstructionStream;
@@ -136,35 +136,48 @@ fn the_version_the_writer_writes_is_the_greatest_version_in_the_opcode_set() {
         "a pipeline that writes a version it cannot read back is a pipeline with no round trip"
     );
     assert!(
-        OPCODE_SET.iter().all(|(_, version)| *version == BYTECODE_VERSION_1),
-        "every opcode registered today was introduced in version 1 — nothing has moved to version \
-         2 yet, and if that changed the writer's version would have to move with it"
+        OPCODE_SET
+            .iter()
+            .any(|(opcode, version)| *opcode == IF_MEASURED && *version == BYTECODE_VERSION_2),
+        "and the opcode that moved it is registered against the version it was introduced in: that \
+         is the whole of TICKET-105, and it is a *statement* rather than something a later reader \
+         has to infer from the writer's byte"
+    );
+    assert!(
+        OPCODE_SET
+            .iter()
+            .all(|(_, version)| *version == BYTECODE_VERSION_1 || *version == BYTECODE_VERSION_2),
+        "no opcode may be registered against a version above the one this writer may write"
     );
 }
 
 #[test]
 fn an_artifact_whose_version_this_reader_does_not_know_is_refused_by_name() {
     let mut bytes = artifact();
-    bytes[0] = BYTECODE_VERSION_2;
+    // A version from a *future* build. Version 2 is one this reader supports, and the point of the
+    // reservation is that a byte the format claims but does not implement is still refused rather
+    // than read as an instruction — the hole that opened when version 2 became supported (TICKET-105).
+    let future_version = BYTECODE_VERSION_2 + 1;
+    bytes[0] = future_version;
 
     // The compiler's walker — `x3c explain`, `x3c inspect`.
     let error = instructions(&bytes)
         .err()
-        .expect("version 2 is not a version this reader knows");
+        .expect("a version this reader does not know must be refused");
     assert!(
-        error.to_string().contains("version 2"),
+        error.to_string().contains("version 3"),
         "the refusal must name the version, or its reader cannot tell which one to rebuild for: \
          {error}"
     );
 
     // And the VM's, which must refuse it *before* walking rather than reading the version byte as
     // an instruction. The message is the same one, from `spec::opcodes::version_refusal`.
-    let error = verify(&InstructionStream::new(bytes)).expect_err("version 2 must not be executed");
+    let error = verify(&InstructionStream::new(bytes)).expect_err("version 3 must not be executed");
     assert!(
-        matches!(error, VerifyError::UnsupportedBytecodeVersion(2)),
-        "a defined version this reader does not know has its own refusal: {error:?}"
+        matches!(error, VerifyError::UnsupportedBytecodeVersion(3)),
+        "a reserved version this reader does not know has its own refusal: {error:?}"
     );
-    assert!(error.to_string().contains("version 2"), "{error}");
+    assert!(error.to_string().contains("version 3"), "{error}");
 }
 
 #[test]
