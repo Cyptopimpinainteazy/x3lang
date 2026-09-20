@@ -4,7 +4,7 @@
 //! invariants that should never be delegated to an emitter or runtime decoder.
 
 use crate::diagnostic::{CompilerDiagnostic, DiagnosticCode};
-use crate::ir::{AssetKey, Operation, TradingOperation, ValueRef, X3IR};
+use crate::ir::{AssetKey, Condition, Operation, TradingOperation, ValueRef, X3IR};
 use std::collections::{BTreeMap, BTreeSet};
 use x3_lang_common::{Bps, Span};
 
@@ -354,15 +354,44 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     );
                 }
             }
-            Operation::If { .. } => push_unsafe(
-                diagnostics,
-                format!(
-                    "{op_context}: `if` cannot be executed — this VM branches on a register and skips \
-                     four-byte instructions, and a compiler stream is framed with variable widths and \
-                     padded, so the branch has no target it could jump to and no condition it could \
-                     read"
+            Operation::If {
+                condition, then_ops, ..
+            } => match condition {
+                // A branch the compiler *decided* is emittable, and the emitter writes the branch
+                // that runs straight into the stream — no `IF` record at all, so every instruction
+                // in the artifact is at an absolute boundary and walkable. What is left for this
+                // verifier is the decision's own soundness: `Condition::True` with an empty branch
+                // is a decision with nothing to run, which the emitter would write as nothing at
+                // all and a reader would never see that the program branched.
+                Condition::True => {
+                    if then_ops.is_empty() {
+                        push_unsafe(
+                            diagnostics,
+                            format!(
+                                "{op_context}: `if` was decided true and its branch is empty, so the \
+                                     artifact would show no trace of the branch the program wrote"
+                            ),
+                        );
+                    }
+                }
+                // A `False` is written by writing its `else`, or by writing nothing when there is
+                // none — which is the language's meaning for `if c { a }` with `c` false.
+                Condition::False => {}
+                // Undecidable, so this VM cannot run it: it branches on a register and skips whole
+                // four-byte instructions, and a compiler stream is framed with variable widths and
+                // padded, so the branch has no target it could jump to and no condition it could
+                // read (TICKET-058).
+                _ => push_unsafe(
+                    diagnostics,
+                    format!(
+                        "{op_context}: `if` cannot be executed — the condition is not decidable at \
+                         compile time, and this VM branches on a register and skips four-byte \
+                         instructions, and a compiler stream is framed with variable widths and \
+                         padded, so the branch has no target it could jump to and no condition it \
+                         could read"
+                    ),
                 ),
-            ),
+            },
             Operation::Loop { .. } => push_unsafe(
                 diagnostics,
                 format!(

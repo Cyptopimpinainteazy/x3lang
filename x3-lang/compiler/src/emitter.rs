@@ -4,8 +4,8 @@
 //! for the X3 runtime or specific chain emitters (EVM, SVM, etc.).
 
 use crate::ir::{
-    ChainMetricKind, ChoiceCriterion, ComparisonOp, CrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind,
-    SerialFormat, StorageKind, TradingOperation, VectorOp, X3IR,
+    ChainMetricKind, ChoiceCriterion, ComparisonOp, Condition, CrdtKind, EmergencyKind, LifecycleKind, Operation,
+    ProofKind, SerialFormat, StorageKind, TradingOperation, VectorOp, X3IR,
 };
 // Import shared opcode constants
 use crate::spec::opcodes::*;
@@ -160,15 +160,46 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             // emit at all. Measured before this refusal: the artifact built,
             // `x3c explain` printed the condition text as opcodes, and `x3c run`
             // failed with `X3_VERIFY_FAILED: OutOfBounds(292)`. TICKET-058.
-            let _ = (condition, then_ops, else_ops);
-            return Err(X3Error::CodegenError {
-                message: "cannot emit `if`: this VM branches on a register and skips whole four-byte \
-                          instructions, while a compiler stream frames instructions with a width that \
-                          varies and pads them to absolute four-byte boundaries, so the record would \
-                          have no target a reader could follow or an executor could jump to"
-                    .to_string(),
-                span: None,
-            });
+            // A *decided* branch is written by writing the branch that runs. The compiler
+            // folded the condition (`lowering::fold_condition`) into `True`/`False`, so there is
+            // nothing to test at run time and nothing to jump over: the taken body's
+            // instructions go straight into the stream, where the writer pads them to the
+            // stream's own absolute boundaries and every reader can walk them. No `IF` record is
+            // written, which is the point — this format's frames vary in width and pad
+            // absolutely, so a record holding a branch would need a target in stream coordinates
+            // that no half of the pipeline currently computes (TICKET-058).
+            //
+            // The branch that did not run is dead code and is not written; it stays in the IR, so
+            // `x3c lower` shows it beside the one that did.
+            let taken: &[Operation] = match condition {
+                Condition::True => then_ops.as_slice(),
+                // A `False` with no `else` takes the empty branch, which is the language's
+                // meaning: `if c { a }` runs nothing when `c` is false.
+                Condition::False => match else_ops.as_deref() {
+                    Some(body) => body,
+                    None => &[],
+                },
+                // Refused rather than written, here as well as in the IR verifier because
+                // `emit_x3ir` is public: a caller that assembles an IR by hand gets the refusal
+                // instead of a record no reader could follow. Measured before the refusal
+                // existed: the artifact built, `x3c explain` printed the condition text as
+                // opcodes, and `x3c run` failed with `X3_VERIFY_FAILED: OutOfBounds(292)`.
+                _ => {
+                    return Err(X3Error::CodegenError {
+                        message: "cannot emit `if`: the condition is not decidable at compile time, \
+                                  and this VM branches on a register and skips whole four-byte \
+                                  instructions while a compiler stream frames instructions with a \
+                                  width that varies and pads them to absolute four-byte boundaries, \
+                                  so the record would have no target a reader could follow or an \
+                                  executor could jump to"
+                            .to_string(),
+                        span: None,
+                    });
+                }
+            };
+            for nested in taken {
+                emit_operation(nested, bytecode)?;
+            }
         }
         Operation::Loop { max_iterations, body } => {
             // Refused for the same reason as `if`; see the comment there.

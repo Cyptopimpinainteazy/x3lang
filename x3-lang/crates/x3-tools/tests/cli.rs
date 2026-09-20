@@ -1126,14 +1126,21 @@ fn cli_fusion_never_internalizes_an_intent_that_did_not_opt_in() {
     );
 }
 
-/// `if`/`loop` were emitted as records no reader could follow.
+/// An `if` whose condition nothing can decide is refused, by both commands.
 ///
-/// Measured on this program before the refusal: `x3c build` wrote 320 bytes,
-/// `x3c explain` printed the condition text as opcodes, and `x3c run` failed with
-/// `X3_VERIFY_FAILED: OutOfBounds(292)`. The IR verifier and the emitter refuse
-/// now, and the refusal has to reach *both* commands — a `check` that accepted
-/// what `build` refuses is the split this test exists to prevent — and neither may
-/// leave an artifact behind.
+/// `if`/`loop` were emitted as records no reader could follow: measured on this program
+/// before the refusal, `x3c build` wrote 320 bytes, `x3c explain` printed the condition text
+/// as opcodes, and `x3c run` failed with `X3_VERIFY_FAILED: OutOfBounds(292)`. The IR
+/// verifier and the emitter refuse now, and the refusal has to reach *both* commands — a
+/// `check` that accepted what `build` refuses is the split this test exists to prevent — and
+/// neither may leave an artifact behind.
+///
+/// The condition here is deliberately one the compiler *cannot* decide (`steps > 0`), because
+/// a decidable one is no longer refused: it is folded and the taken branch is written, which
+/// `cli_folds_a_decidable_branch_and_writes_the_branch_that_runs` covers. The two tests are
+/// the two halves of the same rule, and this one would pass vacuously if the fold stopped
+/// deciding anything, which is why the other asserts the fold *works* rather than that it
+/// exists.
 #[test]
 fn cli_refuses_a_branch_no_reader_could_follow_instead_of_writing_one() {
     let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1150,7 +1157,7 @@ fn cli_refuses_a_branch_no_reader_could_follow_instead_of_writing_one() {
     );
     let branched = source.replace(
         anchor,
-        "        if 1 > 0 {\n            require profit >= 5\n        }\n",
+        "        if steps > 0 {\n            require profit >= 5\n        }\n",
     );
     let fixture = write_fixture("cli_strategy_with_a_branch.x3", &branched);
 
@@ -1182,6 +1189,119 @@ fn cli_refuses_a_branch_no_reader_could_follow_instead_of_writing_one() {
     );
     assert!(!build.status.success(), "build must refuse the branch: {build_output}");
     assert!(!out.exists(), "and no artifact may be written next to it");
+}
+
+/// A branch the compiler *can* decide is folded, and the branch that runs is the one written
+/// (TICKET-058).
+///
+/// This is the feature half of the construct's rule: `if 1 > 0 { a } else { b }` is a program
+/// whose meaning is `a`, and the artifact holds `a`'s instructions — inline, at the stream's own
+/// absolute boundaries, so every reader can walk them. No `IF` record is written, because this
+/// format's frames vary in width and pad absolutely and a record holding a branch would need a
+/// target in stream coordinates that no half of the pipeline computes.
+///
+/// The test proves *which* branch ran rather than only that something built, by giving the two
+/// branches different lengths and reading the instruction count out of the artifact. Counted the
+/// way `x3c explain` lists them — one record per line — the example is 8 records with the
+/// one-guard branch and 9 with the two-guard one:
+///   `if 1 > 0` is true  -> the one-guard branch  -> 8
+///   `if 1 > 2` is false -> the two-guard branch  -> 9
+/// A fold that picked the wrong side, or emitted both branches, would not land on those two
+/// numbers. (`x3c build` reports a larger figure for the same artifact — it counts the encoded
+/// instructions, and the two views differ by the payloads' own contents. The relationship is
+/// what this test is about, and the relationship is one record.)
+#[test]
+fn cli_folds_a_decidable_branch_and_writes_the_branch_that_runs() {
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("the crate lives under x3-lang")
+        .join("examples")
+        .join("strategy_module.x3");
+    let source = std::fs::read_to_string(&example).expect("the strategy example must be readable");
+    let anchor = "        require slippage <= 50\n        require profit >= 5\n";
+    assert!(
+        source.contains(anchor),
+        "this test replaces the two guards with a branch over them: {example:?}"
+    );
+
+    // Two branches of different lengths, so the artifact says which one was taken. `profit >= 5`
+    // is in both, because the module's `guarantees [min_profit]` asks for a floor in the body.
+    let branched = |condition: &str| {
+        source.replace(
+            anchor,
+            &format!(
+                "        require slippage <= 50\n        if {condition} {{\n            require \
+                 profit >= 5\n        }} else {{\n            require profit >= 5\n            \
+                 require profit >= 99\n        }}\n"
+            ),
+        )
+    };
+
+    let mut counts = Vec::new();
+    for (name, condition) in [("true", "1 > 0"), ("false", "1 > 2")] {
+        let fixture = write_fixture(&format!("cli_folded_branch_{name}.x3"), &branched(condition));
+        let out = std::env::temp_dir().join(format!("cli_folded_branch_{name}.x3b"));
+        let _ = std::fs::remove_file(&out);
+
+        let check = x3c().arg("check").arg(&fixture).output().expect("run x3c check");
+        let check_output = format!(
+            "{}{}",
+            String::from_utf8_lossy(&check.stdout),
+            String::from_utf8_lossy(&check.stderr)
+        );
+        assert!(
+            check.status.success(),
+            "a decidable `if {condition}` must check — the compiler knows which branch runs: {check_output}"
+        );
+
+        let build = x3c()
+            .arg("build")
+            .arg(&fixture)
+            .arg("--out")
+            .arg(&out)
+            .output()
+            .expect("run x3c build");
+        let build_output = format!(
+            "{}{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr)
+        );
+        assert!(build.status.success(), "and it must build: {build_output}");
+
+        let explain = x3c().arg("explain").arg(&out).output().expect("run x3c explain");
+        let disassembly = format!(
+            "{}{}",
+            String::from_utf8_lossy(&explain.stdout),
+            String::from_utf8_lossy(&explain.stderr)
+        );
+        assert!(
+            explain.status.success(),
+            "and the artifact must be walkable: {disassembly}"
+        );
+        // Instruction lines are `  {index}  0x{opcode}  {detail}`; the version banner and the
+        // metadata lines carry no `0x` in their second column.
+        let instructions = disassembly
+            .lines()
+            .filter(|line| {
+                line.split_whitespace()
+                    .nth(1)
+                    .is_some_and(|column| column.starts_with("0x"))
+            })
+            .count();
+        counts.push((name, condition, instructions));
+    }
+
+    let (_, _, true_records) = counts[0];
+    let (_, _, false_records) = counts[1];
+    assert_eq!(
+        true_records, 8,
+        "`if 1 > 0` takes the one-guard branch, and nothing of the other one is written: {counts:?}"
+    );
+    assert_eq!(
+        false_records, 9,
+        "`if 1 > 2` takes the two-guard branch, one record longer: {counts:?}"
+    );
 }
 
 /// The proof obligation is a *mainnet* requirement (TICKET-020/024).

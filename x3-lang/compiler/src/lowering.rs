@@ -21,7 +21,7 @@ use crate::trading_semantic;
 use crate::trading_verify;
 use x3_lang_ast::ast;
 use x3_lang_ast::ast::*;
-use x3_lang_common::Span;
+use x3_lang_common::{BinOp, Span, UnOp};
 
 pub type LoweredInstr = Operation;
 
@@ -1097,7 +1097,20 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             then_block,
             else_block,
         } => {
-            let cond_ir = expression_to_condition(cond)?;
+            // A condition the program makes decidable is decided *here*, and the decision is
+            // what travels: `Condition::True`/`Condition::False` say the compiler knows which
+            // branch runs, and the emitter writes that branch's body inline. Everything else
+            // stays `Condition::Expression` and is refused downstream — this VM branches on a
+            // register and the compiler emits no arithmetic to put one there (TICKET-058).
+            //
+            // Both bodies are still lowered into the IR, so `x3c lower` shows the branch that
+            // was *not* taken next to the one that was. Dropping it would leave an artifact
+            // whose reader cannot tell a folded branch from straight-line code.
+            let cond_ir = match fold_condition(cond) {
+                Some(true) => Condition::True,
+                Some(false) => Condition::False,
+                None => expression_to_condition(cond)?,
+            };
             let then_ops = {
                 let mut temp_ir = X3IR::new();
                 lower_function_body(then_block, &mut temp_ir)?;
@@ -1722,6 +1735,76 @@ fn lower_builtin_call(callee: &Expression, args: &[Expression], ir: &mut X3IR) -
 }
 
 /// Convert an AST expression to an IR Condition
+/// The value of an integer expression, when the program states one.
+///
+/// Arithmetic is evaluated with `checked_*`, so an overflow or a division by zero returns `None`
+/// and the branch that depended on it stays undecided. A branch decided from a wrapped number is
+/// a branch decided wrongly, which is worse than one that refuses.
+///
+/// Narrow on purpose: only the operations whose result a `u128` can hold are folded. The shifts
+/// and the bitwise operators are `None` — a left shift that discards high bits wraps, and
+/// checking that costs more than the case is worth when the fallback is a refusal that names why.
+fn fold_int(expr: &Expression) -> Option<u128> {
+    match expr {
+        Expression::Literal(LiteralExpr::Int { value, .. }) => Some(*value),
+        Expression::Binary { op, lhs, rhs } => {
+            let left = fold_int(lhs)?;
+            let right = fold_int(rhs)?;
+            match op {
+                BinOp::Plus => left.checked_add(right),
+                BinOp::Minus => left.checked_sub(right),
+                BinOp::Star => left.checked_mul(right),
+                BinOp::Slash => left.checked_div(right),
+                BinOp::Percent => left.checked_rem(right),
+                BinOp::Power => u32::try_from(right)
+                    .ok()
+                    .and_then(|exponent| left.checked_pow(exponent)),
+                _ => None,
+            }
+        }
+        // `u128` has no negative value, so a negation has none either — `-5 < 0` is undecided
+        // rather than false, and the branch that needs it is refused.
+        _ => None,
+    }
+}
+
+/// Decide a branch condition at compile time, when the program made it decidable.
+///
+/// `Some(..)` means the compiler knows which branch runs and the emitter writes that one.
+/// `None` means it does not — and that is exactly the case this VM cannot execute, because it
+/// branches on a register and the compiler emits no arithmetic to put a value there, so the
+/// branch is refused downstream with that reason rather than guessed at (TICKET-058).
+///
+/// `&&` and `||` keep the language's short-circuit meaning: a decidable `false` on either side of
+/// `&&` decides the whole condition even when the other side is undecided, and likewise a
+/// decidable `true` for `||`.
+fn fold_condition(expr: &Expression) -> Option<bool> {
+    match expr {
+        Expression::Literal(LiteralExpr::Bool(value)) => Some(*value),
+        Expression::Unary { op: UnOp::Not, expr } => fold_condition(expr).map(|value| !value),
+        Expression::Binary { op, lhs, rhs } => match op {
+            BinOp::AndAnd => match (fold_condition(lhs), fold_condition(rhs)) {
+                (Some(false), _) | (_, Some(false)) => Some(false),
+                (Some(true), Some(true)) => Some(true),
+                _ => None,
+            },
+            BinOp::OrOr => match (fold_condition(lhs), fold_condition(rhs)) {
+                (Some(true), _) | (_, Some(true)) => Some(true),
+                (Some(false), Some(false)) => Some(false),
+                _ => None,
+            },
+            BinOp::EqEq => Some(fold_int(lhs)? == fold_int(rhs)?),
+            BinOp::Ne => Some(fold_int(lhs)? != fold_int(rhs)?),
+            BinOp::Lt => Some(fold_int(lhs)? < fold_int(rhs)?),
+            BinOp::Le => Some(fold_int(lhs)? <= fold_int(rhs)?),
+            BinOp::Gt => Some(fold_int(lhs)? > fold_int(rhs)?),
+            BinOp::Ge => Some(fold_int(lhs)? >= fold_int(rhs)?),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn expression_to_condition(expr: &Expression) -> Result<Condition, x3_lang_common::X3Error> {
     match expr {
         Expression::Literal(LiteralExpr::Bool(true)) => Ok(Condition::True),
