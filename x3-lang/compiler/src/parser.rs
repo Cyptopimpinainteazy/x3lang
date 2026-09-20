@@ -1111,7 +1111,6 @@ impl<'a> Parser<'a> {
                 })
             }
             Tok::KwBridge => self.parse_bridge_trade_stmt(),
-            Tok::Ident(ref s) if s == "bridge" => self.parse_bridge_trade_stmt(),
             Tok::KwRequire => {
                 self.advance();
                 match self.peek() {
@@ -1340,9 +1339,6 @@ impl<'a> Parser<'a> {
                 // wrapping again would be a nested atomic scope, which the IR
                 // verifier rejects.
                 Tok::KwSwap | Tok::KwBridge | Tok::KwLock | Tok::KwMint | Tok::KwBurn | Tok::KwRelease => {
-                    body.push(self.parse_route_step()?);
-                }
-                Tok::Ident(ref s) if matches!(s.as_str(), "swap" | "bridge" | "lock" | "mint" | "burn" | "release") => {
                     body.push(self.parse_route_step()?);
                 }
                 _ => body.push(self.parse_statement()?),
@@ -1978,7 +1974,6 @@ impl<'a> Parser<'a> {
                     feature: Symbol::new(&feature),
                 })
             }
-            Tok::Ident(ref s) if s == "on_fail" => self.parse_intent_onfail(),
             Tok::KwOnFail => self.parse_intent_onfail(),
             // `use` is a **keyword** to the lexer (`Keyword::Use`, the top-level import), so this
             // arm has to match the keyword token. It matched `Tok::Ident(ref s) if s == "use"` —
@@ -2100,18 +2095,18 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.parse_lmbr_step(kw)
             }
-            // Bare-identifier route keywords. The dispatcher does NOT
-            // advance: each sub-parser checks for its own leading
-            // identifier and consumes it. This avoids a rewind/peek
-            // dance.
-            Tok::Ident(ref s) if s == "swap" => self.parse_swap_step(),
-            Tok::Ident(ref s) if s == "bridge" => self.parse_bridge_step(),
+            // `fallback` is the one route operation that is **not** a lexer keyword, so it is the
+            // only one that arrives as an identifier. The dispatcher does not advance for it: the
+            // sub-parser checks for its own leading word and consumes it, which avoids a
+            // rewind/peek dance.
+            //
+            // `swap`, `bridge` and the four `lock`/`mint`/`burn`/`release` steps used to have arms
+            // here too, matching an identifier for a word the lexer sends as a keyword token — arms
+            // no program could reach, with the `Tok::Kw*` arms above doing the work
+            // (`no_arm_matches_an_identifier_for_a_lexer_keyword` in
+            // `compiler/tests/test_keyword_clauses.rs`). The pattern is worth remembering: it is
+            // how three clauses were refused while the comments beside them said they were read.
             Tok::Ident(ref s) if s == "fallback" => self.parse_route_fallback(),
-            Tok::Ident(ref s) if s == "lock" || s == "mint" || s == "burn" || s == "release" => {
-                let kw = s.clone();
-                self.advance();
-                self.parse_lmbr_step(&kw)
-            }
             _ => Err(parse_err(
                 "expected route operation (swap/bridge/lock/mint/burn/release/fallback)".into(),
                 self.peek(),
@@ -3233,15 +3228,6 @@ impl<'a> Parser<'a> {
                     self.advance();
                     // skip, we only store the source
                 }
-                Tok::Ident(ref s) if s == "require" => {
-                    self.advance();
-                    let (n, m) = self.parse_n_of_m()?;
-                    require_numerator = n;
-                    require_denominator = m;
-                }
-                // `require` is a keyword, so the arm above can never fire for
-                // the shorthand the examples are documented with. The arm that
-                // reads it is this one.
                 Tok::KwRequire => {
                     self.advance();
                     let (n, m) = self.parse_n_of_m()?;
@@ -4697,7 +4683,10 @@ impl<'a> Parser<'a> {
                     self.advance();
                     chain = Symbol::new(&self.expect_ident("finality chain name")?);
                 }
-                Tok::Ident(ref s) if s == "requirement" || s == "require" => {
+                // `requirement` only: the `require` half of this guard was a second word the arm
+                // could never see, because `require` reaches the parser as `KwRequire`. The form
+                // that spells it that way is the terse one below, which matches the keyword.
+                Tok::Ident(ref s) if s == "requirement" => {
                     self.advance();
                     requirement = Symbol::new(&self.expect_ident("finality requirement")?);
                 }
@@ -5898,7 +5887,10 @@ const CLAUSE_WORDS: &[&str] = &[
     "to",
     "route",
     "timeout",
-    "on_fail",
+    // `on_fail` is deliberately absent: it is `Tok::KwOnFail`, and a keyword cannot begin an
+    // expression, so a valueless guard stops at it without help — the rule this const's own doc
+    // states. It was listed anyway, which is a second statement of the grammar naming a word the
+    // lookahead does not need.
     "allow",
     "on",
     "proofs",
