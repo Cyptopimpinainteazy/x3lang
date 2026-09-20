@@ -1519,9 +1519,77 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 target: Some(expression_to_string(new_contract)),
             });
         }
-        _ => {
-            // Other statement types (return, break, etc.)
-            ir.push(Operation::Nop);
+        // ===== Statements this compiler cannot lower, refused rather than dropped =====
+        //
+        // There is deliberately no catch-all arm. One used to sit here — `_ => ir.push(Nop)` under
+        // the comment "Other statement types (return, break, etc.)" — and it is why
+        // `tests/sketches/arithmetic.x3` — which sat in `tests/` until TICKET-109, where it
+        // *passed* the corpus gate — whose whole subject is arithmetic,
+        //```
+        //    let a = 1; let b = 2; let c = a + b;
+        //```
+        // lowered to **one `Nop` per statement** and checked clean with no warnings. `NOP` is
+        // written as four zero bytes, which the compiler's own instruction walker skips as padding
+        // and the VM's verifier breaks on as the end of the stream: the record is invisible to every
+        // reader, so the artifact of a program whose every statement was dropped is
+        // indistinguishable from the artifact of an empty program. "A `.x3` file in a directory the
+        // tooling walks is a claim that it is a program" — the corpus gate's own words — and this
+        // is where that claim was being satisfied by an artifact of the drop (TICKET-109).
+        //
+        // Each arm names the construct and what is missing, because the alternative a program's
+        // author has to know about is what the compiler *can* do: the const/declaration surface and
+        // the operation statements above.
+        Statement::Let { name, .. } => {
+            return Err(semantic(&format!(
+                "`let {name} = …` binds a name this compiler has no place to keep: it emits no \
+                 arithmetic and no register holds a source-level binding, so the value would be \
+                 dropped and every *use* of `{name}` already refuses. Write the value where it is \
+                 used. (The trading dialect's `let <name> = <swap …>` is a different construct and \
+                 does lower — it binds an operation's result.)"
+            )));
+        }
+        Statement::Return(_) => {
+            return Err(semantic(
+                "`return` would be dropped: this compiler does not emit a statement's return, and an \
+                 artifact has no frame for one, so a program that returns a value would reach the VM \
+                 saying nothing about it",
+            ));
+        }
+        Statement::Break => {
+            return Err(semantic(
+                "`break` would be dropped: the artifact has no loop the VM can execute — a `while` \
+                 is refused unless the compiler can decide it — so there is no loop to break out of",
+            ));
+        }
+        Statement::Continue => {
+            return Err(semantic(
+                "`continue` would be dropped: the artifact has no loop the VM can execute — a \
+                 `while` is refused unless the compiler can decide it — so there is no loop to \
+                 continue",
+            ));
+        }
+        Statement::For { iterable, .. } => {
+            return Err(semantic(&format!(
+                "`for … in {}` would be dropped: this compiler emits no iteration codegen and this VM \
+                 branches on a register, so the body could not run even once",
+                expression_to_string(iterable)
+            )));
+        }
+        // A bare `loop` is the unbounded loop `while true` spells, so it takes the same path: it
+        // lowers with a decided-true condition and the refusal that names it comes from the verifier
+        // and the emitter, where `while true`'s comes from. A second refusal here would be a second
+        // answer to a question TICKET-098 settled in one place.
+        Statement::Loop(body) => {
+            let body_ops = {
+                let mut temp_ir = X3IR::new();
+                lower_function_body(body, &mut temp_ir)?;
+                temp_ir.operations
+            };
+            ir.push(Operation::Loop {
+                max_iterations: 1000,
+                condition: Condition::True,
+                body: body_ops,
+            });
         }
     }
     Ok(())

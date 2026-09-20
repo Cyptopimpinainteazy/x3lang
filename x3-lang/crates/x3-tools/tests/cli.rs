@@ -3517,9 +3517,18 @@ venue pool_plain {
 ///
 /// Two directories are skipped **by name**, and both say so in a README beside their
 /// contents: `examples/legacy/` (subjects with no current form, five files) and
-/// `tests/sketches/` (subjects with no surface yet, two files). `tests/conformance/invalid/`
+/// `tests/sketches/` (subjects with no surface yet, five files). `tests/conformance/invalid/`
 /// is skipped for the opposite reason — those files are *meant* to be refused, and requiring
 /// them to check would delete the only fixtures that assert refusals happen.
+///
+/// Three of `tests/sketches/`'s five arrived in TICKET-109 for the reason this gate exists,
+/// seen from the other side: they used to live in `tests/` and **pass**, because the compiler
+/// lowered every statement they are made of (`let`, `return`, a call) to `Operation::Nop`,
+/// which is written as four zero bytes and so is invisible to every reader. A file that is
+/// entirely dropped checks clean, and this gate's claim — that a `.x3` in a directory the
+/// tooling walks is a program — was satisfied by the artifact of the dropping rather than by
+/// the program. `lowering` refuses those statements now, which is what makes a file using
+/// them fail here and belong in a skipped directory.
 #[test]
 fn every_x3_file_the_tooling_walks_is_a_program() {
     fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
