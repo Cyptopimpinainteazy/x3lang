@@ -544,6 +544,55 @@ pub const fn is_known_measured_unit_code(code: u8) -> bool {
     )
 }
 
+/// The quantity a **static** `REQUIRE`'s operand states, in the same three bits as a measured
+/// guard's unit code.
+///
+/// A static guard is decided at compile time against the declaration it names, and the operand was
+/// written as zero — so `require route_score >= 90` and `require route_score >= 10` were the same
+/// bytes, and a reader of the artifact could not tell what the program required. The figure is
+/// carried now, and these codes say what it counts, because the same two bytes mean a bond in the
+/// asset's units for one kind and a score for another.
+///
+/// `MEASURED_UNIT_CODE_PROFIT_BPS` is zero and doubles as "no figure carried" here: a static guard
+/// that has no comparable number — `require mainnet_safe`, `require proof_complete <name>` — writes
+/// zero, which is exactly what every artifact written before this field meant anything carries, so
+/// nothing already emitted changes reading.
+pub const GUARD_QUANTITY_AMOUNT: u8 = 3;
+/// A score out of a hundred: `route_score`, `risk`.
+pub const GUARD_QUANTITY_SCORE: u8 = 4;
+/// How many of something: `relayer_quorum`'s size.
+pub const GUARD_QUANTITY_COUNT: u8 = 5;
+/// A depth in blocks: the finality a policy declares.
+pub const GUARD_QUANTITY_BLOCKS: u8 = 6;
+
+/// Whether a static guard's quantity code is one this format defines.
+///
+/// The set is closed for the reason the measured units' is: a code outside it would be printed by
+/// `x3c explain` as a quantity the guard is not about, which is a reader inventing a claim — the
+/// failure the measured guard's own closed set exists to prevent (TICKET-068), one field over.
+pub const fn is_known_guard_quantity(code: u8) -> bool {
+    matches!(
+        code,
+        MEASURED_UNIT_CODE_PROFIT_BPS
+            | GUARD_QUANTITY_AMOUNT
+            | GUARD_QUANTITY_SCORE
+            | GUARD_QUANTITY_COUNT
+            | GUARD_QUANTITY_BLOCKS
+    )
+}
+
+/// The name a static guard's quantity goes by, for the disassembler and for anything that reports
+/// a guard to a person. `None` means the guard carries no figure.
+pub const fn guard_quantity_name(code: u8) -> Option<&'static str> {
+    Some(match code {
+        GUARD_QUANTITY_AMOUNT => "amount",
+        GUARD_QUANTITY_SCORE => "score",
+        GUARD_QUANTITY_COUNT => "count",
+        GUARD_QUANTITY_BLOCKS => "blocks",
+        _ => return None,
+    })
+}
+
 /// The payload of an `IF_MEASURED`: `"<unit>:<invert>:<threshold_bps>:<skip>"`.
 ///
 /// One writer and one reader, so the two halves cannot disagree about the spelling — the reason

@@ -464,7 +464,11 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                     ),
                     span: None,
                 })?;
-                (REQUIRE_COMPARE_STATIC, threshold, MEASURED_UNIT_CODE_PROFIT_BPS)
+                (
+                    REQUIRE_COMPARE_STATIC,
+                    threshold,
+                    crate::spec::opcodes::GUARD_QUANTITY_BLOCKS,
+                )
             } else if let Operation::Require {
                 measured: true,
                 kind: crate::ir::RequireKind::ProfitThreshold,
@@ -520,7 +524,12 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                     _ => (REQUIRE_COMPARE_STATIC, 0u16, MEASURED_UNIT_CODE_PROFIT_BPS),
                 }
             } else {
-                (REQUIRE_COMPARE_STATIC, 0u16, MEASURED_UNIT_CODE_PROFIT_BPS)
+                // A static guard is decided at compile time; the figure it was decided against
+                // travels anyway, because the artifact is what a replayer and an auditor read.
+                // It used to be written as zero, so `require route_score >= 90` and
+                // `require route_score >= 10` were the same bytes (TICKET-114).
+                let (figure, code) = static_guard_quantity(op)?;
+                (REQUIRE_COMPARE_STATIC, figure, code)
             };
             bytecode.write_all(&[REQUIRE, require_flags_measured(mode, guard_operator, unit_code)])?;
             bytecode.write_all(&threshold.to_le_bytes())?;
@@ -830,6 +839,57 @@ fn guard_bps(expr: &str, what: &str) -> Result<u16, X3Error> {
         ),
         span: None,
     })
+}
+
+/// The figure a static guard's operand carries, and the code that says what it counts.
+///
+/// A static guard is decided at compile time against the declaration it names, and its operand was
+/// written as **zero**: `require route_score >= 90` and `require route_score >= 10` compiled to the
+/// same bytes, so the instruction said a guard was here and nothing about what it required. That is
+/// the half a reader of the *artifact* loses — the compiler had the figure, the artifact did not
+/// (TICKET-114).
+///
+/// Zero means "no figure carried", which is what every artifact written before this reads as:
+/// `require mainnet_safe`, `require proof_complete <name>` and `require canonical_supply <ASSET>`
+/// name something rather than counting it, so their operand stays zero and their code stays none.
+///
+/// A figure the operand cannot hold is **refused**, not truncated — the rule the finality policy's
+/// depth already follows, and for the same reason: a truncated bound says the program required
+/// something it did not.
+fn static_guard_quantity(op: &Operation) -> Result<(u16, u8), X3Error> {
+    use crate::ir::{Condition, RequireKind};
+    use crate::spec::opcodes::{
+        GUARD_QUANTITY_AMOUNT, GUARD_QUANTITY_COUNT, GUARD_QUANTITY_SCORE, MEASURED_UNIT_CODE_PROFIT_BPS,
+    };
+
+    let Operation::Require { kind, condition, .. } = op else {
+        return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS));
+    };
+    let code = match kind {
+        RequireKind::RouteScore | RequireKind::RiskScore => GUARD_QUANTITY_SCORE,
+        RequireKind::SolverBond | RequireKind::BridgeLiquidity => GUARD_QUANTITY_AMOUNT,
+        RequireKind::RelayerQuorum => GUARD_QUANTITY_COUNT,
+        _ => return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS)),
+    };
+    // The guard's own check refuses a bound it cannot read, so this is the figure the compiler
+    // compared — but the emitter does not assume the check ran: an IR built by hand reaches here
+    // too, and there is nothing to carry when the condition is not a number.
+    let Condition::Expression { expr } = condition else {
+        return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS));
+    };
+    let Ok(bound) = expr.trim().parse::<u32>() else {
+        return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS));
+    };
+    let bound = u16::try_from(bound).map_err(|_| X3Error::CodegenError {
+        message: format!(
+            "the guard's bound {bound} does not fit the instruction's operand ({max}), and the \
+             artifact carries the figure the compiler checked against — a truncated one would state \
+             a bound the program never wrote",
+            max = u16::MAX
+        ),
+        span: None,
+    })?;
+    Ok((bound, code))
 }
 
 /// Return the stable opcode for a trading operation variant.
@@ -1589,6 +1649,15 @@ fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String
             REQUIRE_COMPARE_MEASURED_SLIPPAGE => "measured slippage".to_string(),
             other => format!("?{other}"),
         };
+        // A static guard's operand carries the figure the compiler checked against, and the code
+        // says what it counts. Printing the bare number would leave a reader unable to tell a bond
+        // from a score, which is the same "which quantity" question the measured units answer
+        // (TICKET-068) one mode over.
+        if require_comparison(flags) == REQUIRE_COMPARE_STATIC {
+            if let Some(quantity) = guard_quantity_name(require_measured_unit_code(flags)) {
+                return format!("{name} {mode} {quantity} {operand}");
+            }
+        }
         return format!("{name} {mode} {operand}");
     }
     if opcode == IF_MEASURED {

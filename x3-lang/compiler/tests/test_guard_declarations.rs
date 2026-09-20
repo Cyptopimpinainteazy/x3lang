@@ -735,7 +735,9 @@ fn the_artifact_carries_the_declared_finality_depth() {
     // A replayer that reads only the artifact has to be able to re-check what the
     // compiler decided: the guard says `>= 32`, and the policy's `blocks 32` is the
     // number that decision was made against. It travels in the `REQUIRE` operand
-    // (a `FinalityExplicit` record), so `x3c explain` shows it.
+    // (a `FinalityExplicit` record), and the flags say the figure counts *blocks* —
+    // without the code a reader could not tell a depth from a bond or a score
+    // (TICKET-114), so `x3c explain` says both.
     let with_depth = format!(
         "{}{}",
         "finality_policy strict {\n    chain solana\n    requirement finalized\n    blocks 32\n}\n\n",
@@ -744,8 +746,8 @@ fn the_artifact_carries_the_declared_finality_depth() {
     let bytecode = x3_lang_compiler::compile_source(&with_depth).expect("the program must compile");
     let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("it must disassemble");
     assert!(
-        trace.contains("REQUIRE static 32"),
-        "the declaration's depth must be in the artifact: {trace}"
+        trace.contains("REQUIRE static blocks 32"),
+        "the declaration's depth must be in the artifact, and must say it is a depth: {trace}"
     );
 
     // A policy that states no depth carries zero there, which is why the parser
@@ -758,8 +760,8 @@ fn the_artifact_carries_the_declared_finality_depth() {
     let bytecode = x3_lang_compiler::compile_source(&without_depth).expect("the program must compile");
     let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("it must disassemble");
     assert!(
-        trace.contains("REQUIRE static 0"),
-        "a declaration that states no depth carries zero: {trace}"
+        trace.contains("REQUIRE static blocks 0"),
+        "a declaration that states no depth carries zero, of the quantity it would have stated: {trace}"
     );
 }
 
@@ -939,6 +941,93 @@ mod an_economic_guard_travels_and_is_judged {
         assert!(
             error.contains("X3_GUARD_UNMEASURED") && error.contains("slippage <= 7bps"),
             "the refusal must say which guard needed which quantity: {error}"
+        );
+    }
+}
+
+/// A static guard's figure travels in the artifact, and says what it counts.
+///
+/// The checks below decide a static guard against the declaration it names, and then the emitter
+/// wrote the operand as **zero**: `require route_score >= 90` and `require route_score >= 10` were
+/// the same bytes. The compiler held the figure; the artifact — the thing a replayer, an auditor and
+/// `x3c explain` read — did not. TICKET-114.
+mod a_static_guards_figure_travels {
+    use x3_lang_compiler::compile_source;
+
+    /// A swap intent whose only static guard is the route-score floor given.
+    fn with_route_score(floor: u32) -> String {
+        format!(
+            "risk_policy {{\n    min_route_score 100\n}}\n\n\
+             intent scored {{\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {{\n\
+             \x20       swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n\
+             \x20   }}\n    require route_score >= {floor}\n    require slippage <= 50\n\
+             \x20   on_fail refund ethereum.USDC to sender\n}}\n"
+        )
+    }
+
+    fn artifact(floor: u32) -> Vec<u8> {
+        compile_source(&with_route_score(floor)).unwrap_or_else(|error| panic!("floor {floor}: {error:?}"))
+    }
+
+    #[test]
+    fn two_different_bounds_are_two_different_artifacts() {
+        assert_ne!(
+            artifact(90),
+            artifact(10),
+            "two programs requiring different route scores must not compile to the same bytes"
+        );
+    }
+
+    #[test]
+    fn the_artifact_says_the_figure_and_what_it_counts() {
+        let trace = x3_lang_compiler::emitter::disassemble(&artifact(90)).expect("it must disassemble");
+        assert!(
+            trace.contains("REQUIRE static score 90"),
+            "the figure and its quantity must both be readable: {trace}"
+        );
+        // The quantity is not decoration: the same operand means a bond for one kind and a score
+        // for another, so a reader that printed the bare number would be guessing which.
+        let bond = compile_source(
+            "solver_market {\n    mode competitive\n    bond 10_000 USDC\n}\n\n\
+             intent bonded {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {\n\
+             \x20       swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n\
+             \x20   }\n    require solver_bond >= 10_000\n    require slippage <= 50\n\
+             \x20   on_fail refund ethereum.USDC to sender\n}\n",
+        )
+        .expect("the bond program must compile");
+        let bond_trace = x3_lang_compiler::emitter::disassemble(&bond).expect("it must disassemble");
+        assert!(
+            bond_trace.contains("REQUIRE static amount 10000"),
+            "a bond is an amount, and the artifact must say so: {bond_trace}"
+        );
+    }
+
+    #[test]
+    fn a_bound_the_check_cannot_read_is_refused_rather_than_read_as_zero() {
+        // `unwrap_or(0)` here read `>= min_score` as "at least zero", which every policy satisfies,
+        // and the artifact recorded a threshold of zero — an unreadable bound made the guard
+        // *weaker* rather than refused.
+        let errors = super::errors(&with_route_score(0).replace(">= 0", ">= min_score"));
+        assert!(
+            errors.iter().any(|error| error.contains("not a number")),
+            "a bound the check cannot compare must be refused by name: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_bound_the_operand_cannot_hold_is_refused_rather_than_truncated() {
+        // 70_000 fits the declaration and not the instruction's two-byte operand. Truncating would
+        // state a bond the program never wrote.
+        let source = "solver_market {\n    mode competitive\n    bond 70_000 USDC\n}\n\n\
+                      intent bonded {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {\n\
+                      \x20       swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n\
+                      \x20   }\n    require solver_bond >= 70_000\n    require slippage <= 50\n\
+                      \x20   on_fail refund ethereum.USDC to sender\n}\n";
+        let error = compile_source(source).expect_err("70000 does not fit the operand");
+        let text = format!("{error:?}");
+        assert!(
+            text.contains("does not fit the instruction's operand"),
+            "the refusal must name the operand as the reason: {text}"
         );
     }
 }

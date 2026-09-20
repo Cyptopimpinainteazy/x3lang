@@ -599,7 +599,22 @@ pub fn verify_route_score_declared(program: &Program, acc: &mut ErrorAccumulator
             ));
             continue;
         }
-        let required = guard.value.as_ref().and_then(extract_int_from_expr).unwrap_or(0);
+        // A bound the check cannot read is not a weaker claim, it is *no* claim: `unwrap_or(0)`
+        // here read `require route_score >= min_score` as "at least zero", which every policy
+        // satisfies, and the artifact recorded a threshold of zero for it. A figure the compiler
+        // cannot compare is refused by name instead, the rule an unknown guard *kind* already
+        // follows (TICKET-049).
+        let Some(required) = guard.value.as_ref().and_then(extract_int_from_expr) else {
+            acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "declaration '{owner}' states `require route_score >= <bound>` with a bound that is \
+                 not a number; the bound is what the check compares against the declared minimum, so \
+                 it has to be one this compiler can read"
+                ),
+            ));
+            continue;
+        };
         match declared {
             None => acc.add_error(err(
                 DiagnosticCode::GuardClaimUnbacked,
@@ -2081,7 +2096,18 @@ pub fn verify_solver_bond_declared(program: &Program, acc: &mut ErrorAccumulator
             )));
             continue;
         }
-        let required = guard.value.as_ref().and_then(extract_int_from_expr).unwrap_or(0);
+        // See `verify_route_score_declared`: an unreadable bound is refused, not read as zero.
+        let Some(required) = guard.value.as_ref().and_then(extract_int_from_expr) else {
+            acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "declaration '{owner}' states `require solver_bond >= <bound>` with a bound that is \
+                 not a number; the bound is what the check compares against the declared bond, so it \
+                 has to be one this compiler can read"
+                ),
+            ));
+            continue;
+        };
         match declared {
             None => acc.add_error(err(
                 DiagnosticCode::GuardClaimUnbacked,
@@ -2124,7 +2150,18 @@ pub fn verify_relayer_quorum_declared(program: &Program, acc: &mut ErrorAccumula
             )));
             continue;
         }
-        let required = guard.value.as_ref().and_then(extract_int_from_expr).unwrap_or(0);
+        // See `verify_route_score_declared`: an unreadable bound is refused, not read as zero.
+        let Some(required) = guard.value.as_ref().and_then(extract_int_from_expr) else {
+            acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "declaration '{owner}' states `require relayer_quorum >= <bound>` with a bound that \
+                 is not a number; the bound is what the check compares against the declared quorum, so \
+                 it has to be one this compiler can read"
+                ),
+            ));
+            continue;
+        };
         match declared {
             None => acc.add_error(err(
                 DiagnosticCode::GuardClaimUnbacked,

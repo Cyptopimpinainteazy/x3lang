@@ -198,6 +198,16 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                     if !is_known_measured_unit_code(unit_code) {
                         return Err(VerifyError::InvalidOperand(pc));
                     }
+                } else if mode == REQUIRE_COMPARE_STATIC {
+                    // A static guard's operand carries the figure it was *checked against* — a
+                    // bond, a score, a depth — and the same three bits say what that figure
+                    // counts. The set is closed for the reason the measured units' is: a code
+                    // outside it would be printed by a reader as a quantity the guard is not
+                    // about. Zero means "no figure carried", which is what every artifact
+                    // written before the figure was carried reads as.
+                    if !is_known_guard_quantity(unit_code) {
+                        return Err(VerifyError::InvalidOperand(pc));
+                    }
                 } else if unit_code != MEASURED_UNIT_CODE_PROFIT_BPS {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
@@ -1028,6 +1038,62 @@ mod tests {
                 Err(VerifyError::InvalidOperand(_))
             ),
             "the old payload is not an `EmitEvent` and must not be read as one"
+        );
+    }
+}
+
+#[cfg(test)]
+mod static_guard_quantity_tests {
+    use super::*;
+
+    fn require(flags: u8) -> InstructionStream {
+        InstructionStream::new(vec![REQUIRE, flags, 1, 0])
+    }
+
+    /// A static guard's figure is only readable if the code that says *what it counts* is one this
+    /// format defines.
+    ///
+    /// The set is closed for the reason the measured units' is: a reader that printed an unknown
+    /// code would name a quantity the guard is not about. Zero is "no figure carried", which is
+    /// what every artifact written before the figure was carried reads as — so this is the
+    /// backward-compatibility assertion as much as it is the acceptance of the codes.
+    #[test]
+    fn verifier_accepts_the_quantities_a_static_guard_can_count_and_refuses_the_rest() {
+        assert!(
+            verify(&require(require_flags(REQUIRE_COMPARE_STATIC, GUARD_OP_GE))).is_ok(),
+            "a static guard carrying no figure must still verify"
+        );
+        for code in [
+            GUARD_QUANTITY_AMOUNT,
+            GUARD_QUANTITY_SCORE,
+            GUARD_QUANTITY_COUNT,
+            GUARD_QUANTITY_BLOCKS,
+        ] {
+            assert!(
+                verify(&require(require_flags_measured(
+                    REQUIRE_COMPARE_STATIC,
+                    GUARD_OP_GE,
+                    code
+                )))
+                .is_ok(),
+                "code {code} is one this format defines"
+            );
+        }
+        // 7 is the highest the three bits can hold and no quantity at all.
+        assert!(
+            verify(&require(require_flags_measured(REQUIRE_COMPARE_STATIC, GUARD_OP_GE, 7))).is_err(),
+            "a code outside the set names a quantity the guard is not about"
+        );
+        // And a measured guard may not borrow a static quantity's code: the two sets are separate
+        // because a measurement and a compile-time figure are different claims.
+        assert!(
+            verify(&require(require_flags_measured(
+                REQUIRE_COMPARE_MEASURED_PROFIT,
+                GUARD_OP_GE,
+                GUARD_QUANTITY_SCORE
+            )))
+            .is_err(),
+            "a measured guard's code is a measured quantity, not a score"
         );
     }
 }
