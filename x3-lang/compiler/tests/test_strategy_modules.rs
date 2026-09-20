@@ -377,3 +377,61 @@ mod a_body_can_state_its_own_fee_ceiling {
         );
     }
 }
+
+/// `bounded_slippage` is a guarantee the body can discharge (PHASE 5's own example).
+///
+/// The spec's example writes `guarantees [debt_closed, min_profit, bounded_slippage]`, and the
+/// language refused the third name — while `verify_slippage_explicit` already required exactly that
+/// ceiling of any body with a swap leg. A module may state the guarantee it has (TICKET-022).
+mod bounded_slippage_is_a_guarantee_a_body_can_discharge {
+    use super::module;
+
+    fn with(guarantees: &str, body_guards: &str) -> String {
+        let sections = format!(
+            "    effects [swap]\n    guarantees [{guarantees}]\n    domains [ethereum]\n    risk \
+             {{ max_slippage_bps 50 max_total_fee_bps 8 }}\n    bounds {{ max_steps 10 max_gas 200_000 }}\n"
+        );
+        let execute = format!(
+            "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n{body_guards}\n        \
+             on_fail refund ethereum.USDC to sender"
+        );
+        module(&execute, &sections)
+    }
+
+    #[test]
+    fn a_body_with_a_ceiling_discharges_it() {
+        let found = super::errors(&with(
+            "min_profit, bounded_slippage",
+            "        require slippage <= 50\n        require profit >= 5",
+        ));
+        assert!(found.is_empty(), "the body writes the ceiling it claims: {found:?}");
+    }
+
+    #[test]
+    fn a_body_without_one_is_refused_with_the_clause_to_add() {
+        let found = super::errors(&with("bounded_slippage", "        require profit >= 5"));
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("bounded_slippage") && error.contains("require slippage <= ")),
+            "the refusal must name the guarantee and the clause that discharges it: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_guarantee_the_language_does_not_model_is_still_refused_by_name() {
+        // `principal_preserved` is the spec's other name and is *not* admitted: its only derivable
+        // discharge would be a profit floor of zero, which is what `min_profit` already means, and a
+        // second name for one claim is the "label that means nothing" defect TICKET-022 exists to
+        // avoid. This test fails the day someone admits it — which is the point: the decision has to
+        // be recorded rather than assumed.
+        let found = super::errors(&with("principal_preserved", "        require slippage <= 50"));
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("unknown guarantee 'principal_preserved'")
+                    && error.contains("bounded_slippage")),
+            "an unmodelled name is refused with the vocabulary it could have used: {found:?}"
+        );
+    }
+}

@@ -411,6 +411,15 @@ fn guarantee_requirement(guarantee: x3_lang_ast::TradeGuarantee) -> &'static str
         x3_lang_ast::TradeGuarantee::DebtClosed => "add `require all_debts_repaid`",
         x3_lang_ast::TradeGuarantee::MinProfit => "add `require net_profit >= <amount>`",
         x3_lang_ast::TradeGuarantee::Solvent => "add `invariant solvent`",
+        // An atomic trade has no statement that bounds slippage: the trade dialect's own bounds are
+        // `min_output` and `max_slippage`, which the policy carries rather than a statement. So a
+        // trade body cannot discharge this guarantee, and the message says which clause of the
+        // *policy* the author is looking for instead.
+        x3_lang_ast::TradeGuarantee::BoundedSlippage => {
+            "a trade body has no slippage statement: state it in the policy (`max_slippage`), or \
+             declare `bounded_slippage` on a strategy module, whose body writes `require slippage \
+             <= <bps>`"
+        }
     }
 }
 

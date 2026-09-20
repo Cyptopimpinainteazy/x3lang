@@ -207,14 +207,22 @@ pub enum TradeGuarantee {
     MinProfit,
     /// The solvent invariant is asserted.
     Solvent,
+    /// Every swap leg's slippage is bounded by the body's own ceiling.
+    ///
+    /// The spec's own example writes it (`effects [borrow, swap, hedge, repay]` with
+    /// `guarantees [debt_closed, min_profit, bounded_slippage]`, PHASE 5), and the language refused
+    /// the name while `verify_slippage_explicit` already required exactly this of any body with a
+    /// swap leg — a module states the thing it has, rather than an unenforceable label (TICKET-022).
+    BoundedSlippage,
 }
 
 impl TradeGuarantee {
     /// Every guarantee the language knows, in a fixed order for diagnostics.
-    pub const ALL: [TradeGuarantee; 3] = [
+    pub const ALL: [TradeGuarantee; 4] = [
         TradeGuarantee::DebtClosed,
         TradeGuarantee::MinProfit,
         TradeGuarantee::Solvent,
+        TradeGuarantee::BoundedSlippage,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -222,6 +230,7 @@ impl TradeGuarantee {
             TradeGuarantee::DebtClosed => "debt_closed",
             TradeGuarantee::MinProfit => "min_profit",
             TradeGuarantee::Solvent => "solvent",
+            TradeGuarantee::BoundedSlippage => "bounded_slippage",
         }
     }
 
@@ -230,6 +239,7 @@ impl TradeGuarantee {
             "debt_closed" => Some(TradeGuarantee::DebtClosed),
             "min_profit" => Some(TradeGuarantee::MinProfit),
             "solvent" => Some(TradeGuarantee::Solvent),
+            "bounded_slippage" => Some(TradeGuarantee::BoundedSlippage),
             _ => None,
         }
     }
@@ -245,6 +255,12 @@ impl TradeGuarantee {
                     kind: InvariantKind::Solvent
                 }
             ),
+            // An atomic trade's slippage bound is the same claim written in the trading dialect:
+            // `assert min_output` is not it (an absolute floor says nothing about how far the market
+            // moved), so a trade body can discharge this only through the swap its own policy bounds.
+            // Nothing in `TradeStmt` states a slippage ceiling, so it has no statement form here —
+            // the same answer `debt_closed` gives on the module side, from the other direction.
+            TradeGuarantee::BoundedSlippage => false,
         }
     }
 }

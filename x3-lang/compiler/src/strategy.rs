@@ -567,6 +567,23 @@ fn guarantee_is_discharged(guarantee: TradeGuarantee, statements: &[&Statement])
             }
         }
         TradeGuarantee::DebtClosed => Discharge::NoStatementForm,
+        TradeGuarantee::BoundedSlippage => {
+            // The ceiling, not the floor: `require slippage <= 50` bounds what the body accepts,
+            // and a guard written the other way says the slippage may be *at least* this much —
+            // the same distinction the profit guarantee's comparison preserves.
+            let discharged = statements.iter().any(|statement| match statement {
+                Statement::Require(guard) => {
+                    guard.kind == x3_lang_ast::ast::RequireKind::Slippage
+                        && guard.comparison.is_some_and(|op| op.is_upper_bound())
+                }
+                _ => false,
+            });
+            if discharged {
+                Discharge::Yes
+            } else {
+                Discharge::No
+            }
+        }
     }
 }
 
@@ -577,6 +594,7 @@ fn guarantee_requirement(guarantee: TradeGuarantee) -> &'static str {
         TradeGuarantee::DebtClosed => "add `require all_debts_repaid`",
         TradeGuarantee::MinProfit => "add `require profit >= <amount>`",
         TradeGuarantee::Solvent => "add `require invariant solvent == ...`",
+        TradeGuarantee::BoundedSlippage => "add `require slippage <= <bps>`",
     }
 }
 
