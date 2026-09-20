@@ -12,6 +12,7 @@
 //!    allow-lists, refund paths, explicit finality/proofs, route scores,
 //!    invariant rules, compile-mode gating, and risk scoring).
 
+pub mod annotations;
 pub mod arb;
 pub mod cost;
 pub mod dag;
@@ -155,6 +156,9 @@ pub(crate) fn run_pre_emission_layers_with_context(
     // program's declarations with each other (PHASE 36).
     let mut warnings = outcome.warnings;
     warnings.extend(profitability::warnings(program));
+    // A modifier the artifact has no form for is stated as policy or reported, and never silently
+    // nothing — the table in `annotations` is the enumeration (TICKET-111).
+    warnings.extend(annotations::warnings(program));
 
     Ok(PreEmission { ir, errors, warnings })
 }

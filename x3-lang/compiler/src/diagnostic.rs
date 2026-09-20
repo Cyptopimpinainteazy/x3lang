@@ -48,6 +48,13 @@ pub enum DiagnosticCode {
     /// declare, an invariant declared twice, a borrow with no `all_debts_repaid`, no receipt
     /// and no net-profit guard.
     TradeDeclaration,
+    /// A declaration that claims something the artifact would have to state, and cannot.
+    ///
+    /// The first code in the catalogue whose diagnostics are **warnings**: a program carrying such a
+    /// declaration is still a program, and what it loses is a claim. `@gas_adaptive` is where it
+    /// appears — the annotation names no bodies, so the two gas paths it claims cannot be written
+    /// (TICKET-110, TICKET-111).
+    DeclarationHasNoArtifactForm,
 }
 
 impl DiagnosticCode {
@@ -67,6 +74,7 @@ impl DiagnosticCode {
             Self::TradingSequence => "X3E4023",
             Self::RiskPolicyBound => "X3E4024",
             Self::TradeDeclaration => "X3E4025",
+            Self::DeclarationHasNoArtifactForm => "X3E4026",
         }
     }
 }

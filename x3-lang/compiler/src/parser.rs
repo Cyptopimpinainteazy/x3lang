@@ -4823,7 +4823,28 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_single_annotation(&mut self) -> Result<Annotation, X3Error> {
-        let name = self.expect_ident("annotation name")?;
+        // A word the lexer reserves cannot name an annotation, because `expect_ident` refuses a keyword
+        // token — and its message ("annotation name: expected identifier") told an author their *syntax*
+        // was wrong when the fact is about the word. `subscription` is the one such word today, and it
+        // names an item (TICKET-111).
+        let name = match self.peek() {
+            Tok::Ident(_) => self.expect_ident("annotation name")?,
+            Tok::KwSubscription => {
+                return Err(parse_err(
+                    "`@subscription` is not an annotation: `subscription` begins a `subscription \
+                     <name>: <amount>, <period> { … }` item, which is where a subscription's work is \
+                     written — a keyword cannot name an annotation"
+                        .to_string(),
+                    self.peek(),
+                ))
+            }
+            other => {
+                return Err(parse_err(
+                    format!("an annotation is named by an identifier, and `{other:?}` is not one"),
+                    other,
+                ))
+            }
+        };
         let args: Vec<Expression> = if self.peek() == Tok::LParen {
             self.advance();
             let exprs = self.parse_expr_list()?;
@@ -6030,33 +6051,12 @@ fn annotation_from_name_args(name: &str, args: &[Expression]) -> Result<Annotati
                 .unwrap_or(1);
             Ok(Annotation::Scheduled(period))
         }
-        "subscription" => {
-            let amount = args
-                .iter()
-                .find_map(|e| {
-                    let s = expr_to_string(e);
-                    if let Some(val) = s.strip_prefix("amount=") {
-                        val.parse::<u128>().ok()
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| args.first().and_then(|e| expr_to_u128(e).ok()))
-                .unwrap_or(0);
-            let period = args
-                .iter()
-                .find_map(|e| {
-                    let s = expr_to_string(e);
-                    if let Some(val) = s.strip_prefix("period=") {
-                        val.parse::<u64>().ok()
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| args.get(1).and_then(|e| expr_to_u128(e).ok().map(|v| v as u64)))
-                .unwrap_or(1);
-            Ok(Annotation::Subscription(amount, period))
-        }
+        // `"subscription"` is deliberately absent. The word is a **keyword** the lexer reserves for the
+        // `subscription <name>: <amount>, <period> { … }` item, so `parse_single_annotation`'s
+        // `expect_ident` never sees it as a name: the arm that used to be here could not be reached by
+        // any program (measured: `@subscription(amount=100, period=30)` fails with "annotation name:
+        // expected identifier", and the other twenty spellings parse). A name map that claims a
+        // spelling the lexer forbids is a capability nothing can use (TICKET-111).
         "extern" => Ok(Annotation::Extern),
         "payable" => Ok(Annotation::Payable),
         "simd" => Ok(Annotation::Simd),
@@ -6064,7 +6064,18 @@ fn annotation_from_name_args(name: &str, args: &[Expression]) -> Result<Annotati
         "sponsor" => Ok(Annotation::Sponsor),
         "gas_adaptive" => Ok(Annotation::GasAdaptive),
         _ => Err(X3Error::ParseError {
-            message: format!("unknown annotation @{name}"),
+            // A word the lexer reserves cannot name an annotation — `expect_ident` refuses a keyword —
+            // so a program that writes one is told what the language does accept instead of being told
+            // the word is unknown. `subscription` is the only one today: an annotation spelling for it
+            // existed in this map and no program could reach it (TICKET-111).
+            message: if name == "subscription" {
+                "`@subscription` is not an annotation: `subscription` begins a `subscription <name>: \
+                 <amount>, <period> { … }` item, which is where a subscription's work is written — a \
+                 keyword cannot name an annotation"
+                    .to_string()
+            } else {
+                format!("unknown annotation @{name}")
+            },
             span: Span::DUMMY,
             expected: vec![],
             found: name.into(),
