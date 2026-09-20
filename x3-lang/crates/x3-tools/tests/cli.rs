@@ -4139,3 +4139,77 @@ fn refund_reports_the_program_and_claims_nothing() {
         );
     }
 }
+
+/// `x3c new` writes a project and then tells the reader to run `x3c check src/main.x3`; the
+/// scaffold therefore has to be a program that command accepts. This runs the printed sequence
+/// against a generated project — layout, clean check, build, measured run — so a template that
+/// drifts from the language fails here instead of in the reader's first command. (TICKET-125)
+#[test]
+fn cli_new_writes_a_project_that_passes_its_own_first_command() {
+    let dir = std::env::temp_dir().join(format!("x3c-new-scaffold-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+
+    let created = x3c()
+        .args(["new", "starter", "--path"])
+        .arg(&dir)
+        .output()
+        .expect("run x3c new");
+    assert!(
+        created.status.success(),
+        "x3c new failed: {}{}",
+        String::from_utf8_lossy(&created.stdout),
+        String::from_utf8_lossy(&created.stderr)
+    );
+
+    let project = dir.join("starter");
+    let main = project.join("src").join("main.x3");
+    let test_target = project.join("tests").join("test_starter.rs");
+    assert!(main.is_file(), "the scaffold must write src/main.x3");
+    assert!(
+        test_target.is_file(),
+        "the scaffold must write the test target it announces"
+    );
+
+    let check = x3c()
+        .args(["check"])
+        .arg(&main)
+        .arg("--deny-warnings")
+        .output()
+        .expect("run x3c check");
+    assert!(
+        check.status.success(),
+        "the generated scaffold does not check clean: {}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let artifact = dir.join("starter.x3b");
+    let build = x3c()
+        .args(["build"])
+        .arg(&main)
+        .args(["--out"])
+        .arg(&artifact)
+        .output()
+        .expect("run x3c build");
+    assert!(
+        build.status.success(),
+        "the generated scaffold does not build: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = x3c()
+        .arg("run")
+        .arg(&artifact)
+        .args(["--measured-slippage-bps", "8"])
+        .output()
+        .expect("run x3c run");
+    assert!(
+        run.status.success(),
+        "the generated scaffold does not run: {}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
