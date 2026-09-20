@@ -273,8 +273,6 @@ finality_policy strict {
     requirement finalized
 }
 
-error SlippageExceeded
-
 target evm {
     adapter evm_adapter
     contract 0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18

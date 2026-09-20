@@ -1113,16 +1113,24 @@ pub fn lower_program_with_mode(
             // items that lower to nothing, and the compiler checks that this list is
             // *complete* rather than trusting a comment.
             Item::Struct(_) | Item::Enum(_) | Item::Use(_) | Item::Mod(_) | Item::Import(_) => {
-                // Type and module machinery: the compiler reads it, the artifact runs
-                // operations.
+                // This comment used to claim "the compiler reads it", and nothing does: no pass
+                // resolves a type name, and there is no module system for an import to reach. The
+                // arm stays — the match is exhaustive on purpose (TICKET-078) — and
+                // `verify_declarations_have_a_reader` refuses the declarations by name, so a program
+                // that relies on one is told rather than silently given nothing.
             }
             Item::Const(_) => {
-                // A constant is evaluated where it is used, so the artifact carries the
-                // value rather than the name.
+                // The old comment here claimed "a constant is evaluated where it is used, so the
+                // artifact carries the value rather than the name". Nothing evaluates them: a
+                // reference reaches a guard as the name, which the guard's check refuses as a bound
+                // it cannot read (TICKET-114's rule), and reaches an expression as an identifier
+                // that lowers to nothing. `verify_declarations_have_a_reader` refuses the
+                // declaration, so the failure is at the source line rather than at the guard.
             }
             Item::ErrorDecl(_) => {
-                // A name a program may raise. Raising it is a `Statement`, which
-                // lowers; the declaration is the name.
+                // The old comment claimed "raising it is a `Statement`, which lowers". There is no
+                // statement that raises a named error — the AST has none — so the name is one
+                // nothing can raise, and the check refuses the declaration.
             }
             Item::ObjectiveDecl(_) => {
                 // What the optimizer should rank by. The ranking happens at compile

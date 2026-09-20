@@ -1195,3 +1195,74 @@ mod every_guard_kind_has_a_disposition {
         );
     }
 }
+
+/// A declaration nothing reads is refused by name.
+///
+/// `struct`, `enum`, `use`, `mod`, `import`, `const` and `error` parse, lower to nothing, and were
+/// read by nothing but the formatter — with three lowering comments claiming otherwise ("the
+/// compiler reads it", "a constant is evaluated where it is used", "raising it is a `Statement`").
+/// A program could write `import foo;` and believe it imported something. The same shape TICKET-111
+/// closed for annotations: a construct the artifact cannot carry and no pass reads is refused rather
+/// than silently dropped.
+///
+/// The *parser* still reads them (`test_parser_coverage.rs` asserts the grammar accepts a `struct`),
+/// because a grammar's coverage is a separate claim from what the compiler does with what it parsed.
+mod a_declaration_nothing_reads_is_refused {
+    use super::errors;
+
+    #[test]
+    fn a_type_declaration_is_refused_because_nothing_resolves_it() {
+        let found = errors("struct Point { x: u64, y: u64 }\n");
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("Point") && error.contains("cannot be used")),
+            "a struct is refused by name: {found:?}"
+        );
+    }
+
+    #[test]
+    fn an_import_is_refused_because_there_is_no_module_system() {
+        let found = errors("use foo;\n");
+        assert!(
+            found.iter().any(|error| error.contains("module import")),
+            "an import is refused with the reason: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_constant_is_refused_because_nothing_evaluates_it() {
+        let found = errors("const MAX_SLIPPAGE: u64 = 50;\n");
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("MAX_SLIPPAGE") && error.contains("constant")),
+            "a constant is refused with the reason: {found:?}"
+        );
+    }
+
+    #[test]
+    fn an_error_declaration_is_refused_because_nothing_can_raise_it() {
+        let found = errors("error SlippageExceeded\n");
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("SlippageExceeded") && error.contains("raise")),
+            "an error declaration is refused with the reason: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_program_without_them_is_unaffected() {
+        // The control: the corpus's own shape, which declares none of these.
+        let src = "finality_policy strict {\n    chain ethereum\n    requirement finalized\n    blocks 12\n}\n\n\
+                   intent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {\n\
+                   \x20   swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n\
+                   \x20   require slippage <= 50\n    on_fail refund ethereum.USDC to sender\n}\n";
+        let found = errors(src);
+        assert!(
+            !found.iter().any(|error| error.contains("cannot be used")),
+            "a program that declares none of them must not meet the rule: {found:?}"
+        );
+    }
+}

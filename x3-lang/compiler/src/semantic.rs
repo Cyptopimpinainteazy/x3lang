@@ -573,6 +573,65 @@ pub fn verify_risk_policy_bounds_guards(program: &Program, acc: &mut ErrorAccumu
 /// accepts, and the guard is the one its body relies on. The same two failures the other declared
 /// kinds refuse — a guard *looser* than the declaration permits what the policy forbids, and a
 /// guard in a program that declares no ceiling at all claims something nothing backs.
+/// A declaration nothing reads is refused by name.
+///
+/// `struct`, `enum`, `use`, `mod`, `import`, `const` and `error` are accepted by the parser and
+/// lower to nothing — and, measured, **nothing reads them either**: the only mention of any of them
+/// outside the parser and the formatter was a lowering arm whose comment claimed a consumer that
+/// does not exist ("the compiler reads it", "a constant is evaluated where it is used", "raising it
+/// is a `Statement`" — there is no statement that raises a named error, and no constant is
+/// evaluated anywhere). A program could therefore write `import foo;` and believe it imported
+/// something, or declare an error nothing can raise.
+///
+/// This is the shape TICKET-111 closed for annotations and `audit_gate`: a construct the artifact
+/// cannot carry and no pass reads is refused rather than silently dropped. The three comments are
+/// corrected with it, because a comment claiming a consumer is how this survived (`finality_explicit`
+/// was found the same way).
+///
+/// The *parser* still reads them, deliberately: `test_parser_coverage.rs` asserts that the grammar
+/// accepts a `struct` and an `enum`, and a grammar's coverage is a separate claim from what the
+/// compiler does with what it parsed.
+pub fn verify_declarations_have_a_reader(program: &Program, acc: &mut ErrorAccumulator) {
+    for item in &program.items {
+        let (what, why) = match &item.node {
+            Item::Struct(_) | Item::Enum(_) => (
+                "a type declaration",
+                "nothing in this compiler reads a declared type: the artifact runs operations, and no \
+                 pass resolves a struct or enum name",
+            ),
+            Item::Use(_) | Item::Mod(_) | Item::Import(_) => (
+                "a module import",
+                "this language has no module system: nothing resolves an imported name, so the line \
+                 would import nothing",
+            ),
+            Item::Const(_) => (
+                "a constant",
+                "nothing evaluates a constant where it is used: a reference to it reaches a guard as \
+                 the name rather than the value, and the guard refuses a bound it cannot read",
+            ),
+            Item::ErrorDecl(_) => (
+                "an error declaration",
+                "no statement raises a named error, so the name is one nothing can raise",
+            ),
+            _ => continue,
+        };
+        let name = match &item.node {
+            Item::ErrorDecl(decl) => decl.name.as_str().to_string(),
+            Item::Struct(decl) => decl.name.as_str().to_string(),
+            Item::Enum(decl) => decl.name.as_str().to_string(),
+            Item::Const(decl) => decl.name.as_str().to_string(),
+            _ => String::new(),
+        };
+        acc.add_error(err(
+            DiagnosticCode::UnresolvedEconomicEffect,
+            format!(
+                "{what} `{name}` cannot be used: {why}. Remove it, or give the construct a consumer \
+                 before a program relies on it"
+            ),
+        ));
+    }
+}
+
 pub fn verify_fee_guards_declared(program: &Program, acc: &mut ErrorAccumulator) {
     // Looked up by the owner the guard walk reports, because a guard belongs to the module whose
     // body it is written in: two modules in one program may accept different ceilings.
