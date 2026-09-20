@@ -117,6 +117,13 @@ pub struct VMState {
     pub measured_profit_bps: Option<u128>,
     /// The slippage a host measured, in basis points, or `None`.
     pub measured_slippage_bps: Option<u128>,
+    /// The residual delta a venue measured for a hedge, in basis points of the notional
+    /// being hedged, or `None`.
+    ///
+    /// Its own quantity rather than a reuse of the slippage: a hedge's bound is about how
+    /// much of the position is left open, and a venue that answered a hedge with a
+    /// slippage would be answering a different question (TICKET-068).
+    pub measured_delta_bps: Option<u128>,
     /// Strategy licence records the program carried, in order.
     ///
     /// Kept as the decoded text the artifact stated: the distribution reads it,
@@ -158,6 +165,7 @@ impl VMState {
             allowed_features: std::collections::BTreeSet::new(),
             measured_profit_bps: None,
             measured_slippage_bps: None,
+            measured_delta_bps: None,
             strategy_licenses: Vec::new(),
             paused: false,
             atomic_snapshot: None,
@@ -254,6 +262,21 @@ impl VM {
     /// rather than setting a field a guard could read before anything executed.
     pub fn report_measurement(&mut self, profit_bps: u128, slippage_bps: u128) {
         self.bridge = Box::new(crate::bridge::DryRunBridge::with_measurement(profit_bps, slippage_bps));
+    }
+
+    /// [`VM::report_measurement`]'s general form, for the quantities a program may state
+    /// separately.
+    ///
+    /// A hedge is bounded by a **delta** and it states no profit or slippage, so a caller
+    /// forced to state all three would be inventing two of them. Stating none leaves a
+    /// measured guard refusing with `X3_GUARD_UNMEASURED`, which is the fail-closed
+    /// direction and is what a real host that answered nothing would produce.
+    pub fn report_outcome(&mut self, profit_bps: Option<u128>, slippage_bps: Option<u128>, delta_bps: Option<u128>) {
+        self.bridge = Box::new(crate::bridge::DryRunBridge::with_outcome(
+            profit_bps,
+            slippage_bps,
+            delta_bps,
+        ));
     }
 
     /// Build a VM with an explicit bridge backend selection.

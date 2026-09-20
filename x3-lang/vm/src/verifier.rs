@@ -119,6 +119,21 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                 if mode > REQUIRE_COMPARE_MEASURED_SLIPPAGE {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
+                // A measured guard names *which* quantity it compares in the flags' high
+                // bits, and the set is closed: a code outside it would be compared against
+                // whichever field the executor's fall-through happened to read, so a
+                // hand-assembled artifact could ask for a measurement the language does not
+                // have and be answered with a different one. The code is only meaningful
+                // for a measured guard, and code 0 is "no unit stated" — the profit for
+                // mode 2, and what every artifact written before the field existed carries.
+                let unit_code = require_measured_unit_code(bytes[pc + 1]);
+                if mode == REQUIRE_COMPARE_MEASURED_PROFIT {
+                    if !is_known_measured_unit_code(unit_code) {
+                        return Err(VerifyError::InvalidOperand(pc));
+                    }
+                } else if unit_code != MEASURED_UNIT_CODE_PROFIT_BPS {
+                    return Err(VerifyError::InvalidOperand(pc));
+                }
                 if require_guard_operator(bytes[pc + 1]) > GUARD_OP_NE {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
@@ -587,6 +602,54 @@ mod tests {
             bytes.push(0);
         }
         InstructionStream::new(bytes)
+    }
+
+    /// A measured `REQUIRE` names *which* quantity it compares in the flags' high bits, and
+    /// the set is closed — a code outside it would be compared against whichever field the
+    /// executor's fall-through happened to read, so a hand-assembled artifact could ask for
+    /// a measurement the language does not have and be answered with a different one
+    /// (TICKET-068).
+    #[test]
+    fn verifier_rejects_a_measured_guard_naming_a_quantity_the_language_does_not_have() {
+        // A `REQUIRE` frame is `[opcode][flags][operand lo][operand hi]`.
+        let require = |flags: u8| InstructionStream::new(vec![REQUIRE, flags, 1, 0]);
+
+        // The profit's own code is zero, which is what every artifact written before the
+        // field existed carries — so this is the backward-compatibility assertion as much
+        // as it is the acceptance of the code.
+        assert!(
+            verify(&require(require_flags(REQUIRE_COMPARE_MEASURED_PROFIT, GUARD_OP_LE))).is_ok(),
+            "a measured profit guard carries no unit code and must still verify"
+        );
+        assert!(
+            verify(&require(require_flags_measured(
+                REQUIRE_COMPARE_MEASURED_PROFIT,
+                GUARD_OP_LE,
+                MEASURED_UNIT_CODE_DELTA_BPS
+            )))
+            .is_ok(),
+            "and a measured delta guard names its quantity and must verify"
+        );
+
+        assert!(
+            verify(&require(require_flags_measured(
+                REQUIRE_COMPARE_MEASURED_PROFIT,
+                GUARD_OP_LE,
+                5
+            )))
+            .is_err(),
+            "a code outside the set is not a measurement this VM can answer"
+        );
+        assert!(
+            verify(&require(require_flags_measured(
+                REQUIRE_COMPARE_MEASURED_SLIPPAGE,
+                GUARD_OP_LE,
+                MEASURED_UNIT_CODE_DELTA_BPS
+            )))
+            .is_err(),
+            "a unit code on a mode whose quantity is already named is a second answer to a \
+             question that has one"
+        );
     }
 
     #[test]

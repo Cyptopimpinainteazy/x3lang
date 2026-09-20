@@ -3230,6 +3230,13 @@ impl BridgeAdapter for UnconfiguredBridge {
 pub struct DryRunBridge {
     /// `(profit bps, slippage bps)` a trade call should report.
     pub measurement: Option<(u128, u128)>,
+    /// The hedge delta the venue reports, when a caller stated one.
+    ///
+    /// A hedge's bound is about the delta the venue actually filled, and the venue is
+    /// asked through `venue_order` — so this is the quantity that call answers, and it is
+    /// independent of the profit and the slippage a `multi_hop_swap` reports because a
+    /// hedge's program states none of those.
+    pub delta_measurement: Option<u128>,
 }
 
 impl DryRunBridge {
@@ -3237,13 +3244,33 @@ impl DryRunBridge {
     pub fn with_measurement(profit_bps: u128, slippage_bps: u128) -> Self {
         DryRunBridge {
             measurement: Some((profit_bps, slippage_bps)),
+            delta_measurement: None,
+        }
+    }
+
+    /// The general form: each quantity a host can measure, stated independently.
+    ///
+    /// A hedge is bounded by a **delta** and a plan by a **profit** and a **slippage**, so a
+    /// caller told to state all three would be inventing the ones its program never reads.
+    /// The profit and the slippage still travel together, because one call answers both of
+    /// the guards a plan emits; the delta belongs to the venue order a hedge asks.
+    pub fn with_outcome(profit_bps: Option<u128>, slippage_bps: Option<u128>, delta_bps: Option<u128>) -> Self {
+        DryRunBridge {
+            measurement: match (profit_bps, slippage_bps) {
+                (Some(profit), Some(slippage)) => Some((profit, slippage)),
+                _ => None,
+            },
+            delta_measurement: delta_bps,
         }
     }
 }
 
 impl Default for DryRunBridge {
     fn default() -> Self {
-        DryRunBridge { measurement: None }
+        DryRunBridge {
+            measurement: None,
+            delta_measurement: None,
+        }
     }
 }
 
@@ -3320,9 +3347,17 @@ impl BridgeAdapter for DryRunBridge {
         Ok([b"dry-run-rebalance_target:".as_slice(), target].concat())
     }
     fn venue_order(&self, order: &[u8]) -> BridgeResult {
-        // What a dry run can say about an order: what it was asked to do. It reports no
-        // measurement, because a dry run has no prices — so a hedge's delta bound, a
-        // compile-time constraint, stays a record and nothing pretends to have measured it.
+        // What a dry run can say about an order: what it was asked to do. A dry run has no
+        // prices, so it reports **no** measurement unless the caller stated the outcome —
+        // and then the delta is the venue's answer, which is what turns a hedge's bound
+        // from a constraint on the declaration into a post-condition on the trade. A dry
+        // run must not invent a number to satisfy a guard.
+        if let Some(delta_bps) = self.delta_measurement {
+            return Ok(crate::spec::opcodes::measured_reply(
+                crate::spec::opcodes::MEASURED_UNIT_DELTA_BPS,
+                delta_bps,
+            ));
+        }
         Ok([b"dry-run-venue_order:".as_slice(), order].concat())
     }
     fn multi_hop_swap(&self, path: &[u8], amount: u128) -> BridgeResult {

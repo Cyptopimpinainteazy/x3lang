@@ -258,14 +258,18 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             // `NONCE_UNUSED` instruction emitted immediately before it puts that
             // in `r0`, so this one compares (`r0 >= 1`) and a replay fails at the
             // guard rather than at a later, unrelated instruction.
-            let (mode, threshold) = if matches!(
+            // The unit code is part of the flags byte for a measured guard: the comparison
+            // mode says *that* a measurement is compared, and this says which quantity.
+            // Zero is the profit, which is what an artifact emitted before the code existed
+            // carries, so nothing already written changes meaning.
+            let (mode, threshold, unit_code) = if matches!(
                 op,
                 Operation::Require {
                     kind: crate::ir::RequireKind::NonceUnused,
                     ..
                 }
             ) {
-                (REQUIRE_COMPARE_GE, 1u16)
+                (REQUIRE_COMPARE_GE, 1u16, MEASURED_UNIT_CODE_PROFIT_BPS)
             } else if let Operation::Require {
                 condition: crate::ir::Condition::FinalityPolicy { blocks, .. },
                 ..
@@ -285,7 +289,7 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                     ),
                     span: None,
                 })?;
-                (REQUIRE_COMPARE_STATIC, threshold)
+                (REQUIRE_COMPARE_STATIC, threshold, MEASURED_UNIT_CODE_PROFIT_BPS)
             } else if let Operation::Require {
                 measured: true,
                 kind: crate::ir::RequireKind::ProfitThreshold,
@@ -303,7 +307,11 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 // is two bytes: an absolute floor would not fit, and comparing a
                 // basis-point floor against an absolute amount would be a units mismatch
                 // dressed as enforcement.
-                (REQUIRE_COMPARE_MEASURED_PROFIT, guard_bps(expr, "profit floor")?)
+                (
+                    REQUIRE_COMPARE_MEASURED_PROFIT,
+                    guard_bps(expr, "profit floor")?,
+                    MEASURED_UNIT_CODE_PROFIT_BPS,
+                )
             } else if let Operation::Require {
                 measured: true,
                 kind: crate::ir::RequireKind::SlippageTolerance,
@@ -311,11 +319,35 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 ..
             } = op
             {
-                (REQUIRE_COMPARE_MEASURED_SLIPPAGE, guard_bps(expr, "slippage ceiling")?)
+                (
+                    REQUIRE_COMPARE_MEASURED_SLIPPAGE,
+                    guard_bps(expr, "slippage ceiling")?,
+                    MEASURED_UNIT_CODE_PROFIT_BPS,
+                )
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::Custom(subject),
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                // A hedge's delta bound: a ceiling on what the venue left open, compared
+                // against the delta the venue reported. Its own unit code rather than the
+                // profit's, so the executor compares the quantity the guard is about
+                // (TICKET-068).
+                match subject.as_str() {
+                    subject if subject == crate::hedge::DELTA_GUARD_SUBJECT => (
+                        REQUIRE_COMPARE_MEASURED_PROFIT,
+                        guard_bps(expr, "delta bound")?,
+                        MEASURED_UNIT_CODE_DELTA_BPS,
+                    ),
+                    // A subject this emitter does not know stays the static record it was.
+                    _ => (REQUIRE_COMPARE_STATIC, 0u16, MEASURED_UNIT_CODE_PROFIT_BPS),
+                }
             } else {
-                (REQUIRE_COMPARE_STATIC, 0u16)
+                (REQUIRE_COMPARE_STATIC, 0u16, MEASURED_UNIT_CODE_PROFIT_BPS)
             };
-            bytecode.write_all(&[REQUIRE, require_flags(mode, guard_operator)])?;
+            bytecode.write_all(&[REQUIRE, require_flags_measured(mode, guard_operator, unit_code)])?;
             bytecode.write_all(&threshold.to_le_bytes())?;
         }
         Operation::OnFail { .. } => {
@@ -1376,9 +1408,19 @@ fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String
     // says which mode it is in (`REQUIRE ge 1`, the nonce guard).
     if opcode == REQUIRE {
         let mode = match require_comparison(flags) {
-            REQUIRE_COMPARE_STATIC => "static",
-            REQUIRE_COMPARE_GE => "ge",
-            _ => "?",
+            REQUIRE_COMPARE_STATIC => "static".to_string(),
+            REQUIRE_COMPARE_GE => "ge".to_string(),
+            // A measured guard says which quantity it compares, and the reader has to say
+            // it too: `REQUIRE ? 1` told whoever read the artifact that something was
+            // measured and nothing about what — and a delta bound and a profit floor share
+            // the mode, so the unit code is the only thing that tells them apart
+            // (TICKET-068).
+            REQUIRE_COMPARE_MEASURED_PROFIT => match require_measured_unit_code(flags) {
+                MEASURED_UNIT_CODE_DELTA_BPS => "measured delta".to_string(),
+                _ => "measured profit".to_string(),
+            },
+            REQUIRE_COMPARE_MEASURED_SLIPPAGE => "measured slippage".to_string(),
+            other => format!("?{other}"),
         };
         return format!("{name} {mode} {operand}");
     }

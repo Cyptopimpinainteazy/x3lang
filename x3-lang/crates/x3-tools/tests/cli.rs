@@ -1579,13 +1579,21 @@ fn cli_warns_when_a_declared_floor_is_below_the_declared_fees() {
     );
 }
 
-/// PHASE 9 — a hedge lowers to orders, and it runs.
+/// PHASE 9 — a hedge lowers to orders, and its bound is a post-condition on what the venue
+/// reported (TICKET-068).
 ///
 /// The legs used to be resolved and refused: a perp leg needs a venue adapter, so the
 /// exposure was decided and the execution was not pretended. They lower to **venue orders**
 /// now — an action from a vocabulary the compiler owns, an asset and a quantity — so the
 /// whole path holds, and the artifact carries what the hedge decided. The other half is
 /// unchanged: a hedge whose legs do not net is refused with the delta, before any of this.
+///
+/// What changed here: the delta bound used to be a *constraint on the declaration* — the
+/// compiler computed the delta from the legs the program wrote and checked it, and whether
+/// the venue filled what was asked was a question nothing asked. It is a post-condition now,
+/// compared against the delta the venue reports, so the run needs one: a venue that reports
+/// nothing makes the guard refuse rather than pass on a number nobody measured, and a venue
+/// that reports too much makes it refuse with the figures.
 #[test]
 fn cli_lowers_a_hedge_to_venue_orders_and_runs_it() {
     let balanced = write_fixture(
@@ -1642,8 +1650,10 @@ fn cli_lowers_a_hedge_to_venue_orders_and_runs_it() {
         "the actions must say which market and which direction: {disassembly}"
     );
     assert!(
-        disassembly.contains("REQUIRE"),
-        "the delta bound must travel as a guard: {disassembly}"
+        disassembly.contains("REQUIRE measured delta 1"),
+        "the delta bound must travel as a *post-condition on the venue's answer*, and say so — a \
+         reader who cannot tell a measured delta from a profit floor cannot tell what the \
+         artifact claims: {disassembly}"
     );
 
     // The quantities live in the payload, which `explain` prints as bytes — so the
@@ -1669,15 +1679,62 @@ fn cli_lowers_a_hedge_to_venue_orders_and_runs_it() {
         "and each says which market and which direction: {ir}"
     );
 
-    let run = x3c().arg("run").arg(&out).output().expect("x3c run");
-    let run_text = format!(
+    // A venue that reports nothing must not satisfy the bound: the guard refuses with
+    // `X3_GUARD_UNMEASURED` rather than passing on whatever `r0` held.
+    let unmeasured = x3c().arg("run").arg(&out).output().expect("x3c run");
+    let unmeasured_text = format!(
         "{}{}",
-        String::from_utf8_lossy(&run.stdout),
-        String::from_utf8_lossy(&run.stderr)
+        String::from_utf8_lossy(&unmeasured.stdout),
+        String::from_utf8_lossy(&unmeasured.stderr)
     );
     assert!(
-        run.status.success() && run_text.contains("x3c run: ok"),
-        "the hedge's orders must run against the fixture host: {run_text}"
+        !unmeasured.status.success(),
+        "a hedge whose venue measured nothing must not settle: {unmeasured_text}"
+    );
+    assert!(
+        unmeasured_text.contains("X3_GUARD_UNMEASURED") && unmeasured_text.contains("delta"),
+        "and the refusal must name the quantity it needs: {unmeasured_text}"
+    );
+
+    // A venue that reports a delta *within* the bound settles.
+    let within = x3c()
+        .arg("run")
+        .arg(&out)
+        .arg("--measured-delta-bps")
+        .arg("1")
+        .output()
+        .expect("x3c run --measured-delta-bps 1");
+    let within_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&within.stdout),
+        String::from_utf8_lossy(&within.stderr)
+    );
+    assert!(
+        within.status.success() && within_text.contains("x3c run: ok"),
+        "a delta at the bound must settle: {within_text}"
+    );
+
+    // And a venue that filled something else is caught **at the guard**, which is the half
+    // this ticket was about: the compiler's own check cannot see what the venue did.
+    let beyond = x3c()
+        .arg("run")
+        .arg(&out)
+        .arg("--measured-delta-bps")
+        .arg("250")
+        .output()
+        .expect("x3c run --measured-delta-bps 250");
+    let beyond_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&beyond.stdout),
+        String::from_utf8_lossy(&beyond.stderr)
+    );
+    assert!(
+        !beyond.status.success(),
+        "a venue that filled something else must not settle: {beyond_text}"
+    );
+    assert!(
+        beyond_text.contains("X3_DELTA_ABOVE_BOUND") && beyond_text.contains("250"),
+        "and the refusal must carry both figures: {beyond_text}"
     );
 }
 

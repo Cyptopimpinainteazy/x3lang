@@ -218,6 +218,15 @@ pub const CAPABILITY_REPLY_MEASURED_TAG: u8 = 0x01;
 pub const MEASURED_UNIT_PROFIT_BPS: u8 = 1;
 /// The unit byte a reply carries when it reports a **slippage** in basis points.
 pub const MEASURED_UNIT_SLIPPAGE_BPS: u8 = 2;
+/// The unit byte a reply carries when it reports a hedge's residual **delta** in basis
+/// points of the notional being hedged.
+///
+/// A hedge asks a venue for each leg, so the delta is the quantity the venue's answer is
+/// about: the compiler computes the delta from the legs the program *declared*, and this is
+/// how the venue says what it actually filled. Without it the bound is a constraint on the
+/// declaration rather than a post-condition on the trade, and a venue that filled something
+/// else is not caught (TICKET-068).
+pub const MEASURED_UNIT_DELTA_BPS: u8 = 3;
 
 /// Pack a measurement reply: the tag, the unit, and the value.
 pub fn measured_reply(unit: u8, value: u128) -> Vec<u8> {
@@ -280,6 +289,39 @@ pub const GUARD_OP_NE: u8 = 6;
 /// bits 2-4.
 pub const fn require_flags(comparison_mode: u8, guard_operator: u8) -> u8 {
     (comparison_mode & REQUIRE_COMPARE_MASK) | ((guard_operator & 0x07) << 2)
+}
+
+/// Where a measured `REQUIRE` keeps **which** quantity it compares, in the flags byte.
+///
+/// The comparison-mode field is two bits and its four values were spent before a third
+/// measured quantity existed: `STATIC`, `GE`, and the two measured modes. So the mode says
+/// *that* a measurement is compared, and the unit code in bits 5-7 says which one.
+///
+/// The profit's code is **zero**, which is what this field held before it meant anything —
+/// an artifact emitted earlier carries zeroes there and still reads as the guard it was, so
+/// the encoding grew without a format version.
+pub const MEASURED_UNIT_CODE_SHIFT: u8 = 5;
+/// Mask for the unit-code bits of a `REQUIRE` flags byte.
+pub const MEASURED_UNIT_CODE_MASK: u8 = 0xE0;
+/// `r0 >= operand`, where `r0` is the profit a host measured.
+pub const MEASURED_UNIT_CODE_PROFIT_BPS: u8 = 0;
+/// `r0 <= operand`, where `r0` is the hedge delta a host measured.
+pub const MEASURED_UNIT_CODE_DELTA_BPS: u8 = 1;
+
+/// One of the unit codes a measured `REQUIRE` may carry.
+pub const fn is_known_measured_unit_code(code: u8) -> bool {
+    matches!(code, MEASURED_UNIT_CODE_PROFIT_BPS | MEASURED_UNIT_CODE_DELTA_BPS)
+}
+
+/// Pack a `REQUIRE` flags byte whose measured comparison names its unit.
+pub const fn require_flags_measured(comparison_mode: u8, guard_operator: u8, unit_code: u8) -> u8 {
+    require_flags(comparison_mode, guard_operator)
+        | ((unit_code << MEASURED_UNIT_CODE_SHIFT) & MEASURED_UNIT_CODE_MASK)
+}
+
+/// The measured quantity a `REQUIRE` flags byte names.
+pub const fn require_measured_unit_code(flags: u8) -> u8 {
+    (flags & MEASURED_UNIT_CODE_MASK) >> MEASURED_UNIT_CODE_SHIFT
 }
 
 /// The guard operator recorded in a `REQUIRE` flags byte.

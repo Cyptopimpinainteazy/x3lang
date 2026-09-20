@@ -168,6 +168,13 @@ pub fn verify(program: &Program, acc: &mut ErrorAccumulator) {
     }
 }
 
+/// The subject a hedge's delta bound carries into the artifact.
+///
+/// One definition, read by the lowering that writes it and by the emitter that has to
+/// recognise it: a second spelling would emit a guard that nothing recognises — a static
+/// record where a post-condition was meant.
+pub const DELTA_GUARD_SUBJECT: &str = "delta";
+
 /// `chain.ASSET`, the identity two hedge legs have to share.
 fn leg_key(leg: &HedgeLeg) -> String {
     format!("{}.{}", leg.asset.chain.as_str(), leg.asset.name.as_str())

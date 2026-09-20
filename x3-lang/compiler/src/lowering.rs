@@ -997,6 +997,10 @@ pub fn lower_program_with_mode(
                         subject: Some(ledger.debt_asset.clone()),
                         condition: guard_condition(&bps_guard(&guard))?,
                         error_msg: None,
+                        // Still a *constraint*: the net is derived from the amounts the
+                        // declaration states, and nothing reports what was actually seized —
+                        // the conversion is a `Swap`, an asset-op record that never reaches
+                        // the host, so no reply could carry a measurement (TICKET-069).
                         measured: false,
                         comparison: Some(guard.comparison),
                     });
@@ -1021,14 +1025,14 @@ pub fn lower_program_with_mode(
                         quantity: order.quantity,
                     });
                 }
-                // The bound travels as a guard. It is a *constraint* rather than a
-                // post-condition: the delta is computed from the legs the program
-                // declared, and whether the venue filled what was asked is a question the
-                // artifact cannot answer without the venue reporting a size — which is
-                // TICKET-068's host half.
+                // The bound travels as a **post-condition**. It used to be a constraint
+                // on the declaration, because whether the venue filled what was asked is a
+                // question the artifact could not answer — the venue reports it now, in
+                // the reply to the orders above (`MEASURED_UNIT_DELTA_BPS`), and a venue
+                // that reports nothing makes the guard refuse rather than pass.
                 if let Some(bound) = hedge_decl.delta_bound_bps {
                     let guard = arb::Guard {
-                        kind: ast::RequireKind::Custom(x3_lang_common::Symbol::new("delta")),
+                        kind: ast::RequireKind::Custom(x3_lang_common::Symbol::new(hedge::DELTA_GUARD_SUBJECT)),
                         comparison: ast::ComparisonOp::LessOrEqual,
                         bps: u16::try_from(bound)
                             .map_err(|_| semantic("a hedge's delta bound does not fit the guard's operand"))?,
@@ -1038,7 +1042,9 @@ pub fn lower_program_with_mode(
                         subject: Some(exposure.asset.clone()),
                         condition: guard_condition(&bps_guard(&guard))?,
                         error_msg: None,
-                        measured: false,
+                        // Measured: the quantity is the delta the venue reported for the
+                        // orders above, and the executor refuses when no venue reported one.
+                        measured: true,
                         comparison: Some(guard.comparison),
                     });
                 }

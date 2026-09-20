@@ -366,27 +366,51 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                     // comparing when nothing did. That refusal is the point — a guard
                     // that passed because `r0` happened to hold a large number would be
                     // worse than no guard at all.
-                    REQUIRE_COMPARE_MEASURED_PROFIT => match vm.state.measured_profit_bps {
-                        Some(measured) if measured >= threshold => true,
-                        Some(measured) => {
-                            // A measured floor is a *refusal*, not a branch: the trade
-                            // did not clear what the program required, so it does not
-                            // settle. It is reported here with both figures rather than
-                            // dispatched to a handler, because the handler mechanism
-                            // takes its target from `r0` (`ON_FAIL` reads a register, not
-                            // an address — TICKET-058) and a failure routed through
-                            // residue lands mid-instruction.
-                            return Err(ExecError::Panic(format!(
-                                "X3_PROFIT_BELOW_FLOOR: the trade realised {measured}bps and the \
-                                 program requires at least {threshold}bps"
-                            )));
-                        }
-                        None => {
-                            return Err(ExecError::Panic(format!(
-                                "X3_GUARD_UNMEASURED: the guard `profit >= {threshold}bps` needs a \
-                                 profit the host measured, and no host reported one for this trade"
-                            )))
-                        }
+                    REQUIRE_COMPARE_MEASURED_PROFIT => match require_measured_unit_code(_flags) {
+                        // A hedge's bound is a *ceiling* on what the venue left open, so it
+                        // compares the other way round from a profit floor — and it is about
+                        // the quantity the venue was asked for, which is why the unit travels
+                        // in the flags rather than being inferred from the mode (TICKET-068).
+                        MEASURED_UNIT_CODE_DELTA_BPS => match vm.state.measured_delta_bps {
+                            Some(measured) if measured <= threshold => true,
+                            Some(measured) => {
+                                return Err(ExecError::Panic(format!(
+                                    "X3_DELTA_ABOVE_BOUND: the venue left a delta of {measured}bps \
+                                     and the program allows at most {threshold}bps"
+                                )));
+                            }
+                            None => {
+                                return Err(ExecError::Panic(format!(
+                                    "X3_GUARD_UNMEASURED: the guard `delta <= {threshold}bps` needs a \
+                                     delta the venue measured, and no venue reported one for this hedge"
+                                )))
+                            }
+                        },
+                        // Code 0 is the profit floor — what this mode meant before the unit
+                        // code existed, so an artifact emitted then still reads as the guard
+                        // it was.
+                        _ => match vm.state.measured_profit_bps {
+                            Some(measured) if measured >= threshold => true,
+                            Some(measured) => {
+                                // A measured floor is a *refusal*, not a branch: the trade
+                                // did not clear what the program required, so it does not
+                                // settle. It is reported here with both figures rather than
+                                // dispatched to a handler, because the handler mechanism
+                                // takes its target from `r0` (`ON_FAIL` reads a register, not
+                                // an address — TICKET-058) and a failure routed through
+                                // residue lands mid-instruction.
+                                return Err(ExecError::Panic(format!(
+                                    "X3_PROFIT_BELOW_FLOOR: the trade realised {measured}bps and the \
+                                     program requires at least {threshold}bps"
+                                )));
+                            }
+                            None => {
+                                return Err(ExecError::Panic(format!(
+                                    "X3_GUARD_UNMEASURED: the guard `profit >= {threshold}bps` needs a \
+                                     profit the host measured, and no host reported one for this trade"
+                                )))
+                            }
+                        },
                     },
                     REQUIRE_COMPARE_MEASURED_SLIPPAGE => match vm.state.measured_slippage_bps {
                         Some(measured) if measured <= threshold => true,
@@ -1504,6 +1528,7 @@ fn bridge_result(result: Result<Vec<u8>, Box<dyn std::error::Error>>) -> ExecRes
 fn record_measurement(vm: &mut VM, reply: &[u8]) {
     vm.state.measured_profit_bps = None;
     vm.state.measured_slippage_bps = None;
+    vm.state.measured_delta_bps = None;
     // A reply that is not a measurement is not an error: most capabilities answer with
     // arbitrary bytes, and only a measured guard needs a number.
     // A reply is a *sequence* of measurements, because one trade answers both questions a
@@ -1516,6 +1541,7 @@ fn record_measurement(vm: &mut VM, reply: &[u8]) {
         match unit {
             crate::spec::opcodes::MEASURED_UNIT_PROFIT_BPS => vm.state.measured_profit_bps = Some(value),
             crate::spec::opcodes::MEASURED_UNIT_SLIPPAGE_BPS => vm.state.measured_slippage_bps = Some(value),
+            crate::spec::opcodes::MEASURED_UNIT_DELTA_BPS => vm.state.measured_delta_bps = Some(value),
             // An unknown unit is not a measurement this VM can use, and pretending
             // otherwise would let a host answer a profit guard with a slippage.
             _ => {}

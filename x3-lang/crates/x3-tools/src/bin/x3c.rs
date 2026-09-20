@@ -151,6 +151,11 @@ enum Cmd {
         /// The realised slippage, in basis points, for a plan's `slippage <= <n>` ceiling.
         #[arg(long)]
         measured_slippage_bps: Option<u128>,
+        /// The delta a venue actually left open, in basis points, that a hedge's
+        /// `require delta <= <n>` post-condition is judged against. Independent of the two
+        /// above because a hedge states neither a profit nor a slippage.
+        #[arg(long)]
+        measured_delta_bps: Option<u128>,
     },
     /// Disassemble bytecode to a human-readable IR trace.
     Explain { input: PathBuf },
@@ -441,7 +446,14 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             gas,
             measured_profit_bps,
             measured_slippage_bps,
-        } => cmd_run(&input, gas, measured_profit_bps, measured_slippage_bps),
+            measured_delta_bps,
+        } => cmd_run(
+            &input,
+            gas,
+            measured_profit_bps,
+            measured_slippage_bps,
+            measured_delta_bps,
+        ),
         Cmd::Explain { input } => cmd_explain(&input),
         Cmd::TestFixture { out } => cmd_test_fixture(&out),
         Cmd::Intent {
@@ -1287,6 +1299,7 @@ fn cmd_run(
     gas: u128,
     measured_profit_bps: Option<u128>,
     measured_slippage_bps: Option<u128>,
+    measured_delta_bps: Option<u128>,
 ) -> Result<ExitCode, String> {
     let bytecode = std::fs::read(input).map_err(|e| format!("read {input:?}: {e}"))?;
     if bytecode.is_empty() {
@@ -1299,20 +1312,24 @@ fn cmd_run(
     // refuse rather than pass on a number nobody measured, and stating only one half is
     // refused because the other would have to be invented.
     match (measured_profit_bps, measured_slippage_bps) {
-        (Some(profit), Some(slippage)) => vm.report_measurement(profit, slippage),
-        (None, None) => {}
-        (profit, slippage) => {
+        // The two travel together because one call answers both of the guards a plan emits.
+        // The delta is independent: a hedge states neither of those and a plan states no
+        // delta, so requiring all three would make a caller invent the ones its program
+        // never reads. Stating none is allowed and makes a measured guard refuse rather
+        // than pass on a number nobody measured.
+        (Some(_), None) | (None, Some(_)) => {
             return Err(format!(
                 "state both measurements or neither: `--measured-profit-bps` was {} and \
                  `--measured-slippage-bps` was {}",
-                profit
+                measured_profit_bps
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "not given".to_string()),
-                slippage
+                measured_slippage_bps
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "not given".to_string()),
             ));
         }
+        (profit, slippage) => vm.report_outcome(profit, slippage, measured_delta_bps),
     }
     match vm.execute() {
         Ok(()) => {
@@ -1356,6 +1373,27 @@ fn artifact_floors(bytecode: &[u8]) -> Result<simulation::ArtifactFloors, String
         // hand is what made this reader miss both measured guards in an artifact that
         // had them.
         match opcodes::require_comparison(instruction.flags) {
+            opcodes::REQUIRE_COMPARE_MEASURED_PROFIT
+                if opcodes::require_measured_unit_code(instruction.flags) == opcodes::MEASURED_UNIT_CODE_DELTA_BPS =>
+            {
+                // A hedge's delta bound shares the profit mode, because the mode field's
+                // four values were spent before a third measured quantity existed and the
+                // *unit code* is what tells them apart. Reading it as a profit floor would
+                // compare a floor against a delta — two different quantities, and the
+                // mismatch this reader's own sibling rule exists to refuse.
+                //
+                // So it refuses rather than skips: a simulation that ignored the bound
+                // would report a verdict as if the artifact had none, which is the silent
+                // pass this whole reader is built not to give. Modelling the delta means a
+                // snapshot field to measure it against, and that is TICKET-099.
+                return Err(
+                    "this artifact states a measured `delta` bound, which a simulation does not \
+                     model: a hedge's delta is not a plan's profit, so reading it as one would \
+                     compare the wrong quantity. The bound is enforced when the artifact runs \
+                     (`x3c run --measured-delta-bps <n>`)."
+                        .to_string(),
+                );
+            }
             opcodes::REQUIRE_COMPARE_MEASURED_PROFIT => {
                 floors.profit_floor_bps = Some(floors.profit_floor_bps.map_or(threshold, |held| held.max(threshold)));
             }
