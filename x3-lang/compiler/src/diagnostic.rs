@@ -55,6 +55,27 @@ pub enum DiagnosticCode {
     /// appears — the annotation names no bodies, so the two gas paths it claims cannot be written
     /// (TICKET-110, TICKET-111).
     DeclarationHasNoArtifactForm,
+    /// A guard whose claim no declaration in the program backs.
+    ///
+    /// The recurring shape in this language and the one the AST-level verifiers exist for: `require
+    /// solver_bond >= N` with no `solver_market { bond … }`, `require relayer_quorum >= N` with no
+    /// `relayers`, `require proof_complete <name>` with no `proofs required`, a `finality.<chain>`
+    /// guard with no `finality_policy` for that chain, `require invariant <name>` with no `invariant`,
+    /// `require bridge_liquidity >= N` with no bridge, `require vm_supported <vm>` with nothing
+    /// declaring that VM, `require route_score >= N` with no `risk_policy` score, `require risk <= N`
+    /// with no readable bound — and a guard whose claim the declaration it *does* name contradicts.
+    /// Its own code rather than `UndefinedSymbol`, which is the name-resolution layer's: the word is a
+    /// guard kind the compiler understands, and what is missing is the *declaration* it asserts
+    /// (TICKET-021).
+    GuardClaimUnbacked,
+    /// A configuration the mainnet gates refuse.
+    ///
+    /// The `mainnet:` checks: a single relayer or RPC with no quorum, a solver bond of zero or none, a
+    /// slippage tolerance above the ceiling, a timeout beyond the maximum, manual-only recovery with
+    /// no automatic refund, an asset outside the settled list. These are *configurations*, not
+    /// malformed programs — the same program is acceptable on a testnet — which is why they are a
+    /// class of their own rather than `UnsafeIr` (TICKET-021).
+    MainnetConfigurationUnsafe,
 }
 
 impl DiagnosticCode {
@@ -75,6 +96,8 @@ impl DiagnosticCode {
             Self::RiskPolicyBound => "X3E4024",
             Self::TradeDeclaration => "X3E4025",
             Self::DeclarationHasNoArtifactForm => "X3E4026",
+            Self::GuardClaimUnbacked => "X3E4027",
+            Self::MainnetConfigurationUnsafe => "X3E4028",
         }
     }
 }

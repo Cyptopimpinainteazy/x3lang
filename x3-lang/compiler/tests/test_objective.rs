@@ -223,7 +223,9 @@ fn two_objectives_with_one_name_are_refused() {
     );
     let errors = errors(&source);
     assert!(
-        has(&errors, "is declared twice"),
+        // The catalogue class, not only the wording: two declarations with one name is a
+        // *declaration* problem, and tooling keys on the code (TICKET-021).
+        has(&errors, "X3E4025: objective") && has(&errors, "is declared twice"),
         "two declarations with one name cannot be told apart, got: {errors:?}"
     );
 }

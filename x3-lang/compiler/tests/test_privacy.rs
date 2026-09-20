@@ -52,10 +52,13 @@ fn declaring_encryption_is_refused_because_nothing_implements_it() {
     let source = "privacy {\n    hide_route_until_commit true\n    reveal_on claim\n    encrypted true\n}\n";
     let found = errors(source);
     assert!(
-        found
-            .iter()
-            .any(|error| error.contains("no mechanism in this language implements encryption")),
-        "the unimplemented guarantee must be refused: {found:?}"
+        // The catalogue class beside the wording: a declaration that claims something the artifact
+        // would have to state and cannot is `DeclarationHasNoArtifactForm` (TICKET-021).
+        found.iter().any(|error| error.contains("X3E4026"))
+            && found
+                .iter()
+                .any(|error| error.contains("no mechanism in this language implements encryption")),
+        "the unimplemented guarantee must be refused by name and by code: {found:?}"
     );
 }
 

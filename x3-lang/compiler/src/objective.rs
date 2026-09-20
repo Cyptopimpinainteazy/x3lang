@@ -19,13 +19,17 @@
 use x3_lang_ast::ast::{Item, ObjectiveConstraints, ObjectiveMetric, Program, RiskBound};
 use x3_lang_common::{Bps, ErrorAccumulator, X3Error};
 
+use crate::diagnostic::{CompilerDiagnostic, DiagnosticCode};
 use crate::optimizer::Objective;
 
-fn err(message: String) -> X3Error {
-    X3Error::SemanticError {
-        message,
-        span: x3_lang_common::Span::DUMMY,
-    }
+/// A declaration finding, with the catalogue class it belongs to.
+///
+/// The class is a parameter for the reason `semantic::err` gives: an objective declared twice and a
+/// bound outside what the language can honour are different defects, and a helper that chose one code
+/// for the module would be the uncoded helper under a new name (TICKET-021). The rendering goes
+/// through `CompilerDiagnostic::error`, the one place "code: message" is spelled.
+fn err(code: DiagnosticCode, message: String) -> X3Error {
+    CompilerDiagnostic::error(code, message, x3_lang_common::Span::DUMMY).into_error()
 }
 
 /// The optimizer's criterion for a declared metric, or why there is none.
@@ -113,16 +117,19 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
     // the planner follows to whoever reads them, which is the same
     // non-determinism that refusing two metrics in one objective prevents.
     if objectives.len() > 1 {
-        acc.add_error(err(format!(
-            "the program declares {} objectives ({}); the compiler follows one, so the rest have \
+        acc.add_error(err(
+            DiagnosticCode::TradeDeclaration,
+            format!(
+                "the program declares {} objectives ({}); the compiler follows one, so the rest have \
              no effect",
-            objectives.len(),
-            objectives
-                .iter()
-                .map(|o| o.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )));
+                objectives.len(),
+                objectives
+                    .iter()
+                    .map(|o| o.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
     }
     for (index, objective) in objectives.iter().enumerate() {
         let name = objective.name.as_str();
@@ -130,18 +137,24 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
         // the count above has already said what is wrong with that; reporting a
         // duplicate name as well would name the same mistake twice.
         if name != ANONYMOUS_OBJECTIVE_NAME && objectives[..index].iter().any(|seen| seen.name.as_str() == name) {
-            acc.add_error(err(format!(
-                "objective '{name}' is declared twice; two declarations with one name cannot be \
+            acc.add_error(err(
+                DiagnosticCode::TradeDeclaration,
+                format!(
+                    "objective '{name}' is declared twice; two declarations with one name cannot be \
                  told apart in a diagnostic"
-            )));
+                ),
+            ));
         }
     }
     if !objectives.is_empty() && !program.items.iter().any(|item| matches!(item.node, Item::VenueDecl(_))) {
-        acc.add_error(err(format!(
-            "objective '{}' ranks routes over a program that declares no venues; there is nothing \
+        acc.add_error(err(
+            DiagnosticCode::TradeDeclaration,
+            format!(
+                "objective '{}' ranks routes over a program that declares no venues; there is nothing \
              to rank",
-            objectives[0].name.as_str()
-        )));
+                objectives[0].name.as_str()
+            ),
+        ));
     }
 
     for item in &program.items {
@@ -151,20 +164,22 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
         let name = objective.name.as_str();
 
         if let Err(reason) = criterion_for(objective.metric) {
-            acc.add_error(err(format!(
-                "{} cannot rank '{}': {reason}",
-                label(name),
-                objective.metric.as_str()
-            )));
+            acc.add_error(err(
+                DiagnosticCode::TradeDeclaration,
+                format!("{} cannot rank '{}': {reason}", label(name), objective.metric.as_str()),
+            ));
         }
 
         let constraints = &objective.constraints;
         for (field, value) in [("hops", constraints.max_hops), ("chains", constraints.max_chains)] {
             if value == Some(0) {
-                acc.add_error(err(format!(
-                    "{} bounds {field} at zero; a route with no {field} is not a route",
-                    label(name)
-                )));
+                acc.add_error(err(
+                    DiagnosticCode::RiskPolicyBound,
+                    format!(
+                        "{} bounds {field} at zero; a route with no {field} is not a route",
+                        label(name)
+                    ),
+                ));
             }
         }
         for (field, value) in [
@@ -172,22 +187,28 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
             ("slippage", constraints.max_slippage_bps),
         ] {
             if value.is_some_and(|value| !Bps::from_raw(value).is_within_whole()) {
-                acc.add_error(err(format!(
-                    "{} bounds {field} above 10,000 bps, which is the whole amount",
-                    label(name)
-                )));
+                acc.add_error(err(
+                    DiagnosticCode::RiskPolicyBound,
+                    format!(
+                        "{} bounds {field} above 10,000 bps, which is the whole amount",
+                        label(name)
+                    ),
+                ));
             }
         }
         if let Some(capital) = &constraints.capital {
             match &capital.value {
                 x3_lang_ast::ast::Expression::Literal(x3_lang_ast::ast::LiteralExpr::Int { value, .. })
                     if *value > 0 => {}
-                _ => acc.add_error(err(format!(
-                    "{} requires capital in {} but states no positive integer amount, so no size can \
+                _ => acc.add_error(err(
+                    DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "{} requires capital in {} but states no positive integer amount, so no size can \
                      be checked against it",
-                    label(name),
-                    capital.asset.as_str()
-                ))),
+                        label(name),
+                        capital.asset.as_str()
+                    ),
+                )),
             }
         }
 
@@ -202,12 +223,15 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
                     .is_some_and(|submission| submission.private != x3_lang_ast::ast::PrivateSubmissionMode::Allowed)
             })
         {
-            acc.add_error(err(format!(
-                "{} requires `private` execution and no strategy declares a submission policy that \
+            acc.add_error(err(
+                DiagnosticCode::RiskPolicyBound,
+                format!(
+                    "{} requires `private` execution and no strategy declares a submission policy that \
                  provides it; add `submission {{ private = required }}` to the module the objective \
                  applies to",
-                label(name)
-            )));
+                    label(name)
+                ),
+            ));
         }
 
         // `risk <= strategy.policy` reads the module's declared profile rather
@@ -219,18 +243,24 @@ pub fn verify_objective_decls(program: &Program, acc: &mut ErrorAccumulator) {
                 .map(|strategy| strategy.name.as_str())
                 .collect();
             match declaring.len() {
-                0 => acc.add_error(err(format!(
-                    "{} bounds risk by `strategy.policy` and no strategy declares a risk profile; \
+                0 => acc.add_error(err(
+                    DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "{} bounds risk by `strategy.policy` and no strategy declares a risk profile; \
                      there is no policy to bound it by",
-                    label(name)
-                ))),
+                        label(name)
+                    ),
+                )),
                 1 => {}
-                _ => acc.add_error(err(format!(
-                    "{} bounds risk by `strategy.policy`, which is ambiguous: {} strategy modules \
+                _ => acc.add_error(err(
+                    DiagnosticCode::TradeDeclaration,
+                    format!(
+                        "{} bounds risk by `strategy.policy`, which is ambiguous: {} strategy modules \
                      declare risk profiles",
-                    label(name),
-                    declaring.len()
-                ))),
+                        label(name),
+                        declaring.len()
+                    ),
+                )),
             }
         }
     }

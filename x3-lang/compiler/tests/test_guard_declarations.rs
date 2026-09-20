@@ -672,6 +672,27 @@ fn a_mainnet_safe_guard_runs_the_mainnet_checks_in_any_mode() {
             .any(|error| error.contains("mainnet: missing solver bond declaration")),
         "the solver-bond rule must have run: {found:?}"
     );
+    assert!(
+        // A configuration the mainnet gates refuse has its own class: the same program is acceptable
+        // on a testnet, so it is not a malformed program and not `UnsafeIr` (TICKET-021).
+        found.iter().all(|error| error.contains("X3E4028")),
+        "every mainnet gate refusal must carry the class, not only the wording: {found:?}"
+    );
+}
+
+#[test]
+fn a_guard_whose_declaration_is_missing_carries_its_own_class() {
+    // The recurring shape of this language and the reason the class exists: the guard kind is one the
+    // compiler understands, and what is missing is the *declaration* it asserts — so it is not an
+    // undefined symbol and not a malformed program (TICKET-021).
+    let source = program("", "    require solver_bond >= 5");
+    let found = errors_in_mode(&source, x3_lang_compiler::CompilationMode::Dev);
+    assert!(
+        found
+            .iter()
+            .any(|error| error.contains("X3E4027") && error.contains("solver bond")),
+        "a guard nothing backs must be refused by name and by code: {found:?}"
+    );
 }
 
 #[test]
