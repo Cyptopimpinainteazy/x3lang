@@ -7,11 +7,21 @@
 //! rather than against the formatter's expectations:
 //!
 //!   1. the formatted text parses, and
-//!   2. it compiles to the *same bytecode* as the text it came from.
+//!   2. it compiles to the *same bytecode* as the text it came from, and
+//!   3. its AST is the AST of the text it came from, spans aside.
 //!
-//! The second is what makes this stronger than "the output looks like the input".
-//! A formatter that dropped a clause, reordered one, or read `refund X to Y` as
-//! `rollback` would satisfy a re-parse check and fail this one.
+//! The bytecode check is what makes this stronger than "the output looks like the
+//! input": a formatter that reordered a clause or read `refund X to Y` as `rollback`
+//! would satisfy a re-parse check and fail this one.
+//!
+//! It is not sufficient on its own, and that is measured rather than argued: the
+//! formatter used to drop an `atomic trade`'s `effects [..]` and `guarantees [..]`
+//! declarations, and `trading_effects.x3` compiled to *identical* bytes anyway, because
+//! its body still produced every effect and discharged every guarantee. The deletion was
+//! invisible to this test and visible to the AST — and to the compiler only once the body
+//! stopped keeping the promise (with `repay debt` deleted, the original is refused with two
+//! errors, the formatted file with one). TICKET-127. Hence the third check: the AST is what
+//! a declaration the artifact does not carry still lives in.
 
 use std::path::PathBuf;
 
@@ -20,6 +30,31 @@ use x3_lang_compiler::formatter::X3Formatter;
 
 fn parse(source: &str) -> Result<Program, String> {
     x3_lang_compiler::parser::parse_source(source).map_err(|error| format!("{error}"))
+}
+
+/// The AST as JSON with every `span` removed.
+///
+/// Spans record where the text was and formatting moves text, so they cannot be part of a
+/// round-trip comparison. Everything else can, and has to: a declaration is carried by the AST
+/// even when the artifact does not carry it, so an AST comparison is the only check that sees a
+/// dropped declaration whose obligations the body happens to satisfy.
+fn ast_without_spans(program: &Program) -> serde_json::Value {
+    fn strip(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Object(fields) => serde_json::Value::Object(
+                fields
+                    .into_iter()
+                    .filter(|(name, _)| name != "span")
+                    .map(|(name, value)| (name, strip(value)))
+                    .collect(),
+            ),
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.into_iter().map(strip).collect())
+            }
+            other => other,
+        }
+    }
+    strip(serde_json::to_value(program).expect("an AST serializes"))
 }
 
 /// Every example in the corpus, as `(file name, source)`.
@@ -103,6 +138,13 @@ fn formatting_an_example_preserves_its_meaning() {
             "{name}: formatting changed the compiled artifact ({} bytes before, {} after)",
             before.len(),
             after.len()
+        );
+        assert_eq!(
+            ast_without_spans(&program),
+            ast_without_spans(&reparsed),
+            "{name}: formatting changed the program, not just its text — a declaration the \
+             artifact does not carry is still a declaration (TICKET-127)\n\
+             --- formatted ---\n{formatted}"
         );
 
         // Formatting what it just wrote has to be a no-op, or the command's
@@ -424,5 +466,46 @@ mod an_agent_survives_formatting {
         let program = parse(source).expect("an agent with empty blocks parses");
         let formatted = X3Formatter::new().format_program(&program);
         parse(&formatted).unwrap_or_else(|error| panic!("must re-parse: {error}\n{formatted}"));
+    }
+}
+
+/// Generic parameter lists survive formatting.
+///
+/// Like the annotation test above, this is a construct no file in the corpus carries — so the
+/// corpus round-trip could not see it, and the formatter dropped it: `format_function` and
+/// `format_struct` wrote the name and then went straight to `(`, so `fn identity<T>(value: T) -> T`
+/// came back as `fn identity(value: T) -> T`, a signature whose return type names a parameter
+/// nothing declares. Bounds (`<T: Ordered + Sized>`) are part of the same list (TICKET-127).
+mod generics_survive_formatting {
+    use super::{ast_without_spans, parse};
+    use x3_lang_compiler::formatter::X3Formatter;
+
+    const SOURCE: &str = "struct Wrapper<T: Ordered + Sized> {\n    value: T,\n}\n\n\
+                          fn identity<T>(value: T) -> T {\n    return value;\n}\n";
+
+    #[test]
+    fn a_declaration_keeps_its_type_parameters_and_their_bounds() {
+        let program = parse(SOURCE).expect("the fixture must parse");
+        let formatted = X3Formatter::new().format_program(&program);
+        assert!(
+            formatted.contains("struct Wrapper<T: Ordered + Sized>"),
+            "the struct's parameters and bounds must come back:\n{formatted}"
+        );
+        assert!(
+            formatted.contains("fn identity<T>(value: T) -> T"),
+            "the function's parameters must come back:\n{formatted}"
+        );
+
+        let reparsed = parse(&formatted).expect("what the formatter writes must parse");
+        assert_eq!(
+            ast_without_spans(&program),
+            ast_without_spans(&reparsed),
+            "formatting changed the program, not just its text:\n{formatted}"
+        );
+        assert_eq!(
+            X3Formatter::new().format_program(&reparsed),
+            formatted,
+            "formatting is not idempotent"
+        );
     }
 }

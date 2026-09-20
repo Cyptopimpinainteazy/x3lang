@@ -220,7 +220,29 @@ impl X3Formatter {
         self.write(decl.name.as_str());
         self.write(" using ");
         self.write(decl.risk_policy.as_str());
-        self.write(" {\n");
+        // The `effects` and `guarantees` clauses are written here because they are not decoration:
+        // every declared effect must be produced by a statement and every declared guarantee
+        // discharged by a guard, or the trade is refused (X3E4021/X3E4022). Dropping them from the
+        // formatter's output silently removed the checks — measured on `trading_effects.x3` with
+        // `repay debt` deleted: the original is refused with 2 errors, the formatted file with 1,
+        // because `effects [.., repay]` was gone. TICKET-127.
+        let names = |items: Vec<&str>| items.join(", ");
+        if !decl.effects.is_empty() {
+            // The declaration's own clauses sit one level in from `atomic trade`, as they do in
+            // every program in the corpus; the `{` stays at the declaration's own level.
+            self.write("\n    ");
+            self.write("effects [");
+            self.write(&names(decl.effects.iter().map(|effect| effect.as_str()).collect()));
+            self.write("]");
+        }
+        if !decl.guarantees.is_empty() {
+            self.write("\n    ");
+            self.write("guarantees [");
+            self.write(&names(decl.guarantees.iter().map(|g| g.as_str()).collect()));
+            self.write("]");
+        }
+        self.write("\n");
+        self.write("{\n");
         self.indent();
         for stmt in &decl.body {
             self.format_trade_stmt(stmt);
@@ -455,6 +477,7 @@ impl X3Formatter {
         }
         self.write("fn ");
         self.write(f.name.as_str());
+        self.format_generics(&f.generics);
         self.write("(");
         for (i, p) in f.params.iter().enumerate() {
             if i > 0 {
@@ -547,6 +570,7 @@ impl X3Formatter {
     fn format_struct(&mut self, s: &StructDecl) {
         self.write("struct ");
         self.write(s.name.as_str());
+        self.format_generics(&s.generics);
         self.write(" {\n");
         self.indent();
         for f in &s.fields {
@@ -558,6 +582,36 @@ impl X3Formatter {
         }
         self.dedent();
         self.write("}\n");
+    }
+
+    /// The `<T, U: Bound + Other>` a declaration carries, or nothing when it carries none.
+    ///
+    /// Written only when there is something to write: the parser records an empty list for a
+    /// declaration that has no generics, so an unconditional `<>` would be text no source wrote.
+    /// Both the struct and the function arms were missing this entirely, which deleted the
+    /// parameter that the body's types name — `fn identity<T>(value: T) -> T` formatted to
+    /// `fn identity(value: T) -> T`, a signature referring to a `T` nothing declares (TICKET-127).
+    fn format_generics(&mut self, generics: &[GenericParam]) {
+        if generics.is_empty() {
+            return;
+        }
+        self.write("<");
+        for (index, param) in generics.iter().enumerate() {
+            if index > 0 {
+                self.write(", ");
+            }
+            self.write(param.name.as_str());
+            if !param.bounds.is_empty() {
+                self.write(": ");
+                for (bound_index, bound) in param.bounds.iter().enumerate() {
+                    if bound_index > 0 {
+                        self.write(" + ");
+                    }
+                    self.format_type(bound);
+                }
+            }
+        }
+        self.write(">");
     }
 
     fn format_enum(&mut self, e: &EnumDecl) {
