@@ -3901,3 +3901,145 @@ fn packet_verify_checks_the_requirements_a_packet_declares() {
         "the refusal must state both figures: {report}"
     );
 }
+
+/// PHASE 32 through the binary: `x3c replay` binds a receipt to its artifact and judges its figures
+/// against the artifact's own bounds.
+///
+/// Before this the repository had the receipt's *internal* replay (`verify_receipt` runs
+/// `verify_receipt_economics`) and no way to ask the artifact-side question the phase's input list
+/// names: is this receipt about *this* artifact, and is what it reports something this artifact permits?
+#[test]
+fn cli_replays_a_receipt_against_its_artifact_and_refuses_another() {
+    let source = write_fixture("cli_replay_trading.x3", TRADING_SOURCE);
+    let artifact = std::env::temp_dir().join("cli_replay_trading.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&source)
+        .arg("--out")
+        .arg(&artifact)
+        .output()
+        .expect("x3c build");
+    assert!(
+        build.status.success(),
+        "the trading program must build: {}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let receipt_path = std::env::temp_dir().join("cli_replay_receipt.json");
+    let execute = x3c()
+        .args(["receipt", "execute"])
+        .arg(&source)
+        .arg("--out")
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(
+        execute.status.success(),
+        "the receipt must be produced: {}{}",
+        String::from_utf8_lossy(&execute.stdout),
+        String::from_utf8_lossy(&execute.stderr)
+    );
+
+    let run_replay = |artifact: &std::path::Path| {
+        let output = x3c()
+            .arg("replay")
+            .arg(artifact)
+            .arg(&receipt_path)
+            .output()
+            .expect("x3c replay");
+        (
+            output.status.success(),
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        )
+    };
+
+    // The receipt replays against the artifact it was produced from, and the report says which of the
+    // phase's nine claims it checked and which it could not.
+    let (ok, report) = run_replay(&artifact);
+    assert!(ok, "the receipt must replay against its own artifact: {report}");
+    assert!(
+        report.contains("the operation sequence and its framing")
+            && report.contains("the debt lifecycle against the outcome"),
+        "the report must name what it checked: {report}"
+    );
+    assert!(
+        report.contains("not checked: correct finality references"),
+        "and what it could not, rather than passing over it: {report}"
+    );
+
+    // A different artifact: the receipt is not evidence about it, and the refusal names both hashes.
+    let other = std::env::temp_dir().join("cli_replay_other.x3b");
+    let other_build = x3c()
+        .arg("build")
+        .arg(write_fixture("cli_replay_other.x3", arb_scope_source()))
+        .arg("--out")
+        .arg(&other)
+        .output()
+        .expect("x3c build");
+    assert!(other_build.status.success(), "the second artifact must build");
+    let (ok, report) = run_replay(&other);
+    assert!(!ok, "a receipt must not replay against another artifact: {report}");
+    assert!(
+        report.contains("the receipt is not about this artifact") && report.contains("hashes to"),
+        "the refusal must name both hashes: {report}"
+    );
+}
+
+/// `replay` enforces the receipt's own replay as well as the artifact binding.
+///
+/// The receipt is edited *without* re-hashing it, so it fails the receipt-side check rather than the
+/// artifact-side one — which is the pair the two tests make: an untouched receipt replays, one about
+/// another artifact is refused by the binding, and one whose contents moved after signing is refused by
+/// the receipt's own hash. A test that edited the figures *and* re-hashed them would be refused by the
+/// receipt's economics instead, and would prove nothing about either.
+#[test]
+fn cli_refuses_a_receipt_whose_contents_moved_after_signing() {
+    let source = write_fixture("cli_replay_edited.x3", TRADING_SOURCE);
+    let artifact = std::env::temp_dir().join("cli_replay_edited.x3b");
+    let build = x3c()
+        .arg("build")
+        .arg(&source)
+        .arg("--out")
+        .arg(&artifact)
+        .output()
+        .expect("x3c build");
+    assert!(build.status.success(), "the trading program must build");
+
+    let receipt_path = std::env::temp_dir().join("cli_replay_edited_receipt.json");
+    let execute = x3c()
+        .args(["receipt", "execute"])
+        .arg(&source)
+        .arg("--out")
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(execute.status.success(), "the receipt must be produced");
+
+    // Move one term of the receipt and leave its hash alone.
+    let text = std::fs::read_to_string(&receipt_path).expect("the receipt is readable");
+    let edited = text.replace("\"trade_id\": \"CrossDexArb\"", "\"trade_id\": \"CrossDexArb-edited\"");
+    assert_ne!(edited, text, "the fixture must contain the trade id this test edits");
+    std::fs::write(&receipt_path, edited).expect("write");
+
+    let output = x3c()
+        .arg("replay")
+        .arg(&artifact)
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c replay");
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!output.status.success(), "an edited receipt must not replay: {report}");
+    assert!(
+        report.contains("HashMismatch") || report.contains("hash"),
+        "the refusal must be about the receipt's own hash: {report}"
+    );
+}

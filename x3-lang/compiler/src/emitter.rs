@@ -907,71 +907,20 @@ pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, 
         });
     }
 
-    let mut pos = 1usize;
+    // **One walker for the stream.** This function used to walk it by hand — `pos += 1` per byte, then
+    // every non-zero byte read as `[opcode][u16 len][payload]` — with no `is_payload_opcode`, no
+    // `fixed_frame_content_len` and no `align4`. A fixed frame's flags byte and operand were therefore
+    // read as a length, and the walk landed inside a payload: measured, `x3c receipt execute
+    // examples/arb_scope.x3` failed with *"truncated instruction payload for opcode 0x65"*, and `0x65`
+    // is not an opcode this format defines at all. `instructions()` is the boundary source the
+    // disassembler and the VM already walk by, so the three cannot disagree about where an instruction
+    // begins — the rule TICKET-097 wrote down, one walker later.
     let mut operations = Vec::new();
-
-    while pos < bytecode.len() {
-        if bytecode[pos] == 0 {
-            pos += 1;
-            continue;
-        }
-
-        let opcode = bytecode[pos];
-        pos += 1;
-
-        if matches!(opcode, META_NONCE | META_CHAIN_ID | META_VERSIONS) {
-            // The tag has already been consumed, so the record is read from the byte
-            // before it: one walker for the whole set, rather than a `match` here that a
-            // new record can be left out of.
-            let Some((len, _, _)) = crate::spec::opcodes::metadata_record(bytecode, pos - 1) else {
-                return Err(X3Error::CodegenError {
-                    message: format!("truncated metadata record for opcode 0x{opcode:02x}"),
-                    span: None,
-                });
-            };
-            pos = pos - 1 + len;
-            continue;
-        }
-
-        if pos + 2 > bytecode.len() {
-            return Err(X3Error::CodegenError {
-                message: format!("truncated instruction header for opcode 0x{opcode:02x}"),
-                span: None,
-            });
-        }
-        let len = u16::from_le_bytes([bytecode[pos], bytecode[pos + 1]]) as usize;
-        pos += 2;
-        if pos + len > bytecode.len() {
-            return Err(X3Error::CodegenError {
-                message: format!("truncated instruction payload for opcode 0x{opcode:02x}"),
-                span: None,
-            });
-        }
-        let payload = &bytecode[pos..pos + len];
-        pos += len;
-
-        if matches!(
-            opcode,
-            TRADING_BEGIN
-                | TRADING_OPEN_DEBT
-                | TRADING_EXECUTE_SWAP
-                | TRADING_CLOSE_DEBT
-                | TRADING_ASSERT_MIN_PROFIT
-                | TRADING_ASSERT_ALL_DEBTS
-                | TRADING_EMIT_RECEIPT
-                | TRADING_COMMIT
-                | TRADING_ABORT
-                | TRADING_ASSERT_INVARIANT
-                | TRADING_BRIDGE
-        ) {
-            operations.push(decode_trading_operation(opcode, payload)?);
-        }
-
-        while pos % 4 != 0 && pos < bytecode.len() {
-            pos += 1;
+    for instruction in instructions(bytecode)? {
+        if (TRADING_BEGIN..=TRADING_BRIDGE).contains(&instruction.opcode) {
+            operations.push(decode_trading_operation(instruction.opcode, instruction.payload)?);
         }
     }
-
     Ok(operations)
 }
 
