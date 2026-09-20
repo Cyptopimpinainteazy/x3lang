@@ -36,6 +36,30 @@ pub struct CapabilityManifest {
     pub mode: CapabilityMode,
     pub version: String,
     pub chain: String,
+    /// The state every venue result has to report, and the commitment the receipt
+    /// carries.
+    ///
+    /// [`TradingVm::check_commitment`] refuses a result whose `state_commitment`
+    /// differs from this one, which is what makes a **dropped transaction**
+    /// distinguishable from a settled leg: a transaction that never landed leaves the
+    /// state where it started, so a venue reporting that honestly reports something
+    /// other than the state the plan expects to *end* at, and is refused. Declare the
+    /// state the plan expects to **end** at. Declaring the state it started from
+    /// inverts the check — the dropped leg is then the one that matches, and it
+    /// commits with a receipt.
+    ///
+    /// The field was undocumented and that inversion was reachable: measured, a
+    /// manifest anchored at the pre-state refuses the venue that reports the
+    /// post-state and commits the one whose transaction was dropped, with
+    /// `receipt_emitted = true`. Anchored at the post-state it is the other way round,
+    /// which is the behaviour PHASE 48's `dropped transaction` row relies on.
+    ///
+    /// `x3c receipt execute` derives this from the compiled bytecode
+    /// (`sha256_with_domain(&bytecode, b"x3c-receipt-execute-state-commitment")`) and
+    /// runs with a `CapabilityMode::Fixture` manifest under
+    /// `ExecutionMode::Development`; a fixture manifest is refused in production mode
+    /// (`TradingExecError::NonProductionCapability`), so that surface is an artifact
+    /// binding and not a claim about a chain's state.
     pub state_commitment: [u8; 32],
     pub private_submission: bool,
     pub providers: BTreeSet<String>,

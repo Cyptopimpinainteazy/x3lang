@@ -29,8 +29,8 @@ use x3_lang_compiler::ir::{
 use x3_lang_vm::profit::{LedgerCost, Profit};
 use x3_lang_vm::trading::{
     fixture_manifest, BorrowRequest, BorrowResult, CapabilityManifest, CommittedCost, ExecutionMode, HostError,
-    QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext, TradingHost,
-    TradingVm,
+    QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext,
+    TradingExecError, TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [3u8; 32];
@@ -48,6 +48,14 @@ fn asset(symbol: &str) -> AssetKey {
 struct Host {
     manifest: CapabilityManifest,
     output: u128,
+    /// The state this host reports as the result of every leg.
+    ///
+    /// `COMMITMENT` means the leg landed and the state is where the plan expects to end.
+    /// Anything else means the venue is reporting a state it did not move to — which is
+    /// what a **dropped transaction** looks like: broadcast, accepted, never included,
+    /// so the state is still the one it started from. Models PHASE 48's `dropped
+    /// transaction`.
+    reported_commitment: [u8; 32],
     /// The `swap` call this host stops answering on, counting from 1. `None` answers
     /// every call.
     ///
@@ -68,7 +76,7 @@ impl TradingHost for Host {
             asset: request.asset,
             principal: request.principal,
             fee: 0,
-            state_commitment: COMMITMENT,
+            state_commitment: self.reported_commitment,
         })
     }
 
@@ -99,7 +107,7 @@ impl TradingHost for Host {
             output: self.output,
             fee: 0,
             fee_asset: request.to,
-            state_commitment: COMMITMENT,
+            state_commitment: self.reported_commitment,
         })
     }
 
@@ -109,7 +117,7 @@ impl TradingHost for Host {
             asset: request.asset,
             amount_paid: request.amount,
             fee: 0,
-            state_commitment: COMMITMENT,
+            state_commitment: self.reported_commitment,
         })
     }
 
@@ -196,6 +204,7 @@ fn host(output: u128) -> Host {
     Host {
         manifest,
         output,
+        reported_commitment: COMMITMENT,
         quiet_from_swap: None,
         swap_calls: 0,
     }
@@ -692,4 +701,49 @@ fn a_host_that_stops_answering_mid_plan_rolls_the_plan_back() {
     // And the silence is specifically the *second* call, so the test is about an outage
     // mid-plan rather than about a host that never answered at all.
     assert_eq!(host.swap_calls, 2, "the outage must land mid-plan");
+}
+
+/// PHASE 48, `dropped transaction`: **a leg whose transaction never landed is not a
+/// settled leg.**
+///
+/// The venue here answers every call and returns `Ok` — it accepted the transaction and
+/// broadcast it. What says the transaction was *dropped* is that the state it reports is
+/// the state it started from: nothing moved. `check_commitment` compares that against
+/// the state the manifest declares the plan ends at, and the two cases are told apart by
+/// the only evidence this protocol carries.
+///
+/// The control is in the same test on purpose. A test that asserted only the refusal
+/// would pass against a runtime that refused every leg; the same host reporting the
+/// expected state has to commit, exactly as it does everywhere else in this file.
+#[test]
+fn a_dropped_transaction_is_not_a_settled_leg() {
+    /// The state the chain was in before the plan ran. A dropped transaction leaves the
+    /// chain here, so this is what an honest venue reports for one.
+    const STARTED_FROM: [u8; 32] = [7u8; 32];
+
+    let mut vm = TradingVm::new();
+    let before = vm.trading_state.clone();
+    let mut dropped = host(5_000_000);
+    dropped.reported_commitment = STARTED_FROM;
+
+    let result = vm.execute_atomic(&operations(), &mut dropped, context());
+    assert!(
+        result.is_err(),
+        "a leg that reports the state it started from did not settle"
+    );
+    assert!(
+        matches!(result, Err(TradingExecError::StateCommitmentMismatch)),
+        "the refusal is about the commitment, not some unrelated guard"
+    );
+    assert_eq!(vm.trading_state, before, "a dropped leg leaves no journal");
+    assert!(!vm.trading_state.receipt_emitted, "a dropped leg emits no receipt");
+    assert!(!vm.trading_state.committed);
+
+    // The control: the same host, reporting the state the plan expects to end at.
+    let mut vm = TradingVm::new();
+    let mut landed = host(5_000_000);
+    landed.reported_commitment = COMMITMENT;
+    vm.execute_atomic(&operations(), &mut landed, context())
+        .expect("a leg that reports the expected state settles");
+    assert!(vm.trading_state.committed, "and the plan committed");
 }
