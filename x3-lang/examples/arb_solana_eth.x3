@@ -1,3 +1,26 @@
+// arb_solana_eth.x3 — a cross-VM intent whose risk is the bridge.
+//
+// 10 USDC on Solana to 10.25 USDC on Ethereum, through SOL: the swap on each side is a
+// venue's business, and the leg that can lose the money is the bridge in the middle. So
+// the intent declares the bridge's proof obligations, bounds both chains' finality, and
+// prices the round trip in the floor on the far side.
+//
+// Two things a reader copying this file should know.
+//
+// **Amounts are in base units.** `amount` and `min_output` carry no asset, so a
+// fractional literal is refused rather than converted against decimals the compiler
+// cannot see — the error says so and points at base units. 10 USDC at six decimals is
+// 10_000_000, 0.09 SOL at nine is 90_000_000, 10.25 USDC is 10_250_000.
+//
+// **Every step after the first states its own amount.** A step whose `from` is the
+// intent's source asset is filled from that endpoint, but a later leg's input is what the
+// previous leg returns — a market outcome rather than a constant — so the compiler
+// refuses to guess it rather than writing a zero (`fill_route_step_amounts`,
+// TICKET-088).
+//
+// And `on_fail rollback` rather than a second `refund`: the `timeout` clause already
+// names a refund for this lock, and two operations claiming the same refund is what the
+// `no_double_refund` invariant refuses.
 finality_policy strict {
     chain solana
     requirement finalized
@@ -10,22 +33,31 @@ finality_policy strict {
     blocks 64
 }
 
+// The bridge leg below cannot be claimed on the far side without evidence that the
+// source chain locked the funds and that the destination chain filled them. Those are
+// this program's proof obligations, so it declares them — and the `proof_complete` guard
+// names one, because a guard that names nothing is a claim no configuration backs
+// (`semantic.rs::verify_proof_complete_declared`).
+proofs required {
+    source_lock_proof
+    destination_fill_proof
+}
+
 intent arb_solana_eth {
-    from Solana.USDC amount 10 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    from Solana.USDC amount 10000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
     to Ethereum.USDC receiver 0x1111111111111111111111111111111111111111
-
     route {
-        swap Raydium Solana.USDC -> Solana.SOL amount 10 min_output 0.09
-        bridge X3 Solana.SOL -> Ethereum.WSOL receiver 0x1111111111111111111111111111111111111111
-        swap Uniswap Ethereum.WSOL -> Ethereum.USDC min_output 10.25
+        swap Raydium Solana.USDC -> Solana.SOL amount 10000000 min_output 90000000;
+        bridge X3 Solana.SOL -> Ethereum.WSOL amount 90000000 receiver 0x1111111111111111111111111111111111111111;
+        swap Uniswap Ethereum.WSOL -> Ethereum.USDC amount 90000000 min_output 10250000;
     }
-
-    require finality Solana >= 32
-    require finality Ethereum >= 64
+    require finality.Solana >= 32
+    require finality.Ethereum >= 64
     require slippage <= 0.5%
     require nonce unused arb_solana_eth_2026_05_29
-    require proof verified
+    require proof_complete source_lock_proof
     require canonical_supply USDC
-    timeout 30s refund Solana.USDC to sender
-    on_fail refund Solana.USDC to sender
+    timeout 30s refund Solana.USDC
+    on_fail rollback
 }
+

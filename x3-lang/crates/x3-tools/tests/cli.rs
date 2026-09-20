@@ -3048,3 +3048,86 @@ fn check_names_the_failing_stage_rather_than_assuming_one() {
         "a semantic error must not be reported as a lowering failure: {text}"
     );
 }
+
+/// TICKET-083: **every example checks and builds, and the number is checked rather than
+/// observed.**
+///
+/// The conformance sweep reported `check=17` out of 23 `examples/*.x3` for several rounds,
+/// and that number was read as a baseline instead of as six defects — six files a reader
+/// is invited to run and cannot. The six are dealt with (one fixed, five moved to
+/// `examples/legacy/`, which this glob does not reach); this is the part that stops the
+/// count drifting back.
+///
+/// `--deny-warnings` is deliberate: an example that checks but warns shows a reader a
+/// program the compiler complains about, which for documentation is a defect. That is how
+/// `arb_solana_eth.x3` turned out to have two refund operations claiming one lock.
+#[test]
+fn every_example_checks_and_builds() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let mut found: Vec<PathBuf> = std::fs::read_dir(&examples)
+        .unwrap_or_else(|error| {
+            panic!(
+                "the examples directory must be readable at {}: {error}",
+                examples.display()
+            )
+        })
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|extension| extension == "x3"))
+        .collect();
+    found.sort();
+
+    // A gate that found nothing would pass every assertion below. This is the same guard
+    // the determinism audit uses for the same reason: a moved directory must fail the test
+    // rather than exempt it.
+    assert!(
+        found.len() > 10,
+        "the gate found {} example files under {}, which is too few to be reading the directory \
+         it thinks it is reading",
+        found.len(),
+        examples.display()
+    );
+
+    let mut failures = Vec::new();
+    for example in &found {
+        let name = example
+            .file_name()
+            .expect("an example path has a file name")
+            .to_string_lossy()
+            .into_owned();
+
+        let check = x3c()
+            .args(["check", "--deny-warnings"])
+            .arg(example)
+            .output()
+            .expect("x3c check");
+        if !check.status.success() {
+            failures.push(format!(
+                "{name}: check — {}",
+                String::from_utf8_lossy(&check.stdout).trim()
+            ));
+            continue;
+        }
+
+        let out = std::env::temp_dir().join(format!("x3-example-{name}.x3b"));
+        let build = x3c()
+            .arg("build")
+            .arg(example)
+            .arg("--out")
+            .arg(&out)
+            .output()
+            .expect("x3c build");
+        if !build.status.success() {
+            failures.push(format!(
+                "{name}: build — {}",
+                String::from_utf8_lossy(&build.stdout).trim()
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "every example must check and build ({} checked):\n{}",
+        found.len(),
+        failures.join("\n")
+    );
+}

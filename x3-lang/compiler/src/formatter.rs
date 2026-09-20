@@ -2035,7 +2035,22 @@ impl X3Formatter {
                 self.write("#");
                 self.write(h.as_str());
             }
-            _ => self.write("/* literal */"),
+            // The AST's `value` already carries the `%` (the parser builds it as
+            // `format!("{n}%")`), so this is the text the source wrote.
+            LiteralExpr::Percentage { value } => self.write(value.as_str()),
+            // The remaining variants — `RawString`, `ByteString`, `Char`, `Byte`, `Size` —
+            // have no arm in the parser that produces them, so a parsed program cannot
+            // contain one. The placeholder stays because writing *something* is worse than
+            // writing nothing that claims to be a literal: `/* literal */` is source the
+            // parser refuses, so a hand-built AST that reaches here fails `x3c fmt`'s
+            // round-trip loudly rather than being silently rewritten. It used to be the
+            // fallback for `Percentage` too, which *is* reachable, so `x3c fmt` on any
+            // program with `require slippage <= 0.5%` wrote text the parser rejected
+            // (TICKET-090).
+            other => {
+                debug_assert!(false, "the formatter has no rendering for {other:?}");
+                self.write("/* literal */");
+            }
         }
     }
 

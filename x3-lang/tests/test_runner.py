@@ -22,7 +22,12 @@ def test_runner_dry_run_end_to_end():
     assert result['intent'] == 'arb_solana_eth'
     contract = result['validated_intent_v1']
     assert contract['schema_version'] == 1
-    assert contract['from']['amount'] == '10'
+    # The example states its amounts in each asset's base units, because `amount` and
+    # `min_output` carry no asset and the compiler refuses a fractional literal rather
+    # than converting against decimals it cannot see. 10 USDC at six decimals is
+    # 10_000_000 — and the assertion follows the example rather than the other way round.
+    # The text is the formatter's, which drops the `_` separators, so it reads `10000000`.
+    assert contract['from']['amount'] == '10000000'
     assert contract['path'][0]['type'] == 'swap'
 
 

@@ -1,0 +1,100 @@
+// arb_scope.x3 — the `arb` scope, and the pipeline it maps onto (PHASE 37).
+//
+// `arb` is the declaration that says *what to search for*. Whether the program can reach
+// it is a separate question, and three clauses make it decidable:
+//
+// - **`venue` declarations are the graph.** `discover` says which of them may be used, so
+//   a scope with no venue declared is refused: a filter over nothing is not a filter.
+// - **`capital { flash = disabled }`.** Flash capital is PHASE 20, which the phase's own
+//   text forbids shipping before a formal safety proof, so the scope refuses to accept a
+//   declaration it cannot honour rather than accepting it as a label.
+// - **`risk { … }` states the floors**, and a `min_profit` with no enforcing
+//   `require profit >= …` guard is refused as a number nothing acts on.
+//
+// What the compiler then does is lower the scope to a *plan*: an atomic block holding the
+// asset cycle the search found, the venues it approved, and its floors as guards. Those
+// floors are **measured** guards, because this compiler holds venue attributes and no
+// prices — the per-hop outputs are the host's to report. A run that no host measured is
+// refused with `X3_GUARD_UNMEASURED` rather than passing on whatever a register held.
+//
+//   x3c check  examples/arb_scope.x3
+//   x3c build  examples/arb_scope.x3 --out /tmp/arb.x3b
+//   x3c explain /tmp/arb.x3b
+//
+// **`x3c run /tmp/arb.x3b` refuses, and that is the point.** It answers
+// `X3_GUARD_UNMEASURED: the guard `profit >= 20bps` needs a profit the host measured` —
+// this compiler has no prices, so the floors are compared against what a host reports and
+// never against whatever a register happened to hold. To see it settle, state the outcome:
+//
+//   x3c run /tmp/arb.x3b --measured-profit-bps 25 --measured-slippage-bps 5
+//
+// or state the accounting it is derived from, which is what PHASE 54's report is for:
+//
+//   x3c simulate /tmp/arb.x3b --state snapshot.json --explain
+//
+// `RouteFallback` is the approved venue list, and it is what lets a simulation check the
+// route it is told about: `simulate` refuses an observed venue that is in none of the
+// artifact's approved lists.
+
+intent spread_trade {
+    from ethereum.USDC amount 1_000_000 receiver 0xA1
+    to ethereum.USDC receiver 0xA2
+    require profit >= 20
+    require slippage <= 50
+    timeout 30s refund ethereum.USDC to sender
+    on_fail rollback
+}
+
+// The two legs of the cycle. A venue is a declaration, not an address: the compiler reads
+// its chain, its asset pair, its fee and its declared liquidity, and those are what the
+// search and the scope's own bounds are judged against.
+venue usdc_to_eth {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.USDC
+    asset_out ethereum.ETH
+    fee_bps 3
+    liquidity 1_000_000
+    slippage_bps 8
+    latency_ms 12
+    finality_blocks 12
+    risk 2
+}
+
+venue eth_to_usdc {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.ETH
+    asset_out ethereum.USDC
+    fee_bps 2
+    liquidity 900_000
+    slippage_bps 6
+    latency_ms 12
+    finality_blocks 12
+    risk 2
+}
+
+arb spread {
+    discover {
+        chains = [ethereum];
+        max_hops = 4;
+        liquidity_min = 500_000 ethereum.USDC;
+    }
+    capital {
+        flash = disabled;
+        max = 25_000_000 ethereum.USDC;
+    }
+    execution {
+        atomic = true;
+        parallel = true;
+        private = false;
+    }
+    risk {
+        min_profit = 20bps;
+        max_slippage = 8bps;
+        max_total_fee = 6bps;
+        deadline = 220ms;
+    }
+}

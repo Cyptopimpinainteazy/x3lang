@@ -25,7 +25,29 @@ ASSETS_BY_CHAIN = {
 KNOWN_DEXS = {'raydium', 'orca', 'uniswap', 'sushiswap', 'curve'}
 KNOWN_BRIDGES = {'x3', 'wormhole', 'layerzero', 'axelar'}
 SUPPORTED_OPERATIONS = {'swap', 'bridge', 'lock', 'mint', 'burn', 'release'}
-REQUIRE_KINDS = {'finality', 'slippage', 'profit', 'nonce', 'proof', 'bridge_liquidity', 'canonical_supply', 'invariant'}
+# The guard kinds this surface reads. It is a **subset** of the compiler's — the Rust
+# `require_kind_from_str` knows eighteen, this knows nine — and that is a deliberate
+# scope, not an accident to be closed. What is not deliberate is that the list lived in
+# two places: `cli.py::_parse_require` matched kinds in its own if-chain, and
+# `typechecker.py` validates against this set, so `proof_complete` was parseable in
+# neither and the two could disagree about the same source. A kind accepted by one and
+# refused by the other is a source file the surface cannot describe.
+#
+# `proof_complete` is the compiler's name for what this surface called `proof`: the
+# compiler's kind list has no `proof`, so `require proof verified` is refused there. Both
+# spellings are read so a program written against either works, and which one the source
+# used is preserved rather than rewritten.
+REQUIRE_KINDS = {
+    'finality',
+    'slippage',
+    'profit',
+    'nonce',
+    'proof',
+    'proof_complete',
+    'bridge_liquidity',
+    'canonical_supply',
+    'invariant',
+}
 
 DEX_LIQUIDITY = {
     'raydium': {('USDC', 'SOL'): 200_000.0, ('SOL', 'USDC'): 200_000.0},

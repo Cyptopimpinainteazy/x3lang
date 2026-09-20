@@ -100,10 +100,21 @@ def _parse_endpoint(ln: SourceLine, keyword: str) -> Dict[str, Any]:
 
 
 def _parse_refund(tokens: List[str], line: int) -> Dict[str, Any]:
-    if not tokens or tokens[0] != "refund" or len(tokens) < 4 or tokens[2] != "to":
-        raise X3ParseError("X3_PARSE_REFUND", "expected refund <chain.asset> to <receiver>", line, "refund")
+    # `to <receiver>` is optional, and its absence means `sender` — the compiler's own
+    # default (`formatter::is_sender_default`), which is why `x3c fmt` writes
+    # `refund Solana.USDC` for a clause that said `refund Solana.USDC to sender`. Requiring
+    # the explicit receiver here made this surface unable to read the formatter's output.
+    if not tokens or tokens[0] != "refund" or len(tokens) < 2:
+        raise X3ParseError("X3_PARSE_REFUND", "expected refund <chain.asset> [to <receiver>]", line, "refund")
+    receiver = "sender"
+    if len(tokens) > 2:
+        if tokens[2] != "to" or len(tokens) < 4:
+            raise X3ParseError(
+                "X3_PARSE_REFUND", "expected refund <chain.asset> [to <receiver>]", line, "refund"
+            )
+        receiver = tokens[3].strip('"')
     asset = _asset_ref(tokens[1], line, "refund.asset")
-    return {"type": "refund", "chain": asset["chain"], "asset": asset["asset"], "to": tokens[3].strip('"')}
+    return {"type": "refund", "chain": asset["chain"], "asset": asset["asset"], "to": receiver}
 
 
 def _parse_require(ln: SourceLine) -> Dict[str, Any]:
@@ -111,6 +122,13 @@ def _parse_require(ln: SourceLine) -> Dict[str, Any]:
     if len(tokens) < 2 or tokens[0] != "require":
         raise X3ParseError("X3_PARSE_REQUIRE", "expected require clause", ln.no, "require")
     kind = tokens[1].lower()
+    # `finality.<chain>` and `finality <chain>` are one guard written two ways, and the
+    # compiler reads both (`require finality.sol == finalized`). The **dotted** form is
+    # what `x3c fmt` writes, so a surface that reads only the spaced form cannot read its
+    # own tooling's output — which is how this was found: reformatting
+    # `examples/arb_solana_eth.x3` made this harness reject the file.
+    if kind.startswith("finality.") and len(tokens) >= 4:
+        return {"kind": "finality", "chain": kind.split(".", 1)[1].lower(), "op": tokens[2], "value": tokens[3]}
     if kind == "finality" and len(tokens) >= 5:
         return {"kind": "finality", "chain": tokens[2].lower(), "op": tokens[3], "value": tokens[4]}
     if kind == "slippage" and len(tokens) >= 4:
@@ -119,8 +137,13 @@ def _parse_require(ln: SourceLine) -> Dict[str, Any]:
         return {"kind": "profit", "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind == "nonce" and len(tokens) >= 3:
         return {"kind": "nonce", "value": " ".join(tokens[2:])}
-    if kind == "proof" and len(tokens) >= 3:
-        return {"kind": "proof", "value": " ".join(tokens[2:])}
+    if kind in {"proof", "proof_complete"} and len(tokens) >= 3:
+        # `proof` is the spelling this surface was written with, and the compiler's guard
+        # is `proof_complete` — its kind list has no `proof`, so `require proof verified`
+        # is refused as a guard kind it does not know. A program may be written against
+        # either, so both are read here, and the returned kind says which one the source
+        # used rather than quietly rewriting it.
+        return {"kind": kind, "value": " ".join(tokens[2:])}
     if kind == "bridge_liquidity" and len(tokens) >= 4:
         return {"kind": "bridge_liquidity", "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind in {"canonical_supply", "invariant"} and len(tokens) >= 3:
