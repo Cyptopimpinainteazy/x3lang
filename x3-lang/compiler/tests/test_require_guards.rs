@@ -401,3 +401,130 @@ fn a_percent_in_a_guard_bound_is_a_percentage_and_a_modulo_everywhere_else() {
         "parenthesised, `5 % 6` is still a modulo inside a guard's bound"
     );
 }
+
+/// **A valueless guard stops at every clause, in either order** (TICKET-046's validation).
+///
+/// A guard has to stop where the next clause begins, and it knows where that is because a list
+/// names the words that can begin one. Two of its entries were missing on the first pass —
+/// `amount` and `timeout` — and each cost a round of repair, which is why this is a test over
+/// *every* clause of a body rather than over the two that bit.
+///
+/// Mechanical on purpose: the fixture is a list of clause lines, and for each line the guard is
+/// placed before it and after it. Both sources must lower to the same program, because the two
+/// differ only in where a guard that takes no value sits.
+mod every_clause_stops_a_valueless_guard {
+    /// The clause lines of an `atomic swap` body, one per entry, plus a guard that is written
+    /// where the test says.
+    const SWAP_CLAUSES: &[(&str, &str)] = &[
+        ("amount", "    amount 500"),
+        ("receiver", "    receiver sol.wallet.owner"),
+        ("hashlock", "    hashlock sha256(secret)"),
+        ("timeout", "    timeout source 40m"),
+        ("finality", "    require finality.eth >= 12"),
+    ];
+
+    const INTENT_CLAUSES: &[(&str, &str)] = &[
+        (
+            "from",
+            "    from ethereum.USDC amount 1 receiver 0x1111111111111111111111111111111111111111",
+        ),
+        (
+            "to",
+            "    to solana.SOL receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+        ),
+        (
+            "route",
+            "    route { swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1 }",
+        ),
+        ("timeout", "    timeout 30s refund ethereum.USDC to sender"),
+        ("on_fail", "    on_fail rollback"),
+    ];
+
+    fn swap_source(guard_at: usize) -> String {
+        let mut body = String::new();
+        for (index, (_, line)) in SWAP_CLAUSES.iter().enumerate() {
+            if index == guard_at {
+                body.push_str("    require proof_complete\n");
+            }
+            body.push_str(line);
+            body.push('\n');
+        }
+        if guard_at == SWAP_CLAUSES.len() {
+            body.push_str("    require proof_complete\n");
+        }
+        format!("atomic swap eth.USDC -> sol.SOL {{\n{body}}}\n")
+    }
+
+    fn intent_source(guard_at: usize) -> String {
+        let mut body = String::new();
+        for (index, (_, line)) in INTENT_CLAUSES.iter().enumerate() {
+            if index == guard_at {
+                body.push_str("    require proof_complete\n");
+            }
+            body.push_str(line);
+            body.push('\n');
+        }
+        format!("intent probe {{\n{body}    on_fail rollback\n}}\n")
+    }
+
+    fn ops(source: &str) -> usize {
+        let program = x3_lang_compiler::parser::parse_source(source)
+            .unwrap_or_else(|error| panic!("must parse:\n{source}\n{error}"));
+        x3_lang_compiler::compile_to_ir(&program)
+            .unwrap_or_else(|error| panic!("must lower:\n{source}\n{error:?}"))
+            .operations
+            .len()
+    }
+
+    #[test]
+    fn a_guard_before_any_clause_of_a_swap_body_leaves_the_clause_alone() {
+        // The guard can go anywhere among the clauses; the program is the same one.
+        let baseline = ops(&swap_source(usize::MAX));
+        for index in 0..SWAP_CLAUSES.len() {
+            let with_guard = ops(&swap_source(index));
+            assert_eq!(
+                with_guard,
+                baseline + 1,
+                "a guard before `{}` changed the program: the guard took the clause with it",
+                SWAP_CLAUSES[index].0
+            );
+        }
+    }
+
+    #[test]
+    fn a_guard_before_any_clause_of_an_intent_body_leaves_the_clause_alone() {
+        let baseline = ops(&intent_source(usize::MAX));
+        for index in 0..INTENT_CLAUSES.len() {
+            let with_guard = ops(&intent_source(index));
+            assert_eq!(
+                with_guard,
+                baseline + 1,
+                "a guard before `{}` changed the program: the guard took the clause with it",
+                INTENT_CLAUSES[index].0
+            );
+        }
+    }
+
+    /// Which words these fixtures exercise, so a reader knows what the two tests above do and
+    /// do not cover. The rest of the list — `path`, `allow`, `on`, `proofs`, `min_output`,
+    /// `net_output`, `replace`, `leg`, `choose`, `repay`, `borrow`, `balance`, `net_profit` —
+    /// begins clauses in a route, a strategy or a trading body, and reaching them means writing
+    /// a valid fixture for each of those grammars. Named rather than implied: a test that covers
+    /// nine of twenty-two words and says nothing is the shape this ticket exists to complain
+    /// about.
+    #[test]
+    fn the_words_these_fixtures_exercise_are_stated() {
+        let exercised: std::collections::BTreeSet<&str> = SWAP_CLAUSES
+            .iter()
+            .chain(INTENT_CLAUSES.iter())
+            .map(|(word, _)| *word)
+            .collect();
+        assert_eq!(
+            exercised,
+            ["amount", "finality", "from", "hashlock", "on_fail", "receiver", "route", "timeout", "to"]
+                .into_iter()
+                .collect::<std::collections::BTreeSet<&str>>(),
+            "the fixtures exercise a different set of words than this test says they do"
+        );
+    }
+}
