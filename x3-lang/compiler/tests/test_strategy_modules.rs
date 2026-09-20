@@ -314,3 +314,66 @@ mod the_declared_fee_ceiling_travels {
         );
     }
 }
+
+/// A body can state its own fee ceiling, and the declared profile has to bound it.
+///
+/// The pair the slippage ceiling has: `risk { max_total_fee_bps M }` is what a module accepts, and
+/// `require fees <= N` is what a body relies on. Before TICKET-116 only the policy half existed —
+/// a module could declare a ceiling and no statement could say what its body would pay.
+mod a_body_can_state_its_own_fee_ceiling {
+    use super::{errors, module};
+    use x3_lang_compiler::compile_source;
+
+    fn with_guard(guard: &str) -> String {
+        let sections = "    effects [swap]\n    domains [ethereum]\n    risk { max_slippage_bps 50 max_total_fee_bps 8 }\n    bounds { max_steps 10 max_gas 200_000 }\n";
+        let execute = format!(
+            "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        \
+             require slippage <= 50\n        {guard}\n        on_fail refund ethereum.USDC to sender"
+        );
+        module(&execute, sections)
+    }
+
+    #[test]
+    fn a_guard_within_the_declared_ceiling_is_accepted() {
+        let found = errors(&with_guard("require fees <= 8"));
+        assert!(found.is_empty(), "8bps is what the profile accepts: {found:?}");
+    }
+
+    #[test]
+    fn a_guard_above_the_declared_ceiling_is_refused_with_both_figures() {
+        let found = errors(&with_guard("require fees <= 30"));
+        assert!(
+            found.iter().any(|error| error.contains("30") && error.contains("8bps")),
+            "the refusal must name the guard's bound and the profile's: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_guard_with_no_declaration_behind_it_is_refused() {
+        // An intent has no `risk { }` clause, so a fee guard in one claims something nothing backs —
+        // the same rule every other declared kind follows.
+        let source = "intent unbacked {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    \
+                      route {\n        swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    \
+                      require fees <= 8\n    require slippage <= 50\n    on_fail refund ethereum.USDC to sender\n}\n";
+        let found = errors(source);
+        assert!(
+            found.iter().any(|error| error.contains("nothing declares one")),
+            "a fee guard with no ceiling behind it must be refused by name: {found:?}"
+        );
+    }
+
+    #[test]
+    fn the_guard_reaches_the_artifact() {
+        let bytecode = compile_source(&with_guard("require fees <= 5")).expect("it must compile");
+        let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("it must disassemble");
+        let fees_records = trace.lines().filter(|line| line.contains("fees")).count();
+        assert!(
+            fees_records >= 2,
+            "the declaration and the body's guard are two records, both stating a ceiling: {trace}"
+        );
+        assert!(
+            trace.contains("static fees 5"),
+            "the guard's own figure must be readable: {trace}"
+        );
+    }
+}

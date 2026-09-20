@@ -2149,6 +2149,7 @@ fn require_kind_to_ir(kind: &ast::RequireKind) -> ir::RequireKind {
         ast::RequireKind::Nonce => ir::RequireKind::NonceUnused,
         ast::RequireKind::BridgeLiquidity => ir::RequireKind::BridgeLiquidity,
         ast::RequireKind::Slippage => ir::RequireKind::SlippageTolerance,
+        ast::RequireKind::Fees => ir::RequireKind::Fees,
         ast::RequireKind::Profit => ir::RequireKind::ProfitThreshold,
         ast::RequireKind::Finality => ir::RequireKind::Finality,
         ast::RequireKind::Custom(name) => ir::RequireKind::Custom(name.as_str().to_string()),

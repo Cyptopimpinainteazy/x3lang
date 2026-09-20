@@ -49,6 +49,10 @@ SUPPORTED_OPERATIONS = {'swap', 'bridge', 'lock', 'mint', 'burn', 'release'}
 REQUIRE_KINDS = {
     'finality',
     'slippage',
+    # `require fees <= <bps>` — the ceiling a body relies on, whose declaration half is
+    # `risk { max_total_fee_bps N }`. Read by the same rule as every other kind: a kind this
+    # surface does not model is still carried, because the envelope passes `requires` through.
+    'fees',
     'profit',
     'invariant',
     'risk',

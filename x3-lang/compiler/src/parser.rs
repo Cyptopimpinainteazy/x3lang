@@ -5952,6 +5952,7 @@ pub(crate) fn duration_unit_from_suffix(suffix: &str) -> Option<x3_lang_common::
 pub const REQUIRE_KIND_NAMES: &[&str] = &[
     "finality",
     "slippage",
+    "fees",
     "profit",
     "invariant",
     "risk",
@@ -5974,6 +5975,7 @@ fn require_kind_from_str(name: &str) -> Result<RequireKind, X3Error> {
     Ok(match name {
         "finality" => RequireKind::Finality,
         "slippage" => RequireKind::Slippage,
+        "fees" => RequireKind::Fees,
         "profit" => RequireKind::Profit,
         "invariant" => RequireKind::InvariantCheck,
         "risk" => RequireKind::RiskScore,

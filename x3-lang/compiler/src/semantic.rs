@@ -567,6 +567,74 @@ pub fn verify_risk_policy_bounds_guards(program: &Program, acc: &mut ErrorAccumu
     }
 }
 
+/// A `require fees <= N` guard needs a fee ceiling to compare against.
+///
+/// The pair the slippage ceiling has: `risk { max_total_fee_bps M }` is the ceiling a module
+/// accepts, and the guard is the one its body relies on. The same two failures the other declared
+/// kinds refuse — a guard *looser* than the declaration permits what the policy forbids, and a
+/// guard in a program that declares no ceiling at all claims something nothing backs.
+pub fn verify_fee_guards_declared(program: &Program, acc: &mut ErrorAccumulator) {
+    // Looked up by the owner the guard walk reports, because a guard belongs to the module whose
+    // body it is written in: two modules in one program may accept different ceilings.
+    let declared = |owner: &str| -> Option<u32> {
+        program.items.iter().find_map(|item| match &item.node {
+            Item::Strategy(module) if module.name.as_str() == owner => {
+                module.risk.as_ref().map(|risk| risk.max_total_fee_bps)
+            }
+            _ => None,
+        })
+    };
+
+    for (owner, guard) in require_guards(program) {
+        if guard.kind != x3_lang_ast::ast::RequireKind::Fees {
+            continue;
+        }
+        // A ceiling is a bound (`<=`). Written the other way the guard says the program will pay at
+        // *least* this much, which is not a ceiling and not something a profile can back.
+        if !guard.comparison.is_some_and(|op| op.is_upper_bound()) {
+            acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "declaration '{owner}' states `require fees` without a `<=` bound; a fee ceiling is \
+                     a ceiling — write `require fees <= <bps>`"
+                ),
+            ));
+            continue;
+        }
+        // The same rule the other declared kinds follow: a bound the check cannot read is refused,
+        // not read as zero (TICKET-114's turn).
+        let Some(required) = guard.value.as_ref().and_then(bound_bps_from_expr) else {
+            acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "declaration '{owner}' states `require fees <= <bound>` with a bound that is not a \
+                     number; the bound is what the check compares against the declared ceiling, so it \
+                     has to be one this compiler can read"
+                ),
+            ));
+            continue;
+        };
+        match declared(owner) {
+            None => acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "declaration '{owner}' requires a fee ceiling of {required}bps, but nothing declares \
+                     one: a module states it with `risk {{ max_total_fee_bps <bps> }}`, and a program \
+                     that is not a module has no clause that could"
+                ),
+            )),
+            Some(ceiling) if required > ceiling => acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "declaration '{owner}' requires fees of at most {required}bps while its risk profile \
+                     accepts up to {ceiling}bps; the guard allows what the policy forbids"
+                ),
+            )),
+            Some(_) => {}
+        }
+    }
+}
+
 /// A `require route_score >= N` guard needs a score to compare against.
 ///
 /// The guard is a claim about the route; `risk_policy { min_route_score M }` is

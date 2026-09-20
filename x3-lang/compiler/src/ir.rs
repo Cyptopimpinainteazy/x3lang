@@ -1062,6 +1062,12 @@ pub enum RequireKind {
     BridgeLiquidity,
     /// Check slippage is within tolerance
     SlippageTolerance,
+    /// `require fees <= <bps>` — the ceiling a *body* relies on.
+    ///
+    /// The guard half of the pair whose declaration half is [`Self::FeeCeiling`], the way
+    /// `Finality` and `FinalityExplicit` are two records rather than one: a reader can tell a bound
+    /// the program wrote from a bound its policy states.
+    Fees,
     /// Check profit/gains meet threshold
     ProfitThreshold,
     /// Check finality (confirmations)

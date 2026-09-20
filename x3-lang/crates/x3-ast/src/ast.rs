@@ -523,6 +523,14 @@ pub enum RequireKind {
     Finality,
     /// `require slippage <= <pct>`
     Slippage,
+    /// `require fees <= <bps>` — the most this program will pay in fees.
+    ///
+    /// The pair the slippage ceiling has: a policy declares the bound a module accepts
+    /// (`risk { max_total_fee_bps N }`), and a guard states the one a body relies on. Before this
+    /// there was no `fees` guard, so only the policy half existed — a module could declare a fee
+    /// ceiling and its body could route through a venue that broke it with nothing to compare
+    /// (TICKET-116, TICKET-027's shape).
+    Fees,
     /// `require profit > <amount>`
     Profit,
     /// `require invariant <name> == <expected>`
@@ -588,6 +596,7 @@ impl RequireKind {
         match self {
             RequireKind::Finality => "finality",
             RequireKind::Slippage => "slippage",
+            RequireKind::Fees => "fees",
             RequireKind::Profit => "profit",
             RequireKind::InvariantCheck => "invariant",
             RequireKind::RiskScore => "risk",

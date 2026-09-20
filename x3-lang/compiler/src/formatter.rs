@@ -2274,6 +2274,7 @@ impl X3Formatter {
         match kind {
             RequireKind::Finality => self.write("finality"),
             RequireKind::Slippage => self.write("slippage"),
+            RequireKind::Fees => self.write("fees"),
             RequireKind::Profit => self.write("profit"),
             RequireKind::InvariantCheck => self.write("invariant"),
             RequireKind::RiskScore => self.write("risk"),
