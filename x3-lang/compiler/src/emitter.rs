@@ -866,13 +866,8 @@ fn operation_to_asset_payload(op: &Operation) -> Result<AssetOpPayload, X3Error>
             amount: *amount,
             from: from.clone(),
         },
-        Operation::Release {
-            chain,
-            asset,
-            to,
-            claims,
-        } => AssetOpPayload::Release {
-            claims: *claims,
+        Operation::Release { chain, asset, to, act } => AssetOpPayload::Release {
+            act: *act,
             chain: chain.clone(),
             asset: asset.clone(),
             to: to.clone(),

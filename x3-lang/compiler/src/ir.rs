@@ -21,6 +21,9 @@ pub use x3_lang_ast::ast::ComparisonOp;
 /// set, and an IR that could name a shape the AST does not have would be a way for an
 /// unverified claim to reach the artifact.
 pub use x3_lang_ast::ast::SettlementGuarantee;
+/// Re-exported for the same reason once more: a release's act is a closed set shared with the
+/// payload that encodes it, so the IR and the wire format cannot disagree about what a tag means.
+pub use x3_lang_common::capability::ReleaseAct;
 
 /// Root IR program - list of operations to execute in sequence
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,10 +96,7 @@ pub enum Operation {
         chain: String,
         asset: String,
         to: String,
-        /// Which of its route's locks this release claims, counted among the `Lock`s of the
-        /// same atomic block in order — an index the compiler assigns when it pairs a lock
-        /// with its release, so an artifact's reader can check the pairing instead of
-        /// inferring it.
+        /// Which of its three acts this release performs.
         ///
         /// A release used to name its claim by asset alone, which made two transfers of one
         /// asset in one route two claims nobody could tell apart — and the static rules
@@ -104,14 +104,13 @@ pub enum Operation {
         /// asset, so that is the normal case rather than a corner: the index is what lets one
         /// route carry several claims of one asset and still settle as one unit (TICKET-080).
         ///
-        /// **`None` says this release claims nothing**, and the distinction is load-bearing
-        /// rather than decorative: `Release` is used for two different acts — claiming an
-        /// escrow this program locked, and paying out the asset a route delivered — and the
-        /// rules could only tell them apart by inference (`no_refund_after_claim` requires the
-        /// asset to have been locked, which is one such inference). An inherited default index
-        /// would have made every payout a claim on lock #0, which is what a range check refused
-        /// four cross-chain plans for (TICKET-101).
-        claims: Option<u32>,
+        /// The act is part of the record rather than inferred, and that is load-bearing:
+        /// `no_refund_after_claim` used to keep a lookup to tell a payout from a claim, a range
+        /// check could not be written at all because it read payouts as claims (TICKET-101), and
+        /// a refund's concrete release was indistinguishable from a payout of the same asset,
+        /// which left the builtin invariants false-positiving on well-formed intents
+        /// (TICKET-001).
+        act: ReleaseAct,
     },
 
     // ===== Swap Operations =====

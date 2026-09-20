@@ -10,7 +10,7 @@ use crate::hyperarb;
 use crate::intent_emit;
 use crate::ir::{
     self, ChainMetricKind, Condition, CrdtKind as IrCrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind,
-    SerialFormat, StorageKind, VectorOp, X3IR,
+    ReleaseAct, SerialFormat, StorageKind, VectorOp, X3IR,
 };
 use crate::liquidation;
 use crate::netting;
@@ -469,7 +469,7 @@ pub fn lower_program_with_mode(
                         // delivered. The escrow the source lock created is claimed by the
                         // route's own settlement, and reading this as a claim is what made
                         // `no_refund_after_claim` warn on every canonical example (TICKET-035).
-                        claims: None,
+                        act: ReleaseAct::Payout,
                     });
                 }
 
@@ -824,7 +824,7 @@ pub fn lower_program_with_mode(
                         to: transfer.creditor_account.clone(),
                         // This transfer's own lock, counted among this route's locks in the
                         // order they are written — a claim of the escrow written just above.
-                        claims: Some(
+                        act: ReleaseAct::Claims(
                             u32::try_from(index)
                                 .map_err(|_| semantic("a book has more transfers than a claim index can name"))?,
                         ),
@@ -1227,7 +1227,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                 chain: chain_to_string(chain),
                 asset: asset.name.as_str().to_string(),
                 to: expression_to_string(to),
-                claims: None,
+                act: ReleaseAct::Payout,
             });
         }
         Statement::Swap {
@@ -1411,10 +1411,10 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                         chain: chain.to_ascii_lowercase(),
                         asset,
                         to,
-                        // A refund *returns* the escrow to the payer; it is the inverse of a
-                        // lock rather than a claim on one, which is what `no_refund_after_claim`
-                        // needs to be able to say (TICKET-101).
-                        claims: None,
+                        // A refund *returns* the escrow to the payer: the inverse of a lock,
+                        // and its own act — it is what the `OnTimeout` above describes, emitted
+                        // as the instruction that performs it (TICKET-001).
+                        act: ReleaseAct::Refund,
                     });
                 }
             }

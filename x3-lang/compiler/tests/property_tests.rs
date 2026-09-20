@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 use std::collections::BTreeMap;
 use x3_lang_compiler::emitter::emit_x3ir;
-use x3_lang_compiler::ir::{Operation, X3IR};
+use x3_lang_compiler::ir::{Operation, ReleaseAct, X3IR};
 
 proptest! {
     /// IR emission is deterministic for a weight map with **more than one** entry.
@@ -81,7 +81,7 @@ proptest! {
             chain: "solana".into(),
             asset: "SOL".into(),
             to: "bob".into(),
-            claims: Some(0),
+            act: ReleaseAct::Claims(0),
         });
         let result = emit_x3ir(&ir);
         prop_assert!(result.is_ok(), "Known chain '{}' should emit successfully", chain);

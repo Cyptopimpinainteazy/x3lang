@@ -39,7 +39,7 @@
 //! Diagnostics accumulate via [`ErrorAccumulator`] so a single `check`
 //! call reports every problem rather than failing on the first one.
 
-use crate::ir::{Condition, FailureAction, Operation, X3IR};
+use crate::ir::{Condition, FailureAction, Operation, ReleaseAct, X3IR};
 use std::collections::{HashMap, HashSet};
 use x3_lang_ast::ast::{AtomicSwapDecl, Expression, Item, LiteralExpr, Program};
 use x3_lang_common::{Bps, ErrorAccumulator, Span, Spanned, X3Error};
@@ -2349,7 +2349,7 @@ fn release_lock(op: &Operation) -> Option<(&str, &str)> {
         Operation::Release {
             chain,
             asset,
-            claims: Some(_),
+            act: ReleaseAct::Claims(_),
             ..
         } => Some((chain.as_str(), asset.as_str())),
         _ => None,
@@ -2363,7 +2363,10 @@ fn release_lock(op: &Operation) -> Option<(&str, &str)> {
 /// is what forced a book to settle one transfer per route (TICKET-080).
 fn claimed_lock(op: &Operation) -> Option<u32> {
     match op {
-        Operation::Release { claims, .. } => *claims,
+        Operation::Release {
+            act: ReleaseAct::Claims(index),
+            ..
+        } => Some(*index),
         _ => None,
     }
 }
@@ -3283,7 +3286,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "4Nd1".into(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
             Operation::AtomicBegin,
             Operation::Bridge {
@@ -3319,7 +3322,7 @@ mod tests {
                 chain: "ethereum".into(),
                 asset: "USDC".into(),
                 to: "sender".into(),
-                claims: None,
+                act: ReleaseAct::Payout,
             },
             Operation::OnFail {
                 action: FailureAction::Rollback,
@@ -3363,13 +3366,13 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
             Operation::Release {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "b".into(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
         ]);
         assert!(
@@ -3400,7 +3403,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -3442,7 +3445,7 @@ mod tests {
                 to: "4Nd1".into(),
                 // The destination asset's payout, which claims no lock — which is what this
                 // fixture exists to say, in the IR's own terms now rather than by proxy.
-                claims: None,
+                act: ReleaseAct::Payout,
             },
             Operation::OnTimeout {
                 duration_blocks: 30,
@@ -3482,7 +3485,7 @@ mod tests {
             chain: "solana".into(),
             asset: "USDC".into(),
             to: "a".into(),
-            claims: None,
+            act: ReleaseAct::Payout,
         }]);
         assert!(
             !invariant_violations(&same_chain)
@@ -3498,7 +3501,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "a".into(),
-                claims: None,
+                act: ReleaseAct::Payout,
             },
             Operation::Bridge {
                 via: "x3".into(),
@@ -3689,7 +3692,7 @@ mod tests {
                 chain: "ethereum".into(),
                 asset: "ETH".into(),
                 to: "0x1".into(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
         ];
         let outcome = verify_collect(&ir, DEFAULT_MAX_ATOMIC_OPS, DEFAULT_MAX_ROUTE_HOPS, None);
@@ -4627,7 +4630,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "alice".into(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
             Operation::Release {
                 chain: "solana".into(),
@@ -4635,7 +4638,7 @@ mod tests {
                 to: "bob".into(),
                 // The same lock, claimed a second time — which is the violation, and the
                 // index is how the rule can now tell that from two claims of two locks.
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
             Operation::AtomicEnd,
         ];
@@ -4672,7 +4675,7 @@ mod tests {
                 chain: "solana".into(),
                 asset: "USDC".into(),
                 to: "alice".into(),
-                claims: None,
+                act: ReleaseAct::Payout,
             },
             Operation::AtomicEnd,
         ];
@@ -4820,7 +4823,7 @@ mod refund_path_tests {
                 chain: "ethereum".into(),
                 asset: "USDC".into(),
                 to: "0xB1".into(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
             Operation::AtomicEnd,
         ]);
@@ -4865,7 +4868,7 @@ mod refund_path_tests {
                 chain: "ethereum".into(),
                 asset: "ETH".into(),
                 to: "0xB1".into(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
             Operation::AtomicEnd,
         ]);

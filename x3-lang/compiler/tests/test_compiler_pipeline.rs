@@ -3,6 +3,7 @@
 
 use x3_lang_ast::ast::*;
 use x3_lang_common::{IntBase, Span, Spanned, Symbol};
+use x3_lang_compiler::ir::ReleaseAct;
 use x3_lang_compiler::{compile_program, compile_source, compile_to_ir, parser::parse_source, Operation};
 
 fn lit_int(value: u128) -> Expression {
@@ -131,7 +132,7 @@ fn test_ir_operation_types() {
         chain: "x3".to_string(),
         asset: "USDC".to_string(),
         to: "x3_addr".to_string(),
-        claims: None,
+        act: ReleaseAct::Payout,
     };
 
     let _swap = Operation::Swap {

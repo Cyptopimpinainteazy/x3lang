@@ -11,7 +11,7 @@
 //! and `no_double_claim` refused it. The claim now names a lock by its position among the
 //! route's, which is a pairing a replayer can check rather than infer.
 
-use x3_lang_compiler::ir::{Operation, ProgramMetadata, X3IR};
+use x3_lang_compiler::ir::{Operation, ProgramMetadata, ReleaseAct, X3IR};
 use x3_lang_compiler::semantic::CompilationMode;
 
 /// A book whose residual is **two transfers of one asset** — the case that needed one route per
@@ -48,7 +48,10 @@ fn lock_to_release(ir: &X3IR) -> Vec<(usize, Option<u32>)> {
     for op in &ir.operations {
         match op {
             Operation::Lock { .. } => locks += 1,
-            Operation::Release { claims, .. } => pairs.push((locks, *claims)),
+            Operation::Release {
+                act: ReleaseAct::Claims(index),
+                ..
+            } => pairs.push((locks, Some(*index))),
             _ => {}
         }
     }
@@ -111,7 +114,7 @@ fn the_pairing_reaches_the_artifact() {
     let trace = x3_lang_compiler::emitter::disassemble(&bytecode).expect("its own artifact must disassemble");
 
     assert!(
-        trace.contains("claims: Some(0)") && trace.contains("claims: Some(1)"),
+        trace.contains("act: Claims(0)") && trace.contains("act: Claims(1)"),
         "both claims must be readable out of the artifact:\n{trace}"
     );
 }
@@ -133,13 +136,13 @@ fn a_route_claiming_one_lock_twice_is_refused() {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xB1".into(),
-            claims: Some(0),
+            act: ReleaseAct::Claims(0),
         },
         Operation::Release {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xC1".into(),
-            claims: Some(0),
+            act: ReleaseAct::Claims(0),
         },
         Operation::AtomicEnd,
     ]);
@@ -170,7 +173,7 @@ fn a_route_claiming_one_lock_twice_is_refused() {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xB1".into(),
-            claims: Some(0),
+            act: ReleaseAct::Claims(0),
         },
         Operation::Lock {
             chain: "ethereum".into(),
@@ -182,7 +185,7 @@ fn a_route_claiming_one_lock_twice_is_refused() {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xB1".into(),
-            claims: Some(1),
+            act: ReleaseAct::Claims(1),
         },
         Operation::AtomicEnd,
     ]);
@@ -203,7 +206,7 @@ fn a_payout_claims_no_lock_and_is_not_checked_against_the_route() {
             chain: "solana".into(),
             asset: "SOL".into(),
             to: "4Nd1".into(),
-            claims: None,
+            act: ReleaseAct::Payout,
         },
         Operation::AtomicEnd,
     ]);
@@ -227,7 +230,7 @@ fn a_claim_naming_a_lock_the_route_does_not_have_is_refused() {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xB1".into(),
-            claims: Some(3),
+            act: ReleaseAct::Claims(3),
         },
         Operation::AtomicEnd,
     ]);
@@ -254,7 +257,7 @@ fn a_claim_outside_an_atomic_route_is_refused() {
             chain: "ethereum".into(),
             asset: "USDC".into(),
             to: "0xB1".into(),
-            claims: Some(0),
+            act: ReleaseAct::Claims(0),
         },
     ]);
     let errors = x3_lang_compiler::verify::verify_ir(&ir).expect_err("a claim outside a route");
@@ -262,5 +265,43 @@ fn a_claim_outside_an_atomic_route_is_refused() {
     assert!(
         rendered.contains("not inside an atomic route"),
         "the refusal must say why there is no lock to name: {rendered}"
+    );
+}
+
+/// `Release` performs three acts and the IR says which, so a reader — and an invariant — can tell
+/// a destination payout from the release a refund performs (TICKET-001).
+///
+/// This is the shape `examples/timeout_refund.x3` has, and the two looked identical before: one
+/// `Release` opcode, one shape, nothing to distinguish the endpoint's payout from the refund's
+/// concrete instruction. Every rule that reasoned about them inferred which was which, and the
+/// builtin invariants inferred wrong until they were scoped away from the case (TICKET-002).
+#[test]
+fn a_refund_performs_a_different_act_from_a_destination_payout() {
+    let source = "intent refunds {\n    from ethereum.USDC amount 100 receiver 0xA1\n    to \
+                  solana.USDC receiver 0xB1\n    require slippage <= 50\n    timeout 30s refund \
+                  ethereum.USDC to sender\n}\n";
+    let ir = lowered(source);
+    let acts: Vec<String> = ir
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Release { act, .. } => Some(format!("{act:?}")),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        acts.iter().any(|act| act == "Payout"),
+        "the destination endpoint pays out: {acts:?}"
+    );
+    assert!(
+        acts.iter().any(|act| act == "Refund"),
+        "and the timeout's refund is its own act, not a second payout: {acts:?}"
+    );
+    // The distinction is not decorative: it is what the acts exist to say.
+    assert_ne!(
+        acts.iter().filter(|act| *act == "Payout").count(),
+        acts.len(),
+        "if every release were a payout the opcode would still be ambiguous: {acts:?}"
     );
 }

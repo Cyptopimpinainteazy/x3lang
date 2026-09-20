@@ -1,5 +1,7 @@
 //! Typed binary payloads for X3 capability opcodes.
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CapabilityPayload {
     GpuDispatch {
@@ -210,6 +212,25 @@ pub enum CapabilityPayload {
     },
 }
 
+/// What a `Release` **does**. One opcode, three acts (TICKET-001).
+///
+/// `Release` carried three meanings and said none of them, so every rule that reasoned about it
+/// inferred which one from context: `no_refund_after_claim` kept a lookup to tell a payout from a
+/// claim, and a range check could not be written at all because it read payouts as claims
+/// (TICKET-101). A refund's concrete release was indistinguishable from a payout of the same
+/// asset, which is what left the builtin invariants false-positiving on well-formed intents until
+/// they were scoped away from it (TICKET-002).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReleaseAct {
+    /// Pays out the asset a route delivered, or an asset the program holds. Claims no escrow.
+    Payout,
+    /// Claims the lock at this index among its route's locks.
+    Claims(u32),
+    /// Returns an escrow to its payer: the concrete instruction a refund handler's
+    /// `FailureAction::Refund` produces. The inverse of a lock, and neither of the other two.
+    Refund,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssetOpPayload {
     /// `lock chain.ASSET amount V from ADDR` — escrow `amount` on the source chain.
@@ -250,15 +271,12 @@ pub enum AssetOpPayload {
         chain: String,
         asset: String,
         to: String,
-        /// The index of the lock this release claims within its atomic route, counted among
-        /// that route's `Lock`s in order, or **`None` when it claims nothing** — the record a
-        /// route writes when it pays out the asset it delivered rather than claiming an escrow.
-        ///
-        /// A tag byte precedes the index, so the absence is *written* rather than inferred from
-        /// a sentinel — the same shape as a venue stating no settlement. Appended to this record
+        /// Which of the three acts this release performs. A tag byte carries it, and the index
+        /// follows only for a claim, so the act is *written* rather than inferred from a
+        /// sentinel — the same shape as a venue stating no settlement. Appended to this record
         /// rather than inserted, so a payload written before the fields existed ends early and
-        /// is **refused** as short rather than read as a whole claim.
-        claims: Option<u32>,
+        /// is **refused** as short rather than read as a whole release.
+        act: ReleaseAct,
     },
     Swap {
         from_chain: String,
@@ -585,23 +603,18 @@ pub fn encode_asset_op_payload(payload: &AssetOpPayload) -> Result<Vec<u8>, Capa
             write_u128(&mut out, *amount);
             write_string(&mut out, from)?;
         }
-        AssetOpPayload::Release {
-            chain,
-            asset,
-            to,
-            claims,
-        } => {
+        AssetOpPayload::Release { chain, asset, to, act } => {
             write_string(&mut out, chain)?;
             write_string(&mut out, asset)?;
             write_string(&mut out, to)?;
-            // A tag byte rather than a sentinel index: `claims: Some(0)` and "claims nothing"
-            // are different facts and neither may be spelled as the other.
-            match claims {
-                Some(index) => {
+            // A tag byte per act: three acts that must not be spelled as one another.
+            match act {
+                ReleaseAct::Payout => write_u8(&mut out, 0),
+                ReleaseAct::Claims(index) => {
                     write_u8(&mut out, 1);
                     write_u32(&mut out, *index);
                 }
-                None => write_u8(&mut out, 0),
+                ReleaseAct::Refund => write_u8(&mut out, 2),
             }
         }
         AssetOpPayload::Swap {
@@ -650,11 +663,12 @@ pub fn decode_asset_op_payload(opcode: u8, bytes: &[u8]) -> Result<AssetOpPayloa
             chain: reader.read_string()?,
             asset: reader.read_string()?,
             to: reader.read_string()?,
-            claims: match reader.read_u8()? {
-                0 => None,
-                1 => Some(reader.read_u32()?),
+            act: match reader.read_u8()? {
+                0 => ReleaseAct::Payout,
+                1 => ReleaseAct::Claims(reader.read_u32()?),
+                2 => ReleaseAct::Refund,
                 // A tag the encoder never writes is a record this reader does not understand,
-                // and reading it as "no claim" would be the inference the tag exists to remove.
+                // and reading it as one of the three would be the inference the tag removed.
                 other => return Err(CapabilityCodecError::UnknownTag(other)),
             },
         },

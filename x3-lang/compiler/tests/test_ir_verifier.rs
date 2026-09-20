@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use x3_lang_compiler::diagnostic::DiagnosticCode;
 use x3_lang_compiler::ir::{
     AssetKey, ComparisonOp, CompiledTradingPolicy, Condition, CostKind, FailureAction, InvariantKind, Operation,
-    ProgramMetadata, RequireKind, StateBindingMode, SubmissionProfile, TradingOperation, ValueRef, X3IR,
+    ProgramMetadata, ReleaseAct, RequireKind, StateBindingMode, SubmissionProfile, TradingOperation, ValueRef, X3IR,
 };
 use x3_lang_compiler::verify::verify_ir;
 
@@ -643,7 +643,7 @@ fn the_operations_a_netting_book_lowers_to_pass_the_structural_verifier() {
             chain: "ethereum".to_owned(),
             asset: "USDC".to_owned(),
             to: "0xB1".to_owned(),
-            claims: Some(0),
+            act: ReleaseAct::Claims(0),
         },
         Operation::Lock {
             chain: "ethereum".to_owned(),
@@ -655,7 +655,7 @@ fn the_operations_a_netting_book_lowers_to_pass_the_structural_verifier() {
             chain: "ethereum".to_owned(),
             asset: "USDC".to_owned(),
             to: "0xB1".to_owned(),
-            claims: Some(0),
+            act: ReleaseAct::Claims(0),
         },
         Operation::AtomicEnd,
     ]);

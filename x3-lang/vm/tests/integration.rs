@@ -1,3 +1,5 @@
+use x3_lang_common::capability::ReleaseAct;
+
 #[test]
 fn run_simple_add() {
     use x3_lang_vm::VMConfig;
@@ -78,7 +80,7 @@ fn compiler_asset_op_payloads_execute_with_real_fields() {
         chain: "ethereum".into(),
         asset: "USDC".into(),
         to: "0xsender".into(),
-        claims: None,
+        act: ReleaseAct::Payout,
     });
     ir.push(Operation::Swap {
         from_chain: "ethereum".into(),
@@ -119,7 +121,7 @@ fn compiler_asset_op_payloads_execute_with_real_fields() {
                 chain: "ethereum".into(),
                 asset: "USDC".into(),
                 to: "0xsender".into(),
-                claims: None,
+                act: ReleaseAct::Payout,
             },
             AssetOpPayload::Swap {
                 from_chain: "ethereum".into(),

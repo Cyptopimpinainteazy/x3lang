@@ -7,7 +7,7 @@
 //! input a participant could use to buy position — PHASE 30 forbids unfair ordering
 //! mechanisms, and the surest way to have none is to have no parameter for one.
 
-use x3_lang_compiler::ir::{Operation, ProgramMetadata, X3IR};
+use x3_lang_compiler::ir::{Operation, ProgramMetadata, ReleaseAct, X3IR};
 use x3_lang_compiler::lanes::{self, Lane, Queued};
 
 /// A program with exactly the operations a test wants to classify.
@@ -85,7 +85,7 @@ fn a_program_that_only_moves_value_is_in_the_settlement_lane() {
                 chain: "ethereum".to_owned(),
                 asset: "USDC".to_owned(),
                 to: "receiver".to_owned(),
-                claims: Some(0),
+                act: ReleaseAct::Claims(0),
             },
         ]),
         Lane::Settlement

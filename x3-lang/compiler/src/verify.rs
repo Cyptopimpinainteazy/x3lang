@@ -4,7 +4,7 @@
 //! invariants that should never be delegated to an emitter or runtime decoder.
 
 use crate::diagnostic::{CompilerDiagnostic, DiagnosticCode};
-use crate::ir::{AssetKey, Condition, Operation, TradingOperation, ValueRef, X3IR};
+use crate::ir::{AssetKey, Condition, Operation, ReleaseAct, TradingOperation, ValueRef, X3IR};
 use std::collections::{BTreeMap, BTreeSet};
 use x3_lang_common::{Bps, Span};
 
@@ -468,12 +468,7 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                     );
                 }
             }
-            Operation::Release {
-                chain,
-                asset,
-                to,
-                claims,
-            } => {
+            Operation::Release { chain, asset, to, act } => {
                 require_non_empty(diagnostics, &op_context, "chain", chain);
                 require_non_empty(diagnostics, &op_context, "asset", asset);
                 require_non_empty(diagnostics, &op_context, "to", to);
@@ -481,7 +476,7 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
                 // what lets this check exist at all: the first attempt at it had to guess which
                 // of the two a release was, refused payouts, and failed four cross-chain
                 // parallel-plan tests (TICKET-101).
-                if let Some(index) = claims {
+                if let ReleaseAct::Claims(index) = act {
                     if atomic_depth == 0 {
                         push_unsafe(
                             diagnostics,
