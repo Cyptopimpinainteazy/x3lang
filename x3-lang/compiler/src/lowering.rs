@@ -1275,6 +1275,21 @@ pub fn lower_program_with_mode(
 fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common::X3Error> {
     match stmt {
         Statement::Expr(expr) => {
+            // An expression statement that calls something has an effect; one that does not is a line
+            // the author believed was a declaration. `transfer_proof eth_receipt` written on its own
+            // line after a bridge — the step's option, meant to be part of the step — parses as two
+            // identifier statements, does nothing, and `x3c check` says `ok` (TICKET-037). The same
+            // shape swallows a stray `to sender` after a half-written clause. A statement is a call or
+            // it is refused by name, which is the rule a declaration nothing reads follows.
+            if !matches!(expr, Expression::Call { .. }) {
+                return Err(semantic(&format!(
+                    "`{}` is a statement with no effect: it calls nothing and sets nothing, so the line \
+                     would reach the artifact as nothing at all. A clause option belongs on the \
+                     statement it modifies (write `bridge … transfer_proof <name>`), an expression \
+                     belongs where its value is used, and a call is a statement",
+                    expression_to_string(expr)
+                )));
+            }
             // Lower expression (may produce multiple operations)
             lower_expression(expr, ir)?;
         }

@@ -419,7 +419,6 @@ mod every_clause_stops_a_valueless_guard {
         ("amount", "    amount 500"),
         ("receiver", "    receiver sol.wallet.owner"),
         ("hashlock", "    hashlock sha256(secret)"),
-        ("min_output", "    min_output 400"),
         ("timeout", "    timeout source 40m"),
         ("finality", "    require finality.eth >= 12"),
     ];
@@ -517,6 +516,10 @@ mod every_clause_stops_a_valueless_guard {
 
     /// Which words these fixtures exercise, so a reader knows what the two tests above do and
     /// do not cover. The rest of the list — `path`, `allow`, `on`, `proofs`, `min_output`,
+    /// `min_output` is absent deliberately: it begins a clause of a `swap` **step** (inside a route),
+    /// and an `atomic swap` declaration has no such field — writing `min_output` in that body is a
+    /// statement with no effect, which the lowering refuses by name (TICKET-037's fix surfaced it).
+    ///
     /// `net_output`, `replace`, `leg`, `choose`, `repay`, `borrow`, `balance`, `net_profit` —
     /// begins clauses in a route, a strategy or a trading body, and reaching them means writing
     /// a valid fixture for each of those grammars. Named rather than implied: a test that covers
@@ -532,19 +535,8 @@ mod every_clause_stops_a_valueless_guard {
         assert_eq!(
             exercised,
             [
-                "allow",
-                "amount",
-                "finality",
-                "from",
-                "hashlock",
-                "min_output",
-                "on",
-                "on_fail",
-                "receiver",
-                "route",
-                "timeout",
-                "to",
-                "use"
+                "allow", "amount", "finality", "from", "hashlock", "on", "on_fail", "receiver", "route", "timeout",
+                "to", "use"
             ]
             .into_iter()
             .collect::<std::collections::BTreeSet<&str>>(),
