@@ -510,3 +510,17 @@ fn a_sponsored_program_asks_the_host_for_both_annotations() {
         "`@sponsor` asks for the fee and states no arguments: {trace}"
     );
 }
+
+#[test]
+fn an_annotated_function_emits_its_own_entry_and_exit() {
+    // `@hot` and `@audit` are lowered from the annotation, not from a statement, and they are
+    // the other shape an event takes: no fields at all. The verifier refuses an event whose
+    // *name* is empty — a record that names nothing cannot be dispatched on — and this is the
+    // case that shows the rule is the name and not a field count.
+    let (_, trace) = compile_and_run("@hot\nfn main() { }");
+    assert!(
+        trace.contains("EmitEvent { name: \"hot_enter\", fields: [] }")
+            && trace.contains("EmitEvent { name: \"hot_exit\", fields: [] }"),
+        "`@hot` marks the body's entry and exit as events that carry nothing: {trace}"
+    );
+}
