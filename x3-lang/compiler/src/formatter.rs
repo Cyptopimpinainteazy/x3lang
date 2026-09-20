@@ -39,7 +39,13 @@ fn is_sender_default(expression: &Expression) -> bool {
 ///
 /// `None` when the expression is not that shape, which is every refund written
 /// as an expression rather than as an asset and a receiver.
-fn refund_target(expression: &Expression) -> Option<(String, String)> {
+/// The asset and receiver a folded refund clause carries, or `None`.
+///
+/// Public because the *reader* that wants it is not the formatter: `x3c refund` reported a refund's
+/// target as `Literal(String(Symbol("Ethereum.USDC:sender")))` — the compiler's own `Debug` output,
+/// which is the defect the event payloads had. One splitter, so a second reader cannot invent a
+/// second reading of the same clause.
+pub fn refund_target(expression: &Expression) -> Option<(String, String)> {
     let Expression::Literal(LiteralExpr::String(text)) = expression else {
         return None;
     };

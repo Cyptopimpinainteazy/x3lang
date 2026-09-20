@@ -4101,3 +4101,41 @@ fn cli_refuses_a_receipt_whose_contents_moved_after_signing() {
         "the refusal must be about the receipt's own hash: {report}"
     );
 }
+
+/// `x3c refund` reports what the program states, and does not announce a transaction it never sent.
+///
+/// Three defects in one command, found by running it: it read only the `Int` literal shape, so a
+/// program saying `timeout 45s` was reported as "Timeout duration: 0s"; it printed
+/// "Refund submitted — transaction pending confirmation" for a submission it has no way to make (no
+/// chain connection, no key — the fabricated evidence AGENTS.md forbids); and it printed the refund's
+/// target as the compiler's `Debug` output (`Literal(String(Symbol("Ethereum.USDC:sender")))`).
+#[test]
+fn refund_reports_the_program_and_claims_nothing() {
+    let fixture = write_fixture(
+        "cli_refund_plan.x3",
+        "intent plan {\n    from ethereum.USDC amount 1_000 receiver 0x1111111111111111111111111111111111111111\n    \
+         to solana.SOL receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge x3 \
+         ethereum.USDC -> solana.SOL amount 1_000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    }\n    \
+         require slippage <= 50\n    timeout 45s refund ethereum.USDC to sender\n}\n",
+    );
+    let out = x3c().arg("refund").arg(&fixture).output().expect("x3c refund");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        text.contains("Timeout duration: 45s"),
+        "the duration is the one the program wrote (`45s` is a Duration literal, not an Int): {text}"
+    );
+    assert!(
+        text.contains("ethereum.USDC to sender") && !text.contains("Literal(String(Symbol"),
+        "the target is read by a person, not by a `Debug` impl: {text}"
+    );
+    for claim in ["Refund submitted", "pending confirmation", "Triggering refund"] {
+        assert!(
+            !text.contains(claim),
+            "this command has no chain connection, so it must not claim `{claim}`: {text}"
+        );
+    }
+}

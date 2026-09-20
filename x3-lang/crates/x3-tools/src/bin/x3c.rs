@@ -2720,23 +2720,40 @@ fn cmd_refund(intent_hash: &str, check_only: bool) -> Result<ExitCode, String> {
                 match stmt {
                     x3_lang_ast::ast::Statement::OnTimeout { duration, action } => {
                         has_timeout = true;
-                        if let x3_lang_ast::ast::Expression::Literal(x3_lang_ast::ast::LiteralExpr::Int {
-                            value, ..
-                        }) = duration
-                        {
-                            timeout_duration = *value as u64;
-                        }
+                        // `45s` is a **Duration** literal, not an `Int`: reading only the integer shape
+                        // reported "Timeout duration: 0s" for a program that states 45 seconds. The
+                        // unit travels with it, so the report names the one the program wrote and
+                        // does the conversion in the same place the lowering does (`blocks_from_duration`).
+                        timeout_duration = match duration {
+                            x3_lang_ast::ast::Expression::Literal(x3_lang_ast::ast::LiteralExpr::Int {
+                                value, ..
+                            }) => u64::try_from(*value).unwrap_or(u64::MAX),
+                            x3_lang_ast::ast::Expression::Literal(x3_lang_ast::ast::LiteralExpr::Duration {
+                                value,
+                                ..
+                            }) => *value,
+                            _ => 0,
+                        };
                         if matches!(action, x3_lang_ast::ast::FailureAction::Refund(_)) {
                             refund_action = Some("refund".into());
                             if let x3_lang_ast::ast::FailureAction::Refund(target) = action {
-                                refund_target = Some(format!("{:?}", target));
+                                // The clause's own two parts rather than the compiler's `Debug` output:
+                                // `Literal(String(Symbol("Ethereum.USDC:sender")))` is the AST, and a
+                                // report is read by a person. One splitter, shared with the formatter.
+                                refund_target = Some(match x3_lang_compiler::formatter::refund_target(target) {
+                                    Some((asset, receiver)) => format!("{asset} to {receiver}"),
+                                    None => format!("{:?}", target),
+                                });
                             }
                         }
                     }
                     x3_lang_ast::ast::Statement::OnFail(x3_lang_ast::ast::FailureAction::Refund(target)) => {
                         has_refund_path = true;
                         refund_action = Some("refund".into());
-                        refund_target = Some(format!("{:?}", target));
+                        refund_target = Some(match x3_lang_compiler::formatter::refund_target(target) {
+                            Some((asset, receiver)) => format!("{asset} to {receiver}"),
+                            None => format!("{:?}", target),
+                        });
                     }
                     x3_lang_ast::ast::Statement::Require(guard) => {
                         if matches!(guard.kind, x3_lang_ast::ast::RequireKind::RefundPath) {
@@ -2760,7 +2777,16 @@ fn cmd_refund(intent_hash: &str, check_only: bool) -> Result<ExitCode, String> {
             if refund_path_exists { "present" } else { "missing" }
         );
         if refund_path_exists {
-            println!("Refund path verified — conditions met for refund trigger");
+            // What this command *did*: it read the source and found the path. It has no chain
+            // connection, so it cannot submit anything — and the line here used to say
+            // "Refund submitted — transaction pending confirmation", which is a transaction nobody
+            // sent. An inspection that announces an on-chain action is the fabricated evidence
+            // AGENTS.md forbids and the settlement report had to retract once already.
+            println!("Refund path verified — the path is present in the program");
+            println!(
+                "This command does not submit a refund: it has no chain connection. Submitting one is \
+                 the timeout/refund engine's job, on a node that holds the key"
+            );
             Ok(ExitCode::SUCCESS)
         } else {
             println!("No valid refund path found");
@@ -2774,8 +2800,13 @@ fn cmd_refund(intent_hash: &str, check_only: bool) -> Result<ExitCode, String> {
         println!("Refund target: {}", refund_target.as_deref().unwrap_or("none"));
         if refund_path_exists {
             println!();
-            println!("Triggering refund for intent...");
-            println!("Refund submitted — transaction pending confirmation");
+            // See the check-only branch: this does not submit, and saying it did is a fabricated
+            // transaction. The plan is reported, and what would submit it is named.
+            println!("Refund path: present — nothing is submitted by this command");
+            println!(
+                "To trigger it, hand the artifact to the timeout/refund engine on a node that holds \
+                 the key; this tool cannot, and says so rather than printing a confirmation"
+            );
         } else {
             println!();
             println!("Cannot trigger refund — no valid refund path in intent");
