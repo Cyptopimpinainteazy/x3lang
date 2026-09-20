@@ -692,7 +692,7 @@ pub fn lower_program_with_mode(
                     // decide. That program fails at emission with the message written for it, and
                     // measuring it here must not move that refusal to a stage whose diagnostics are
                     // about lowering.
-                    if let Some(gas) = module_gas(&ir.operations[module_steps_from..])? {
+                    if let Some((gas, _)) = module_cost(&ir.operations[module_steps_from..])? {
                         if gas > declared {
                             return Err(semantic(&format!(
                                 "strategy '{}' declares `max_gas {declared}` and its body's operations \
@@ -701,6 +701,79 @@ pub fn lower_program_with_mode(
                                 strategy.name.as_str()
                             )));
                         }
+                    }
+                }
+                // PHASE 41's own block: five caps, checked against the figures this compiler has.
+                if let Some(resources) = &strategy.resources {
+                    let module_ops = &ir.operations[module_steps_from..];
+                    let bound = |cap: &Option<Expression>| -> Option<u128> {
+                        cap.as_ref().and_then(|value| expression_to_u128(value).ok())
+                    };
+                    // `max_compute` is the count `max_steps` bounds: the VM charges instructions in
+                    // the same unit for both, so they are checked against one figure rather than two.
+                    if let Some(declared) = bound(&resources.max_compute) {
+                        let steps = module_ops.len() as u128;
+                        if steps > declared {
+                            return Err(semantic(&format!(
+                                "strategy '{}' declares `resources {{ max_compute {declared} }}` and its \
+                                 body lowers to {steps} operations: the cap is on what the module does, \
+                                 so a body that exceeds it is refused rather than published as bounded",
+                                strategy.name.as_str()
+                            )));
+                        }
+                    }
+                    if let Some(declared) = bound(&resources.max_network_calls) {
+                        if let Some((_, calls)) = module_cost(module_ops)? {
+                            if calls as u128 > declared {
+                                return Err(semantic(&format!(
+                                    "strategy '{}' declares `resources {{ max_network_calls {declared} \
+                                     }}` and its body makes {calls} call(s) that leave the VM for a host \
+                                     adapter: the cap is a count of host-facing instructions, and this \
+                                     body has more",
+                                    strategy.name.as_str()
+                                )));
+                            }
+                        }
+                    }
+                    // A route's hops: a `swap` or a `bridge` is one leg of one, which is the graph the
+                    // phase's cap exists to keep from growing without bound.
+                    if let Some(declared) = bound(&resources.max_routes) {
+                        let routes = module_ops
+                            .iter()
+                            .filter(|op| matches!(op, Operation::Swap { .. } | Operation::Bridge { .. }))
+                            .count() as u128;
+                        if routes > declared {
+                            return Err(semantic(&format!(
+                                "strategy '{}' declares `resources {{ max_routes {declared} }}` and its \
+                                 body takes {routes} hop(s)",
+                                strategy.name.as_str()
+                            )));
+                        }
+                    }
+                    if let Some(declared) = bound(&resources.max_branches) {
+                        let branches = module_ops
+                            .iter()
+                            .filter(|op| matches!(op, Operation::If { .. } | Operation::AtomicChoice { .. }))
+                            .count() as u128;
+                        if branches > declared {
+                            return Err(semantic(&format!(
+                                "strategy '{}' declares `resources {{ max_branches {declared} }}` and its \
+                                 body contains {branches} decision(s)",
+                                strategy.name.as_str()
+                            )));
+                        }
+                    }
+                    // The one cap this VM cannot back, refused rather than accepted: the phase's own
+                    // purpose for the block is "prevent pathological execution graphs", and a memory
+                    // cap here would be a number nothing measures — the rule `audit_gate` and the
+                    // seven inert declarations follow.
+                    if resources.max_memory.is_some() {
+                        return Err(semantic(&format!(
+                            "strategy '{}' declares `resources {{ max_memory … }}`, and this VM has no \
+                             memory model to bound: it holds registers and a call stack, and nothing \
+                             charges for memory, so the cap would be a number nothing measures",
+                            strategy.name.as_str()
+                        )));
                     }
                 }
             }
@@ -2524,7 +2597,7 @@ pub(crate) fn expression_to_string(expr: &Expression) -> String {
 /// The header every artifact carries (the version byte, the version binding) is subtracted by
 /// measuring an empty program once and taking the difference, so the number is the module's own
 /// cost rather than the module's plus a constant that would make the cap stricter than it reads.
-fn module_gas(ops: &[Operation]) -> Result<Option<u128>, x3_lang_common::X3Error> {
+fn module_cost(ops: &[Operation]) -> Result<Option<(u128, usize)>, x3_lang_common::X3Error> {
     let Ok(header_bytes) = crate::emitter::emit_x3ir(&ir::X3IR::new()) else {
         return Ok(None);
     };
@@ -2534,8 +2607,12 @@ fn module_gas(ops: &[Operation]) -> Result<Option<u128>, x3_lang_common::X3Error
     let Ok(module_bytes) = crate::emitter::emit_x3ir(&module) else {
         return Ok(None);
     };
-    let total = crate::cost::estimate_artifact(&module_bytes)?.base_weight;
-    Ok(Some(total.saturating_sub(header)))
+    let estimate = crate::cost::estimate_artifact(&module_bytes)?;
+    // `host_facing` needs no subtraction: the header record is not a host call.
+    Ok(Some((
+        estimate.base_weight.saturating_sub(header),
+        estimate.host_facing,
+    )))
 }
 
 fn expression_to_u128(expr: &Expression) -> Result<u128, x3_lang_common::X3Error> {

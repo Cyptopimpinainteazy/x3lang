@@ -923,6 +923,28 @@ impl X3Formatter {
             self.write(" ");
         }
         self.write("}\n");
+        // PHASE 41's own block, written back where the program put it. It was dropped here — the
+        // formatter had no arm for it, which is the defect the annotations had one construct over:
+        // a declaration the writer does not know about is a declaration `x3c fmt` deletes.
+        if let Some(resources) = &s.resources {
+            self.write_indent();
+            self.write("resources { ");
+            for (name, value) in [
+                ("max_compute", &resources.max_compute),
+                ("max_memory", &resources.max_memory),
+                ("max_network_calls", &resources.max_network_calls),
+                ("max_routes", &resources.max_routes),
+                ("max_branches", &resources.max_branches),
+            ] {
+                if let Some(value) = value {
+                    self.write(name);
+                    self.write(" = ");
+                    self.format_expression(value);
+                    self.write("; ");
+                }
+            }
+            self.write("}\n");
+        }
         self.write_indent();
         self.write("execute {\n");
         self.indent();

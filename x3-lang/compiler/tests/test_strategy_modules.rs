@@ -539,3 +539,153 @@ mod the_declared_step_cap_bounds_the_body {
         );
     }
 }
+
+/// PHASE 41's own `resources { … }` block, and which of its five caps the compiler can back.
+///
+/// The phase writes `resources { max_compute = …; max_memory = …; max_network_calls = …; max_routes
+/// = …; max_branches = …; }`; the implementation had two caps under a different block name. Four of
+/// the five have a figure this compiler holds, and the fifth is refused by name rather than accepted
+/// as a number nothing measures.
+mod the_phases_own_resource_caps {
+    use super::module;
+
+    /// A module with the phase's block, over a body whose figures the caller chooses.
+    fn with_resources(resources: &str, body: &str) -> String {
+        let sections = format!(
+            "    effects [swap]\n    domains [ethereum]\n    risk {{ max_slippage_bps 50 \
+             max_total_fee_bps 8 }}\n    bounds {{ max_steps 1_000 max_gas 200_000 }}\n    \
+             resources {{ {resources} }}\n"
+        );
+        module(body, &sections)
+    }
+
+    const SWAP_BODY: &str = "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        \
+                             require slippage <= 50\n        on_fail refund ethereum.USDC to sender";
+
+    #[test]
+    fn max_compute_bounds_the_body_in_the_same_unit_as_max_steps() {
+        let found = super::errors(&with_resources("max_compute = 1;", SWAP_BODY));
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("max_compute 1") && error.contains("lowers to")),
+            "the phase's word for the count bounds the same figure: {found:?}"
+        );
+        assert!(
+            super::errors(&with_resources("max_compute = 100;", SWAP_BODY)).is_empty(),
+            "a cap the body fits is accepted"
+        );
+    }
+
+    #[test]
+    fn max_network_calls_counts_what_leaves_the_vm() {
+        // A swap is executed by the VM; `mempool_scan` is a call the host answers, so it is the one
+        // the cap counts.
+        let with_a_call = "        mempool_scan(max_results=10);\n        swap uniswap ethereum.USDC -> \
+                           ethereum.ETH amount 1000 min_output 1\n        require slippage <= 50\n        \
+                           on_fail refund ethereum.USDC to sender";
+        let refused = super::errors(&with_resources("max_network_calls = 0;", with_a_call));
+        assert!(
+            refused.iter().any(|error| error.contains("max_network_calls 0")),
+            "a body that calls the host meets a cap of zero calls: {refused:?}"
+        );
+        assert!(
+            super::errors(&with_resources("max_network_calls = 1;", with_a_call)).is_empty(),
+            "and one call is room for it"
+        );
+        assert!(
+            super::errors(&with_resources("max_network_calls = 0;", SWAP_BODY)).is_empty(),
+            "a body with no host call meets a cap of zero — the cap counts calls, not instructions"
+        );
+    }
+
+    #[test]
+    fn max_routes_bounds_the_hops() {
+        let found = super::errors(&with_resources("max_routes = 0;", SWAP_BODY));
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("max_routes 0") && error.contains("hop")),
+            "a route's hop is a swap or a bridge, and this body takes one: {found:?}"
+        );
+        assert!(
+            super::errors(&with_resources("max_routes = 1;", SWAP_BODY)).is_empty(),
+            "one hop is what it takes"
+        );
+    }
+
+    #[test]
+    fn max_branches_bounds_the_decisions() {
+        let branching = "        if 1 > 0 { mempool_scan(max_results=1); }\n        swap uniswap \
+                         ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        require slippage \
+                         <= 50\n        on_fail refund ethereum.USDC to sender";
+        let found = super::errors(&with_resources("max_branches = 0;", branching));
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("max_branches 0") && error.contains("decision")),
+            "a decided `if` is still a decision the module contains: {found:?}"
+        );
+        assert!(
+            super::errors(&with_resources("max_branches = 1;", branching)).is_empty(),
+            "and one decision fits a cap of one"
+        );
+    }
+
+    #[test]
+    fn max_memory_is_refused_because_nothing_measures_it() {
+        let found = super::errors(&with_resources("max_memory = 1024;", SWAP_BODY));
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("max_memory") && error.contains("no memory model")),
+            "the one cap this VM cannot back is refused by name: {found:?}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_resources_field_is_refused_by_name() {
+        let found = super::errors(&with_resources("max_gas_again = 1;", SWAP_BODY));
+        assert!(
+            found.iter().any(|error| error.contains("unknown resources field")),
+            "the vocabulary is closed, so a misspelling is not a cap nothing checks: {found:?}"
+        );
+    }
+}
+
+/// A declaration the formatter does not know about is a declaration `x3c fmt` deletes.
+///
+/// The `resources` block was dropped by the formatter for exactly that reason — the writer had no
+/// arm for it — which is the defect the annotations had one construct over. The check here is the
+/// one that generalises: a block whose cap *binds* survives formatting, so a program the compiler
+/// refuses cannot be turned into one it accepts by running `x3c fmt` over it.
+mod formatting_keeps_the_resource_caps {
+    use super::module;
+
+    fn source(resources: &str) -> String {
+        let sections = format!(
+            "    effects [swap]\n    domains [ethereum]\n    risk {{ max_slippage_bps 50 \
+             max_total_fee_bps 8 }}\n    bounds {{ max_steps 1_000 max_gas 200_000 }}\n    \
+             resources {{ {resources} }}\n"
+        );
+        let execute = "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        \
+                       require slippage <= 50\n        on_fail refund ethereum.USDC to sender";
+        module(execute, &sections)
+    }
+
+    #[test]
+    fn a_binding_cap_still_refuses_after_formatting() {
+        let program = x3_lang_compiler::parser::parse_source(&source("max_compute = 1;"))
+            .expect("the program parses (the cap is a semantic bound, not a parse error)");
+        let formatted = x3_lang_compiler::formatter::X3Formatter::new().format_program(&program);
+        assert!(
+            formatted.contains("max_compute = 1"),
+            "the cap must be written back, not dropped: {formatted}"
+        );
+        let found = super::errors(&formatted);
+        assert!(
+            found.iter().any(|error| error.contains("max_compute 1")),
+            "and the formatted program must still be refused for the same reason: {found:?}"
+        );
+    }
+}

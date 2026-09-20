@@ -1156,6 +1156,35 @@ pub struct CrossChainStrategy {
     /// the compiled policy requires privacy, so this is a *requirement the
     /// artifact states* rather than a description of the source.
     pub submission: Option<SubmissionPolicy>,
+    /// `resources { max_compute …; max_memory …; max_network_calls …; max_routes …; max_branches …; }`
+    /// — PHASE 41's own spelling for its resource caps.
+    ///
+    /// The implementation already had `bounds { max_steps … max_gas … }`; this is the phase's block,
+    /// and the caps the compiler can measure are checked against the same figures. `max_memory` is
+    /// refused by name rather than accepted: this VM has no memory model, so a memory cap would be a
+    /// number nothing measures.
+    #[serde(default)]
+    pub resources: Option<StrategyResources>,
+}
+
+/// PHASE 41's resource caps, as the phase spells them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StrategyResources {
+    /// `max_compute` — the same figure `bounds { max_steps … }` bounds: the operations the module
+    /// lowers to. The phase's word is "compute" and the implementation's is "steps"; both are the
+    /// count the VM charges instructions in, so they are checked against one number rather than two.
+    pub max_compute: Option<Expression>,
+    /// `max_memory` — no counterpart: this VM holds registers and a call stack, and has no memory
+    /// model to bound. Declaring it is refused with that reason.
+    pub max_memory: Option<Expression>,
+    /// `max_network_calls` — the instructions that leave the VM for a host adapter
+    /// (`cost::HOST_FACING`), counted from the module's own operations.
+    pub max_network_calls: Option<Expression>,
+    /// `max_routes` — the steps the module takes: a `swap` or a `bridge` is one hop of a route, and
+    /// the phase's purpose for this cap is to stop a pathological graph rather than to price one.
+    pub max_routes: Option<Expression>,
+    /// `max_branches` — the decisions the module contains: an `if` and an `atomic_choice` path set.
+    pub max_branches: Option<Expression>,
 }
 
 /// How a module requires its submission to travel.

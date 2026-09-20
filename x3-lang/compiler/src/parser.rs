@@ -1444,6 +1444,7 @@ impl<'a> Parser<'a> {
         let mut risk: Option<StrategyRisk> = None;
         let mut license: Option<StrategyLicense> = None;
         let mut submission: Option<SubmissionPolicy> = None;
+        let mut resources: Option<StrategyResources> = None;
         let mut split: Option<ProfitSplit> = None;
         let mut max_steps: Option<Expression> = None;
         let mut max_gas: Option<Expression> = None;
@@ -1552,6 +1553,13 @@ impl<'a> Parser<'a> {
                         self.opt_semi();
                     }
                     self.expect(Tok::RBrace, "expected '}' to close bounds")?;
+                }
+                "resources" => {
+                    // PHASE 41's own spelling for the caps `bounds` states two of. Parsed as the
+                    // phase writes it (`max_compute = …;`) with the `=` optional, because the
+                    // implementation's `bounds` block writes the same shape without one.
+                    resources = Some(self.parse_strategy_resources()?);
+                    self.opt_semi();
                 }
                 "submission" => {
                     self.expect(Tok::LBrace, "expected '{' after submission")?;
@@ -1662,10 +1670,54 @@ impl<'a> Parser<'a> {
             license,
             split,
             submission,
+            resources,
         }))
     }
 
     /// `license { creator <who> profit_share <N>% [executions <N>] [expires_block <N>] }`
+    ///
+    /// `resources { max_compute = N; … }` — PHASE 41's block, with the `=` the phase writes optional
+    /// so the same five names read the same way as `bounds` does. Every name is checked against the
+    /// vocabulary rather than stored as written: a cap nothing measures is the defect TICKET-116's
+    /// neighbour, one construct over.
+    fn parse_strategy_resources(&mut self) -> Result<StrategyResources, X3Error> {
+        self.expect(Tok::LBrace, "expected '{' after resources")?;
+        let mut resources = StrategyResources::default();
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            let key = self.expect_ident("resources field")?;
+            if self.peek() == Tok::Eq {
+                self.advance();
+            }
+            let value = self.parse_expr()?;
+            let slot = match key.as_str() {
+                "max_compute" => &mut resources.max_compute,
+                "max_memory" => &mut resources.max_memory,
+                "max_network_calls" => &mut resources.max_network_calls,
+                "max_routes" => &mut resources.max_routes,
+                "max_branches" => &mut resources.max_branches,
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unknown resources field '{other}'; PHASE 41's caps are max_compute, \
+                             max_memory, max_network_calls, max_routes and max_branches"
+                        ),
+                        self.peek(),
+                    ))
+                }
+            };
+            if slot.is_some() {
+                return Err(parse_err(
+                    format!("the resources block declares '{key}' twice"),
+                    self.peek(),
+                ));
+            }
+            *slot = Some(value);
+            self.opt_semi();
+        }
+        self.expect(Tok::RBrace, "expected '}' to close resources")?;
+        Ok(resources)
+    }
+
     ///
     /// `creator` and `profit_share` are required: a licence that does not say who
     /// holds it, or what it earns them, is a heading rather than a licence.
