@@ -34,6 +34,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::lowering::expression_to_string;
+
 use x3_lang_ast::ast::{SplitRecipient, Statement, StrategyPermission};
 use x3_lang_common::{Bps, ErrorAccumulator, X3Error};
 
@@ -51,6 +53,18 @@ const MAX_BPS: u32 = Bps::WHOLE.raw();
 /// because that is what a declaration nothing discharges is.
 fn coded_err(code: crate::diagnostic::DiagnosticCode, message: String) -> X3Error {
     crate::diagnostic::CompilerDiagnostic::error(code, message, x3_lang_common::Span::DUMMY).into_error()
+}
+
+/// The fee a `venue` declaration states, or `None` when no declaration names that venue.
+///
+/// `None` is not "no fee": it is "nothing to compare", which the caller must not read as zero. A
+/// module may route through a venue the program never describes — the corpus's own strategy example
+/// does — and a check that treated that as a 0bps venue would pass every ceiling.
+fn declared_venue_fee(program: &Program, name: &str) -> Option<u32> {
+    program.items.iter().find_map(|item| match &item.node {
+        Item::VenueDecl(venue) if venue.name.as_str() == name => Some(venue.fee_bps),
+        _ => None,
+    })
 }
 
 /// Every statement of a body, including the ones inside blocks.
@@ -176,6 +190,37 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
                             risk.max_total_fee_bps
                         ),
                     ));
+                }
+                // A fee ceiling is a bound on what the module spends, and nothing compared it to
+                // what its route *costs*: a module declaring 1bps and routing through a venue that
+                // declares 100bps compiled with no error, and the artifact carried no record of the
+                // ceiling at all. The `arb` path has had this rule since it had a search — a venue
+                // over the ceiling is struck from the standings — and a strategy names its venue
+                // rather than searching, so here it is a refusal.
+                //
+                // Only a *declared* venue can be compared. A body may name one no `venue`
+                // declaration describes (the corpus's own example does), and that is a different
+                // question: the compiler has no fee to compare, so it says nothing rather than
+                // inventing one.
+                for statement in &statements {
+                    let Statement::Swap { dex: Some(dex), .. } = statement else {
+                        continue;
+                    };
+                    let venue_name = expression_to_string(dex);
+                    let Some(fee) = declared_venue_fee(program, &venue_name) else {
+                        continue;
+                    };
+                    if fee > risk.max_total_fee_bps {
+                        acc.add_error(coded_err(
+                            crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                            format!(
+                                "strategy '{name}' routes through '{venue_name}', which declares {fee}bps \
+                                 of fee, and the module's `risk {{ max_total_fee_bps }}` is {}; one hop \
+                                 would spend more than the whole ceiling",
+                                risk.max_total_fee_bps
+                            ),
+                        ));
+                    }
                 }
             }
         }

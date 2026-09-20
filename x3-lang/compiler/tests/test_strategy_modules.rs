@@ -214,3 +214,65 @@ fn a_missing_risk_profile_is_rejected() {
         "the bounds a module accepts are part of the module: {found:?}"
     );
 }
+
+/// A module's declared fee ceiling bounds the venues its body routes through.
+///
+/// `risk { max_total_fee_bps N }` is a cost bound the module states, and nothing compared it to
+/// what the route costs: a module declaring 1bps and routing through a venue declaring 100bps
+/// compiled with no error. The `arb` path has had this rule since it had a search (a venue over the
+/// ceiling is struck from the standings); a strategy *names* its venue rather than searching, so
+/// here it is a refusal.
+mod the_declared_fee_ceiling_bounds_the_route {
+    use super::{errors, module};
+
+    /// A venue declaration with the fee given.
+    fn venue(name: &str, fee_bps: u32) -> String {
+        format!(
+            "venue {name} {{\n    kind pool\n    chain ethereum\n    domain evm\n    asset_in \
+             ethereum.USDC\n    asset_out ethereum.ETH\n    fee_bps {fee_bps}\n    liquidity \
+             1_000_000\n    slippage_bps 8\n    latency_ms 12\n    finality_blocks 12\n    risk 2\n}}\n\n"
+        )
+    }
+
+    /// The module from `defaults`, but routing through the named venue.
+    fn routing_through(name: &str, ceiling: u32) -> String {
+        let sections = format!(
+            "    effects [swap]\n    domains [ethereum]\n    risk {{ max_slippage_bps 50 \
+             max_total_fee_bps {ceiling} }}\n    bounds {{ max_steps 10 max_gas 200_000 }}\n"
+        );
+        let execute = format!("        swap {name} ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        require slippage <= 50\n        on_fail refund ethereum.USDC to sender");
+        module(&execute, &sections)
+    }
+
+    #[test]
+    fn a_venue_over_the_ceiling_is_refused_with_both_figures() {
+        let source = format!("{}{}", venue("pricey", 100), routing_through("pricey", 1));
+        let found = errors(&source);
+        assert!(
+            found
+                .iter()
+                .any(|error| error.contains("pricey") && error.contains("100bps") && error.contains("is 1")),
+            "the refusal must name the venue, its fee and the ceiling: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_venue_within_the_ceiling_is_accepted() {
+        // Non-vacuous: the same module and venue with a ceiling the venue fits.
+        let source = format!("{}{}", venue("pricey", 100), routing_through("pricey", 120));
+        assert!(errors(&source).is_empty(), "100bps is within 120: {source}");
+    }
+
+    #[test]
+    fn a_venue_the_program_never_declares_is_not_compared() {
+        // Nothing states that venue's fee, so there is nothing to compare — a check that read the
+        // missing declaration as 0bps would pass every ceiling, and one that refused it would
+        // reject the corpus's own module, which routes through `uniswap` and declares no venue.
+        let sections = "    effects [swap]\n    domains [ethereum]\n    risk { max_slippage_bps 50 max_total_fee_bps 1 }\n    bounds { max_steps 10 max_gas 200_000 }\n";
+        let execute = "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        require slippage <= 50\n        on_fail refund ethereum.USDC to sender";
+        assert!(
+            errors(&module(execute, sections)).is_empty(),
+            "an undeclared venue has no fee to compare"
+        );
+    }
+}
