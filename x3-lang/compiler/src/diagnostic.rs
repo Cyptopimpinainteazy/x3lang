@@ -28,6 +28,26 @@ pub enum DiagnosticCode {
     /// a strategy module's effects/guarantees check reports under, so a build system
     /// can tell "you declared work you do not do" from every other semantic error.
     UnresolvedEconomicEffect,
+    /// A debt's lifecycle broken: borrowed twice, repaid twice, repaid when nothing is open,
+    /// or left open where the trade can succeed without repaying it.
+    ///
+    /// The trading path's `debt` class, which the ticket that asked for these codes named
+    /// (PHASE 52, TICKET-021).
+    DebtLifecycle,
+    /// A trading operation in an order the program cannot execute: a statement on the source
+    /// chain after its proceeds have bridged away, a second bridge, a bridge that does not
+    /// move between two chains.
+    ///
+    /// The trading path's `sequence` class.
+    TradingSequence,
+    /// A declared risk policy whose own numbers are outside what the language can honour — a
+    /// bound above the basis-point ceiling, a zero deadline, private submission with no
+    /// capability attested to deliver it.
+    RiskPolicyBound,
+    /// A trading declaration that is incomplete or contradictory: a policy it does not
+    /// declare, an invariant declared twice, a borrow with no `all_debts_repaid`, no receipt
+    /// and no net-profit guard.
+    TradeDeclaration,
 }
 
 impl DiagnosticCode {
@@ -43,6 +63,10 @@ impl DiagnosticCode {
             Self::UnsafeIr => "X3E0501",
             Self::AssetTypeMismatch => "X3E2107",
             Self::UnresolvedEconomicEffect => "X3E4021",
+            Self::DebtLifecycle => "X3E4022",
+            Self::TradingSequence => "X3E4023",
+            Self::RiskPolicyBound => "X3E4024",
+            Self::TradeDeclaration => "X3E4025",
         }
     }
 }

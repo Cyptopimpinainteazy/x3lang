@@ -82,7 +82,8 @@ fn verify_atomic_trade_at_span(
     let policy = match symbols.policies.get(&trade.risk_policy) {
         Some(policy) => policy,
         None => {
-            errors.push(semantic_error(
+            errors.push(coded_error(
+                crate::diagnostic::DiagnosticCode::TradeDeclaration,
                 format!(
                     "atomic trade '{}' references unknown risk policy '{}'",
                     trade.name.as_str(),
@@ -128,7 +129,7 @@ fn verify_atomic_trade_at_span(
                 stmt,
                 TradeStmt::Borrow { .. } | TradeStmt::Swap { .. } | TradeStmt::Repay { .. }
             ) {
-                errors.push(semantic_error(
+                errors.push(coded_error(crate::diagnostic::DiagnosticCode::TradingSequence, 
                     format!(
                         "atomic trade '{}' has a source-chain statement after bridging via '{}' — nothing can operate on the source chain once its proceeds have moved to another chain",
                         trade.name.as_str(),
@@ -142,7 +143,8 @@ fn verify_atomic_trade_at_span(
             TradeStmt::Borrow { debt, .. } => {
                 has_borrow = true;
                 if !state.open.insert(debt.clone()) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::DebtLifecycle,
                         format!(
                             "atomic trade '{}' borrows debt '{}' more than once",
                             trade.name.as_str(),
@@ -159,7 +161,8 @@ fn verify_atomic_trade_at_span(
                 ..
             } => {
                 if bridged.is_some() {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::TradingSequence,
                         format!("atomic trade '{}' bridges more than once", trade.name.as_str()),
                         span,
                     ));
@@ -167,7 +170,7 @@ fn verify_atomic_trade_at_span(
                 bridged = Some(via.clone());
                 if let (Some(from), Some(to)) = (symbols.assets.get(from_asset), symbols.assets.get(to_asset)) {
                     if from.chain.as_str() == to.chain.as_str() {
-                        errors.push(semantic_error(
+                        errors.push(coded_error(crate::diagnostic::DiagnosticCode::TradingSequence, 
                             format!(
                                 "atomic trade '{}' bridges '{}' to '{}', both on chain '{}' — a bridge must move between two different chains",
                                 trade.name.as_str(),
@@ -189,7 +192,8 @@ fn verify_atomic_trade_at_span(
             }
             TradeStmt::Repay { debt } => {
                 if state.closed.contains(debt) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::DebtLifecycle,
                         format!(
                             "atomic trade '{}' repays debt '{}' more than once",
                             trade.name.as_str(),
@@ -200,7 +204,8 @@ fn verify_atomic_trade_at_span(
                 } else if state.open.remove(debt) {
                     state.closed.insert(debt.clone());
                 } else {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::DebtLifecycle,
                         format!(
                             "atomic trade '{}' repays unknown or already-closed debt '{}'",
                             trade.name.as_str(),
@@ -214,7 +219,8 @@ fn verify_atomic_trade_at_span(
             TradeStmt::RequireAllDebtsRepaid => has_all_debts_guard = true,
             TradeStmt::AssertInvariant { kind } => {
                 if !seen_invariants.insert(kind.as_str()) {
-                    errors.push(semantic_error(
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
                         format!(
                             "atomic trade '{}' declares invariant '{}' more than once",
                             trade.name.as_str(),
@@ -231,7 +237,8 @@ fn verify_atomic_trade_at_span(
 
     if !state.open.is_empty() {
         let names: Vec<&str> = state.open.iter().map(|debt| debt.0.as_str()).collect();
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::DebtLifecycle,
             format!(
                 "atomic trade '{}' can succeed with unrepaid debt: {}",
                 trade.name.as_str(),
@@ -241,7 +248,8 @@ fn verify_atomic_trade_at_span(
         ));
     }
     if has_borrow && !has_all_debts_guard {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::TradeDeclaration,
             format!(
                 "atomic trade '{}' borrows capital but never asserts all_debts_repaid",
                 trade.name.as_str()
@@ -250,7 +258,8 @@ fn verify_atomic_trade_at_span(
         ));
     }
     if has_borrow && !has_receipt {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::TradeDeclaration,
             format!(
                 "atomic trade '{}' borrows capital but never emits a receipt",
                 trade.name.as_str()
@@ -259,7 +268,8 @@ fn verify_atomic_trade_at_span(
         ));
     }
     if !has_net_profit_guard && policy.min_profit.is_none() {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::TradeDeclaration,
             format!("atomic trade '{}' has no minimum net-profit guard", trade.name.as_str()),
             span,
         ));
@@ -275,7 +285,8 @@ fn enforce_policy_bounds(
     errors: &mut Vec<X3Error>,
 ) {
     if !Bps::from_raw(u32::from(policy.max_slippage_bps)).is_within_whole() {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::RiskPolicyBound,
             format!(
                 "risk policy '{}' has max_slippage {} bps above the 10000 bps ceiling",
                 policy.name.as_str(),
@@ -286,7 +297,8 @@ fn enforce_policy_bounds(
     }
     if let Some(deviation_bps) = policy.max_oracle_deviation_bps {
         if !Bps::from_raw(u32::from(deviation_bps)).is_within_whole() {
-            errors.push(semantic_error(
+            errors.push(coded_error(
+                crate::diagnostic::DiagnosticCode::RiskPolicyBound,
                 format!(
                     "risk policy '{}' has max_oracle_deviation {deviation_bps} bps above the 10000 bps ceiling",
                     policy.name.as_str()
@@ -296,7 +308,8 @@ fn enforce_policy_bounds(
         }
     }
     if !Bps::from_raw(u32::from(policy.max_flash_fee_bps)).is_within_whole() {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::RiskPolicyBound,
             format!(
                 "risk policy '{}' has max_flash_fee {} bps above the 10000 bps ceiling",
                 policy.name.as_str(),
@@ -306,13 +319,14 @@ fn enforce_policy_bounds(
         ));
     }
     if deadline_is_zero(&policy.deadline) {
-        errors.push(semantic_error(
+        errors.push(coded_error(
+            crate::diagnostic::DiagnosticCode::RiskPolicyBound,
             format!("risk policy '{}' has a zero deadline", policy.name.as_str()),
             span,
         ));
     }
     if mode == CompilationMode::Mainnet && policy.require_private_submission {
-        errors.push(semantic_error(
+        errors.push(coded_error(crate::diagnostic::DiagnosticCode::RiskPolicyBound, 
             format!(
                 "risk policy '{}' requires private submission but no production private-submission capability is attested",
                 policy.name.as_str()
@@ -370,7 +384,7 @@ fn check_same_chain(
         None => *trade_chain = Some((chain, symbol.clone())),
         Some((expected_chain, first_symbol)) => {
             if *expected_chain != chain {
-                errors.push(semantic_error(
+                errors.push(coded_error(crate::diagnostic::DiagnosticCode::AssetTypeMismatch, 
                     format!(
                         "atomic trade '{trade_name}' mixes chains: '{}' is on '{expected_chain}' but '{}' is on '{chain}' — a plain swap/borrow is single-chain; cross-chain movement needs a bridge, not this asset reference",
                         first_symbol.as_str(),
@@ -400,11 +414,14 @@ fn guarantee_requirement(guarantee: x3_lang_ast::TradeGuarantee) -> &'static str
     }
 }
 
-fn semantic_error(message: impl Into<String>, span: Span) -> X3Error {
-    X3Error::SemanticError {
-        message: message.into(),
-        span,
-    }
+/// A trading diagnostic **with the code for its class**.
+///
+/// The class is an argument rather than a constructor per site, because the sites in one check
+/// are one class and a constructor per site would invite a second name for it. This used to be
+/// a bare `X3Error::SemanticError` — a message a build system can only match on wording, which
+/// is what the catalogue exists to stop (PHASE 52, TICKET-021).
+fn coded_error(code: crate::diagnostic::DiagnosticCode, message: impl Into<String>, span: Span) -> X3Error {
+    crate::diagnostic::CompilerDiagnostic::error(code, message, span).into_error()
 }
 
 /// A declaration nothing in the body discharges, with the code the catalogue gives

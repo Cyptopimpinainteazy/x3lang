@@ -76,6 +76,12 @@ atomic trade DoubleRepayment using P {{
         has_message(&errors, "more than once"),
         "duplicate repayment must fail verification: {errors:?}"
     );
+    assert!(
+        has_message(&errors, "X3E4022"),
+        "and it must carry the class code — a build system keys on the code, a person reads the \
+         message, and a code that renders on one check and not another is the drift the \
+         catalogue exists to stop: {errors:?}"
+    );
 }
 
 #[test]
@@ -133,6 +139,12 @@ atomic trade NoReceipt using P {{
         has_message(&errors, "never emits a receipt"),
         "missing receipt must fail verification: {errors:?}"
     );
+    assert!(
+        has_message(&errors, "X3E4025"),
+        "and it must carry the class code — a build system keys on the code, a person reads the \
+         message, and a code that renders on one check and not another is the drift the \
+         catalogue exists to stop: {errors:?}"
+    );
 }
 
 #[test]
@@ -157,6 +169,12 @@ atomic trade PrivateTrade using PrivateP {{
     assert!(
         has_message(&errors, "private-submission"),
         "mainnet must reject unattested private submission: {errors:?}"
+    );
+    assert!(
+        has_message(&errors, "X3E4024"),
+        "and it must carry the class code — a build system keys on the code, a person reads the \
+         message, and a code that renders on one check and not another is the drift the \
+         catalogue exists to stop: {errors:?}"
     );
 }
 
@@ -360,6 +378,12 @@ atomic trade TradeAfterBridge using P {{
     assert!(
         has_message(&errors, "after bridging via"),
         "a swap after the trade already bridged to another chain must be rejected: {errors:?}"
+    );
+    assert!(
+        has_message(&errors, "X3E4023"),
+        "and it must carry the class code — a build system keys on the code, a person reads the \
+         message, and a code that renders on one check and not another is the drift the \
+         catalogue exists to stop: {errors:?}"
     );
 }
 
