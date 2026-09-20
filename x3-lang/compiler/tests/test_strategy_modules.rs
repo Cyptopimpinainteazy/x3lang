@@ -446,6 +446,17 @@ mod bounded_slippage_is_a_guarantee_a_body_can_discharge {
 mod the_declared_step_cap_bounds_the_body {
     use super::module;
 
+    /// The same module with the gas cap given, for the weight half of PHASE 41.
+    fn with_max_gas(gas: u32) -> String {
+        let sections = format!(
+            "    effects [swap]\n    domains [ethereum]\n    risk {{ max_slippage_bps 50 \
+             max_total_fee_bps 8 }}\n    bounds {{ max_steps 1_000 max_gas {gas} }}\n"
+        );
+        let execute = "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        \
+                       require slippage <= 50\n        on_fail refund ethereum.USDC to sender";
+        module(execute, &sections)
+    }
+
     fn with_max_steps(steps: u32) -> String {
         let sections = format!(
             "    effects [swap]\n    domains [ethereum]\n    risk {{ max_slippage_bps 50 \
@@ -499,6 +510,32 @@ mod the_declared_step_cap_bounds_the_body {
                 .iter()
                 .any(|error| error.contains("max_steps")),
             "and one below it is refused: {count}"
+        );
+    }
+
+    #[test]
+    fn the_gas_cap_bounds_what_the_vm_charges_for_the_body() {
+        // Measured before this: a module declaring `max_gas 1` ran to completion with 999115 gas
+        // left. The figure comes from the refusal again, so the two sides of the boundary are the
+        // compiler's own number rather than one typed here.
+        let refusal = super::errors(&with_max_gas(1));
+        let cost: u32 = refusal
+            .iter()
+            .find_map(|error| {
+                let (_, rest) = error.split_once("operations cost ")?;
+                rest.split_whitespace().next()?.parse().ok()
+            })
+            .unwrap_or_else(|| panic!("the refusal must state the cost: {refusal:?}"));
+        assert!(cost > 1, "the body must cost more than one unit: {cost}");
+        assert!(
+            super::errors(&with_max_gas(cost)).is_empty(),
+            "a cap equal to the body's own cost is a cap the body fits: {cost}"
+        );
+        assert!(
+            super::errors(&with_max_gas(cost - 1))
+                .iter()
+                .any(|error| error.contains("max_gas")),
+            "and one below it is refused: {cost}"
         );
     }
 }

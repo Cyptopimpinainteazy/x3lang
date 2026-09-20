@@ -680,6 +680,29 @@ pub fn lower_program_with_mode(
                         )));
                     }
                 }
+                // PHASE 41's other cap, in the unit the VM charges: the weight of the instructions
+                // the module's own operations produce. Measured through the emitter and the one cost
+                // model rather than counted here — an operation writes zero frames (a branch the
+                // compiler decided false), one, or several (a branch's body is emitted inline), so a
+                // count of operations is not a count of instructions and a second weight table here
+                // would be a second opinion about the same number.
+                if let Some(declared) = strategy.max_gas.as_ref().and_then(|gas| expression_to_u128(gas).ok()) {
+                    // `None` is "could not be measured", which is what an operation the emitter
+                    // cannot write looks like — an `if` over a condition the compiler could not
+                    // decide. That program fails at emission with the message written for it, and
+                    // measuring it here must not move that refusal to a stage whose diagnostics are
+                    // about lowering.
+                    if let Some(gas) = module_gas(&ir.operations[module_steps_from..])? {
+                        if gas > declared {
+                            return Err(semantic(&format!(
+                                "strategy '{}' declares `max_gas {declared}` and its body's operations \
+                                 cost {gas} by the VM's own weight table: a module whose body exceeds \
+                                 its own resource cap is refused rather than published as bounded",
+                                strategy.name.as_str()
+                            )));
+                        }
+                    }
+                }
             }
             Item::VmDecl(vm) => {
                 ir.push(Operation::VmAdapterCall {
@@ -2488,6 +2511,31 @@ pub(crate) fn expression_to_string(expr: &Expression) -> String {
         ),
         _ => format!("{:?}", expr),
     }
+}
+
+/// What the VM's own weight table charges for a module's operations.
+///
+/// Measured by emitting them and asking `cost`, which is the same table the VM charges from
+/// (`spec::opcodes::base_gas_cost`): a count of operations is not a count of instructions — an
+/// operation writes zero frames (a branch the compiler decided false writes nothing), one, or
+/// several (a branch's body is emitted inline) — so the figure has to come from the writer and the
+/// one cost model rather than from arithmetic here.
+///
+/// The header every artifact carries (the version byte, the version binding) is subtracted by
+/// measuring an empty program once and taking the difference, so the number is the module's own
+/// cost rather than the module's plus a constant that would make the cap stricter than it reads.
+fn module_gas(ops: &[Operation]) -> Result<Option<u128>, x3_lang_common::X3Error> {
+    let Ok(header_bytes) = crate::emitter::emit_x3ir(&ir::X3IR::new()) else {
+        return Ok(None);
+    };
+    let header = crate::cost::estimate_artifact(&header_bytes)?.base_weight;
+    let mut module = ir::X3IR::new();
+    module.operations = ops.to_vec();
+    let Ok(module_bytes) = crate::emitter::emit_x3ir(&module) else {
+        return Ok(None);
+    };
+    let total = crate::cost::estimate_artifact(&module_bytes)?.base_weight;
+    Ok(Some(total.saturating_sub(header)))
 }
 
 fn expression_to_u128(expr: &Expression) -> Result<u128, x3_lang_common::X3Error> {
