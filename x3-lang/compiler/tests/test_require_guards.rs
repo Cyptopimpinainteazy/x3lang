@@ -419,6 +419,7 @@ mod every_clause_stops_a_valueless_guard {
         ("amount", "    amount 500"),
         ("receiver", "    receiver sol.wallet.owner"),
         ("hashlock", "    hashlock sha256(secret)"),
+        ("min_output", "    min_output 400"),
         ("timeout", "    timeout source 40m"),
         ("finality", "    require finality.eth >= 12"),
     ];
@@ -436,6 +437,15 @@ mod every_clause_stops_a_valueless_guard {
             "route",
             "    route { swap uniswap ethereum.USDC -> ethereum.ETH amount 1 min_output 1 }",
         ),
+        // The feature set is closed — `allow` refuses anything but `intent_fusion` — so the
+        // fixture uses the one the language has.
+        ("allow", "    allow intent_fusion"),
+        // `use` is a keyword to the lexer, so it does not need an entry in `CLAUSE_WORDS` — a
+        // keyword cannot begin an expression and stops a valueless guard on its own. It is in this
+        // fixture because the arm that reads it was written against the identifier form and no
+        // program could reach it (TICKET-046).
+        ("use", "    use uniswap 1"),
+        ("on", "    on bad_proof slash"),
         ("timeout", "    timeout 30s refund ethereum.USDC to sender"),
         ("on_fail", "    on_fail rollback"),
     ];
@@ -521,10 +531,70 @@ mod every_clause_stops_a_valueless_guard {
             .collect();
         assert_eq!(
             exercised,
-            ["amount", "finality", "from", "hashlock", "on_fail", "receiver", "route", "timeout", "to"]
-                .into_iter()
-                .collect::<std::collections::BTreeSet<&str>>(),
+            [
+                "allow",
+                "amount",
+                "finality",
+                "from",
+                "hashlock",
+                "min_output",
+                "on",
+                "on_fail",
+                "receiver",
+                "route",
+                "timeout",
+                "to",
+                "use"
+            ]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<&str>>(),
             "the fixtures exercise a different set of words than this test says they do"
         );
     }
+}
+
+/// Every word in `CLAUSE_WORDS` is a word the parser dispatches on.
+///
+/// The list is a second statement of the grammar, and the first pass showed what that costs: two
+/// entries were missing (`amount`, `timeout`) and each cost a round. The fixtures above catch a
+/// *missing* word for the bodies they can express, and this catches the other direction — an entry
+/// the grammar has moved past. `balance` was one: listed under "statements and trade bodies that
+/// carry a guard", dispatched by no arm anywhere in the parser, so `require <kind> balance` was
+/// read as a guard with no subject and `balance` as the start of a statement that does not exist.
+///
+/// The list is read out of the source rather than restated here: a copy in the test could drift
+/// from the const the parser actually consults, which is the failure this is meant to prevent.
+#[test]
+fn every_word_in_this_list_begins_a_clause() {
+    use std::collections::BTreeSet;
+    use std::path::PathBuf;
+
+    let source = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src").join("parser.rs"))
+        .expect("the parser source must be readable");
+
+    let start = source
+        .find("const CLAUSE_WORDS")
+        .expect("the parser must state its clause words");
+    let body = &source[start..];
+    let end = body.find("];").expect("the list must end");
+    let listed: BTreeSet<String> = body[..end]
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(|word| word.to_string())
+        .collect();
+    assert!(
+        listed.len() >= 18,
+        "the scan found too few words to be reading the list: {listed:?}"
+    );
+
+    let missing: Vec<&String> = listed
+        .iter()
+        .filter(|word| !source.contains(&format!("s == \"{word}\"")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these words stop a guard but begin no clause in the parser: {missing:?} — a lookahead \
+         that stops at a word the grammar has moved past is a guard that loses its subject"
+    );
 }

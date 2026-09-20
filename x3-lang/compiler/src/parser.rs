@@ -1980,7 +1980,13 @@ impl<'a> Parser<'a> {
             }
             Tok::Ident(ref s) if s == "on_fail" => self.parse_intent_onfail(),
             Tok::KwOnFail => self.parse_intent_onfail(),
-            Tok::Ident(ref s) if s == "use" => self.parse_intent_use(),
+            // `use` is a **keyword** to the lexer (`Keyword::Use`, the top-level import), so this
+            // arm has to match the keyword token. It matched `Tok::Ident(ref s) if s == "use"` —
+            // the shape every other clause uses — which no program could reach, because a lexer
+            // keyword never arrives as an identifier. `use uniswap 1` inside an intent body was
+            // refused while the arm below this one advertised `use` in the list of clauses it
+            // accepts, and the formatter wrote the clause back out (TICKET-046).
+            Tok::KwUse => self.parse_intent_use(),
             Tok::Ident(ref s) if s == "on" => self.parse_intent_on_event(),
             Tok::Ident(ref s) if s == "proofs" => Err(parse_err(
                 "`proofs required { ... }` must be declared at file scope, not inside an intent body: a \
@@ -3212,7 +3218,11 @@ impl<'a> Parser<'a> {
                 Tok::Ident(ref s) if s == "source" => {
                     self.advance();
                     // source can be followed by chain name OR directly by require
-                    if matches!(self.peek(), Tok::Ident(ref s2) if s2 == "require") {
+                    // `require` reaches the parser as `KwRequire` — it is a lexer keyword — so the
+                    // identifier form this check used to test could never match, and the inline
+                    // `source require 2_of_3` form was refused with "rpc_quorum source chain:
+                    // expected identifier" (TICKET-046's class).
+                    if matches!(self.peek(), Tok::KwRequire) {
                         // inline: source require N_of_M
                         source = Symbol::new("source");
                     } else {
@@ -4702,7 +4712,11 @@ impl<'a> Parser<'a> {
                 // The terse form: `<chain_name> require <mode>`.
                 Tok::Ident(_) => {
                     chain = Symbol::new(&self.expect_ident("finality chain name")?);
-                    if matches!(self.peek(), Tok::Ident(ref r) if r == "require") {
+                    // `require` is a lexer keyword, so it arrives as `KwRequire`; the identifier
+                    // form this used to test could never match and the terse form —
+                    // `ethereum require finalized`, which this comment documents — failed with
+                    // "expected '}' after finality_policy body" (TICKET-046's class).
+                    if matches!(self.peek(), Tok::KwRequire) {
                         self.advance();
                         requirement = Symbol::new(&self.expect_ident("finality requirement")?);
                     }
@@ -5869,6 +5883,15 @@ impl<'a> Parser<'a> {
 /// `bridge`, `require`, `emit`, `use`, `mint`, `burn`, `lock` and `release` are
 /// mapped to keyword tokens, which cannot begin an expression either, so they
 /// stop a guard without help.
+///
+/// Every word here is dispatched by an arm of the form `Tok::Ident(ref s) if s
+/// == "<word>"`; `every_word_in_this_list_begins_a_clause` in
+/// `compiler/tests/test_require_guards.rs` reads this const out of the source
+/// and checks that, so an entry the grammar has moved past fails a test instead
+/// of stopping a guard at a word that begins nothing. `balance` was exactly
+/// that: it was listed under "statements and trade bodies" and no arm anywhere
+/// dispatched on it, so `require <kind> balance` — a guard whose subject is the
+/// identifier `balance` — was read as a guard with no subject.
 const CLAUSE_WORDS: &[&str] = &[
     // intent body
     "from",
@@ -5893,7 +5916,6 @@ const CLAUSE_WORDS: &[&str] = &[
     // statements and trade bodies that carry a guard
     "repay",
     "borrow",
-    "balance",
     "invariant",
     "net_profit",
 ];
