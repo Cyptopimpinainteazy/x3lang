@@ -1323,8 +1323,6 @@ pub struct StrategyRisk {
 pub enum StrategyPermission {
     /// Submit through a private channel.
     PrivateSubmission,
-    /// Take flash liquidity that must be returned within the transaction.
-    FlashCapital,
     /// Allow the intent to be netted against others.
     IntentFusion,
     /// Touch more than one chain.
@@ -1335,7 +1333,6 @@ impl StrategyPermission {
     pub fn as_str(self) -> &'static str {
         match self {
             StrategyPermission::PrivateSubmission => "private_submission",
-            StrategyPermission::FlashCapital => "flash_capital",
             StrategyPermission::IntentFusion => "intent_fusion",
             StrategyPermission::CrossDomain => "cross_domain",
         }
@@ -1343,9 +1340,8 @@ impl StrategyPermission {
 
     /// The permissions the language accepts. The parser and the unknown-name
     /// error message both read this, so they cannot list different sets.
-    pub const ALL: [StrategyPermission; 4] = [
+    pub const ALL: [StrategyPermission; 3] = [
         StrategyPermission::PrivateSubmission,
-        StrategyPermission::FlashCapital,
         StrategyPermission::IntentFusion,
         StrategyPermission::CrossDomain,
     ];

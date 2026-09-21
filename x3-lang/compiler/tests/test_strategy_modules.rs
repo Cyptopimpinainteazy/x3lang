@@ -690,12 +690,13 @@ mod formatting_keeps_the_resource_caps {
     }
 }
 
-/// Two of the four permissions are tested and two are refused for naming a capability nothing has.
+/// One of the three permissions is refused for naming a capability nothing has.
 ///
-/// Measured: `StrategyPermission::PrivateSubmission` and `::FlashCapital` have **no reader** anywhere
-/// in the compiler, the VM or the tooling. The other two are required by the body's own shape — a body
-/// touching two chains must declare `cross_domain`, and one that opts into fusion must declare
-/// `intent_fusion` — so they are the ceiling the phase describes rather than decoration.
+/// Measured: `StrategyPermission::PrivateSubmission` has **no reader** anywhere in the compiler, the
+/// VM or the tooling. `FlashCapital` has been removed from the accepted set because no module body can
+/// require flash liquidity. The other two are required by the body's own shape — a body touching two
+/// chains must declare `cross_domain`, and one that opts into fusion must declare `intent_fusion` — so
+/// they are the ceiling the phase describes rather than decoration.
 mod permissions_that_nothing_tests_are_refused {
     use super::module;
 
@@ -722,13 +723,13 @@ mod permissions_that_nothing_tests_are_refused {
     }
 
     #[test]
-    fn flash_capital_is_refused_with_the_ticket_that_records_it() {
+    fn flash_capital_is_refused_as_an_unknown_permission() {
         let found = super::errors(&with_permission("flash_capital"));
         assert!(
             found
                 .iter()
-                .any(|error| error.contains("flash_capital") && error.contains("TICKET-040")),
-            "the refusal must say why nothing can test it, and where that is recorded: {found:?}"
+                .any(|error| error.contains("flash_capital") && error.contains("unknown permission")),
+            "the removed permission must be refused by name: {found:?}"
         );
     }
 

@@ -296,10 +296,11 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
         }
 
         // ── permissions: the body may not exceed them ─────────────────────
-        // Two of the four are untested, and a permission nothing tests is a capability the compiler
+        // One of the three is untested, and a permission nothing tests is a capability the compiler
         // cannot honour — the rule a declaration nothing reads follows (TICKET-117), one clause over.
-        // Measured: `StrategyPermission::PrivateSubmission` and `::FlashCapital` have no reader
-        // anywhere in the compiler, the VM or the tooling.
+        // Measured: `StrategyPermission::PrivateSubmission` has no reader anywhere in the compiler,
+        // the VM or the tooling. `FlashCapital` has been removed from the closed set rather than kept
+        // as an unverifiable capability (TICKET-040).
         if module.permissions.contains(&StrategyPermission::PrivateSubmission) {
             acc.add_error(coded_err(
                 crate::diagnostic::DiagnosticCode::TradeDeclaration,
@@ -308,17 +309,6 @@ pub fn verify_strategy_modules(program: &Program, acc: &mut ErrorAccumulator) {
                      tests: the claim it states has a spelling that reaches the artifact — \
                      `submission {{ private = <required|preferred> }}`, which lowers to a mode check the \
                      VM enforces — so write that instead of a permission no pass reads"
-                ),
-            ));
-        }
-        if module.permissions.contains(&StrategyPermission::FlashCapital) {
-            acc.add_error(coded_err(
-                crate::diagnostic::DiagnosticCode::TradeDeclaration,
-                format!(
-                    "strategy '{name}' declares the `flash_capital` permission, and nothing in a module \
-                     body can *require* flash liquidity: the permission is declarable and unverifiable \
-                     (TICKET-040). Either a body needs a borrow statement — which would also discharge \
-                     the `borrow`/`repay` effects — or the permission should leave the set"
                 ),
             ));
         }
