@@ -420,11 +420,12 @@ mod bounded_slippage_is_a_guarantee_a_body_can_discharge {
 
     #[test]
     fn a_guarantee_the_language_does_not_model_is_still_refused_by_name() {
-        // `principal_preserved` is the spec's other name and is *not* admitted: its only derivable
-        // discharge would be a profit floor of zero, which is what `min_profit` already means, and a
-        // second name for one claim is the "label that means nothing" defect TICKET-022 exists to
-        // avoid. This test fails the day someone admits it — which is the point: the decision has to
-        // be recorded rather than assumed.
+        // `principal_preserved` is the spec's other name and is *not* admitted. TICKET-022's decision
+        // (2026-09-21) is to refuse it: the only derivable discharge is either a profit floor of zero
+        // (already `min_profit`) or a blanket non-negative-net-delta check (already `solvent`), so a
+        // third spelling would be a label with no independent check. This test fails the day someone
+        // admits it without first giving it a distinct IR-level discharge, which is the point: the
+        // decision is enforced rather than assumed.
         let found = super::errors(&with("principal_preserved", "        require slippage <= 50"));
         assert!(
             found

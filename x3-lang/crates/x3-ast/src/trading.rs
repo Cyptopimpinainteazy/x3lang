@@ -198,7 +198,10 @@ impl TradeEffect {
 /// Closed like `TradeEffect`, and restricted to guarantees the compiler can
 /// actually discharge from the body: a name whose enforcement would be a no-op
 /// is not admitted, for the same reason the unenforceable policy ceilings were
-/// removed.
+/// removed. The spec's `principal_preserved` name is deliberately **not** in
+/// this set (TICKET-022): its only derivable discharge is a profit floor of
+/// zero (`MinProfit`) or a blanket non-negative-net-delta check (`Solvent`),
+/// so admitting it would add a second spelling for an existing claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TradeGuarantee {
     /// Every borrowed debt is closed exactly once.
