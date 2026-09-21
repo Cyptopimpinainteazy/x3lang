@@ -1383,6 +1383,13 @@ fn verify_evm_header_proof(
     })
 }
 
+/// The VM keeps its own EVM receipt MPT verifier on purpose.
+///
+/// `crates/x3-verification-router` owns the workspace-level implementation used
+/// by the relayer and settlement path, but `x3-lang` is a separate workspace and
+/// intentionally avoids taking a `no_std` dependency on a root crate. That split
+/// is the reason the implementation is duplicated rather than shared
+/// (TICKET-066). Delete this copy only when the workspace boundary changes.
 fn verify_evm_receipt_proof(proof: &Value, receipts_root: &str) -> Result<VerifiedEvmReceipt, BridgeError> {
     require_proof_type(proof, EVM_RECEIPT_PROOF_TYPE)?;
     let receipt_rlp = hex_to_bytes(expect_str(proof, "receipt_rlp")?, "receipt_rlp")?;
