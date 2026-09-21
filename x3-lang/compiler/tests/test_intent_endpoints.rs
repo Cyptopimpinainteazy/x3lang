@@ -87,3 +87,40 @@ fn an_endpoint_without_a_receiver_names_the_sender() {
         "and the destination side still lowers to a release"
     );
 }
+
+/// The intent spec's own destination fields name the `to` endpoint, not the draft's defaults.
+///
+/// `from_intent_decl` fills the destination from a `mint` statement, and an intent whose route is a
+/// bridge has no mint — so the draft's hardcoded placeholders (`"x3"`, `"UNKNOWN"`, `"unknown"`)
+/// survived into the compiled intent spec. Measured on `examples/simple_swap.x3`, whose
+/// `to solana.SOL receiver wallet` came back as `dest_chain: "x3"`: the artifact released to
+/// solana.SOL while the spec said the destination was chain `x3`. The `to` clause lowers to a
+/// release, which is what this now reads (TICKET-129).
+#[test]
+fn the_intent_spec_destination_follows_the_to_clause() {
+    // Cross-chain on purpose: the placeholder this bug left behind was `"x3"`, so a fixture whose
+    // destination chain is the source chain could pass by accident.
+    let source = "intent probe {\n    from ethereum.USDC amount 1_000 receiver alice.eth\n    \
+                  to solana.SOL receiver bob.sol\n    route {\n        bridge X3 ethereum.USDC -> \
+                  solana.SOL receiver bob.sol\n    }\n    require nonce unused probe_1\n    \
+                  require slippage <= 50\n    timeout 180s refund ethereum.USDC to alice.eth\n}\n";
+    let program = x3_lang_compiler::parser::parse_source(&source).expect("the fixture must parse");
+    let declaration = program
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            x3_lang_ast::ast::Item::IntentDecl(decl) => Some(decl),
+            _ => None,
+        })
+        .expect("the fixture declares an intent");
+
+    let draft = x3_lang_compiler::intent_emit::from_intent_decl(declaration);
+    assert_eq!(draft.source_chain, "ethereum");
+    assert_eq!(draft.source_asset, "USDC");
+    assert_eq!(draft.dest_chain, "solana", "the destination chain is the `to` clause's");
+    assert_eq!(draft.dest_asset, "SOL");
+    assert_eq!(
+        draft.dest_receiver, "bob.sol",
+        "and its receiver is the `to` endpoint's account"
+    );
+}

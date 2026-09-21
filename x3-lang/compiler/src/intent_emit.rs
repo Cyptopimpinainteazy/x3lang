@@ -207,6 +207,18 @@ pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
                 draft.dest_min_amount = amt;
                 draft.dest_receiver = string_from_expr(to);
             }
+            // The `to <chain>.<ASSET> receiver <x>` clause lowers to a `Release`, and this walker
+            // only read `Mint`. So an intent whose route is a bridge — which is every cross-chain
+            // intent in the corpus — kept the draft's hardcoded placeholders for its own
+            // destination: measured on `examples/simple_swap.x3`, whose `to solana.SOL receiver
+            // wallet` came back as `dest_chain: "x3"`, `dest_asset: "UNKNOWN"`, `dest_receiver:
+            // "unknown"`. The compiler knew the destination (the artifact released to solana.SOL);
+            // only the intent spec did not. TICKET-129.
+            x3_lang_ast::ast::Statement::Release { chain, asset, to } => {
+                draft.dest_chain = chain.0.as_str().to_string();
+                draft.dest_asset = asset.name.as_str().to_string();
+                draft.dest_receiver = string_from_expr(to);
+            }
             x3_lang_ast::ast::Statement::Require(guard) => {
                 let kind = &guard.kind;
                 let subject = &guard.subject;
