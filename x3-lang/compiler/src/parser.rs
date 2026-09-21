@@ -606,16 +606,15 @@ impl<'a> Parser<'a> {
                 }
                 Tok::KwOnFail => {
                     self.advance();
-                    on_fail = Some(self.parse_failure_action()?);
+                    let action = self.parse_failure_action()?;
+                    on_fail = Some(self.merge_failure_action(on_fail.take(), action)?);
                 }
                 Tok::KwOnTimeout => {
                     self.advance();
                     let dur = self.parse_expr()?;
                     let action = self.parse_failure_action()?;
                     timeout = Some(dur);
-                    if on_fail.is_none() {
-                        on_fail = Some(action);
-                    }
+                    on_fail = Some(self.merge_failure_action(on_fail.take(), action)?);
                 }
                 _ => {
                     body.push(self.parse_statement()?);
@@ -646,7 +645,8 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Tok::KwOnFail => {
                     self.advance();
-                    on_fail = Some(self.parse_failure_action()?);
+                    let action = self.parse_failure_action()?;
+                    on_fail = Some(self.merge_failure_action(on_fail.take(), action)?);
                 }
                 Tok::KwOnTimeout => {
                     self.advance();
@@ -654,9 +654,7 @@ impl<'a> Parser<'a> {
                     let action = self.parse_failure_action()?;
                     // Store timeout on destination by default for backward compat
                     timeout_destination = Some(duration);
-                    if on_fail.is_none() {
-                        on_fail = Some(action);
-                    }
+                    on_fail = Some(self.merge_failure_action(on_fail.take(), action)?);
                 }
                 _ => body.push(self.parse_statement()?),
             }
@@ -5819,6 +5817,44 @@ impl<'a> Parser<'a> {
     fn parse_require_stmt(&mut self) -> Result<Statement, X3Error> {
         let guard = self.parse_require_guard()?;
         Ok(Statement::Require(guard))
+    }
+
+    /// One action slot, two clauses.
+    ///
+    /// A `bridge` or `atomic swap` declaration carries a single failure action, and both
+    /// `on_fail <action>` and `on_timeout <duration> <action>` write into it. This kept whichever
+    /// was parsed first and discarded a second, different one without a word: measured,
+    /// `bridge b ethereum.USDC to solana.USDC { on_fail halt on_timeout 30s refund solana.USDC to
+    /// bob }` built, and the refund the program wrote reached no field (TICKET-120). The language
+    /// refuses every other contradiction, so this one is refused and both actions are named.
+    ///
+    /// The same action stated twice stays accepted — that is what the formatter writes back when a
+    /// declaration states a timeout at all, so refusing it would make the formatter's own output
+    /// unparseable. The comparison is on the source text of each action, which is the same reading
+    /// the formatter writes them with (`failure_action_source`).
+    fn merge_failure_action(
+        &self,
+        stated: Option<FailureAction>,
+        from_timeout: FailureAction,
+    ) -> Result<FailureAction, X3Error> {
+        let Some(stated) = stated else {
+            return Ok(from_timeout);
+        };
+        let (first, second) = (
+            crate::formatter::failure_action_source(&stated),
+            crate::formatter::failure_action_source(&from_timeout),
+        );
+        if first == second {
+            return Ok(stated);
+        }
+        Err(parse_err(
+            format!(
+                "`on_fail` and `on_timeout` state two different actions for the same failure path: \
+                 `{first}` and `{second}`. This declaration carries one action, so state the same \
+                 action in both clauses, or drop the one you do not want"
+            ),
+            self.peek(),
+        ))
     }
 
     fn parse_failure_action(&mut self) -> Result<FailureAction, X3Error> {

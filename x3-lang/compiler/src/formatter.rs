@@ -20,6 +20,18 @@ pub fn expression_to_source(expr: &Expression) -> String {
     formatter.output
 }
 
+/// A failure action as source text.
+///
+/// Public for the same reason `refund_target` is: the reader that needs it is not the formatter.
+/// The parser compares two stated actions to decide whether they are the same action stated twice,
+/// and a second spelling of `rollback`/`refund <asset> to <receiver>` living in the parser is
+/// exactly the drift this module exists to prevent (TICKET-120).
+pub fn failure_action_source(action: &FailureAction) -> String {
+    let mut formatter = X3Formatter::new();
+    formatter.format_failure_action(action);
+    formatter.output
+}
+
 /// Whether a clause's expression is the literal zero `from <asset>` fills in
 /// when the amount is not stated.
 fn is_zero_literal(expression: &Expression) -> bool {
