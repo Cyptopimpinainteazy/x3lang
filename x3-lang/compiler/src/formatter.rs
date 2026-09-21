@@ -304,6 +304,17 @@ impl X3Formatter {
             self.write(max_cumulative_loss.asset.as_str());
             self.write("\n");
         }
+        // The last of the policy's opt-in ceilings, and the one this arm was missing: a policy that
+        // declared `quote_freshness` came back without it, and the VM enforces it
+        // (`vm/src/economic.rs` refuses a policy that weakens the freshness the compiled policy
+        // states), so formatting silently removed an enforced bound. The parser takes a bare block
+        // count here — `parse_block_count`, not a duration — so that is what is written. TICKET-127.
+        if let Some(quote_freshness) = policy.quote_freshness {
+            self.write_indent();
+            self.write("quote_freshness: ");
+            self.write(&quote_freshness.to_string());
+            self.write("\n");
+        }
         self.dedent();
         self.write("}\n");
     }

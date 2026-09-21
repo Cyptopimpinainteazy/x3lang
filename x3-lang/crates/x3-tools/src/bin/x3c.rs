@@ -1652,14 +1652,44 @@ fn cmd_explain(input: &PathBuf) -> Result<ExitCode, String> {
 }
 
 fn cmd_test_fixture(out: &PathBuf) -> Result<ExitCode, String> {
+    // The command's own description calls this "a known-good fixture", and it was not one: the
+    // program below it used to stop after the route, so `x3c check` refused it with three X3E0501
+    // errors (no refund path, a Lock with no way back, a swap leg with no slippage bound) — a harness
+    // pointed at the fixture would have been pointed at a program the compiler rejects. The committed
+    // copy of this text is `x3-lang/x3c-fixture.x3` and the tree-wide gate
+    // `every_x3_file_the_tooling_walks_is_a_program` walks it, which is how the two disagreed
+    // (TICKET-128).
+    //
+    // Generated *and* checked rather than trusted, for the same reason `cmd_new` checks its template:
+    // a fixture that drifts from the language must fail here, not in whatever harness reads it.
     const FIXTURE: &str = r#"intent arb_solana_eth {
     from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
     to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
     route {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777
     }
+    require nonce unused arb_solana_eth_fixture_1
+    require slippage <= 50
+    timeout 180s refund Ethereum.USDC to sender
+    on_fail rollback
 }
 "#;
+    let (_, _, outcome) = x3_lang_compiler::check_source_diagnostics(FIXTURE).map_err(|error| {
+        format!(
+            "the built-in fixture is not a program this compiler reads, refusing to write it: {}",
+            error.staged()
+        )
+    })?;
+    if !outcome.errors.is_empty() || !outcome.warnings.is_empty() {
+        return Err(format!(
+            "the built-in fixture does not check clean ({} error(s), {} warning(s)); it is advertised \
+             as known-good, so it must be: {:?} {:?}",
+            outcome.errors.len(),
+            outcome.warnings.len(),
+            outcome.errors,
+            outcome.warnings
+        ));
+    }
     std::fs::write(out, FIXTURE).map_err(|e| format!("write {out:?}: {e}"))?;
     println!("x3c test-fixture: wrote {}", out.display());
     Ok(ExitCode::SUCCESS)

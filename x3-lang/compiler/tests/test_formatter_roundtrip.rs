@@ -48,9 +48,7 @@ fn ast_without_spans(program: &Program) -> serde_json::Value {
                     .map(|(name, value)| (name, strip(value)))
                     .collect(),
             ),
-            serde_json::Value::Array(items) => {
-                serde_json::Value::Array(items.into_iter().map(strip).collect())
-            }
+            serde_json::Value::Array(items) => serde_json::Value::Array(items.into_iter().map(strip).collect()),
             other => other,
         }
     }
@@ -506,6 +504,49 @@ mod generics_survive_formatting {
             X3Formatter::new().format_program(&reparsed),
             formatted,
             "formatting is not idempotent"
+        );
+    }
+}
+
+/// Every opt-in ceiling a trade risk policy can declare survives formatting.
+///
+/// The corpus declares none of them, so the corpus round-trip could not see that
+/// `format_trade_risk_policy` wrote `min_profit`, `max_oracle_deviation` and `max_cumulative_loss`
+/// and then stopped — `quote_freshness` was dropped, and the VM enforces it
+/// (`vm/src/economic.rs` refuses a policy weaker than the compiled one states). The list is the
+/// struct's own fields, so a field added without an arm fails here (TICKET-127).
+mod trade_policy_ceilings_survive_formatting {
+    use super::{ast_without_spans, parse};
+    use x3_lang_compiler::formatter::X3Formatter;
+
+    const SOURCE: &str = "asset USDC = evm.ethereum.0xA0b8 {\n    decimals: 6\n}\n\n\
+                          risk policy Ceilings {\n    max_slippage: 30 bps\n    max_gas: 0.02 ETH\n    \
+                          max_flash_fee: 10 bps\n    deadline: 2 blocks\n    \
+                          require_private_submission: true\n    min_profit: 5 USDC\n    \
+                          max_oracle_deviation: 25 bps\n    max_cumulative_loss: 100 USDC\n    \
+                          quote_freshness: 5\n}\n";
+
+    #[test]
+    fn the_optional_ceilings_are_all_written_back() {
+        let program = parse(SOURCE).expect("the fixture must parse");
+        let formatted = X3Formatter::new().format_program(&program);
+        for clause in [
+            "min_profit: 5 USDC",
+            "max_oracle_deviation: 25 bps",
+            "max_cumulative_loss: 100 USDC",
+            "quote_freshness: 5",
+        ] {
+            assert!(
+                formatted.contains(clause),
+                "a declared ceiling did not come back (`{clause}`):\n{formatted}"
+            );
+        }
+
+        let reparsed = parse(&formatted).expect("what the formatter writes must parse");
+        assert_eq!(
+            ast_without_spans(&program),
+            ast_without_spans(&reparsed),
+            "formatting changed the program, not just its text:\n{formatted}"
         );
     }
 }

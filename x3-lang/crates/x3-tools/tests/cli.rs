@@ -532,6 +532,35 @@ fn cli_test_fixture_writes_file() {
     assert!(status.success(), "test-fixture must succeed");
     let body = std::fs::read_to_string(&out).expect("fixture read");
     assert!(body.contains("intent"), "fixture must contain an intent");
+    // Containing the word "intent" is not being a program, and this is where the fixture and the
+    // compiler disagreed: the emitted text used to fail `x3c check` with three X3E0501 errors while
+    // this test was green, and the tree-wide walk over `*.x3` is the gate that noticed. The command
+    // is described as emitting a *known-good* fixture, so the check runs here (TICKET-128).
+    let check = x3c()
+        .args(["check"])
+        .arg(&out)
+        .arg("--deny-warnings")
+        .output()
+        .expect("x3c check");
+    assert!(
+        check.status.success(),
+        "the emitted fixture must be a program this compiler accepts: {}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let build = x3c()
+        .args(["build"])
+        .arg(&out)
+        .args(["--out"])
+        .arg(out.with_extension("x3b"))
+        .output()
+        .expect("x3c build");
+    assert!(
+        build.status.success(),
+        "and one it can compile: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
 }
 
 #[test]

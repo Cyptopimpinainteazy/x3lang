@@ -4,4 +4,8 @@ intent arb_solana_eth {
     route {
         swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777
     }
+    require nonce unused arb_solana_eth_fixture_1
+    require slippage <= 50
+    timeout 180s refund Ethereum.USDC to sender
+    on_fail rollback
 }
