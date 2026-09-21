@@ -137,11 +137,22 @@ pub fn flow_of(name: &str, ir: &X3IR) -> IntentFlow {
                     }
                 }
             }
-            Operation::Bridge { to_chain, to_asset, .. } => {
-                // A bridge says what it delivers but not how much of it, so it
-                // can name the want asset and cannot state its minimum.
+            Operation::Bridge {
+                to_chain,
+                to_asset,
+                min_output,
+                ..
+            } => {
+                // A bridge names the asset it delivers, and now also carries the
+                // minimum the source stated for that delivery (TICKET-038).
                 if wants_asset.is_none() {
                     wants_asset = Some(key(to_chain, to_asset));
+                }
+                if wants_asset.as_deref() == Some(key(to_chain, to_asset).as_str())
+                    && *min_output > 0
+                    && wants_min.is_none()
+                {
+                    wants_min = Some(*min_output);
                 }
             }
             Operation::OnTimeout {

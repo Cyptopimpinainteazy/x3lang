@@ -3766,6 +3766,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -3879,6 +3880,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -3931,6 +3933,7 @@ mod tests {
             },
             Operation::AtomicBegin,
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "ethereum".into(),
                 from_asset: "USDC".into(),
@@ -4145,6 +4148,7 @@ mod tests {
                 act: ReleaseAct::Payout,
             },
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "ethereum".into(),
                 from_asset: "USDC".into(),
@@ -4246,6 +4250,7 @@ mod tests {
                 from: "0x1".into(),
             },
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "ethereum".into(),
                 from_asset: "USDC".into(),
@@ -4430,6 +4435,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -4575,6 +4581,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -4617,6 +4624,7 @@ mod tests {
     fn cross_vm_outside_atomic_is_rejected() {
         let mut ir = empty_ir();
         ir.operations = vec![Operation::Bridge {
+            min_output: 0,
             via: "x3".into(),
             from_chain: "solana".into(),
             from_asset: "USDC".into(),
@@ -4637,6 +4645,7 @@ mod tests {
     fn bridge_without_timeout_is_rejected() {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![Operation::Bridge {
+            min_output: 0,
             via: "x3".into(),
             from_chain: "solana".into(),
             from_asset: "USDC".into(),
@@ -4656,6 +4665,7 @@ mod tests {
         let mut ir = X3IR::new(); // no nonce
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -4680,6 +4690,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "rogue-bridge".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -4704,6 +4715,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "ethereum".into(),
                 from_asset: "USDC".into(),
@@ -4729,6 +4741,7 @@ mod tests {
         ir.operations = vec![
             Operation::AtomicBegin,
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -4749,6 +4762,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -4794,6 +4808,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC; rm -rf /".into(),
@@ -4822,6 +4837,7 @@ mod tests {
         let mut ops = vec![];
         for _ in 0..9 {
             ops.push(Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5061,6 +5077,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5082,6 +5099,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5161,6 +5179,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5190,6 +5209,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5216,6 +5236,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5261,6 +5282,7 @@ mod tests {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5298,6 +5320,7 @@ mod tests {
         ir.operations = vec![
             Operation::AtomicBegin,
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5335,6 +5358,7 @@ mod tests {
         ir.operations = vec![
             Operation::AtomicBegin,
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5406,6 +5430,7 @@ mod tests {
         weights.insert("cost".to_string(), 50);
         ir.operations = atomic(vec![
             Operation::Bridge {
+                min_output: 0,
                 via: "x3".into(),
                 from_chain: "solana".into(),
                 from_asset: "USDC".into(),
@@ -5478,6 +5503,7 @@ mod tests {
     fn risk_score_risky_intent_is_high() {
         let mut ir = empty_ir();
         ir.operations = atomic(vec![Operation::Bridge {
+            min_output: 0,
             via: "unknown-bridge".into(),
             from_chain: "unknown-chain".into(),
             from_asset: "SHITCOIN".into(),
@@ -5596,6 +5622,7 @@ mod refund_path_tests {
         let found = violations(vec![
             Operation::AtomicBegin,
             Operation::Bridge {
+                min_output: 0,
                 via: "X3".into(),
                 from_chain: "ethereum".into(),
                 from_asset: "USDC".into(),

@@ -130,6 +130,7 @@ fn a_swap_that_moves_value_between_ledgers_is_in_the_cross_domain_lane() {
 fn a_bridge_is_in_the_cross_domain_lane() {
     assert_eq!(
         lane_of_ir(vec![Operation::Bridge {
+            min_output: 0,
             via: "X3".to_owned(),
             from_chain: "ethereum".to_owned(),
             from_asset: "USDC".to_owned(),

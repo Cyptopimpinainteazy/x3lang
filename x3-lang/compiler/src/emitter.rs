@@ -1004,6 +1004,7 @@ fn operation_to_bridge_payload(op: &Operation) -> Result<BridgePayload, X3Error>
         to_asset,
         amount,
         receiver,
+        min_output: _,
         source_finality_proof,
         transfer_proof,
     } = op

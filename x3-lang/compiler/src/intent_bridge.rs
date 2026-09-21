@@ -247,6 +247,7 @@ pub fn to_ir(intent: &ValidatedIntentV1) -> Result<X3IR, X3Error> {
                     .unwrap_or_else(|| "receiver".to_string());
                 running_amount = amount;
                 ir.push(Operation::Bridge {
+                    min_output: 0,
                     via: via.to_ascii_lowercase(),
                     from_chain: from_chain.to_ascii_lowercase(),
                     from_asset: asset,

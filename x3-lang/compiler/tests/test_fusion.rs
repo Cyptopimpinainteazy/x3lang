@@ -121,10 +121,34 @@ fn a_minimum_above_what_the_next_hands_over_is_refused() {
 }
 
 #[test]
-fn a_missing_minimum_is_unverifiable_not_satisfied() {
-    // The bridge-only intent states what it bridges, never what it delivers, so
-    // its minimum is unknown. Saying "satisfied" there would be a ring that
-    // looks checked and was not.
+fn a_bridge_min_receive_is_readable_as_the_delivered_minimum() {
+    let source = r#"intent alice {
+    from ethereum.ETH amount 10 receiver 0x1
+    to solana.SOL receiver 0x2
+    route {
+        bridge x3 ethereum.ETH -> solana.SOL amount 10 receiver 0x2 min_receive 9
+    }
+    allow intent_fusion
+    require nonce unused alice_nonce
+    require finality.ethereum >= 12
+    timeout 30s refund ethereum.ETH to sender
+    on_fail rollback
+}
+"#;
+    let program = x3_lang_compiler::parser::parse_source(source).expect("parses");
+    let flows = fusion::flows(&program);
+    let alice = flows.iter().find(|flow| flow.name == "alice").expect("alice");
+    match &alice.wants {
+        Some((asset, minimum)) => {
+            assert_eq!(asset, "solana.SOL");
+            assert_eq!(*minimum, Some(9));
+        }
+        None => panic!("the want asset must still be readable: {alice:?}"),
+    }
+}
+
+#[test]
+fn a_bridge_without_min_receive_is_still_unverifiable() {
     let source = r#"intent alice {
     from ethereum.ETH amount 10 receiver 0x1
     to solana.SOL receiver 0x2
@@ -141,13 +165,7 @@ fn a_missing_minimum_is_unverifiable_not_satisfied() {
     let program = x3_lang_compiler::parser::parse_source(source).expect("parses");
     let flows = fusion::flows(&program);
     let alice = flows.iter().find(|flow| flow.name == "alice").expect("alice");
-    match &alice.wants {
-        Some((asset, minimum)) => {
-            assert_eq!(asset, "solana.SOL");
-            assert_eq!(*minimum, None, "a bridge states no delivered amount");
-        }
-        None => panic!("the want asset must still be readable: {alice:?}"),
-    }
+    assert_eq!(alice.wants, Some(("solana.SOL".to_string(), None)));
 }
 
 #[test]

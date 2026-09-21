@@ -136,6 +136,11 @@ pub enum Operation {
         to_asset: String,
         amount: u128,
         receiver: String,
+        /// The least amount of `to_asset` the bridge must deliver. Zero means
+        /// the program did not state one, and fusion refuses to treat that as
+        /// satisfied (TICKET-038).
+        #[serde(default)]
+        min_output: u128,
         source_finality_proof: Vec<u8>,
         transfer_proof: Vec<u8>,
     },

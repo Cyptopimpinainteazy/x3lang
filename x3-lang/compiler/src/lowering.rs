@@ -1473,11 +1473,12 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             to,
             amount,
             receiver,
-            min_receive: _,
+            min_receive,
             source_finality_proof,
             transfer_proof,
         } => {
             ir.push(Operation::Bridge {
+                min_output: min_receive.as_ref().map(expression_to_u128).transpose()?.unwrap_or(0),
                 via: via.as_str().to_string(),
                 from_chain: chain_to_string(&from.chain),
                 from_asset: from.name.as_str().to_string(),

@@ -51,6 +51,7 @@ fn refund(asset: &str) -> Operation {
 
 fn bridge() -> Operation {
     Operation::Bridge {
+        min_output: 0,
         via: "wormhole".to_owned(),
         from_chain: "ethereum".to_owned(),
         from_asset: "USDC".to_owned(),

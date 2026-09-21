@@ -189,6 +189,7 @@ fn production_bridge_adapter_verifies_and_persists_structured_receipt() {
 
     let mut ir = X3IR::new();
     ir.push(Operation::Bridge {
+        min_output: 0,
         via: "X3".into(),
         from_chain: "ethereum".into(),
         from_asset: "USDC".into(),
