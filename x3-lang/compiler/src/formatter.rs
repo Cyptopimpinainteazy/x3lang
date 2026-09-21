@@ -1969,6 +1969,7 @@ impl X3Formatter {
                 to,
                 amount,
                 receiver,
+                min_receive,
                 ..
             } => {
                 self.write_indent();
@@ -1982,6 +1983,10 @@ impl X3Formatter {
                 self.format_expression(amount);
                 self.write(" receiver ");
                 self.format_expression(receiver);
+                if let Some(min_receive) = min_receive {
+                    self.write(" min_receive ");
+                    self.format_expression(min_receive);
+                }
                 self.write(";\n");
             }
             Statement::Require(guard) => {

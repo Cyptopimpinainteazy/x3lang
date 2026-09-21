@@ -80,6 +80,28 @@ fn examples() -> Vec<(String, String)> {
     found
 }
 
+#[test]
+fn bridge_min_receive_survives_formatting() {
+    let source = r#"
+intent probe {
+    from ethereum.USDC amount 1
+    to solana.SOL
+    route {
+        bridge x3 ethereum.USDC -> solana.SOL amount 1 receiver 0x1 min_receive 2
+    }
+    on_fail rollback
+}
+"#;
+    let program = parse(source).expect("bridge min_receive source must parse");
+    let formatted = X3Formatter::new().format_program(&program);
+    assert!(
+        formatted.contains("min_receive 2"),
+        "the formatter must write the clause back: {formatted}"
+    );
+    let reparsed = parse(&formatted).expect("formatted bridge min_receive must parse");
+    assert_eq!(ast_without_spans(&program), ast_without_spans(&reparsed));
+}
+
 /// Files the parser reads but the compiler refuses.
 ///
 /// Listed rather than skipped silently: a corpus file that parses and does not

@@ -296,6 +296,11 @@ pub enum Statement {
         to: AssetRef,
         amount: Expression,
         receiver: Expression,
+        /// The least amount of `to` the bridge must deliver, when the program
+        /// states one. Absent means unstated, which the fusion check refuses to
+        /// read as satisfied (TICKET-038).
+        #[serde(default)]
+        min_receive: Option<Expression>,
         source_finality_proof: Option<Expression>,
         transfer_proof: Option<Expression>,
     },

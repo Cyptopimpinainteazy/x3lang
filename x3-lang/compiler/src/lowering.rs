@@ -1473,6 +1473,7 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
             to,
             amount,
             receiver,
+            min_receive: _,
             source_finality_proof,
             transfer_proof,
         } => {

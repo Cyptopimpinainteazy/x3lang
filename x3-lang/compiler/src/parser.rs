@@ -2900,6 +2900,7 @@ impl<'a> Parser<'a> {
         };
         let mut amount: Option<Expression> = None;
         let mut receiver: Option<Expression> = None;
+        let mut min_receive: Option<Expression> = None;
         let mut source_finality_proof: Option<Expression> = None;
         let mut transfer_proof: Option<Expression> = None;
         loop {
@@ -2913,6 +2914,10 @@ impl<'a> Parser<'a> {
                     if !matches!(self.peek(), Tok::RBrace | Tok::Eof) {
                         receiver = Some(self.parse_expr()?);
                     }
+                }
+                Tok::Ident(ref s) if s == "min_receive" => {
+                    self.advance();
+                    min_receive = Some(self.parse_expr()?);
                 }
                 Tok::Ident(ref s) if s == "finality_proof" => {
                     self.advance();
@@ -2942,6 +2947,7 @@ impl<'a> Parser<'a> {
                 })
             }),
             receiver: receiver.unwrap_or_else(|| Expression::Ident(Symbol::new("receiver"))),
+            min_receive,
             source_finality_proof,
             transfer_proof,
         })
