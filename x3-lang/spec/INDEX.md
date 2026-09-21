@@ -58,6 +58,13 @@ Guarantees:
 Boundary: v1 provides fixture-host execution only. It does not ship live venue
 adapters, route discovery, oracle consensus, or mainnet execution evidence.
 
+### `atomic swap` and minimum output
+
+`atomic swap` declares an escrow/payout, not a venue `swap`, so it deliberately has no
+`min_output` clause. A program that states `min_output` inside an `atomic swap` is refused
+by name and directed to put the floor on a route `swap` instead. The refusal records the
+language decision rather than silently dropping a price floor (TICKET-122).
+
 ## Production Readiness
 
 > **Note**: All 26 opcodes execute in the VM. ON_FAIL now wires real failure-handler dispatch — a trapped opcode (REQUIRE, OOG, timeout, etc.) transfers control to the most recent handler target instead of immediately returning `Err`. The atomic_router feature is at **85%** readiness per `FEATURE_REGISTRY.toml`. Remaining gaps are production hardening — multi-validator testing, external bridge integration, and CI gate wiring — not missing VM functionality.

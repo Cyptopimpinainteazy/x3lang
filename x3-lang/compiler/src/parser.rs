@@ -656,6 +656,14 @@ impl<'a> Parser<'a> {
                     timeout_destination = Some(duration);
                     on_fail = Some(self.merge_failure_action(on_fail.take(), action)?);
                 }
+                Tok::Ident(ref s) if s == "min_output" => {
+                    return Err(parse_err(
+                        "`min_output` is not a clause of `atomic_swap`; the declaration has no \
+                         price floor. Write the floor on a route `swap` instead (TICKET-122)"
+                            .into(),
+                        self.peek(),
+                    ));
+                }
                 _ => body.push(self.parse_statement()?),
             }
         }
@@ -742,6 +750,14 @@ impl<'a> Parser<'a> {
                 Tok::KwOnFail => {
                     self.advance();
                     on_fail = Some(self.parse_failure_action()?);
+                }
+                Tok::Ident(ref s) if s == "min_output" => {
+                    return Err(parse_err(
+                        "`min_output` is not a clause of `atomic swap`; the declaration has no \
+                         price floor. Write the floor on a route `swap` instead (TICKET-122)"
+                            .into(),
+                        self.peek(),
+                    ));
                 }
                 _ => {
                     body.push(self.parse_statement()?);

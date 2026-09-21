@@ -91,3 +91,28 @@ atomic swap eth.DAI -> arb.USDC {
     let program = parse_source(source).expect("atomic swap with detailed requires should parse");
     assert_eq!(program.items.len(), 1);
 }
+
+#[test]
+fn min_output_is_refused_rather_than_silently_dropped() {
+    let source = r#"
+atomic swap eth.USDC -> sol.SOL {
+    amount 500
+    receiver sol.wallet.owner
+    min_output 400
+}
+"#;
+    let error = parse_source(source).expect_err("min_output must be refused, not ignored");
+    let message = error.to_string();
+    assert!(
+        message.contains("min_output"),
+        "the refusal must name the clause: {message}"
+    );
+    assert!(
+        message.contains("TICKET-122"),
+        "the refusal must cite the recorded decision: {message}"
+    );
+    assert!(
+        message.contains("route `swap`"),
+        "the refusal must point at the supported floor: {message}"
+    );
+}
