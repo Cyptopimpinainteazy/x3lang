@@ -630,14 +630,41 @@ pub enum StateBindingMode {
 /// Stable cost categories understood by economic policy version 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CostKind {
+    /// Native execution gas, in the chain's native fee unit.
     Gas,
+    /// A venue's explicit liquidity-provider fee.
     LiquidityFee,
+    /// A fee charged by a flash-loan / flash-liquidity provider.
     FlashLiquidityFee,
+    /// A fee charged by a solver / execution infrastructure provider.
     SolverInfrastructureFee,
+    /// A fee charged for generating or verifying a proof.
     ProofFee,
+    /// A fee charged for a cross-domain (bridge) transfer.
     CrossDomainFee,
+    /// The realized shortfall between a host's quoted expected output and the
+    /// swap's actual output, in basis points of the expected output:
+    /// `max(0, expected - actual) / expected * 10_000`. Zero when `actual >=
+    /// expected`. The host's `quote()` is the reference point, taken
+    /// immediately before the swap so this measures *realized* slippage, not
+    /// an estimate.
     Slippage,
+    /// The adverse price movement caused by the trade's own size against the
+    /// venue's liquidity, in basis points. It is the difference between the
+    /// spot price before the trade and the execution price the trade receives,
+    /// excluding fees. For a constant-product pool with reserves `(x, y)`, a
+    /// swap of `dx` has price impact `dx / (x + dx)` before fees. It is
+    /// **distinct from slippage**: slippage is measured against a host's
+    /// quote, while price impact is measured against the venue's own depth. A
+    /// host must report it from the venue's real liquidity, never derive it
+    /// from the program.
     PriceImpact,
+    /// The value extracted from the trade by adversarial third-party
+    /// reordering — front-running and sandwiching — in basis points: the
+    /// shortfall between the price the trade would have received without
+    /// adversarial reordering and the price it actually received, attributable
+    /// to MEV. It is a host/block-context fact (read from mempool or block
+    /// ordering) and cannot be derived from the program itself.
     MevLeakage,
 }
 
