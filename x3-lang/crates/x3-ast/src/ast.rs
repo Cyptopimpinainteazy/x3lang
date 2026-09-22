@@ -567,6 +567,10 @@ pub enum RequireKind {
     VmSupported,
     /// `require mainnet_safe` — requires mainnet safety checks pass
     MainnetSafe,
+    /// `require price_impact <= <bps>` — host-measured price-impact ceiling.
+    PriceImpact,
+    /// `require mev_leakage <= <bps>` — host-measured MEV-leakage ceiling.
+    MevLeakage,
     /// Custom / catch-all require
     Custom(Symbol),
 }
@@ -617,6 +621,8 @@ impl RequireKind {
             RequireKind::FinalityExplicit => "finality_explicit",
             RequireKind::VmSupported => "vm_supported",
             RequireKind::MainnetSafe => "mainnet_safe",
+            RequireKind::PriceImpact => "price_impact",
+            RequireKind::MevLeakage => "mev_leakage",
             RequireKind::Custom(name) => name.as_str(),
         }
     }

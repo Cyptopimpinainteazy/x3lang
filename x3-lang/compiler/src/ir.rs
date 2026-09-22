@@ -1115,6 +1115,10 @@ pub enum RequireKind {
     VmSupported,
     /// Mainnet safety check
     MainnetSafe,
+    /// Host-measured price-impact ceiling.
+    PriceImpact,
+    /// Host-measured MEV-leakage ceiling.
+    MevLeakage,
     /// Custom user-defined check
     Custom(String),
 }

@@ -388,7 +388,13 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                         }
                     }
                     REQUIRE_COMPARE_MEASURED_SLIPPAGE => {
-                        match measured_comparison(vm, MEASURED_UNIT_CODE_SLIPPAGE_BPS, threshold, "guard") {
+                        // Slippage was encoded as unit code 0 before the wider measured set existed,
+                        // so 0 in this mode still means slippage. New guards carry their own code.
+                        let unit = match require_measured_unit_code(_flags) {
+                            0 => MEASURED_UNIT_CODE_SLIPPAGE_BPS,
+                            other => other,
+                        };
+                        match measured_comparison(vm, unit, threshold, "guard") {
                             Some(MeasuredVerdict::Holds) => true,
                             Some(MeasuredVerdict::Fails(message) | MeasuredVerdict::Unmeasured(message)) => {
                                 return Err(ExecError::Panic(message))
@@ -1224,6 +1230,8 @@ fn measured_comparison(vm: &VM, unit_code: u8, threshold: u128, what: &str) -> O
         MEASURED_UNIT_CODE_PROFIT_BPS => vm.state.measured_profit_bps,
         MEASURED_UNIT_CODE_DELTA_BPS => vm.state.measured_delta_bps,
         MEASURED_UNIT_CODE_SLIPPAGE_BPS => vm.state.measured_slippage_bps,
+        MEASURED_UNIT_CODE_PRICE_IMPACT_BPS => vm.state.measured_price_impact_bps,
+        MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS => vm.state.measured_mev_leakage_bps,
         _ => return None,
     };
     let Some(measured) = measured else {
@@ -1235,6 +1243,14 @@ fn measured_comparison(vm: &VM, unit_code: u8, threshold: u128, what: &str) -> O
             MEASURED_UNIT_CODE_DELTA_BPS => format!(
                 "X3_GUARD_UNMEASURED: the {what} `delta <= {threshold}bps` needs a delta the venue \
                  measured, and no venue reported one for this hedge"
+            ),
+            MEASURED_UNIT_CODE_PRICE_IMPACT_BPS => format!(
+                "X3_GUARD_UNMEASURED: the {what} `price_impact <= {threshold}bps` needs a price \
+                 impact the host measured, and no host reported one for this trade"
+            ),
+            MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS => format!(
+                "X3_GUARD_UNMEASURED: the {what} `mev_leakage <= {threshold}bps` needs MEV leakage \
+                 the host measured, and no host reported one for this trade"
             ),
             _ => format!(
                 "X3_GUARD_UNMEASURED: the {what} `slippage <= {threshold}bps` needs a slippage the \
@@ -1257,6 +1273,14 @@ fn measured_comparison(vm: &VM, unit_code: u8, threshold: u128, what: &str) -> O
         MEASURED_UNIT_CODE_DELTA_BPS => format!(
             "X3_DELTA_ABOVE_BOUND: the venue left a delta of {measured}bps and the program allows at \
              most {threshold}bps"
+        ),
+        MEASURED_UNIT_CODE_PRICE_IMPACT_BPS => format!(
+            "X3_PRICE_IMPACT_ABOVE_CEILING: the host measured {measured}bps and the program allows \
+             at most {threshold}bps"
+        ),
+        MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS => format!(
+            "X3_MEV_LEAKAGE_ABOVE_CEILING: the host measured {measured}bps and the program allows \
+             at most {threshold}bps"
         ),
         _ => format!(
             "X3_SLIPPAGE_ABOVE_CEILING: the trade realised {measured}bps and the program allows at \
@@ -1667,6 +1691,8 @@ fn record_measurement(vm: &mut VM, reply: &[u8]) {
             crate::spec::opcodes::MEASURED_UNIT_PROFIT_BPS => vm.state.measured_profit_bps = Some(value),
             crate::spec::opcodes::MEASURED_UNIT_SLIPPAGE_BPS => vm.state.measured_slippage_bps = Some(value),
             crate::spec::opcodes::MEASURED_UNIT_DELTA_BPS => vm.state.measured_delta_bps = Some(value),
+            crate::spec::opcodes::MEASURED_UNIT_PRICE_IMPACT_BPS => vm.state.measured_price_impact_bps = Some(value),
+            crate::spec::opcodes::MEASURED_UNIT_MEV_LEAKAGE_BPS => vm.state.measured_mev_leakage_bps = Some(value),
             // An unknown unit is not a measurement this VM can use, and pretending
             // otherwise would let a host answer a profit guard with a slippage.
             _ => {}

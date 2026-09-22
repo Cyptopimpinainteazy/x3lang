@@ -1098,10 +1098,10 @@ mod static_guard_quantity_tests {
             verify(&require(require_flags_measured(
                 REQUIRE_COMPARE_MEASURED_PROFIT,
                 GUARD_OP_GE,
-                GUARD_QUANTITY_SCORE
+                GUARD_QUANTITY_FEES_BPS
             )))
             .is_err(),
-            "a measured guard's code is a measured quantity, not a score"
+            "a measured guard's code is a measured quantity, not a static fee ceiling"
         );
     }
 }
