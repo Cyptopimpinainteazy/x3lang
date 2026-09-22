@@ -134,7 +134,7 @@ pub struct QuoteResult {
 }
 
 /// A host-reported risk measurement tied to a named source.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeasuredRisk {
     pub source: String,
     pub bps: u128,
@@ -867,8 +867,14 @@ impl TradingVm {
                     if let Some(ceiling_bps) = self.compiled_policy().max_oracle_deviation_bps {
                         self.enforce_oracle_firewall(quote.expected_output, &quote.sources, ceiling_bps)?;
                     }
-                    self.enforce_price_impact(host, &quote_request)?;
-                    self.enforce_mev_leakage(host, &quote_request)?;
+                    let price_impact = host
+                        .price_impact(&quote_request)
+                        .map_err(TradingExecError::HostRejected)?;
+                    let mev_leakage = host
+                        .mev_leakage(&quote_request)
+                        .map_err(TradingExecError::HostRejected)?;
+                    self.enforce_price_impact(price_impact.clone())?;
+                    self.enforce_mev_leakage(mev_leakage.clone())?;
                     self.debit(from, result.input)?;
                     self.credit(to, result.output)?;
                     self.accrue_cost(&result.fee_asset, result.fee, CostKind::LiquidityFee)?;
@@ -881,6 +887,8 @@ impl TradingVm {
                         venue: venue.clone(),
                         quote_block: quote.quote_block,
                         executed_at_block: context.current_block,
+                        price_impact,
+                        mev_leakage,
                     });
                 }
                 TradingOperation::Bridge {
@@ -1227,16 +1235,13 @@ impl TradingVm {
 
     fn enforce_price_impact(
         &self,
-        host: &dyn TradingHost,
-        request: &QuoteRequest,
+        measurement: Option<MeasuredRisk>,
     ) -> Result<(), TradingExecError> {
         let Some(ceiling_bps) = self.compiled_policy().max_price_impact_bps else {
             return Ok(());
         };
-        let measurement = host
-            .price_impact(request)
-            .map_err(TradingExecError::HostRejected)?
-            .ok_or(TradingExecError::PriceImpactMeasurementMissing)?;
+        let measurement =
+            measurement.ok_or(TradingExecError::PriceImpactMeasurementMissing)?;
         if measurement.bps > ceiling_bps as u128 {
             return Err(TradingExecError::PriceImpactExceeded {
                 source: measurement.source,
@@ -1249,16 +1254,13 @@ impl TradingVm {
 
     fn enforce_mev_leakage(
         &self,
-        host: &dyn TradingHost,
-        request: &QuoteRequest,
+        measurement: Option<MeasuredRisk>,
     ) -> Result<(), TradingExecError> {
         let Some(ceiling_bps) = self.compiled_policy().max_mev_leakage_bps else {
             return Ok(());
         };
-        let measurement = host
-            .mev_leakage(request)
-            .map_err(TradingExecError::HostRejected)?
-            .ok_or(TradingExecError::MevLeakageMeasurementMissing)?;
+        let measurement =
+            measurement.ok_or(TradingExecError::MevLeakageMeasurementMissing)?;
         if measurement.bps > ceiling_bps as u128 {
             return Err(TradingExecError::MevLeakageExceeded {
                 source: measurement.source,
@@ -1517,6 +1519,10 @@ pub struct LegQuoteWindow {
     pub venue: String,
     pub quote_block: u64,
     pub executed_at_block: u64,
+    #[serde(default)]
+    pub price_impact: Option<MeasuredRisk>,
+    #[serde(default)]
+    pub mev_leakage: Option<MeasuredRisk>,
 }
 
 impl LegQuoteWindow {
@@ -1795,6 +1801,61 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 "receipt carries a quote window for venue '{}' with no executed leg to age",
                 unused.venue
             )));
+        }
+    }
+
+    if let Some(ceiling) = compiled_policy.max_price_impact_bps {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no risk window for the executed leg on venue '{venue}', so \
+                     max_price_impact cannot be re-derived"
+                )));
+            };
+            let measurement = window.price_impact.as_ref().ok_or_else(|| {
+                ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' has no max_price_impact measurement, but the compiled policy \
+                     requires one"
+                ))
+            })?;
+            if measurement.bps > ceiling as u128 {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' reports max_price_impact {} bps, exceeding the compiled ceiling \
+                     {ceiling} bps",
+                    measurement.bps
+                )));
+            }
+        }
+    }
+    if let Some(ceiling) = compiled_policy.max_mev_leakage_bps {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no risk window for the executed leg on venue '{venue}', so \
+                     max_mev_leakage cannot be re-derived"
+                )));
+            };
+            let measurement = window.mev_leakage.as_ref().ok_or_else(|| {
+                ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' has no max_mev_leakage measurement, but the compiled policy \
+                     requires one"
+                ))
+            })?;
+            if measurement.bps > ceiling as u128 {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' reports max_mev_leakage {} bps, exceeding the compiled ceiling \
+                     {ceiling} bps",
+                    measurement.bps
+                )));
+            }
         }
     }
 

@@ -1644,11 +1644,15 @@ fn a_receipt_carries_the_quote_window_of_every_leg() {
                 venue: "uniswap_v3".to_string(),
                 quote_block: 0,
                 executed_at_block: 5,
+                price_impact: None,
+                mev_leakage: None,
             },
             x3_lang_vm::trading::LegQuoteWindow {
                 venue: "uniswap_v3".to_string(),
                 quote_block: 0,
                 executed_at_block: 5,
+                price_impact: None,
+                mev_leakage: None,
             },
         ],
         "one window per swap leg, in execution order"
@@ -1706,6 +1710,8 @@ fn replay_refuses_a_receipt_with_a_window_no_leg_belongs_to() {
         venue: "curve".to_string(),
         quote_block: 0,
         executed_at_block: 5,
+        price_impact: None,
+        mev_leakage: None,
     });
     let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
     let err = verify_receipt_economics(&receipt).expect_err("an unmatched window must fail replay");
@@ -1795,4 +1801,38 @@ fn mev_leakage_ceiling_is_enforced_when_host_reports_it() {
             actual_bps: 11,
         }
     );
+}
+
+#[test]
+fn replay_refuses_price_impact_above_policy_ceiling() {
+    let mut receipt = receipt_from_a_successful_trade();
+    let mut operations = receipt.operations.clone();
+    let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] else {
+        panic!("fixture must begin with BeginAtomicTrade");
+    };
+    policy.max_price_impact_bps = Some(50);
+    receipt.operations = operations;
+    receipt.legs[0].price_impact = Some(MeasuredRisk {
+        source: "amm".to_string(),
+        bps: 60,
+    });
+    let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
+    let err = verify_receipt_economics(&receipt).expect_err("60 bps must exceed a 50 bps policy");
+    assert!(format!("{err:?}").contains("max_price_impact"), "{err:?}");
+}
+
+#[test]
+fn replay_refuses_missing_price_impact_when_policy_requires_it() {
+    let mut receipt = receipt_from_a_successful_trade();
+    let mut operations = receipt.operations.clone();
+    let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] else {
+        panic!("fixture must begin with BeginAtomicTrade");
+    };
+    policy.max_price_impact_bps = Some(50);
+    receipt.operations = operations;
+    receipt.legs[0].price_impact = None;
+    let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
+    let err = verify_receipt_economics(&receipt)
+        .expect_err("a required price-impact measurement cannot be missing on replay");
+    assert!(format!("{err:?}").contains("max_price_impact"), "{err:?}");
 }
