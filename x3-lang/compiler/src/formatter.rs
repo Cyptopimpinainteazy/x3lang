@@ -327,6 +327,18 @@ impl X3Formatter {
             self.write(&quote_freshness.to_string());
             self.write("\n");
         }
+        if let Some(price_impact_bps) = policy.max_price_impact_bps {
+            self.write_indent();
+            self.write("max_price_impact: ");
+            self.write(&price_impact_bps.to_string());
+            self.write(" bps\n");
+        }
+        if let Some(mev_leakage_bps) = policy.max_mev_leakage_bps {
+            self.write_indent();
+            self.write("max_mev_leakage: ");
+            self.write(&mev_leakage_bps.to_string());
+            self.write(" bps\n");
+        }
         self.dedent();
         self.write("}\n");
     }

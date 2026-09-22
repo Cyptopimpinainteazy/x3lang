@@ -862,6 +862,8 @@ impl<'a> Parser<'a> {
         let mut max_oracle_deviation_bps = None;
         let mut max_cumulative_loss = None;
         let mut quote_freshness = None;
+        let mut max_price_impact_bps = None;
+        let mut max_mev_leakage_bps = None;
 
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
             match self.peek() {
@@ -960,6 +962,28 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
+                Tok::Ident(ref s) if s == "max_price_impact" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after max_price_impact")?;
+                    let value = self.parse_bps_value("max_price_impact")?;
+                    if max_price_impact_bps.replace(value).is_some() {
+                        return Err(parse_err(
+                            "duplicate 'max_price_impact' in risk policy".into(),
+                            self.peek(),
+                        ));
+                    }
+                }
+                Tok::Ident(ref s) if s == "max_mev_leakage" => {
+                    self.advance();
+                    self.expect(Tok::Colon, "expected ':' after max_mev_leakage")?;
+                    let value = self.parse_bps_value("max_mev_leakage")?;
+                    if max_mev_leakage_bps.replace(value).is_some() {
+                        return Err(parse_err(
+                            "duplicate 'max_mev_leakage' in risk policy".into(),
+                            self.peek(),
+                        ));
+                    }
+                }
                 _ => {
                     return Err(parse_err("unknown field in trading risk policy".into(), self.peek()));
                 }
@@ -981,6 +1005,8 @@ impl<'a> Parser<'a> {
             max_oracle_deviation_bps,
             max_cumulative_loss,
             quote_freshness,
+            max_price_impact_bps,
+            max_mev_leakage_bps,
         })
     }
 

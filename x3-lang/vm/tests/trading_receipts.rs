@@ -55,6 +55,8 @@ fn operations() -> Vec<TradingOperation> {
                 max_oracle_deviation_bps: None,
                 max_cumulative_loss: None,
                 max_cumulative_loss_asset: None,
+                max_price_impact_bps: None,
+                max_mev_leakage_bps: None,
             },
         },
         TradingOperation::OpenDebt {

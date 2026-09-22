@@ -758,6 +758,10 @@ pub struct CompiledTradingPolicy {
     pub max_cumulative_loss: Option<u128>,
     /// Asset `max_cumulative_loss` is denominated in.
     pub max_cumulative_loss_asset: Option<AssetKey>,
+    /// Optional ceiling on the venue-reported price impact, in basis points.
+    pub max_price_impact_bps: Option<u16>,
+    /// Optional ceiling on the host-reported MEV leakage, in basis points.
+    pub max_mev_leakage_bps: Option<u16>,
 }
 
 impl CompiledTradingPolicy {

@@ -117,6 +117,13 @@ pub struct TradeRiskPolicy {
     /// `max_oracle_deviation_bps`, so policies that do not declare it are
     /// unaffected.
     pub quote_freshness: Option<u64>,
+    /// Optional ceiling on the price impact, in basis points, the venue
+    /// reports for a swap. `None` means the policy does not bound price
+    /// impact — the historical default.
+    pub max_price_impact_bps: Option<u16>,
+    /// Optional ceiling on the MEV leakage, in basis points, a host reports
+    /// for a swap. `None` means the policy does not bound MEV leakage.
+    pub max_mev_leakage_bps: Option<u16>,
 }
 
 /// `atomic trade NAME using POLICY { ... }` declaration.

@@ -190,6 +190,8 @@ fn legacy_private_flag_must_match_submission_profile() {
         max_oracle_deviation_bps: None,
         max_cumulative_loss: None,
         max_cumulative_loss_asset: None,
+        max_price_impact_bps: None,
+        max_mev_leakage_bps: None,
     };
 
     assert!(!policy.submission_profile_is_consistent());

@@ -158,6 +158,23 @@ fn validate_policy_asset(
             span,
         ));
     }
+    for (field, value) in [
+        ("max_price_impact", policy.max_price_impact_bps),
+        ("max_mev_leakage", policy.max_mev_leakage_bps),
+    ] {
+        if let Some(bps) = value {
+            if !Bps::from_raw(u32::from(bps)).is_within_whole() {
+                errors.push(coded_error(
+                    crate::diagnostic::DiagnosticCode::RiskPolicyBound,
+                    format!(
+                        "risk policy '{}' has {field} above 10000 bps",
+                        policy.name.as_str()
+                    ),
+                    span,
+                ));
+            }
+        }
+    }
     if !Bps::from_raw(u32::from(policy.max_flash_fee_bps)).is_within_whole() {
         errors.push(coded_error(
             crate::diagnostic::DiagnosticCode::RiskPolicyBound,

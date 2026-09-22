@@ -8,7 +8,7 @@ use x3_lang_compiler::ir::{
 use x3_lang_vm::trading::{
     build_receipt, finalize_receipt, fixture_manifest, verify_receipt_economics, BorrowRequest, BorrowResult,
     BridgeRequest, BridgeTransferResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode, HostError,
-    PriceSource, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext,
+    MeasuredRisk, PriceSource, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext,
     TradeOutcome, TradingHost, TradingVm,
 };
 
@@ -45,6 +45,8 @@ struct FixtureHost {
     /// data); tests that need `max_oracle_deviation` to actually have
     /// something to check set this explicitly.
     oracle_sources: Vec<PriceSource>,
+    price_impact: Option<MeasuredRisk>,
+    mev_leakage: Option<MeasuredRisk>,
     borrow_fee: u128,
     /// Fee `swap()` reports, denominated in the swap's `to` asset. Defaults
     /// to zero so existing tests are unaffected; tests that check how a venue
@@ -92,6 +94,8 @@ impl FixtureHost {
             swap_output: 2_000_000,
             quote_output: None,
             oracle_sources: Vec::new(),
+            price_impact: None,
+            mev_leakage: None,
             borrow_fee: 0,
             swap_fee: 0,
             commitment: COMMITMENT,
@@ -146,6 +150,14 @@ impl TradingHost for FixtureHost {
             sources: self.oracle_sources.clone(),
             quote_block: self.quote_block,
         })
+    }
+
+    fn price_impact(&self, _request: &QuoteRequest) -> Result<Option<MeasuredRisk>, HostError> {
+        Ok(self.price_impact.clone())
+    }
+
+    fn mev_leakage(&self, _request: &QuoteRequest) -> Result<Option<MeasuredRisk>, HostError> {
+        Ok(self.mev_leakage.clone())
     }
 
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
@@ -230,6 +242,8 @@ fn ops() -> Vec<TradingOperation> {
                 max_oracle_deviation_bps: None,
                 max_cumulative_loss: None,
                 max_cumulative_loss_asset: None,
+                max_price_impact_bps: None,
+                max_mev_leakage_bps: None,
             },
         },
         TradingOperation::OpenDebt {
@@ -720,6 +734,8 @@ fn gas_ceiling_within_policy_still_commits() {
                 max_oracle_deviation_bps: None,
                 max_cumulative_loss: None,
                 max_cumulative_loss_asset: None,
+                max_price_impact_bps: None,
+                max_mev_leakage_bps: None,
             },
         },
         TradingOperation::CommitAtomicTrade,
@@ -798,6 +814,8 @@ fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
                 max_oracle_deviation_bps: None,
                 max_cumulative_loss: None,
                 max_cumulative_loss_asset: None,
+                max_price_impact_bps: None,
+                max_mev_leakage_bps: None,
             },
         },
         TradingOperation::CommitAtomicTrade,
@@ -1012,6 +1030,8 @@ fn minimal_loss_trade(ceiling: Option<u128>) -> Vec<TradingOperation> {
                 max_oracle_deviation_bps: None,
                 max_cumulative_loss: ceiling,
                 max_cumulative_loss_asset: ceiling.map(|_| asset("USDC")),
+                max_price_impact_bps: None,
+                max_mev_leakage_bps: None,
             },
         },
         TradingOperation::CommitAtomicTrade,
@@ -1706,4 +1726,73 @@ fn a_policy_without_a_ceiling_imposes_no_bound_on_replay() {
     receipt.legs[0].executed_at_block = 40;
     let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
     verify_receipt_economics(&receipt).expect("no ceiling, no violation");
+}
+
+fn ops_with_risk_ceilings(price_impact: Option<u16>, mev: Option<u16>) -> Vec<TradingOperation> {
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.max_price_impact_bps = price_impact;
+        policy.max_mev_leakage_bps = mev;
+    }
+    operations
+}
+
+#[test]
+fn price_impact_ceiling_is_enforced_when_host_reports_it() {
+    let operations = ops_with_risk_ceilings(Some(50), None);
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.price_impact = Some(MeasuredRisk {
+        source: "amm".to_string(),
+        bps: 60,
+    });
+
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("60 bps price impact must exceed a 50 bps ceiling");
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::PriceImpactExceeded {
+            source: "amm".to_string(),
+            ceiling_bps: 50,
+            actual_bps: 60,
+        }
+    );
+    assert!(host.rolled_back);
+}
+
+#[test]
+fn price_impact_ceiling_fails_closed_when_host_reports_nothing() {
+    let operations = ops_with_risk_ceilings(Some(50), None);
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("a policy ceiling with no host measurement must fail closed");
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::PriceImpactMeasurementMissing
+    );
+}
+
+#[test]
+fn mev_leakage_ceiling_is_enforced_when_host_reports_it() {
+    let operations = ops_with_risk_ceilings(None, Some(10));
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.mev_leakage = Some(MeasuredRisk {
+        source: "mempool".to_string(),
+        bps: 11,
+    });
+    let err = vm
+        .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
+        .expect_err("11 bps MEV leakage must exceed a 10 bps ceiling");
+    assert_eq!(
+        err,
+        x3_lang_vm::trading::TradingExecError::MevLeakageExceeded {
+            source: "mempool".to_string(),
+            ceiling_bps: 10,
+            actual_bps: 11,
+        }
+    );
 }
