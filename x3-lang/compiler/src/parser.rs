@@ -6150,6 +6150,8 @@ fn require_kind_from_str(name: &str) -> Result<RequireKind, X3Error> {
         "finality_explicit" => RequireKind::FinalityExplicit,
         "vm_supported" => RequireKind::VmSupported,
         "mainnet_safe" => RequireKind::MainnetSafe,
+        "price_impact" => RequireKind::PriceImpact,
+        "mev_leakage" => RequireKind::MevLeakage,
         other => RequireKind::Custom(Symbol::new(other)),
     })
 }

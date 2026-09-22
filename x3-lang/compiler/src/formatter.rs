@@ -2478,6 +2478,8 @@ impl X3Formatter {
             RequireKind::FinalityExplicit => self.write("finality_explicit"),
             RequireKind::VmSupported => self.write("vm_supported"),
             RequireKind::MainnetSafe => self.write("mainnet_safe"),
+            RequireKind::PriceImpact => self.write("price_impact"),
+            RequireKind::MevLeakage => self.write("mev_leakage"),
             RequireKind::Custom(sym) => self.write(sym.as_str()),
         }
     }

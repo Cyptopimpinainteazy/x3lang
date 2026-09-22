@@ -124,6 +124,8 @@ pub struct VMState {
     /// much of the position is left open, and a venue that answered a hedge with a
     /// slippage would be answering a different question (TICKET-068).
     pub measured_delta_bps: Option<u128>,
+    pub measured_price_impact_bps: Option<u128>,
+    pub measured_mev_leakage_bps: Option<u128>,
     /// Strategy licence records the program carried, in order.
     ///
     /// Kept as the decoded text the artifact stated: the distribution reads it,
@@ -166,6 +168,8 @@ impl VMState {
             measured_profit_bps: None,
             measured_slippage_bps: None,
             measured_delta_bps: None,
+            measured_price_impact_bps: None,
+            measured_mev_leakage_bps: None,
             strategy_licenses: Vec::new(),
             paused: false,
             atomic_snapshot: None,
@@ -293,6 +297,16 @@ impl VM {
             slippage_bps,
             delta_bps,
         ));
+    }
+
+    /// State host-measured price impact and MEV leakage for a dry run.
+    pub fn report_risk_outcome(
+        &mut self,
+        price_impact_bps: Option<u128>,
+        mev_leakage_bps: Option<u128>,
+    ) {
+        self.state.measured_price_impact_bps = price_impact_bps;
+        self.state.measured_mev_leakage_bps = mev_leakage_bps;
     }
 
     /// Build a VM with an explicit bridge backend selection.

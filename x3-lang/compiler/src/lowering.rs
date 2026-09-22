@@ -449,7 +449,10 @@ pub fn lower_program_with_mode(
                         subject: require.subject.as_ref().map(|s| s.as_str().to_string()),
                         condition: guard_condition(require)?,
                         error_msg: None,
-                        measured: false,
+                        measured: matches!(
+                            require.kind,
+                            ast::RequireKind::PriceImpact | ast::RequireKind::MevLeakage
+                        ),
                         comparison: require.comparison,
                     });
                 }
@@ -2312,6 +2315,8 @@ fn require_kind_to_ir(kind: &ast::RequireKind) -> ir::RequireKind {
         ast::RequireKind::FinalityExplicit => ir::RequireKind::FinalityExplicit,
         ast::RequireKind::VmSupported => ir::RequireKind::VmSupported,
         ast::RequireKind::MainnetSafe => ir::RequireKind::MainnetSafe,
+        ast::RequireKind::PriceImpact => ir::RequireKind::PriceImpact,
+        ast::RequireKind::MevLeakage => ir::RequireKind::MevLeakage,
     }
 }
 
