@@ -401,8 +401,15 @@ enum PacketAction {
 enum ReceiptAction {
     /// Print a receipt as canonical JSON.
     Inspect { input: PathBuf },
-    /// Verify a receipt's hash and accounting invariants.
-    Verify { input: PathBuf },
+    /// Verify a receipt's hash and accounting invariants, and optionally a
+    /// trusted signer's attestation.
+    Verify {
+        input: PathBuf,
+        /// Trusted signer as `<key_id>=<64-hex ed25519 public key>`. Repeatable.
+        /// When supplied, require a valid attestation from that trusted key.
+        #[arg(long = "trusted", value_name = "KEY_ID=HEX")]
+        trusted: Vec<String>,
+    },
     /// Compile a `.x3` trading program, execute it against a neutral
     /// fixture host, and emit the resulting signed receipt.
     ///
@@ -542,7 +549,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Replay { artifact, receipt } => cmd_replay(&artifact, &receipt),
         Cmd::Receipt { action } => match action {
             ReceiptAction::Inspect { input } => cmd_receipt_inspect(&input),
-            ReceiptAction::Verify { input } => cmd_receipt_verify(&input),
+            ReceiptAction::Verify { input, trusted } => cmd_receipt_verify(&input, &trusted),
             ReceiptAction::Execute {
                 input,
                 out,
@@ -3430,11 +3437,28 @@ fn cmd_replay(artifact: &PathBuf, receipt_path: &PathBuf) -> Result<ExitCode, St
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_receipt_verify(input: &PathBuf) -> Result<ExitCode, String> {
+fn cmd_receipt_verify(input: &PathBuf, trusted_specs: &[String]) -> Result<ExitCode, String> {
     let receipt = read_receipt(input)?;
-    match x3_lang_vm::trading::verify_receipt(&receipt) {
+    // Without `--trusted`, the receipt is checked for its hash and economic
+    // invariants only. With `--trusted`, those checks still run *and* the
+    // receipt must carry a valid attestation from one of the named keys — a
+    // receipt whose signer is not in the trusted set is refused by name.
+    let result = if trusted_specs.is_empty() {
+        x3_lang_vm::trading::verify_receipt(&receipt)
+    } else {
+        let trusted = parse_trusted_keys(trusted_specs)?;
+        x3_lang_vm::trading::verify_receipt_trusted(&receipt, &trusted)
+    };
+    match result {
         Ok(()) => {
-            println!("receipt verified: {}", receipt.trade_id);
+            if trusted_specs.is_empty() {
+                println!(
+                    "receipt verified (hash + economic invariants; signer trust not requested): {}",
+                    receipt.trade_id
+                );
+            } else {
+                println!("receipt verified with trusted signer attestation: {}", receipt.trade_id);
+            }
             Ok(ExitCode::SUCCESS)
         }
         Err(error) => {
