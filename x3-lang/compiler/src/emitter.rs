@@ -505,6 +505,30 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
                 )
             } else if let Operation::Require {
                 measured: true,
+                kind: crate::ir::RequireKind::PriceImpact,
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                (
+                    REQUIRE_COMPARE_MEASURED_SLIPPAGE,
+                    guard_bps(expr, "price-impact ceiling")?,
+                    MEASURED_UNIT_CODE_PRICE_IMPACT_BPS,
+                )
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::MevLeakage,
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                (
+                    REQUIRE_COMPARE_MEASURED_SLIPPAGE,
+                    guard_bps(expr, "MEV-leakage ceiling")?,
+                    MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS,
+                )
+            } else if let Operation::Require {
+                measured: true,
                 kind: crate::ir::RequireKind::Custom(subject),
                 condition: crate::ir::Condition::Expression { expr },
                 ..
@@ -1647,9 +1671,15 @@ fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String
             // (TICKET-068).
             REQUIRE_COMPARE_MEASURED_PROFIT => match require_measured_unit_code(flags) {
                 MEASURED_UNIT_CODE_DELTA_BPS => "measured delta".to_string(),
+                MEASURED_UNIT_CODE_PRICE_IMPACT_BPS => "measured price_impact".to_string(),
+                MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS => "measured mev_leakage".to_string(),
                 _ => "measured profit".to_string(),
             },
-            REQUIRE_COMPARE_MEASURED_SLIPPAGE => "measured slippage".to_string(),
+            REQUIRE_COMPARE_MEASURED_SLIPPAGE => match require_measured_unit_code(flags) {
+                MEASURED_UNIT_CODE_PRICE_IMPACT_BPS => "measured price_impact".to_string(),
+                MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS => "measured mev_leakage".to_string(),
+                _ => "measured slippage".to_string(),
+            },
             other => format!("?{other}"),
         };
         // A static guard's operand carries the figure the compiler checked against, and the code

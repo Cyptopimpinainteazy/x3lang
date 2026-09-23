@@ -109,6 +109,8 @@ fn trade_risk_policy_holds_all_enforceable_fields() {
         max_oracle_deviation_bps: Some(50),
         max_cumulative_loss: None,
         quote_freshness: Some(12),
+        max_price_impact_bps: Some(20),
+        max_mev_leakage_bps: None,
     };
 
     assert_eq!(policy.name.as_str(), "MainnetArb");
@@ -150,6 +152,8 @@ fn asset_and_atomic_trade_are_top_level_items() {
         max_oracle_deviation_bps: Some(50),
         max_cumulative_loss: None,
         quote_freshness: None,
+        max_price_impact_bps: None,
+        max_mev_leakage_bps: None,
     };
     let program = Program::new(vec![
         Spanned::new(

@@ -131,6 +131,8 @@ pub fn lower_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols) -> 
         max_oracle_deviation_bps: policy.max_oracle_deviation_bps,
         max_cumulative_loss,
         max_cumulative_loss_asset,
+        max_price_impact_bps: policy.max_price_impact_bps,
+        max_mev_leakage_bps: policy.max_mev_leakage_bps,
     };
 
     let mut operations = vec![Operation::Trading(TradingOperation::BeginAtomicTrade {

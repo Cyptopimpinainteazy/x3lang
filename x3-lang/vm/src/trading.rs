@@ -133,6 +133,13 @@ pub struct QuoteResult {
     pub quote_block: u64,
 }
 
+/// A host-reported risk measurement tied to a named source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeasuredRisk {
+    pub source: String,
+    pub bps: u128,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwapRequest {
     pub venue: String,
@@ -248,6 +255,17 @@ pub trait TradingHost {
     /// pricing source has no business claiming to satisfy a policy that
     /// declares a slippage ceiling.
     fn quote(&self, request: QuoteRequest) -> Result<QuoteResult, HostError>;
+    /// Report the realized or prospective price impact, in basis points, for a
+    /// prospective swap. `None` means this host has no price-impact source; a
+    /// policy that declares `max_price_impact` then fails closed.
+    fn price_impact(&self, _request: &QuoteRequest) -> Result<Option<MeasuredRisk>, HostError> {
+        Ok(None)
+    }
+    /// Report the MEV leakage, in basis points, for a prospective swap. `None`
+    /// means no source; a policy that declares `max_mev_leakage` fails closed.
+    fn mev_leakage(&self, _request: &QuoteRequest) -> Result<Option<MeasuredRisk>, HostError> {
+        Ok(None)
+    }
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError>;
     fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError>;
     fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError>;
@@ -303,6 +321,18 @@ pub enum TradingExecError {
         actual_bps: u128,
     },
     SlippageExceeded {
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    PriceImpactMeasurementMissing,
+    PriceImpactExceeded {
+        source: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    MevLeakageMeasurementMissing,
+    MevLeakageExceeded {
+        source: String,
         ceiling_bps: u16,
         actual_bps: u128,
     },
@@ -432,6 +462,30 @@ impl fmt::Display for TradingExecError {
                     "realized slippage {actual_bps} bps exceeds compiled ceiling {ceiling_bps} bps"
                 )
             }
+            Self::PriceImpactMeasurementMissing => write!(
+                f,
+                "compiled policy requires price-impact evidence but the host reported none"
+            ),
+            Self::PriceImpactExceeded {
+                source,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "price-impact source '{source}' reports {actual_bps} bps, exceeding the compiled ceiling {ceiling_bps} bps"
+            ),
+            Self::MevLeakageMeasurementMissing => write!(
+                f,
+                "compiled policy requires MEV-leakage evidence but the host reported none"
+            ),
+            Self::MevLeakageExceeded {
+                source,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "MEV-leakage source '{source}' reports {actual_bps} bps, exceeding the compiled ceiling {ceiling_bps} bps"
+            ),
             Self::OracleFirewallUnsatisfied => write!(
                 f,
                 "compiled policy requires oracle-deviation cross-checking but the host reported no independent price sources"
@@ -771,13 +825,14 @@ impl TradingVm {
                     // Quote first, before the swap actually executes, so the
                     // reference price can't be influenced by the swap's own
                     // effects.
+                    let quote_request = QuoteRequest {
+                        venue: venue.clone(),
+                        from: from.clone(),
+                        to: to.clone(),
+                        input: input_units,
+                    };
                     let quote = host
-                        .quote(QuoteRequest {
-                            venue: venue.clone(),
-                            from: from.clone(),
-                            to: to.clone(),
-                            input: input_units,
-                        })
+                        .quote(quote_request.clone())
                         .map_err(TradingExecError::HostRejected)?;
                     // Checked before `swap()`, not after: a stale price must
                     // abort the leg before the host is asked to move value, so
@@ -812,6 +867,14 @@ impl TradingVm {
                     if let Some(ceiling_bps) = self.compiled_policy().max_oracle_deviation_bps {
                         self.enforce_oracle_firewall(quote.expected_output, &quote.sources, ceiling_bps)?;
                     }
+                    let price_impact = host
+                        .price_impact(&quote_request)
+                        .map_err(TradingExecError::HostRejected)?;
+                    let mev_leakage = host
+                        .mev_leakage(&quote_request)
+                        .map_err(TradingExecError::HostRejected)?;
+                    self.enforce_price_impact(price_impact.clone())?;
+                    self.enforce_mev_leakage(mev_leakage.clone())?;
                     self.debit(from, result.input)?;
                     self.credit(to, result.output)?;
                     self.accrue_cost(&result.fee_asset, result.fee, CostKind::LiquidityFee)?;
@@ -824,6 +887,8 @@ impl TradingVm {
                         venue: venue.clone(),
                         quote_block: quote.quote_block,
                         executed_at_block: context.current_block,
+                        price_impact,
+                        mev_leakage,
                     });
                 }
                 TradingOperation::Bridge {
@@ -1168,6 +1233,44 @@ impl TradingVm {
         Ok(())
     }
 
+    fn enforce_price_impact(
+        &self,
+        measurement: Option<MeasuredRisk>,
+    ) -> Result<(), TradingExecError> {
+        let Some(ceiling_bps) = self.compiled_policy().max_price_impact_bps else {
+            return Ok(());
+        };
+        let measurement =
+            measurement.ok_or(TradingExecError::PriceImpactMeasurementMissing)?;
+        if measurement.bps > ceiling_bps as u128 {
+            return Err(TradingExecError::PriceImpactExceeded {
+                source: measurement.source,
+                ceiling_bps,
+                actual_bps: measurement.bps,
+            });
+        }
+        Ok(())
+    }
+
+    fn enforce_mev_leakage(
+        &self,
+        measurement: Option<MeasuredRisk>,
+    ) -> Result<(), TradingExecError> {
+        let Some(ceiling_bps) = self.compiled_policy().max_mev_leakage_bps else {
+            return Ok(());
+        };
+        let measurement =
+            measurement.ok_or(TradingExecError::MevLeakageMeasurementMissing)?;
+        if measurement.bps > ceiling_bps as u128 {
+            return Err(TradingExecError::MevLeakageExceeded {
+                source: measurement.source,
+                ceiling_bps,
+                actual_bps: measurement.bps,
+            });
+        }
+        Ok(())
+    }
+
     /// Realized slippage is only ever a shortfall against the quote: an
     /// `actual` at or above `expected` is zero slippage (or better than
     /// quoted), never negative. `min_output` is a separate, absolute floor
@@ -1416,6 +1519,10 @@ pub struct LegQuoteWindow {
     pub venue: String,
     pub quote_block: u64,
     pub executed_at_block: u64,
+    #[serde(default)]
+    pub price_impact: Option<MeasuredRisk>,
+    #[serde(default)]
+    pub mev_leakage: Option<MeasuredRisk>,
 }
 
 impl LegQuoteWindow {
@@ -1694,6 +1801,61 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 "receipt carries a quote window for venue '{}' with no executed leg to age",
                 unused.venue
             )));
+        }
+    }
+
+    if let Some(ceiling) = compiled_policy.max_price_impact_bps {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no risk window for the executed leg on venue '{venue}', so \
+                     max_price_impact cannot be re-derived"
+                )));
+            };
+            let measurement = window.price_impact.as_ref().ok_or_else(|| {
+                ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' has no max_price_impact measurement, but the compiled policy \
+                     requires one"
+                ))
+            })?;
+            if measurement.bps > ceiling as u128 {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' reports max_price_impact {} bps, exceeding the compiled ceiling \
+                     {ceiling} bps",
+                    measurement.bps
+                )));
+            }
+        }
+    }
+    if let Some(ceiling) = compiled_policy.max_mev_leakage_bps {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no risk window for the executed leg on venue '{venue}', so \
+                     max_mev_leakage cannot be re-derived"
+                )));
+            };
+            let measurement = window.mev_leakage.as_ref().ok_or_else(|| {
+                ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' has no max_mev_leakage measurement, but the compiled policy \
+                     requires one"
+                ))
+            })?;
+            if measurement.bps > ceiling as u128 {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' reports max_mev_leakage {} bps, exceeding the compiled ceiling \
+                     {ceiling} bps",
+                    measurement.bps
+                )));
+            }
         }
     }
 

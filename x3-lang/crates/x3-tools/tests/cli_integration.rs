@@ -158,3 +158,73 @@ fn test_cli_audit_on_simple_swap() {
     assert!(stdout.contains("Mainnet Safety Audit"), "audit should run");
     assert!(stdout.contains("Risk score"), "audit should report risk score");
 }
+
+#[test]
+fn test_cli_receipt_verify_trusted_signer() {
+    let src = example_path("trading_core_v1.x3");
+    let receipt = std::env::temp_dir().join("x3c-trusted-receipt.json");
+
+    // Produce a signed receipt and read the signer public key the command
+    // reports (the fixed dev seed's key, printed so the caller can trust it).
+    let execute = x3c()
+        .arg("receipt")
+        .arg("execute")
+        .arg(&src)
+        .arg("-o")
+        .arg(&receipt)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(execute.status.success(), "execute should succeed");
+    let stderr = String::from_utf8_lossy(&execute.stderr);
+    let marker = "signer public key ";
+    let public_key = stderr
+        .split(marker)
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .expect("stderr must report the signer public key")
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect::<String>();
+    assert_eq!(public_key.len(), 64, "the public key must be 64 hex characters");
+
+    // A receipt verified against the correct trusted key passes.
+    let trusted = format!("x3c-receipt-execute={public_key}");
+    let ok = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt)
+        .arg("--trusted")
+        .arg(&trusted)
+        .output()
+        .expect("x3c receipt verify --trusted");
+    assert!(
+        ok.status.success(),
+        "verifying against the correct trusted key should succeed: {:?}",
+        ok.status
+    );
+    assert!(
+        String::from_utf8_lossy(&ok.stdout).contains("trusted signer attestation"),
+        "a trusted verification should say it verified an attestation"
+    );
+
+    // The same receipt is refused when the named key id is not trusted.
+    let wrong = format!("x3c-receipt-execute={}", "0".repeat(64));
+    let refused = x3c()
+        .arg("receipt")
+        .arg("verify")
+        .arg(&receipt)
+        .arg("--trusted")
+        .arg(&wrong)
+        .output()
+        .expect("x3c receipt verify --trusted (wrong key)");
+    assert!(
+        !refused.status.success(),
+        "verifying against an untrusted key must fail"
+    );
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("not trusted"),
+        "an untrusted attestor must be refused by name"
+    );
+
+    let _ = std::fs::remove_file(&receipt);
+}

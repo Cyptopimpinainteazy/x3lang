@@ -448,6 +448,8 @@ pub const MEASURED_UNIT_SLIPPAGE_BPS: u8 = 2;
 /// declaration rather than a post-condition on the trade, and a venue that filled something
 /// else is not caught (TICKET-068).
 pub const MEASURED_UNIT_DELTA_BPS: u8 = 3;
+pub const MEASURED_UNIT_PRICE_IMPACT_BPS: u8 = 4;
+pub const MEASURED_UNIT_MEV_LEAKAGE_BPS: u8 = 5;
 
 /// Pack a measurement reply: the tag, the unit, and the value.
 pub fn measured_reply(unit: u8, value: u128) -> Vec<u8> {
@@ -535,12 +537,18 @@ pub const MEASURED_UNIT_CODE_DELTA_BPS: u8 = 1;
 /// unit directly), and a branch on slippage is as meaningful as a guard on it. The code space is
 /// three bits, so this is a value nothing else used (TICKET-106).
 pub const MEASURED_UNIT_CODE_SLIPPAGE_BPS: u8 = 2;
+pub const MEASURED_UNIT_CODE_PRICE_IMPACT_BPS: u8 = 3;
+pub const MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS: u8 = 4;
 
 /// One of the unit codes a measured `REQUIRE` may carry.
 pub const fn is_known_measured_unit_code(code: u8) -> bool {
     matches!(
         code,
-        MEASURED_UNIT_CODE_PROFIT_BPS | MEASURED_UNIT_CODE_DELTA_BPS | MEASURED_UNIT_CODE_SLIPPAGE_BPS
+        MEASURED_UNIT_CODE_PROFIT_BPS
+            | MEASURED_UNIT_CODE_DELTA_BPS
+            | MEASURED_UNIT_CODE_SLIPPAGE_BPS
+            | MEASURED_UNIT_CODE_PRICE_IMPACT_BPS
+            | MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS
     )
 }
 
