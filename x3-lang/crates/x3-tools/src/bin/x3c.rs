@@ -549,7 +549,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Replay { artifact, receipt } => cmd_replay(&artifact, &receipt),
         Cmd::Receipt { action } => match action {
             ReceiptAction::Inspect { input } => cmd_receipt_inspect(&input),
-            ReceiptAction::Verify { input, trusted } => cmd_receipt_verify(&input, &trusted),
+            ReceiptAction::Verify { input, trusted } => cmd_receipt_verify(&input, &trusted, parse_mode(mode)?),
             ReceiptAction::Execute {
                 input,
                 out,
@@ -3437,12 +3437,25 @@ fn cmd_replay(artifact: &PathBuf, receipt_path: &PathBuf) -> Result<ExitCode, St
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_receipt_verify(input: &PathBuf, trusted_specs: &[String]) -> Result<ExitCode, String> {
+fn cmd_receipt_verify(input: &PathBuf, trusted_specs: &[String], mode: CompilationMode) -> Result<ExitCode, String> {
     let receipt = read_receipt(input)?;
     // Without `--trusted`, the receipt is checked for its hash and economic
     // invariants only. With `--trusted`, those checks still run *and* the
     // receipt must carry a valid attestation from one of the named keys — a
     // receipt whose signer is not in the trusted set is refused by name.
+    //
+    // On **mainnet** the trusted set is required. A hash is a self-consistency check anyone can
+    // recompute over a forged receipt, so without a key this command can only say the receipt is
+    // internally consistent — and it used to say that in mainnet mode too, for a receipt carrying no
+    // attestation at all. The mode did not even reach this function. Refusing here is the fail-closed
+    // reading of "receipts are execution evidence": the operator has to name the signer they trust,
+    // and an unsigned receipt cannot satisfy that (TICKET-135).
+    if mode == CompilationMode::Mainnet && trusted_specs.is_empty() {
+        return Err("a mainnet receipt must be checked against a key you trust: pass \
+             `--trusted <key_id>=<64-hex public key>`. Without it this command can only report that \
+             the receipt is internally consistent, which is not what a mainnet settlement needs"
+            .to_string());
+    }
     let result = if trusted_specs.is_empty() {
         x3_lang_vm::trading::verify_receipt(&receipt)
     } else {

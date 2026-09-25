@@ -4244,3 +4244,80 @@ fn cli_new_writes_a_project_that_passes_its_own_first_command() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A mainnet receipt has to be checked against a key the operator names (TICKET-135).
+///
+/// `receipt verify` used to accept an unsigned receipt in mainnet mode — the mode never reached the
+/// command — and said "verified (hash + economic invariants; signer trust not requested)". A hash is
+/// a self-consistency check anyone can recompute over a forged receipt, so that is not authenticity,
+/// and mainnet settlement is exactly where the difference matters. The rule now: mainnet requires
+/// `--trusted`; dev keeps the documented behaviour (hash + invariants, with the message saying which
+/// checks ran).
+#[test]
+fn cli_receipt_verify_requires_a_trusted_key_on_mainnet() {
+    let src = write_fixture("cli_receipt_mainnet.x3", TRADING_SOURCE);
+    let receipt_path = std::env::temp_dir().join("cli_receipt_mainnet_out.json");
+
+    let executed = x3c()
+        .args(["receipt", "execute"])
+        .arg(&src)
+        .arg("--out")
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(executed.status.success(), "receipt execute must succeed");
+
+    // dev: the documented behaviour, unchanged.
+    let dev = x3c()
+        .args(["receipt", "verify"])
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt verify");
+    assert!(dev.status.success(), "dev verification stays available");
+
+    // mainnet without a trusted key: refused, and refused for that reason.
+    let mainnet_untrusted = x3c()
+        .args(["receipt", "verify"])
+        .arg(&receipt_path)
+        .args(["--mode", "mainnet"])
+        .output()
+        .expect("x3c receipt verify");
+    assert!(
+        !mainnet_untrusted.status.success(),
+        "mainnet must not accept a receipt whose signer nobody named"
+    );
+    assert!(
+        String::from_utf8_lossy(&mainnet_untrusted.stderr).contains("must be checked against a key you trust"),
+        "and must say what is missing: {}",
+        String::from_utf8_lossy(&mainnet_untrusted.stderr)
+    );
+
+    // mainnet with the signer the receipt names: verified *with* the attestation.
+    let body = std::fs::read_to_string(&receipt_path).expect("receipt");
+    let attestation: serde_json::Value = serde_json::from_str(&body).expect("receipt json");
+    let key_id = attestation["attestation"]["key_id"].as_str().expect("key id");
+    let public_key: Vec<u8> = attestation["attestation"]["public_key"]
+        .as_array()
+        .expect("public key")
+        .iter()
+        .map(|byte| byte.as_u64().expect("byte") as u8)
+        .collect();
+    let hex: String = public_key.iter().map(|byte| format!("{byte:02x}")).collect();
+
+    let mainnet_trusted = x3c()
+        .args(["receipt", "verify"])
+        .arg(&receipt_path)
+        .args(["--mode", "mainnet"])
+        .args(["--trusted", &format!("{key_id}={hex}")])
+        .output()
+        .expect("x3c receipt verify");
+    assert!(
+        mainnet_trusted.status.success(),
+        "naming the signer must verify: {}",
+        String::from_utf8_lossy(&mainnet_trusted.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&mainnet_trusted.stdout).contains("trusted signer attestation"),
+        "and must say the attestation was the check that ran"
+    );
+}
