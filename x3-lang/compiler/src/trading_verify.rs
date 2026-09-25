@@ -100,6 +100,12 @@ fn verify_atomic_trade_at_span(
     let mut state = DebtFlowState::default();
     let mut has_borrow = false;
     let mut has_net_profit_guard = false;
+    // Where the last statement that produces or consumes value sits, and where the profit guard
+    // sits: PHASE 4 requires the guard to come *after* the costs are known, and presence alone does
+    // not say that. Measured before this check: `require net_profit >= 1_000 USDC` placed directly
+    // after the `borrow` — before either swap — was accepted (TICKET-134).
+    let mut last_value_stmt: Option<usize> = None;
+    let mut net_profit_guard_at: Option<usize> = None;
     let mut has_all_debts_guard = false;
     let mut has_receipt = false;
     let mut seen_invariants = BTreeSet::new();
@@ -113,7 +119,15 @@ fn verify_atomic_trade_at_span(
     // cross-chain move within one atomic trade.
     let mut bridged: Option<x3_lang_common::Symbol> = None;
 
-    for stmt in &trade.body {
+    for (stmt_index, stmt) in trade.body.iter().enumerate() {
+        match stmt {
+            // A borrow, a swap and a repay all change what the trade's net profit *is*; a bridge
+            // moves value without changing it, and the guards read it.
+            TradeStmt::Borrow { .. } | TradeStmt::Swap { .. } | TradeStmt::Repay { .. } => {
+                last_value_stmt = Some(stmt_index);
+            }
+            _ => {}
+        }
         for symbol in trade_stmt_asset_refs(stmt) {
             check_same_chain(
                 symbol,
@@ -215,7 +229,12 @@ fn verify_atomic_trade_at_span(
                     ));
                 }
             }
-            TradeStmt::RequireMinNetProfit { .. } => has_net_profit_guard = true,
+            TradeStmt::RequireMinNetProfit { .. } => {
+                has_net_profit_guard = true;
+                if net_profit_guard_at.is_none() {
+                    net_profit_guard_at = Some(stmt_index);
+                }
+            }
             TradeStmt::RequireAllDebtsRepaid => has_all_debts_guard = true,
             TradeStmt::AssertInvariant { kind } => {
                 if !seen_invariants.insert(kind.as_str()) {
@@ -267,6 +286,26 @@ fn verify_atomic_trade_at_span(
             span,
         ));
     }
+    // PHASE 4: "Profit checks must occur after all required costs are known." A guard that runs
+    // before the last borrow/swap/repay compares a figure that is not the trade's net profit yet, so
+    // it is refused by name rather than counted as the profit check it looks like.
+    if let (Some(guard_at), Some(last_value)) = (net_profit_guard_at, last_value_stmt) {
+        if guard_at < last_value {
+            errors.push(coded_error(
+                crate::diagnostic::DiagnosticCode::TradingSequence,
+                format!(
+                    "atomic trade '{}' checks `net_profit` at statement {} but statement {} still \
+                     changes what the profit is: a profit guard has to come after the last borrow, \
+                     swap or repay, or it compares a figure the trade has not produced yet",
+                    trade.name.as_str(),
+                    guard_at + 1,
+                    last_value + 1
+                ),
+                span,
+            ));
+        }
+    }
+
     if !has_net_profit_guard && policy.min_profit.is_none() {
         errors.push(coded_error(
             crate::diagnostic::DiagnosticCode::TradeDeclaration,

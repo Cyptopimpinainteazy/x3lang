@@ -752,3 +752,46 @@ fn a_swap_whose_declared_asset_differs_from_its_amount_is_coded() {
         "the mismatch must carry its code and say which reference disagrees: {errors:?}"
     );
 }
+
+/// PHASE 4: "Profit checks must occur after all required costs are known" (TICKET-134).
+///
+/// The verifier used to record only *that* a `net_profit` guard exists, so a program that placed the
+/// guard directly after its `borrow` — before either swap had produced anything to be profitable
+/// about — checked clean: measured, `x3c check` on that program exited 0. The guard's position is now
+/// compared against the last borrow/swap/repay, and the refusal names both statements.
+///
+/// The two programs differ in that position alone: both borrow, swap, repay, assert the debt is
+/// closed and emit a receipt, and only one checks the profit in the middle of the trade.
+#[test]
+fn a_profit_guard_before_the_last_value_statement_is_refused() {
+    const GUARD: &str = "    require net_profit >= 1_000 USDC\n";
+    const TAIL: &str = "    require all_debts_repaid\n    emit receipt\n";
+    const SWAP: &str = "    let weth = swap debt.amount USDC -> ETH\n        via uniswap_v3\n        min_out 1 ETH\n";
+
+    let program = |guards_first: bool| {
+        let body = if guards_first {
+            format!("{GUARD}{SWAP}    repay debt\n{TAIL}")
+        } else {
+            format!("{SWAP}    repay debt\n{GUARD}{TAIL}")
+        };
+        format!(
+            "{ASSET_HEADER}{POLICY_HEADER}\natomic trade T using P {{\n    borrow 1_000 USDC from aave_v3 as debt\n{body}}}\n"
+        )
+    };
+
+    let too_early = pipeline_errors(&program(true), CompilationMode::Dev);
+    assert!(
+        has_message(&too_early, "X3E4023"),
+        "a profit guard before the last swap must be refused as a sequence error: {too_early:?}"
+    );
+    assert!(
+        has_message(&too_early, "still changes what the profit is"),
+        "and say why the position matters: {too_early:?}"
+    );
+
+    let ordered = pipeline_errors(&program(false), CompilationMode::Dev);
+    assert!(
+        ordered.is_empty(),
+        "the same guard after the repay is the ordinary shape and must check clean: {ordered:?}"
+    );
+}
