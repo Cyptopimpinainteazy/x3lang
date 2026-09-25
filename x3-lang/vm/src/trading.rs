@@ -1233,15 +1233,11 @@ impl TradingVm {
         Ok(())
     }
 
-    fn enforce_price_impact(
-        &self,
-        measurement: Option<MeasuredRisk>,
-    ) -> Result<(), TradingExecError> {
+    fn enforce_price_impact(&self, measurement: Option<MeasuredRisk>) -> Result<(), TradingExecError> {
         let Some(ceiling_bps) = self.compiled_policy().max_price_impact_bps else {
             return Ok(());
         };
-        let measurement =
-            measurement.ok_or(TradingExecError::PriceImpactMeasurementMissing)?;
+        let measurement = measurement.ok_or(TradingExecError::PriceImpactMeasurementMissing)?;
         if measurement.bps > ceiling_bps as u128 {
             return Err(TradingExecError::PriceImpactExceeded {
                 source: measurement.source,
@@ -1252,15 +1248,11 @@ impl TradingVm {
         Ok(())
     }
 
-    fn enforce_mev_leakage(
-        &self,
-        measurement: Option<MeasuredRisk>,
-    ) -> Result<(), TradingExecError> {
+    fn enforce_mev_leakage(&self, measurement: Option<MeasuredRisk>) -> Result<(), TradingExecError> {
         let Some(ceiling_bps) = self.compiled_policy().max_mev_leakage_bps else {
             return Ok(());
         };
-        let measurement =
-            measurement.ok_or(TradingExecError::MevLeakageMeasurementMissing)?;
+        let measurement = measurement.ok_or(TradingExecError::MevLeakageMeasurementMissing)?;
         if measurement.bps > ceiling_bps as u128 {
             return Err(TradingExecError::MevLeakageExceeded {
                 source: measurement.source,

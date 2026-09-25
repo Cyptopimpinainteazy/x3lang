@@ -166,10 +166,7 @@ fn validate_policy_asset(
             if !Bps::from_raw(u32::from(bps)).is_within_whole() {
                 errors.push(coded_error(
                     crate::diagnostic::DiagnosticCode::RiskPolicyBound,
-                    format!(
-                        "risk policy '{}' has {field} above 10000 bps",
-                        policy.name.as_str()
-                    ),
+                    format!("risk policy '{}' has {field} above 10000 bps", policy.name.as_str()),
                     span,
                 ));
             }

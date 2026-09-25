@@ -8,8 +8,8 @@ use x3_lang_compiler::ir::{
 use x3_lang_vm::trading::{
     build_receipt, finalize_receipt, fixture_manifest, verify_receipt_economics, BorrowRequest, BorrowResult,
     BridgeRequest, BridgeTransferResult, CapabilityManifest, CapabilityMode, CommittedCost, ExecutionMode, HostError,
-    MeasuredRisk, PriceSource, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult, TradeExecutionContext,
-    TradeOutcome, TradingHost, TradingVm,
+    MeasuredRisk, PriceSource, QuoteRequest, QuoteResult, RepayRequest, RepayResult, SwapRequest, SwapResult,
+    TradeExecutionContext, TradeOutcome, TradingHost, TradingVm,
 };
 
 const COMMITMENT: [u8; 32] = [7u8; 32];

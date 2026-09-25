@@ -300,11 +300,7 @@ impl VM {
     }
 
     /// State host-measured price impact and MEV leakage for a dry run.
-    pub fn report_risk_outcome(
-        &mut self,
-        price_impact_bps: Option<u128>,
-        mev_leakage_bps: Option<u128>,
-    ) {
+    pub fn report_risk_outcome(&mut self, price_impact_bps: Option<u128>, mev_leakage_bps: Option<u128>) {
         self.state.measured_price_impact_bps = price_impact_bps;
         self.state.measured_mev_leakage_bps = mev_leakage_bps;
     }
