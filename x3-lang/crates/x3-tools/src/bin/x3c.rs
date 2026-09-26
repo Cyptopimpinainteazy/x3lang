@@ -415,13 +415,21 @@ enum ReceiptAction {
     ///
     /// The fixture host is deliberately not a market simulation: every
     /// swap returns exactly the trade's own declared `min_output` (so
-    /// OutputBelowMinOut/slippage never fire on their own), fees are
-    /// zero, and it claims exactly the providers/venues/private-submission
-    /// capability the compiled policy asks for. This proves the compile
-    /// -> execute -> receipt -> sign -> verify pipeline actually connects
-    /// end to end; it does not simulate real market profitability, and a
-    /// program that needs genuine price movement to clear its own
-    /// min_profit/min_output guards can still legitimately fail here.
+    /// OutputBelowMinOut/slippage never fire on their own) and fees are
+    /// zero. This proves the compile -> execute -> receipt -> sign ->
+    /// verify pipeline actually connects end to end; it does not simulate
+    /// real market profitability, and a program that needs genuine price
+    /// movement to clear its own min_profit/min_output guards can still
+    /// legitimately fail here.
+    ///
+    /// The host's *capabilities* are declared by the caller, not read out
+    /// of the artifact. They used to be derived from the compiled policy,
+    /// which made every capability check vacuous: the host claimed exactly
+    /// what the program needed, so `CapabilityChainMismatch`,
+    /// `PrivateSubmissionRequired` and `UnknownCapability` could never
+    /// fire through this command. Name the chain and the providers, venues
+    /// and bridges this host actually offers, and the compiled policy is
+    /// checked against that.
     Execute {
         input: PathBuf,
         #[arg(short, long)]
@@ -435,6 +443,25 @@ enum ReceiptAction {
         /// fixture/demo tool, not a production signer.
         #[arg(long)]
         key_hex: Option<String>,
+        /// The chain this host executes on, checked against the compiled
+        /// policy's chain. Required, because a default would answer the
+        /// question the flag exists to ask.
+        #[arg(long)]
+        chain: String,
+        /// Declare that this host can submit a transaction privately. A
+        /// policy that requires private submission is refused without it.
+        #[arg(long)]
+        private_submission: bool,
+        /// A borrow provider this host offers. Repeatable. A program
+        /// borrowing from a provider that is not named is refused by name.
+        #[arg(long = "provider", value_name = "NAME")]
+        providers: Vec<String>,
+        /// A venue this host offers. Repeatable.
+        #[arg(long = "venue", value_name = "NAME")]
+        venues: Vec<String>,
+        /// A bridge this host offers. Repeatable.
+        #[arg(long = "bridge", value_name = "NAME")]
+        bridges: Vec<String>,
     },
 }
 
@@ -555,7 +582,26 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 out,
                 block,
                 key_hex,
-            } => cmd_receipt_execute(&input, out.as_ref(), mode, block, key_hex.as_deref(), cli.deny_warnings),
+                chain,
+                private_submission,
+                providers,
+                venues,
+                bridges,
+            } => cmd_receipt_execute(
+                &input,
+                out.as_ref(),
+                mode,
+                block,
+                key_hex.as_deref(),
+                cli.deny_warnings,
+                &HostCapabilities {
+                    chain,
+                    private_submission,
+                    providers,
+                    venues,
+                    bridges,
+                },
+            ),
         },
         Cmd::Packet { action } => match action {
             PacketAction::Inspect { input } => cmd_packet_inspect(&input),
@@ -3152,6 +3198,24 @@ struct NeutralFixtureHost {
     manifest: CapabilityManifest,
 }
 
+/// The policy version this fixture host implements.
+///
+/// A host declares the policy version it can execute; the compiled artifact declares the one it
+/// was lowered under. Keeping them separate is what makes the check a check.
+const FIXTURE_HOST_POLICY_VERSION: &str = "trading-policy-v1";
+
+/// The capabilities a host offers, as the operator declared them.
+///
+/// Passed in rather than derived from the artifact: a host that claims exactly what the program
+/// asks for can never refuse the program.
+struct HostCapabilities {
+    chain: String,
+    private_submission: bool,
+    providers: Vec<String>,
+    venues: Vec<String>,
+    bridges: Vec<String>,
+}
+
 impl TradingHost for NeutralFixtureHost {
     fn capabilities(&self) -> &CapabilityManifest {
         &self.manifest
@@ -3222,6 +3286,7 @@ fn cmd_receipt_execute(
     block: u64,
     key_hex: Option<&str>,
     deny_warnings: bool,
+    declared: &HostCapabilities,
 ) -> Result<ExitCode, String> {
     let source = read_source(input)?;
     let comp_mode = parse_mode(mode_str)?;
@@ -3237,30 +3302,12 @@ fn cmd_receipt_execute(
         _ => return Err("compiled trading program must begin with BeginAtomicTrade".to_string()),
     };
 
-    let mut providers = BTreeSet::new();
-    let mut venues = BTreeSet::new();
-    let mut bridges = BTreeSet::new();
-    let mut settlement_asset = None;
-    for op in &operations {
-        match op {
-            TradingOperation::OpenDebt { provider, .. } => {
-                providers.insert(provider.clone());
-            }
-            TradingOperation::ExecuteSwap { venue, .. } => {
-                venues.insert(venue.clone());
-            }
-            TradingOperation::Bridge { via, .. } => {
-                bridges.insert(via.clone());
-            }
-            TradingOperation::AssertMinNetProfit {
-                settlement_asset: asset,
-                ..
-            } => {
-                settlement_asset = Some(asset.clone());
-            }
-            _ => {}
-        }
-    }
+    // Read from the compiled program because it is the artifact's own statement of where its profit
+    // lands, not a host capability. The capabilities below are the host's, and are the caller's.
+    let settlement_asset = operations.iter().find_map(|op| match op {
+        TradingOperation::AssertMinNetProfit { settlement_asset, .. } => Some(settlement_asset.clone()),
+        _ => None,
+    });
 
     // Derived from the compiled bytecode itself, not a caller-supplied
     // placeholder, so it actually commits the host to this specific
@@ -3270,13 +3317,16 @@ fn cmd_receipt_execute(
 
     let manifest = CapabilityManifest {
         mode: CapabilityMode::Fixture,
-        version: format!("trading-policy-v{}", policy.policy_version),
-        chain: policy.chain.clone(),
+        // The fixture host's own policy version, not the artifact's. Echoing the artifact's
+        // `policy_version` back made `validate_compiled_policy`'s version check compare a number
+        // with itself; this is the version this host implements.
+        version: FIXTURE_HOST_POLICY_VERSION.to_string(),
+        chain: declared.chain.clone(),
         state_commitment,
-        private_submission: policy.require_private_submission,
-        providers,
-        venues,
-        bridges,
+        private_submission: declared.private_submission,
+        providers: declared.providers.iter().cloned().collect(),
+        venues: declared.venues.iter().cloned().collect(),
+        bridges: declared.bridges.iter().cloned().collect(),
     };
     let mut host = NeutralFixtureHost { manifest };
 
@@ -3507,7 +3557,7 @@ fn cmd_receipt_verify(input: &PathBuf, trusted_specs: &[String], mode: Compilati
         // call `verify_receipt` alone — that function re-derives the hash and the accounting
         // invariants and deliberately stops there — so a receipt whose figures contradicted the
         // policy it carried was reported as "verified (hash + economic invariants)", a claim the
-        // command did not earn (TICKET-148). The economics are the same library entry point the
+        // command did not earn (TICKET-150). The economics are the same library entry point the
         // trusted path already ran.
         x3_lang_vm::trading::verify_receipt(&receipt)
             .and_then(|()| x3_lang_vm::trading::verify_receipt_economics(&receipt))

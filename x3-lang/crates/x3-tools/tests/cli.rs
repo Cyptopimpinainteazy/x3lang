@@ -143,6 +143,38 @@ fn trading_receipt_json(tamper: bool) -> String {
     serde_json::to_string_pretty(&receipt).expect("receipt json")
 }
 
+/// The host a `receipt execute` run of `TRADING_SOURCE` needs, declared rather than assumed.
+///
+/// It used to be read out of the artifact: the fixture host claimed exactly the providers, venues
+/// and private-submission capability the compiled policy asked for, so every capability check was a
+/// comparison of a number with itself. These are the values that source needs — `ethereum`,
+/// `aave_v3`, `uniswap_v3`, `sushiswap`, and a private lane — so a test can drop one and watch the
+/// refusal.
+const BRIDGE_HOST_CAPS: [&str; 10] = [
+    "--chain",
+    "ethereum",
+    "--provider",
+    "aave_v3",
+    "--venue",
+    "uniswap_v3",
+    "--venue",
+    "sushiswap",
+    "--bridge",
+    "wormhole",
+];
+
+const HOST_CAPS: [&str; 9] = [
+    "--chain",
+    "ethereum",
+    "--private-submission",
+    "--provider",
+    "aave_v3",
+    "--venue",
+    "uniswap_v3",
+    "--venue",
+    "sushiswap",
+];
+
 const TRADING_SOURCE: &str = r#"
 asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
 asset WETH = evm.ethereum.0xC02a { decimals: 18 }
@@ -606,6 +638,7 @@ fn cli_receipt_execute_compiles_runs_and_emits_a_verifiable_receipt() {
         .arg(&src)
         .arg("--out")
         .arg(&receipt_path)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(
@@ -646,6 +679,7 @@ fn cli_receipt_execute_handles_a_trade_with_a_bridge_leg() {
         .arg(&src)
         .arg("--out")
         .arg(&receipt_path)
+        .args(BRIDGE_HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(
@@ -683,6 +717,7 @@ fn cli_receipt_execute_is_deterministic_given_the_same_signing_key() {
         .arg(&src)
         .arg("--key-hex")
         .arg(key)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     let second = x3c()
@@ -691,6 +726,7 @@ fn cli_receipt_execute_is_deterministic_given_the_same_signing_key() {
         .arg(&src)
         .arg("--key-hex")
         .arg(key)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
 
@@ -4022,6 +4058,7 @@ fn cli_replays_a_receipt_against_its_artifact_and_refuses_another() {
         .arg(&source)
         .arg("--out")
         .arg(&receipt_path)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(
@@ -4106,6 +4143,7 @@ fn cli_refuses_a_receipt_whose_contents_moved_after_signing() {
         .arg(&source)
         .arg("--out")
         .arg(&receipt_path)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(execute.status.success(), "the receipt must be produced");
@@ -4157,6 +4195,7 @@ fn trading_artifact_and_receipt(tag: &str) -> (PathBuf, PathBuf) {
         .arg(&source)
         .arg("--out")
         .arg(&receipt)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(execute.status.success(), "the receipt must be produced");
@@ -4299,6 +4338,160 @@ fn cli_receipt_verify_refuses_a_receipt_whose_figures_contradict_themselves() {
     );
 }
 
+/// Compile `TRADING_SOURCE`, then run `receipt execute` with whatever host the caller declares.
+fn receipt_execute_with(host_args: &[&str]) -> (bool, String) {
+    let source = write_fixture("cli_host_caps.x3", TRADING_SOURCE);
+    let receipt = std::env::temp_dir().join("cli_host_caps_receipt.json");
+    let output = x3c()
+        .args(["receipt", "execute"])
+        .arg(&source)
+        .arg("--out")
+        .arg(&receipt)
+        .args(host_args)
+        .output()
+        .expect("x3c receipt execute");
+    (
+        output.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )
+}
+
+/// The host's chain is what the compiled policy is checked against, not a copy of the policy's own.
+///
+/// `receipt execute` built its capability manifest out of the artifact: `chain: policy.chain`,
+/// `private_submission: policy.require_private_submission`, and the providers, venues and bridges
+/// read off the operations it was about to check. Every capability check compared a value with
+/// itself, so none of them could fire — measured: with the manifest derived that way, this command
+/// reported "trade 'CrossDexArb' committed, receipt verified" for `--chain base` against an artifact
+/// compiled for ethereum, with no private-submission lane declared.
+#[test]
+fn cli_receipt_execute_refuses_a_host_on_another_chain() {
+    let (ok, report) = receipt_execute_with(&[
+        "--chain",
+        "base",
+        "--private-submission",
+        "--provider",
+        "aave_v3",
+        "--venue",
+        "uniswap_v3",
+        "--venue",
+        "sushiswap",
+    ]);
+    assert!(
+        !ok,
+        "an artifact compiled for ethereum must not run on a host declared as base: {report}"
+    );
+    assert!(
+        report.contains("chain 'ethereum'") && report.contains("host chain 'base'"),
+        "the refusal must name both chains: {report}"
+    );
+}
+
+/// A venue the host does not offer is refused by name, rather than assumed to exist.
+#[test]
+fn cli_receipt_execute_refuses_a_venue_the_host_does_not_offer() {
+    let (ok, report) = receipt_execute_with(&[
+        "--chain",
+        "ethereum",
+        "--private-submission",
+        "--provider",
+        "aave_v3",
+        "--venue",
+        "uniswap_v3",
+    ]);
+    assert!(
+        !ok,
+        "a host that does not offer sushiswap must not run a route through it: {report}"
+    );
+    assert!(
+        report.contains("unknown capability 'sushiswap'"),
+        "the refusal must name the missing venue: {report}"
+    );
+}
+
+/// A policy that requires private submission is refused by a host that does not offer it.
+#[test]
+fn cli_receipt_execute_refuses_a_policy_needing_a_lane_the_host_lacks() {
+    let (ok, report) = receipt_execute_with(&[
+        "--chain",
+        "ethereum",
+        "--provider",
+        "aave_v3",
+        "--venue",
+        "uniswap_v3",
+        "--venue",
+        "sushiswap",
+    ]);
+    assert!(
+        !ok,
+        "a policy requiring private submission must not run on a public-only host: {report}"
+    );
+    assert!(
+        report.contains("requires private submission"),
+        "the refusal must name the missing capability: {report}"
+    );
+}
+
+/// A borrow provider the host does not offer is refused by name.
+#[test]
+fn cli_receipt_execute_refuses_a_provider_the_host_does_not_offer() {
+    let (ok, report) = receipt_execute_with(&[
+        "--chain",
+        "ethereum",
+        "--private-submission",
+        "--venue",
+        "uniswap_v3",
+        "--venue",
+        "sushiswap",
+    ]);
+    assert!(
+        !ok,
+        "a host that does not offer aave_v3 must not run a borrow from it: {report}"
+    );
+    assert!(
+        report.contains("unknown capability 'aave_v3'"),
+        "the refusal must name the missing provider: {report}"
+    );
+}
+
+/// The declaration is required, not defaulted: a default would answer the question the flag asks.
+#[test]
+fn cli_receipt_execute_requires_the_host_chain_to_be_named() {
+    let source = write_fixture("cli_host_caps_missing.x3", TRADING_SOURCE);
+    let output = x3c()
+        .args(["receipt", "execute"])
+        .arg(&source)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(
+        !output.status.success(),
+        "the command must not pick a chain on the operator's behalf"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--chain"),
+        "and must say which declaration is missing: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The declared host is enough: the happy path still produces and verifies a receipt.
+#[test]
+fn cli_receipt_execute_runs_against_a_host_that_declares_what_it_offers() {
+    let (ok, report) = receipt_execute_with(&HOST_CAPS);
+    assert!(
+        ok,
+        "a host with the capabilities the program needs must run it: {report}"
+    );
+    assert!(
+        report.contains("receipt verified"),
+        "and must report the receipt: {report}"
+    );
+}
+
 /// `x3c refund` reports what the program states, and does not announce a transaction it never sent.
 ///
 /// Three defects in one command, found by running it: it read only the `Int` literal shape, so a
@@ -4429,6 +4622,7 @@ fn cli_receipt_verify_requires_a_trusted_key_on_mainnet() {
         .arg(&src)
         .arg("--out")
         .arg(&receipt_path)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(executed.status.success(), "receipt execute must succeed");
