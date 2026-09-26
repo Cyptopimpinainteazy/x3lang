@@ -1776,7 +1776,7 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
     let mut saw_receipt_emit = false;
     // The floors this receipt's own operation sequence states, in the order it states them. Each
     // is enforced against the figures below; recording only that a guard was *present* was the
-    // hole that let a receipt net below the floor it claims to have run under (TICKET-148).
+    // hole that let a receipt net below the floor it claims to have run under (TICKET-150).
     let mut profit_floors: Vec<(AssetKey, u128)> = Vec::new();
 
     for operation in &receipt.operations {
@@ -2272,7 +2272,7 @@ pub fn build_receipt(
     finalize_receipt(TradeReceipt {
         // 3: the receipt carries the quote window of every swap leg — including the leg's realized
         // slippage — which is what makes `quote_freshness` and `max_slippage_bps` re-derivable at
-        // replay (TICKET-017, TICKET-148). A reader of version 1 sees no windows; a version 2
+        // replay (TICKET-017, TICKET-150). A reader of version 1 sees no windows; a version 2
         // receipt's windows have no slippage figure, and replay refuses such a leg when the
         // artifact declares a `max_slippage_bps` ceiling rather than treating the missing figure as
         // a satisfied one.

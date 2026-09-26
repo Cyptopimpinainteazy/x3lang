@@ -1733,7 +1733,7 @@ fn replay_refuses_a_receipt_with_a_window_no_leg_belongs_to() {
 // the receipt already carries (a debt's principal and fee). Both were enforced at execution and
 // neither was re-derivable from a receipt: the slippage figure was not recorded at all, and the
 // fee was totalled without being compared to its ceiling. A receipt is checked against the policy,
-// so both are re-derived here (TICKET-148).
+// so both are re-derived here (TICKET-150).
 
 #[test]
 fn replay_refuses_a_receipt_whose_leg_slipped_past_the_compiled_ceiling() {
