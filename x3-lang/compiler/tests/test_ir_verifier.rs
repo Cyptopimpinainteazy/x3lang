@@ -321,6 +321,68 @@ fn rejects_multiple_commits() {
     assert!(verify_ir(&trading_ir(ops)).is_err());
 }
 
+/// Every diagnostic the verifier returns for `ops`, so a test can assert *which* rule fired
+/// rather than only that something did.
+fn messages(ops: Vec<TradingOperation>) -> Vec<String> {
+    verify_ir(&trading_ir(ops))
+        .err()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|diagnostic| diagnostic.message)
+        .collect()
+}
+
+/// The debt half of the stateful rules, asserted by name.
+///
+/// `verify_trading_sequences` tracks `open_debts`/`closed_debts` across the operation sequence —
+/// this is the "real stateful verifier" the row asked for, and these three cases are the ones it
+/// refuses that had no test: a debt never closed before commit, a close for a debt that was never
+/// opened, and a second close of the same debt.
+#[test]
+fn rejects_commit_with_an_open_debt() {
+    let mut ops = valid_trading_ops();
+    ops.retain(|op| !matches!(op, TradingOperation::CloseDebt { .. }));
+    let found = messages(ops);
+    assert!(
+        found.iter().any(|m| m.contains("commit with open debts")),
+        "a commit with a debt it never closed must be refused by name, got: {found:?}"
+    );
+}
+
+#[test]
+fn rejects_close_debt_before_it_was_opened() {
+    let mut ops = valid_trading_ops();
+    for op in ops.iter_mut() {
+        if let TradingOperation::CloseDebt { debt_id } = op {
+            *debt_id = "never_opened".to_owned();
+        }
+    }
+    let found = messages(ops);
+    assert!(
+        found
+            .iter()
+            .any(|m| m.contains("closed before it was opened")),
+        "closing an unknown debt must be refused by name, got: {found:?}"
+    );
+}
+
+#[test]
+fn rejects_close_debt_twice() {
+    let mut ops = valid_trading_ops();
+    let at = ops
+        .iter()
+        .position(|op| matches!(op, TradingOperation::CloseDebt { .. }))
+        .expect("the fixture closes its debt");
+    // *After* the real close: a copy before it would be the "closed before it was opened" case
+    // instead, which is the order-sensitivity this verifier exists for.
+    ops.insert(at + 1, ops[at].clone());
+    let found = messages(ops);
+    assert!(
+        found.iter().any(|m| m.contains("closed more than once")),
+        "a second close of one debt must be refused by name, got: {found:?}"
+    );
+}
+
 #[test]
 fn accepts_invariant_guard_before_receipt() {
     let mut ops = valid_trading_ops();

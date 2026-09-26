@@ -247,8 +247,13 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
 
 /// Layer 2 of the pipeline: structural IR invariants that must hold before
 /// bytecode emission — atomic scoping balance, non-zero amounts and iterations,
-/// empty-field safety. Documented at the top of this file and, like layer 1,
-/// called from nowhere but its own tests.
+/// empty-field safety, and the stateful trading sequence rules
+/// ([`verify::verify_trading_sequences`]: debt opened before use, closed once,
+/// no commit with an open debt, guards in order).
+///
+/// This used to be reachable only from its own tests; it is now called from
+/// [`run_pre_emission_layers_with_context`] (above) and from lowering, so an
+/// `atomic` body and an inlined branch are verified as well as the top level.
 pub(crate) fn ir_level_errors(ir: &crate::ir::X3IR) -> Vec<X3Error> {
     match verify::verify_ir(ir) {
         Ok(()) => Vec::new(),
