@@ -1,9 +1,12 @@
 //! X3Lang 1.0 numeric literal and direct-call compatibility policy.
 //!
-//! Baseline rules:
-//! - bare integer literals infer as `u64`;
-//! - unary negation of a bare integer literal produces an `i64` expression;
-//! - integer widths and signedness must match exactly;
+//! Rules (RFC t5-6, amended 2026-09-26):
+//! - an unsuffixed integer literal takes the integer type its parameter requires, provided its
+//!   value fits that type — so `1` satisfies `u64`, `i64` and `u32`, while `300` does not satisfy
+//!   `u8` and `-1` (negation of a literal) satisfies no unsigned type;
+//! - a suffixed literal has exactly its suffix's type;
+//! - integer widths and signedness of *typed* values must match exactly: there is no implicit
+//!   widening, narrowing or signed/unsigned conversion;
 //! - direct call-site incompatibility reports `X3E0202`.
 
 use std::collections::HashMap;
@@ -120,6 +123,43 @@ fn negated_kind(kind: NumericKind) -> NumericKind {
     }
 }
 
+/// The value of an unsuffixed integer literal, or of the negation of one.
+fn unsuffixed_literal_value(expr: &Expression) -> Option<i128> {
+    match expr {
+        Expression::Literal(LiteralExpr::Int {
+            value, suffix: None, ..
+        }) => i128::try_from(*value).ok(),
+        Expression::Unary { op: UnOp::Neg, expr } => unsuffixed_literal_value(expr).map(|v| -v),
+        _ => None,
+    }
+}
+
+/// Whether `value` is representable in `kind`. `usize`/`isize` are 64-bit, the X3VM's width.
+fn fits(value: i128, kind: NumericKind) -> bool {
+    let (min, max): (i128, i128) = match kind {
+        NumericKind::U8 => (0, u8::MAX.into()),
+        NumericKind::U16 => (0, u16::MAX.into()),
+        NumericKind::U32 => (0, u32::MAX.into()),
+        NumericKind::U64 | NumericKind::Usize => (0, u64::MAX.into()),
+        NumericKind::U128 | NumericKind::U256 => (0, i128::MAX),
+        NumericKind::I8 => (i8::MIN.into(), i8::MAX.into()),
+        NumericKind::I16 => (i16::MIN.into(), i16::MAX.into()),
+        NumericKind::I32 => (i32::MIN.into(), i32::MAX.into()),
+        NumericKind::I64 | NumericKind::Isize => (i64::MIN.into(), i64::MAX.into()),
+        NumericKind::I128 | NumericKind::I256 => (i128::MIN, i128::MAX),
+    };
+    (min..=max).contains(&value)
+}
+
+/// Whether the argument `arg` satisfies an integer parameter of type `param`, if the argument's
+/// type is decided by its own syntax (a literal); `None` when it is not.
+fn argument_satisfies(arg: &Expression, param: NumericKind) -> Option<bool> {
+    if let Some(value) = unsuffixed_literal_value(arg) {
+        return Some(fits(value, param));
+    }
+    expression_numeric_kind(arg).map(|actual| actual == param)
+}
+
 fn expression_numeric_kind(expr: &Expression) -> Option<NumericKind> {
     match expr {
         Expression::Literal(LiteralExpr::Int { suffix, .. }) => Some(literal_numeric_kind(*suffix)),
@@ -184,15 +224,15 @@ fn verify_expression(
                 if let Some(params) = signatures.get(name.as_str()) {
                     for (index, arg) in args.iter().enumerate() {
                         if let Some(param) = params.get(index).and_then(|kind| *kind) {
-                            if let Some(actual) = expression_numeric_kind(arg) {
-                                if param != actual {
+                            if let Some(satisfied) = argument_satisfies(arg, param) {
+                                if !satisfied {
                                     diagnostics.push(
                                         CompilerDiagnostic::error(
                                             DiagnosticCode::ArgumentTypeMismatch,
                                             format!("argument {} to `{}` has incompatible integer type", index + 1, name.as_str()),
                                             Span::DUMMY,
                                         )
-                                        .with_help("X3Lang requires exact integer type compatibility; implicit widening, narrowing, and signed/unsigned coercion are disabled"),
+                                        .with_help("an unsuffixed literal takes its parameter's integer type only when its value fits that type; typed integers require exact compatibility, with no implicit widening, narrowing, or signed/unsigned coercion"),
                                     );
                                 }
                             }
