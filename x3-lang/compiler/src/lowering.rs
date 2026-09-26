@@ -10,7 +10,7 @@ use crate::hyperarb;
 use crate::intent_emit;
 use crate::ir::{
     self, ChainMetricKind, Condition, CrdtKind as IrCrdtKind, EmergencyKind, LifecycleKind, Operation, ProofKind,
-    ReleaseAct, SerialFormat, StorageKind, VectorOp, X3IR,
+    ReleaseAct, SerialFormat, StorageKind, TradingOperation, VectorOp, X3IR,
 };
 use crate::liquidation;
 use crate::netting;
@@ -122,6 +122,21 @@ pub fn lower_program_with_mode(
                     })?;
                 let operations =
                     trading_lowering::lower_atomic_trade(trade, symbols).map_err(x3_lang_common::X3Error::from)?;
+                // A compiled policy that requires private submission must reach
+                // the runtime as an executable demand, not only as a data field
+                // inside `BeginAtomicTrade`. The field is read by whichever host
+                // volunteers a capability manifest; the `ModeCheck` is an opcode
+                // the runtime has to interpret, so an artifact compiled from a
+                // `require_private_submission: true` policy refuses to run where
+                // there is no private channel (AGENTS.md §11, PHASE 28). It goes
+                // in front of the trade so the refusal precedes any recording of
+                // the trade's operations.
+                if trading_requires_private_submission(&operations) {
+                    ir.push(Operation::ModeCheck {
+                        mode: "submission".to_string(),
+                        restriction: "private_required".to_string(),
+                    });
+                }
                 ir.operations.extend(operations);
             }
             Item::Function(func) => {
@@ -2416,6 +2431,19 @@ fn describe_race(race: &crate::dag::RaceError) -> String {
             chains.join(", ")
         ),
     }
+}
+
+/// Whether a lowered atomic trade's compiled policy demands a private channel.
+///
+/// Read from the compiled policy carried by `BeginAtomicTrade` rather than from
+/// the AST, so the demand that lowers into the artifact and the demand that gates
+/// execution cannot disagree about which policy was compiled.
+fn trading_requires_private_submission(operations: &[Operation]) -> bool {
+    matches!(
+        operations.first(),
+        Some(Operation::Trading(TradingOperation::BeginAtomicTrade { policy, .. }))
+            if policy.require_private_submission
+    )
 }
 
 /// The statement bodies a top-level item may hold, for passes that need to see

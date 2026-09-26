@@ -1,10 +1,13 @@
 //! Trading Core v1 IR lowering and bytecode round-trip tests.
 
 use x3_lang_ast::Item;
-use x3_lang_compiler::emitter::{decode_trading_operation, disassemble, encode_trading_operation, trading_opcode};
+use x3_lang_compiler::emitter::{
+    decode_trading_operation, disassemble, encode_trading_operation, instructions, trading_opcode,
+};
 use x3_lang_compiler::ir::{Operation, TradingOperation, ValueRef};
 use x3_lang_compiler::parser::parse_source;
 use x3_lang_compiler::semantic::CompilationMode;
+use x3_lang_compiler::spec::opcodes::{MODE_CHECK, TRADING_BEGIN};
 use x3_lang_compiler::{analyze_trading, compile_program, compile_to_ir, lower_atomic_trade, TradingSymbols};
 
 const SOURCE: &str = include_str!("fixtures/trading_core_v1.x3");
@@ -128,4 +131,21 @@ fn compile_to_ir_contains_trading_ops_and_emits_bytecode() {
     assert!(trace.contains("TRADING_BEGIN"));
     assert!(trace.contains("TRADING_EXECUTE_SWAP"));
     assert!(trace.contains("TRADING_COMMIT"));
+    // The fixture's policy requires private submission, so the artifact carries
+    // the executable demand a channel-less runtime refuses — not just the data
+    // field inside TRADING_BEGIN — and it precedes the trade, so the refusal
+    // happens before any of the trade's operations run.
+    let stream = instructions(&bytecode).expect("trading bytecode must walk");
+    let gate = stream
+        .iter()
+        .position(|instruction| instruction.opcode == MODE_CHECK)
+        .expect("a private-submission policy must reach the stream as a mode check");
+    let trade = stream
+        .iter()
+        .position(|instruction| instruction.opcode == TRADING_BEGIN)
+        .expect("the trade must begin");
+    assert!(
+        gate < trade,
+        "the mode check must precede TRADING_BEGIN, got mode check at {gate}, begin at {trade}"
+    );
 }

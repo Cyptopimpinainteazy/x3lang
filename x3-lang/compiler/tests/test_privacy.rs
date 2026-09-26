@@ -5,7 +5,7 @@
 //! level clearly labelled. The tests below are both halves: what a program may
 //! declare, and what it is refused for declaring.
 
-use x3_lang_compiler::ir::Operation;
+use x3_lang_compiler::ir::{Operation, TradingOperation};
 use x3_lang_compiler::semantic::{implemented_privacy_levels, CompilationMode};
 
 fn errors(source: &str) -> Vec<String> {
@@ -151,4 +151,31 @@ fn the_preferred_and_allowed_modes_do_not_demand_a_private_channel() {
         });
         assert_eq!(restriction, Some(format!("private_{mode}")));
     }
+}
+
+#[test]
+fn a_trading_program_that_requires_private_submission_carries_the_mode_check() {
+    // The Trading Core pipeline stated the demand inside the compiled policy
+    // only — a field a cooperating host reads — and emitted no mode check, so an
+    // artifact compiled from `require_private_submission: true` ran to `Ok(())`
+    // on a runtime with no private channel (measured before the fix). The gate
+    // has to be in the artifact, ahead of the trade it protects.
+    let ops = operations(include_str!("fixtures/trading_core_v1.x3"));
+    assert!(
+        matches!(
+            &ops[0],
+            Operation::ModeCheck { mode, restriction }
+                if mode == "submission" && restriction == "private_required"
+        ),
+        "the privacy gate must precede the trade it protects, got: {:?}",
+        ops.first()
+    );
+    assert!(
+        ops.iter().any(|op| matches!(
+            op,
+            Operation::Trading(TradingOperation::BeginAtomicTrade { policy, .. })
+                if policy.require_private_submission
+        )),
+        "the fixture's compiled policy must still state the requirement"
+    );
 }

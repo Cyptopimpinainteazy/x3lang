@@ -359,9 +359,7 @@ fn rejects_close_debt_before_it_was_opened() {
     }
     let found = messages(ops);
     assert!(
-        found
-            .iter()
-            .any(|m| m.contains("closed before it was opened")),
+        found.iter().any(|m| m.contains("closed before it was opened")),
         "closing an unknown debt must be refused by name, got: {found:?}"
     );
 }
@@ -852,4 +850,51 @@ fn the_operations_a_hyperarb_lowers_to_pass_the_structural_verifier() {
         verified.is_ok(),
         "a planned hyperarb must be a plan this layer accepts: {verified:?}"
     );
+}
+
+fn private_trading_ops() -> Vec<TradingOperation> {
+    let mut ops = valid_trading_ops();
+    match &mut ops[0] {
+        TradingOperation::BeginAtomicTrade { policy, .. } => {
+            policy.require_private_submission = true;
+            policy.submission_profile = SubmissionProfile::Private;
+        }
+        other => panic!("the first trading operation must begin the trade, got {other:?}"),
+    }
+    ops
+}
+
+fn submission_gate() -> Operation {
+    Operation::ModeCheck {
+        mode: "submission".to_owned(),
+        restriction: "private_required".to_owned(),
+    }
+}
+
+#[test]
+fn a_private_trading_policy_without_a_mode_check_is_refused() {
+    // The compiled policy field is read only by a host that volunteers a
+    // capability manifest. An artifact that states the requirement and does not
+    // carry the executable gate lets a channel-less runtime record the trade as
+    // though the requirement were satisfied, so the IR layer refuses it here.
+    let ir = trading_ir(private_trading_ops());
+    assert_eq!(codes(&ir), vec![DiagnosticCode::UnsafeIr]);
+}
+
+#[test]
+fn a_mode_check_before_the_trade_satisfies_the_binding() {
+    // Non-vacuous: the gate the lowerer actually emits is accepted, and only the
+    // missing-gate case above is refused.
+    let mut operations = vec![submission_gate()];
+    operations.extend(private_trading_ops().into_iter().map(Operation::Trading));
+    assert!(verify_ir(&ir_with(operations)).is_ok());
+}
+
+#[test]
+fn a_mode_check_after_the_trade_does_not_satisfy_the_binding() {
+    // Position matters: the runtime must refuse before it records any of the
+    // trade's operations, so a gate that trails the trade does not count.
+    let mut operations: Vec<Operation> = private_trading_ops().into_iter().map(Operation::Trading).collect();
+    operations.push(submission_gate());
+    assert_eq!(codes(&ir_with(operations)), vec![DiagnosticCode::UnsafeIr]);
 }

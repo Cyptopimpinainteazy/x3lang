@@ -92,3 +92,55 @@ fn the_flag_does_not_affect_other_mode_checks() {
     let mut vm = VM::new(code, VMConfig::default(), 1_000_000);
     vm.execute().expect("a finality mode check is not a privacy demand");
 }
+
+fn compile_trading(source: &str) -> Vec<u8> {
+    let (bytecode, _outcome) =
+        x3_lang_compiler::compile_with_mode_diagnostics(source, x3_lang_compiler::CompilationMode::Dev)
+            .expect("the trading fixture must compile");
+    bytecode
+}
+
+/// A whole Trading Core program is not exempt from the mode check.
+///
+/// The trading pipeline used to lower `require_private_submission: true` into a
+/// data field inside `BeginAtomicTrade` and nothing else — a policy only the host
+/// that volunteers a capability manifest ever reads. Measured before the fix:
+/// the compiled `examples/trading_core_v1.x3`, which requires private
+/// submission, ran to `Ok(())` on the default runtime, whose
+/// `allow_private_submission` is false.
+#[test]
+fn a_compiled_trading_program_that_requires_private_submission_is_refused_without_a_channel() {
+    let bytecode = compile_trading(include_str!("../../examples/trading_core_v1.x3"));
+    let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
+    match vm.execute() {
+        Err(ExecError::Panic(message)) => assert!(
+            message.contains("X3_PRIVATE_SUBMISSION_REQUIRED"),
+            "the refusal must say what it is, got: {message}"
+        ),
+        other => panic!("a runtime with no private channel must refuse a trade that demands one, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_same_trading_program_runs_where_the_channel_exists() {
+    // Non-vacuous: the refusal is about the runtime's capability, not about the
+    // artifact, so the same bytes run where the capability exists.
+    let bytecode = compile_trading(include_str!("../../examples/trading_core_v1.x3"));
+    let config = VMConfig {
+        allow_private_submission: true,
+        ..VMConfig::default()
+    };
+    let mut vm = VM::new(bytecode, config, 1_000_000);
+    vm.execute().expect("a capable runtime must run the same artifact");
+}
+
+#[test]
+fn a_trading_program_that_does_not_demand_privacy_is_not_gated() {
+    // The other direction: `trading_effects.x3` sets
+    // `require_private_submission: false`, and its artifact must not acquire a
+    // privacy gate it never asked for.
+    let bytecode = compile_trading(include_str!("../../examples/trading_effects.x3"));
+    let mut vm = VM::new(bytecode, VMConfig::default(), 1_000_000);
+    vm.execute()
+        .expect("a trade that does not demand privacy must run on a runtime without a channel");
+}
