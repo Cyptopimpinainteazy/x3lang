@@ -3994,9 +3994,10 @@ fn packet_verify_checks_the_requirements_a_packet_declares() {
 /// PHASE 32 through the binary: `x3c replay` binds a receipt to its artifact and judges its figures
 /// against the artifact's own bounds.
 ///
-/// Before this the repository had the receipt's *internal* replay (`verify_receipt` runs
-/// `verify_receipt_economics`) and no way to ask the artifact-side question the phase's input list
-/// names: is this receipt about *this* artifact, and is what it reports something this artifact permits?
+/// Before this the repository had no receipt-side replay at all in this command: `cmd_replay` called
+/// `verify_receipt` — which re-derives the hash and the accounting invariants and deliberately stops
+/// there — while printing that the economics had been checked too. `verify_receipt_economics` is a
+/// separate entry point and nothing here called it.
 #[test]
 fn cli_replays_a_receipt_against_its_artifact_and_refuses_another() {
     let source = write_fixture("cli_replay_trading.x3", TRADING_SOURCE);
@@ -4130,6 +4131,171 @@ fn cli_refuses_a_receipt_whose_contents_moved_after_signing() {
     assert!(
         report.contains("HashMismatch") || report.contains("hash"),
         "the refusal must be about the receipt's own hash: {report}"
+    );
+}
+
+/// Build the trading artifact and its receipt once, for the two forgery tests below.
+fn trading_artifact_and_receipt(tag: &str) -> (PathBuf, PathBuf) {
+    let source = write_fixture(&format!("cli_forge_{tag}.x3"), TRADING_SOURCE);
+    let artifact = std::env::temp_dir().join(format!("cli_forge_{tag}.x3b"));
+    let build = x3c()
+        .arg("build")
+        .arg(&source)
+        .arg("--out")
+        .arg(&artifact)
+        .output()
+        .expect("x3c build");
+    assert!(
+        build.status.success(),
+        "the trading program must build: {}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let receipt = std::env::temp_dir().join(format!("cli_forge_{tag}_receipt.json"));
+    let execute = x3c()
+        .args(["receipt", "execute"])
+        .arg(&source)
+        .arg("--out")
+        .arg(&receipt)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(execute.status.success(), "the receipt must be produced");
+    (artifact, receipt)
+}
+
+fn read_receipt_file(path: &std::path::Path) -> x3_lang_vm::trading::TradeReceipt {
+    serde_json::from_str(&std::fs::read_to_string(path).expect("receipt is readable")).expect("receipt parses")
+}
+
+/// Write `receipt` re-hashed, so the *only* thing wrong with it is what the test changed.
+fn write_rehashed_receipt(receipt: x3_lang_vm::trading::TradeReceipt, path: &std::path::Path) {
+    let receipt = x3_lang_vm::trading::finalize_receipt(receipt).expect("re-hashing a forged receipt must succeed");
+    assert_eq!(
+        receipt.receipt_hash,
+        x3_lang_vm::trading::compute_receipt_hash(&receipt).expect("hash is computable"),
+        "the forged receipt must be internally consistent, or the hash check would catch it instead"
+    );
+    std::fs::write(path, serde_json::to_string_pretty(&receipt).expect("encode")).expect("write");
+}
+
+fn replay_report(artifact: &std::path::Path, receipt: &std::path::Path) -> (bool, String) {
+    let output = x3c()
+        .arg("replay")
+        .arg(artifact)
+        .arg(receipt)
+        .output()
+        .expect("x3c replay");
+    (
+        output.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )
+}
+
+/// A receipt for this artifact whose *policy* is weaker than the artifact's is refused.
+///
+/// This is the forgery the old command could not see. The receipt stays about the artifact it was
+/// produced from — its `artifact_hash` is untouched — but the operation sequence inside it is edited
+/// to widen the slippage ceiling, and the receipt is re-hashed so its own hash check passes. Nothing
+/// in `verify_receipt` or `verify_receipt_economics` compares that sequence against the artifact: the
+/// economics read the ceilings out of the receipt's own operations, so a receipt that carried its own
+/// policy passed against an artifact whose compiled policy is stricter.
+#[test]
+fn cli_replay_refuses_a_receipt_whose_policy_is_not_the_artifacts() {
+    let (artifact, receipt_path) = trading_artifact_and_receipt("weaker_policy");
+    let mut receipt = read_receipt_file(&receipt_path);
+    let x3_lang_compiler::ir::TradingOperation::BeginAtomicTrade { policy, .. } = &mut receipt.operations[0] else {
+        panic!("a trading program begins with BeginAtomicTrade");
+    };
+    assert_eq!(policy.max_slippage_bps, 30, "the fixture's ceiling is 30 bps");
+    policy.max_slippage_bps = 900;
+    write_rehashed_receipt(receipt, &receipt_path);
+
+    let (ok, report) = replay_report(&artifact, &receipt_path);
+    assert!(
+        !ok,
+        "a receipt carrying a weaker policy than its artifact must not replay: {report}"
+    );
+    assert!(
+        report.contains("operation 0") && report.contains("900"),
+        "the refusal must name the operation and show what the receipt carried: {report}"
+    );
+}
+
+/// A receipt whose realized net is below the floor its own artifact states is refused by `replay`.
+///
+/// The receipt is internally consistent — the profit it reports equals the delta it reports — so
+/// `verify_receipt` has nothing to say, and the figure only fails against the artifact's floor. Until
+/// the floor was enforced, `replay` printed that the economics had been checked while calling an entry
+/// point that re-derives the hash and stops.
+#[test]
+fn cli_replay_enforces_the_artifacts_profit_floor() {
+    let (artifact, receipt_path) = trading_artifact_and_receipt("below_floor");
+    let mut receipt = read_receipt_file(&receipt_path);
+    assert!(
+        receipt.realized_net_profit.is_some(),
+        "the fixture trade commits, so it reports a profit"
+    );
+    // Move the trade's USDC delta — and the reported profit with it — below the artifact's
+    // `require net_profit >= 1_000 USDC`, which is 1,000,000,000 in the asset's 6 decimals.
+    let usdc = receipt
+        .deltas
+        .iter_mut()
+        .find(|delta| delta.asset.symbol == "USDC")
+        .expect("the trade nets in USDC");
+    usdc.delta = 500_000_000;
+    let profit = receipt.realized_net_profit.as_mut().expect("profit is reported");
+    profit.amount = 500_000_000;
+    write_rehashed_receipt(receipt, &receipt_path);
+
+    x3_lang_vm::trading::verify_receipt(&read_receipt_file(&receipt_path))
+        .expect("the forged receipt is internally consistent, so the hash check passes it");
+
+    let (ok, report) = replay_report(&artifact, &receipt_path);
+    assert!(!ok, "a net below the artifact's floor must not replay: {report}");
+    assert!(
+        report.contains("compiled profit floor") && report.contains("500000000") && report.contains("1000000000"),
+        "the refusal must name the floor and the realized net: {report}"
+    );
+}
+
+/// `x3c receipt verify` runs the economic replay it has always said it runs.
+///
+/// Without `--trusted` the command's own text promised "hash + economic invariants". It called
+/// `verify_receipt`, whose job is the hash and the accounting invariants, and never the economics:
+/// a receipt whose reported profit contradicted its own deltas was reported as verified.
+#[test]
+fn cli_receipt_verify_refuses_a_receipt_whose_figures_contradict_themselves() {
+    let receipt_path = std::env::temp_dir().join("cli_verify_contradicts.json");
+    let mut receipt: x3_lang_vm::trading::TradeReceipt =
+        serde_json::from_str(&trading_receipt_json(false)).expect("the fixture receipt parses");
+    let profit = receipt
+        .realized_net_profit
+        .as_mut()
+        .expect("the fixture reports a profit");
+    profit.amount += 1;
+    write_rehashed_receipt(receipt, &receipt_path);
+
+    let output = x3c()
+        .args(["receipt", "verify"])
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt verify");
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.status.success(),
+        "a receipt at odds with its own figures must not verify: {report}"
+    );
+    assert!(
+        report.contains("does not equal replayed delta"),
+        "the refusal must be the economic replay, not the hash: {report}"
     );
 }
 

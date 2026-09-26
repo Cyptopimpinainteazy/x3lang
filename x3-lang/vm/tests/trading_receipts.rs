@@ -412,3 +412,78 @@ fn receipt_with_a_disallowed_cost_kind_fails_economic_replay() {
         "expected an allowlist replay mismatch, got {err:?}"
     );
 }
+
+/// `operations()` with its `AssertMinNetProfit` floor replaced.
+fn operations_with_profit_floor(settlement_asset: AssetKey, minimum: u128) -> Vec<TradingOperation> {
+    operations()
+        .into_iter()
+        .map(|operation| match operation {
+            TradingOperation::AssertMinNetProfit { .. } => TradingOperation::AssertMinNetProfit {
+                settlement_asset: settlement_asset.clone(),
+                minimum,
+            },
+            other => other,
+        })
+        .collect()
+}
+
+fn receipt_with_profit_floor(settlement_asset: AssetKey, minimum: u128) -> x3_lang_vm::trading::TradeReceipt {
+    build_receipt(
+        "0.1.0",
+        [1u8; 32],
+        "T",
+        "P",
+        [2u8; 32],
+        &operations_with_profit_floor(settlement_asset, minimum),
+        &committed_state(),
+        Some(&asset("USDC")),
+        TradeOutcome::Success,
+    )
+    .expect("receipt must build")
+}
+
+/// A receipt may not report a net below the profit floor its own operation sequence states.
+///
+/// `AssertMinNetProfit { settlement_asset, minimum }` is the floor the trade ran under, and the
+/// receipt carries that operation verbatim. Replay used to record only *that a profit guard was
+/// present* (`saw_profit_guard`), so a receipt whose realized net sat below the floor replayed
+/// cleanly: the receipt was checked against its own numbers rather than against the floor it
+/// claims to have been executed under. `committed_state()` nets 2,000,000 USDC, so a floor of
+/// 5,000,000 is one this receipt cannot satisfy.
+#[test]
+fn receipt_below_its_compiled_profit_floor_fails_economic_replay() {
+    let receipt = receipt_with_profit_floor(asset("USDC"), 5_000_000);
+    verify_receipt(&receipt).expect("the receipt is internally consistent, so its hash must verify");
+    let err = verify_receipt_economics(&receipt)
+        .expect_err("a receipt that nets below its own compiled floor must not replay");
+    let message = err.to_string();
+    assert!(
+        message.contains("5000000") && message.contains("2000000"),
+        "the refusal must name the floor and the realized net, got {message}"
+    );
+}
+
+/// The floor is enforced against the settlement asset, so a floor whose asset the receipt never
+/// touched cannot be satisfied by a surplus in some other asset. The receipt's profit is in USDC;
+/// a floor stated in WETH has no delta at all, which is 0, and 0 is below any positive floor.
+#[test]
+fn profit_floor_in_an_asset_the_receipt_never_touched_fails_economic_replay() {
+    let receipt = receipt_with_profit_floor(asset("WETH"), 1);
+    verify_receipt(&receipt).expect("the receipt is internally consistent, so its hash must verify");
+    let err =
+        verify_receipt_economics(&receipt).expect_err("a floor in an asset with no realized delta must not replay");
+    let message = err.to_string();
+    assert!(
+        message.contains("WETH"),
+        "the refusal must name the asset whose floor could not be met, got {message}"
+    );
+}
+
+/// The boundary the previous test brackets: a floor the realized net exactly meets is satisfied,
+/// so the check is a floor and not an unstated slack requirement.
+#[test]
+fn receipt_that_exactly_meets_its_compiled_profit_floor_replays() {
+    let receipt = receipt_with_profit_floor(asset("USDC"), 2_000_000);
+    verify_receipt(&receipt).expect("hash must verify");
+    verify_receipt_economics(&receipt).expect("a net exactly at the floor satisfies it");
+}

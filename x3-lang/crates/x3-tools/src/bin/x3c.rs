@@ -161,10 +161,10 @@ enum Cmd {
     ///
     /// The phase names five inputs — compiled artifact, inputs, operation sequence, state evidence,
     /// receipt — and nine claims it verifies. This command takes the two the repository carries as
-    /// files and checks what they can decide: that the receipt is about *this* artifact, that the
-    /// receipt's own replay holds, and that the profit it reports is one the artifact's own floor
-    /// permits. The rest are named in the report as checked-from-the-receipt or as needing the inputs
-    /// and the state evidence the command was not given, rather than passed over.
+    /// files and checks what they can decide: that the receipt is about *this* artifact, that its
+    /// operation sequence is that artifact's compiled program, and that its figures hold up under
+    /// replay against the policy's own floors and ceilings. The rest are named in the report as
+    /// needing the inputs and the state evidence the command was not given, rather than passed over.
     Replay {
         /// The compiled artifact the receipt claims to be about.
         artifact: PathBuf,
@@ -3376,18 +3376,25 @@ fn cmd_receipt_inspect(input: &PathBuf) -> Result<ExitCode, String> {
 
 /// PHASE 32 through the binary: replay an economic receipt against the artifact it claims to be about.
 ///
-/// The receipt carries its own operation sequence and the VM re-verifies it (`verify_receipt` runs
-/// `verify_receipt_economics`), so what this command adds is the *artifact* side of the phase's input
-/// list: a receipt is not evidence about an execution unless it is about the artifact in hand. The
-/// report names the phase's nine claims and says, for each, what was checked and what it would need —
-/// the host's inputs and the state evidence are exactly the two things a receipt and an artifact do
-/// not carry, and saying so is the honest half of this command.
+/// Three things have to hold, and they are three different questions:
 ///
-/// **What is deliberately not compared**: the artifact's floors against the receipt's figures. A receipt
-/// whose `artifact_hash` matches was produced by executing *that* artifact, so any floor the artifact
-/// states was already enforced when the trade ran, and re-comparing it here would be a second and weaker
-/// copy of a check the run itself made. The floor reader (`artifact_floors`) is for a *simulation*,
-/// where the market is stated by a caller rather than produced by a run.
+/// 1. the receipt is about the artifact in hand (`artifact_hash`);
+/// 2. the receipt's operation sequence *is* the artifact's compiled program, so the policy and every
+///    ceiling and floor it states are the artifact's own rather than figures the receipt chose for
+///    itself;
+/// 3. the receipt's figures hold up under replay, including against those ceilings and floors
+///    (`x3_lang_vm::trading::verify_receipt_economics`).
+///
+/// (2) is the check that makes (3) mean anything. Without it a receipt carrying a *weaker* policy than
+/// the artifact compiles — a wider slippage ceiling, a lower profit floor — re-hashed and consistent
+/// with itself, passed every check this command made: `verify_receipt` re-derives the hash and
+/// `verify_receipt_economics` read the ceilings out of the receipt's own operation sequence, which
+/// nothing bound to the artifact. The artifact hash proves which artifact a receipt claims, not that
+/// the sequence inside it is the one that artifact compiles.
+///
+/// The report names the phase's nine claims and says, for each, what was checked and what it would
+/// need. The host inputs and the state evidence are the two things neither an artifact nor a receipt
+/// carries, so they stay named as unchecked rather than passed over.
 fn cmd_replay(artifact: &PathBuf, receipt_path: &PathBuf) -> Result<ExitCode, String> {
     let bytecode = std::fs::read(artifact).map_err(|error| format!("read {artifact:?}: {error}"))?;
     if bytecode.is_empty() {
@@ -3408,22 +3415,61 @@ fn cmd_replay(artifact: &PathBuf, receipt_path: &PathBuf) -> Result<ExitCode, St
         ));
     }
 
-    // The receipt's own replay: its operation sequence (framing, trade and policy identity), its
-    // commitments, its debt lifecycle, and the profit-versus-outcome relation. `verify_receipt` is the
-    // VM's entry point and runs the economic replay inside it, so there is no second copy of that rule
-    // here — the artifact-side half above is this command's, and this half is the library's.
+    // The receipt's own hash first, before anything is read out of it: a receipt whose contents
+    // moved after it was finalized is not a receipt, whatever the rest of its figures say, and the
+    // hash is also the cheapest of the checks. `verify_receipt` re-derives it along with the
+    // accounting invariants (a failed receipt reporting a profit, a successful one leaving a debt
+    // open).
     x3_lang_vm::trading::verify_receipt(&receipt).map_err(|error| format!("{}: {error}", receipt.trade_id))?;
 
+    // The artifact's side of the operation sequence. `decode_trading_program` is the same reader the
+    // compiler's build path and `receipt execute` use, so the sequence compared against the receipt
+    // is exactly the one the artifact carries.
+    let compiled = decode_trading_program(&bytecode).map_err(|error| {
+        format!("{artifact:?} carries no trading program, so a receipt cannot be replayed against it: {error}")
+    })?;
+    if compiled.len() != receipt.operations.len() {
+        return Err(format!(
+            "the receipt's operation sequence is not the artifact's program: {} compiles {} operations and the \
+             receipt carries {}",
+            artifact.display(),
+            compiled.len(),
+            receipt.operations.len()
+        ));
+    }
+    for (index, (from_artifact, from_receipt)) in compiled.iter().zip(receipt.operations.iter()).enumerate() {
+        if from_artifact != from_receipt {
+            return Err(format!(
+                "the receipt's operation {index} is not the artifact's: {} compiles {from_artifact:?} and the \
+                 receipt carries {from_receipt:?}",
+                artifact.display()
+            ));
+        }
+    }
+
+    // The economic replay the commands that verify a receipt used to describe but not run:
+    // `verify_receipt_economics` re-derives the figures against the policy's floors and ceilings.
+    // It is the library's, so there is no second copy of that rule here.
+    x3_lang_vm::trading::verify_receipt_economics(&receipt)
+        .map_err(|error| format!("{}: {error}", receipt.trade_id))?;
+
     for line in [
-        "checked (by the receipt's own replay): the operation sequence and its framing",
-        "checked (by the receipt's own replay): the assets, and the per-asset deltas",
-        "checked (by the receipt's own replay): the balances the deltas commit to",
-        "checked (by the receipt's own replay): the costs, each with its kind",
-        "checked (by the receipt's own replay): the debt lifecycle against the outcome",
-        "checked (by the receipt's own replay): the profit, which a failed receipt may not report",
-        "checked (by the receipt's own replay): the settlement outcome",
         "checked (here): the receipt is about the artifact in hand (its artifact hash matches)",
-        "not checked: correct risk checks (the ceilings the run enforced came from the compiled policy, which this pair does not carry beside its figures)",
+        "checked (here): the receipt's operation sequence is the artifact's compiled program, so its policy \
+         and the floors and ceilings below are the artifact's",
+        "checked (by the receipt's own replay): the operation sequence and its framing",
+        "checked (by the receipt's own replay): the per-asset deltas, and the assets the debt records name",
+        "checked (by the receipt's own replay): the costs, each with a kind the compiled allowlist permits",
+        "checked (by the receipt's own replay): the debt lifecycle against the outcome",
+        "checked (by the receipt's own replay): the profit, which a failed receipt may not report and which \
+         must equal the replayed delta",
+        "checked (by the receipt's own replay): the settlement outcome",
+        "checked (by the receipt's own replay): the artifact's profit floors, each read against the delta of \
+         the asset it is denominated in",
+        "checked (by the receipt's own replay): the risk ceilings the artifact states — quote freshness, \
+         price impact, MEV leakage, slippage per leg, flash fee per debt",
+        "not checked: the balances behind the state commitment (a receipt carries the commitment, not the \
+         state it commits to)",
         "not checked: correct finality references (the state evidence the phase names is not part of an artifact or a receipt)",
         "not checked: the host inputs (a receipt records what happened, not what was asked)",
     ] {
@@ -3457,7 +3503,14 @@ fn cmd_receipt_verify(input: &PathBuf, trusted_specs: &[String], mode: Compilati
             .to_string());
     }
     let result = if trusted_specs.is_empty() {
+        // Hash *and* economics, which is what this command has always said it checks. It used to
+        // call `verify_receipt` alone — that function re-derives the hash and the accounting
+        // invariants and deliberately stops there — so a receipt whose figures contradicted the
+        // policy it carried was reported as "verified (hash + economic invariants)", a claim the
+        // command did not earn (TICKET-148). The economics are the same library entry point the
+        // trusted path already ran.
         x3_lang_vm::trading::verify_receipt(&receipt)
+            .and_then(|()| x3_lang_vm::trading::verify_receipt_economics(&receipt))
     } else {
         let trusted = parse_trusted_keys(trusted_specs)?;
         x3_lang_vm::trading::verify_receipt_trusted(&receipt, &trusted)
