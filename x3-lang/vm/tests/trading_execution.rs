@@ -1646,6 +1646,10 @@ fn a_receipt_carries_the_quote_window_of_every_leg() {
                 executed_at_block: 5,
                 price_impact: None,
                 mev_leakage: None,
+                // The fixture host quotes what it swaps, so the leg met its quote exactly. The
+                // figure is recorded because `max_slippage_bps` is a ceiling on it and a receipt
+                // is the only thing a replay holds.
+                realized_slippage_bps: Some(0),
             },
             x3_lang_vm::trading::LegQuoteWindow {
                 venue: "uniswap_v3".to_string(),
@@ -1653,11 +1657,15 @@ fn a_receipt_carries_the_quote_window_of_every_leg() {
                 executed_at_block: 5,
                 price_impact: None,
                 mev_leakage: None,
+                realized_slippage_bps: Some(0),
             },
         ],
         "one window per swap leg, in execution order"
     );
-    assert_eq!(receipt.format_version, 2, "the shape of a receipt is versioned");
+    assert_eq!(
+        receipt.format_version, 3,
+        "the shape of a receipt is versioned (3 carries each leg's realized slippage)"
+    );
     assert_eq!(
         receipt.legs[0].age_blocks(),
         5,
@@ -1712,10 +1720,76 @@ fn replay_refuses_a_receipt_with_a_window_no_leg_belongs_to() {
         executed_at_block: 5,
         price_impact: None,
         mev_leakage: None,
+        realized_slippage_bps: Some(0),
     });
     let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
     let err = verify_receipt_economics(&receipt).expect_err("an unmatched window must fail replay");
     assert!(format!("{err:?}").contains("no executed leg to age"), "{err:?}");
+}
+
+// ───── The artifact's other ceilings, at replay ───────────────────────────
+//
+// `max_slippage_bps` bounds a quantity only the run can measure, and `max_flash_fee_bps` bounds one
+// the receipt already carries (a debt's principal and fee). Both were enforced at execution and
+// neither was re-derivable from a receipt: the slippage figure was not recorded at all, and the
+// fee was totalled without being compared to its ceiling. A receipt is checked against the policy,
+// so both are re-derived here (TICKET-150).
+
+#[test]
+fn replay_refuses_a_receipt_whose_leg_slipped_past_the_compiled_ceiling() {
+    // The forgery is self-consistent: the window is edited and the receipt re-hashed, so only the
+    // economics can catch it. The fixture policy allows 30 bps.
+    let mut receipt = receipt_from_a_successful_trade();
+    receipt.legs[0].realized_slippage_bps = Some(31);
+    let receipt = finalize_receipt(receipt).expect("re-hashing a forged receipt must succeed");
+    let err = verify_receipt_economics(&receipt).expect_err("a leg past its ceiling must fail replay");
+    let message = err.to_string();
+    assert!(
+        message.contains("31 bps") && message.contains("30 bps") && message.contains("uniswap_v3"),
+        "the refusal must name the leg, the figure and the ceiling: {message}"
+    );
+}
+
+#[test]
+fn replay_accepts_a_leg_that_slipped_exactly_to_the_compiled_ceiling() {
+    // The boundary the previous test brackets: the ceiling is inclusive, so the check is a bound
+    // rather than a margin whose size nobody stated.
+    let mut receipt = receipt_from_a_successful_trade();
+    receipt.legs[0].realized_slippage_bps = Some(30);
+    let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
+    verify_receipt_economics(&receipt).expect("a leg exactly at its ceiling satisfies it");
+}
+
+#[test]
+fn replay_refuses_a_receipt_that_dropped_a_legs_slippage_figure() {
+    // Format version 2 receipts carry windows without a slippage figure. Dropping it from a leg
+    // cannot read as "no slippage": the ceiling would be unverifiable, and an unverifiable ceiling
+    // is a refusal.
+    let mut receipt = receipt_from_a_successful_trade();
+    receipt.legs[0].realized_slippage_bps = None;
+    let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
+    let err = verify_receipt_economics(&receipt).expect_err("a missing slippage figure must fail replay");
+    assert!(
+        matches!(err, x3_lang_vm::trading::ReceiptError::MissingRealizedSlippage { ref venue } if venue == "uniswap_v3"),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn replay_refuses_a_receipt_whose_flash_fee_exceeds_the_compiled_ceiling() {
+    // The fixture debt is 1,000,000 at a 10 bps ceiling, so a 2,000 fee is 20 bps — four basis
+    // points past it — and the fee is still below the principal, so the coarser plausibility check
+    // has nothing to say about it.
+    let mut receipt = receipt_from_a_successful_trade();
+    assert_eq!(receipt.debts.len(), 1, "the fixture closes one debt");
+    receipt.debts[0].fee = 2_000;
+    let receipt = finalize_receipt(receipt).expect("re-hashing a forged receipt must succeed");
+    let err = verify_receipt_economics(&receipt).expect_err("a fee past its ceiling must fail replay");
+    let message = err.to_string();
+    assert!(
+        message.contains("20 bps") && message.contains("10 bps") && message.contains("debt"),
+        "the refusal must name the debt, the figure and the ceiling: {message}"
+    );
 }
 
 #[test]

@@ -172,6 +172,20 @@ fn test_cli_receipt_verify_trusted_signer() {
         .arg(&src)
         .arg("-o")
         .arg(&receipt)
+        // The host's capabilities are declared now, not read out of the artifact: this example
+        // borrows from aave_v3, swaps on uniswap_v3 and sushiswap, and its policy requires private
+        // submission. Without them the command refuses the program instead of agreeing with it.
+        .args([
+            "--chain",
+            "ethereum",
+            "--private-submission",
+            "--provider",
+            "aave_v3",
+            "--venue",
+            "uniswap_v3",
+            "--venue",
+            "sushiswap",
+        ])
         .output()
         .expect("x3c receipt execute");
     assert!(execute.status.success(), "execute should succeed");

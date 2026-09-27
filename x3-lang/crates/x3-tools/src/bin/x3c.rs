@@ -161,10 +161,10 @@ enum Cmd {
     ///
     /// The phase names five inputs — compiled artifact, inputs, operation sequence, state evidence,
     /// receipt — and nine claims it verifies. This command takes the two the repository carries as
-    /// files and checks what they can decide: that the receipt is about *this* artifact, that the
-    /// receipt's own replay holds, and that the profit it reports is one the artifact's own floor
-    /// permits. The rest are named in the report as checked-from-the-receipt or as needing the inputs
-    /// and the state evidence the command was not given, rather than passed over.
+    /// files and checks what they can decide: that the receipt is about *this* artifact, that its
+    /// operation sequence is that artifact's compiled program, and that its figures hold up under
+    /// replay against the policy's own floors and ceilings. The rest are named in the report as
+    /// needing the inputs and the state evidence the command was not given, rather than passed over.
     Replay {
         /// The compiled artifact the receipt claims to be about.
         artifact: PathBuf,
@@ -415,13 +415,21 @@ enum ReceiptAction {
     ///
     /// The fixture host is deliberately not a market simulation: every
     /// swap returns exactly the trade's own declared `min_output` (so
-    /// OutputBelowMinOut/slippage never fire on their own), fees are
-    /// zero, and it claims exactly the providers/venues/private-submission
-    /// capability the compiled policy asks for. This proves the compile
-    /// -> execute -> receipt -> sign -> verify pipeline actually connects
-    /// end to end; it does not simulate real market profitability, and a
-    /// program that needs genuine price movement to clear its own
-    /// min_profit/min_output guards can still legitimately fail here.
+    /// OutputBelowMinOut/slippage never fire on their own) and fees are
+    /// zero. This proves the compile -> execute -> receipt -> sign ->
+    /// verify pipeline actually connects end to end; it does not simulate
+    /// real market profitability, and a program that needs genuine price
+    /// movement to clear its own min_profit/min_output guards can still
+    /// legitimately fail here.
+    ///
+    /// The host's *capabilities* are declared by the caller, not read out
+    /// of the artifact. They used to be derived from the compiled policy,
+    /// which made every capability check vacuous: the host claimed exactly
+    /// what the program needed, so `CapabilityChainMismatch`,
+    /// `PrivateSubmissionRequired` and `UnknownCapability` could never
+    /// fire through this command. Name the chain and the providers, venues
+    /// and bridges this host actually offers, and the compiled policy is
+    /// checked against that.
     Execute {
         input: PathBuf,
         #[arg(short, long)]
@@ -435,6 +443,25 @@ enum ReceiptAction {
         /// fixture/demo tool, not a production signer.
         #[arg(long)]
         key_hex: Option<String>,
+        /// The chain this host executes on, checked against the compiled
+        /// policy's chain. Required, because a default would answer the
+        /// question the flag exists to ask.
+        #[arg(long)]
+        chain: String,
+        /// Declare that this host can submit a transaction privately. A
+        /// policy that requires private submission is refused without it.
+        #[arg(long)]
+        private_submission: bool,
+        /// A borrow provider this host offers. Repeatable. A program
+        /// borrowing from a provider that is not named is refused by name.
+        #[arg(long = "provider", value_name = "NAME")]
+        providers: Vec<String>,
+        /// A venue this host offers. Repeatable.
+        #[arg(long = "venue", value_name = "NAME")]
+        venues: Vec<String>,
+        /// A bridge this host offers. Repeatable.
+        #[arg(long = "bridge", value_name = "NAME")]
+        bridges: Vec<String>,
     },
 }
 
@@ -555,7 +582,26 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 out,
                 block,
                 key_hex,
-            } => cmd_receipt_execute(&input, out.as_ref(), mode, block, key_hex.as_deref(), cli.deny_warnings),
+                chain,
+                private_submission,
+                providers,
+                venues,
+                bridges,
+            } => cmd_receipt_execute(
+                &input,
+                out.as_ref(),
+                mode,
+                block,
+                key_hex.as_deref(),
+                cli.deny_warnings,
+                &HostCapabilities {
+                    chain,
+                    private_submission,
+                    providers,
+                    venues,
+                    bridges,
+                },
+            ),
         },
         Cmd::Packet { action } => match action {
             PacketAction::Inspect { input } => cmd_packet_inspect(&input),
@@ -3152,6 +3198,24 @@ struct NeutralFixtureHost {
     manifest: CapabilityManifest,
 }
 
+/// The policy version this fixture host implements.
+///
+/// A host declares the policy version it can execute; the compiled artifact declares the one it
+/// was lowered under. Keeping them separate is what makes the check a check.
+const FIXTURE_HOST_POLICY_VERSION: &str = "trading-policy-v1";
+
+/// The capabilities a host offers, as the operator declared them.
+///
+/// Passed in rather than derived from the artifact: a host that claims exactly what the program
+/// asks for can never refuse the program.
+struct HostCapabilities {
+    chain: String,
+    private_submission: bool,
+    providers: Vec<String>,
+    venues: Vec<String>,
+    bridges: Vec<String>,
+}
+
 impl TradingHost for NeutralFixtureHost {
     fn capabilities(&self) -> &CapabilityManifest {
         &self.manifest
@@ -3222,6 +3286,7 @@ fn cmd_receipt_execute(
     block: u64,
     key_hex: Option<&str>,
     deny_warnings: bool,
+    declared: &HostCapabilities,
 ) -> Result<ExitCode, String> {
     let source = read_source(input)?;
     let comp_mode = parse_mode(mode_str)?;
@@ -3237,30 +3302,12 @@ fn cmd_receipt_execute(
         _ => return Err("compiled trading program must begin with BeginAtomicTrade".to_string()),
     };
 
-    let mut providers = BTreeSet::new();
-    let mut venues = BTreeSet::new();
-    let mut bridges = BTreeSet::new();
-    let mut settlement_asset = None;
-    for op in &operations {
-        match op {
-            TradingOperation::OpenDebt { provider, .. } => {
-                providers.insert(provider.clone());
-            }
-            TradingOperation::ExecuteSwap { venue, .. } => {
-                venues.insert(venue.clone());
-            }
-            TradingOperation::Bridge { via, .. } => {
-                bridges.insert(via.clone());
-            }
-            TradingOperation::AssertMinNetProfit {
-                settlement_asset: asset,
-                ..
-            } => {
-                settlement_asset = Some(asset.clone());
-            }
-            _ => {}
-        }
-    }
+    // Read from the compiled program because it is the artifact's own statement of where its profit
+    // lands, not a host capability. The capabilities below are the host's, and are the caller's.
+    let settlement_asset = operations.iter().find_map(|op| match op {
+        TradingOperation::AssertMinNetProfit { settlement_asset, .. } => Some(settlement_asset.clone()),
+        _ => None,
+    });
 
     // Derived from the compiled bytecode itself, not a caller-supplied
     // placeholder, so it actually commits the host to this specific
@@ -3270,13 +3317,16 @@ fn cmd_receipt_execute(
 
     let manifest = CapabilityManifest {
         mode: CapabilityMode::Fixture,
-        version: format!("trading-policy-v{}", policy.policy_version),
-        chain: policy.chain.clone(),
+        // The fixture host's own policy version, not the artifact's. Echoing the artifact's
+        // `policy_version` back made `validate_compiled_policy`'s version check compare a number
+        // with itself; this is the version this host implements.
+        version: FIXTURE_HOST_POLICY_VERSION.to_string(),
+        chain: declared.chain.clone(),
         state_commitment,
-        private_submission: policy.require_private_submission,
-        providers,
-        venues,
-        bridges,
+        private_submission: declared.private_submission,
+        providers: declared.providers.iter().cloned().collect(),
+        venues: declared.venues.iter().cloned().collect(),
+        bridges: declared.bridges.iter().cloned().collect(),
     };
     let mut host = NeutralFixtureHost { manifest };
 
@@ -3376,18 +3426,25 @@ fn cmd_receipt_inspect(input: &PathBuf) -> Result<ExitCode, String> {
 
 /// PHASE 32 through the binary: replay an economic receipt against the artifact it claims to be about.
 ///
-/// The receipt carries its own operation sequence and the VM re-verifies it (`verify_receipt` runs
-/// `verify_receipt_economics`), so what this command adds is the *artifact* side of the phase's input
-/// list: a receipt is not evidence about an execution unless it is about the artifact in hand. The
-/// report names the phase's nine claims and says, for each, what was checked and what it would need —
-/// the host's inputs and the state evidence are exactly the two things a receipt and an artifact do
-/// not carry, and saying so is the honest half of this command.
+/// Three things have to hold, and they are three different questions:
 ///
-/// **What is deliberately not compared**: the artifact's floors against the receipt's figures. A receipt
-/// whose `artifact_hash` matches was produced by executing *that* artifact, so any floor the artifact
-/// states was already enforced when the trade ran, and re-comparing it here would be a second and weaker
-/// copy of a check the run itself made. The floor reader (`artifact_floors`) is for a *simulation*,
-/// where the market is stated by a caller rather than produced by a run.
+/// 1. the receipt is about the artifact in hand (`artifact_hash`);
+/// 2. the receipt's operation sequence *is* the artifact's compiled program, so the policy and every
+///    ceiling and floor it states are the artifact's own rather than figures the receipt chose for
+///    itself;
+/// 3. the receipt's figures hold up under replay, including against those ceilings and floors
+///    (`x3_lang_vm::trading::verify_receipt_economics`).
+///
+/// (2) is the check that makes (3) mean anything. Without it a receipt carrying a *weaker* policy than
+/// the artifact compiles — a wider slippage ceiling, a lower profit floor — re-hashed and consistent
+/// with itself, passed every check this command made: `verify_receipt` re-derives the hash and
+/// `verify_receipt_economics` read the ceilings out of the receipt's own operation sequence, which
+/// nothing bound to the artifact. The artifact hash proves which artifact a receipt claims, not that
+/// the sequence inside it is the one that artifact compiles.
+///
+/// The report names the phase's nine claims and says, for each, what was checked and what it would
+/// need. The host inputs and the state evidence are the two things neither an artifact nor a receipt
+/// carries, so they stay named as unchecked rather than passed over.
 fn cmd_replay(artifact: &PathBuf, receipt_path: &PathBuf) -> Result<ExitCode, String> {
     let bytecode = std::fs::read(artifact).map_err(|error| format!("read {artifact:?}: {error}"))?;
     if bytecode.is_empty() {
@@ -3408,22 +3465,61 @@ fn cmd_replay(artifact: &PathBuf, receipt_path: &PathBuf) -> Result<ExitCode, St
         ));
     }
 
-    // The receipt's own replay: its operation sequence (framing, trade and policy identity), its
-    // commitments, its debt lifecycle, and the profit-versus-outcome relation. `verify_receipt` is the
-    // VM's entry point and runs the economic replay inside it, so there is no second copy of that rule
-    // here — the artifact-side half above is this command's, and this half is the library's.
+    // The receipt's own hash first, before anything is read out of it: a receipt whose contents
+    // moved after it was finalized is not a receipt, whatever the rest of its figures say, and the
+    // hash is also the cheapest of the checks. `verify_receipt` re-derives it along with the
+    // accounting invariants (a failed receipt reporting a profit, a successful one leaving a debt
+    // open).
     x3_lang_vm::trading::verify_receipt(&receipt).map_err(|error| format!("{}: {error}", receipt.trade_id))?;
 
+    // The artifact's side of the operation sequence. `decode_trading_program` is the same reader the
+    // compiler's build path and `receipt execute` use, so the sequence compared against the receipt
+    // is exactly the one the artifact carries.
+    let compiled = decode_trading_program(&bytecode).map_err(|error| {
+        format!("{artifact:?} carries no trading program, so a receipt cannot be replayed against it: {error}")
+    })?;
+    if compiled.len() != receipt.operations.len() {
+        return Err(format!(
+            "the receipt's operation sequence is not the artifact's program: {} compiles {} operations and the \
+             receipt carries {}",
+            artifact.display(),
+            compiled.len(),
+            receipt.operations.len()
+        ));
+    }
+    for (index, (from_artifact, from_receipt)) in compiled.iter().zip(receipt.operations.iter()).enumerate() {
+        if from_artifact != from_receipt {
+            return Err(format!(
+                "the receipt's operation {index} is not the artifact's: {} compiles {from_artifact:?} and the \
+                 receipt carries {from_receipt:?}",
+                artifact.display()
+            ));
+        }
+    }
+
+    // The economic replay the commands that verify a receipt used to describe but not run:
+    // `verify_receipt_economics` re-derives the figures against the policy's floors and ceilings.
+    // It is the library's, so there is no second copy of that rule here.
+    x3_lang_vm::trading::verify_receipt_economics(&receipt)
+        .map_err(|error| format!("{}: {error}", receipt.trade_id))?;
+
     for line in [
-        "checked (by the receipt's own replay): the operation sequence and its framing",
-        "checked (by the receipt's own replay): the assets, and the per-asset deltas",
-        "checked (by the receipt's own replay): the balances the deltas commit to",
-        "checked (by the receipt's own replay): the costs, each with its kind",
-        "checked (by the receipt's own replay): the debt lifecycle against the outcome",
-        "checked (by the receipt's own replay): the profit, which a failed receipt may not report",
-        "checked (by the receipt's own replay): the settlement outcome",
         "checked (here): the receipt is about the artifact in hand (its artifact hash matches)",
-        "not checked: correct risk checks (the ceilings the run enforced came from the compiled policy, which this pair does not carry beside its figures)",
+        "checked (here): the receipt's operation sequence is the artifact's compiled program, so its policy \
+         and the floors and ceilings below are the artifact's",
+        "checked (by the receipt's own replay): the operation sequence and its framing",
+        "checked (by the receipt's own replay): the per-asset deltas, and the assets the debt records name",
+        "checked (by the receipt's own replay): the costs, each with a kind the compiled allowlist permits",
+        "checked (by the receipt's own replay): the debt lifecycle against the outcome",
+        "checked (by the receipt's own replay): the profit, which a failed receipt may not report and which \
+         must equal the replayed delta",
+        "checked (by the receipt's own replay): the settlement outcome",
+        "checked (by the receipt's own replay): the artifact's profit floors, each read against the delta of \
+         the asset it is denominated in",
+        "checked (by the receipt's own replay): the risk ceilings the artifact states — quote freshness, \
+         price impact, MEV leakage, slippage per leg, flash fee per debt",
+        "not checked: the balances behind the state commitment (a receipt carries the commitment, not the \
+         state it commits to)",
         "not checked: correct finality references (the state evidence the phase names is not part of an artifact or a receipt)",
         "not checked: the host inputs (a receipt records what happened, not what was asked)",
     ] {
@@ -3457,7 +3553,14 @@ fn cmd_receipt_verify(input: &PathBuf, trusted_specs: &[String], mode: Compilati
             .to_string());
     }
     let result = if trusted_specs.is_empty() {
+        // Hash *and* economics, which is what this command has always said it checks. It used to
+        // call `verify_receipt` alone — that function re-derives the hash and the accounting
+        // invariants and deliberately stops there — so a receipt whose figures contradicted the
+        // policy it carried was reported as "verified (hash + economic invariants)", a claim the
+        // command did not earn (TICKET-150). The economics are the same library entry point the
+        // trusted path already ran.
         x3_lang_vm::trading::verify_receipt(&receipt)
+            .and_then(|()| x3_lang_vm::trading::verify_receipt_economics(&receipt))
     } else {
         let trusted = parse_trusted_keys(trusted_specs)?;
         x3_lang_vm::trading::verify_receipt_trusted(&receipt, &trusted)

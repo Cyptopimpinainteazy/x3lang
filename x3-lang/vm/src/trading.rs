@@ -140,6 +140,18 @@ pub struct MeasuredRisk {
     pub bps: u128,
 }
 
+/// `numerator` as basis points of `denominator`, rounded down.
+///
+/// The one place a ratio is computed, so the figure execution enforces and the figure a receipt
+/// carries cannot drift apart: `check_fee_bps`/`check_slippage_bps` compare its result against the
+/// compiled ceiling, and the receipt records the same value for replay to re-check.
+///
+/// `None` on overflow (a numerator above `u128::MAX / 10_000`), which callers turn into their own
+/// typed arithmetic error rather than silently recording a saturated figure.
+pub fn basis_points_of(numerator: u128, denominator: u128) -> Option<u128> {
+    numerator.checked_mul(10_000)?.checked_div(denominator.max(1))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwapRequest {
     pub venue: String,
@@ -864,6 +876,12 @@ impl TradingVm {
                         result.output,
                         self.compiled_policy().max_slippage_bps,
                     )?;
+                    // The figure the ceiling above was checked against, recorded so a replay can
+                    // re-check it. Computed by the same helper, so the two cannot drift.
+                    let realized_slippage_bps = basis_points_of(
+                        quote.expected_output.saturating_sub(result.output),
+                        quote.expected_output,
+                    );
                     if let Some(ceiling_bps) = self.compiled_policy().max_oracle_deviation_bps {
                         self.enforce_oracle_firewall(quote.expected_output, &quote.sources, ceiling_bps)?;
                     }
@@ -889,6 +907,7 @@ impl TradingVm {
                         executed_at_block: context.current_block,
                         price_impact,
                         mev_leakage,
+                        realized_slippage_bps,
                     });
                 }
                 TradingOperation::Bridge {
@@ -1220,10 +1239,7 @@ impl TradingVm {
     }
 
     fn check_fee_bps(&self, principal: u128, fee: u128, ceiling_bps: u16) -> Result<(), TradingExecError> {
-        let actual_bps = fee
-            .checked_mul(10_000)
-            .and_then(|value| value.checked_div(principal.max(1)))
-            .ok_or(TradingExecError::AccountingOverflow)?;
+        let actual_bps = basis_points_of(fee, principal).ok_or(TradingExecError::AccountingOverflow)?;
         if actual_bps > ceiling_bps as u128 {
             return Err(TradingExecError::FeeCeilingExceeded {
                 ceiling_bps,
@@ -1269,14 +1285,8 @@ impl TradingVm {
     /// checked elsewhere — this catches "still above the floor, but worse
     /// than the policy's tolerance for how far the market can move."
     fn check_slippage_bps(&self, expected: u128, actual: u128, ceiling_bps: u16) -> Result<(), TradingExecError> {
-        if actual >= expected {
-            return Ok(());
-        }
-        let shortfall = expected - actual;
-        let actual_bps = shortfall
-            .checked_mul(10_000)
-            .and_then(|value| value.checked_div(expected.max(1)))
-            .ok_or(TradingExecError::AccountingOverflow)?;
+        let actual_bps =
+            basis_points_of(expected.saturating_sub(actual), expected).ok_or(TradingExecError::AccountingOverflow)?;
         if actual_bps > ceiling_bps as u128 {
             return Err(TradingExecError::SlippageExceeded {
                 ceiling_bps,
@@ -1504,6 +1514,12 @@ pub struct DebtReceipt {
 /// window a receipt claims cannot be edited without invalidating it, and
 /// `verify_receipt_economics` re-checks the age against the compiled policy — which
 /// it could not do while the receipt did not carry the window (TICKET-017).
+///
+/// `realized_slippage_bps` is carried for the same reason: `max_slippage_bps` is a ceiling on a
+/// quantity only the run can measure (how far the venue's output fell short of its quote), so a
+/// receipt that did not carry it left the ceiling unverifiable at replay. It is computed by the
+/// same helper that enforces the ceiling, so the figure a replay re-checks is the figure execution
+/// checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LegQuoteWindow {
     /// The venue the leg traded on. Carried so a window can be matched to the
@@ -1515,6 +1531,11 @@ pub struct LegQuoteWindow {
     pub price_impact: Option<MeasuredRisk>,
     #[serde(default)]
     pub mev_leakage: Option<MeasuredRisk>,
+    /// Slippage of this leg in basis points of the quote's expected output, `None` for a receipt
+    /// written before the field existed (format version 2 and earlier) or a leg that did not run
+    /// through a quote.
+    #[serde(default)]
+    pub realized_slippage_bps: Option<u128>,
 }
 
 impl LegQuoteWindow {
@@ -1584,6 +1605,35 @@ pub enum ReceiptError {
     /// valid, correctly signed receipt being presented for settlement a
     /// second time.
     ReceiptAlreadySettled([u8; 32]),
+    /// The receipt's realized net for `asset` is below the profit floor its operation sequence
+    /// states. `AssertMinNetProfit` is the source-level floor the trade ran under; a receipt is
+    /// checked against it rather than against its own arithmetic alone.
+    ProfitBelowCompiledFloor {
+        asset: AssetKey,
+        floor: u128,
+        realized: i128,
+    },
+    /// The compiled policy states a profit floor without the asset it is denominated in, so the
+    /// floor cannot be read against any realized figure. Fail closed rather than assume an asset.
+    ProfitFloorWithoutAsset,
+    /// A swap leg the receipt records carries no realized slippage figure, so the artifact's
+    /// `max_slippage_bps` ceiling cannot be re-derived for it. A receipt written before format
+    /// version 3 is such a receipt.
+    MissingRealizedSlippage {
+        venue: String,
+    },
+    /// The receipt's realized slippage for a leg exceeds the artifact's `max_slippage_bps`.
+    SlippageExceeded {
+        venue: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    /// The receipt's fee on a debt exceeds the artifact's `max_flash_fee_bps`.
+    FeeCeilingExceeded {
+        debt_id: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
 }
 
 impl fmt::Display for ReceiptError {
@@ -1605,6 +1655,38 @@ impl fmt::Display for ReceiptError {
             Self::ReceiptAlreadySettled(hash) => {
                 write!(f, "receipt {hash:?} has already been settled once")
             }
+            Self::ProfitBelowCompiledFloor { asset, floor, realized } => write!(
+                f,
+                "receipt's realized net for {} is {realized}, below the compiled profit floor {floor}",
+                asset.symbol
+            ),
+            Self::ProfitFloorWithoutAsset => write!(
+                f,
+                "the compiled policy states a profit floor without the asset it is denominated in"
+            ),
+            Self::MissingRealizedSlippage { venue } => write!(
+                f,
+                "receipt records no realized slippage for the leg on venue '{venue}', so the \
+                 compiled max_slippage_bps ceiling cannot be re-derived"
+            ),
+            Self::SlippageExceeded {
+                venue,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "leg on venue '{venue}' slipped {actual_bps} bps, exceeding the compiled \
+                 max_slippage_bps ceiling of {ceiling_bps} bps"
+            ),
+            Self::FeeCeilingExceeded {
+                debt_id,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "debt '{debt_id}' was charged {actual_bps} bps, exceeding the compiled \
+                 max_flash_fee_bps ceiling of {ceiling_bps} bps"
+            ),
         }
     }
 }
@@ -1692,6 +1774,10 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
     let mut saw_profit_guard = false;
     let mut saw_all_debts_guard = false;
     let mut saw_receipt_emit = false;
+    // The floors this receipt's own operation sequence states, in the order it states them. Each
+    // is enforced against the figures below; recording only that a guard was *present* was the
+    // hole that let a receipt net below the floor it claims to have run under (TICKET-150).
+    let mut profit_floors: Vec<(AssetKey, u128)> = Vec::new();
 
     for operation in &receipt.operations {
         match operation {
@@ -1719,7 +1805,13 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                     )));
                 }
             }
-            TradingOperation::AssertMinNetProfit { .. } => saw_profit_guard = true,
+            TradingOperation::AssertMinNetProfit {
+                settlement_asset,
+                minimum,
+            } => {
+                saw_profit_guard = true;
+                profit_floors.push((settlement_asset.clone(), *minimum));
+            }
             TradingOperation::AssertAllDebtsClosed => {
                 if !open_debts.is_empty() {
                     return Err(ReceiptError::EconomicReplayMismatch(
@@ -1750,6 +1842,18 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
         return Err(ReceiptError::EconomicReplayMismatch(
             "receipt operation sequence is missing required final guards/receipt emission".to_string(),
         ));
+    }
+
+    // A policy-level floor is a second way the same requirement reaches the artifact (the source
+    // can state `min_profit` in the risk policy instead of a `require net_profit` guard), and the
+    // VM enforces it at commit. Both are read here, so a receipt cannot report a net that satisfies
+    // the guard it carries while missing the floor its policy states.
+    if let Some(minimum) = compiled_policy.minimum_net_profit {
+        let asset = compiled_policy
+            .minimum_net_profit_asset
+            .clone()
+            .ok_or(ReceiptError::ProfitFloorWithoutAsset)?;
+        profit_floors.push((asset, minimum));
     }
 
     // Quote freshness, re-derived rather than trusted. The receipt carries the two
@@ -1851,6 +1955,34 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
         }
     }
 
+    // The ceiling on what a leg may lose against its own quote. Only the run can measure it, which
+    // is why the window carries the figure; a window without one (a receipt written before format
+    // version 3) leaves the ceiling unverifiable, and that is a refusal rather than a pass.
+    {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no window for the executed leg on venue '{venue}', so \
+                     max_slippage_bps cannot be re-derived"
+                )));
+            };
+            let actual_bps = window
+                .realized_slippage_bps
+                .ok_or_else(|| ReceiptError::MissingRealizedSlippage { venue: venue.clone() })?;
+            if actual_bps > compiled_policy.max_slippage_bps as u128 {
+                return Err(ReceiptError::SlippageExceeded {
+                    venue: venue.clone(),
+                    ceiling_bps: compiled_policy.max_slippage_bps,
+                    actual_bps,
+                });
+            }
+        }
+    }
+
     let mut expected_debts: BTreeMap<String, (&AssetKey, u128)> = BTreeMap::new();
     for operation in &receipt.operations {
         if let TradingOperation::OpenDebt {
@@ -1882,6 +2014,20 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 debt.debt_id
             )));
         }
+        // The flash fee the run paid is in the receipt already (principal and fee on the debt
+        // record), so the artifact's ceiling on it is re-derivable without the host. Computed
+        // through the same helper execution used, so the two figures cannot drift.
+        if debt.repaid {
+            let actual_bps = basis_points_of(debt.fee, debt.principal)
+                .ok_or_else(|| ReceiptError::EconomicReplayMismatch("fee conversion overflow".to_string()))?;
+            if actual_bps > compiled_policy.max_flash_fee_bps as u128 {
+                return Err(ReceiptError::FeeCeilingExceeded {
+                    debt_id: debt.debt_id.clone(),
+                    ceiling_bps: compiled_policy.max_flash_fee_bps,
+                    actual_bps,
+                });
+            }
+        }
     }
     if expected_debts.len() != receipt.debts.len() {
         return Err(ReceiptError::EconomicReplayMismatch(
@@ -1889,14 +2035,10 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
         ));
     }
 
-    let mut deltas: BTreeMap<AssetKey, i128> = BTreeMap::new();
-    for delta in &receipt.deltas {
-        let entry = deltas.entry(delta.asset.clone()).or_insert(0);
-        *entry = entry
-            .checked_add(delta.delta)
-            .ok_or_else(|| ReceiptError::EconomicReplayMismatch("delta overflow".to_string()))?;
-    }
-
+    // The reported deltas are read where they are needed (`realized_net`) rather than accumulated
+    // into a map first: the previous accumulator added each cost to a total nothing read, which
+    // invited a reader to believe costs were being counted twice when in fact `TradingState`'s
+    // `accrue_cost` had already netted them into the deltas.
     for cost in &receipt.costs {
         // A cost the policy cannot classify is a cost the policy cannot
         // bound, so an unknown category is a replay failure rather than a
@@ -1910,13 +2052,6 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 kind.as_str()
             )));
         }
-        let entry = deltas.entry(cost.asset.clone()).or_insert(0);
-        *entry = entry
-            .checked_add(
-                i128::try_from(cost.amount)
-                    .map_err(|_| ReceiptError::EconomicReplayMismatch("cost conversion overflow".to_string()))?,
-            )
-            .ok_or_else(|| ReceiptError::EconomicReplayMismatch("cost replay overflow".to_string()))?;
     }
 
     if let Some(profit) = &receipt.realized_net_profit {
@@ -1940,7 +2075,39 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
         }
     }
 
+    // The floors the artifact states, each against the net it is denominated in. A receipt that
+    // reports no delta for that asset realized nothing there — that is 0, and 0 is below any
+    // positive floor — so a missing figure is refused rather than read as "no evidence, pass".
+    if matches!(receipt.outcome, TradeOutcome::Success) {
+        for (asset, floor) in &profit_floors {
+            let realized = realized_net(&receipt.deltas, asset)?;
+            let floor_i128 = i128::try_from(*floor)
+                .map_err(|_| ReceiptError::EconomicReplayMismatch("profit floor conversion overflow".to_string()))?;
+            if realized < floor_i128 {
+                return Err(ReceiptError::ProfitBelowCompiledFloor {
+                    asset: asset.clone(),
+                    floor: *floor,
+                    realized,
+                });
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// The net a receipt reports for one asset, summed across the deltas that name it.
+///
+/// A `TradingState` nets costs into `net_deltas` as they accrue, so a receipt's deltas are already
+/// net of the cost ledger beside them and this is the realized figure a floor is checked against.
+fn realized_net(deltas: &[AssetDelta], asset: &AssetKey) -> Result<i128, ReceiptError> {
+    let mut total: i128 = 0;
+    for delta in deltas.iter().filter(|delta| &delta.asset == asset) {
+        total = total
+            .checked_add(delta.delta)
+            .ok_or_else(|| ReceiptError::EconomicReplayMismatch("delta overflow".to_string()))?;
+    }
+    Ok(total)
 }
 
 pub fn sign_receipt(
@@ -2103,10 +2270,13 @@ pub fn build_receipt(
     };
 
     finalize_receipt(TradeReceipt {
-        // 2: the receipt carries the quote window of every swap leg, which is what
-        // makes `quote_freshness` re-derivable at replay (TICKET-017). A reader of
-        // version 1 sees no windows.
-        format_version: 2,
+        // 3: the receipt carries the quote window of every swap leg — including the leg's realized
+        // slippage — which is what makes `quote_freshness` and `max_slippage_bps` re-derivable at
+        // replay (TICKET-017, TICKET-150). A reader of version 1 sees no windows; a version 2
+        // receipt's windows have no slippage figure, and replay refuses such a leg when the
+        // artifact declares a `max_slippage_bps` ceiling rather than treating the missing figure as
+        // a satisfied one.
+        format_version: 3,
         compiler_version: compiler_version.to_string(),
         artifact_hash,
         trade_id: trade_id.to_string(),

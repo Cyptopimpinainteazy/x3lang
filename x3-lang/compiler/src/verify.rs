@@ -24,6 +24,7 @@ pub fn verify_ir(ir: &X3IR) -> Result<(), Vec<CompilerDiagnostic>> {
 
     verify_sequence(&ir.operations, "program", &mut diagnostics);
     verify_trading_sequences(&ir.operations, "program", &mut diagnostics);
+    verify_private_submission_binding(&ir.operations, "program", &mut diagnostics);
 
     if diagnostics.is_empty() {
         Ok(())
@@ -760,6 +761,40 @@ struct TradingSequenceState {
     /// defense in depth for the same invariant trading_verify.rs already
     /// enforces at the AST level.
     bridged: bool,
+}
+
+/// A compiled trading policy that demands private submission must be preceded by
+/// the executable mode check that demand lowers to.
+///
+/// The demand is carried inside `BeginAtomicTrade`'s compiled policy, which only
+/// a host that volunteers a capability manifest ever reads. The mode check is the
+/// half the runtime has to interpret; an artifact that states the policy without
+/// it lets a runtime with no private channel record the trade as though the
+/// requirement were satisfied (AGENTS.md §11, PHASE 28).
+fn verify_private_submission_binding(ops: &[Operation], context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {
+    let mut private_gate_seen = false;
+    for (index, op) in ops.iter().enumerate() {
+        match op {
+            Operation::ModeCheck { mode, restriction }
+                if mode.as_str() == "submission" && restriction.as_str() == "private_required" =>
+            {
+                private_gate_seen = true;
+            }
+            Operation::Trading(TradingOperation::BeginAtomicTrade { policy, .. })
+                if policy.require_private_submission && !private_gate_seen =>
+            {
+                push_unsafe(
+                    diagnostics,
+                    format!(
+                        "{context}[{index}]: atomic trade '{}' requires private submission but no \
+                         submission mode check precedes it",
+                        policy.policy_id
+                    ),
+                );
+            }
+            _ => {}
+        }
+    }
 }
 
 fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut Vec<CompilerDiagnostic>) {

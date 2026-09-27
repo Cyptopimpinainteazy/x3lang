@@ -143,6 +143,38 @@ fn trading_receipt_json(tamper: bool) -> String {
     serde_json::to_string_pretty(&receipt).expect("receipt json")
 }
 
+/// The host a `receipt execute` run of `TRADING_SOURCE` needs, declared rather than assumed.
+///
+/// It used to be read out of the artifact: the fixture host claimed exactly the providers, venues
+/// and private-submission capability the compiled policy asked for, so every capability check was a
+/// comparison of a number with itself. These are the values that source needs — `ethereum`,
+/// `aave_v3`, `uniswap_v3`, `sushiswap`, and a private lane — so a test can drop one and watch the
+/// refusal.
+const BRIDGE_HOST_CAPS: [&str; 10] = [
+    "--chain",
+    "ethereum",
+    "--provider",
+    "aave_v3",
+    "--venue",
+    "uniswap_v3",
+    "--venue",
+    "sushiswap",
+    "--bridge",
+    "wormhole",
+];
+
+const HOST_CAPS: [&str; 9] = [
+    "--chain",
+    "ethereum",
+    "--private-submission",
+    "--provider",
+    "aave_v3",
+    "--venue",
+    "uniswap_v3",
+    "--venue",
+    "sushiswap",
+];
+
 const TRADING_SOURCE: &str = r#"
 asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
 asset WETH = evm.ethereum.0xC02a { decimals: 18 }
@@ -606,6 +638,7 @@ fn cli_receipt_execute_compiles_runs_and_emits_a_verifiable_receipt() {
         .arg(&src)
         .arg("--out")
         .arg(&receipt_path)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(
@@ -646,6 +679,7 @@ fn cli_receipt_execute_handles_a_trade_with_a_bridge_leg() {
         .arg(&src)
         .arg("--out")
         .arg(&receipt_path)
+        .args(BRIDGE_HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(
@@ -683,6 +717,7 @@ fn cli_receipt_execute_is_deterministic_given_the_same_signing_key() {
         .arg(&src)
         .arg("--key-hex")
         .arg(key)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     let second = x3c()
@@ -691,6 +726,7 @@ fn cli_receipt_execute_is_deterministic_given_the_same_signing_key() {
         .arg(&src)
         .arg("--key-hex")
         .arg(key)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
 
@@ -3994,9 +4030,10 @@ fn packet_verify_checks_the_requirements_a_packet_declares() {
 /// PHASE 32 through the binary: `x3c replay` binds a receipt to its artifact and judges its figures
 /// against the artifact's own bounds.
 ///
-/// Before this the repository had the receipt's *internal* replay (`verify_receipt` runs
-/// `verify_receipt_economics`) and no way to ask the artifact-side question the phase's input list
-/// names: is this receipt about *this* artifact, and is what it reports something this artifact permits?
+/// Before this the repository had no receipt-side replay at all in this command: `cmd_replay` called
+/// `verify_receipt` — which re-derives the hash and the accounting invariants and deliberately stops
+/// there — while printing that the economics had been checked too. `verify_receipt_economics` is a
+/// separate entry point and nothing here called it.
 #[test]
 fn cli_replays_a_receipt_against_its_artifact_and_refuses_another() {
     let source = write_fixture("cli_replay_trading.x3", TRADING_SOURCE);
@@ -4021,6 +4058,7 @@ fn cli_replays_a_receipt_against_its_artifact_and_refuses_another() {
         .arg(&source)
         .arg("--out")
         .arg(&receipt_path)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(
@@ -4105,6 +4143,7 @@ fn cli_refuses_a_receipt_whose_contents_moved_after_signing() {
         .arg(&source)
         .arg("--out")
         .arg(&receipt_path)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(execute.status.success(), "the receipt must be produced");
@@ -4130,6 +4169,326 @@ fn cli_refuses_a_receipt_whose_contents_moved_after_signing() {
     assert!(
         report.contains("HashMismatch") || report.contains("hash"),
         "the refusal must be about the receipt's own hash: {report}"
+    );
+}
+
+/// Build the trading artifact and its receipt once, for the two forgery tests below.
+fn trading_artifact_and_receipt(tag: &str) -> (PathBuf, PathBuf) {
+    let source = write_fixture(&format!("cli_forge_{tag}.x3"), TRADING_SOURCE);
+    let artifact = std::env::temp_dir().join(format!("cli_forge_{tag}.x3b"));
+    let build = x3c()
+        .arg("build")
+        .arg(&source)
+        .arg("--out")
+        .arg(&artifact)
+        .output()
+        .expect("x3c build");
+    assert!(
+        build.status.success(),
+        "the trading program must build: {}{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let receipt = std::env::temp_dir().join(format!("cli_forge_{tag}_receipt.json"));
+    let execute = x3c()
+        .args(["receipt", "execute"])
+        .arg(&source)
+        .arg("--out")
+        .arg(&receipt)
+        .args(HOST_CAPS)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(execute.status.success(), "the receipt must be produced");
+    (artifact, receipt)
+}
+
+fn read_receipt_file(path: &std::path::Path) -> x3_lang_vm::trading::TradeReceipt {
+    serde_json::from_str(&std::fs::read_to_string(path).expect("receipt is readable")).expect("receipt parses")
+}
+
+/// Write `receipt` re-hashed, so the *only* thing wrong with it is what the test changed.
+fn write_rehashed_receipt(receipt: x3_lang_vm::trading::TradeReceipt, path: &std::path::Path) {
+    let receipt = x3_lang_vm::trading::finalize_receipt(receipt).expect("re-hashing a forged receipt must succeed");
+    assert_eq!(
+        receipt.receipt_hash,
+        x3_lang_vm::trading::compute_receipt_hash(&receipt).expect("hash is computable"),
+        "the forged receipt must be internally consistent, or the hash check would catch it instead"
+    );
+    std::fs::write(path, serde_json::to_string_pretty(&receipt).expect("encode")).expect("write");
+}
+
+fn replay_report(artifact: &std::path::Path, receipt: &std::path::Path) -> (bool, String) {
+    let output = x3c()
+        .arg("replay")
+        .arg(artifact)
+        .arg(receipt)
+        .output()
+        .expect("x3c replay");
+    (
+        output.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )
+}
+
+/// A receipt for this artifact whose *policy* is weaker than the artifact's is refused.
+///
+/// This is the forgery the old command could not see. The receipt stays about the artifact it was
+/// produced from — its `artifact_hash` is untouched — but the operation sequence inside it is edited
+/// to widen the slippage ceiling, and the receipt is re-hashed so its own hash check passes. Nothing
+/// in `verify_receipt` or `verify_receipt_economics` compares that sequence against the artifact: the
+/// economics read the ceilings out of the receipt's own operations, so a receipt that carried its own
+/// policy passed against an artifact whose compiled policy is stricter.
+#[test]
+fn cli_replay_refuses_a_receipt_whose_policy_is_not_the_artifacts() {
+    let (artifact, receipt_path) = trading_artifact_and_receipt("weaker_policy");
+    let mut receipt = read_receipt_file(&receipt_path);
+    let x3_lang_compiler::ir::TradingOperation::BeginAtomicTrade { policy, .. } = &mut receipt.operations[0] else {
+        panic!("a trading program begins with BeginAtomicTrade");
+    };
+    assert_eq!(policy.max_slippage_bps, 30, "the fixture's ceiling is 30 bps");
+    policy.max_slippage_bps = 900;
+    write_rehashed_receipt(receipt, &receipt_path);
+
+    let (ok, report) = replay_report(&artifact, &receipt_path);
+    assert!(
+        !ok,
+        "a receipt carrying a weaker policy than its artifact must not replay: {report}"
+    );
+    assert!(
+        report.contains("operation 0") && report.contains("900"),
+        "the refusal must name the operation and show what the receipt carried: {report}"
+    );
+}
+
+/// A receipt whose realized net is below the floor its own artifact states is refused by `replay`.
+///
+/// The receipt is internally consistent — the profit it reports equals the delta it reports — so
+/// `verify_receipt` has nothing to say, and the figure only fails against the artifact's floor. Until
+/// the floor was enforced, `replay` printed that the economics had been checked while calling an entry
+/// point that re-derives the hash and stops.
+#[test]
+fn cli_replay_enforces_the_artifacts_profit_floor() {
+    let (artifact, receipt_path) = trading_artifact_and_receipt("below_floor");
+    let mut receipt = read_receipt_file(&receipt_path);
+    assert!(
+        receipt.realized_net_profit.is_some(),
+        "the fixture trade commits, so it reports a profit"
+    );
+    // Move the trade's USDC delta — and the reported profit with it — below the artifact's
+    // `require net_profit >= 1_000 USDC`, which is 1,000,000,000 in the asset's 6 decimals.
+    let usdc = receipt
+        .deltas
+        .iter_mut()
+        .find(|delta| delta.asset.symbol == "USDC")
+        .expect("the trade nets in USDC");
+    usdc.delta = 500_000_000;
+    let profit = receipt.realized_net_profit.as_mut().expect("profit is reported");
+    profit.amount = 500_000_000;
+    write_rehashed_receipt(receipt, &receipt_path);
+
+    x3_lang_vm::trading::verify_receipt(&read_receipt_file(&receipt_path))
+        .expect("the forged receipt is internally consistent, so the hash check passes it");
+
+    let (ok, report) = replay_report(&artifact, &receipt_path);
+    assert!(!ok, "a net below the artifact's floor must not replay: {report}");
+    assert!(
+        report.contains("compiled profit floor") && report.contains("500000000") && report.contains("1000000000"),
+        "the refusal must name the floor and the realized net: {report}"
+    );
+}
+
+/// `x3c receipt verify` runs the economic replay it has always said it runs.
+///
+/// Without `--trusted` the command's own text promised "hash + economic invariants". It called
+/// `verify_receipt`, whose job is the hash and the accounting invariants, and never the economics:
+/// a receipt whose reported profit contradicted its own deltas was reported as verified.
+#[test]
+fn cli_receipt_verify_refuses_a_receipt_whose_figures_contradict_themselves() {
+    let receipt_path = std::env::temp_dir().join("cli_verify_contradicts.json");
+    let mut receipt: x3_lang_vm::trading::TradeReceipt =
+        serde_json::from_str(&trading_receipt_json(false)).expect("the fixture receipt parses");
+    let profit = receipt
+        .realized_net_profit
+        .as_mut()
+        .expect("the fixture reports a profit");
+    profit.amount += 1;
+    write_rehashed_receipt(receipt, &receipt_path);
+
+    let output = x3c()
+        .args(["receipt", "verify"])
+        .arg(&receipt_path)
+        .output()
+        .expect("x3c receipt verify");
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.status.success(),
+        "a receipt at odds with its own figures must not verify: {report}"
+    );
+    assert!(
+        report.contains("does not equal replayed delta"),
+        "the refusal must be the economic replay, not the hash: {report}"
+    );
+}
+
+/// Compile `TRADING_SOURCE`, then run `receipt execute` with whatever host the caller declares.
+fn receipt_execute_with(host_args: &[&str]) -> (bool, String) {
+    let source = write_fixture("cli_host_caps.x3", TRADING_SOURCE);
+    let receipt = std::env::temp_dir().join("cli_host_caps_receipt.json");
+    let output = x3c()
+        .args(["receipt", "execute"])
+        .arg(&source)
+        .arg("--out")
+        .arg(&receipt)
+        .args(host_args)
+        .output()
+        .expect("x3c receipt execute");
+    (
+        output.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )
+}
+
+/// The host's chain is what the compiled policy is checked against, not a copy of the policy's own.
+///
+/// `receipt execute` built its capability manifest out of the artifact: `chain: policy.chain`,
+/// `private_submission: policy.require_private_submission`, and the providers, venues and bridges
+/// read off the operations it was about to check. Every capability check compared a value with
+/// itself, so none of them could fire — measured: with the manifest derived that way, this command
+/// reported "trade 'CrossDexArb' committed, receipt verified" for `--chain base` against an artifact
+/// compiled for ethereum, with no private-submission lane declared.
+#[test]
+fn cli_receipt_execute_refuses_a_host_on_another_chain() {
+    let (ok, report) = receipt_execute_with(&[
+        "--chain",
+        "base",
+        "--private-submission",
+        "--provider",
+        "aave_v3",
+        "--venue",
+        "uniswap_v3",
+        "--venue",
+        "sushiswap",
+    ]);
+    assert!(
+        !ok,
+        "an artifact compiled for ethereum must not run on a host declared as base: {report}"
+    );
+    assert!(
+        report.contains("chain 'ethereum'") && report.contains("host chain 'base'"),
+        "the refusal must name both chains: {report}"
+    );
+}
+
+/// A venue the host does not offer is refused by name, rather than assumed to exist.
+#[test]
+fn cli_receipt_execute_refuses_a_venue_the_host_does_not_offer() {
+    let (ok, report) = receipt_execute_with(&[
+        "--chain",
+        "ethereum",
+        "--private-submission",
+        "--provider",
+        "aave_v3",
+        "--venue",
+        "uniswap_v3",
+    ]);
+    assert!(
+        !ok,
+        "a host that does not offer sushiswap must not run a route through it: {report}"
+    );
+    assert!(
+        report.contains("unknown capability 'sushiswap'"),
+        "the refusal must name the missing venue: {report}"
+    );
+}
+
+/// A policy that requires private submission is refused by a host that does not offer it.
+#[test]
+fn cli_receipt_execute_refuses_a_policy_needing_a_lane_the_host_lacks() {
+    let (ok, report) = receipt_execute_with(&[
+        "--chain",
+        "ethereum",
+        "--provider",
+        "aave_v3",
+        "--venue",
+        "uniswap_v3",
+        "--venue",
+        "sushiswap",
+    ]);
+    assert!(
+        !ok,
+        "a policy requiring private submission must not run on a public-only host: {report}"
+    );
+    assert!(
+        report.contains("requires private submission"),
+        "the refusal must name the missing capability: {report}"
+    );
+}
+
+/// A borrow provider the host does not offer is refused by name.
+#[test]
+fn cli_receipt_execute_refuses_a_provider_the_host_does_not_offer() {
+    let (ok, report) = receipt_execute_with(&[
+        "--chain",
+        "ethereum",
+        "--private-submission",
+        "--venue",
+        "uniswap_v3",
+        "--venue",
+        "sushiswap",
+    ]);
+    assert!(
+        !ok,
+        "a host that does not offer aave_v3 must not run a borrow from it: {report}"
+    );
+    assert!(
+        report.contains("unknown capability 'aave_v3'"),
+        "the refusal must name the missing provider: {report}"
+    );
+}
+
+/// The declaration is required, not defaulted: a default would answer the question the flag asks.
+#[test]
+fn cli_receipt_execute_requires_the_host_chain_to_be_named() {
+    let source = write_fixture("cli_host_caps_missing.x3", TRADING_SOURCE);
+    let output = x3c()
+        .args(["receipt", "execute"])
+        .arg(&source)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(
+        !output.status.success(),
+        "the command must not pick a chain on the operator's behalf"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--chain"),
+        "and must say which declaration is missing: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The declared host is enough: the happy path still produces and verifies a receipt.
+#[test]
+fn cli_receipt_execute_runs_against_a_host_that_declares_what_it_offers() {
+    let (ok, report) = receipt_execute_with(&HOST_CAPS);
+    assert!(
+        ok,
+        "a host with the capabilities the program needs must run it: {report}"
+    );
+    assert!(
+        report.contains("receipt verified"),
+        "and must report the receipt: {report}"
     );
 }
 
@@ -4263,6 +4622,7 @@ fn cli_receipt_verify_requires_a_trusted_key_on_mainnet() {
         .arg(&src)
         .arg("--out")
         .arg(&receipt_path)
+        .args(HOST_CAPS)
         .output()
         .expect("x3c receipt execute");
     assert!(executed.status.success(), "receipt execute must succeed");
