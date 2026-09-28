@@ -63,6 +63,13 @@ struct FixtureHost {
     /// `CostKind`; tests point this at an unknown or unlisted category to
     /// prove the policy allowlist is actually consulted.
     execution_cost_kind: String,
+    /// When set, every cost report after the first returns this amount instead of
+    /// `execution_cost`. The first report is the minimum-profit guard's; the later one is the
+    /// commit's. A real host's cost keeps growing through the receipt and the commit, and this is
+    /// how a verified program (which must pass a positive profit floor) still reaches the
+    /// commit-time gas ceiling and realizes a loss the cumulative ledger has to record.
+    execution_cost_after_guard: Option<u128>,
+    cost_reports: std::cell::Cell<usize>,
     /// Block `quote()` reports its price as having been taken at. Defaults to
     /// 0 so a test only sees a staleness failure when it asks for one.
     quote_block: u64,
@@ -102,6 +109,8 @@ impl FixtureHost {
             execution_cost: 0,
             execution_cost_asset: None,
             execution_cost_kind: "gas".to_string(),
+            execution_cost_after_guard: None,
+            cost_reports: std::cell::Cell::new(0),
             quote_block: 0,
             swap_calls: 0,
             bridge_output: None,
@@ -184,12 +193,18 @@ impl TradingHost for FixtureHost {
     }
 
     fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError> {
-        if self.execution_cost == 0 {
+        let report = self.cost_reports.get();
+        self.cost_reports.set(report + 1);
+        let amount = match self.execution_cost_after_guard {
+            Some(later) if report > 0 => later,
+            _ => self.execution_cost,
+        };
+        if amount == 0 {
             return Ok(Vec::new());
         }
         Ok(vec![CommittedCost {
             asset: self.execution_cost_asset.clone().unwrap_or_else(|| asset("USDC")),
-            amount: self.execution_cost,
+            amount,
             kind: self.execution_cost_kind.clone(),
         }])
     }
@@ -698,52 +713,17 @@ fn solvent_invariant_catches_hidden_cost_in_an_asset_the_trade_never_touches() {
 
 #[test]
 fn gas_ceiling_within_policy_still_commits() {
-    // A minimal trade with no profit/debt guards to check, isolating this
-    // test to gas-ceiling behavior specifically: cost exactly equal to the
-    // ceiling (the check is strictly `>`, not `>=`) must still commit.
-    let operations = vec![
-        TradingOperation::BeginAtomicTrade {
-            trade_id: "T".to_string(),
-            policy: CompiledTradingPolicy {
-                policy_id: "P".to_string(),
-                policy_version: 1,
-                chain: "ethereum".to_string(),
-                max_slippage_bps: 30,
-                max_gas: 100,
-                max_gas_asset: asset("USDC"),
-                max_flash_fee_bps: 10,
-                deadline_blocks: 10,
-                require_private_submission: false,
-                minimum_net_profit: None,
-                minimum_net_profit_asset: None,
-                quote_freshness_blocks: Some(10),
-                submission_profile: SubmissionProfile::Public,
-                state_binding: StateBindingMode::Exact,
-                allowed_cost_kinds: BTreeSet::from([
-                    CostKind::Gas,
-                    CostKind::LiquidityFee,
-                    CostKind::FlashLiquidityFee,
-                    CostKind::ProofFee,
-                    CostKind::CrossDomainFee,
-                    CostKind::Slippage,
-                    CostKind::PriceImpact,
-                    CostKind::MevLeakage,
-                ]),
-                allow_mint: false,
-                allow_burn: false,
-                max_oracle_deviation_bps: None,
-                max_cumulative_loss: None,
-                max_cumulative_loss_asset: None,
-                max_price_impact_bps: None,
-                max_mev_leakage_bps: None,
-            },
-        },
-        TradingOperation::CommitAtomicTrade,
-    ];
+    // Cost exactly equal to the ceiling (the check is strictly `>`, not `>=`) must still commit.
+    // The profit guard sees none of it; all 100 arrive at commit, which is where the ceiling is
+    // checked against everything the trade accrued.
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.max_gas = 100;
+    }
     let mut vm = TradingVm::new();
     let mut host = FixtureHost::new();
-    host.execution_cost = 100; // == policy.max_gas exactly, not over
     host.execution_cost_asset = Some(asset("USDC"));
+    host.execution_cost_after_guard = Some(100); // == policy.max_gas exactly, not over
 
     vm.execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
         .expect("gas cost exactly at the compiled ceiling must still commit");
@@ -777,57 +757,34 @@ fn gas_ceiling_exceeded_rejects_even_though_profit_and_debts_are_fine() {
 
 #[test]
 fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
-    // A trade that skips both AssertMinNetProfit and AssertInvariant never
-    // calls accrue_host_execution_costs anywhere except the unconditional
-    // check CommitAtomicTrade itself performs. Prove that guarantee is real,
-    // not just documented in a comment.
-    let operations = vec![
-        TradingOperation::BeginAtomicTrade {
-            trade_id: "T".to_string(),
-            policy: CompiledTradingPolicy {
-                policy_id: "P".to_string(),
-                policy_version: 1,
-                chain: "ethereum".to_string(),
-                max_slippage_bps: 30,
-                max_gas: 100,
-                max_gas_asset: asset("USDC"),
-                max_flash_fee_bps: 10,
-                deadline_blocks: 10,
-                require_private_submission: false,
-                minimum_net_profit: None,
-                minimum_net_profit_asset: None,
-                quote_freshness_blocks: Some(10),
-                submission_profile: SubmissionProfile::Public,
-                state_binding: StateBindingMode::Exact,
-                allowed_cost_kinds: BTreeSet::from([
-                    CostKind::Gas,
-                    CostKind::LiquidityFee,
-                    CostKind::FlashLiquidityFee,
-                    CostKind::ProofFee,
-                    CostKind::CrossDomainFee,
-                    CostKind::Slippage,
-                    CostKind::PriceImpact,
-                    CostKind::MevLeakage,
-                ]),
-                allow_mint: false,
-                allow_burn: false,
-                max_oracle_deviation_bps: None,
-                max_cumulative_loss: None,
-                max_cumulative_loss_asset: None,
-                max_price_impact_bps: None,
-                max_mev_leakage_bps: None,
-            },
-        },
-        TradingOperation::CommitAtomicTrade,
-    ];
+    // The commit checks the gas ceiling on its own, not only through the guards that accrue cost
+    // before it. This used to be proven with a `[Begin, Commit]` program that skipped every guard;
+    // the VM now refuses that program before the host is touched (asserted first). What remains to
+    // prove is the same guarantee for a program that can run: cost the guards never saw, arriving
+    // at commit, still trips the ceiling there.
+    let bare = vec![ops().remove(0), TradingOperation::CommitAtomicTrade];
+    let mut host = FixtureHost::new();
+    let refused = TradingVm::new()
+        .execute_atomic(&bare, &mut host, context(ExecutionMode::Development))
+        .expect_err("a trade with no guards is not a program the VM runs");
+    assert!(
+        matches!(refused, x3_lang_vm::trading::TradingExecError::RefusedByVerifier(_)),
+        "{refused:?}"
+    );
+    assert!(!host.began, "refused before the host was asked for anything");
+
+    let mut operations = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut operations[0] {
+        policy.max_gas = 100;
+    }
     let mut vm = TradingVm::new();
     let mut host = FixtureHost::new();
-    host.execution_cost = 101;
     host.execution_cost_asset = Some(asset("USDC"));
+    host.execution_cost_after_guard = Some(101);
 
     let err = vm
         .execute_atomic(&operations, &mut host, context(ExecutionMode::Development))
-        .expect_err("commit must still enforce the gas ceiling with no other guards present");
+        .expect_err("commit must still enforce the gas ceiling on cost no guard saw");
 
     assert!(matches!(
         err,
@@ -837,6 +794,7 @@ fn gas_ceiling_is_enforced_at_commit_even_with_no_other_guard_operations() {
             ..
         }
     ));
+    assert!(host.rolled_back);
 }
 
 #[test]
@@ -991,51 +949,36 @@ fn oracle_firewall_catches_a_source_quoting_higher_too() {
     ));
 }
 
-/// A minimal trade (no debts, no swaps) whose only USDC movement is the
-/// host-reported execution cost, letting a test control exactly how much a
-/// single trade "loses" without any of the other guards (profit floor,
-/// debt closure) getting in the way. `ceiling` is `None` for a policy that
-/// never declares `max_cumulative_loss` at all.
+/// The fixture trade under a cumulative-loss policy. `ceiling` is `None` for a policy that never
+/// declares `max_cumulative_loss` at all.
+///
+/// This used to be `[Begin, Commit]` — no profit floor, no debt guard, no receipt — so a test could
+/// make a trade lose by execution cost alone. The VM now refuses that program before the first host
+/// call (it is exactly the unverified shape a peer could send to commit a trade with no profit
+/// check), so the loss comes from where a verified program's loss can come from: cost the host
+/// reports after the profit guard, at commit (see `host_losing`).
 fn minimal_loss_trade(ceiling: Option<u128>) -> Vec<TradingOperation> {
-    vec![
-        TradingOperation::BeginAtomicTrade {
-            trade_id: "T".to_string(),
-            policy: CompiledTradingPolicy {
-                policy_id: "P".to_string(),
-                policy_version: 1,
-                chain: "ethereum".to_string(),
-                max_slippage_bps: 30,
-                max_gas: u128::MAX,
-                max_gas_asset: asset("USDC"),
-                max_flash_fee_bps: 10,
-                deadline_blocks: 10,
-                require_private_submission: false,
-                minimum_net_profit: None,
-                minimum_net_profit_asset: None,
-                quote_freshness_blocks: Some(10),
-                submission_profile: SubmissionProfile::Public,
-                state_binding: StateBindingMode::Exact,
-                allowed_cost_kinds: BTreeSet::from([
-                    CostKind::Gas,
-                    CostKind::LiquidityFee,
-                    CostKind::FlashLiquidityFee,
-                    CostKind::ProofFee,
-                    CostKind::CrossDomainFee,
-                    CostKind::Slippage,
-                    CostKind::PriceImpact,
-                    CostKind::MevLeakage,
-                ]),
-                allow_mint: false,
-                allow_burn: false,
-                max_oracle_deviation_bps: None,
-                max_cumulative_loss: ceiling,
-                max_cumulative_loss_asset: ceiling.map(|_| asset("USDC")),
-                max_price_impact_bps: None,
-                max_mev_leakage_bps: None,
-            },
-        },
-        TradingOperation::CommitAtomicTrade,
-    ]
+    let mut program = ops();
+    if let TradingOperation::BeginAtomicTrade { policy, .. } = &mut program[0] {
+        policy.max_cumulative_loss = ceiling;
+        policy.max_cumulative_loss_asset = ceiling.map(|_| asset("USDC"));
+        // Out of the way: these tests are about the loss ledger, not the gas ceiling.
+        policy.max_gas = u128::MAX;
+    }
+    program
+}
+
+/// What `ops()` nets before execution costs: 1,000,000 USDC borrowed, swapped to WETH and back to
+/// 2,000,000 USDC, 1,000,000 repaid.
+const OPS_GROSS_PROFIT: u128 = 1_000_000;
+
+/// A host under which `minimal_loss_trade` passes its profit floor (the guard sees no cost yet)
+/// and then realizes exactly `loss` at commit, when the rest of the execution cost arrives.
+fn host_losing(loss: u128) -> FixtureHost {
+    let mut host = FixtureHost::new();
+    host.execution_cost_asset = Some(asset("USDC"));
+    host.execution_cost_after_guard = Some(OPS_GROSS_PROFIT + loss);
+    host
 }
 
 #[test]
@@ -1043,9 +986,7 @@ fn cumulative_loss_ceiling_is_not_checked_when_policy_omits_it() {
     // No ceiling declared: however much a trade loses, there is nothing to
     // fail closed on — mirrors oracle_deviation_not_checked_when_policy_omits_it.
     let mut vm = TradingVm::new();
-    let mut host = FixtureHost::new();
-    host.execution_cost = 1_000_000_000;
-    host.execution_cost_asset = Some(asset("USDC"));
+    let mut host = host_losing(1_000_000_000);
 
     vm.execute_atomic(
         &minimal_loss_trade(None),
@@ -1066,16 +1007,12 @@ fn cumulative_loss_ceiling_trips_only_once_prior_trades_are_summed_in() {
     let mut vm = TradingVm::new();
     let operations = minimal_loss_trade(Some(150));
 
-    let mut host1 = FixtureHost::new();
-    host1.execution_cost = 100;
-    host1.execution_cost_asset = Some(asset("USDC"));
+    let mut host1 = host_losing(100);
     vm.execute_atomic(&operations, &mut host1, context(ExecutionMode::Development))
         .expect("first 100-loss trade must commit: -100 is within the -150 ceiling");
     assert_eq!(vm.cumulative_realized(&asset("USDC")), -100);
 
-    let mut host2 = FixtureHost::new();
-    host2.execution_cost = 100;
-    host2.execution_cost_asset = Some(asset("USDC"));
+    let mut host2 = host_losing(100);
     let err = vm
         .execute_atomic(&operations, &mut host2, context(ExecutionMode::Development))
         .expect_err("second 100-loss trade must be rejected: cumulative -200 breaches the -150 ceiling");
@@ -1101,9 +1038,7 @@ fn cumulative_loss_ledger_only_grows_from_trades_that_actually_commit() {
     // ledger untouched, exactly like it leaves trading_state untouched.
     let mut vm = TradingVm::new();
     let operations = minimal_loss_trade(Some(50));
-    let mut host = FixtureHost::new();
-    host.execution_cost = 1_000; // would blow the ceiling if it ever landed
-    host.execution_cost_asset = Some(asset("USDC"));
+    let mut host = host_losing(1_000); // would blow the ceiling if it ever landed
     let mut ctx = context(ExecutionMode::Development);
     ctx.current_block = 999; // past deadline_blocks: 10
 
@@ -1121,9 +1056,7 @@ fn simulating_a_lossy_trade_never_updates_the_cumulative_ledger() {
     // Simulate the same 100-loss trade three times over — a real run
     // would trip the ceiling by the second one, exactly as proven above.
     for _ in 0..3 {
-        let mut host = FixtureHost::new();
-        host.execution_cost = 100;
-        host.execution_cost_asset = Some(asset("USDC"));
+        let mut host = host_losing(100);
         vm.simulate_atomic(&operations, &mut host, context(ExecutionMode::Development))
             .expect("simulating a within-ceiling loss must project success");
         assert!(!host.committed);
@@ -1137,9 +1070,7 @@ fn simulating_a_lossy_trade_never_updates_the_cumulative_ledger() {
     );
 
     // A real trade right after must start from that same untouched ledger.
-    let mut real_host = FixtureHost::new();
-    real_host.execution_cost = 100;
-    real_host.execution_cost_asset = Some(asset("USDC"));
+    let mut real_host = host_losing(100);
     vm.execute_atomic(&operations, &mut real_host, context(ExecutionMode::Development))
         .expect("a real trade after only simulations must see a clean ledger and commit");
     assert_eq!(vm.cumulative_realized(&asset("USDC")), -100);
@@ -1909,4 +1840,147 @@ fn replay_refuses_missing_price_impact_when_policy_requires_it() {
     let err = verify_receipt_economics(&receipt)
         .expect_err("a required price-impact measurement cannot be missing on replay");
     assert!(format!("{err:?}").contains("max_price_impact"), "{err:?}");
+}
+
+// ─── Programs the compiler did not produce ──────────────────────────────────────────────────────
+//
+// `TradingVm` executes an operation list, and the list does not have to come from this build's
+// compiler: a network peer can send one, and `decode_trading_program` produces one from bytes.
+// The VM used to trust it. Measured on the fixture trade before the fix, five sequences the
+// compiler's verifier refuses were *committed*: no minimum-profit guard (a trade with no profit
+// check), no all-debts guard, an operation after the commit, a second receipt, and a receipt
+// before the guards. The VM now runs `verify_trading_program` before its first host call.
+
+mod peer_programs {
+    use super::*;
+    use proptest::prelude::*;
+    use x3_lang_compiler::verify::verify_trading_program;
+    use x3_lang_vm::trading::TradingExecError;
+
+    fn without(pred: impl Fn(&TradingOperation) -> bool) -> Vec<TradingOperation> {
+        ops().into_iter().filter(|op| !pred(op)).collect()
+    }
+
+    fn hostile_programs() -> Vec<(&'static str, Vec<TradingOperation>)> {
+        let base = ops();
+        let n = base.len();
+        let mut after_commit = base.clone();
+        after_commit.push(TradingOperation::EmitTradeReceipt);
+        let mut second_receipt = base.clone();
+        second_receipt.insert(n - 1, TradingOperation::EmitTradeReceipt);
+        let mut receipt_first = base.clone();
+        let receipt = receipt_first.remove(n - 2);
+        receipt_first.insert(5, receipt);
+        vec![
+            (
+                "no minimum-profit guard",
+                without(|op| matches!(op, TradingOperation::AssertMinNetProfit { .. })),
+            ),
+            (
+                "no all-debts guard",
+                without(|op| matches!(op, TradingOperation::AssertAllDebtsClosed)),
+            ),
+            ("an operation after the commit", after_commit),
+            ("a second receipt", second_receipt),
+            ("a receipt before the guards", receipt_first),
+        ]
+    }
+
+    #[test]
+    fn a_program_the_verifier_refuses_is_refused_before_the_host_is_touched() {
+        for (name, program) in hostile_programs() {
+            assert!(
+                verify_trading_program(&program).is_err(),
+                "{name}: the verifier refuses it"
+            );
+            let mut vm = TradingVm::new();
+            let mut host = FixtureHost::new();
+            let result = vm.execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+            assert!(
+                matches!(result, Err(TradingExecError::RefusedByVerifier(_))),
+                "{name}: the VM must refuse it, got {result:?}"
+            );
+            assert!(!host.began && !host.committed, "{name}: the host was never asked");
+            assert_eq!(host.swap_calls, 0, "{name}: no value moved");
+        }
+        // The control: the unedited trade runs.
+        let mut host = FixtureHost::new();
+        assert!(TradingVm::new()
+            .execute_atomic(&ops(), &mut host, context(ExecutionMode::Development))
+            .is_ok());
+    }
+
+    /// One edit to the fixture trade: drop an operation, duplicate one, or move one.
+    #[derive(Clone, Debug)]
+    enum Edit {
+        Drop(usize),
+        Duplicate(usize),
+        Move(usize, usize),
+    }
+
+    fn apply(program: &mut Vec<TradingOperation>, edit: &Edit) {
+        if program.is_empty() {
+            return;
+        }
+        let n = program.len();
+        match *edit {
+            Edit::Drop(i) => {
+                program.remove(i % n);
+            }
+            Edit::Duplicate(i) => {
+                let op = program[i % n].clone();
+                program.insert(i % n, op);
+            }
+            Edit::Move(from, to) => {
+                let op = program.remove(from % n);
+                let len = program.len();
+                program.insert(to % (len + 1), op);
+            }
+        }
+    }
+
+    fn edit() -> impl Strategy<Value = Edit> {
+        prop_oneof![
+            (0usize..16).prop_map(Edit::Drop),
+            (0usize..16).prop_map(Edit::Duplicate),
+            (0usize..16, 0usize..16).prop_map(|(a, b)| Edit::Move(a, b)),
+        ]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        /// Whatever a peer does to a valid trade, the VM executes it only if the verifier accepts
+        /// it, and a refusal happens before the host is touched. The VM's own run-time guards stay
+        /// behind this as defense in depth; they are not the only line any more.
+        #[test]
+        fn the_vm_runs_exactly_the_programs_the_verifier_accepts(
+            edits in proptest::collection::vec(edit(), 1..4)
+        ) {
+            let mut program = ops();
+            for edit in &edits {
+                apply(&mut program, edit);
+            }
+            let accepted = verify_trading_program(&program).is_ok();
+            let mut vm = TradingVm::new();
+            let mut host = FixtureHost::new();
+            let result = vm.execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+            if accepted {
+                prop_assert!(
+                    !matches!(result, Err(TradingExecError::RefusedByVerifier(_))),
+                    "an accepted program is not refused by the verifier step: {result:?}"
+                );
+            } else {
+                prop_assert!(
+                    matches!(result, Err(TradingExecError::RefusedByVerifier(_))),
+                    "a refused program must not run: {edits:?} -> {result:?}"
+                );
+                prop_assert!(!host.began && !host.committed);
+            }
+            if let Ok(execution) = &result {
+                prop_assert!(accepted, "committed a program the verifier refuses: {edits:?}");
+                prop_assert!(execution.committed_state.committed);
+            }
+        }
+    }
 }

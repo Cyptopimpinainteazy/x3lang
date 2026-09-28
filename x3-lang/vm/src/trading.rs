@@ -317,6 +317,12 @@ pub enum TradingExecError {
     UnknownCapability(String),
     UnsupportedOperation(String),
     InvalidSequence(String),
+    /// The program fails the compiler's own verifier
+    /// (`x3_lang_compiler::verify::verify_trading_program`, the trading rules of `verify_ir`):
+    /// each entry is one diagnostic. A program that did not come from this build's compiler (a
+    /// network peer's, or bytes decoded with `decode_trading_program`) is held to the same rules as
+    /// one that did, before any host call.
+    RefusedByVerifier(Vec<String>),
     HostRejected(HostError),
     AssetMismatch(String),
     OutputBelowMinOut {
@@ -450,6 +456,9 @@ impl fmt::Display for TradingExecError {
             Self::UnknownCapability(capability) => write!(f, "unknown capability '{capability}'"),
             Self::UnsupportedOperation(operation) => write!(f, "unsupported operation '{operation}'"),
             Self::InvalidSequence(message) => write!(f, "invalid atomic sequence: {message}"),
+            Self::RefusedByVerifier(diagnostics) => {
+                write!(f, "the IR verifier refuses this program: {}", diagnostics.join("; "))
+            }
             Self::HostRejected(error) => write!(f, "host rejected the operation: {error}"),
             Self::AssetMismatch(message) => write!(f, "asset mismatch: {message}"),
             Self::OutputBelowMinOut { minimum, actual } => {
@@ -692,6 +701,21 @@ impl TradingVm {
         context: TradeExecutionContext,
         commit: bool,
     ) -> Result<TradeExecution, TradingExecError> {
+        // The VM used to take the operation list on trust: its run-time guards catch a missing
+        // receipt or an open debt, but a sequence with *no* minimum-profit guard, no all-debts
+        // guard, a second receipt, a receipt before the guards, or an operation after the commit
+        // committed — measured on the fixture trade, all five returned `committed: true` while
+        // `verify_ir` refused each of them. The compiler runs `verify_ir` before it emits, so a
+        // compiled program always passed; a program from anywhere else did not have to. Now every
+        // program passes the same trading rules before the first host call.
+        if let Err(diagnostics) = x3_lang_compiler::verify::verify_trading_program(operations) {
+            return Err(TradingExecError::RefusedByVerifier(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| format!("{:?}: {}", diagnostic.code, diagnostic.message))
+                    .collect(),
+            ));
+        }
         let manifest = host.capabilities();
         if context.mode == ExecutionMode::Production && manifest.mode != CapabilityMode::Production {
             return Err(TradingExecError::NonProductionCapability);
