@@ -33,6 +33,27 @@ pub fn verify_ir(ir: &X3IR) -> Result<(), Vec<CompilerDiagnostic>> {
     }
 }
 
+/// Verify a trading operation list on its own: the rules of [`verify_ir`] that apply to what
+/// `TradingVm` executes (each operation's own checks, and the sequence state machine — begin
+/// first, guards before the receipt, receipt before the commit, debts opened before use and closed
+/// once, nothing after the terminal operation).
+///
+/// [`verify_ir`] also checks rules about a whole compiled artifact — its metadata, and that a
+/// private-submission policy is preceded by the artifact's `ModeCheck` — which an operation list
+/// cannot carry; the VM enforces private submission against its host's capability manifest
+/// instead. This is what the VM runs before it executes a program it did not compile.
+pub fn verify_trading_program(ops: &[TradingOperation]) -> Result<(), Vec<CompilerDiagnostic>> {
+    let wrapped: Vec<Operation> = ops.iter().cloned().map(Operation::Trading).collect();
+    let mut diagnostics = Vec::new();
+    verify_sequence(&wrapped, "program", &mut diagnostics);
+    verify_trading_sequences(&wrapped, "program", &mut diagnostics);
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics)
+    }
+}
+
 fn push_unsafe(diagnostics: &mut Vec<CompilerDiagnostic>, message: impl Into<String>) {
     diagnostics.push(
         CompilerDiagnostic::error(DiagnosticCode::UnsafeIr, message, Span::DUMMY)
