@@ -4681,3 +4681,98 @@ fn cli_receipt_verify_requires_a_trusted_key_on_mainnet() {
         "and must say the attestation was the check that ran"
     );
 }
+
+/// `receipt verify --trusted-registry` (X3-LANG-003): the signer is checked against a registry that
+/// records each key's lifecycle, so revoking a key takes effect for every receipt it signed, where
+/// `--trusted` only knew what the command line named.
+#[test]
+fn cli_receipt_verify_honours_a_key_registry() {
+    let src = write_fixture("cli_receipt_registry.x3", TRADING_SOURCE);
+    let dir = std::env::temp_dir().join("cli_receipt_registry");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let receipt_path = dir.join("receipt.json");
+
+    let executed = x3c()
+        .args(["receipt", "execute"])
+        .arg(&src)
+        .arg("--out")
+        .arg(&receipt_path)
+        .args(HOST_CAPS)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(executed.status.success(), "receipt execute must succeed");
+
+    let body = std::fs::read_to_string(&receipt_path).expect("receipt");
+    let receipt: serde_json::Value = serde_json::from_str(&body).expect("receipt json");
+    let key_id = receipt["attestation"]["key_id"].as_str().expect("key id").to_string();
+    let hex: String = receipt["attestation"]["public_key"]
+        .as_array()
+        .expect("public key")
+        .iter()
+        .map(|byte| format!("{:02x}", byte.as_u64().expect("byte") as u8))
+        .collect();
+    let other = "11".repeat(32);
+
+    let registry = |status: &str| {
+        let path = dir.join(format!("registry-{status}.json"));
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"keys": [
+                    {{"key_id": "{key_id}", "public_key": "{hex}", "status": "{status}"}},
+                    {{"key_id": "successor", "public_key": "{other}", "status": "active"}}
+                ]}}"#
+            ),
+        )
+        .expect("write registry");
+        path
+    };
+    let verify = |registry: &std::path::Path| {
+        x3c()
+            .args(["receipt", "verify"])
+            .arg(&receipt_path)
+            .args(["--mode", "mainnet"])
+            .arg("--trusted-registry")
+            .arg(registry)
+            .output()
+            .expect("x3c receipt verify")
+    };
+
+    // Active, and after rotation (retired): verified, and the output says which key and state.
+    for status in ["active", "retired"] {
+        let run = verify(&registry(status));
+        assert!(
+            run.status.success(),
+            "{status}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(
+            stdout.contains(&format!("registry signer '{key_id}' ({status})")),
+            "{status}: {stdout}"
+        );
+    }
+
+    // Revoked: the same receipt is refused, by name.
+    let revoked = verify(&registry("revoked"));
+    assert!(!revoked.status.success(), "a revoked signer must not verify");
+    assert!(
+        String::from_utf8_lossy(&revoked.stderr).contains("is revoked in the key registry"),
+        "{}",
+        String::from_utf8_lossy(&revoked.stderr)
+    );
+
+    // The two trust sources are one or the other, never both.
+    let both = x3c()
+        .args(["receipt", "verify"])
+        .arg(&receipt_path)
+        .args(["--trusted", &format!("{key_id}={hex}")])
+        .arg("--trusted-registry")
+        .arg(registry("active"))
+        .output()
+        .expect("x3c receipt verify");
+    assert!(!both.status.success(), "--trusted and --trusted-registry conflict");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
