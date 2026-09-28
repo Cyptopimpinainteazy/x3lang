@@ -19,10 +19,11 @@ fn unary_negation_produces_signed_numeric_argument() {
     assert!(codes.is_empty(), "unary-negated integer must satisfy i64: {codes:?}");
 }
 
+/// RFC t5-6 as amended 2026-09-26: an unsuffixed literal takes its parameter's integer type.
 #[test]
-fn bare_unsigned_literal_is_not_implicitly_coerced_to_signed_argument() {
+fn bare_literal_takes_a_signed_parameter_type() {
     let codes = numeric_codes("fn takes_i64(x: i64) { } fn main() { takes_i64(1); }");
-    assert_eq!(codes, vec![DiagnosticCode::ArgumentTypeMismatch]);
+    assert!(codes.is_empty(), "a bare literal must satisfy i64: {codes:?}");
 }
 
 #[test]
@@ -32,7 +33,27 @@ fn unary_negative_literal_is_not_implicitly_coerced_to_unsigned_argument() {
 }
 
 #[test]
-fn bare_u64_literal_is_not_implicitly_narrowed_to_u32() {
+fn bare_literal_takes_a_narrower_parameter_type_when_it_fits() {
     let codes = numeric_codes("fn takes_u32(x: u32) { } fn main() { takes_u32(1); }");
+    assert!(codes.is_empty(), "a bare literal that fits must satisfy u32: {codes:?}");
+}
+
+#[test]
+fn bare_literal_out_of_range_for_its_parameter_is_refused() {
+    let codes = numeric_codes("fn takes_u8(x: u8) { } fn main() { takes_u8(300); }");
     assert_eq!(codes, vec![DiagnosticCode::ArgumentTypeMismatch]);
+    let codes = numeric_codes("fn takes_i8(x: i8) { } fn main() { takes_i8(-129); }");
+    assert_eq!(codes, vec![DiagnosticCode::ArgumentTypeMismatch]);
+}
+
+#[test]
+fn negative_literal_is_refused_for_every_unsigned_width() {
+    for ty in ["u8", "u16", "u32", "u64", "u128"] {
+        let source = format!("fn takes(x: {ty}) {{ }} fn main() {{ takes(-1); }}");
+        assert_eq!(
+            numeric_codes(&source),
+            vec![DiagnosticCode::ArgumentTypeMismatch],
+            "-1 must not satisfy {ty}"
+        );
+    }
 }
