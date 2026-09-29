@@ -906,9 +906,12 @@ impl TradingVm {
                         quote.expected_output.saturating_sub(result.output),
                         quote.expected_output,
                     );
-                    if let Some(ceiling_bps) = self.compiled_policy().max_oracle_deviation_bps {
-                        self.enforce_oracle_firewall(quote.expected_output, &quote.sources, ceiling_bps)?;
-                    }
+                    let oracle_deviation_bps = match self.compiled_policy().max_oracle_deviation_bps {
+                        Some(ceiling_bps) => {
+                            Some(self.enforce_oracle_firewall(quote.expected_output, &quote.sources, ceiling_bps)?)
+                        }
+                        None => None,
+                    };
                     let price_impact = host
                         .price_impact(&quote_request)
                         .map_err(TradingExecError::HostRejected)?;
@@ -932,6 +935,7 @@ impl TradingVm {
                         price_impact,
                         mev_leakage,
                         realized_slippage_bps,
+                        oracle_deviation_bps,
                     });
                 }
                 TradingOperation::Bridge {
@@ -1351,21 +1355,24 @@ impl TradingVm {
     /// (and just as suspicious a manipulation signal) as one quoting lower.
     /// A policy that opts into this check and gets zero sources back fails
     /// closed rather than silently skipping the check it asked for.
+    /// Returns the largest deviation measured, which the leg's receipt window records so a replay
+    /// can re-check the ceiling.
     fn enforce_oracle_firewall(
         &self,
         primary_expected: u128,
         sources: &[PriceSource],
         ceiling_bps: u16,
-    ) -> Result<(), TradingExecError> {
+    ) -> Result<u128, TradingExecError> {
         if sources.is_empty() {
             return Err(TradingExecError::OracleFirewallUnsatisfied);
         }
+        let mut largest_bps = 0u128;
         for source in sources {
             let diff = primary_expected.abs_diff(source.expected_output);
-            let actual_bps = diff
-                .checked_mul(10_000)
-                .and_then(|value| value.checked_div(primary_expected.max(1)))
-                .ok_or(TradingExecError::AccountingOverflow)?;
+            // `basis_points_of`, so the figure enforced here and the figure the receipt carries are
+            // computed by one function (it is the same arithmetic this used to spell out inline).
+            let actual_bps = basis_points_of(diff, primary_expected).ok_or(TradingExecError::AccountingOverflow)?;
+            largest_bps = largest_bps.max(actual_bps);
             if actual_bps > ceiling_bps as u128 {
                 return Err(TradingExecError::OracleDeviationExceeded {
                     source: source.name.clone(),
@@ -1374,7 +1381,7 @@ impl TradingVm {
                 });
             }
         }
-        Ok(())
+        Ok(largest_bps)
     }
 
     fn credit(&mut self, asset: &AssetKey, amount: u128) -> Result<(), TradingExecError> {
@@ -1560,6 +1567,12 @@ pub struct LegQuoteWindow {
     /// through a quote.
     #[serde(default)]
     pub realized_slippage_bps: Option<u128>,
+    /// The largest disagreement, in basis points of the primary quote, between this leg's quote
+    /// and the independent price sources the host reported. `Some` only when the compiled policy
+    /// declares `max_oracle_deviation_bps` (the only case the sources are consulted); `None` for a
+    /// receipt written before format version 4.
+    #[serde(default)]
+    pub oracle_deviation_bps: Option<u128>,
 }
 
 impl LegQuoteWindow {
@@ -1655,6 +1668,22 @@ pub enum ReceiptError {
         ceiling_bps: u16,
         actual_bps: u128,
     },
+    /// The artifact declares `max_oracle_deviation_bps`, and the receipt's window for a leg
+    /// carries no oracle deviation (a receipt before format version 4, or one that dropped it).
+    MissingOracleDeviation {
+        venue: String,
+    },
+    /// The receipt's largest oracle deviation for a leg exceeds the artifact's ceiling.
+    OracleDeviationExceeded {
+        venue: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    /// The receipt's costs in the policy's gas asset sum past the artifact's `max_gas`.
+    GasCeilingExceeded {
+        ceiling: u128,
+        actual: u128,
+    },
     /// The receipt's fee on a debt exceeds the artifact's `max_flash_fee_bps`.
     FeeCeilingExceeded {
         debt_id: String,
@@ -1693,6 +1722,25 @@ impl fmt::Display for ReceiptError {
             Self::ProfitFloorWithoutAsset => write!(
                 f,
                 "the compiled policy states a profit floor without the asset it is denominated in"
+            ),
+            Self::MissingOracleDeviation { venue } => write!(
+                f,
+                "receipt records no oracle deviation for the leg on venue '{venue}', so the \
+                 compiled max_oracle_deviation_bps ceiling cannot be re-derived"
+            ),
+            Self::OracleDeviationExceeded {
+                venue,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "leg on venue '{venue}' reports an oracle deviation of {actual_bps} bps, exceeding \
+                 the compiled ceiling of {ceiling_bps} bps"
+            ),
+            Self::GasCeilingExceeded { ceiling, actual } => write!(
+                f,
+                "receipt costs in the policy's gas asset total {actual}, exceeding the compiled \
+                 max_gas ceiling {ceiling}"
             ),
             Self::MissingRealizedSlippage { venue } => write!(
                 f,
@@ -2011,6 +2059,45 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
                 });
             }
         }
+    }
+
+    // The oracle firewall, re-derived. Only the run can consult the price sources, so the window
+    // carries the largest deviation the run measured; a window without it (format version 3 or
+    // earlier) leaves a declared ceiling unverifiable, which is a refusal (X3-LANG-002).
+    if let Some(ceiling_bps) = compiled_policy.max_oracle_deviation_bps {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let actual_bps = windows
+                .next()
+                .and_then(|window| window.oracle_deviation_bps)
+                .ok_or_else(|| ReceiptError::MissingOracleDeviation { venue: venue.clone() })?;
+            if actual_bps > ceiling_bps as u128 {
+                return Err(ReceiptError::OracleDeviationExceeded {
+                    venue: venue.clone(),
+                    ceiling_bps,
+                    actual_bps,
+                });
+            }
+        }
+    }
+
+    // The gas ceiling, re-derived. Every cost the run accrued is on the receipt with its asset
+    // (the same ledger the VM's per-asset rollup is summed from), so the total in the policy's gas
+    // asset is a figure the receipt fully determines (X3-LANG-002).
+    let gas_total = receipt
+        .costs
+        .iter()
+        .filter(|cost| cost.asset == compiled_policy.max_gas_asset)
+        .try_fold(0u128, |total, cost| total.checked_add(cost.amount))
+        .ok_or_else(|| ReceiptError::EconomicReplayMismatch("gas cost overflow".to_string()))?;
+    if gas_total > compiled_policy.max_gas {
+        return Err(ReceiptError::GasCeilingExceeded {
+            ceiling: compiled_policy.max_gas,
+            actual: gas_total,
+        });
     }
 
     let mut expected_debts: BTreeMap<String, (&AssetKey, u128)> = BTreeMap::new();
@@ -2428,7 +2515,10 @@ pub fn build_receipt(
         // receipt's windows have no slippage figure, and replay refuses such a leg when the
         // artifact declares a `max_slippage_bps` ceiling rather than treating the missing figure as
         // a satisfied one.
-        format_version: 3,
+        // 4: each window also carries the leg's largest oracle deviation, so
+        // `max_oracle_deviation_bps` is re-derivable at replay; a version 3 window has none, and
+        // replay refuses such a leg when the artifact declares that ceiling.
+        format_version: 4,
         compiler_version: compiler_version.to_string(),
         artifact_hash,
         trade_id: trade_id.to_string(),
