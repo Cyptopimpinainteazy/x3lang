@@ -4726,8 +4726,18 @@ fn cli_receipt_verify_honours_a_key_registry() {
             ),
         )
         .expect("write registry");
+        // Mainnet needs a signed registry (the next test covers that rule), so each is signed by
+        // the root this test trusts.
+        let signed = x3c()
+            .args(["registry", "sign"])
+            .arg(&path)
+            .args(["--key-hex", &"42".repeat(32)])
+            .output()
+            .expect("x3c registry sign");
+        assert!(signed.status.success(), "{}", String::from_utf8_lossy(&signed.stderr));
         path
     };
+    let root = registry_root_of(&"42".repeat(32));
     let verify = |registry: &std::path::Path| {
         x3c()
             .args(["receipt", "verify"])
@@ -4735,6 +4745,7 @@ fn cli_receipt_verify_honours_a_key_registry() {
             .args(["--mode", "mainnet"])
             .arg("--trusted-registry")
             .arg(registry)
+            .args(["--registry-root", &root])
             .output()
             .expect("x3c receipt verify")
     };
@@ -4820,8 +4831,17 @@ fn cli_receipt_execute_signs_only_with_an_active_registry_key() {
             ),
         )
         .expect("write registry");
+        // `receipt execute` runs in mainnet mode, where a registry has to be signed.
+        let signed = x3c()
+            .args(["registry", "sign"])
+            .arg(&path)
+            .args(["--key-hex", &"42".repeat(32)])
+            .output()
+            .expect("x3c registry sign");
+        assert!(signed.status.success(), "{}", String::from_utf8_lossy(&signed.stderr));
         path
     };
+    let root = registry_root_of(&"42".repeat(32));
     let execute = |registry: &std::path::Path, key_id: &str, out: &std::path::Path| {
         x3c()
             .args(["receipt", "execute"])
@@ -4832,6 +4852,7 @@ fn cli_receipt_execute_signs_only_with_an_active_registry_key() {
             .args(["--key-id", key_id])
             .arg("--signing-registry")
             .arg(registry)
+            .args(["--registry-root", &root])
             .output()
             .expect("x3c receipt execute")
     };
@@ -4850,6 +4871,7 @@ fn cli_receipt_execute_signs_only_with_an_active_registry_key() {
         .args(["--mode", "mainnet"])
         .arg("--trusted-registry")
         .arg(&active)
+        .args(["--registry-root", &root])
         .output()
         .expect("x3c receipt verify");
     assert!(
@@ -4886,6 +4908,130 @@ fn cli_receipt_execute_signs_only_with_an_active_registry_key() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(!out.exists());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The public key of a registry root seed, as `x3c registry sign` reports it.
+fn registry_root_of(seed_hex: &str) -> String {
+    let seed: [u8; 32] = (0..32)
+        .map(|i| u8::from_str_radix(&seed_hex[2 * i..2 * i + 2], 16).unwrap())
+        .collect::<Vec<u8>>()
+        .try_into()
+        .unwrap();
+    ed25519_dalek::SigningKey::from_bytes(&seed)
+        .verifying_key()
+        .to_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// A receipt key registry is used on mainnet only if a root the verifier names signed it
+/// (X3-LANG-003): otherwise anyone who can edit the file can add a key of their own and every
+/// verifier reading it trusts that key.
+#[test]
+fn cli_a_mainnet_key_registry_must_be_signed_by_the_named_root() {
+    let src = write_fixture("cli_signed_registry.x3", TRADING_SOURCE);
+    let dir = std::env::temp_dir().join("cli_signed_registry");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let receipt_path = dir.join("receipt.json");
+    let executed = x3c()
+        .args(["receipt", "execute"])
+        .arg(&src)
+        .arg("--out")
+        .arg(&receipt_path)
+        .args(HOST_CAPS)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(executed.status.success());
+    let receipt: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&receipt_path).unwrap()).unwrap();
+    let key_id = receipt["attestation"]["key_id"].as_str().unwrap().to_string();
+    let signer: String = receipt["attestation"]["public_key"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|byte| format!("{:02x}", byte.as_u64().unwrap() as u8))
+        .collect();
+
+    let registry = dir.join("registry.json");
+    std::fs::write(
+        &registry,
+        format!(r#"{{"keys": [{{"key_id": "{key_id}", "public_key": "{signer}", "status": "active"}}]}}"#),
+    )
+    .unwrap();
+    let root_seed = "42".repeat(32);
+    let root = registry_root_of(&root_seed);
+    let other_root = registry_root_of(&"43".repeat(32));
+
+    let verify = |extra: &[&str]| {
+        x3c()
+            .args(["receipt", "verify"])
+            .arg(&receipt_path)
+            .args(["--mode", "mainnet"])
+            .arg("--trusted-registry")
+            .arg(&registry)
+            .args(extra)
+            .output()
+            .expect("x3c receipt verify")
+    };
+    let stderr = |run: &std::process::Output| String::from_utf8_lossy(&run.stderr).into_owned();
+
+    // No root named on mainnet: refused, and for that reason.
+    let unrooted = verify(&[]);
+    assert!(!unrooted.status.success());
+    assert!(stderr(&unrooted).contains("must be signed"), "{}", stderr(&unrooted));
+
+    // Not yet signed: refused.
+    let unsigned = verify(&["--registry-root", &root]);
+    assert!(!unsigned.status.success());
+    assert!(stderr(&unsigned).contains("has no signature"), "{}", stderr(&unsigned));
+
+    let signed = x3c()
+        .args(["registry", "sign"])
+        .arg(&registry)
+        .args(["--key-hex", &root_seed])
+        .output()
+        .expect("x3c registry sign");
+    assert!(signed.status.success(), "{}", stderr(&signed));
+    assert!(String::from_utf8_lossy(&signed.stdout).contains(&root));
+
+    // Signed by the root the verifier names: the receipt verifies.
+    let ok = verify(&["--registry-root", &root]);
+    assert!(ok.status.success(), "{}", stderr(&ok));
+
+    // A verifier that trusts another root refuses it.
+    let wrong_root = verify(&["--registry-root", &other_root]);
+    assert!(!wrong_root.status.success());
+    assert!(
+        stderr(&wrong_root).contains("not the root you trust"),
+        "{}",
+        stderr(&wrong_root)
+    );
+
+    // An attacker adds a key of their own after signing: the signature no longer covers the file.
+    let edited = std::fs::read_to_string(&registry).unwrap().replace(
+        "]}",
+        &format!(
+            r#", {{"key_id": "attacker", "public_key": "{}", "status": "active"}}]}}"#,
+            "77".repeat(32)
+        ),
+    );
+    std::fs::write(&registry, edited).unwrap();
+    let tampered = verify(&["--registry-root", &root]);
+    assert!(!tampered.status.success(), "an edited registry must not load");
+    assert!(stderr(&tampered).contains("different file"), "{}", stderr(&tampered));
+
+    // Signing refuses a file that is not a valid registry.
+    std::fs::write(&registry, "{\"keys\": []}").unwrap();
+    let invalid = x3c()
+        .args(["registry", "sign"])
+        .arg(&registry)
+        .args(["--key-hex", &root_seed])
+        .output()
+        .expect("x3c registry sign");
+    assert!(!invalid.status.success(), "a registry with no active key is not signed");
 
     let _ = std::fs::remove_dir_all(&dir);
 }

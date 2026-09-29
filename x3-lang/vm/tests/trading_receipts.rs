@@ -640,3 +640,64 @@ mod key_registry {
         assert!(ReceiptKeyRegistry::from_json(&unknown_status).is_err());
     }
 }
+
+// ─── Signed key registries (X3-LANG-003) ────────────────────────────────────────────────────────
+
+mod signed_registry {
+    use super::*;
+    use x3_lang_vm::trading::{sign_registry, verify_registry_signature, ReceiptKeyRegistry};
+
+    fn registry_bytes() -> Vec<u8> {
+        let key: String = SigningKey::from_bytes(&[7u8; 32])
+            .verifying_key()
+            .to_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!(r#"{{"keys": [{{"key_id": "executor-1", "public_key": "{key}", "status": "active"}}]}}"#).into_bytes()
+    }
+
+    fn root() -> SigningKey {
+        SigningKey::from_bytes(&[42u8; 32])
+    }
+
+    #[test]
+    fn a_registry_signed_by_the_trusted_root_loads() {
+        let bytes = registry_bytes();
+        let signature = sign_registry(&bytes, &root());
+        let trusted = root().verifying_key().to_bytes();
+        verify_registry_signature(&bytes, &signature, &trusted).expect("verifies");
+        let registry = ReceiptKeyRegistry::from_signed_json(&bytes, &signature, &trusted).expect("loads");
+        assert!(registry.may_sign("executor-1"));
+    }
+
+    #[test]
+    fn a_registry_edited_after_signing_or_signed_by_another_root_does_not_load() {
+        let bytes = registry_bytes();
+        let signature = sign_registry(&bytes, &root());
+        let trusted = root().verifying_key().to_bytes();
+
+        // One byte changed after signing.
+        let mut edited = bytes.clone();
+        let last = edited.len() - 2;
+        edited[last] = b' ';
+        assert!(verify_registry_signature(&edited, &signature, &trusted)
+            .unwrap_err()
+            .contains("different file"));
+
+        // A verifier that trusts another root.
+        let other = SigningKey::from_bytes(&[43u8; 32]).verifying_key().to_bytes();
+        assert!(verify_registry_signature(&bytes, &signature, &other)
+            .unwrap_err()
+            .contains("not the root you trust"));
+
+        // An attacker's own root, relabelled as the trusted one: the claimed root matches, the
+        // digest matches, and the signature still does not verify.
+        let mut forged = sign_registry(&bytes, &SigningKey::from_bytes(&[99u8; 32]));
+        forged.root_public_key = signature.root_public_key.clone();
+        assert!(verify_registry_signature(&bytes, &forged, &trusted)
+            .unwrap_err()
+            .contains("does not verify"));
+        assert!(ReceiptKeyRegistry::from_signed_json(&bytes, &forged, &trusted).is_err());
+    }
+}

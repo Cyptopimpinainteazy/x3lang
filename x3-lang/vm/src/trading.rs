@@ -2381,6 +2381,103 @@ impl ReceiptKeyRegistry {
     }
 }
 
+/// Domain separator for a registry signature, so it can never be mistaken for a receipt's.
+pub const REGISTRY_SIGNATURE_DOMAIN: &[u8] = b"x3-receipt-key-registry-v1";
+
+/// A detached signature over a receipt key registry file, written next to it as
+/// `<registry>.sig.json` (X3-LANG-003).
+///
+/// The registry says which keys may sign receipts; without this, anyone who could edit the file
+/// could add a key of their own and every verifier reading it would trust that key. The signature
+/// covers the file's **exact bytes** (not a re-serialization, so no two encodings of one registry
+/// can disagree about what was signed) and is checked against a root key the *verifier* names —
+/// the `root_public_key` carried here is a label for a reader, never a trust decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrySignature {
+    /// The signing root's ed25519 public key, 64 hex characters.
+    pub root_public_key: String,
+    /// sha256 of the registry file's bytes, 64 hex characters.
+    pub registry_sha256: String,
+    /// ed25519 signature over [`registry_signing_digest`], 128 hex characters.
+    pub signature: String,
+}
+
+/// The digest a registry root signs: the domain, then the registry file's sha256.
+pub fn registry_signing_digest(registry_bytes: &[u8]) -> [u8; 32] {
+    let file_digest: [u8; 32] = Sha256::digest(registry_bytes).into();
+    let mut hasher = Sha256::new();
+    hasher.update(REGISTRY_SIGNATURE_DOMAIN);
+    hasher.update(file_digest);
+    hasher.finalize().into()
+}
+
+fn hex_of(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn bytes_of_hex(hex: &str) -> Option<Vec<u8>> {
+    let hex = hex.trim();
+    if !hex.is_ascii() || hex.len() % 2 != 0 {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
+}
+
+/// Sign a registry file's bytes with `root`.
+pub fn sign_registry(registry_bytes: &[u8], root: &SigningKey) -> RegistrySignature {
+    RegistrySignature {
+        root_public_key: hex_of(&root.verifying_key().to_bytes()),
+        registry_sha256: hex_of(&Sha256::digest(registry_bytes)),
+        signature: hex_of(&root.sign(&registry_signing_digest(registry_bytes)).to_bytes()),
+    }
+}
+
+/// Check `signature` over `registry_bytes` against the root key the verifier trusts. Every refusal
+/// names what broke: another root, another file, or a signature that does not verify.
+pub fn verify_registry_signature(
+    registry_bytes: &[u8],
+    signature: &RegistrySignature,
+    trusted_root: &[u8; 32],
+) -> Result<(), String> {
+    let claimed_root = bytes_of_hex(&signature.root_public_key)
+        .ok_or_else(|| "registry signature: root_public_key is not hex".to_string())?;
+    if claimed_root.as_slice() != trusted_root {
+        return Err(format!(
+            "the registry is signed by root {}, not the root you trust ({})",
+            signature.root_public_key,
+            hex_of(trusted_root)
+        ));
+    }
+    let file_digest = hex_of(&Sha256::digest(registry_bytes));
+    if !signature.registry_sha256.eq_ignore_ascii_case(&file_digest) {
+        return Err("the registry signature is about a different file: its sha256 does not match".to_string());
+    }
+    let key = VerifyingKey::from_bytes(trusted_root)
+        .map_err(|_| "the trusted registry root is not a valid ed25519 key".to_string())?;
+    let bytes = bytes_of_hex(&signature.signature)
+        .and_then(|bytes| <[u8; 64]>::try_from(bytes.as_slice()).ok())
+        .ok_or_else(|| "registry signature: signature is not 64 bytes of hex".to_string())?;
+    key.verify(&registry_signing_digest(registry_bytes), &Signature::from_bytes(&bytes))
+        .map_err(|_| "the registry signature does not verify under the trusted root".to_string())
+}
+
+impl ReceiptKeyRegistry {
+    /// Parse a registry file only after its detached signature verifies under `trusted_root`.
+    pub fn from_signed_json(
+        registry_bytes: &[u8],
+        signature: &RegistrySignature,
+        trusted_root: &[u8; 32],
+    ) -> Result<Self, String> {
+        verify_registry_signature(registry_bytes, signature, trusted_root)?;
+        let json = core::str::from_utf8(registry_bytes).map_err(|_| "key registry: not UTF-8".to_string())?;
+        Self::from_json(json)
+    }
+}
+
 fn decode_public_key_hex(hex: &str) -> Result<[u8; 32], String> {
     let hex = hex.trim();
     // Checked before slicing: a multi-byte character would put a byte index off a char boundary.
