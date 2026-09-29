@@ -1581,6 +1581,7 @@ fn a_receipt_carries_the_quote_window_of_every_leg() {
                 // figure is recorded because `max_slippage_bps` is a ceiling on it and a receipt
                 // is the only thing a replay holds.
                 realized_slippage_bps: Some(0),
+                oracle_deviation_bps: None,
             },
             x3_lang_vm::trading::LegQuoteWindow {
                 venue: "uniswap_v3".to_string(),
@@ -1589,13 +1590,15 @@ fn a_receipt_carries_the_quote_window_of_every_leg() {
                 price_impact: None,
                 mev_leakage: None,
                 realized_slippage_bps: Some(0),
+                oracle_deviation_bps: None,
             },
         ],
         "one window per swap leg, in execution order"
     );
     assert_eq!(
-        receipt.format_version, 3,
-        "the shape of a receipt is versioned (3 carries each leg's realized slippage)"
+        receipt.format_version, 4,
+        "the shape of a receipt is versioned (3 carries each leg's realized slippage, 4 its oracle \
+         deviation)"
     );
     assert_eq!(
         receipt.legs[0].age_blocks(),
@@ -1652,6 +1655,7 @@ fn replay_refuses_a_receipt_with_a_window_no_leg_belongs_to() {
         price_impact: None,
         mev_leakage: None,
         realized_slippage_bps: Some(0),
+        oracle_deviation_bps: None,
     });
     let receipt = finalize_receipt(receipt).expect("re-hashing must succeed");
     let err = verify_receipt_economics(&receipt).expect_err("an unmatched window must fail replay");
@@ -1982,5 +1986,136 @@ mod peer_programs {
                 prop_assert!(execution.committed_state.committed);
             }
         }
+    }
+}
+
+// ─── X3-LANG-002: the gas ceiling and the oracle firewall, re-derived from the receipt ──────────
+//
+// Replay re-checked slippage, fees, quote freshness, price impact and MEV leakage from a receipt,
+// but not `max_gas` and not `max_oracle_deviation_bps`: a receipt re-hashed with costs past the
+// gas ceiling, or from a run whose oracle sources disagreed past the firewall, replayed clean.
+
+mod receipt_replay_of_gas_and_oracle {
+    use super::*;
+    use x3_lang_vm::trading::{verify_receipt_economics, ReceiptError, TradeReceipt};
+
+    /// A committed trade under an oracle ceiling of 50 bps, with one source 20 bps above the
+    /// primary quote (2_000_000 → 2_004_000), turned into its receipt.
+    fn receipt_with_oracle_sources() -> TradeReceipt {
+        let operations = ops_with_oracle_deviation(50);
+        let mut vm = TradingVm::new();
+        let mut host = FixtureHost::new();
+        host.oracle_sources = vec![
+            PriceSource {
+                name: "twap".to_string(),
+                expected_output: 2_004_000,
+            },
+            PriceSource {
+                name: "chainlink".to_string(),
+                expected_output: 1_998_000,
+            },
+        ];
+        let execution = vm
+            .execute_atomic(&operations, &mut host, context_at(5))
+            .expect("a trade inside the firewall commits");
+        build_receipt(
+            "test",
+            [1u8; 32],
+            "T",
+            "P",
+            COMMITMENT,
+            &operations,
+            &execution.committed_state,
+            Some(&asset("USDC")),
+            TradeOutcome::Success,
+        )
+        .expect("receipt must build")
+    }
+
+    fn rehashed(receipt: TradeReceipt) -> TradeReceipt {
+        finalize_receipt(receipt).expect("re-hash")
+    }
+
+    #[test]
+    fn a_receipt_records_the_largest_oracle_deviation_and_replays_clean() {
+        let receipt = receipt_with_oracle_sources();
+        // Two legs, each measured against both sources: the larger is 4_000 / 2_000_000 = 20 bps.
+        let recorded: Vec<Option<u128>> = receipt.legs.iter().map(|leg| leg.oracle_deviation_bps).collect();
+        assert_eq!(recorded, vec![Some(20), Some(20)]);
+        verify_receipt_economics(&receipt).expect("an honest receipt replays");
+
+        // No ceiling declared: the sources are not consulted and the figure is absent.
+        let plain = receipt_from_a_successful_trade();
+        assert!(plain.legs.iter().all(|leg| leg.oracle_deviation_bps.is_none()));
+        verify_receipt_economics(&plain).expect("and replays without one");
+    }
+
+    #[test]
+    fn a_receipt_past_the_oracle_ceiling_or_without_the_figure_is_refused() {
+        let mut past = receipt_with_oracle_sources();
+        past.legs[1].oracle_deviation_bps = Some(51);
+        assert_eq!(
+            verify_receipt_economics(&rehashed(past)),
+            Err(ReceiptError::OracleDeviationExceeded {
+                venue: "uniswap_v3".to_string(),
+                ceiling_bps: 50,
+                actual_bps: 51,
+            })
+        );
+
+        // A format-3 window, or one a forger dropped the figure from.
+        let mut missing = receipt_with_oracle_sources();
+        missing.legs[0].oracle_deviation_bps = None;
+        assert_eq!(
+            verify_receipt_economics(&rehashed(missing)),
+            Err(ReceiptError::MissingOracleDeviation {
+                venue: "uniswap_v3".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn a_receipt_whose_costs_pass_the_gas_ceiling_is_refused() {
+        // The fixture trade's ceiling is 1_000_000 in USDC.
+        let honest = receipt_from_a_successful_trade();
+        verify_receipt_economics(&honest).expect("control");
+
+        let mut forged = receipt_from_a_successful_trade();
+        forged.costs.push(CommittedCost {
+            asset: asset("USDC"),
+            amount: 1_000_001,
+            kind: "gas".to_string(),
+        });
+        assert_eq!(
+            verify_receipt_economics(&rehashed(forged)),
+            Err(ReceiptError::GasCeilingExceeded {
+                ceiling: 1_000_000,
+                actual: 1_000_001,
+            })
+        );
+
+        // Exactly at the ceiling is inside it, as at execution (the check is `>`).
+        let mut at = receipt_from_a_successful_trade();
+        at.costs.push(CommittedCost {
+            asset: asset("USDC"),
+            amount: 1_000_000,
+            kind: "gas".to_string(),
+        });
+        assert!(!matches!(
+            verify_receipt_economics(&rehashed(at)),
+            Err(ReceiptError::GasCeilingExceeded { .. })
+        ));
+
+        // Cost in another asset does not count against a USDC-denominated ceiling.
+        let mut elsewhere = receipt_from_a_successful_trade();
+        elsewhere.costs.push(CommittedCost {
+            asset: asset("WETH"),
+            amount: 5_000_000,
+            kind: "gas".to_string(),
+        });
+        assert!(!matches!(
+            verify_receipt_economics(&rehashed(elsewhere)),
+            Err(ReceiptError::GasCeilingExceeded { .. })
+        ));
     }
 }
