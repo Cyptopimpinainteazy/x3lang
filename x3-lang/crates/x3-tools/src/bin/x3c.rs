@@ -359,6 +359,23 @@ enum Cmd {
         #[command(subcommand)]
         action: PacketAction,
     },
+    /// Sign a receipt key registry with a root key.
+    Registry {
+        #[command(subcommand)]
+        action: RegistryAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum RegistryAction {
+    /// Sign a receipt key registry file with a root key: writes `<registry>.sig.json`, which
+    /// `receipt verify` and `receipt execute` check when given `--registry-root`.
+    Sign {
+        input: PathBuf,
+        /// 64-character hex ed25519 seed of the registry root.
+        #[arg(long)]
+        key_hex: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -414,6 +431,10 @@ enum ReceiptAction {
         /// key in it; a revoked key is refused by name.
         #[arg(long = "trusted-registry", value_name = "FILE")]
         trusted_registry: Option<PathBuf>,
+        /// The registry root you trust (64-hex ed25519 public key). The registry is used only if
+        /// its `<registry>.sig.json` verifies under it. Required on mainnet.
+        #[arg(long = "registry-root", value_name = "HEX", requires = "trusted_registry")]
+        registry_root: Option<String>,
     },
     /// Compile a `.x3` trading program, execute it against a neutral
     /// fixture host, and emit the resulting signed receipt.
@@ -456,6 +477,9 @@ enum ReceiptAction {
         /// the signing key's own public key under that id: a retired or revoked key does not sign.
         #[arg(long = "signing-registry", value_name = "FILE")]
         signing_registry: Option<PathBuf>,
+        /// The registry root you trust (64-hex ed25519 public key); see `receipt verify`.
+        #[arg(long = "registry-root", value_name = "HEX", requires = "signing_registry")]
+        registry_root: Option<String>,
         /// The chain this host executes on, checked against the compiled
         /// policy's chain. Required, because a default would answer the
         /// question the flag exists to ask.
@@ -587,13 +611,23 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             json,
         } => cmd_plan(&input, show_route, json),
         Cmd::Replay { artifact, receipt } => cmd_replay(&artifact, &receipt),
+        Cmd::Registry { action } => match action {
+            RegistryAction::Sign { input, key_hex } => cmd_registry_sign(&input, &key_hex),
+        },
         Cmd::Receipt { action } => match action {
             ReceiptAction::Inspect { input } => cmd_receipt_inspect(&input),
             ReceiptAction::Verify {
                 input,
                 trusted,
                 trusted_registry,
-            } => cmd_receipt_verify(&input, &trusted, trusted_registry.as_ref(), parse_mode(mode)?),
+                registry_root,
+            } => cmd_receipt_verify(
+                &input,
+                &trusted,
+                trusted_registry.as_ref(),
+                registry_root.as_deref(),
+                parse_mode(mode)?,
+            ),
             ReceiptAction::Execute {
                 input,
                 out,
@@ -601,6 +635,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 key_hex,
                 key_id,
                 signing_registry,
+                registry_root,
                 chain,
                 private_submission,
                 providers,
@@ -614,6 +649,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 key_hex.as_deref(),
                 &key_id,
                 signing_registry.as_ref(),
+                registry_root.as_deref(),
                 cli.deny_warnings,
                 &HostCapabilities {
                     chain,
@@ -3308,6 +3344,7 @@ fn cmd_receipt_execute(
     key_hex: Option<&str>,
     key_id: &str,
     signing_registry: Option<&PathBuf>,
+    registry_root: Option<&str>,
     deny_warnings: bool,
     declared: &HostCapabilities,
 ) -> Result<ExitCode, String> {
@@ -3384,8 +3421,7 @@ fn cmd_receipt_execute(
     // registry holds this key's own public key there — checked before anything is signed.
     let registry = match signing_registry {
         Some(path) => {
-            let body = std::fs::read_to_string(path).map_err(|e| format!("read {path:?}: {e}"))?;
-            let registry = x3_lang_vm::trading::ReceiptKeyRegistry::from_json(&body)?;
+            let registry = load_receipt_registry(path, registry_root, comp_mode)?;
             if !registry.may_sign(key_id) {
                 let status = registry
                     .status(key_id)
@@ -3441,6 +3477,66 @@ fn sha256_with_domain(bytes: &[u8], domain: &[u8]) -> [u8; 32] {
 /// relying on a receipt signed this way for real trust is misusing it;
 /// the printed signer public key makes that unambiguous.
 const DEV_SIGNING_SEED: [u8; 32] = [0x42u8; 32];
+
+/// Where a registry's detached signature lives: `<registry>.sig.json`.
+fn registry_signature_path(registry: &std::path::Path) -> PathBuf {
+    let mut name = registry.as_os_str().to_owned();
+    name.push(".sig.json");
+    PathBuf::from(name)
+}
+
+/// Load a receipt key registry. With `--registry-root`, the file is used only if its detached
+/// signature verifies under that root; on mainnet a root is required, because an unsigned registry
+/// is one anyone who can edit the file controls (X3-LANG-003).
+fn load_receipt_registry(
+    path: &PathBuf,
+    registry_root: Option<&str>,
+    mode: CompilationMode,
+) -> Result<x3_lang_vm::trading::ReceiptKeyRegistry, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("read {path:?}: {e}"))?;
+    match registry_root {
+        Some(root_hex) => {
+            let root: [u8; 32] = hex_decode(root_hex)?
+                .as_slice()
+                .try_into()
+                .map_err(|_| "--registry-root must be 32 bytes of hex".to_string())?;
+            let sig_path = registry_signature_path(path);
+            let body = std::fs::read_to_string(&sig_path)
+                .map_err(|e| format!("the registry has no signature at {sig_path:?}: {e}"))?;
+            let signature: x3_lang_vm::trading::RegistrySignature =
+                serde_json::from_str(&body).map_err(|e| format!("registry signature {sig_path:?}: {e}"))?;
+            x3_lang_vm::trading::ReceiptKeyRegistry::from_signed_json(&bytes, &signature, &root)
+        }
+        None if mode == CompilationMode::Mainnet => Err(
+            "a mainnet key registry must be signed: pass `--registry-root <64-hex public key>` \
+             (and sign the registry with `x3c registry sign`)"
+                .to_string(),
+        ),
+        None => {
+            let json = String::from_utf8(bytes).map_err(|_| "key registry: not UTF-8".to_string())?;
+            x3_lang_vm::trading::ReceiptKeyRegistry::from_json(&json)
+        }
+    }
+}
+
+fn cmd_registry_sign(input: &PathBuf, key_hex: &str) -> Result<ExitCode, String> {
+    let seed = decode_signing_seed(Some(key_hex))?;
+    let root = SigningKey::from_bytes(&seed);
+    let bytes = std::fs::read(input).map_err(|e| format!("read {input:?}: {e}"))?;
+    // Refuse to sign something that is not a valid registry: a signature vouches for its contents.
+    let json = std::str::from_utf8(&bytes).map_err(|_| "key registry: not UTF-8".to_string())?;
+    x3_lang_vm::trading::ReceiptKeyRegistry::from_json(json)?;
+    let signature = x3_lang_vm::trading::sign_registry(&bytes, &root);
+    let sig_path = registry_signature_path(input);
+    let body = serde_json::to_string_pretty(&signature).map_err(|e| format!("encode: {e}"))?;
+    std::fs::write(&sig_path, body).map_err(|e| format!("write {sig_path:?}: {e}"))?;
+    println!(
+        "registry signed by root {} -> {}",
+        signature.root_public_key,
+        sig_path.display()
+    );
+    Ok(ExitCode::SUCCESS)
+}
 
 fn decode_signing_seed(key_hex: Option<&str>) -> Result<[u8; 32], String> {
     match key_hex {
@@ -3591,14 +3687,14 @@ fn cmd_receipt_verify(
     input: &PathBuf,
     trusted_specs: &[String],
     registry: Option<&PathBuf>,
+    registry_root: Option<&str>,
     mode: CompilationMode,
 ) -> Result<ExitCode, String> {
     let receipt = read_receipt(input)?;
     // A key registry is the trusted set with a lifecycle: which keys were rotated out and which
     // were revoked (X3-LANG-003). It satisfies mainnet's requirement the same way `--trusted` does.
     if let Some(path) = registry {
-        let body = std::fs::read_to_string(path).map_err(|e| format!("read {path:?}: {e}"))?;
-        let registry = x3_lang_vm::trading::ReceiptKeyRegistry::from_json(&body)?;
+        let registry = load_receipt_registry(path, registry_root, mode)?;
         return match registry.verify(&receipt) {
             Ok(()) => {
                 let key_id = receipt
