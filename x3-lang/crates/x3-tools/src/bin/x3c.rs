@@ -407,8 +407,13 @@ enum ReceiptAction {
         input: PathBuf,
         /// Trusted signer as `<key_id>=<64-hex ed25519 public key>`. Repeatable.
         /// When supplied, require a valid attestation from that trusted key.
-        #[arg(long = "trusted", value_name = "KEY_ID=HEX")]
+        #[arg(long = "trusted", value_name = "KEY_ID=HEX", conflicts_with = "trusted_registry")]
         trusted: Vec<String>,
+        /// A receipt key registry (JSON: `{"keys": [{"key_id", "public_key", "status"}]}`, status
+        /// `active`, `retired` or `revoked`). The receipt must be signed by an active or retired
+        /// key in it; a revoked key is refused by name.
+        #[arg(long = "trusted-registry", value_name = "FILE")]
+        trusted_registry: Option<PathBuf>,
     },
     /// Compile a `.x3` trading program, execute it against a neutral
     /// fixture host, and emit the resulting signed receipt.
@@ -576,7 +581,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Replay { artifact, receipt } => cmd_replay(&artifact, &receipt),
         Cmd::Receipt { action } => match action {
             ReceiptAction::Inspect { input } => cmd_receipt_inspect(&input),
-            ReceiptAction::Verify { input, trusted } => cmd_receipt_verify(&input, &trusted, parse_mode(mode)?),
+            ReceiptAction::Verify {
+                input,
+                trusted,
+                trusted_registry,
+            } => cmd_receipt_verify(&input, &trusted, trusted_registry.as_ref(), parse_mode(mode)?),
             ReceiptAction::Execute {
                 input,
                 out,
@@ -3533,8 +3542,41 @@ fn cmd_replay(artifact: &PathBuf, receipt_path: &PathBuf) -> Result<ExitCode, St
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_receipt_verify(input: &PathBuf, trusted_specs: &[String], mode: CompilationMode) -> Result<ExitCode, String> {
+fn cmd_receipt_verify(
+    input: &PathBuf,
+    trusted_specs: &[String],
+    registry: Option<&PathBuf>,
+    mode: CompilationMode,
+) -> Result<ExitCode, String> {
     let receipt = read_receipt(input)?;
+    // A key registry is the trusted set with a lifecycle: which keys were rotated out and which
+    // were revoked (X3-LANG-003). It satisfies mainnet's requirement the same way `--trusted` does.
+    if let Some(path) = registry {
+        let body = std::fs::read_to_string(path).map_err(|e| format!("read {path:?}: {e}"))?;
+        let registry = x3_lang_vm::trading::ReceiptKeyRegistry::from_json(&body)?;
+        return match registry.verify(&receipt) {
+            Ok(()) => {
+                let key_id = receipt
+                    .attestation
+                    .as_ref()
+                    .map(|attestation| attestation.key_id.as_str())
+                    .unwrap_or_default();
+                let status = registry
+                    .status(key_id)
+                    .map(|status| format!("{status:?}").to_lowercase())
+                    .unwrap_or_default();
+                println!(
+                    "receipt verified with registry signer '{key_id}' ({status}): {}",
+                    receipt.trade_id
+                );
+                Ok(ExitCode::SUCCESS)
+            }
+            Err(error) => {
+                eprintln!("x3c: receipt verification failed: {error}");
+                Ok(ExitCode::from(1))
+            }
+        };
+    }
     // Without `--trusted`, the receipt is checked for its hash and economic
     // invariants only. With `--trusted`, those checks still run *and* the
     // receipt must carry a valid attestation from one of the named keys — a
@@ -3548,7 +3590,7 @@ fn cmd_receipt_verify(input: &PathBuf, trusted_specs: &[String], mode: Compilati
     // and an unsigned receipt cannot satisfy that (TICKET-135).
     if mode == CompilationMode::Mainnet && trusted_specs.is_empty() {
         return Err("a mainnet receipt must be checked against a key you trust: pass \
-             `--trusted <key_id>=<64-hex public key>`. Without it this command can only report that \
+             `--trusted <key_id>=<64-hex public key>` or `--trusted-registry <file>`. Without it this command can only report that \
              the receipt is internally consistent, which is not what a mainnet settlement needs"
             .to_string());
     }

@@ -487,3 +487,156 @@ fn receipt_that_exactly_meets_its_compiled_profit_floor_replays() {
     verify_receipt(&receipt).expect("hash must verify");
     verify_receipt_economics(&receipt).expect("a net exactly at the floor satisfies it");
 }
+
+// ─── The receipt key registry (X3-LANG-003) ─────────────────────────────────────────────────────
+//
+// `--trusted` named keys per invocation: nothing recorded that a key had been rotated out or
+// revoked, so a compromised key stayed trusted wherever an old command line still named it.
+
+mod key_registry {
+    use super::*;
+    use x3_lang_vm::trading::{ReceiptKeyRegistry, ReceiptKeyStatus, RegisteredReceiptKey};
+
+    fn hex(key: &SigningKey) -> String {
+        key.verifying_key()
+            .to_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    fn entry(key_id: &str, key: &SigningKey, status: ReceiptKeyStatus) -> RegisteredReceiptKey {
+        RegisteredReceiptKey {
+            key_id: key_id.to_string(),
+            public_key: hex(key),
+            status,
+        }
+    }
+
+    fn old_key() -> SigningKey {
+        SigningKey::from_bytes(&[7u8; 32])
+    }
+
+    fn new_key() -> SigningKey {
+        SigningKey::from_bytes(&[9u8; 32])
+    }
+
+    /// Rotation: `executor-1` was retired when `executor-2` took over. What `executor-1` signed is
+    /// genuine and still verifies; the registry says it may no longer sign.
+    #[test]
+    fn a_rotated_out_key_still_verifies_what_it_signed_but_may_not_sign() {
+        let registry = ReceiptKeyRegistry::from_entries(vec![
+            entry("executor-1", &old_key(), ReceiptKeyStatus::Retired),
+            entry("executor-2", &new_key(), ReceiptKeyStatus::Active),
+        ])
+        .unwrap();
+
+        let old = sign_receipt(sample_receipt(), "executor-1", &old_key()).unwrap();
+        let new = sign_receipt(sample_receipt(), "executor-2", &new_key()).unwrap();
+        registry.verify(&old).expect("a retired key's receipts stay valid");
+        registry.verify(&new).expect("the active key's receipts verify");
+        assert!(!registry.may_sign("executor-1"));
+        assert!(registry.may_sign("executor-2"));
+    }
+
+    /// Revocation: a compromised key is refused by name, including for receipts it signed before
+    /// the revocation, because a forger holding it can produce receipts indistinguishable from
+    /// those.
+    #[test]
+    fn a_revoked_key_verifies_nothing_it_signed() {
+        let registry = ReceiptKeyRegistry::from_entries(vec![
+            entry("executor-1", &old_key(), ReceiptKeyStatus::Revoked),
+            entry("executor-2", &new_key(), ReceiptKeyStatus::Active),
+        ])
+        .unwrap();
+        let receipt = sign_receipt(sample_receipt(), "executor-1", &old_key()).unwrap();
+        assert_eq!(
+            registry.verify(&receipt),
+            Err(ReceiptError::RevokedAttestor("executor-1".to_string()))
+        );
+        // The same receipt against the plain trust store the registry replaces still verifies:
+        // the revocation is the registry's doing, not a broken signature.
+        verify_receipt_trusted(&receipt, &trusted_keys(&old_key())).unwrap();
+        assert!(!registry.may_sign("executor-1"));
+    }
+
+    #[test]
+    fn a_registry_does_not_trust_a_key_it_does_not_list_or_a_key_under_the_wrong_id() {
+        let registry =
+            ReceiptKeyRegistry::from_entries(vec![entry("executor-2", &new_key(), ReceiptKeyStatus::Active)]).unwrap();
+        let unlisted = sign_receipt(sample_receipt(), "executor-1", &old_key()).unwrap();
+        assert!(matches!(
+            registry.verify(&unlisted),
+            Err(ReceiptError::UntrustedAttestor(_))
+        ));
+        // The right id with the wrong key: a receipt that claims to be `executor-2`'s.
+        let impostor = sign_receipt(sample_receipt(), "executor-2", &old_key()).unwrap();
+        assert!(matches!(
+            registry.verify(&impostor),
+            Err(ReceiptError::UntrustedAttestor(_))
+        ));
+        // Tampering after signing still breaks the attestation.
+        let mut tampered = sign_receipt(sample_receipt(), "executor-2", &new_key()).unwrap();
+        tampered.trade_id.push('X');
+        assert!(registry.verify(&tampered).is_err());
+    }
+
+    /// A registry a verifier could misread is refused when it is loaded, not when a receipt is.
+    #[test]
+    fn an_ambiguous_registry_is_refused() {
+        let active = |id: &str, key: &SigningKey| entry(id, key, ReceiptKeyStatus::Active);
+        let cases: Vec<(&str, Vec<RegisteredReceiptKey>)> = vec![
+            ("duplicate id", vec![active("a", &old_key()), active("a", &new_key())]),
+            (
+                "one key under two ids",
+                vec![
+                    active("a", &old_key()),
+                    entry("b", &old_key(), ReceiptKeyStatus::Revoked),
+                ],
+            ),
+            ("no active key", vec![entry("a", &old_key(), ReceiptKeyStatus::Retired)]),
+            ("empty id", vec![active(" ", &old_key())]),
+            (
+                "short key",
+                vec![RegisteredReceiptKey {
+                    key_id: "a".into(),
+                    public_key: "abcd".into(),
+                    status: ReceiptKeyStatus::Active,
+                }],
+            ),
+            (
+                "multi-byte characters",
+                vec![RegisteredReceiptKey {
+                    key_id: "a".into(),
+                    public_key: "é".repeat(32),
+                    status: ReceiptKeyStatus::Active,
+                }],
+            ),
+        ];
+        for (name, entries) in cases {
+            assert!(ReceiptKeyRegistry::from_entries(entries).is_err(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_registry_file_parses_and_refuses_unknown_fields() {
+        let json = format!(
+            r#"{{"keys": [
+                {{"key_id": "executor-1", "public_key": "{}", "status": "retired"}},
+                {{"key_id": "executor-2", "public_key": "{}", "status": "active"}}
+            ]}}"#,
+            hex(&old_key()),
+            hex(&new_key())
+        );
+        let registry = ReceiptKeyRegistry::from_json(&json).unwrap();
+        assert_eq!(registry.status("executor-1"), Some(ReceiptKeyStatus::Retired));
+        assert_eq!(registry.status("executor-2"), Some(ReceiptKeyStatus::Active));
+
+        // A misspelt field is refused rather than ignored: `stauts` would otherwise default nothing
+        // and the entry would be unreadable.
+        let misspelt = json.replacen("\"status\": \"retired\"", "\"stauts\": \"retired\"", 1);
+        assert!(ReceiptKeyRegistry::from_json(&misspelt).is_err());
+        let unknown_status = json.replacen("\"retired\"", "\"paused\"", 1);
+        assert!(ReceiptKeyRegistry::from_json(&unknown_status).is_err());
+    }
+}

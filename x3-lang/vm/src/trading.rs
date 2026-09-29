@@ -1621,6 +1621,9 @@ pub enum ReceiptError {
     EconomicReplayMismatch(String),
     MissingAttestation,
     UntrustedAttestor(String),
+    /// The attestor is in the key registry and has been revoked: a key that may be compromised,
+    /// so nothing it signed is accepted, including receipts signed before the revocation.
+    RevokedAttestor(String),
     InvalidAttestation,
     /// This exact receipt (by `receipt_hash`) has already been accepted by
     /// this `ReceiptReplayLedger` once before. Distinct from
@@ -1675,6 +1678,9 @@ impl fmt::Display for ReceiptError {
             Self::EconomicReplayMismatch(message) => write!(f, "receipt economic replay mismatch: {message}"),
             Self::MissingAttestation => write!(f, "receipt is missing a trusted attestation"),
             Self::UntrustedAttestor(key_id) => write!(f, "receipt attestor '{key_id}' is not trusted"),
+            Self::RevokedAttestor(key_id) => {
+                write!(f, "receipt attestor '{key_id}' is revoked in the key registry")
+            }
             Self::InvalidAttestation => write!(f, "receipt attestation signature is invalid"),
             Self::ReceiptAlreadySettled(hash) => {
                 write!(f, "receipt {hash:?} has already been settled once")
@@ -2180,6 +2186,123 @@ pub fn verify_receipt_trusted(
     verify_receipt(receipt)?;
     verify_receipt_economics(receipt)?;
     verify_receipt_attestation(receipt, trusted_keys)
+}
+
+/// Where a receipt-signing key stands in its lifecycle.
+///
+/// Receipts carry no signing time a verifier could trust, so the lifecycle is by state, not by
+/// date: rotating a key moves it from `Active` to `Retired`, and it keeps verifying what it signed
+/// (those receipts are genuine); revoking a key, for compromise, refuses everything it ever signed,
+/// because a forger holding it can produce receipts indistinguishable from the old ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiptKeyStatus {
+    /// Signs new receipts and verifies.
+    Active,
+    /// Rotated out: verifies the receipts it signed, must not sign new ones.
+    Retired,
+    /// Compromised or withdrawn: verifies nothing.
+    Revoked,
+}
+
+/// One entry of a receipt key registry, as written in its JSON file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegisteredReceiptKey {
+    pub key_id: String,
+    /// The ed25519 public key, 64 hex characters.
+    pub public_key: String,
+    pub status: ReceiptKeyStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReceiptKeyRegistryFile {
+    keys: Vec<RegisteredReceiptKey>,
+}
+
+/// The keys a settlement trusts to sign receipts, and where each is in its lifecycle
+/// (X3-LANG-003: `--trusted` named keys per invocation, with no record of which keys were
+/// retired or revoked, so a compromised key stayed trusted wherever an old invocation named it).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReceiptKeyRegistry {
+    keys: BTreeMap<String, ([u8; 32], ReceiptKeyStatus)>,
+}
+
+impl ReceiptKeyRegistry {
+    /// Build a registry, refusing one a verifier could misread: an empty or duplicated key id,
+    /// a key that is not 32 bytes of hex, one public key under two ids (a revocation of one id
+    /// would leave the key trusted under the other), or no active key at all.
+    pub fn from_entries(entries: Vec<RegisteredReceiptKey>) -> Result<Self, String> {
+        let mut keys = BTreeMap::new();
+        let mut seen_public: BTreeMap<[u8; 32], String> = BTreeMap::new();
+        for entry in entries {
+            if entry.key_id.trim().is_empty() {
+                return Err("a registry entry names no key id".to_string());
+            }
+            let public_key = decode_public_key_hex(&entry.public_key)
+                .map_err(|reason| format!("key '{}': {reason}", entry.key_id))?;
+            if let Some(other) = seen_public.insert(public_key, entry.key_id.clone()) {
+                return Err(format!(
+                    "keys '{other}' and '{}' are the same public key: revoking one id would leave \
+                     the key trusted under the other",
+                    entry.key_id
+                ));
+            }
+            if keys.insert(entry.key_id.clone(), (public_key, entry.status)).is_some() {
+                return Err(format!("key id '{}' is listed twice", entry.key_id));
+            }
+        }
+        if !keys.values().any(|(_, status)| *status == ReceiptKeyStatus::Active) {
+            return Err("the registry has no active key".to_string());
+        }
+        Ok(Self { keys })
+    }
+
+    /// Parse a registry file: `{"keys": [{"key_id", "public_key", "status"}, ...]}`.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let file: ReceiptKeyRegistryFile = serde_json::from_str(json).map_err(|e| format!("key registry: {e}"))?;
+        Self::from_entries(file.keys)
+    }
+
+    pub fn status(&self, key_id: &str) -> Option<ReceiptKeyStatus> {
+        self.keys.get(key_id).map(|(_, status)| *status)
+    }
+
+    /// Whether `key_id` may sign a new receipt: only an active key may.
+    pub fn may_sign(&self, key_id: &str) -> bool {
+        self.status(key_id) == Some(ReceiptKeyStatus::Active)
+    }
+
+    /// Everything `verify_receipt_trusted` checks, with the trusted set taken from this registry:
+    /// an active or retired signer verifies, a revoked one is refused by name.
+    pub fn verify(&self, receipt: &TradeReceipt) -> Result<(), ReceiptError> {
+        verify_receipt(receipt)?;
+        verify_receipt_economics(receipt)?;
+        let attestation = receipt.attestation.as_ref().ok_or(ReceiptError::MissingAttestation)?;
+        if self.status(&attestation.key_id) == Some(ReceiptKeyStatus::Revoked) {
+            return Err(ReceiptError::RevokedAttestor(attestation.key_id.clone()));
+        }
+        // Revoked signers were refused above; every remaining listed key is a verifier.
+        let verifying: BTreeMap<String, [u8; 32]> = self.keys.iter().map(|(id, (key, _))| (id.clone(), *key)).collect();
+        verify_receipt_attestation(receipt, &verifying)
+    }
+}
+
+fn decode_public_key_hex(hex: &str) -> Result<[u8; 32], String> {
+    let hex = hex.trim();
+    // Checked before slicing: a multi-byte character would put a byte index off a char boundary.
+    if !hex.is_ascii() {
+        return Err("public key is not hex".to_string());
+    }
+    if hex.len() != 64 {
+        return Err(format!("public key must be 64 hex characters, got {}", hex.len()));
+    }
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).map_err(|_| "public key is not hex".to_string())?;
+    }
+    Ok(out)
 }
 
 /// Replay protection for receipt settlement.
