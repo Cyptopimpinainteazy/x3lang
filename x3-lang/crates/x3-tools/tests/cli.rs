@@ -4776,3 +4776,116 @@ fn cli_receipt_verify_honours_a_key_registry() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The signing side of the key registry (X3-LANG-003): `receipt execute --signing-registry` signs
+/// only with a key the registry has as active under `--key-id`, and only if the registry lists that
+/// key's own public key there. A rotated-out or revoked key no longer signs in the first place.
+#[test]
+fn cli_receipt_execute_signs_only_with_an_active_registry_key() {
+    let src = write_fixture("cli_receipt_signing_registry.x3", TRADING_SOURCE);
+    let dir = std::env::temp_dir().join("cli_receipt_signing_registry");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+
+    // The default dev key's public key, read off a receipt it signs without a registry.
+    let plain = dir.join("plain.json");
+    let executed = x3c()
+        .args(["receipt", "execute"])
+        .arg(&src)
+        .arg("--out")
+        .arg(&plain)
+        .args(HOST_CAPS)
+        .output()
+        .expect("x3c receipt execute");
+    assert!(executed.status.success(), "the plain path is unchanged");
+    let receipt: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&plain).expect("receipt")).expect("json");
+    let hex: String = receipt["attestation"]["public_key"]
+        .as_array()
+        .expect("public key")
+        .iter()
+        .map(|byte| format!("{:02x}", byte.as_u64().expect("byte") as u8))
+        .collect();
+
+    let registry = |name: &str, status: &str, public_key: &str| {
+        let path = dir.join(format!("{name}.json"));
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"keys": [
+                    {{"key_id": "signer", "public_key": "{public_key}", "status": "{status}"}},
+                    {{"key_id": "other", "public_key": "{}", "status": "active"}}
+                ]}}"#,
+                "22".repeat(32)
+            ),
+        )
+        .expect("write registry");
+        path
+    };
+    let execute = |registry: &std::path::Path, key_id: &str, out: &std::path::Path| {
+        x3c()
+            .args(["receipt", "execute"])
+            .arg(&src)
+            .arg("--out")
+            .arg(out)
+            .args(HOST_CAPS)
+            .args(["--key-id", key_id])
+            .arg("--signing-registry")
+            .arg(registry)
+            .output()
+            .expect("x3c receipt execute")
+    };
+
+    // Active: signed under the named key id, and the result verifies against the same registry.
+    let active = registry("active", "active", &hex);
+    let signed = dir.join("signed.json");
+    let run = execute(&active, "signer", &signed);
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    let receipt: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&signed).expect("receipt")).expect("json");
+    assert_eq!(receipt["attestation"]["key_id"], "signer");
+    let verified = x3c()
+        .args(["receipt", "verify"])
+        .arg(&signed)
+        .args(["--mode", "mainnet"])
+        .arg("--trusted-registry")
+        .arg(&active)
+        .output()
+        .expect("x3c receipt verify");
+    assert!(
+        verified.status.success(),
+        "{}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+
+    // Retired, revoked, not listed: refused before anything is written.
+    for (name, status, key_id, expected) in [
+        ("retired", "retired", "signer", "has it as retired"),
+        ("revoked", "revoked", "signer", "has it as revoked"),
+        ("unlisted", "active", "nobody", "has it as not listed"),
+    ] {
+        let out = dir.join(format!("{name}-out.json"));
+        let run = execute(&registry(name, status, &hex), key_id, &out);
+        assert!(!run.status.success(), "{name}: must not sign");
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert!(stderr.contains(expected), "{name}: {stderr}");
+        assert!(!out.exists(), "{name}: no receipt was written");
+    }
+
+    // The right id, but the registry lists another key under it: the signer is not who the
+    // registry says it is.
+    let out = dir.join("mismatch-out.json");
+    let run = execute(&registry("mismatch", "active", &"33".repeat(32)), "signer", &out);
+    assert!(
+        !run.status.success(),
+        "a key the registry does not list under the id must not sign"
+    );
+    assert!(
+        String::from_utf8_lossy(&run.stderr).contains("not the public key the registry lists"),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(!out.exists());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

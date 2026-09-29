@@ -2269,6 +2269,11 @@ impl ReceiptKeyRegistry {
         self.keys.get(key_id).map(|(_, status)| *status)
     }
 
+    /// The public key the registry lists under `key_id`, whatever its status.
+    pub fn public_key(&self, key_id: &str) -> Option<[u8; 32]> {
+        self.keys.get(key_id).map(|(key, _)| *key)
+    }
+
     /// Whether `key_id` may sign a new receipt: only an active key may.
     pub fn may_sign(&self, key_id: &str) -> bool {
         self.status(key_id) == Some(ReceiptKeyStatus::Active)

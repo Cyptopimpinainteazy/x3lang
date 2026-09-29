@@ -448,6 +448,14 @@ enum ReceiptAction {
         /// fixture/demo tool, not a production signer.
         #[arg(long)]
         key_hex: Option<String>,
+        /// The key id the receipt's attestation names.
+        #[arg(long, default_value = "x3c-receipt-execute")]
+        key_id: String,
+        /// A receipt key registry (the file `receipt verify --trusted-registry` reads). When given,
+        /// the receipt is signed only if `--key-id` is an active key in it and the registry lists
+        /// the signing key's own public key under that id: a retired or revoked key does not sign.
+        #[arg(long = "signing-registry", value_name = "FILE")]
+        signing_registry: Option<PathBuf>,
         /// The chain this host executes on, checked against the compiled
         /// policy's chain. Required, because a default would answer the
         /// question the flag exists to ask.
@@ -591,6 +599,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 out,
                 block,
                 key_hex,
+                key_id,
+                signing_registry,
                 chain,
                 private_submission,
                 providers,
@@ -602,6 +612,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 mode,
                 block,
                 key_hex.as_deref(),
+                &key_id,
+                signing_registry.as_ref(),
                 cli.deny_warnings,
                 &HostCapabilities {
                     chain,
@@ -3294,6 +3306,8 @@ fn cmd_receipt_execute(
     mode_str: &str,
     block: u64,
     key_hex: Option<&str>,
+    key_id: &str,
+    signing_registry: Option<&PathBuf>,
     deny_warnings: bool,
     declared: &HostCapabilities,
 ) -> Result<ExitCode, String> {
@@ -3363,14 +3377,45 @@ fn cmd_receipt_execute(
 
     let signing_seed = decode_signing_seed(key_hex)?;
     let signing_key = SigningKey::from_bytes(&signing_seed);
-    let receipt = sign_receipt(receipt, "x3c-receipt-execute", &signing_key)
-        .map_err(|e| format!("receipt signing failed: {e}"))?;
 
-    let trusted = BTreeMap::from([(
-        "x3c-receipt-execute".to_string(),
-        signing_key.verifying_key().to_bytes(),
-    )]);
-    verify_receipt_trusted(&receipt, &trusted).map_err(|e| format!("receipt failed self-verification: {e}"))?;
+    // The signing side of the key registry (X3-LANG-003): `receipt verify --trusted-registry`
+    // refused a revoked signer, but nothing stopped a rotated-out or revoked key from signing in
+    // the first place. With a registry, the key signs only if it is active under this id and the
+    // registry holds this key's own public key there — checked before anything is signed.
+    let registry = match signing_registry {
+        Some(path) => {
+            let body = std::fs::read_to_string(path).map_err(|e| format!("read {path:?}: {e}"))?;
+            let registry = x3_lang_vm::trading::ReceiptKeyRegistry::from_json(&body)?;
+            if !registry.may_sign(key_id) {
+                let status = registry
+                    .status(key_id)
+                    .map(|status| format!("{status:?}").to_lowercase())
+                    .unwrap_or_else(|| "not listed".to_string());
+                return Err(format!(
+                    "key '{key_id}' may not sign receipts: the key registry has it as {status}"
+                ));
+            }
+            if registry.public_key(key_id) != Some(signing_key.verifying_key().to_bytes()) {
+                return Err(format!(
+                    "the signing key is not the public key the registry lists for '{key_id}'"
+                ));
+            }
+            Some(registry)
+        }
+        None => None,
+    };
+
+    let receipt = sign_receipt(receipt, key_id, &signing_key).map_err(|e| format!("receipt signing failed: {e}"))?;
+
+    match &registry {
+        Some(registry) => registry
+            .verify(&receipt)
+            .map_err(|e| format!("receipt failed verification against the key registry: {e}"))?,
+        None => {
+            let trusted = BTreeMap::from([(key_id.to_string(), signing_key.verifying_key().to_bytes())]);
+            verify_receipt_trusted(&receipt, &trusted).map_err(|e| format!("receipt failed self-verification: {e}"))?
+        }
+    }
 
     let json = serde_json::to_string_pretty(&receipt).map_err(|e| format!("serialization failed: {e}"))?;
     write_output(out, &json)?;
