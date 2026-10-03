@@ -35,8 +35,25 @@ fn x3c() -> Command {
     Command::new(x3c_bin())
 }
 
+/// A path for `name` that no other call — in this process or a concurrent test
+/// run — shares. Tests run in parallel, and helpers such as
+/// `receipt_execute_with` are called by several of them: with one fixed path,
+/// one test truncated the fixture while another was reading it, and the
+/// `receipt execute` refusal tests failed intermittently.
+fn unique_temp(name: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "x3c-cli-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&dir).expect("fixture dir");
+    dir.join(name)
+}
+
 fn write_fixture(name: &str, body: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(name);
+    let path = unique_temp(name);
     std::fs::write(&path, body).expect("fixture write");
     path
 }
@@ -4341,7 +4358,7 @@ fn cli_receipt_verify_refuses_a_receipt_whose_figures_contradict_themselves() {
 /// Compile `TRADING_SOURCE`, then run `receipt execute` with whatever host the caller declares.
 fn receipt_execute_with(host_args: &[&str]) -> (bool, String) {
     let source = write_fixture("cli_host_caps.x3", TRADING_SOURCE);
-    let receipt = std::env::temp_dir().join("cli_host_caps_receipt.json");
+    let receipt = unique_temp("cli_host_caps_receipt.json");
     let output = x3c()
         .args(["receipt", "execute"])
         .arg(&source)
