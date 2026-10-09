@@ -493,3 +493,10 @@ fn every_published_verification_pass_has_a_caller() {
          against nothing: {orphans:?}"
     );
 }
+
+
+#[test]
+fn compiler_exports_stable_identity() {
+    assert!(!x3_lang_compiler::COMPILER_VERSION.is_empty());
+    assert_eq!(x3_lang_compiler::BYTECODE_VERSION, 0x01);
+}
