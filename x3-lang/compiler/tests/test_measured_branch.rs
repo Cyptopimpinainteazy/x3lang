@@ -320,3 +320,19 @@ fn assert_skip_lands_on_an_instruction(bytecode: &[u8], pc: usize, skip: u32) {
         walked.iter().map(|instruction| instruction.pc).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn compile_program_accepts_the_version_two_artifact_it_writes() {
+    // `compile_program` runs `verify_bytecode` after emitting. That check compared the version
+    // byte against a literal 0x01, so the moment a program carried a measured branch -- whose
+    // `IF_MEASURED` record moves the artifact to version 2 -- the AST entry point refused the
+    // bytecode its own emitter had just written ("invalid bytecode version: 2").
+    let source = module("        if profit >= 20 {\n            require profit >= 20\n        }");
+    let program = x3_lang_compiler::parser::parse_source(&source).expect("the program must parse");
+    let bytecode =
+        x3_lang_compiler::compile_program(&program).expect("a measured branch must compile through compile_program");
+    assert_eq!(
+        bytecode[0], BYTECODE_VERSION_2,
+        "a measured branch is a version-2 artifact"
+    );
+}

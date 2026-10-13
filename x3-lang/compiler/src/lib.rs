@@ -436,6 +436,16 @@ pub use intent_bridge::{
 /// hash.
 pub use intent_emit::{IntentSpecDraft, SourceConstraint};
 
+/// The compiler's identity: what an artifact's provenance binds alongside the source hash,
+/// artifact hash and repository commit (X1 in `docs/x3-lang/PRODUCTION_CUTOVER_GATE.md`).
+pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The baseline X3BC format version: the header byte of every artifact that uses only the
+/// original opcode set. It is not a ceiling -- an artifact that uses a later opcode carries a
+/// higher byte, up to [`spec::opcodes::CURRENT_BYTECODE_VERSION`], and readers accept every
+/// version in [`spec::opcodes::SUPPORTED_BYTECODE_VERSIONS`].
+pub const BYTECODE_VERSION: u8 = spec::opcodes::BYTECODE_VERSION_1;
+
 /// Verify bytecode is properly formed (basic checks)
 fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
     if bytecode.is_empty() {
@@ -445,8 +455,10 @@ fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
         });
     }
 
-    // Check version byte
-    if bytecode[0] != 0x01 {
+    // Any version this format defines. The emitter narrows each artifact's byte to the greatest
+    // version among the opcodes it contains, so a measured branch (`IF_MEASURED`) is a
+    // version-2 artifact; comparing against a literal 0x01 refused the compiler's own output.
+    if !spec::opcodes::is_supported_version(bytecode[0]) {
         return Err(X3Error::CodegenError {
             message: format!("invalid bytecode version: {}", bytecode[0]),
             span: None,
