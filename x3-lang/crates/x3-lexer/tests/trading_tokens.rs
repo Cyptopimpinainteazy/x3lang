@@ -3,6 +3,33 @@
 use x3_lang_lexer::Keyword;
 
 #[test]
+fn numeric_minus_has_its_own_token_and_exact_span() {
+    use x3_lang_lexer::{Lexer, Literal, TokenKind, UnOp};
+    let tokens = Lexer::lex_all("10-2");
+    assert!(matches!(
+        tokens[0].kind,
+        TokenKind::Literal(Literal::Int { value: 10, .. })
+    ));
+    assert!(matches!(tokens[1].kind, TokenKind::UnOp(UnOp::Neg)));
+    assert!(matches!(
+        tokens[2].kind,
+        TokenKind::Literal(Literal::Int { value: 2, .. })
+    ));
+    assert_eq!(
+        tokens[1].span,
+        x3_lang_common::Span::new(x3_lang_common::BytePos::new(2), x3_lang_common::BytePos::new(3), 0)
+    );
+}
+
+#[test]
+fn hyphenated_names_and_arrows_keep_their_token_boundaries() {
+    use x3_lang_lexer::{Lexer, TokenKind};
+    let tokens = Lexer::lex_all("chain-name->other");
+    assert!(matches!(&tokens[0].kind, TokenKind::Ident(name) if name.as_str() == "chain-name"));
+    assert!(matches!(&tokens[2].kind, TokenKind::Ident(name) if name.as_str() == "other"));
+}
+
+#[test]
 fn trading_keywords_map_both_directions() {
     let pairs: &[(&str, Keyword)] = &[
         ("asset", Keyword::Asset),
@@ -114,5 +141,35 @@ mod lexing {
                 "source {source} must not lex as an integer literal: {kinds:?}"
             );
         }
+    }
+}
+#[test]
+fn unicode_escapes_decode_scalar_values_and_refuse_malformed_input() {
+    use x3_lang_lexer::{Lexer, Literal, TokenKind};
+    for (source, expected) in [
+        (r#""\u{41}\u{1F4A5}\u{0}""#, "A💥\0"),
+        (r#""\u{10ffff}""#, "\u{10ffff}"),
+    ] {
+        let tokens = Lexer::lex_all(source);
+        assert!(
+            matches!(&tokens[0].kind, TokenKind::Literal(Literal::String(value)) if value.as_str() == expected),
+            "{source}"
+        );
+        assert_eq!(tokens[0].span.end.as_usize(), source.len());
+    }
+    for source in [
+        r#""\u{}""#,
+        r#""\u{D800}""#,
+        r#""\u{110000}""#,
+        r#""\u{0000000}""#,
+        r#""\u{xyz}""#,
+        r#""\u41""#,
+        r#""\u{41""#,
+        "\"\\u{💥",
+    ] {
+        assert!(
+            matches!(Lexer::lex_all(source)[0].kind, TokenKind::Unknown('"')),
+            "{source}"
+        );
     }
 }

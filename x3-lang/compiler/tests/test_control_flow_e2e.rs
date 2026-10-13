@@ -78,19 +78,19 @@ fn a_compiled_program_reaches_the_vm_and_runs() {
 }
 
 #[test]
-fn a_let_binding_is_refused_rather_than_compiled_to_nothing() {
-    // This test used to be `e2e_compiled_bytecode_executes_arithmetic` and asserted **nothing** — it
-    // built a VM and dropped it. The program it built was `let x = 10; let y = 20;`, which the
-    // compiler accepted and lowered to two `Nop`s, written as eight zero bytes that every reader
-    // skips as padding: the artifact of that program was byte-identical to an empty program's.
-    // It is refused by name now (TICKET-109), which is what this asserts — the arithmetic subject
-    // stays covered, one stage earlier and visibly.
-    let error = compile_source("fn add_fn() {\n    let x = 10;\n    let y = 20;\n}")
-        .expect_err("a `let` binding has nowhere to go in this compiler");
-    assert!(
-        error.to_string().contains("`let x = …`"),
-        "the refusal must name the binding: {error}"
-    );
+fn constant_binding_arithmetic_reaches_the_vm() {
+    let bytecode = compile_source(
+        "fn add_fn() { atomic { let x = 10; let y = 20; \
+         lock ethereum.USDC amount x + y from sender; release ethereum.USDC to sender; } }",
+    )
+    .expect("immutable constant amounts must compile");
+    let mut vm = VM::new(bytecode, VMConfig::default(), GAS);
+    vm.execute().expect("constant arithmetic must execute");
+    assert!(vm
+        .state
+        .asset_ops
+        .iter()
+        .any(|operation| matches!(operation, x3_lang_common::AssetOpPayload::Lock { amount: 30, .. })));
 }
 
 #[test]

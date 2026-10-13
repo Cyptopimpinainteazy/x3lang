@@ -1774,11 +1774,11 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
         // the operation statements above.
         Statement::Let { name, .. } => {
             return Err(semantic(&format!(
-                "`let {name} = …` binds a name this compiler has no place to keep: it emits no \
-                 arithmetic and no register holds a source-level binding, so the value would be \
-                 dropped and every *use* of `{name}` already refuses. Write the value where it is \
-                 used. (The trading dialect's `let <name> = <swap …>` is a different construct and \
-                 does lower — it binds an operation's result.)"
+                "`let {name} = …` cannot be resolved as an immutable compile-time amount binding. \
+                 The initializer must produce a non-negative u128 through checked arithmetic and \
+                 previously declared amount bindings, with no type annotation or an explicit u128. \
+                 Mutable or runtime values are unsupported: no register holds a source-level binding \
+                 for them. Trading swap-result bindings use the separate trading execution path."
             )));
         }
         Statement::Return(_) => {
@@ -1828,8 +1828,168 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
     Ok(())
 }
 
+/// Immutable amount bindings are compile-time values. Resolve them before lowering;
+/// every remaining use must be refused, so a name cannot silently become a host string.
+fn resolve_amount_bindings(
+    block: &Block,
+    inherited: &std::collections::HashMap<String, u128>,
+) -> Result<Block, x3_lang_common::X3Error> {
+    let mut bindings = inherited.clone();
+    let mut output = Vec::new();
+    for original in &block.stmts {
+        let mut stmt = original.clone();
+        if let Statement::Let {
+            name,
+            ty,
+            expr: Some(expr),
+            is_mut: false,
+        } = &stmt
+        {
+            if amount_binding_annotation_is_supported(ty.as_ref()) && amount_binding_type_is_supported(expr) {
+                let resolved = substitute_amount(expr, &bindings)?;
+                if let Some(value) = fold_int(&resolved) {
+                    bindings.insert(name.as_str().to_owned(), value);
+                    continue;
+                }
+            }
+        }
+        match &mut stmt {
+            Statement::Lock { amount, .. }
+            | Statement::Mint { amount, .. }
+            | Statement::Burn { amount, .. }
+            | Statement::Bridge { amount, .. } => {
+                *amount = substitute_amount(amount, &bindings)?;
+            }
+            Statement::Swap { amount, min_output, .. } => {
+                for expr in [amount, min_output].into_iter().flatten() {
+                    *expr = substitute_amount(expr, &bindings)?;
+                }
+            }
+            Statement::Require(guard) => {
+                if let Some(value) = &mut guard.value {
+                    *value = substitute_amount(value, &bindings)?;
+                }
+            }
+            Statement::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                *cond = substitute_amount(cond, &bindings)?;
+                *then_block = resolve_amount_bindings(then_block, &bindings)?;
+                if let Some(block) = else_block {
+                    *block = resolve_amount_bindings(block, &bindings)?;
+                }
+            }
+            Statement::While { cond, body } => {
+                *cond = substitute_amount(cond, &bindings)?;
+                *body = resolve_amount_bindings(body, &bindings)?;
+            }
+            Statement::Loop(body) => {
+                *body = resolve_amount_bindings(body, &bindings)?;
+            }
+            Statement::Atomic(atomic) => {
+                atomic.body = resolve_amount_bindings(&atomic.body, &bindings)?;
+            }
+            _ => {}
+        }
+        if !bindings.is_empty() {
+            // Inspect the derived AST representation conservatively for references outside
+            // supported amount/guard positions. This never rewrites JSON or computes values;
+            // it also refuses ambiguous pattern references rather than accepting a lost use.
+            let text =
+                serde_json::to_string(&stmt).map_err(|e| semantic(&format!("binding inspection failed: {e}")))?;
+            let value: serde_json::Value =
+                serde_json::from_str(&text).map_err(|e| semantic(&format!("binding inspection failed: {e}")))?;
+            if let Some(name) = unresolved_amount_binding(&value, &bindings) {
+                return Err(semantic(&format!(
+                    "amount binding `{name}` is used outside a supported amount or guard expression"
+                )));
+            }
+        }
+        output.push(stmt);
+    }
+    Ok(Block::new(output))
+}
+
+fn unresolved_amount_binding<'a>(
+    value: &'a serde_json::Value,
+    bindings: &std::collections::HashMap<String, u128>,
+) -> Option<&'a str> {
+    match value {
+        serde_json::Value::Object(fields) => {
+            if let Some(name) = fields.get("Ident").and_then(serde_json::Value::as_str) {
+                if bindings.contains_key(name) {
+                    return Some(name);
+                }
+            }
+            fields
+                .values()
+                .find_map(|value| unresolved_amount_binding(value, bindings))
+        }
+        serde_json::Value::Array(values) => values
+            .iter()
+            .find_map(|value| unresolved_amount_binding(value, bindings)),
+        _ => None,
+    }
+}
+
+fn substitute_amount(
+    expr: &Expression,
+    bindings: &std::collections::HashMap<String, u128>,
+) -> Result<Expression, x3_lang_common::X3Error> {
+    let mut result = expr.clone();
+    match &mut result {
+        Expression::Ident(name) => {
+            if let Some(value) = bindings.get(name.as_str()) {
+                return Ok(amount_literal(*value));
+            }
+        }
+        Expression::Binary { lhs, rhs, .. } => {
+            **lhs = substitute_amount(lhs, bindings)?;
+            **rhs = substitute_amount(rhs, bindings)?;
+            if let Some(value) = fold_int(&result) {
+                return Ok(amount_literal(value));
+            }
+        }
+        _ => {}
+    }
+    Ok(result)
+}
+
+fn amount_binding_annotation_is_supported(ty: Option<&TypeExpr>) -> bool {
+    match ty {
+        None => true,
+        Some(TypeExpr::Primitive(name)) => name.as_str() == "u128",
+        Some(TypeExpr::Path(parts)) => parts.len() == 1 && parts[0].as_str() == "u128",
+        _ => false,
+    }
+}
+
+fn amount_binding_type_is_supported(expr: &Expression) -> bool {
+    match expr {
+        Expression::Literal(LiteralExpr::Int { suffix, .. }) => {
+            suffix.is_none() || *suffix == Some(x3_lang_common::IntSuffix::U128)
+        }
+        Expression::Binary { lhs, rhs, .. } => {
+            amount_binding_type_is_supported(lhs) && amount_binding_type_is_supported(rhs)
+        }
+        Expression::Ident(_) => true,
+        _ => false,
+    }
+}
+
+fn amount_literal(value: u128) -> Expression {
+    Expression::Literal(LiteralExpr::Int {
+        value,
+        base: x3_lang_common::IntBase::Decimal,
+        suffix: None,
+    })
+}
+
 /// Lower a function body (block of statements)
 fn lower_function_body(block: &Block, ir: &mut X3IR) -> Result<(), x3_lang_common::X3Error> {
+    let block = resolve_amount_bindings(block, &std::collections::HashMap::new())?;
     for stmt in &block.stmts {
         lower_statement(stmt, ir)?;
     }
@@ -2091,9 +2251,8 @@ fn lower_builtin_call(callee: &Expression, args: &[Expression], ir: &mut X3IR) -
 /// and the branch that depended on it stays undecided. A branch decided from a wrapped number is
 /// a branch decided wrongly, which is worse than one that refuses.
 ///
-/// Narrow on purpose: only the operations whose result a `u128` can hold are folded. The shifts
-/// and the bitwise operators are `None` — a left shift that discards high bits wraps, and
-/// checking that costs more than the case is worth when the fallback is a refusal that names why.
+/// A left shift must preserve every high bit; `checked_shl` alone only checks the
+/// shift distance and would still accept a wrapped value. Both conditions are checked.
 fn fold_int(expr: &Expression) -> Option<u128> {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => Some(*value),
@@ -2101,6 +2260,15 @@ fn fold_int(expr: &Expression) -> Option<u128> {
             let left = fold_int(lhs)?;
             let right = fold_int(rhs)?;
             match op {
+                BinOp::And => Some(left & right),
+                BinOp::Or => Some(left | right),
+                BinOp::Xor => Some(left ^ right),
+                BinOp::Shl => {
+                    let distance = u32::try_from(right).ok()?;
+                    let result = left.checked_shl(distance)?;
+                    (result.checked_shr(distance)? == left).then_some(result)
+                }
+                BinOp::Shr => left.checked_shr(u32::try_from(right).ok()?),
                 BinOp::Plus => left.checked_add(right),
                 BinOp::Minus => left.checked_sub(right),
                 BinOp::Star => left.checked_mul(right),

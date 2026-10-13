@@ -52,10 +52,10 @@ fn refusals(body: &str) -> Vec<String> {
 }
 
 #[test]
-fn a_let_binding_is_refused_by_name_and_not_dropped() {
+fn a_dynamic_let_binding_is_refused_by_name_and_not_dropped() {
     // The measured defect: this used to check with `3 ops, no semantic errors`, and those three
     // operations were three `Nop`s.
-    let messages = refusals("        let a = 1;\n        let b = 2;");
+    let messages = refusals("        let a = host_price();");
     assert_eq!(messages.len(), 1, "one statement, one refusal: {messages:?}");
     assert!(
         messages[0].contains("`let a = …`"),

@@ -2148,9 +2148,23 @@ impl X3Formatter {
                 // operator as the language writes it, and `Debug` gives the variant's
                 // name — `Ge`, `Plus` — which is not a program. A formatter that
                 // writes one produces text the parser refuses.
-                self.format_expression(lhs);
+                // Group nested operands so formatting preserves the expression tree,
+                // including mixed precedence and right-hand non-associative operators.
+                if matches!(lhs.as_ref(), Expression::Binary { .. }) {
+                    self.write("(");
+                    self.format_expression(lhs);
+                    self.write(")");
+                } else {
+                    self.format_expression(lhs);
+                }
                 self.write(&format!(" {op} "));
-                self.format_expression(rhs);
+                if matches!(rhs.as_ref(), Expression::Binary { .. }) {
+                    self.write("(");
+                    self.format_expression(rhs);
+                    self.write(")");
+                } else {
+                    self.format_expression(rhs);
+                }
             }
             Expression::Unary { op, expr: inner } => {
                 self.write(match op {
@@ -2160,7 +2174,13 @@ impl X3Formatter {
                     x3_lang_common::UnOp::Ref => "&",
                     x3_lang_common::UnOp::RefMut => "&mut ",
                 });
-                self.format_expression(inner);
+                if matches!(inner.as_ref(), Expression::Binary { .. }) {
+                    self.write("(");
+                    self.format_expression(inner);
+                    self.write(")");
+                } else {
+                    self.format_expression(inner);
+                }
             }
             Expression::Call { callee, args } => {
                 self.format_expression(callee);
@@ -2264,16 +2284,31 @@ impl X3Formatter {
 
     fn format_literal(&mut self, lit: &LiteralExpr) {
         match lit {
-            LiteralExpr::Int { value, base, suffix: _ } => match base {
-                x3_lang_common::IntBase::Decimal => self.write(&value.to_string()),
-                x3_lang_common::IntBase::Hex => self.write(&format!("0x{value:x}")),
-                x3_lang_common::IntBase::Binary => self.write(&format!("0b{value:b}")),
-                x3_lang_common::IntBase::Octal => self.write(&format!("0o{value:o}")),
-            },
+            LiteralExpr::Int { value, base, suffix } => {
+                match base {
+                    x3_lang_common::IntBase::Decimal => self.write(&value.to_string()),
+                    x3_lang_common::IntBase::Hex => self.write(&format!("0x{value:x}")),
+                    x3_lang_common::IntBase::Binary => self.write(&format!("0b{value:b}")),
+                    x3_lang_common::IntBase::Octal => self.write(&format!("0o{value:o}")),
+                }
+                if let Some(suffix) = suffix {
+                    self.write(&suffix.to_string());
+                }
+            }
             LiteralExpr::Float { raw, .. } => self.write(raw.as_str()),
             LiteralExpr::String(s) => {
                 self.write("\"");
-                self.write(s.as_str());
+                for character in s.as_str().chars() {
+                    match character {
+                        '"' => self.write("\\\""),
+                        '\\' => self.write("\\\\"),
+                        '\n' => self.write("\\n"),
+                        '\r' => self.write("\\r"),
+                        '\t' => self.write("\\t"),
+                        '\0' => self.write("\\0"),
+                        other => self.write(&other.to_string()),
+                    }
+                }
                 self.write("\"");
             }
             LiteralExpr::Duration { value, unit } => {
