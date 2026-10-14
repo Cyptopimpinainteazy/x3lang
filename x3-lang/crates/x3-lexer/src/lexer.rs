@@ -1,4 +1,4 @@
-use crate::token::{BinOp, CommentKind, Delimiter, IntBase, Keyword, Literal, Token, TokenKind, UnOp};
+use crate::token::{BinOp, CommentKind, Delimiter, IntBase, IntSuffix, Keyword, Literal, Token, TokenKind, UnOp};
 use x3_lang_common::{BytePos, Span, Symbol};
 
 pub struct Lexer<'a> {
@@ -41,7 +41,9 @@ impl<'a> Lexer<'a> {
                         if next == '-' && source[i + next.len_utf8()..].starts_with('>') {
                             break;
                         }
-                        if next.is_ascii_alphanumeric() || next == '_' || next == '-' {
+                        // Hyphens belong to names, but after a numeric token they
+                        // start subtraction or unary negation, even without spaces.
+                        if next.is_ascii_alphanumeric() || next == '_' || (next == '-' && !starts_with_digit) {
                             i += next.len_utf8();
                         } else if starts_with_digit && next == '.' {
                             // Decimal literals (0.02, 1_000.5) continue through
@@ -58,7 +60,18 @@ impl<'a> Lexer<'a> {
                     }
                     let text = &source[start..i];
                     if starts_with_digit {
-                        if let Some(value) = parse_decimal_integer(text) {
+                        if let Some((value, base, suffix)) = parse_suffixed_integer(text) {
+                            tokens.push(token(
+                                TokenKind::Literal(Literal::Int {
+                                    value,
+                                    base,
+                                    suffix: Some(suffix),
+                                }),
+                                start,
+                                i,
+                                file_id,
+                            ));
+                        } else if let Some(value) = parse_decimal_integer(text) {
                             tokens.push(token(
                                 TokenKind::Literal(Literal::Int {
                                     value,
@@ -93,20 +106,47 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 '"' => {
+                    let mut value = String::new();
+                    let mut terminated = false;
+                    let mut valid = true;
                     while i < bytes.len() {
                         let next = source[i..].chars().next().unwrap();
                         i += next.len_utf8();
                         if next == '"' {
+                            terminated = true;
                             break;
                         }
+                        if next == '\\' {
+                            let Some(escaped) = source[i..].chars().next() else {
+                                valid = false;
+                                break;
+                            };
+                            i += escaped.len_utf8();
+                            match escaped {
+                                '"' => value.push('"'),
+                                '\\' => value.push('\\'),
+                                'n' => value.push('\n'),
+                                'r' => value.push('\r'),
+                                't' => value.push('\t'),
+                                '0' => value.push('\0'),
+                                'u' => match parse_unicode_escape(source, &mut i) {
+                                    Some(character) => value.push(character),
+                                    None => valid = false,
+                                },
+                                _ => valid = false,
+                            }
+                        } else {
+                            value.push(next);
+                        }
                     }
-                    let end = i.saturating_sub(1);
-                    tokens.push(token(
-                        TokenKind::Literal(Literal::String(Symbol::new(&source[start + 1..end]))),
-                        start,
-                        i,
-                        file_id,
-                    ));
+                    let kind = if terminated && valid {
+                        TokenKind::Literal(Literal::String(Symbol::new(&value)))
+                    } else {
+                        // Keep the complete malformed literal's span; never slice a
+                        // missing closing quote off a potentially multibyte character.
+                        TokenKind::Unknown('"')
+                    };
+                    tokens.push(token(kind, start, i, file_id));
                 }
                 '(' => tokens.push(token(TokenKind::Delimiter(Delimiter::OpenParen), start, i, file_id)),
                 ')' => tokens.push(token(TokenKind::Delimiter(Delimiter::CloseParen), start, i, file_id)),
@@ -152,6 +192,9 @@ impl<'a> Lexer<'a> {
                     i += 1;
                     tokens.push(token(TokenKind::Arrow, start, i, file_id));
                 }
+                '&' => tokens.push(token(TokenKind::BinOp(BinOp::And), start, i, file_id)),
+                '|' => tokens.push(token(TokenKind::BinOp(BinOp::Or), start, i, file_id)),
+                '^' => tokens.push(token(TokenKind::BinOp(BinOp::Xor), start, i, file_id)),
                 '+' => tokens.push(token(TokenKind::BinOp(BinOp::Plus), start, i, file_id)),
                 '*' => tokens.push(token(TokenKind::BinOp(BinOp::Star), start, i, file_id)),
                 // Comments. These arms must precede the generic `'/` arm
@@ -235,6 +278,66 @@ fn token(kind: TokenKind, start: usize, end: usize, file_id: u32) -> Token {
 /// Parse a decimal integer that may contain `_` separators
 /// (for example `1_000_000`). Non-decimal or overflowing text returns `None`
 /// so the lexer falls back to identifier classification.
+/// Recognize explicit integer types without reclassifying unsuffixed hex addresses.
+/// Decode a braced Unicode scalar without consuming a closing string quote on error.
+fn parse_unicode_escape(source: &str, position: &mut usize) -> Option<char> {
+    if !source[*position..].starts_with('{') {
+        return None;
+    }
+    *position += 1;
+    let mut value = 0u32;
+    let mut digits = 0;
+    while let Some(character) = source[*position..].chars().next() {
+        if character == '}' {
+            *position += 1;
+            return (digits > 0).then(|| char::from_u32(value)).flatten();
+        }
+        let digit = character.to_digit(16)?;
+        if digits == 6 {
+            return None;
+        }
+        value = value * 16 + digit;
+        digits += 1;
+        *position += character.len_utf8();
+    }
+    None
+}
+
+fn parse_suffixed_integer(text: &str) -> Option<(u128, IntBase, IntSuffix)> {
+    const SUFFIXES: [&str; 14] = [
+        "u8", "u16", "u32", "u64", "u128", "U256", "usize", "i8", "i16", "i32", "i64", "i128", "I256", "isize",
+    ];
+    for suffix in SUFFIXES {
+        let Some(number) = text.strip_suffix(suffix) else {
+            continue;
+        };
+        let (digits, radix, base) = if let Some(digits) = number.strip_prefix("0x") {
+            (digits, 16, IntBase::Hex)
+        } else if let Some(digits) = number.strip_prefix("0b") {
+            (digits, 2, IntBase::Binary)
+        } else if let Some(digits) = number.strip_prefix("0o") {
+            (digits, 8, IntBase::Octal)
+        } else {
+            (number, 10, IntBase::Decimal)
+        };
+        if digits.is_empty()
+            || digits.starts_with('_')
+            || digits.ends_with('_')
+            || digits.contains("__")
+            || !digits.chars().all(|ch| ch == '_' || ch.is_digit(radix))
+        {
+            return None;
+        }
+        let digits = digits.replace('_', "");
+        return Some((
+            u128::from_str_radix(&digits, radix).ok()?,
+            base,
+            IntSuffix::from_str(suffix)?,
+        ));
+    }
+    None
+}
+
 fn parse_decimal_integer(text: &str) -> Option<u128> {
     if !well_formed_number_part(text) {
         return None;

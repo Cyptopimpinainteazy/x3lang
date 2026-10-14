@@ -2125,6 +2125,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sha3",
+ "tempfile",
  "x3-lang-ast",
  "x3-lang-common",
  "x3-lang-compiler",

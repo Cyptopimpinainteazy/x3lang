@@ -190,3 +190,166 @@ intent t {
 }"#,
     );
 }
+#[test]
+fn unknown_characters_are_rejected_at_their_exact_source_span() {
+    for bad in ["?", "$", "#", "`", "\\", "💥"] {
+        let prefix = "fn main() { ";
+        let source = format!("{prefix}{bad} }}");
+        let error = parse_source(&source).expect_err("unknown characters must never disappear");
+        let x3_lang_common::X3Error::LexerError { message, span } = error else {
+            panic!("expected a lexical refusal, got {error}");
+        };
+        assert!(message.contains(bad), "diagnostic must name {bad}: {message}");
+        assert_eq!(span.start.as_usize(), prefix.len());
+        assert_eq!(span.end.as_usize(), prefix.len() + bad.len());
+        assert!(x3_lang_compiler::compile_source(&source).is_err());
+    }
+    assert!(parse_source("? fn main() {} ").is_err());
+    assert!(parse_source("fn main() {} ?").is_err());
+    assert!(parse_source("fn main() { /* unterminated").is_err());
+}
+
+#[test]
+fn comments_and_string_contents_are_not_unknown_syntax() {
+    assert!(parse_source("// ? $ # 💥\nfn main() { /* ? $ # 💥 */ let text = \"? $ # 💥\"; }").is_ok());
+}
+#[test]
+fn escaped_strings_keep_their_value_after_formatting() {
+    use x3_lang_ast::ast::{Expression, Item, LiteralExpr, Statement};
+    let source = r#"fn main() { let text = "quote: \" slash: \\ line: \n tab: \t null: \0 💥"; }"#;
+    let program = parse_source(source).expect("escaped string must parse");
+    let Item::Function(function) = &program.items[0].node else {
+        panic!("function expected")
+    };
+    let Statement::Let {
+        expr: Some(Expression::Literal(LiteralExpr::String(value))),
+        ..
+    } = &function.body.stmts[0]
+    else {
+        panic!("string expected")
+    };
+    assert_eq!(value.as_str(), "quote: \" slash: \\ line: \n tab: \t null: \0 💥");
+    let formatted = x3_lang_compiler::formatter::X3Formatter::new().format_program(&program);
+    let reparsed = parse_source(&formatted).expect("formatted string must parse");
+    assert_eq!(
+        serde_json::to_value(&function.body).unwrap(),
+        match &reparsed.items[0].node {
+            Item::Function(f) => serde_json::to_value(&f.body).unwrap(),
+            _ => panic!("function expected"),
+        }
+    );
+}
+
+#[test]
+fn malformed_strings_fail_lexically_without_panicking() {
+    for source in [
+        "fn main() { let text = \"💥",
+        "fn main() { let text = \"bad\\q\"; }",
+        "fn main() { let text = \"trailing\\",
+    ] {
+        assert!(
+            matches!(parse_source(source), Err(x3_lang_common::X3Error::LexerError { .. })),
+            "must reject {source:?}"
+        );
+    }
+}
+
+#[test]
+fn decoded_strings_still_obey_asset_address_safety() {
+    let source = r#"fn main() { atomic {
+        lock ethereum.USDC amount 1 from "wallet\\name";
+        release ethereum.USDC to "wallet\\name";
+    } }"#;
+    let error = x3_lang_compiler::compile_source(source).expect_err("unsafe address must be refused");
+    assert!(error.to_string().contains("unsafe characters"));
+    let formatted = x3_lang_compiler::formatter::X3Formatter::new().format_program(&parse_source(source).unwrap());
+    let error = x3_lang_compiler::compile_source(&formatted).expect_err("formatting must not bypass address safety");
+    assert!(error.to_string().contains("unsafe characters"));
+}
+#[test]
+fn unicode_escape_survives_compilation_formatting_and_vm_execution() {
+    let source = r#"fn main() { atomic {
+        lock ethereum.USDC amount 1 from "wallet\u{7a}";
+        release ethereum.USDC to "wallet\u{7a}";
+    } }"#;
+    let bytecode = x3_lang_compiler::compile_source(source).unwrap();
+    let formatted = x3_lang_compiler::formatter::X3Formatter::new().format_program(&parse_source(source).unwrap());
+    assert_eq!(bytecode, x3_lang_compiler::compile_source(&formatted).unwrap());
+    let mut vm = x3_lang_vm::VM::new(bytecode, x3_lang_vm::VMConfig::default(), 100_000);
+    vm.execute().unwrap();
+    assert!(vm.state.asset_ops.iter().any(|op| matches!(op,
+        x3_lang_common::AssetOpPayload::Lock { from, .. } if from == "walletz"
+    )));
+    for literal in [r#""\u{}""#, r#""\u{d800}""#, r#""\u{110000}""#] {
+        assert!(matches!(
+            parse_source(&format!("fn main() {{ let text = {literal}; }}")),
+            Err(x3_lang_common::X3Error::LexerError { .. })
+        ));
+    }
+}
+#[test]
+fn common_parser_errors_point_at_the_offending_token() {
+    for (source, token) in [
+        ("fn main() { let value = 1__0u8; }", "1__0u8"),
+        ("// 💥\nfn main() { let value = 1__0u8; }", "1__0u8"),
+        (
+            "fn main() { let value = 340282366920938463463374607431768211456u128; }",
+            "340282366920938463463374607431768211456u128",
+        ),
+        ("fn main() { let value = ; }", ";"),
+        ("fn main() { let value = 1 }", "}"),
+        ("fn 123() {}", "123"),
+    ] {
+        let x3_lang_common::X3Error::ParseError { span, .. } = parse_source(source).unwrap_err() else {
+            panic!("parser error expected")
+        };
+        let start = source.find(token).unwrap();
+        assert_eq!(span.start.as_usize(), start, "{source}");
+        assert_eq!(span.end.as_usize(), start + token.len(), "{source}");
+    }
+    let source = "fn main() { let value = 1";
+    let x3_lang_common::X3Error::ParseError { span, .. } = parse_source(source).unwrap_err() else {
+        panic!("parser error expected")
+    };
+    assert_eq!(span.start.as_usize(), source.len());
+    assert_eq!(span.end.as_usize(), source.len());
+}
+#[test]
+fn annotation_errors_have_spans_and_integer_arguments_do_not_wrap() {
+    for (source, offending) in [
+        ("\n@no_recursion(4294967296) fn main() {}", "4294967296"),
+        ("\n@multisig(2, \"bad\") fn main() {}", "\"bad\""),
+        ("\n@role() fn main() {}", "role()"),
+        ("\n@unknown fn main() {}", "unknown"),
+        ("\n@subscription fn main() {}", "subscription"),
+        (
+            "\n@scheduled(18446744073709551616) fn main() {}",
+            "18446744073709551616",
+        ),
+        ("\n@scheduled(\"bad\") fn main() {}", "\"bad\""),
+        ("risk_policy { min_route_score 4294967296 }", "4294967296"),
+        ("risk_policy { min_route_score \"bad\" }", "\"bad\""),
+        (
+            "risk_policy { max_slippage 18446744073709551616 }",
+            "18446744073709551616",
+        ),
+        ("risk_policy { max_position \"bad\" }", "\"bad\""),
+    ] {
+        let x3_lang_common::X3Error::ParseError { span, .. } =
+            parse_source(source).expect_err("invalid annotation must fail")
+        else {
+            panic!("parser error expected")
+        };
+        let start = source.find(offending).unwrap();
+        assert_eq!(span.start.as_usize(), start, "{source}");
+        assert_eq!(span.end.as_usize(), start + offending.len(), "{source}");
+    }
+    assert!(parse_source("@no_recursion(4294967295) fn main() {}").is_ok());
+    let program = parse_source("@scheduled(18446744073709551615) fn main() {}").unwrap();
+    let x3_lang_ast::ast::Item::Function(function) = &program.items[0].node else {
+        panic!("function expected")
+    };
+    assert!(function.annotations.iter().any(
+        |annotation| matches!(annotation, x3_lang_ast::ast::Annotation::Scheduled(period) if *period == u64::MAX)
+    ));
+}

@@ -5052,3 +5052,18 @@ fn cli_a_mainnet_key_registry_must_be_signed_by_the_named_root() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+#[test]
+fn cli_build_refuses_unknown_tokens_without_writing_bytecode() {
+    let dir = tempfile::tempdir().expect("isolated token fixture");
+    let src = dir.path().join("unknown.x3");
+    let out = dir.path().join("unknown.x3b");
+    std::fs::write(&src, "fn main() { $ }").unwrap();
+    let result = x3c().arg("build").arg(&src).arg("--out").arg(&out).output().unwrap();
+    assert!(!result.status.success(), "unknown syntax must fail the build");
+    assert!(!out.exists(), "a refused program must produce no bytecode");
+    let diagnostic = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        diagnostic.contains('$'),
+        "the diagnostic must identify the token: {diagnostic}"
+    );
+}

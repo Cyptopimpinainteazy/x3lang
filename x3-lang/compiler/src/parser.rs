@@ -16,7 +16,7 @@ use x3_lang_ast::{
     AmountExpr, AssetDecl, AssetId, AtomicChoiceDecl, AtomicTradeDecl, ChoiceCriterion, ChoicePath, DebtId,
     FallbackReplacement, InvariantKind, TradeEffect, TradeGuarantee, TradeRiskPolicy, TradeStmt, VenueDecl, VenueKind,
 };
-use x3_lang_common::{BinOp as CBinOp, IntBase, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
+use x3_lang_common::{BinOp as CBinOp, IntBase, IntSuffix, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
 use x3_lang_lexer::token::{Keyword, Token, TokenKind};
 
 /// Map a chain prefix string to its VM family name (as used by the x3-atomic-swap VmType enum).
@@ -64,7 +64,7 @@ pub fn parse_vm_family(prefix: &str) -> Option<&'static str> {
 // ---------------------------------------------------------------------------
 
 pub fn parse_source(source: &str) -> Result<Program, X3Error> {
-    let tokens = tokenize(source);
+    let tokens = tokenize(source)?;
     let mut p = Parser::new(&tokens);
     let items = p.parse_program()?;
     Ok(Program::new(items))
@@ -78,6 +78,12 @@ pub fn parse_source(source: &str) -> Result<Program, X3Error> {
 enum Tok {
     Ident(String),
     Int(u128),
+    InvalidInteger(String),
+    TypedInt {
+        value: u128,
+        base: IntBase,
+        suffix: IntSuffix,
+    },
     Float(Symbol),
     String_(String),
     // Punctuation / delimiters
@@ -150,6 +156,9 @@ enum Tok {
     Percent,
     AmpAmp,
     PipePipe,
+    Amp,
+    Pipe,
+    Caret,
     EqEq,
     Ne,
     Lt,
@@ -198,10 +207,34 @@ impl<'a> Parser<'a> {
         tok
     }
 
+    fn current_span(&self) -> Span {
+        self.tokens
+            .get(self.pos)
+            .map(|token| token.span)
+            .or_else(|| self.tokens.last().map(|token| token.span))
+            .unwrap_or(Span::DUMMY)
+    }
+
+    fn parse_integer_expression<T>(
+        &mut self,
+        convert: impl FnOnce(&Expression) -> Result<T, X3Error>,
+    ) -> Result<T, X3Error> {
+        let start = self.pos;
+        let expression = self.parse_expr()?;
+        let span = self.consumed_span(start);
+        convert(&expression).map_err(|mut error| {
+            if let X3Error::ParseError { span: primary_span, .. } = &mut error {
+                *primary_span = span;
+            }
+            error
+        })
+    }
+
     fn expect_ident(&mut self, context: &str) -> Result<String, X3Error> {
+        let span = self.current_span();
         match self.advance() {
             Tok::Ident(name) => Ok(name),
-            found => Err(parse_err(format!("{context}: expected identifier"), found)),
+            found => Err(parse_err_at(format!("{context}: expected identifier"), found, span)),
         }
     }
 
@@ -1991,8 +2024,7 @@ impl<'a> Parser<'a> {
         self.advance();
         let name = self.expect_ident("scheduled task name")?;
         self.expect(Tok::Colon, "expected ':'")?;
-        let period = self.parse_expr()?;
-        let period_blocks = expr_to_u64(&period);
+        let period_blocks = self.parse_integer_expression(expr_to_u64)?;
         let body = self.parse_block()?;
         Ok(Item::ScheduledTask(ScheduledTask {
             name: Symbol::new(&name),
@@ -3193,8 +3225,7 @@ impl<'a> Parser<'a> {
         let amount_val = expr_to_u128(&amount)?;
         let period_blocks = if self.peek() == Tok::Comma {
             self.advance();
-            let p = self.parse_expr()?;
-            expr_to_u64(&p)
+            self.parse_integer_expression(expr_to_u64)?
         } else {
             1
         };
@@ -3226,8 +3257,7 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Ident(ref s) if s == "min_reputation" => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    min_reputation = expr_to_u64(&expr);
+                    min_reputation = self.parse_integer_expression(expr_to_u64)?;
                 }
                 Tok::Ident(ref s) if s == "bond" => {
                     self.advance();
@@ -3264,13 +3294,11 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Ident(ref s) if s == "quorum_numerator" => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    quorum_numerator = expr_to_u32(&expr)?;
+                    quorum_numerator = self.parse_integer_expression(expr_to_u32)?;
                 }
                 Tok::Ident(ref s) if s == "quorum_denominator" => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    quorum_denominator = expr_to_u32(&expr)?;
+                    quorum_denominator = self.parse_integer_expression(expr_to_u32)?;
                 }
                 Tok::Ident(ref s) if s == "relayers" => {
                     self.advance();
@@ -3334,13 +3362,11 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Ident(ref s) if s == "require_numerator" => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    require_numerator = expr_to_u32(&expr)?;
+                    require_numerator = self.parse_integer_expression(expr_to_u32)?;
                 }
                 Tok::Ident(ref s) if s == "require_denominator" => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    require_denominator = expr_to_u32(&expr)?;
+                    require_denominator = self.parse_integer_expression(expr_to_u32)?;
                 }
                 Tok::Ident(ref s) if s == "reject" || s == "reject_on" => {
                     self.advance();
@@ -3393,18 +3419,15 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Tok::Ident(ref s) if s == "max_slippage" => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    max_slippage = expr_to_u64(&expr);
+                    max_slippage = self.parse_integer_expression(expr_to_u64)?;
                 }
                 Tok::Ident(ref s) if s == "max_position" => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    max_position = expr_to_u128(&expr).ok();
+                    max_position = Some(self.parse_integer_expression(expr_to_u128)?);
                 }
                 Tok::Ident(ref s) if s == "min_route_score" => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    min_route_score = Some(expr_to_u32(&expr).unwrap_or(0));
+                    min_route_score = Some(self.parse_integer_expression(expr_to_u32)?);
                 }
                 Tok::Ident(ref field) => {
                     return Err(parse_err(
@@ -4924,6 +4947,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_single_annotation(&mut self) -> Result<Annotation, X3Error> {
+        let annotation_start = self.pos;
         // A word the lexer reserves cannot name an annotation, because `expect_ident` refuses a keyword
         // token — and its message ("annotation name: expected identifier") told an author their *syntax*
         // was wrong when the fact is about the word. `subscription` is the one such word today, and it
@@ -4931,30 +4955,32 @@ impl<'a> Parser<'a> {
         let name = match self.peek() {
             Tok::Ident(_) => self.expect_ident("annotation name")?,
             Tok::KwSubscription => {
-                return Err(parse_err(
+                return Err(parse_err_at(
                     "`@subscription` is not an annotation: `subscription` begins a `subscription \
                      <name>: <amount>, <period> { … }` item, which is where a subscription's work is \
                      written — a keyword cannot name an annotation"
                         .to_string(),
                     self.peek(),
+                    self.current_span(),
                 ))
             }
             other => {
-                return Err(parse_err(
+                return Err(parse_err_at(
                     format!("an annotation is named by an identifier, and `{other:?}` is not one"),
                     other,
+                    self.current_span(),
                 ))
             }
         };
-        let args: Vec<Expression> = if self.peek() == Tok::LParen {
+        let (args, arg_spans) = if self.peek() == Tok::LParen {
             self.advance();
-            let exprs = self.parse_expr_list()?;
+            let exprs = self.parse_expr_list_spanned()?;
             self.expect(Tok::RParen, "expected ')'")?;
             exprs
         } else {
-            vec![]
+            (vec![], vec![])
         };
-        annotation_from_name_args(&name, &args)
+        annotation_from_name_args(&name, &args, &arg_spans, self.consumed_span(annotation_start))
     }
 
     fn parse_param_list(&mut self) -> Result<Vec<Parameter>, X3Error> {
@@ -5335,26 +5361,48 @@ impl<'a> Parser<'a> {
     fn parse_binary(&mut self, min_prec: u8) -> Result<Expression, X3Error> {
         let mut lhs = self.parse_unary()?;
         loop {
-            let op = match self.peek() {
-                Tok::PipePipe => (1, BinOp::OrOr),
-                Tok::AmpAmp => (2, BinOp::AndAnd),
-                Tok::EqEq => (3, BinOp::EqEq),
-                Tok::Ne => (3, BinOp::Ne),
-                Tok::Lt => (4, BinOp::Lt),
-                Tok::Gt => (4, BinOp::Gt),
-                Tok::Le => (4, BinOp::Le),
-                Tok::Ge => (4, BinOp::Ge),
-                Tok::Plus => (5, BinOp::Plus),
-                Tok::Minus => (5, BinOp::Minus),
-                Tok::Star => (6, BinOp::Star),
-                Tok::Slash => (6, BinOp::Slash),
-                Tok::Percent => (6, BinOp::Percent),
-                _ => break,
+            // Keep angle brackets separate in the lexer for nested generic types.
+            // Only adjacent pairs in expression position form a shift operator.
+            let adjacent = self
+                .tokens
+                .get(self.pos)
+                .zip(self.tokens.get(self.pos + 1))
+                .is_some_and(|(a, b)| a.span.end == b.span.start);
+            let shift = match (self.peek(), self.peek_n(1), adjacent) {
+                (Tok::Lt, Tok::Lt, true) => Some(BinOp::Shl),
+                (Tok::Gt, Tok::Gt, true) => Some(BinOp::Shr),
+                _ => None,
+            };
+            let op = if let Some(shift) = shift {
+                (8, shift)
+            } else {
+                match self.peek() {
+                    Tok::PipePipe => (1, BinOp::OrOr),
+                    Tok::AmpAmp => (2, BinOp::AndAnd),
+                    Tok::Pipe => (3, BinOp::Or),
+                    Tok::Caret => (4, BinOp::Xor),
+                    Tok::Amp => (5, BinOp::And),
+                    Tok::EqEq => (6, BinOp::EqEq),
+                    Tok::Ne => (6, BinOp::Ne),
+                    Tok::Lt => (7, BinOp::Lt),
+                    Tok::Gt => (7, BinOp::Gt),
+                    Tok::Le => (7, BinOp::Le),
+                    Tok::Ge => (7, BinOp::Ge),
+                    Tok::Plus => (9, BinOp::Plus),
+                    Tok::Minus => (9, BinOp::Minus),
+                    Tok::Star => (10, BinOp::Star),
+                    Tok::Slash => (10, BinOp::Slash),
+                    Tok::Percent => (10, BinOp::Percent),
+                    _ => break,
+                }
             };
             if op.0 < min_prec {
                 break;
             }
             self.advance();
+            if shift.is_some() {
+                self.advance();
+            }
             let rhs = self.parse_binary(op.0 + 1)?;
             lhs = Expression::Binary {
                 op: op.1,
@@ -5386,7 +5434,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_primary_expr(&mut self) -> Result<Expression, X3Error> {
+        let span = self.current_span();
         let mut expr = match self.advance() {
+            Tok::InvalidInteger(text) => {
+                return Err(parse_err_at(
+                    format!("integer literal `{text}` is malformed or exceeds the supported u128 magnitude"),
+                    Tok::InvalidInteger(text),
+                    span,
+                ));
+            }
+            Tok::TypedInt { value, base, suffix } => Expression::Literal(LiteralExpr::Int {
+                value,
+                base,
+                suffix: Some(suffix),
+            }),
             Tok::Int(v) => {
                 // Check for percentage literal: Int.Dot.Int.Percent or Int.Percent
                 //
@@ -5474,7 +5535,7 @@ impl<'a> Parser<'a> {
                     is_async: false,
                 }
             }
-            found => return Err(parse_err("expected expression".into(), found)),
+            found => return Err(parse_err_at("expected expression".into(), found, span)),
         };
 
         // Postfix: call, method, field, index
@@ -5525,23 +5586,30 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_list(&mut self) -> Result<Vec<Expression>, X3Error> {
+        self.parse_expr_list_spanned().map(|(expressions, _)| expressions)
+    }
+
+    fn parse_expr_list_spanned(&mut self) -> Result<(Vec<Expression>, Vec<Span>), X3Error> {
         let mut exprs = Vec::new();
+        let mut spans = Vec::new();
         if self.peek() == Tok::RParen || self.peek() == Tok::RBracket {
-            return Ok(exprs);
+            return Ok((exprs, spans));
         }
         loop {
             if matches!(self.peek(), Tok::Ident(_)) && self.peek_n(1) == Tok::Eq {
                 self.advance();
                 self.advance();
             }
+            let start = self.pos;
             exprs.push(self.parse_expr()?);
+            spans.push(self.consumed_span(start));
             if self.peek() == Tok::Comma {
                 self.advance();
                 continue;
             }
             break;
         }
-        Ok(exprs)
+        Ok((exprs, spans))
     }
 
     // ------------------------------------------------------------------
@@ -6010,11 +6078,12 @@ impl<'a> Parser<'a> {
     }
 
     fn expect(&mut self, expected: Tok, msg: &str) -> Result<(), X3Error> {
+        let span = self.current_span();
         let found = self.advance();
         if found == expected {
             Ok(())
         } else {
-            Err(parse_err(msg.into(), found))
+            Err(parse_err_at(msg.into(), found, span))
         }
     }
 }
@@ -6164,9 +6233,13 @@ fn known_names<'a>(names: impl Iterator<Item = &'a str>) -> String {
 }
 
 fn parse_err(message: String, found: Tok) -> X3Error {
+    parse_err_at(message, found, Span::DUMMY)
+}
+
+fn parse_err_at(message: String, found: Tok, span: Span) -> X3Error {
     X3Error::ParseError {
         message,
-        span: Span::DUMMY,
+        span,
         expected: vec![],
         found: format!("{:?}", found),
     }
@@ -6176,11 +6249,16 @@ fn parse_err(message: String, found: Tok) -> X3Error {
 // Annotation, capability, expression helpers
 // ===========================================================================
 
-fn annotation_from_name_args(name: &str, args: &[Expression]) -> Result<Annotation, X3Error> {
+fn annotation_from_name_args(
+    name: &str,
+    args: &[Expression],
+    arg_spans: &[Span],
+    span: Span,
+) -> Result<Annotation, X3Error> {
     let s = |idx: usize| -> Result<String, X3Error> {
         let e = args.get(idx).ok_or_else(|| X3Error::ParseError {
             message: format!("@{name}: missing argument {idx}"),
-            span: Span::DUMMY,
+            span,
             expected: vec![],
             found: "".into(),
         })?;
@@ -6189,11 +6267,16 @@ fn annotation_from_name_args(name: &str, args: &[Expression]) -> Result<Annotati
     let u = |idx: usize| -> Result<u32, X3Error> {
         let e = args.get(idx).ok_or_else(|| X3Error::ParseError {
             message: format!("@{name}: missing numeric arg {idx}"),
-            span: Span::DUMMY,
+            span,
             expected: vec![],
             found: "".into(),
         })?;
-        expr_to_u32(e)
+        expr_to_u32(e).map_err(|mut error| {
+            if let X3Error::ParseError { span: primary_span, .. } = &mut error {
+                *primary_span = arg_spans.get(idx).copied().unwrap_or(span);
+            }
+            error
+        })
     };
     match name {
         "no_heap" => Ok(Annotation::NoHeap),
@@ -6213,20 +6296,27 @@ fn annotation_from_name_args(name: &str, args: &[Expression]) -> Result<Annotati
         }
         "concurrent" => Ok(Annotation::Concurrent),
         "scheduled" => {
-            let period = args
-                .iter()
-                .find_map(|e| {
-                    let s = expr_to_string(e);
-                    if let Some(val) = s.strip_prefix("period=") {
-                        val.parse::<u64>().ok()
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| u(0).ok().map(|v| v as u64))
-                .unwrap_or(1);
-            Ok(Annotation::Scheduled(period))
+            let index = args.iter().position(|expression| {
+                matches!(expression, Expression::Literal(LiteralExpr::String(value)) if value.as_str().starts_with("period="))
+            }).unwrap_or(0);
+            let period = match args.get(index) {
+                None => Some(1),
+                Some(Expression::Literal(LiteralExpr::Int { value, .. })) => u64::try_from(*value).ok(),
+                Some(Expression::Literal(LiteralExpr::String(value))) => value
+                    .as_str()
+                    .strip_prefix("period=")
+                    .and_then(|value| value.parse::<u64>().ok()),
+                Some(_) => None,
+            };
+            Ok(Annotation::Scheduled(period.ok_or_else(|| {
+                parse_err_at(
+                    "@scheduled: period must be an unsigned integer within u64 range".into(),
+                    Tok::Eof,
+                    arg_spans.get(index).copied().unwrap_or(span),
+                )
+            })?))
         }
+
         // `"subscription"` is deliberately absent. The word is a **keyword** the lexer reserves for the
         // `subscription <name>: <amount>, <period> { … }` item, so `parse_single_annotation`'s
         // `expect_ident` never sees it as a name: the arm that used to be here could not be reached by
@@ -6252,7 +6342,7 @@ fn annotation_from_name_args(name: &str, args: &[Expression]) -> Result<Annotati
             } else {
                 format!("unknown annotation @{name}")
             },
-            span: Span::DUMMY,
+            span,
             expected: vec![],
             found: name.into(),
         }),
@@ -6334,15 +6424,19 @@ fn expr_to_string(e: &Expression) -> String {
 
 fn expr_to_u32(e: &Expression) -> Result<u32, X3Error> {
     match e {
-        Expression::Literal(LiteralExpr::Int { value, .. }) => Ok(*value as u32),
+        Expression::Literal(LiteralExpr::Int { value, .. }) => {
+            u32::try_from(*value).map_err(|_| parse_err("integer exceeds u32 range".into(), Tok::Int(*value)))
+        }
         _ => Err(parse_err("expected integer".into(), Tok::Eof)),
     }
 }
 
-fn expr_to_u64(e: &Expression) -> u64 {
+fn expr_to_u64(e: &Expression) -> Result<u64, X3Error> {
     match e {
-        Expression::Literal(LiteralExpr::Int { value, .. }) => *value as u64,
-        _ => 0,
+        Expression::Literal(LiteralExpr::Int { value, .. }) => {
+            u64::try_from(*value).map_err(|_| parse_err("integer exceeds u64 range".into(), Tok::Int(*value)))
+        }
+        _ => Err(parse_err("expected integer".into(), Tok::Eof)),
     }
 }
 
@@ -6463,14 +6557,26 @@ fn annotate_item(item: Item, annotations: Vec<Annotation>) -> Item {
 
 /// Tokenize source via the x3-lang-lexer crate, converting its
 /// `Token` stream into the parser's internal `Tok` enum.
-fn tokenize(source: &str) -> Vec<ParserToken> {
+fn tokenize(source: &str) -> Result<Vec<ParserToken>, X3Error> {
     let lexer = x3_lang_lexer::Lexer::new(source, 0);
-    lexer
-        .filter_map(|token| {
-            let span = token.span;
-            lexer_token_to_tok(token).map(|kind| ParserToken { kind, span })
-        })
-        .collect()
+    let mut tokens = Vec::new();
+    for token in lexer {
+        // Only grammatical trivia may disappear. Unknown or unsupported tokens
+        // must fail before parsing, including tokens in an otherwise skipped body.
+        if matches!(token.kind, TokenKind::Newline | TokenKind::Comment(_)) {
+            continue;
+        }
+        let span = token.span;
+        let kind = lexer_token_to_tok(token).ok_or_else(|| X3Error::LexerError {
+            message: format!(
+                "unknown or unsupported token {:?}",
+                source.get(span.start.as_usize()..span.end.as_usize()).unwrap_or("")
+            ),
+            span,
+        })?;
+        tokens.push(ParserToken { kind, span });
+    }
+    Ok(tokens)
 }
 
 /// A comment, with the text and where it starts.
@@ -6517,7 +6623,34 @@ fn lexer_token_to_tok(token: Token) -> Option<Tok> {
         TokenKind::Keyword(kw) => keyword_to_tok(kw).unwrap_or_else(|| Tok::Ident(kw.as_str().to_string())),
 
         TokenKind::Literal(lit) => match lit {
-            x3_lang_lexer::token::Literal::Int { value, .. } => Tok::Int(value),
+            x3_lang_lexer::token::Literal::Int { value, base, suffix } => match suffix {
+                Some(suffix) => Tok::TypedInt {
+                    value,
+                    base: match base {
+                        x3_lang_lexer::token::IntBase::Decimal => IntBase::Decimal,
+                        x3_lang_lexer::token::IntBase::Hex => IntBase::Hex,
+                        x3_lang_lexer::token::IntBase::Octal => IntBase::Octal,
+                        x3_lang_lexer::token::IntBase::Binary => IntBase::Binary,
+                    },
+                    suffix: match suffix {
+                        x3_lang_lexer::token::IntSuffix::U8 => IntSuffix::U8,
+                        x3_lang_lexer::token::IntSuffix::U16 => IntSuffix::U16,
+                        x3_lang_lexer::token::IntSuffix::U32 => IntSuffix::U32,
+                        x3_lang_lexer::token::IntSuffix::U64 => IntSuffix::U64,
+                        x3_lang_lexer::token::IntSuffix::U128 => IntSuffix::U128,
+                        x3_lang_lexer::token::IntSuffix::U256 => IntSuffix::U256,
+                        x3_lang_lexer::token::IntSuffix::Usize => IntSuffix::Usize,
+                        x3_lang_lexer::token::IntSuffix::I8 => IntSuffix::I8,
+                        x3_lang_lexer::token::IntSuffix::I16 => IntSuffix::I16,
+                        x3_lang_lexer::token::IntSuffix::I32 => IntSuffix::I32,
+                        x3_lang_lexer::token::IntSuffix::I64 => IntSuffix::I64,
+                        x3_lang_lexer::token::IntSuffix::I128 => IntSuffix::I128,
+                        x3_lang_lexer::token::IntSuffix::I256 => IntSuffix::I256,
+                        x3_lang_lexer::token::IntSuffix::Isize => IntSuffix::Isize,
+                    },
+                },
+                None => Tok::Int(value),
+            },
             x3_lang_lexer::token::Literal::String(sym) => Tok::String_(sym.as_str().to_string()),
             x3_lang_lexer::token::Literal::Float { value, .. } => Tok::Float(value),
             _ => return None,
@@ -6551,6 +6684,9 @@ fn lexer_token_to_tok(token: Token) -> Option<Tok> {
             CBinOp::Star => Tok::Star,
             CBinOp::Slash => Tok::Slash,
             CBinOp::Percent => Tok::Percent,
+            CBinOp::And => Tok::Amp,
+            CBinOp::Or => Tok::Pipe,
+            CBinOp::Xor => Tok::Caret,
             CBinOp::AndAnd => Tok::AmpAmp,
             CBinOp::OrOr => Tok::PipePipe,
             CBinOp::EqEq => Tok::EqEq,
@@ -6577,6 +6713,14 @@ fn lexer_token_to_tok(token: Token) -> Option<Tok> {
 }
 
 fn ident_to_tok(word: &str) -> Tok {
+    // A failed numeric parse must not turn an explicitly typed integer into a name.
+    if word.starts_with(|ch: char| ch.is_ascii_digit()) {
+        if let Some(index) = word.rfind(['u', 'i', 'U', 'I']) {
+            if x3_lang_lexer::token::IntSuffix::from_str(&word[index..]).is_some() {
+                return Tok::InvalidInteger(word.to_string());
+            }
+        }
+    }
     match word {
         "as" => Tok::KwAs,
         "in" => Tok::KwIn,

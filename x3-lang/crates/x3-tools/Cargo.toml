@@ -18,6 +18,9 @@ reqwest = { workspace = true, features = ["blocking", "json"] }
 clap = { workspace = true }
 ed25519-dalek = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [[bin]]
 name = "run_simple"
 path = "src/main.rs"

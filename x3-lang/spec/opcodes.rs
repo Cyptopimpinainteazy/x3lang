@@ -172,12 +172,9 @@ pub const SUB: u8 = 0x02;
 pub const POW: u8 = 0x0A;
 pub const BYTECODE_VERSION_1: u8 = 0x01;
 
-/// The second bytecode version, reserved for the next change to the opcode set.
-///
-/// Nothing in this repository emits it: `CURRENT_BYTECODE_VERSION` is still version 1 and every
-/// opcode registered in `OPCODE_SET` was introduced in version 1. It exists so that the gate
-/// below has a *number* to move to rather than a rule to invent — an opcode registered at version
-/// 2 is a compile error until the version the writer writes moves with it.
+/// The second bytecode version: the first change to the opcode set, introduced by `IF_MEASURED`
+/// (TICKET-105). An artifact carries it exactly when it contains a version-2 opcode; one that uses
+/// only the original set stays at version 1 and remains readable by a version-1 reader.
 pub const BYTECODE_VERSION_2: u8 = 0x02;
 
 /// The greatest version this writer may write — the ceiling, not what every artifact carries.
