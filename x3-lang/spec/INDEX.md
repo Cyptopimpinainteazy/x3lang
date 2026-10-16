@@ -12,23 +12,18 @@
 
 ## What is X3-lang?
 
-X3-lang is a deterministic, contract-capable, swarm-executable language for the Atlas Sphere ecosystem. It compiles into X3 bytecode, executes on X3VM, supports EVM/SVM atomic calls, and runs both on-chain and off-chain.
+X3-lang is a deterministic finance language for the X3 ecosystem. Today it compiles to its own intent bytecode and runs in `x3-lang/vm` off chain; targeting X3BC (the chain's bytecode, executed by `crates/x3-vm`) is the next step. EVM/SVM calls from X3 programs are not implemented yet.
 
-## VM Opcode Surface — ALL EXECUTING ✅
+## Instruction sets — what exists
 
-| Group | Opcodes | Status |
-|---|---|---|
-| Stack/Locals | NOP, CONST_U128, CONST_BYTES, LOAD_LOCAL, STORE_LOCAL, DROP, DUP | ✅ |
-| Arithmetic | ADD, SUB, MUL, DIV, MOD, CMP_EQ, CMP_LT, CMP_GT, POW | ✅ |
-| Memory | ALLOC, MEM_LOAD, MEM_STORE, MEM_COPY, SLICE | ✅ |
-| Control Flow | JMP, JMP_IF_FALSE, CALL, RET, IF, LOOP | ✅ |
-| Guards | REQUIRE, ON_FAIL, ON_TIMEOUT | ✅ — ON_FAIL now dispatches trapped opcodes to handler |
-| Atomic | ATOMIC_BEGIN, ATOMIC_END, ATOMIC_ROLLBACK | ✅ |
-| Host Calls | HOST_GET, HOST_SET, HOST_EMIT, HOST_CALL_EVM, HOST_CALL_SVM, HOST_BLOCK_NUMBER, HOST_TIMESTAMP, HOST_CALLER, HOST_SELF, HOST_GAS_LEFT | ✅ |
-| Crypto | HASH_BLAKE2B, HASH_KECCAK | ✅ |
-| Off-chain | VEC_MAP, SIMD_ROUTE_SCAN, GPU_BATCH_SIM | ✅ |
-| Bridge | BRIDGE with 4 verifier families | ✅ |
-| Capability | GPU_DISPATCH, SIMULATE, SUB_EXEC + 13 host capabilities | ✅ |
+This section used to list opcodes (`CONST_U128`, `HOST_CALL_EVM`, `GPU_BATCH_SIM`, ...) as "ALL
+EXECUTING". None of those names exist in either instruction set in this repository.
+
+- **x3-lang intent bytecode:** [`opcodes.yaml`](opcodes.yaml) is the source of truth (84 entries).
+  It executes in `x3-lang/vm`, which is not on chain.
+- **X3BC, the chain's bytecode:** `crates/x3-backend/src/opcode.rs` (114 opcodes). Which of them the
+  chain's engine runs is `x3_vm::vm::engine_executes`, an exhaustive table checked against the
+  interpreter by a test; the on-chain verifier refuses the rest at intake.
 
 ## Compiler Pipeline
 

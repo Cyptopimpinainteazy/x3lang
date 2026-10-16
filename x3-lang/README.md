@@ -1,11 +1,22 @@
-# x3-lang v1.0 — Production Language & VM Workspace
+# x3-lang — the X3 finance language
 
-**Status: 🚧 ACTIVE DEVELOPMENT — Per-feature readiness below (derived from `FEATURE_REGISTRY.toml`)**
+**Status: development. Not on chain yet.** Read this before the rest of the file.
 
-> Readiness scores are the canonical source. Run `scripts/check-readiness-consistency.sh` to validate.
-> See `CURRENT_MAINNET_STATUS.md` for the full system scoreboard.
+## Where X3 code runs today (measured 2026-10-16)
 
-This folder contains the Python MVP surface and the production Rust language workspace.
+There are two X3 instruction sets in this repository, and only one of them is on chain:
+
+| | X3BC (chain bytecode) | x3-lang intent bytecode (this folder) |
+|---|---|---|
+| Source language | `fn` / `let` / loops / `atomic {}` (`crates/x3-parser`, `crates/x3-compiler`) | `atomic trade`, `risk policy`, `intent`, `asset` (`x3-lang/compiler`) |
+| Instruction set | 114 opcodes, `crates/x3-backend/src/opcode.rs` | 84 opcodes, `x3-lang/spec/opcodes.yaml` |
+| Engine | `crates/x3-vm` | `x3-lang/vm` |
+| Runs on chain? | **Yes.** `pallet-x3-kernel` executes it through `X3Executor::execute_on_chain`, `x3-vm` in every build (#612) | **No.** No pallet loads it; it runs in this workspace's tests and `x3c` |
+
+So a program written in x3-lang's trading syntax is compiled, verified, simulated and replayed here,
+but it cannot be submitted to the chain. Compiling x3-lang to X3BC, with the trading, receipt and
+oracle-firewall logic as host modules of the one engine, is the next unification step (PR 4 of the
+X3 Lang mainnet roadmap).
 
 ## Source-of-truth rules
 
@@ -41,29 +52,22 @@ Explicit v1 boundaries:
 - fixture capabilities are rejected in production/mainnet execution mode;
 - no live-DEX or mainnet claim is made without real adapter evidence.
 
-## VM Opcode Surface — Per-Feature Readiness
+## x3-lang VM — what executes, and where
 
-The atomic_router feature owns VM control-flow execution. Its readiness score is **85%** (derived from `FEATURE_REGISTRY.toml`).
+`x3-lang/vm` executes the intent instruction set below **in this workspace only** (tests, `x3c run`,
+`x3c simulate`). None of it runs on a block.
 
-| Opcode Group | Status | Detail |
-|---|---|---|
-| Arithmetic (ADD, SUB, POW) | ✅ EXECUTING | Register-to-register with gas metering |
-| Memory (LOAD, STORE) | ✅ EXECUTING | 16-byte aligned loads/stores |
-| Asset ops (LOCK, MINT, BURN, RELEASE, SWAP) | ✅ EXECUTING | Compiler-stream payload required |
-| BRIDGE transfers | ✅ EXECUTING | Cross-chain transfer with proof verification |
-| EMIT (EVM call) | ✅ EXECUTING | Via bridge adapter |
-| CALL_HOST (SVM call) | ✅ EXECUTING | Via bridge adapter |
-| Capability dispatch (GPU/SIMULATE/etc.) | ✅ EXECUTING | 13+ host capabilities |
-| CALL / RET | ✅ EXECUTING | Call stack with return address |
-| NOP, HALT | ✅ EXECUTING | |
-| IF, LOOP | ✅ EXECUTING | Register-conditioned skip/jump with bounded loops |
-| REQUIRE | ✅ EXECUTING | Panics on zero condition, caught by ON_FAIL handler |
-| ON_FAIL, ON_TIMEOUT | ✅ EXECUTING | Handler push → dispatch on trap, + deadline enforcement |
-| ATOMIC_BEGIN, ATOMIC_END, ATOMIC_ROLLBACK | ✅ EXECUTING | Snapshot/commit/rollback with full state restore |
+| Opcode group | In `x3-lang/vm` |
+|---|---|
+| Arithmetic, memory, asset ops, control flow, guards, `ATOMIC_*`, capability dispatch | Executes |
+| `BRIDGE` | Executes against the configured backend; the production backend fails closed without a live verifier |
+| Trading core (`TRADING_*`) | Executes through `TradingHost`; **no live venue adapters** (see Trading Core v1) |
+| Reserved `0x70`–`0x7B`, B-52 feature-lock payloads | Not dispatched |
 
-> **Note**: All opcodes execute in the VM. ON_FAIL now wires real failure-handler dispatch — a trapped opcode transfers control to the most recent handler target instead of immediately returning `Err`. The 85% readiness score reflects remaining production hardening: multi-validator atomic execution tests, external bridge integration, and CI gate wiring — not missing VM functionality.
+What remains for mainnet is listed in the roadmap: one engine (x3-lang compiling to X3BC), live
+adapters, multi-validator execution, an external audit.
 
-## Bridge Production Backend ✅
+## Bridge backend (x3-lang VM)
 
 `init_production_backend()` in [`vm/src/bridge.rs`](vm/src/bridge.rs:2990) supports 4 verifier families:
 - `evm-light-client` (EthereumLightClientVerifier)
@@ -86,4 +90,4 @@ cargo test --manifest-path x3-lang/Cargo.toml
 cargo run -p x3-tools --bin x3c -- parse/check/lower/build/simulate/run/explain <FILE.x3>
 ```
 
-**x3-lang status: All 26 opcodes execute. 10+ E2E control-flow tests pass. Bridge backend wired. Ready for production hardening. 🚧**
+**x3-lang status: compiles, verifies and simulates trading programs in this workspace; not executable on chain until it targets X3BC.**

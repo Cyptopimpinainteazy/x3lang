@@ -1,5 +1,10 @@
 # X3-lang: 50 Profitable Tricks
 
+> **Design catalogue, not a feature list.** The snippets below are an early sketch in a Python-like
+> dialect the compiler does not accept (`x3c check` fails on the first one with
+> `function name: expected identifier`), and most capabilities named here are not implemented.
+> For what the language does today see [`../README.md`](../README.md) and `../examples/`.
+
 ## Overview
 
 This document details 50 profit-oriented strategies and services that can be built **natively** in X3-lang with minimal friction. These tricks leverage X3's unique capabilities—cross-VM atomicity, GPU swarm integration, mempool access, and deterministic simulation—to create revenue streams and cost arbitrage opportunities unavailable in traditional blockchain languages.

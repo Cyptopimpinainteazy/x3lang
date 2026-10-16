@@ -1,5 +1,10 @@
 # X3-lang: 50 Unique Capabilities
 
+> **Design catalogue, not a feature list.** The snippets below are an early sketch in a Python-like
+> dialect the compiler does not accept (`x3c check` fails on the first one with
+> `function name: expected identifier`), and most capabilities named here are not implemented.
+> For what the language does today see [`../README.md`](../README.md) and `../examples/`.
+
 ## Overview
 
 This document catalogs 50 native capabilities unique to X3-lang that distinguish it from every other blockchain language. These capabilities enable X3 to operate seamlessly across EVM, SVM, and X3 chains while providing tools for GPU-accelerated compute, AI-driven optimization, and deterministic off-chain execution.
