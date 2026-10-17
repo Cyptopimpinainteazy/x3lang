@@ -1,0 +1,42 @@
+// A flash-funded two-pool arbitrage on the X3 chain itself.
+//
+// Assets are X3 `CanonicalLedger` asset ids (`x3.x3chain.asset_<id>`), the flash
+// provider is the chain's flash-loan pallet and both venues are `pallet_x3_dex`
+// pools. This is the program the production unification E2E compiles to canonical
+// X3BC and runs through `crates/x3-vm` (docs/roadmap/X3LANG_PRODUCTION_UNIFICATION.md).
+
+asset USDX = x3.x3chain.asset_1 {
+    decimals: 6
+}
+
+asset WETX = x3.x3chain.asset_2 {
+    decimals: 6
+}
+
+risk policy X3ChainArbPolicy {
+    max_slippage: 50 bps
+    max_gas: 20 USDX
+    max_flash_fee: 10 bps
+    deadline: 5 blocks
+    require_private_submission: true
+    max_oracle_deviation: 500 bps
+    quote_freshness: 3
+}
+
+atomic trade X3ChainFlashArb using X3ChainArbPolicy {
+    borrow 1_000 USDX from x3_flashloan as debt
+
+    let wetx = swap debt.amount USDX -> WETX
+        via x3dex_pool_1
+        min_out 490 WETX
+
+    let usdx_back = swap wetx WETX -> USDX
+        via x3dex_pool_2
+        min_out 1_005 USDX
+
+    repay debt
+
+    require net_profit >= 1 USDX
+    require all_debts_repaid
+    emit receipt
+}
