@@ -138,6 +138,11 @@ impl OpSpec {
     }
 }
 
+/// Gas `Emit` charges per byte of its encoded event data, on top of the table's flat cost. The
+/// data is consensus output (an event the chain delivers), so its size is priced like the EVM's
+/// `LOG` data, at 8 gas per byte: a full `MAX_DATA_SIZE` (4 KiB) event costs 20 + 32 768.
+pub const EMIT_GAS_PER_DATA_BYTE: u64 = 8;
+
 /// The canonical description of `opcode`.
 pub const fn of(opcode: Opcode) -> OpSpec {
     match opcode {
