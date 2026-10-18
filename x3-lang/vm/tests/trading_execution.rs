@@ -174,7 +174,10 @@ impl TradingHost for FixtureHost {
     fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError> {
         self.swap_calls += 1;
         if self.fail_on_swap_call == Some(self.swap_calls) {
-            return Err(HostError { code: "INJECTED_SECOND_LEG".to_string(), message: "second swap failed".to_string() });
+            return Err(HostError {
+                code: "INJECTED_SECOND_LEG".to_string(),
+                message: "second swap failed".to_string(),
+            });
         }
         Ok(SwapResult {
             from: request.from,
@@ -2133,7 +2136,10 @@ fn atomic_preflight_expired_deadline_never_opens_host_transaction() {
     let mut ctx = context(ExecutionMode::Development);
     ctx.current_block = 11;
     let result = vm.execute_atomic(&ops(), &mut host, ctx);
-    assert!(matches!(result, Err(x3_lang_vm::trading::TradingExecError::DeadlineExpired { .. })));
+    assert!(matches!(
+        result,
+        Err(x3_lang_vm::trading::TradingExecError::DeadlineExpired { .. })
+    ));
     assert!(!host.began, "deadline preflight must not begin a host transaction");
     assert!(!host.committed);
     assert_eq!(host.swap_calls, 0, "no swap may occur after deadline rejection");
@@ -2147,7 +2153,10 @@ fn atomic_failed_swap_never_commits_host_or_emits_vm_receipt() {
     host.swap_output = 1;
     let initial = vm.trading_state.clone();
     let result = vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development));
-    assert!(matches!(result, Err(x3_lang_vm::trading::TradingExecError::OutputBelowMinOut { .. })));
+    assert!(matches!(
+        result,
+        Err(x3_lang_vm::trading::TradingExecError::OutputBelowMinOut { .. })
+    ));
     assert!(host.began, "swap failure must occur inside the transaction window");
     assert!(host.swap_calls > 0, "failure injection must reach the swap host");
     assert!(host.rolled_back, "host must receive rollback on rejected swap");
@@ -2164,9 +2173,15 @@ fn second_swap_host_failure_rolls_back_first_leg_and_vm_state() {
 
     let result = vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development));
     assert!(result.is_err(), "second leg must fail");
-    assert_eq!(host.swap_calls, 2, "first leg must run before injected second-leg failure");
+    assert_eq!(
+        host.swap_calls, 2,
+        "first leg must run before injected second-leg failure"
+    );
     assert!(host.began, "transaction must begin before swaps");
     assert!(host.rolled_back, "failed second leg must trigger host rollback");
     assert!(!host.committed, "partial two-leg trade must never commit");
-    assert_eq!(vm.trading_state, initial, "VM journal must be restored after second-leg failure");
+    assert_eq!(
+        vm.trading_state, initial,
+        "VM journal must be restored after second-leg failure"
+    );
 }
