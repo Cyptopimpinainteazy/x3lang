@@ -2084,6 +2084,7 @@ dependencies = [
  "x3-lang-common",
  "x3-lang-lexer",
  "x3-lang-vm",
+ "x3bc-core",
 ]
 
 [[package]]
@@ -2130,6 +2131,14 @@ dependencies = [
  "x3-lang-common",
  "x3-lang-compiler",
  "x3-lang-vm",
+]
+
+[[package]]
+name = "x3bc-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sha2",
 ]
 
 [[package]]

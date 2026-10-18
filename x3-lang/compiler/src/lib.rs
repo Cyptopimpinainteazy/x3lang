@@ -45,6 +45,7 @@ pub mod trading_lowering;
 pub mod trading_semantic;
 pub mod trading_verify;
 pub mod verify;
+pub mod x3bc;
 pub mod spec {
     pub mod opcodes {
         include!("../../spec/opcodes.rs");

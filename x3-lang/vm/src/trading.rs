@@ -816,10 +816,22 @@ impl TradingVm {
                         )));
                     }
                     self.check_fee_bps(result.principal, result.fee, self.compiled_policy().max_flash_fee_bps)?;
+                    // The fee is owed here and paid with the repayment; it is accrued as a cost
+                    // once, when it is paid (below). Accruing it here as well counted it twice —
+                    // once as a cost and once inside the repayment debit — which the production
+                    // engine's differential suite exposed (x3lang_trading_differential.rs).
+                    if result.fee > 0
+                        && !self
+                            .compiled_policy()
+                            .allowed_cost_kinds
+                            .contains(&CostKind::FlashLiquidityFee)
+                    {
+                        return Err(TradingExecError::CostKindNotAllowed {
+                            kind: CostKind::FlashLiquidityFee,
+                            asset: asset.clone(),
+                        });
+                    }
                     self.credit(asset, result.principal)?;
-                    // Borrowing is debt financing, so its fee is a
-                    // flash-liquidity cost, not a venue swap fee.
-                    self.accrue_cost(asset, result.fee, CostKind::FlashLiquidityFee)?;
                     self.trading_state.open_debts.insert(
                         debt_id.clone(),
                         DebtRecord {
@@ -1029,10 +1041,15 @@ impl TradingVm {
                             "repayment for {debt_id} is below principal plus fee"
                         )));
                     }
-                    self.debit(&record.asset, paid)?;
-                    // Closing a debt is the other half of the same
-                    // financing instrument opened above.
-                    self.accrue_cost(&record.asset, result.fee, CostKind::FlashLiquidityFee)?;
+                    // The repayment returns the principal and pays the fee owed since the borrow:
+                    // the principal (and any overpayment) is a debit, the fee a flash-liquidity cost
+                    // — counted once — plus any further fee the provider charged on repayment.
+                    let fee_paid = record
+                        .fee
+                        .checked_add(result.fee)
+                        .ok_or(TradingExecError::AccountingOverflow)?;
+                    self.debit(&record.asset, paid - fee_paid)?;
+                    self.accrue_cost(&record.asset, fee_paid, CostKind::FlashLiquidityFee)?;
                     self.trading_state.open_debts.remove(debt_id);
                     self.trading_state.closed_debts.insert(debt_id.clone());
                     self.trading_state.closed_debt_records.insert(

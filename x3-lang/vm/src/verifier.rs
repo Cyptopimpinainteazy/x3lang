@@ -675,14 +675,13 @@ fn validate_payload_opcode(opcode: u8, payload: &[u8], pc: usize, stream_len: us
                 return Err(VerifyError::InvalidOperand(pc));
             }
         }
-        CapabilityPayload::HostCall { function, .. } => {
+        CapabilityPayload::HostCall { function, .. }
             // The host is asked for a function *by name*: `CALL_HOST` carries no other
             // selector, so an empty one is a call the host cannot route and must not
             // receive as a no-op.
-            if function.is_empty() {
+            if function.is_empty() => {
                 return Err(VerifyError::InvalidOperand(pc));
             }
-        }
         _ => {}
     }
     Ok(())

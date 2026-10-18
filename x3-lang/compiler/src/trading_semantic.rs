@@ -101,14 +101,12 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
                     ));
                 }
             }
-            Item::TradeRiskPolicy(policy) => {
-                if symbols.policies.insert(policy.name.clone(), policy.clone()).is_some() {
-                    errors.push(coded_error(
-                        crate::diagnostic::DiagnosticCode::TradeDeclaration,
-                        format!("duplicate trading risk policy '{}'", policy.name.as_str()),
-                        item.span,
-                    ));
-                }
+            Item::TradeRiskPolicy(policy) if symbols.policies.insert(policy.name.clone(), policy.clone()).is_some() => {
+                errors.push(coded_error(
+                    crate::diagnostic::DiagnosticCode::TradeDeclaration,
+                    format!("duplicate trading risk policy '{}'", policy.name.as_str()),
+                    item.span,
+                ));
             }
             _ => {}
         }

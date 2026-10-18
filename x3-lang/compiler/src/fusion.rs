@@ -163,10 +163,8 @@ pub fn flow_of(name: &str, ir: &X3IR) -> IntentFlow {
                     deadline_blocks = Some(*blocks);
                 }
             }
-            Operation::FeatureAllow { feature, .. } => {
-                if *feature == crate::spec::opcodes::FEATURE_INTENT_FUSION {
-                    opted_in = true;
-                }
+            Operation::FeatureAllow { feature, .. } if *feature == crate::spec::opcodes::FEATURE_INTENT_FUSION => {
+                opted_in = true;
             }
             _ => {}
         }

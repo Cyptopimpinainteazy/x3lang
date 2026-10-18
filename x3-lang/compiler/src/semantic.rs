@@ -1433,16 +1433,16 @@ fn verify_adapter_compatibility(ir: &X3IR, acc: &mut ErrorAccumulator) {
             Operation::Lock { chain, .. }
             | Operation::Mint { chain, .. }
             | Operation::Burn { chain, .. }
-            | Operation::Release { chain, .. } => {
-                if !known.contains(chain.to_ascii_lowercase().as_str()) {
-                    acc.add_error(err(
-                        DiagnosticCode::UnsafeIr,
-                        format!(
-                            "asset operation on unknown chain {chain:?}; add the chain to the \
+            | Operation::Release { chain, .. }
+                if !known.contains(chain.to_ascii_lowercase().as_str()) =>
+            {
+                acc.add_error(err(
+                    DiagnosticCode::UnsafeIr,
+                    format!(
+                        "asset operation on unknown chain {chain:?}; add the chain to the \
                          production allow-list or use a known chain"
-                        ),
-                    ));
-                }
+                    ),
+                ));
             }
             _ => {}
         }

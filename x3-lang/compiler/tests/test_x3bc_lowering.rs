@@ -115,8 +115,11 @@ fn cross_trade_loss_breaker_is_refused() {
 
 #[test]
 fn an_off_chain_asset_is_refused() {
-    let error = refusal(&SOURCE.replace("x3.x3chain.asset_2", "evm.ethereum.0xC02a"));
-    assert!(error.contains("X3BC-L"), "{error}");
+    // The whole trade on another chain: the front end accepts a single-chain Ethereum trade, and
+    // the lowering refuses it because no X3-chain venue can run it. (Mixing chains inside one trade
+    // is already refused by the front end, X3E2107.)
+    let error = refusal(&SOURCE.replace("x3.x3chain.", "evm.ethereum."));
+    assert!(error.contains("X3BC-L004"), "{error}");
 }
 
 #[test]
