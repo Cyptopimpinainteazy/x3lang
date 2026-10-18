@@ -117,6 +117,25 @@ impl OpSpec {
     pub fn fixed_len(&self) -> usize {
         1 + self.operands.iter().map(OperandKind::width).sum::<usize>()
     }
+
+    /// Encoded length of the instruction that starts at `at[0]`, reading each list operand's
+    /// count from the bytes. `None` when the bytes end before the instruction does.
+    pub fn encoded_len(&self, at: &[u8]) -> Option<usize> {
+        let mut offset = 1usize;
+        for kind in self.operands {
+            let width = kind.width();
+            let field = at.get(offset..offset.checked_add(width)?)?;
+            offset += width;
+            if kind.element_width() > 0 {
+                let mut count = 0usize;
+                for (i, byte) in field.iter().enumerate() {
+                    count |= usize::from(*byte) << (8 * i);
+                }
+                offset = offset.checked_add(count.checked_mul(kind.element_width())?)?;
+            }
+        }
+        (offset <= at.len()).then_some(offset)
+    }
 }
 
 /// The canonical description of `opcode`.
@@ -1375,6 +1394,34 @@ pub static ALL: [OpSpec; COUNT] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoded_len_reads_list_counts_and_refuses_truncation() {
+        for entry in ALL.iter() {
+            let mut bytes = alloc::vec![entry.opcode as u8];
+            bytes.resize(entry.fixed_len(), 0);
+            assert_eq!(
+                entry.encoded_len(&bytes),
+                Some(entry.fixed_len()),
+                "{:?}",
+                entry.opcode
+            );
+            if entry.fixed_len() > 1 {
+                let truncated = &bytes[..bytes.len() - 1];
+                assert_eq!(entry.encoded_len(truncated), None, "{:?}", entry.opcode);
+            }
+        }
+        // `Call dst, func(u32), args(u16 count)` with three argument registers.
+        let call = of(Opcode::Call);
+        let mut bytes = alloc::vec![Opcode::Call as u8, 0, 1, 0, 0, 0, 3, 0, 4, 5, 6];
+        assert_eq!(call.encoded_len(&bytes), Some(bytes.len()));
+        bytes.pop();
+        assert_eq!(
+            call.encoded_len(&bytes),
+            None,
+            "a missing argument register"
+        );
+    }
 
     #[test]
     fn the_table_is_in_opcode_order_and_complete() {
