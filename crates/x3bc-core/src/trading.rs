@@ -52,7 +52,13 @@ pub fn chain_id_for(name: &str) -> Option<u64> {
 /// The `pallet_x3_dex` pool id a venue name denotes.
 pub fn venue_pool_id(name: &str) -> Option<u64> {
     let digits = name.strip_prefix(VENUE_PREFIX)?;
-    if digits.is_empty() || digits.starts_with('0') && digits.len() > 1 {
+    // Canonical decimal only: ASCII digits, no sign, no leading zero. `str::parse` alone accepts
+    // `+1`, which let `x3dex_pool_+1` alias `x3dex_pool_1` past the verifier's name-based
+    // duplicate check and trade one pool's reserves twice.
+    if digits.is_empty()
+        || !digits.bytes().all(|b| b.is_ascii_digit())
+        || digits.starts_with('0') && digits.len() > 1
+    {
         return None;
     }
     digits.parse().ok()
@@ -722,6 +728,22 @@ pub fn assemble_trading_module(section: TradingSection, code: Vec<u8>) -> Vec<u8
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_venue_name_has_exactly_one_spelling() {
+        assert_eq!(venue_pool_id("x3dex_pool_1"), Some(1));
+        assert_eq!(venue_pool_id("x3dex_pool_42"), Some(42));
+        for alias in [
+            "x3dex_pool_+1",
+            "x3dex_pool_01",
+            "x3dex_pool_-1",
+            "x3dex_pool_ 1",
+            "x3dex_pool_",
+            "x3dex_pool_1a",
+        ] {
+            assert_eq!(venue_pool_id(alias), None, "{alias}");
+        }
+    }
 
     pub(crate) fn flagship() -> TradingSection {
         TradingSection {
