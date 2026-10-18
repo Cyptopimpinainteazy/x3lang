@@ -2119,3 +2119,33 @@ mod receipt_replay_of_gas_and_oracle {
         ));
     }
 }
+
+#[test]
+fn atomic_preflight_expired_deadline_never_opens_host_transaction() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    let initial = vm.trading_state.clone();
+    let mut ctx = context(ExecutionMode::Development);
+    ctx.current_block = 11;
+    let result = vm.execute_atomic(&ops(), &mut host, ctx);
+    assert!(matches!(result, Err(x3_lang_vm::trading::TradingExecError::DeadlineExpired { .. })));
+    assert!(!host.began, "deadline preflight must not begin a host transaction");
+    assert!(!host.committed);
+    assert_eq!(host.swap_calls, 0, "no swap may occur after deadline rejection");
+    assert_eq!(vm.trading_state, initial);
+}
+
+#[test]
+fn atomic_failed_swap_never_commits_host_or_emits_vm_receipt() {
+    let mut vm = TradingVm::new();
+    let mut host = FixtureHost::new();
+    host.swap_output = 1;
+    let initial = vm.trading_state.clone();
+    let result = vm.execute_atomic(&ops(), &mut host, context(ExecutionMode::Development));
+    assert!(matches!(result, Err(x3_lang_vm::trading::TradingExecError::OutputBelowMinOut { .. })));
+    assert!(host.began, "swap failure must occur inside the transaction window");
+    assert!(host.swap_calls > 0, "failure injection must reach the swap host");
+    assert!(host.rolled_back, "host must receive rollback on rejected swap");
+    assert!(!host.committed, "host must never commit a failed swap");
+    assert_eq!(vm.trading_state, initial, "VM state must be restored");
+}
