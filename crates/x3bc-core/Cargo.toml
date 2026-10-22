@@ -1,0 +1,18 @@
+[package]
+name = "x3bc-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Canonical X3BC semantic core: header, opcode table and spec, container format, trading extension, traps, receipts. no_std, no Substrate."
+
+# Dependencies are spelled out rather than inherited from a workspace: `x3-lang/compiler` (a
+# different workspace) path-depends on this crate, and the canonical core must resolve the same way
+# from both.
+[dependencies]
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+sha2 = { version = "0.10", default-features = false }
+
+[features]
+default = ["std"]
+std = ["serde/std", "sha2/std"]

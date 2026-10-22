@@ -143,6 +143,7 @@ REFUSES = {
     "strategy_module.x3": "X3_PARSE_NO_INTENT",
     "trading_core_v1.x3": "X3_PARSE_NO_INTENT",
     "trading_effects.x3": "X3_PARSE_NO_INTENT",
+    "x3chain_flash_arb.x3": "X3_PARSE_NO_INTENT",
 }
 
 

@@ -49,7 +49,7 @@ fn test_cli_check_simple_swap() {
     let src = example_path("simple_swap.x3");
     let output = x3c().arg("check").arg(&src).output().expect("x3c check");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{}{}", String::from_utf8_lossy(&output.stdout), &stderr);
+    let combined = format!("{}{}", String::from_utf8_lossy(&output.stdout), stderr);
     assert!(
         !output.status.success() || combined.contains("ops"),
         "check on simple_swap should fail (missing refund path, no nonce) or report ops, got status={}",

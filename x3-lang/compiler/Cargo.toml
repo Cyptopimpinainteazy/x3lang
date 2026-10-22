@@ -11,6 +11,9 @@ x3-lang-common = { path = "../crates/x3-common" }
 x3-lang-ast = { path = "../crates/x3-ast" }
 x3-lang-lexer = { path = "../crates/x3-lexer", features = ["logos"] }
 sha2 = { workspace = true }
+# The canonical X3BC semantic core (root `crates/x3bc-core`): the trading lowering writes the
+# chain's bytecode format through it rather than through a copy of its own.
+x3bc-core = { path = "../../crates/x3bc-core" }
 indexmap = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

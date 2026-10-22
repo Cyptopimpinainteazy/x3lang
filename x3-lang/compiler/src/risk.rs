@@ -312,11 +312,9 @@ impl RiskScorer {
                         details.push(format!("max slippage {} bps is high", policy.max_slippage));
                     }
                 }
-                Item::PrivacyBlock(privacy) => {
-                    if !privacy.encrypted {
-                        *categories.entry("mev_risk".to_string()).or_insert(0) += 5;
-                        details.push("privacy block without encryption — visible to relayers".into());
-                    }
+                Item::PrivacyBlock(privacy) if !privacy.encrypted => {
+                    *categories.entry("mev_risk".to_string()).or_insert(0) += 5;
+                    details.push("privacy block without encryption — visible to relayers".into());
                 }
                 _ => {}
             }

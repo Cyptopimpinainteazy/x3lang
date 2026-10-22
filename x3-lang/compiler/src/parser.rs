@@ -1530,10 +1530,7 @@ impl<'a> Parser<'a> {
                     let asset = self.parse_asset_ref()?;
                     let mut amount = None;
                     let mut max_amount = None;
-                    loop {
-                        let Tok::Ident(ref keyword) = self.peek() else {
-                            break;
-                        };
+                    while let Tok::Ident(ref keyword) = self.peek() {
                         match keyword.as_str() {
                             "amount" => {
                                 self.advance();
