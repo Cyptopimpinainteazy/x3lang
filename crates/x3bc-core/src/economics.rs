@@ -353,7 +353,10 @@ mod tests {
         let outcome = price(10_000, 10_800, vec![cost(CostKind::Gas, USDC, 400, false)]);
         assert_eq!(outcome.net, 800);
         assert_eq!(outcome.charged, 400);
-        assert_eq!(outcome.gross, 1_200, "gross = net + charged, for attribution");
+        assert_eq!(
+            outcome.gross, 1_200,
+            "gross = net + charged, for attribution"
+        );
         assert_eq!(outcome.charged_of(CostKind::Gas), 400);
         // The fee rests on net, not gross.
         assert_eq!(performance_fee(&outcome, 2_000).unwrap().fee, 160);
@@ -361,7 +364,11 @@ mod tests {
 
     #[test]
     fn embedded_costs_are_reported_and_never_added_to_gross() {
-        let outcome = price(10_000, 10_800, vec![cost(CostKind::VenueFee, USDC, 250, true)]);
+        let outcome = price(
+            10_000,
+            10_800,
+            vec![cost(CostKind::VenueFee, USDC, 250, true)],
+        );
         assert_eq!(outcome.embedded, 250);
         assert_eq!(outcome.charged, 0);
         assert_eq!(
@@ -441,7 +448,8 @@ mod tests {
 
     #[test]
     fn split_fee_distributes_exactly_the_fee() {
-        let parts = split_fee(160, &[(8_000, "trader"), (1_500, "developer"), (500, "x3")]).unwrap();
+        let parts =
+            split_fee(160, &[(8_000, "trader"), (1_500, "developer"), (500, "x3")]).unwrap();
         assert_eq!(parts[0].2, 128);
         assert_eq!(parts[1].2, 24);
         assert_eq!(parts[2].2, 8);
