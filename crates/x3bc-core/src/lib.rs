@@ -27,6 +27,7 @@ pub(crate) mod prelude {
 pub mod amm;
 pub mod bytecode;
 pub mod codec;
+pub mod economics;
 pub mod error;
 pub mod format;
 pub mod format_helpers;
