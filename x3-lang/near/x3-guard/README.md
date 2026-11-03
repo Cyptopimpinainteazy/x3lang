@@ -143,3 +143,17 @@ A live quote for an intent `under mandate` needs `--mandate`, and with `--guard-
 reads the mandate the contract holds (revocation, version, what was spent in the last 24 hours).
 A payment the mandate refuses is never quoted, so it never gets a deposit address. The program's `timeout` is
 the policy deadline, and a quote is fresh for 5 minutes, so register and accept promptly.
+
+## Dependency allocator safety
+
+NEAR SDK 5.30 enables the abandoned `wee_alloc` allocator by default for
+WebAssembly. This contract explicitly disables that SDK feature (including
+its test dependency) and uses Rust's default `wasm32` allocator. The
+corresponding dependency lockfile removes `wee_alloc` and its unused
+transitive packages. The CI gate `bash scripts/check-near-allocator.sh`
+checks both the wasm32 dependency graph and `Cargo.lock` against regression.
+
+The original advisory [RUSTSEC-2022-0054](https://rustsec.org/advisories/RUSTSEC-2022-0054.html)
+is an **unmaintained allocator warning**, classified informational by RustSec;
+GitHub displays it as critical. Removing this one dependency does not
+constitute a security audit or prove the contract safe to deploy.
