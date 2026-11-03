@@ -78,6 +78,22 @@ because that is the moment a deposit address exists for it. Dry quotes never con
 This module never signs or sends the deposit. `quote --live` returns the deposit address and
 the exact amount; the deposit is made from the sender's wallet, after which `submit-deposit`
 and `status` track the swap to a terminal X3 outcome.
+
+## Proving the outcome from the chains (`chain_evidence.py`)
+
+1Click's status endpoint is not signed, so a receipt never takes it as proof:
+
+- `quote --live` reads the recipient's NEP-141 balance on NEAR before any deposit exists. A
+  live quote whose delivery could never be measured is refused (`X3_EVIDENCE_BASELINE`).
+- `verify-deposit` proves from Solana (`getTransaction`, finalized) that at least `amountIn`
+  of the origin mint reached the signed deposit address before the signed deadline.
+- `verify-settlement` proves the recipient's balance rose by at least the signed
+  `minAmountOut`, or, with `--refund-tx`, that `amountIn - refundFee` came back to the refund
+  address on Solana after the deposit.
+- The receipt's `verified_outcome` is set only when the deposit and its end are both proven.
+  It records whether 1Click's reported status agrees. Every check records its RPC endpoints,
+  slot or block, and a SHA-256 of each raw result. `SOLANA_RPC_URLS` / `NEAR_RPC_URLS`
+  (comma-separated) add endpoints that must all agree.
 """
 import argparse
 import contextlib
@@ -120,6 +136,7 @@ def _load(name: str):
 
 registry = _load("registry")
 ed25519 = _load("ed25519")
+chain_evidence = _load("chain_evidence")
 
 DEFAULT_BASE_URL = "https://1click.chaindefuser.com"
 DEFAULT_NONCE_STORE = os.path.join(os.path.expanduser("~"), ".x3", "near_intents_nonces.json")
@@ -1020,19 +1037,35 @@ def plan(path: str, *, client: OneClickClient, tokens_path: Optional[str] = None
     intent, leg = compile_program(path, now=now)
     tokens = load_tokens(client, tokens_path)
     request = build_quote_request(leg, tokens, dry=not live, referral=os.environ.get("NEAR_INTENTS_REFERRAL"))
-    return {"intent": intent, "leg": leg, "quote_request": request}
+    resolved = {
+        side: _token_summary(resolve_asset(tokens, leg[key]["chain"], leg[key]["asset"]))
+        for side, key in (("origin", "origin"), ("destination", "destination"))
+    }
+    return {"intent": intent, "leg": leg, "quote_request": request, "tokens": resolved}
+
+
+def _token_summary(token: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: token.get(k) for k in ("assetId", "blockchain", "symbol", "decimals", "contractAddress")}
+
+
+def nep141_contract(asset_id: str) -> str:
+    """`nep141:usdc.near` -> `usdc.near`. Anything else has no NEAR token contract to read."""
+    if not isinstance(asset_id, str) or not asset_id.startswith("nep141:") or len(asset_id) <= len("nep141:"):
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"{asset_id!r} is not a NEP-141 token on NEAR")
+    return asset_id[len("nep141:"):]
 
 
 def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = None, live: bool = False,
           nonce_store: Optional[NonceStore] = None, receipt_path: Optional[str] = None,
           rpc: Optional[NearRpc] = None, now: Optional[datetime] = None,
-          manager_public_key: Optional[str] = None) -> Dict[str, Any]:
+          manager_public_key: Optional[str] = None, near_views: Optional[Any] = None) -> Dict[str, Any]:
     planned = plan(path, client=client, tokens_path=tokens_path, live=live, now=now)
     leg, request = planned["leg"], planned["quote_request"]
     store = nonce_store or NonceStore()
     if live and leg["nonce"]:
         store.check_unused(leg["nonce"])
-    account_checks = preflight_accounts(leg, rpc or NearRpc())
+    rpc = rpc or NearRpc()
+    account_checks = preflight_accounts(leg, rpc)
 
     response = client.quote(request)
     guards = account_checks + verify_quote(leg, request, response, now=now, manager_public_key=manager_public_key)
@@ -1061,6 +1094,17 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
         return result
 
     quote_obj = response["quote"]
+    # The recipient's balance before the deposit exists, so the delivery can later be proven
+    # as a rise from it. Taken before the nonce is consumed or a receipt written: a live quote
+    # whose settlement could never be verified is refused, not issued.
+    baseline = None
+    if leg["destination"]["chain"] == "near":
+        views = near_views or near_views_for(rpc)
+        try:
+            baseline = views.ft_balance(nep141_contract(request["destinationAsset"]), leg["recipient"])
+        except chain_evidence.ChainEvidenceError as exc:
+            raise NearIntentsError("X3_EVIDENCE_BASELINE", f"could not read the recipient's starting balance: {exc.message}",
+                                   "evidence", exc.detail)
     with open(path, "rb") as f:
         program_sha256 = hashlib.sha256(f.read()).hexdigest()
     runner = _load("runner")
@@ -1087,6 +1131,8 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
             "deadline": quote_obj.get("deadline"),
         },
         "status_history": [],
+        "tokens": planned["tokens"],
+        "evidence": {"settlement_baseline": baseline},
     }
     if leg["nonce"]:
         store.consume(leg["nonce"], {
@@ -1196,6 +1242,119 @@ def guard_command(step: str, args: Dict[str, Any], *, contract: str, signer: str
     ]
 
 
+# --------------------------------------------------------------------------------------------
+# Chain evidence: did the money actually move?
+# --------------------------------------------------------------------------------------------
+
+EXIT_UNVERIFIED = 5
+
+
+def near_views_for(rpc: NearRpc):
+    urls = None if os.environ.get("NEAR_RPC_URLS") else [rpc.url]
+    return chain_evidence.NearViews(transport=rpc.transport, urls=urls)
+
+
+def solana_rpc_default():
+    return chain_evidence.SolanaRpc(transport=urllib_transport)
+
+
+def _signed_quote(receipt: Dict[str, Any]) -> Dict[str, Any]:
+    quote_obj = (receipt.get("quote_response") or {}).get("quote") or {}
+    if (receipt.get("quote_request") or {}).get("dry", True):
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", "this receipt is for a dry quote; nothing was deposited")
+    return quote_obj
+
+
+def _solana_mint(receipt: Dict[str, Any]) -> str:
+    leg, origin = receipt["leg"], (receipt.get("tokens") or {}).get("origin") or {}
+    if leg["origin"]["chain"] != "solana":
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"deposit evidence is implemented for Solana origins, not {leg['origin']['chain']}")
+    mint = origin.get("contractAddress")
+    if not mint:
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"{origin.get('assetId')} has no SPL mint; native SOL transfers are not verified here")
+    return mint
+
+
+def _record_evidence(receipt: Dict[str, Any], key: str, fn) -> Dict[str, Any]:
+    """Run one evidence check; an RPC or format failure is recorded as unverified evidence."""
+    try:
+        evidence = fn()
+    except chain_evidence.ChainEvidenceError as exc:
+        evidence = {"verified": False, "error": exc.to_dict()}
+    evidence["checked_at"] = format_timestamp(datetime.now(timezone.utc))
+    receipt.setdefault("evidence", {})[key] = evidence
+    conclude(receipt)
+    return evidence
+
+
+def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = None, solana=None) -> Dict[str, Any]:
+    """The deposit reached 1Click's address: the full amount, the right mint, before the deadline."""
+    quote_obj = _signed_quote(receipt)
+    mint = _solana_mint(receipt)
+    signature = tx_signature or (receipt.get("deposit") or {}).get("tx_hash")
+    if not signature:
+        raise NearIntentsError("X3_EVIDENCE_TX", "no deposit transaction: pass --tx, or record it with submit-deposit --receipt")
+    solana = solana or solana_rpc_default()
+    return _record_evidence(receipt, "deposit", lambda: solana.verify_transfer(
+        signature=signature, mint=mint, owner=quote_obj["depositAddress"], min_amount=int(quote_obj["amountIn"]),
+        not_after_ms=int(parse_timestamp(quote_obj["deadline"]).timestamp() * 1000), purpose="deposit"))
+
+
+def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None, solana=None) -> Dict[str, Any]:
+    """Delivery on NEAR (balance rise >= the signed minAmountOut), or a refund back on Solana."""
+    quote_obj = _signed_quote(receipt)
+    leg = receipt["leg"]
+    if refund_tx:
+        mint = _solana_mint(receipt)
+        expected = int(quote_obj["amountIn"]) - int(quote_obj.get("refundFee") or 0)
+        deposit_slot = ((receipt.get("evidence") or {}).get("deposit") or {}).get("slot")
+        solana = solana or solana_rpc_default()
+        return _record_evidence(receipt, "refund", lambda: solana.verify_transfer(
+            signature=refund_tx, mint=mint, owner=leg["refund_to"], min_amount=expected,
+            not_after_ms=None, purpose="refund", after_slot=deposit_slot))
+    if leg["destination"]["chain"] != "near":
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"delivery evidence is implemented for NEAR destinations, not {leg['destination']['chain']}")
+    baseline = (receipt.get("evidence") or {}).get("settlement_baseline")
+    if not baseline:
+        raise NearIntentsError("X3_EVIDENCE_BASELINE", "the receipt has no starting balance, so a delivery cannot be measured")
+    views = near_views or near_views_for(NearRpc())
+    return _record_evidence(receipt, "settlement", lambda: chain_evidence.judge_near_delivery(
+        baseline, views.ft_balance(baseline["token"], baseline["account"]), min_amount=int(quote_obj["minAmountOut"])))
+
+
+def conclude(receipt: Dict[str, Any]) -> Dict[str, Any]:
+    """A verified outcome exists only when the chains prove both the deposit and its end."""
+    ev = receipt.get("evidence") or {}
+    ok = lambda k: bool((ev.get(k) or {}).get("verified"))
+    outcome = None
+    if ok("deposit") and ok("settlement"):
+        outcome = "settled"
+    elif ok("deposit") and ok("refund"):
+        outcome = "refunded"
+    missing = [k for k in ("deposit",) if not ok(k)]
+    if not (ok("settlement") or ok("refund")):
+        missing.append("settlement or refund")
+    reported = next((s["outcome"] for s in reversed(receipt.get("status_history") or []) if s.get("terminal")), None)
+    verification = {"status": "verified" if outcome else "unverified", "outcome": outcome, "missing": missing,
+                    "1click_reported": reported}
+    if outcome and reported:
+        verification["1click_agrees"] = reported == outcome
+    receipt["verification"] = verification
+    if outcome:
+        receipt["verified_outcome"] = outcome
+    else:
+        receipt.pop("verified_outcome", None)
+    return verification
+
+
+def _load_receipt(path: str) -> Dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as f:
+        receipt = json.load(f)
+    if receipt.get("kind") != RECEIPT_KIND:
+        raise NearIntentsError("X3_NEAR_RECEIPT", f"{path} is not an {RECEIPT_KIND} receipt")
+    return receipt
+
+
 def write_receipt(path: str, receipt: Dict[str, Any]) -> None:
     tmp = f"{path}.tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -1260,7 +1419,7 @@ def _emit(payload: Dict[str, Any], code: int = 0) -> int:
 
 
 def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] = None,
-         rpc: Optional[NearRpc] = None) -> int:
+         rpc: Optional[NearRpc] = None, near_views: Optional[Any] = None, solana: Optional[Any] = None) -> int:
     parser = argparse.ArgumentParser(description="Settle X3 intents through NEAR Intents (1Click API)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1279,6 +1438,15 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_submit = sub.add_parser("submit-deposit", help="tell 1Click the deposit transaction hash")
     p_submit.add_argument("--deposit-address", required=True)
     p_submit.add_argument("--tx-hash", required=True)
+    p_submit.add_argument("--receipt", help="also record the deposit transaction in this receipt")
+
+    p_vdep = sub.add_parser("verify-deposit", help="prove from Solana that the deposit reached 1Click's address")
+    p_vdep.add_argument("--receipt", required=True)
+    p_vdep.add_argument("--tx", help="deposit transaction signature (default: the one submit-deposit recorded)")
+
+    p_vset = sub.add_parser("verify-settlement", help="prove the delivery on NEAR, or a refund on Solana")
+    p_vset.add_argument("--receipt", required=True)
+    p_vset.add_argument("--refund-tx", help="Solana signature of the refund, when the swap was refunded")
 
     p_guard = sub.add_parser("guard-args", help="x3-guard contract call arguments (and command) from a receipt")
     p_guard.add_argument("--receipt", required=True)
@@ -1304,10 +1472,31 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
             return _emit({"status": "planned", "leg": planned["leg"], "quote_request": planned["quote_request"]})
         if args.command == "quote":
             result = quote(args.input, client=client, tokens_path=args.tokens, live=args.live,
-                           nonce_store=NonceStore(args.nonce_store), receipt_path=args.receipt, rpc=rpc)
+                           nonce_store=NonceStore(args.nonce_store), receipt_path=args.receipt, rpc=rpc,
+                           near_views=near_views)
             return _emit(result)
         if args.command == "submit-deposit":
-            return _emit({"status": "submitted", "response": client.submit_deposit(args.deposit_address, args.tx_hash)})
+            response = client.submit_deposit(args.deposit_address, args.tx_hash)
+            if args.receipt:
+                receipt = _load_receipt(args.receipt)
+                if (receipt.get("deposit") or {}).get("address") != args.deposit_address:
+                    raise NearIntentsError("X3_NEAR_RECEIPT", "that deposit address is not this receipt's")
+                receipt["deposit"]["tx_hash"] = args.tx_hash
+                write_receipt(args.receipt, receipt)
+            return _emit({"status": "submitted", "response": response})
+        if args.command in ("verify-deposit", "verify-settlement"):
+            receipt = _load_receipt(args.receipt)
+            if args.command == "verify-deposit":
+                evidence = verify_deposit(receipt, tx_signature=args.tx, solana=solana)
+            else:
+                evidence = verify_settlement(receipt, refund_tx=args.refund_tx, near_views=near_views, solana=solana)
+            write_receipt(args.receipt, receipt)
+            verification = receipt["verification"]
+            if args.command == "verify-deposit":
+                code = 0 if evidence.get("verified") else EXIT_UNVERIFIED
+            else:
+                code = {"settled": 0, "refunded": 2}.get(verification["outcome"], EXIT_UNVERIFIED)
+            return _emit({"evidence": evidence, "verification": verification}, code)
         if args.command == "guard-args":
             with open(args.receipt, "r", encoding="utf-8") as f:
                 receipt = json.load(f)

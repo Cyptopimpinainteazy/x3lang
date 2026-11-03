@@ -116,16 +116,39 @@ def api(quote_fn=good_quote, statuses=None):
     return RecordingTransport(handler)
 
 
-def near_rpc(missing=(), error=None):
-    def handler(method, url, payload):
-        if error:
-            return 200, {"jsonrpc": "2.0", "id": payload["id"], "error": error}
-        account = payload["params"]["account_id"]
-        if account in missing:
+class FakeNearChain:
+    """Test double for NEAR RPC: `view_account` for account checks, `call_function` for
+    `ft_balance_of`. Balances can change between reads; every read is at a later block."""
+
+    def __init__(self, missing=(), error=None, balances=None):
+        self.missing = set(missing)
+        self.error = error
+        self.balances = dict(balances or {})
+        self.height = 180_000_000
+
+    def __call__(self, method, url, payload):
+        if self.error:
+            return 200, {"jsonrpc": "2.0", "id": payload["id"], "error": self.error}
+        params = payload["params"]
+        if params["request_type"] == "call_function":
+            import base64
+            account = json.loads(base64.b64decode(params["args_base64"]))["account_id"]
+            self.height += 1 if "finality" in params else 0
+            height = params.get("block_id", self.height)
+            value = str(self.balances.get((params["account_id"], account), 0))
+            return 200, {"jsonrpc": "2.0", "id": payload["id"], "result": {
+                "result": list(json.dumps(value).encode()), "logs": [], "block_height": height,
+                "block_hash": f"hash{height}"}}
+        account = params["account_id"]
+        if account in self.missing:
             return 200, {"jsonrpc": "2.0", "id": payload["id"],
                          "error": {"name": "HANDLER_ERROR", "cause": {"name": "UNKNOWN_ACCOUNT", "info": {}}, "code": -32000}}
         return 200, {"jsonrpc": "2.0", "id": payload["id"], "result": {"amount": "1", "locked": "0", "code_hash": "11111111111111111111111111111111"}}
-    transport = RecordingTransport(handler)
+
+
+def near_rpc(missing=(), error=None, chain=None):
+    chain = chain or FakeNearChain(missing=missing, error=error)
+    transport = RecordingTransport(chain)
     return ni.NearRpc(url="https://rpc.example.invalid", transport=transport), transport
 
 
