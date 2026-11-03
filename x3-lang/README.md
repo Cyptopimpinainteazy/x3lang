@@ -193,6 +193,22 @@ Environment: `NEAR_INTENTS_JWT` (API key; without it the unauthenticated fee sch
 or sends the deposit; that is made from the sender's wallet. 1Click has no testnet, so live runs
 use real funds — start small.
 
+## Transparent optional value fees (preview-only)
+
+The new `value_fee.py` library computes a capped, opt-in **share of positive
+net route improvement**, using exact destination-token integer amounts and
+fresh comparable quote inputs. It rejects unknown costs, mismatched assets,
+stale references and any proposal that would erase the user's minimum gain.
+
+```bash
+python3 x3-lang/value_fee.py --preview-stdin < x3-lang/examples/fees/verified_savings_preview.json
+```
+
+This is **not** `.x3` syntax today and is not wired to NEAR 1Click `appFees`;
+`collectible: false` is mandatory because a signed quote is not proof of
+settlement or user authorization. See `../COMMERCIAL_MODEL.md` for the
+commercial API/on-chain design and safeguards.
+
 ## Quick start
 
 ```bash

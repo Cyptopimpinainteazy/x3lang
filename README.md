@@ -27,6 +27,27 @@ single import commit. Review the SHA map in `docs/provenance/`.
 - **`docs/x3-lang/fixtures/` and `scripts/proof/`** — archived proof fixtures
   and verifier generator used by existing VM integration tests.
 
+### User-first commercial economics (new, opt-in)
+
+[X3Lang's value-fee arithmetic](x3-lang/value_fee.py) provides an inspectable,
+**non-billable** preview: an operator can propose a capped share of measurable
+positive net savings, and the user must remain better off after the proposed
+fee. See [COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md) for the transparent
+revenue options, IP/licensing limitations, and missing on-chain authority,
+and the [NEAR value-first rollout gates](docs/plans/NEAR_X3LANG_VALUE_FIRST_IMPLEMENTATION.md)
+for the planned on-chain enforcement and integration work.
+
+```bash
+python3 x3-lang/value_fee.py --preview-stdin \
+  < x3-lang/examples/fees/verified_savings_preview.json
+```
+
+**This is an optional Python policy-economics primitive, not yet new `.x3`
+compiler syntax, a paid API, or a wallet fee.** The example uses illustrative
+unsigned quotes; it cannot authorize payments. Public source cannot be made
+fork-proof by embedding a revenue check. A separate user-approved service
+would be needed to collect any future fee.
+
 ### Reproducible local checks
 
 ```bash
