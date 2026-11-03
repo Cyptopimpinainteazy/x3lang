@@ -1,0 +1,7 @@
+[
+  {"assetId": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near", "decimals": 6, "blockchain": "sol", "symbol": "USDC", "price": 0.9998, "priceUpdatedAt": "2026-11-02T20:00:00.000Z", "contractAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},
+  {"assetId": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", "decimals": 6, "blockchain": "near", "symbol": "USDC", "price": 0.9998, "priceUpdatedAt": "2026-11-02T20:00:00.000Z", "contractAddress": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"},
+  {"assetId": "nep141:wrap.near", "decimals": 24, "blockchain": "near", "symbol": "wNEAR", "price": 2.41, "priceUpdatedAt": "2026-11-02T20:00:00.000Z", "contractAddress": "wrap.near"},
+  {"assetId": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near", "decimals": 6, "blockchain": "eth", "symbol": "USDC", "price": 0.9998, "priceUpdatedAt": "2026-11-02T20:00:00.000Z", "contractAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"},
+  {"assetId": "nep141:sol.omft.near", "decimals": 9, "blockchain": "sol", "symbol": "SOL", "price": 162.5, "priceUpdatedAt": "2026-11-02T20:00:00.000Z"}
+]

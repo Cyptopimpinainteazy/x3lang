@@ -1,0 +1,5 @@
+intent broken {
+    from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
+    to Solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    route {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 777

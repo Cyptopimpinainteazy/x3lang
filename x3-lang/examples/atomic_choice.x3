@@ -1,0 +1,42 @@
+// Bounded branch execution — the `atomic_choice` construct.
+//
+// Three permitted ways to get from USDC on Ethereum to ETH, one of which the
+// compiler picks. Every path is parsed, lowered and verified with the same
+// checks the rest of the language uses — the `require slippage` bound and the
+// refund path are per path, because each path is a program in its own right.
+// Only the selected path is emitted, so nothing at run time can reach a branch
+// the compiler did not verify.
+//
+// `choose highest_net_output` ranks the paths by the `net_output` each one
+// declares. That declaration is what makes the choice a compile-time decision:
+// a branch whose output the compiler cannot evaluate has no rank, and the
+// compiler refuses the set rather than defaulting to the first path.
+//
+// `via_pool` is deliberately the least valuable path, and it still has to be
+// valid: a losing branch that does not compile is a branch the compiler would
+// have shipped unverified had it won.
+
+atomic_choice eth_usdc_to_eth {
+    path via_uniswap {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 100 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.USDC to sender
+        net_output 108 ETH
+    }
+
+    path via_curve {
+        swap curve ethereum.USDC -> ethereum.ETH amount 100 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.USDC to sender
+        net_output 111 ETH
+    }
+
+    path via_pool {
+        swap uniswap_pool ethereum.USDC -> ethereum.ETH amount 100 min_output 1
+        require slippage <= 50
+        on_fail refund ethereum.USDC to sender
+        net_output 104 ETH
+    }
+
+    choose highest_net_output;
+}

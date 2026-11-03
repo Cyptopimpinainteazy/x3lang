@@ -1,0 +1,2097 @@
+//! X3IR -> Bytecode/Runtime Dispatch emitter.
+//!
+//! This module converts X3IR operations into executable bytecode suitable
+//! for the X3 runtime or specific chain emitters (EVM, SVM, etc.).
+
+use crate::ir::{
+    ChainMetricKind, ChoiceCriterion, ComparisonOp, Condition, CrdtKind, EmergencyKind, LifecycleKind, Operation,
+    ProofKind, SerialFormat, StorageKind, TradingOperation, VectorOp, X3IR,
+};
+// Import shared opcode constants
+use crate::spec::opcodes::*;
+use std::io::Write;
+use x3_lang_common::{
+    encode_asset_op_payload, encode_bridge_payload, encode_capability_payload, AssetOpPayload, BridgePayload,
+    CapabilityPayload, X3Error,
+};
+/// Pad `bytecode` so its length is a multiple of 4, which is what keeps every
+/// *subsequent* instruction starting on a 4-byte boundary.
+///
+/// Note that the metadata header is written unpadded, on purpose: the executor's
+/// `first_instruction_pc` and this crate's `disassemble` both walk it unpadded,
+/// so the first instruction after a header sits at `3 + len + 1` rather than at
+/// a rounded offset. An earlier version of this comment claimed the VM verifier
+/// required every instruction — including that first one — to be aligned, and
+/// `vm/src/verifier.rs` acted on that claim; the two disagreed for any nonce
+/// whose record was 1 or 3 bytes short of a multiple of four.
+fn pad_to_4(bytecode: &mut Vec<u8>) {
+    let rem = bytecode.len() % 4;
+    if rem != 0 {
+        for _ in 0..(4 - rem) {
+            bytecode.push(0);
+        }
+    }
+}
+
+/// The unit code a measured quantity travels as.
+///
+/// The same three codes a measured `REQUIRE` carries in its flags — one vocabulary for "which
+/// quantity", so a reader that has decoded one record can decode the other.
+fn measured_unit_code(quantity: crate::ir::MeasuredQuantity) -> u8 {
+    use crate::ir::MeasuredQuantity;
+    match quantity {
+        MeasuredQuantity::ProfitBps => MEASURED_UNIT_CODE_PROFIT_BPS,
+        MeasuredQuantity::DeltaBps => MEASURED_UNIT_CODE_DELTA_BPS,
+        MeasuredQuantity::SlippageBps => MEASURED_UNIT_CODE_SLIPPAGE_BPS,
+    }
+}
+
+/// A branch body's instructions, in their own buffer, so the branch's skip is known before the body
+/// is written.
+///
+/// The buffer's length is the skip the record needs, and it does **not** depend on where the body
+/// lands: every instruction in a compiler stream starts at a multiple of four — the emitter pads
+/// each operation to the stream's alignment and a payload frame ends on `align4` — so a body's byte
+/// length is the same at any aligned offset. That is what lets this write the record first instead
+/// of patching a placeholder afterwards, which is the shape that produced desynchronised streams
+/// here before.
+fn branch_body(ops: &[Operation]) -> Result<Vec<u8>, X3Error> {
+    let mut bytes = Vec::new();
+    for op in ops {
+        emit_operation(op, &mut bytes)?;
+    }
+    if bytes.len() % 4 != 0 {
+        return Err(X3Error::CodegenError {
+            message: format!(
+                "a branch body of {} bytes is not a whole number of four-byte instructions, so the \
+                 branch's skip cannot be written in the units the VM skips in",
+                bytes.len()
+            ),
+            span: None,
+        });
+    }
+    Ok(bytes)
+}
+
+/// The instructions a body's byte length covers.
+fn skip_of(bytes: &[u8]) -> Result<u32, X3Error> {
+    u32::try_from(bytes.len() / 4).map_err(|_| X3Error::CodegenError {
+        message: format!("a branch body of {} bytes is too long to skip", bytes.len()),
+        span: None,
+    })
+}
+
+/// Write one `IF_MEASURED` record.
+///
+/// The record is padded to `align4(pc + 3 + len)` **before** the caller appends the body: a payload
+/// frame's next instruction is the expression the writer pads by, so a body written into the
+/// unpadded bytes would start somewhere the reader would never look.
+fn write_if_measured(
+    bytecode: &mut Vec<u8>,
+    unit_code: u8,
+    invert: bool,
+    threshold_bps: u16,
+    skip: u32,
+) -> Result<(), X3Error> {
+    let payload = crate::spec::opcodes::if_measured_payload(unit_code, invert, threshold_bps, skip);
+    if payload.len() > u16::MAX as usize {
+        return Err(X3Error::CodegenError {
+            message: format!("branch payload too large: {} bytes", payload.len()),
+            span: None,
+        });
+    }
+    bytecode.write_all(&[IF_MEASURED])?;
+    bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+    bytecode.write_all(payload.as_bytes())?;
+    pad_to_4(bytecode);
+    Ok(())
+}
+
+/// Emit X3IR to bytecode suitable for the X3 runtime
+pub fn emit_x3ir(ir: &X3IR) -> Result<Vec<u8>, X3Error> {
+    let mut bytecode = Vec::new();
+
+    // Header: version + metadata. The version is written as the greatest this writer may write and
+    // **narrowed** to the greatest version the artifact actually contains at the end of this
+    // function: a program that uses no version-2 opcode stays a version-1 artifact, so a reader
+    // that never learned version 2 keeps reading it (TICKET-105). Writing the ceiling first is what
+    // lets the narrowing walk read the stream the same way its own reader does.
+    bytecode.write_all(&[CURRENT_BYTECODE_VERSION])?;
+
+    // Encode metadata
+    if let Some(nonce) = &ir.metadata.nonce {
+        bytecode.write_all(&[META_NONCE])?;
+        bytecode.write_all(&(nonce.len() as u16).to_le_bytes())?;
+        bytecode.write_all(nonce.as_bytes())?;
+    }
+
+    if let Some(chain_id) = ir.metadata.chain_id {
+        bytecode.write_all(&[META_CHAIN_ID])?;
+        bytecode.write_all(&chain_id.to_le_bytes())?;
+    }
+
+    // The version binding (PHASE 45). Written before the operations so a loader can
+    // reject an artifact before it reads an instruction, and fixed-width so its walk is
+    // the same arithmetic everywhere.
+    bytecode.write_all(&[META_VERSIONS])?;
+    for version in [
+        LANGUAGE_VERSION,
+        COMPILER_FORMAT_VERSION,
+        IR_VERSION,
+        VM_VERSION,
+        POLICY_VERSION,
+    ] {
+        bytecode.write_all(&version.to_le_bytes())?;
+    }
+
+    // Encode operations
+    for op in &ir.operations {
+        emit_operation(op, &mut bytecode)?;
+    }
+
+    // Pad to 4-byte alignment
+    while bytecode.len() % 4 != 0 {
+        bytecode.push(0);
+    }
+
+    // Narrow the version byte to what this artifact needs. The walk is `instructions`' framing —
+    // payload frames advance by their length, fixed frames by `fixed_frame_content_len`, and a
+    // zeroed four-byte group is padding — so the writer's own notion of where an instruction starts
+    // is the reader's, and an opcode this format does not define is a refusal here rather than a
+    // version byte that promises less than the stream contains.
+    bytecode[0] = artifact_version(&bytecode)?;
+
+    Ok(bytecode)
+}
+
+/// The greatest bytecode version among the opcodes in `stream`.
+///
+/// One walk, and it is the reader's walk: the same `is_payload_opcode`, the same
+/// `fixed_frame_content_len` and the same `align4`, all from `spec/opcodes.rs`. A second walk with
+/// its own idea of a frame width is how this format has desynced before.
+fn artifact_version(stream: &[u8]) -> Result<u8, X3Error> {
+    let mut pc = first_instruction_offset(stream);
+    let mut greatest = BYTECODE_VERSION_1;
+    while pc + 4 <= stream.len() {
+        if stream[pc..pc + 4].iter().all(|byte| *byte == 0) {
+            pc += 4;
+            continue;
+        }
+        let opcode = stream[pc];
+        let Some(version) = crate::spec::opcodes::opcode_version(opcode) else {
+            return Err(X3Error::CodegenError {
+                message: format!(
+                    "the emitter wrote opcode 0x{opcode:02X} at pc {pc}, which is not in this \
+                     format's opcode set: register it in `OPCODE_SET` with the version that \
+                     introduced it before emitting it (TICKET-097, TICKET-106)"
+                ),
+                span: None,
+            });
+        };
+        greatest = greatest.max(version);
+        pc = if is_payload_opcode(opcode, true) {
+            let length = u16::from_le_bytes([stream[pc + 1], stream[pc + 2]]) as usize;
+            align4(pc + 3 + length)
+        } else {
+            align4(pc + fixed_frame_content_len(opcode))
+        };
+    }
+    Ok(greatest)
+}
+
+/// Emit a single operation to bytecode
+fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error> {
+    match op {
+        Operation::Lock { .. } => emit_asset_op(LOCK, op, bytecode)?,
+        Operation::Mint { .. } => emit_asset_op(MINT, op, bytecode)?,
+        Operation::Burn { .. } => emit_asset_op(BURN, op, bytecode)?,
+        Operation::Release { .. } => emit_asset_op(RELEASE, op, bytecode)?,
+        Operation::Swap { .. } => emit_asset_op(SWAP, op, bytecode)?,
+        Operation::Bridge { .. } => emit_bridge_op(op, bytecode)?,
+        Operation::AtomicBegin => {
+            bytecode.write_all(&[ATOMIC_BEGIN])?;
+            bytecode.write_all(&0u16.to_le_bytes())?;
+        }
+        // `[ATOMIC_CHOICE][u16 len][criterion:paths:selected]`.
+        //
+        // The record is carried in the artifact rather than dropped after
+        // lowering: a reader of the bytecode can see that this body is one of N
+        // verified branches and which criterion picked it, which is the whole
+        // claim the construct makes.
+        //
+        // It is a *payload* op rather than a fixed frame on purpose. A fixed
+        // frame in this format is three bytes, and the reader advances a fixed
+        // instruction with `align4(pc + 3)` regardless of what the writer
+        // emitted, so a four-byte fixed frame is only readable when it does not
+        // start at an offset congruent to 1 mod 4. `atomic_choice` is emitted
+        // first in its program, which is exactly that offset, and the stream
+        // desynced: `x3c run examples/atomic_choice.x3` failed with
+        // `InvalidOpcode(3)` — the reader had advanced into the middle of the
+        // record. A payload frame is consumed as `align4(pc + 3 + len)`, the
+        // same expression the writer pads by, so it is correct at any offset.
+        Operation::AtomicChoice {
+            paths,
+            criterion,
+            selected,
+        } => {
+            let criterion_code = match criterion {
+                ChoiceCriterion::HighestNetOutput => CHOICE_CRITERION_HIGHEST_NET_OUTPUT,
+                ChoiceCriterion::FewestHops => CHOICE_CRITERION_FEWEST_HOPS,
+                ChoiceCriterion::LowestDeclaredFee => CHOICE_CRITERION_LOWEST_DECLARED_FEE,
+            };
+            if *selected >= *paths {
+                return Err(X3Error::CodegenError {
+                    message: format!(
+                        "atomic choice selects path {selected} of {paths}; the selected index must \
+                         name a declared path"
+                    ),
+                    span: None,
+                });
+            }
+            let payload = format!("{criterion_code}:{paths}:{selected}");
+            bytecode.write_all(&[ATOMIC_CHOICE])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
+        Operation::AtomicEnd => {
+            bytecode.write_all(&[ATOMIC_END])?;
+            bytecode.write_all(&0u16.to_le_bytes())?;
+        }
+        Operation::If {
+            condition,
+            then_ops,
+            else_ops,
+        } => {
+            // Refused rather than written.
+            //
+            // This is refused here as well as in the IR verifier because
+            // `emit_x3ir` is public: a caller that assembles an IR by hand gets a
+            // refusal instead of a record no reader can follow.
+            //
+            // The record this used to write was `[IF][u16 cond_len][cond][u32
+            // then_len][then][u32 else_len][else]` with each branch emitted into
+            // its own vector — so the branch's inner instructions were padded to a
+            // boundary of the *branch* rather than of the stream — while the VM's
+            // `IF` reads a register and skips whole four-byte instructions. Neither
+            // half can be repaired on its own: the stream frames instructions with
+            // a width that varies and pads them absolutely, so a branch needs an
+            // explicit target rather than a count of instructions, and the
+            // condition needs codegen into a register, which the compiler does not
+            // emit at all. Measured before this refusal: the artifact built,
+            // `x3c explain` printed the condition text as opcodes, and `x3c run`
+            // failed with `X3_VERIFY_FAILED: OutOfBounds(292)`. TICKET-058.
+            // A *decided* branch is written by writing the branch that runs. The compiler
+            // folded the condition (`lowering::fold_condition`) into `True`/`False`, so there is
+            // nothing to test at run time and nothing to jump over: the taken body's
+            // instructions go straight into the stream, where the writer pads them to the
+            // stream's own absolute boundaries and every reader can walk them. No `IF` record is
+            // written, which is the point — this format's frames vary in width and pad
+            // absolutely, so a record holding a branch would need a target in stream coordinates
+            // that no half of the pipeline currently computes (TICKET-058).
+            //
+            // The branch that did not run is dead code and is not written; it stays in the IR, so
+            // `x3c lower` shows it beside the one that did.
+            let taken: &[Operation] = match condition {
+                Condition::True => then_ops.as_slice(),
+                // A `False` with no `else` takes the empty branch, which is the language's
+                // meaning: `if c { a }` runs nothing when `c` is false.
+                Condition::False => match else_ops.as_deref() {
+                    Some(body) => body,
+                    None => &[],
+                },
+                // A branch on a quantity a host measured, which is the one condition this VM can
+                // decide without arithmetic: it holds the quantity and has a comparison mode for it,
+                // so the branch is decided by what a venue actually reported (TICKET-106).
+                //
+                // Two records, and no unconditional jump, because this format has none: `CALL`
+                // pushes a return address and `RET` pops it, so neither is a jump. The shape is
+                // therefore
+                //
+                //     IF_MEASURED(<quantity>, invert = c is the negation of the guard)
+                //       <then body>
+                //     IF_MEASURED(<quantity>, invert = c is the guard's own direction)
+                //       <else body>
+                //
+                // — the first record skips the then body when the comparison does *not* hold, the
+                // second skips the else body when it does. An `if` with no `else` needs only the
+                // first: skipping past the body is the empty branch.
+                //
+                // A measured failure is a *fork* here, where the same comparison in a `REQUIRE` is a
+                // refusal; a quantity nothing reported refuses in both, which is the fail-closed
+                // half and lives in the VM's one measured-comparison helper.
+                Condition::Measured {
+                    quantity,
+                    comparison,
+                    threshold_bps,
+                } => {
+                    let unit = measured_unit_code(*quantity);
+                    let invert = *comparison != quantity.guard_comparison();
+                    let then_bytes = branch_body(then_ops)?;
+                    write_if_measured(bytecode, unit, invert, *threshold_bps, skip_of(&then_bytes)?)?;
+                    bytecode.extend_from_slice(&then_bytes);
+                    if let Some(else_ops) = else_ops.as_deref() {
+                        let else_bytes = branch_body(else_ops)?;
+                        write_if_measured(bytecode, unit, !invert, *threshold_bps, skip_of(&else_bytes)?)?;
+                        bytecode.extend_from_slice(&else_bytes);
+                    }
+                    // The record and every body instruction are padded individually, so the stream
+                    // is aligned here; the tail's `pad_to_4` is not reached because the bodies were
+                    // written by this arm rather than by the `taken` walk below.
+                    pad_to_4(bytecode);
+                    return Ok(());
+                }
+                // Refused rather than written, here as well as in the IR verifier because
+                // `emit_x3ir` is public: a caller that assembles an IR by hand gets the refusal
+                // instead of a record no reader could follow. Measured before the refusal
+                // existed: the artifact built, `x3c explain` printed the condition text as
+                // opcodes, and `x3c run` failed with `X3_VERIFY_FAILED: OutOfBounds(292)`.
+                _ => {
+                    return Err(X3Error::CodegenError {
+                        message: "cannot emit `if`: the condition is not decidable at compile time, \
+                                  and this VM branches on a register and skips whole four-byte \
+                                  instructions while a compiler stream frames instructions with a \
+                                  width that varies and pads them to absolute four-byte boundaries, \
+                                  so the record would have no target a reader could follow or an \
+                                  executor could jump to"
+                            .to_string(),
+                        span: None,
+                    });
+                }
+            };
+            for nested in taken {
+                emit_operation(nested, bytecode)?;
+            }
+        }
+        Operation::Loop {
+            condition,
+            max_iterations,
+            body,
+        } => match condition {
+            // A loop the compiler decided false never runs its body, so there is nothing to test at
+            // run time and nothing to jump back to: writing nothing is the loop's meaning, exactly
+            // as an `if` decided false with no `else` writes nothing. The body stays in the IR, so
+            // `x3c lower` still shows the program's own text beside the decision.
+            Condition::False => {
+                let _ = (max_iterations, body);
+            }
+            // Refused for the same reason as an undecidable `if`; see the comment there.
+            other => {
+                return Err(X3Error::CodegenError {
+                    message: format!(
+                        "cannot emit `loop` over `{}`: this VM branches on a register and skips \
+                         whole four-byte instructions, while a compiler stream frames instructions \
+                         with a width that varies and pads them to absolute four-byte boundaries, so \
+                         the record would have no target a reader could follow or an executor could \
+                         jump back to, and no instruction that puts its condition in a register",
+                        other.describe()
+                    ),
+                    span: None,
+                });
+            }
+        },
+        Operation::Require { .. } => {
+            // `[REQUIRE][comparison][threshold u16]`. Mostly STATIC: a guard a program
+            // writes is a constraint the compiler checks against the declarations, so
+            // the instruction records it and has nothing to test. Two modes do test: the
+            // nonce guard, whose quantity `NONCE_UNUSED` leaves in `r0`, and the economic
+            // floors a *plan generator* emits, whose quantity is a measurement a host
+            // reports in the reply to the trade (`CAPABILITY_REPLY_MEASURED_TAG`).
+            //
+            // Every guard in the language asserts something about the artifact's
+            // configuration — `require relayer_quorum >= 3` against
+            // `relayers { quorum 3_of_5 }`, `require finality.ethereum >= 32`
+            // against the settlement path's finality policy — and the
+            // compile-time verifier is what checks those. The instruction records
+            // the guard in the artifact; it does not test run-time state.
+            //
+            // A comparison (`REQUIRE_COMPARE_GE`, evaluated by the executor) is
+            // defined and tested, but nothing emits it yet: a guard would have to
+            // find its quantity in `r0`, and no instruction puts it there. The
+            // declarations sit at the top of a program and the guards at the
+            // bottom, so `r0` at a guard holds whatever the last unrelated
+            // instruction left — which is exactly the accident that used to make
+            // guards fail. Emitting a comparison against that would be a new
+            // wrong answer rather than a fix; the data flow has to arrive first
+            // (TICKET-027).
+            let guard_operator = match op {
+                Operation::Require {
+                    comparison: Some(comparison),
+                    ..
+                } => match comparison {
+                    ComparisonOp::Less => GUARD_OP_LT,
+                    ComparisonOp::LessOrEqual => GUARD_OP_LE,
+                    ComparisonOp::Greater => GUARD_OP_GT,
+                    ComparisonOp::GreaterOrEqual => GUARD_OP_GE,
+                    ComparisonOp::Equal => GUARD_OP_EQ,
+                    ComparisonOp::NotEqual => GUARD_OP_NE,
+                },
+                _ => GUARD_OP_NONE,
+            };
+            // Which comparison the VM makes. Every guard is STATIC — the
+            // compiler checked it and there is no run-time quantity — *except*
+            // the nonce guard, whose quantity is whether the nonce is new: the
+            // `NONCE_UNUSED` instruction emitted immediately before it puts that
+            // in `r0`, so this one compares (`r0 >= 1`) and a replay fails at the
+            // guard rather than at a later, unrelated instruction.
+            // The unit code is part of the flags byte for a measured guard: the comparison
+            // mode says *that* a measurement is compared, and this says which quantity.
+            // Zero is the profit, which is what an artifact emitted before the code existed
+            // carries, so nothing already written changes meaning.
+            let (mode, threshold, unit_code) = if matches!(
+                op,
+                Operation::Require {
+                    kind: crate::ir::RequireKind::NonceUnused,
+                    ..
+                }
+            ) {
+                (REQUIRE_COMPARE_GE, 1u16, MEASURED_UNIT_CODE_PROFIT_BPS)
+            } else if let Operation::Require {
+                condition: crate::ir::Condition::FinalityPolicy { blocks, .. },
+                ..
+            } = op
+            {
+                // A finality policy's depth travels in the operand, which is what
+                // makes it re-checkable from the artifact: a replayer can compare
+                // the guards it reads against the number the declaration states
+                // (TICKET-059). Zero means the declaration states no depth — the
+                // parser refuses `blocks 0`, so the two cannot be confused — and a
+                // depth the operand cannot hold is refused rather than truncated.
+                let blocks = blocks.unwrap_or(0);
+                let threshold = u16::try_from(blocks).map_err(|_| X3Error::CodegenError {
+                    message: format!(
+                        "finality depth {blocks} does not fit the instruction's operand ({})",
+                        u16::MAX
+                    ),
+                    span: None,
+                })?;
+                (
+                    REQUIRE_COMPARE_STATIC,
+                    threshold,
+                    crate::spec::opcodes::GUARD_QUANTITY_BLOCKS,
+                )
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::ProfitThreshold,
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                // A floor the compiler itself emitted *after* the trade it bounds, so
+                // it is a post-condition on what the trade realised. The mode says the
+                // comparison is against a measurement and the executor refuses when no
+                // host reported one — it never compares register residue, which is what
+                // makes this an enforced constraint rather than a record (TICKET-027).
+                //
+                // The floor travels in the operand in basis points, because the operand
+                // is two bytes: an absolute floor would not fit, and comparing a
+                // basis-point floor against an absolute amount would be a units mismatch
+                // dressed as enforcement.
+                (
+                    REQUIRE_COMPARE_MEASURED_PROFIT,
+                    guard_bps(expr, "profit floor")?,
+                    MEASURED_UNIT_CODE_PROFIT_BPS,
+                )
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::SlippageTolerance,
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                (
+                    REQUIRE_COMPARE_MEASURED_SLIPPAGE,
+                    guard_bps(expr, "slippage ceiling")?,
+                    MEASURED_UNIT_CODE_PROFIT_BPS,
+                )
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::PriceImpact,
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                (
+                    REQUIRE_COMPARE_MEASURED_SLIPPAGE,
+                    guard_bps(expr, "price-impact ceiling")?,
+                    MEASURED_UNIT_CODE_PRICE_IMPACT_BPS,
+                )
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::MevLeakage,
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                (
+                    REQUIRE_COMPARE_MEASURED_SLIPPAGE,
+                    guard_bps(expr, "MEV-leakage ceiling")?,
+                    MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS,
+                )
+            } else if let Operation::Require {
+                measured: true,
+                kind: crate::ir::RequireKind::Custom(subject),
+                condition: crate::ir::Condition::Expression { expr },
+                ..
+            } = op
+            {
+                // A hedge's delta bound: a ceiling on what the venue left open, compared
+                // against the delta the venue reported. Its own unit code rather than the
+                // profit's, so the executor compares the quantity the guard is about
+                // (TICKET-068).
+                match subject.as_str() {
+                    subject if subject == crate::hedge::DELTA_GUARD_SUBJECT => (
+                        REQUIRE_COMPARE_MEASURED_PROFIT,
+                        guard_bps(expr, "delta bound")?,
+                        MEASURED_UNIT_CODE_DELTA_BPS,
+                    ),
+                    // A subject this emitter does not know stays the static record it was.
+                    _ => (REQUIRE_COMPARE_STATIC, 0u16, MEASURED_UNIT_CODE_PROFIT_BPS),
+                }
+            } else {
+                // A static guard is decided at compile time; the figure it was decided against
+                // travels anyway, because the artifact is what a replayer and an auditor read.
+                // It used to be written as zero, so `require route_score >= 90` and
+                // `require route_score >= 10` were the same bytes (TICKET-114).
+                let (figure, code) = static_guard_quantity(op)?;
+                (REQUIRE_COMPARE_STATIC, figure, code)
+            };
+            bytecode.write_all(&[REQUIRE, require_flags_measured(mode, guard_operator, unit_code)])?;
+            bytecode.write_all(&threshold.to_le_bytes())?;
+        }
+        Operation::OnFail { .. } => {
+            bytecode.write_all(&[ON_FAIL])?;
+            bytecode.write_all(&0u16.to_le_bytes())?;
+        }
+        Operation::OnTimeout { .. } => {
+            // Operand 0 = "no instruction budget". The instruction is the
+            // program's declaration that a timeout policy exists; `duration_blocks`
+            // stays in the IR, where the verifier checks it is non-zero and
+            // within range, and where the timeout/refund engine reads it.
+            //
+            // It must not become an instruction budget: the two are different
+            // units, and the VM has no block height to compare against. The
+            // operand is explicit (rather than "read r0") because the deadline
+            // used to be taken from a register nothing set for it, so the
+            // outcome depended on the previous instruction's residue.
+            bytecode.write_all(&[ON_TIMEOUT])?;
+            bytecode.write_all(&0u16.to_le_bytes())?;
+        }
+        // Both of these used to write `format!("{name}:{args:?}")` here, which is two defects in
+        // one line: the payload was the compiler's Rust `Debug` output rather than a record, and
+        // the shared decoder had no arm for either opcode, so the artifact could not be verified —
+        // `emit` and every call lowered to `CALL_HOST` built successfully and then failed to run.
+        Operation::Emit { .. } => emit_payload_op(EMIT, op, bytecode)?,
+        Operation::Call { .. } => emit_payload_op(CALL_HOST, op, bytecode)?,
+        // `[ROUTE_FALLBACK][u16 len][venue,venue,...]`. The approved list is
+        // the payload because a runtime can only restrict itself to the
+        // compiler's approvals if the approvals travel with the artifact; a
+        // bare count would be a claim the runtime could not act on.
+        // `[PARALLEL_PLAN][u16 len][legs=<n>;waves=a,b|c;edges=a->c,b->c]`.
+        //
+        // The plan travels with the artifact because "these legs are
+        // independent" is a claim about them, and a reader who cannot see the
+        // waves cannot check it. Encoded as a payload frame like every other
+        // record here: a payload is consumed as `align4(pc + 3 + len)`, the
+        // expression the writer pads by, so it is correct at any offset.
+        // `[FEATURE_ALLOW][0][u16 code]` — a three-byte frame, like every other
+        // fixed instruction here. A four-byte one would desync the reader when it
+        // lands at an offset congruent to 1 mod 4, which is where the first
+        // instruction of a stream sits.
+        Operation::FeatureAllow { feature, .. } => {
+            // `[FEATURE_ALLOW][flags = 0][code]`. Three bytes of content, then
+            // the per-instruction padding — the shape every fixed-frame
+            // instruction here uses, and the only shape the reader can follow at
+            // any offset.
+            bytecode.write_all(&[FEATURE_ALLOW, 0, *feature])?;
+        }
+        // `[STRATEGY_LICENSE][u16 len][creator=..;royalty_bps=..;executions=..;expires_block=..;split=a:1,b:2]`
+        Operation::StrategyLicense {
+            creator,
+            royalty_bps,
+            executions,
+            expires_block,
+            split,
+        } => {
+            let split_text = split
+                .iter()
+                .map(|(recipient, bps)| format!("{recipient}:{bps}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let payload = format!(
+                "creator={creator};royalty_bps={royalty_bps};executions={};expires_block={};split={split_text}",
+                executions
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                expires_block
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            );
+            if payload.len() > u16::MAX as usize {
+                return Err(X3Error::CodegenError {
+                    message: format!("strategy licence payload too large: {} bytes", payload.len()),
+                    span: None,
+                });
+            }
+            bytecode.write_all(&[STRATEGY_LICENSE])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
+        Operation::ParallelPlan {
+            waves,
+            edges,
+            domains,
+            settlement,
+        } => {
+            let leg_count: usize = waves.iter().map(|wave| wave.len()).sum();
+            let wave_text = waves.iter().map(|wave| wave.join(",")).collect::<Vec<_>>().join("|");
+            let edge_text = edges
+                .iter()
+                .map(|(from, to)| format!("{from}->{to}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            // Domains are carried per leg because "is this plan multi-VM" is a
+            // question about the legs, and a reader who cannot see which VM
+            // each leg runs on cannot answer it.
+            let domain_text = domains
+                .iter()
+                .map(|(leg, domains)| format!("{leg}:{}", domains.iter().cloned().collect::<Vec<_>>().join("+")))
+                .collect::<Vec<_>>()
+                .join(",");
+            // The settlement section is what a coordinator acts on, so it is in
+            // the artifact rather than left to be re-derived: `wave:domains:
+            // proofs:recoverable`, with `-` for an empty set.
+            let settlement_text = settlement
+                .iter()
+                .map(|wave| {
+                    let domains = if wave.domains.is_empty() {
+                        "-".to_string()
+                    } else {
+                        wave.domains.iter().cloned().collect::<Vec<_>>().join("+")
+                    };
+                    let proofs = if wave.outstanding_proofs.is_empty() {
+                        "-".to_string()
+                    } else {
+                        wave.outstanding_proofs.iter().cloned().collect::<Vec<_>>().join("+")
+                    };
+                    format!(
+                        "{}:{}:{}:{}",
+                        wave.wave,
+                        domains,
+                        proofs,
+                        if wave.locally_recoverable {
+                            "local"
+                        } else {
+                            "coordinated"
+                        }
+                    )
+                })
+                .collect::<Vec<_>>()
+                // `|` between records: `,` already separates the domains and
+                // proofs within one, and a separator that appears inside the
+                // thing it separates cannot be parsed back.
+                .join("|");
+            let payload = format!(
+                "legs={leg_count};waves={wave_text};edges={edge_text};domains={domain_text};settle={settlement_text}"
+            );
+            if payload.len() > u16::MAX as usize {
+                return Err(X3Error::CodegenError {
+                    message: format!("parallel plan payload too large: {} bytes", payload.len()),
+                    span: None,
+                });
+            }
+            bytecode.write_all(&[PARALLEL_PLAN])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
+        Operation::RouteFallback { approved } => {
+            if approved.is_empty() {
+                return Err(X3Error::CodegenError {
+                    message: "route fallback with no approved venues must not be emitted".to_string(),
+                    span: None,
+                });
+            }
+            let payload = approved.join(",");
+            if payload.len() > u16::MAX as usize {
+                return Err(X3Error::CodegenError {
+                    message: format!("route fallback payload too large: {} bytes", payload.len()),
+                    span: None,
+                });
+            }
+            bytecode.write_all(&[ROUTE_FALLBACK])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
+        // `[VENUE_SETTLEMENT][u16 len][venue:shape]`. The separator and the empty
+        // second field are what `spec/opcodes.rs` documents; the encoder is the only
+        // place that writes them, so a shape word and a venue name can never be
+        // re-split differently by a second writer.
+        Operation::VenueSettlement { venue, guarantee } => {
+            if venue.is_empty() {
+                return Err(X3Error::CodegenError {
+                    message: "a venue settlement record must name its venue".to_string(),
+                    span: None,
+                });
+            }
+            // A colon cannot appear in a venue name, and the shape comes from a closed
+            // set whose words contain none, so this cannot produce a record that reads
+            // back as something else.
+            let payload = format!("{venue}:{}", guarantee.map(|shape| shape.as_str()).unwrap_or(""));
+            if payload.len() > u16::MAX as usize {
+                return Err(X3Error::CodegenError {
+                    message: format!("venue settlement payload too large: {} bytes", payload.len()),
+                    span: None,
+                });
+            }
+            bytecode.write_all(&[VENUE_SETTLEMENT])?;
+            bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+            bytecode.write_all(payload.as_bytes())?;
+        }
+        Operation::VenueOrder { .. } => emit_payload_op(VENUE_ORDER, op, bytecode)?,
+        Operation::Rebalance { .. } => emit_payload_op(REBALANCE_TARGET, op, bytecode)?,
+        Operation::GpuDispatch { .. } => emit_payload_op(GPU_DISPATCH, op, bytecode)?,
+        Operation::Simulate { .. } => emit_payload_op(SIMULATE, op, bytecode)?,
+        Operation::ScheduledDispatch { .. } => emit_payload_op(SCHEDULED_DISPATCH, op, bytecode)?,
+        Operation::IntentResolve { .. } => emit_payload_op(INTENT_RESOLVE, op, bytecode)?,
+        Operation::CrdtOp { .. } => emit_payload_op(CRDT_OP, op, bytecode)?,
+        Operation::ProofVerify { .. } => emit_payload_op(PROOF_VERIFY, op, bytecode)?,
+        Operation::StorageOp { .. } => emit_payload_op(STORAGE_OP, op, bytecode)?,
+        Operation::Pathfind { .. } => emit_payload_op(PATHFIND, op, bytecode)?,
+        Operation::MempoolScan { .. } => emit_payload_op(MEMPOOL_SCAN, op, bytecode)?,
+        Operation::OracleRequest { .. } => emit_payload_op(ORACLE_REQUEST, op, bytecode)?,
+        Operation::EmergencyControl { .. } => emit_payload_op(EMERGENCY_CONTROL, op, bytecode)?,
+        Operation::Lifecycle { .. } => emit_payload_op(LIFECYCLE, op, bytecode)?,
+        Operation::Serialize { .. } => emit_payload_op(SERIALIZE, op, bytecode)?,
+        Operation::Deserialize { .. } => emit_payload_op(DESERIALIZE, op, bytecode)?,
+        Operation::GasEstimate { .. } => emit_payload_op(GAS_ESTIMATE, op, bytecode)?,
+        Operation::ChainMetric { .. } => emit_payload_op(CHAIN_METRIC, op, bytecode)?,
+        Operation::EventProvenance { .. } => emit_payload_op(EVENT_PROVENANCE, op, bytecode)?,
+        Operation::MultiHopSwap { .. } => emit_payload_op(MULTI_HOP_SWAP, op, bytecode)?,
+        Operation::VectorMath { .. } => emit_payload_op(VECTOR_MATH, op, bytecode)?,
+        Operation::RoleCheck { .. } => emit_payload_op(ROLE_CHECK, op, bytecode)?,
+        Operation::MultisigCheck { .. } => emit_payload_op(MULTISIG_CHECK, op, bytecode)?,
+        Operation::VersionMeta { .. } => emit_payload_op(VERSION_META, op, bytecode)?,
+        Operation::StorageNamespace { .. } => emit_payload_op(STORAGE_NAMESPACE, op, bytecode)?,
+        Operation::AbiExport { .. } => emit_payload_op(ABI_EXPORT, op, bytecode)?,
+        Operation::DocEmbed { .. } => emit_payload_op(DOC_EMBED, op, bytecode)?,
+        Operation::GasAdaptive { .. } => emit_payload_op(GAS_ADAPTIVE, op, bytecode)?,
+        Operation::Bounty { .. } => emit_payload_op(BOUNTY, op, bytecode)?,
+        // B-52 feature lock operations
+        Operation::RouteScore { .. } => emit_payload_op(ROUTE_SCORE, op, bytecode)?,
+        Operation::SolverBid { .. } => emit_payload_op(SOLVER_BID, op, bytecode)?,
+        Operation::RelayerAttest { .. } => emit_payload_op(RELAYER_ATTEST, op, bytecode)?,
+        Operation::RpcConsensus { .. } => emit_payload_op(RPC_CONSENSUS, op, bytecode)?,
+        Operation::RiskScore { .. } => emit_payload_op(RISK_SCORE, op, bytecode)?,
+        Operation::InvariantCheck { .. } => emit_payload_op(INVARIANT_CHECK, op, bytecode)?,
+        Operation::PrivacyCommit { .. } => emit_payload_op(PRIVACY_COMMIT, op, bytecode)?,
+        Operation::ProofRequired { .. } => emit_payload_op(PROOF_REQUIRED, op, bytecode)?,
+        Operation::NonceUnused { .. } => emit_payload_op(NONCE_UNUSED, op, bytecode)?,
+        Operation::VmAdapterCall { .. } => emit_payload_op(VM_ADAPTER_CALL, op, bytecode)?,
+        Operation::ModeCheck { .. } => emit_payload_op(MODE_CHECK, op, bytecode)?,
+        Operation::PackageImport { .. } => emit_payload_op(PACKAGE_IMPORT, op, bytecode)?,
+        Operation::RefundPolicy { .. } => emit_payload_op(REFUND_POLICY, op, bytecode)?,
+        Operation::Trading(trading) => emit_trading_op(trading, bytecode)?,
+        Operation::Nop => {
+            bytecode.write_all(&[NOP])?;
+            bytecode.write_all(&0u16.to_le_bytes())?;
+        }
+    }
+    pad_to_4(bytecode);
+    Ok(())
+}
+
+fn emit_bridge_op(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error> {
+    bytecode.write_all(&[BRIDGE])?;
+    let payload = encode_bridge_payload(&operation_to_bridge_payload(op)?).map_err(|err| X3Error::CodegenError {
+        message: format!("failed to encode bridge payload: {err}"),
+        span: None,
+    })?;
+    if payload.len() > u16::MAX as usize {
+        return Err(X3Error::CodegenError {
+            message: "bridge operation payload too large".to_string(),
+            span: None,
+        });
+    }
+    bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+    bytecode.write_all(&payload)?;
+    Ok(())
+}
+
+fn emit_asset_op(opcode: u8, op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error> {
+    bytecode.write_all(&[opcode])?;
+    let payload = encode_asset_op_payload(&operation_to_asset_payload(op)?).map_err(|err| X3Error::CodegenError {
+        message: format!("failed to encode asset payload: {err}"),
+        span: None,
+    })?;
+    if payload.len() > u16::MAX as usize {
+        return Err(X3Error::CodegenError {
+            message: format!("asset operation payload too large for opcode 0x{opcode:02x}"),
+            span: None,
+        });
+    }
+    bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+    bytecode.write_all(&payload)?;
+    Ok(())
+}
+
+fn emit_payload_op(opcode: u8, op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error> {
+    bytecode.write_all(&[opcode])?;
+    let payload = encode_capability_payload(&operation_to_payload(op)?).map_err(|err| X3Error::CodegenError {
+        message: format!("failed to encode capability payload: {err}"),
+        span: None,
+    })?;
+    if payload.len() > u16::MAX as usize {
+        return Err(X3Error::CodegenError {
+            message: format!("operation payload too large for opcode 0x{opcode:02x}"),
+            span: None,
+        });
+    }
+    bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+    bytecode.write_all(&payload)?;
+    Ok(())
+}
+
+/// The basis points a generated guard's condition states.
+///
+/// The condition is an expression, and a floor written as a literal is the only shape
+/// this reads: a floor the emitter cannot evaluate is refused rather than defaulted to
+/// zero, because a guard of zero passes everything and would be a guard in name only.
+fn guard_bps(expr: &str, what: &str) -> Result<u16, X3Error> {
+    expr.trim().parse::<u16>().map_err(|_| X3Error::CodegenError {
+        message: format!(
+            "the {what} '{expr}' is not a count of basis points this instruction can carry; a \
+             measured guard's threshold is the operand and must be a basis-point figure"
+        ),
+        span: None,
+    })
+}
+
+/// The figure a static guard's operand carries, and the code that says what it counts.
+///
+/// A static guard is decided at compile time against the declaration it names, and its operand was
+/// written as **zero**: `require route_score >= 90` and `require route_score >= 10` compiled to the
+/// same bytes, so the instruction said a guard was here and nothing about what it required. That is
+/// the half a reader of the *artifact* loses — the compiler had the figure, the artifact did not
+/// (TICKET-114).
+///
+/// Zero means "no figure carried", which is what every artifact written before this reads as:
+/// `require mainnet_safe`, `require proof_complete <name>` and `require canonical_supply <ASSET>`
+/// name something rather than counting it, so their operand stays zero and their code stays none.
+///
+/// A figure the operand cannot hold is **refused**, not truncated — the rule the finality policy's
+/// depth already follows, and for the same reason: a truncated bound says the program required
+/// something it did not.
+fn static_guard_quantity(op: &Operation) -> Result<(u16, u8), X3Error> {
+    use crate::ir::{Condition, RequireKind};
+    use crate::spec::opcodes::{
+        GUARD_QUANTITY_AMOUNT, GUARD_QUANTITY_COUNT, GUARD_QUANTITY_FEES_BPS, GUARD_QUANTITY_SCORE,
+        MEASURED_UNIT_CODE_PROFIT_BPS,
+    };
+
+    let Operation::Require { kind, condition, .. } = op else {
+        return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS));
+    };
+    let code = match kind {
+        RequireKind::RouteScore | RequireKind::RiskScore => GUARD_QUANTITY_SCORE,
+        RequireKind::SolverBond | RequireKind::BridgeLiquidity => GUARD_QUANTITY_AMOUNT,
+        RequireKind::RelayerQuorum => GUARD_QUANTITY_COUNT,
+        RequireKind::FeeCeiling | RequireKind::Fees => GUARD_QUANTITY_FEES_BPS,
+        _ => return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS)),
+    };
+    // The guard's own check refuses a bound it cannot read, so this is the figure the compiler
+    // compared — but the emitter does not assume the check ran: an IR built by hand reaches here
+    // too, and there is nothing to carry when the condition is not a number.
+    let Condition::Expression { expr } = condition else {
+        return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS));
+    };
+    let Ok(bound) = expr.trim().parse::<u32>() else {
+        return Ok((0, MEASURED_UNIT_CODE_PROFIT_BPS));
+    };
+    let bound = u16::try_from(bound).map_err(|_| X3Error::CodegenError {
+        message: format!(
+            "the guard's bound {bound} does not fit the instruction's operand ({max}), and the \
+             artifact carries the figure the compiler checked against — a truncated one would state \
+             a bound the program never wrote",
+            max = u16::MAX
+        ),
+        span: None,
+    })?;
+    Ok((bound, code))
+}
+
+/// Return the stable opcode for a trading operation variant.
+pub fn trading_opcode(op: &TradingOperation) -> u8 {
+    match op {
+        TradingOperation::BeginAtomicTrade { .. } => TRADING_BEGIN,
+        TradingOperation::OpenDebt { .. } => TRADING_OPEN_DEBT,
+        TradingOperation::ExecuteSwap { .. } => TRADING_EXECUTE_SWAP,
+        TradingOperation::CloseDebt { .. } => TRADING_CLOSE_DEBT,
+        TradingOperation::AssertMinNetProfit { .. } => TRADING_ASSERT_MIN_PROFIT,
+        TradingOperation::AssertAllDebtsClosed => TRADING_ASSERT_ALL_DEBTS,
+        TradingOperation::AssertInvariant { .. } => TRADING_ASSERT_INVARIANT,
+        TradingOperation::Bridge { .. } => TRADING_BRIDGE,
+        TradingOperation::EmitTradeReceipt => TRADING_EMIT_RECEIPT,
+        TradingOperation::CommitAtomicTrade => TRADING_COMMIT,
+        TradingOperation::AbortAtomicTrade => TRADING_ABORT,
+    }
+}
+
+/// Encode a trading operation payload deterministically.
+pub fn encode_trading_operation(op: &TradingOperation) -> Result<Vec<u8>, X3Error> {
+    serde_json::to_vec(op).map_err(|err| X3Error::CodegenError {
+        message: format!("failed to encode trading operation: {err}"),
+        span: None,
+    })
+}
+
+/// Decode and authenticate a trading operation payload against its opcode.
+pub fn decode_trading_operation(opcode: u8, payload: &[u8]) -> Result<TradingOperation, X3Error> {
+    let op: TradingOperation = serde_json::from_slice(payload).map_err(|err| X3Error::CodegenError {
+        message: format!("failed to decode trading operation: {err}"),
+        span: None,
+    })?;
+    if trading_opcode(&op) != opcode {
+        return Err(X3Error::CodegenError {
+            message: format!("trading payload does not match opcode 0x{opcode:02x}"),
+            span: None,
+        });
+    }
+    Ok(op)
+}
+
+/// Decode every Trading Core instruction from emitted X3 bytecode.
+///
+/// Non-trading opcodes are skipped using the standard length-prefixed framing.
+/// This decoder is intentionally strict for trading payloads: malformed
+/// lengths, unknown trading opcodes, or opcode/payload mismatches fail closed.
+pub fn decode_trading_program(bytecode: &[u8]) -> Result<Vec<TradingOperation>, X3Error> {
+    // The refusal names the version rather than only saying the version is unsupported: which
+    // version to rebuild for is the one fact its reader needs, and it is the fact a bare
+    // "unsupported or missing bytecode version" leaves out (TICKET-097).
+    if let Some(version) = bytecode.first().copied() {
+        if let Some(refusal) = crate::spec::opcodes::version_refusal(version) {
+            return Err(X3Error::CodegenError {
+                message: refusal,
+                span: None,
+            });
+        }
+    }
+    // Any version this build supports, not the one it writes: a trading artifact whose opcodes are all
+    // version 1 carries version 1, because the emitter narrows the byte to what the artifact contains
+    // (TICKET-105). Demanding the writer's ceiling here refused every trading program this build had
+    // just compiled — measured, before this: `emitted trading bytecode must decode: CodegenError {
+    // message: "unsupported or missing bytecode version" }` in `test_trading_core_e2e`.
+    if !bytecode.first().copied().is_some_and(is_supported_version) {
+        return Err(X3Error::CodegenError {
+            message: "unsupported or missing bytecode version".to_string(),
+            span: None,
+        });
+    }
+
+    // **One walker for the stream.** This function used to walk it by hand — `pos += 1` per byte, then
+    // every non-zero byte read as `[opcode][u16 len][payload]` — with no `is_payload_opcode`, no
+    // `fixed_frame_content_len` and no `align4`. A fixed frame's flags byte and operand were therefore
+    // read as a length, and the walk landed inside a payload: measured, `x3c receipt execute
+    // examples/arb_scope.x3` failed with *"truncated instruction payload for opcode 0x65"*, and `0x65`
+    // is not an opcode this format defines at all. `instructions()` is the boundary source the
+    // disassembler and the VM already walk by, so the three cannot disagree about where an instruction
+    // begins — the rule TICKET-097 wrote down, one walker later.
+    let mut operations = Vec::new();
+    for instruction in instructions(bytecode)? {
+        if (TRADING_BEGIN..=TRADING_BRIDGE).contains(&instruction.opcode) {
+            operations.push(decode_trading_operation(instruction.opcode, instruction.payload)?);
+        }
+    }
+    Ok(operations)
+}
+
+fn emit_trading_op(op: &TradingOperation, bytecode: &mut Vec<u8>) -> Result<(), X3Error> {
+    let opcode = trading_opcode(op);
+    let payload = encode_trading_operation(op)?;
+    if payload.len() > u16::MAX as usize {
+        return Err(X3Error::CodegenError {
+            message: "trading operation payload too large".to_string(),
+            span: None,
+        });
+    }
+    bytecode.write_all(&[opcode])?;
+    bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
+    bytecode.write_all(&payload)?;
+    Ok(())
+}
+
+fn operation_to_bridge_payload(op: &Operation) -> Result<BridgePayload, X3Error> {
+    if let Operation::Bridge {
+        via,
+        from_chain,
+        from_asset,
+        to_chain,
+        to_asset,
+        amount,
+        receiver,
+        min_output: _,
+        source_finality_proof,
+        transfer_proof,
+    } = op
+    {
+        Ok(BridgePayload {
+            via: via.clone(),
+            from_chain: from_chain.clone(),
+            from_asset: from_asset.clone(),
+            to_chain: to_chain.clone(),
+            to_asset: to_asset.clone(),
+            amount: *amount,
+            receiver: receiver.clone(),
+            source_finality_proof: source_finality_proof.clone(),
+            transfer_proof: transfer_proof.clone(),
+        })
+    } else {
+        Err(X3Error::CodegenError {
+            message: "operation is not a bridge payload".to_string(),
+            span: None,
+        })
+    }
+}
+
+fn operation_to_asset_payload(op: &Operation) -> Result<AssetOpPayload, X3Error> {
+    let payload = match op {
+        Operation::Lock {
+            chain,
+            asset,
+            amount,
+            from,
+        } => AssetOpPayload::Lock {
+            chain: chain.clone(),
+            asset: asset.clone(),
+            amount: *amount,
+            from: from.clone(),
+        },
+        Operation::Mint {
+            chain,
+            asset,
+            amount,
+            to,
+        } => AssetOpPayload::Mint {
+            chain: chain.clone(),
+            asset: asset.clone(),
+            amount: *amount,
+            to: to.clone(),
+        },
+        Operation::Burn {
+            chain,
+            asset,
+            amount,
+            from,
+        } => AssetOpPayload::Burn {
+            chain: chain.clone(),
+            asset: asset.clone(),
+            amount: *amount,
+            from: from.clone(),
+        },
+        Operation::Release { chain, asset, to, act } => AssetOpPayload::Release {
+            act: *act,
+            chain: chain.clone(),
+            asset: asset.clone(),
+            to: to.clone(),
+        },
+        Operation::Swap {
+            from_chain,
+            from_asset,
+            to_chain,
+            to_asset,
+            input_amount,
+            min_output,
+            dex,
+        } => AssetOpPayload::Swap {
+            from_chain: from_chain.clone(),
+            from_asset: from_asset.clone(),
+            to_chain: to_chain.clone(),
+            to_asset: to_asset.clone(),
+            input_amount: *input_amount,
+            min_output: *min_output,
+            dex: dex.clone(),
+        },
+        _ => {
+            return Err(X3Error::CodegenError {
+                message: "operation is not an asset opcode payload".to_string(),
+                span: None,
+            })
+        }
+    };
+    Ok(payload)
+}
+
+fn operation_to_payload(op: &Operation) -> Result<CapabilityPayload, X3Error> {
+    let payload = match op {
+        Operation::Rebalance {
+            name,
+            holdings,
+            weights,
+            criterion,
+        } => CapabilityPayload::RebalanceTarget {
+            portfolio: name.clone(),
+            holdings: holdings.clone(),
+            weights: weights
+                .iter()
+                .map(|(asset, percent)| (asset.clone(), *percent))
+                .collect(),
+            criterion: criterion.clone(),
+        },
+        Operation::VenueOrder {
+            action,
+            subject,
+            asset,
+            quantity,
+        } => CapabilityPayload::VenueOrder {
+            action: action.clone(),
+            subject: subject.clone(),
+            asset: asset.clone(),
+            quantity: *quantity,
+        },
+        Operation::GpuDispatch { kernel, args, is_simd } => CapabilityPayload::GpuDispatch {
+            kernel: kernel.clone(),
+            args: args.clone(),
+            is_simd: *is_simd,
+        },
+        Operation::Simulate { body, receipt_slot } => CapabilityPayload::Simulate {
+            body_ops: body.len() as u32,
+            receipt_slot: receipt_slot.clone(),
+        },
+        Operation::ScheduledDispatch { period_blocks, entry } => CapabilityPayload::ScheduledDispatch {
+            period_blocks: *period_blocks,
+            entry_ops: entry.len() as u32,
+        },
+        Operation::IntentResolve { constraints, resolver } => CapabilityPayload::IntentResolve {
+            constraints: constraints.clone(),
+            resolver: resolver.clone(),
+        },
+        Operation::CrdtOp { kind, key, value } => CapabilityPayload::CrdtOp {
+            kind: crdt_kind_id(kind),
+            key: key.clone(),
+            value: value.clone(),
+        },
+        Operation::ProofVerify {
+            kind,
+            proof,
+            input,
+            key_or_threshold,
+        } => CapabilityPayload::ProofVerify {
+            kind: proof_kind_id(kind),
+            proof: proof.clone(),
+            input: input.clone(),
+            key_or_threshold: key_or_threshold.clone(),
+        },
+        Operation::StorageOp { kind, data } => CapabilityPayload::StorageOp {
+            kind: storage_kind_id(kind),
+            data: data.clone(),
+        },
+        Operation::Pathfind { from, to, max_depth } => CapabilityPayload::Pathfind {
+            from: from.clone(),
+            to: to.clone(),
+            max_depth: *max_depth,
+        },
+        Operation::MempoolScan { max_results } => CapabilityPayload::MempoolScan {
+            max_results: *max_results,
+        },
+        Operation::OracleRequest { token, reward } => CapabilityPayload::OracleRequest {
+            token: token.clone(),
+            reward: *reward,
+        },
+        Operation::EmergencyControl { kind } => CapabilityPayload::EmergencyControl {
+            kind: emergency_kind_id(kind),
+        },
+        Operation::Lifecycle { kind, target } => CapabilityPayload::Lifecycle {
+            kind: lifecycle_kind_id(kind),
+            target: target.clone(),
+        },
+        Operation::Serialize { format, data } => CapabilityPayload::Serialize {
+            format: serial_format_id(format),
+            data: data.clone(),
+        },
+        Operation::Deserialize { format, data } => CapabilityPayload::Deserialize {
+            format: serial_format_id(format),
+            data: data.clone(),
+        },
+        Operation::GasEstimate { chain, route } => CapabilityPayload::GasEstimate {
+            chain: chain.clone(),
+            route: route.clone(),
+        },
+        Operation::ChainMetric { metric } => CapabilityPayload::ChainMetric {
+            metric: chain_metric_id(metric),
+        },
+        Operation::EventProvenance { event_type, data } => CapabilityPayload::EventProvenance {
+            event_type: event_type.clone(),
+            data: data.clone(),
+        },
+        Operation::MultiHopSwap { path, amount } => CapabilityPayload::MultiHopSwap {
+            path: path.clone(),
+            amount: *amount,
+        },
+        Operation::VectorMath { op, a, b, size } => CapabilityPayload::VectorMath {
+            op: vector_op_id(op),
+            a: a.clone(),
+            b: b.clone(),
+            size: *size,
+        },
+        Operation::RoleCheck { role } => CapabilityPayload::RoleCheck { role: role.clone() },
+        Operation::MultisigCheck { required, total } => CapabilityPayload::MultisigCheck {
+            required: *required,
+            total: *total,
+        },
+        Operation::VersionMeta { version, upgrade_from } => CapabilityPayload::VersionMeta {
+            version: version.clone(),
+            upgrade_from: upgrade_from.clone(),
+        },
+        Operation::StorageNamespace { package, key } => CapabilityPayload::StorageNamespace {
+            package: package.clone(),
+            key: key.clone(),
+        },
+        Operation::AbiExport { function, params, ret } => CapabilityPayload::AbiExport {
+            function: function.clone(),
+            params: params.clone(),
+            ret: ret.clone(),
+        },
+        Operation::DocEmbed { content } => CapabilityPayload::DocEmbed {
+            content: content.clone(),
+        },
+        Operation::GasAdaptive {
+            high_gas_ops,
+            low_gas_ops,
+        } => CapabilityPayload::GasAdaptive {
+            high_gas_ops: high_gas_ops.len() as u32,
+            low_gas_ops: low_gas_ops.len() as u32,
+        },
+        Operation::Bounty { amount, condition } => CapabilityPayload::Bounty {
+            amount: *amount,
+            condition: condition.clone(),
+        },
+        // B-52 feature lock payloads
+        Operation::RouteScore { strategy, weights } => CapabilityPayload::RouteScore {
+            strategy: strategy.clone(),
+            weights: weights.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+        },
+        Operation::SolverBid {
+            solver,
+            receive_asset,
+            deliver_asset,
+            fee,
+            bond,
+        } => CapabilityPayload::SolverBid {
+            solver: solver.clone(),
+            receive_asset: receive_asset.clone(),
+            deliver_asset: deliver_asset.clone(),
+            fee: fee.clone(),
+            bond: *bond,
+        },
+        Operation::RelayerAttest {
+            relayers,
+            quorum,
+            signatures,
+        } => CapabilityPayload::RelayerAttest {
+            relayers: relayers.clone(),
+            quorum_numerator: quorum.0,
+            quorum_denominator: quorum.1,
+            signatures: signatures.clone(),
+        },
+        Operation::RpcConsensus {
+            chain,
+            require,
+            reject_on,
+        } => CapabilityPayload::RpcConsensus {
+            chain: chain.clone(),
+            require_numerator: require.0,
+            require_denominator: require.1,
+            reject_on: reject_on.clone(),
+        },
+        Operation::NonceUnused { nonce } => CapabilityPayload::NonceUnused { nonce: nonce.clone() },
+        Operation::RiskScore { score, category } => CapabilityPayload::RiskScore {
+            score: *score,
+            category: category.clone(),
+        },
+        Operation::InvariantCheck { name, assert_expr } => CapabilityPayload::InvariantCheck {
+            name: name.clone(),
+            assert_expr: assert_expr.clone(),
+        },
+        Operation::PrivacyCommit { reveal_on, encrypted } => CapabilityPayload::PrivacyCommit {
+            reveal_on: reveal_on.clone(),
+            encrypted: *encrypted,
+        },
+        Operation::ProofRequired { proof_type, source } => CapabilityPayload::ProofRequired {
+            proof_type: proof_type.clone(),
+            source: source.clone(),
+        },
+        Operation::VmAdapterCall { vm, adapter, calldata } => CapabilityPayload::VmAdapterCall {
+            vm: vm.clone(),
+            adapter: adapter.clone(),
+            calldata: calldata.clone(),
+        },
+        Operation::ModeCheck { mode, restriction } => CapabilityPayload::ModeCheck {
+            mode: mode.clone(),
+            restriction: restriction.clone(),
+        },
+        Operation::PackageImport { path, alias } => CapabilityPayload::PackageImport {
+            path: path.clone(),
+            alias: alias.clone(),
+        },
+        Operation::RefundPolicy {
+            action,
+            target,
+            after_blocks,
+        } => CapabilityPayload::RefundPolicy {
+            action: action.clone(),
+            target: target.clone(),
+            after_blocks: *after_blocks,
+        },
+        // `emit` and a host call are capability payloads like every other opcode that carries one.
+        // They were the two exceptions: written where they were emitted, by hand, as a formatted
+        // string, which is how the payload drifted out of the decoder's reach (see
+        // `CapabilityPayload::EmitEvent`). The `data` map reaches the artifact's bytes, so it is
+        // read in the order it states — the lowering builds it sorted by argument name.
+        Operation::Emit { name, data } => CapabilityPayload::EmitEvent {
+            name: name.clone(),
+            fields: data.iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
+        },
+        Operation::Call { function, args } => CapabilityPayload::HostCall {
+            function: function.clone(),
+            args: args.clone(),
+        },
+        _ => {
+            return Err(X3Error::CodegenError {
+                message: "operation is not a capability payload".to_string(),
+                span: None,
+            })
+        }
+    };
+    Ok(payload)
+}
+
+fn crdt_kind_id(kind: &CrdtKind) -> u8 {
+    match kind {
+        CrdtKind::Get => 0,
+        CrdtKind::Set => 1,
+        CrdtKind::Append => 2,
+        CrdtKind::Merge => 3,
+    }
+}
+
+fn proof_kind_id(kind: &ProofKind) -> u8 {
+    match kind {
+        ProofKind::Zk => 0,
+        ProofKind::Mpc => 1,
+    }
+}
+
+fn storage_kind_id(kind: &StorageKind) -> u8 {
+    match kind {
+        StorageKind::Store => 0,
+        StorageKind::Load => 1,
+    }
+}
+
+fn emergency_kind_id(kind: &EmergencyKind) -> u8 {
+    match kind {
+        EmergencyKind::Pause => 0,
+        EmergencyKind::Resume => 1,
+    }
+}
+
+fn lifecycle_kind_id(kind: &LifecycleKind) -> u8 {
+    match kind {
+        LifecycleKind::Destroy => 0,
+        LifecycleKind::Migrate => 1,
+    }
+}
+
+fn serial_format_id(format: &SerialFormat) -> u8 {
+    match format {
+        SerialFormat::Rlp => 0,
+        SerialFormat::Cbor => 1,
+        SerialFormat::Json => 2,
+        SerialFormat::Ssz => 3,
+    }
+}
+
+fn chain_metric_id(metric: &ChainMetricKind) -> u8 {
+    match metric {
+        ChainMetricKind::Snapshot => 0,
+        ChainMetricKind::Congestion => 1,
+        ChainMetricKind::BaseFee => 2,
+        ChainMetricKind::FinalityLag => 3,
+        ChainMetricKind::BlockTime => 4,
+    }
+}
+
+fn vector_op_id(op: &VectorOp) -> u8 {
+    match op {
+        VectorOp::Add => 0,
+        VectorOp::DotProduct => 1,
+        VectorOp::Mul => 2,
+        VectorOp::Sub => 3,
+    }
+}
+
+/// One instruction a compiler stream contains, as a reader sees it.
+///
+/// The framing rules — which opcodes carry a payload, how wide a fixed frame is,
+/// where the padding sits — come from `spec/opcodes.rs`. Two readers that walk the
+/// same bytes have to agree, so `disassemble` and the cost estimate (PHASE 35) both
+/// walk through here rather than each stepping the cursor itself.
+pub struct StreamInstruction<'a> {
+    pub pc: usize,
+    pub opcode: u8,
+    pub flags: u8,
+    pub operand: u16,
+    pub payload: &'a [u8],
+    /// Where the next instruction starts.
+    pub next_pc: usize,
+}
+
+/// Walk a compiler stream into its instructions.
+pub fn instructions(bytecode: &[u8]) -> Result<Vec<StreamInstruction<'_>>, X3Error> {
+    if bytecode.is_empty() {
+        return Err(X3Error::CodegenError {
+            message: "bytecode is empty".to_string(),
+            span: None,
+        });
+    }
+    // The version is checked before anything is walked, and an opcode the artifact's own version
+    // does not contain is refused where it is met rather than advanced over: this walker's whole
+    // job is to say where each instruction starts, and the width of an instruction from a version
+    // the artifact does not state is exactly what it cannot know (TICKET-097).
+    if let Some(refusal) = crate::spec::opcodes::version_refusal(bytecode[0]) {
+        return Err(X3Error::CodegenError {
+            message: refusal,
+            span: None,
+        });
+    }
+    let artifact_version = bytecode[0];
+    let mut found = Vec::new();
+    let mut pc = first_instruction_offset(bytecode);
+    while pc + 4 <= bytecode.len() {
+        if bytecode[pc..pc + 4].iter().all(|byte| *byte == 0) {
+            pc += 4;
+            continue;
+        }
+        let opcode = bytecode[pc];
+        if let Some(refusal) = crate::spec::opcodes::opcode_version_refusal(opcode, artifact_version) {
+            return Err(X3Error::CodegenError {
+                message: format!("at pc {pc}: {refusal}"),
+                span: None,
+            });
+        }
+        let payload_len = u16::from_le_bytes([bytecode[pc + 1], bytecode[pc + 2]]) as usize;
+        let payload_end = align4(pc + 3 + payload_len);
+        let safe_end = payload_end.min(bytecode.len());
+        let payload = &bytecode[pc + 3..safe_end.min(pc + 3 + payload_len)];
+        let next_pc = if is_payload_opcode(opcode, true) {
+            payload_end
+        } else {
+            align4(pc + fixed_frame_content_len(opcode))
+        };
+        found.push(StreamInstruction {
+            pc,
+            opcode,
+            flags: bytecode[pc + 1],
+            operand: u16::from_le_bytes([bytecode[pc + 2], bytecode[pc + 3]]),
+            payload,
+            next_pc,
+        });
+        pc = next_pc;
+    }
+    Ok(found)
+}
+
+/// A metadata record at the head of a compiler stream.
+pub struct MetadataRecord<'a> {
+    pub label: &'static str,
+    /// A rendered value: the nonce as a string, the chain id as digits.
+    pub rendered: String,
+    pub next_pc: usize,
+    pub _marker: core::marker::PhantomData<&'a ()>,
+}
+
+/// The metadata records at the head of a compiler stream, in order.
+///
+/// One matcher for the block, because the writer leaves it unpadded and a second
+/// reader that aligned it started one byte late (see the note on `disassemble`).
+pub fn metadata_records(bytecode: &[u8]) -> Vec<MetadataRecord<'_>> {
+    let mut records = Vec::new();
+    let mut pc = 1usize;
+    loop {
+        if pc + 3 > bytecode.len() {
+            return records;
+        }
+        match bytecode[pc] {
+            META_NONCE => {
+                // One walker for the whole set: a record added to `spec::opcodes` cannot be
+                // read as instructions here.
+                let Some((len, label, rendered)) = crate::spec::opcodes::metadata_record(bytecode, pc) else {
+                    return records;
+                };
+                let next_pc = pc + len;
+                records.push(MetadataRecord {
+                    label,
+                    rendered,
+                    next_pc,
+                    _marker: core::marker::PhantomData,
+                });
+                pc = next_pc;
+            }
+            META_CHAIN_ID => {
+                if pc + 9 > bytecode.len() {
+                    return records;
+                }
+                let id = u64::from_le_bytes([
+                    bytecode[pc + 1],
+                    bytecode[pc + 2],
+                    bytecode[pc + 3],
+                    bytecode[pc + 4],
+                    bytecode[pc + 5],
+                    bytecode[pc + 6],
+                    bytecode[pc + 7],
+                    bytecode[pc + 8],
+                ]);
+                let next_pc = pc + 9;
+                records.push(MetadataRecord {
+                    label: "meta.chain_id",
+                    rendered: id.to_string(),
+                    next_pc,
+                    _marker: core::marker::PhantomData,
+                });
+                pc = next_pc;
+            }
+            META_VERSIONS => {
+                // The version binding (PHASE 45). Fixed-width, so this walker needs only
+                // its length — but it *is* a third place that names the metadata set, and
+                // an unknown tag ends the walk, so a reader that did not learn it would
+                // take the record's bytes for instructions.
+                if pc + VERSIONS_RECORD_LEN > bytecode.len() {
+                    return records;
+                }
+                let read = |offset: usize| -> u16 {
+                    let at = pc + 1 + offset * 2;
+                    u16::from_le_bytes([bytecode[at], bytecode[at + 1]])
+                };
+                let next_pc = pc + VERSIONS_RECORD_LEN;
+                records.push(MetadataRecord {
+                    label: "meta.versions",
+                    rendered: format!(
+                        "language {} compiler {} IR {} VM {} policy {}",
+                        read(0),
+                        read(1),
+                        read(2),
+                        read(3),
+                        read(4)
+                    ),
+                    next_pc,
+                    _marker: core::marker::PhantomData,
+                });
+                pc = next_pc;
+            }
+            _ => return records,
+        }
+    }
+}
+
+/// The offset of the instruction stream: past the version byte and the metadata
+/// block, which the writer leaves unpadded.
+pub fn first_instruction_offset(bytecode: &[u8]) -> usize {
+    metadata_records(bytecode)
+        .last()
+        .map(|record| record.next_pc)
+        .unwrap_or(1)
+}
+
+/// Disassemble X3 bytecode into a human-readable trace.
+///
+/// This is the "explain" subcommand of the x3c CLI: a reviewer can run
+/// `x3c explain program.x3b` and see per-instruction pseudo-code without
+/// reading raw bytes.
+pub fn disassemble(bytecode: &[u8]) -> Result<String, X3Error> {
+    let mut out = String::new();
+    out.push_str(&format!("; x3-lang bytecode v0x{:02x}\n", bytecode[0]));
+    let mut idx = 0u32;
+
+    // The metadata block is written by `emit_x3ir` with no padding, so the reader
+    // mirrors the writer: aligning the cursor here started the walk one byte late
+    // and turned payload bytes into opcodes, which is how `x3c explain` printed
+    // garbage for any program with a nonce. The VM's `first_instruction_pc` *does*
+    // align, so the writer and the VM disagree about this block; that is a
+    // separate, coordinated format fix (TICKET-023), not something to paper over
+    // here. The matcher is `metadata_records`, shared with `first_instruction_offset`.
+    for record in metadata_records(bytecode) {
+        out.push_str(&format!("  {idx:04}  {} = {}\n", record.label, record.rendered));
+        idx += 1;
+    }
+
+    // One walk, shared with the cost estimate: which opcodes carry a payload, how
+    // wide a fixed frame is and where the padding sits all come from
+    // `spec/opcodes.rs`.
+    for instruction in instructions(bytecode)? {
+        let entry = disassemble_op(
+            instruction.opcode,
+            instruction.payload,
+            instruction.flags,
+            instruction.operand,
+        );
+        out.push_str(&format!("  {idx:04}  0x{:02x}  {entry}\n", instruction.opcode));
+        idx += 1;
+    }
+    Ok(out)
+}
+
+// The payload/fixed-frame classification is not defined here. It lives once, in
+// `spec/opcodes.rs`, because this crate and the VM both walk the same bytes: the
+// two copies had drifted, and this one listed `0x66` — which no emitter arm
+// produces — while omitting `CALL_HOST` (`0x61`), which does carry a payload.
+
+fn align4(value: usize) -> usize {
+    (value + 3) & !3
+}
+
+fn disassemble_op(opcode: u8, payload: &[u8], flags: u8, operand: u16) -> String {
+    // The name comes from the one table both crates include, and whether the
+    // instruction carries a payload comes from the one predicate that says so.
+    // This function used to hold its own name table *and* its own idea of which
+    // opcodes carry payloads — including a `VECTOR` arm for `0x70..=0x7F`, a range
+    // no instruction has ever been emitted in.
+    let name = opcode_name(opcode);
+    // `REQUIRE` is the one fixed frame whose operand is read: a finality policy
+    // declaration carries the depth it requires there, so printing it is what
+    // makes the number visible to whoever reads the artifact — a guard's own
+    // threshold is not carried (`REQUIRE static 0`), and a run-time comparison
+    // says which mode it is in (`REQUIRE ge 1`, the nonce guard).
+    if opcode == REQUIRE {
+        let mode = match require_comparison(flags) {
+            REQUIRE_COMPARE_STATIC => "static".to_string(),
+            REQUIRE_COMPARE_GE => "ge".to_string(),
+            // A measured guard says which quantity it compares, and the reader has to say
+            // it too: `REQUIRE ? 1` told whoever read the artifact that something was
+            // measured and nothing about what — and a delta bound and a profit floor share
+            // the mode, so the unit code is the only thing that tells them apart
+            // (TICKET-068).
+            REQUIRE_COMPARE_MEASURED_PROFIT => match require_measured_unit_code(flags) {
+                MEASURED_UNIT_CODE_DELTA_BPS => "measured delta".to_string(),
+                MEASURED_UNIT_CODE_PRICE_IMPACT_BPS => "measured price_impact".to_string(),
+                MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS => "measured mev_leakage".to_string(),
+                _ => "measured profit".to_string(),
+            },
+            REQUIRE_COMPARE_MEASURED_SLIPPAGE => match require_measured_unit_code(flags) {
+                MEASURED_UNIT_CODE_PRICE_IMPACT_BPS => "measured price_impact".to_string(),
+                MEASURED_UNIT_CODE_MEV_LEAKAGE_BPS => "measured mev_leakage".to_string(),
+                _ => "measured slippage".to_string(),
+            },
+            other => format!("?{other}"),
+        };
+        // A static guard's operand carries the figure the compiler checked against, and the code
+        // says what it counts. Printing the bare number would leave a reader unable to tell a bond
+        // from a score, which is the same "which quantity" question the measured units answer
+        // (TICKET-068) one mode over.
+        if require_comparison(flags) == REQUIRE_COMPARE_STATIC {
+            if let Some(quantity) = guard_quantity_name(require_measured_unit_code(flags)) {
+                return format!("{name} {mode} {quantity} {operand}");
+            }
+        }
+        return format!("{name} {mode} {operand}");
+    }
+    if opcode == IF_MEASURED {
+        // The branch as the *comparison* a reader can check against the source: the quantity, the
+        // direction (the base one for that quantity, or its negation when `invert` is set), the bound
+        // and the distance skipped. A record that only said "measured" would leave its reader unable
+        // to tell a profit floor from a delta ceiling — the defect TICKET-068's unit code exists to
+        // prevent, one instruction over.
+        return match crate::spec::opcodes::parse_if_measured(payload) {
+            Some((unit, invert, threshold_bps, skip)) => {
+                let quantity = match unit {
+                    MEASURED_UNIT_CODE_PROFIT_BPS => "profit",
+                    MEASURED_UNIT_CODE_DELTA_BPS => "delta",
+                    _ => "slippage",
+                };
+                let comparison = match (unit, invert) {
+                    (MEASURED_UNIT_CODE_PROFIT_BPS, false) => ">=",
+                    (MEASURED_UNIT_CODE_PROFIT_BPS, true) => "<",
+                    (_, false) => "<=",
+                    (_, true) => ">",
+                };
+                format!("{name} {quantity} {comparison} {threshold_bps}bps, skip {skip}")
+            }
+            // A malformed record is the verifier's refusal to make, and this renderer says what it
+            // saw rather than guessing at fields.
+            None => format!("{name} <malformed payload of {} bytes>", payload.len()),
+        };
+    }
+    if !is_payload_opcode(opcode, true) {
+        return name.to_string();
+    }
+    let payload_str = match decode_payload(opcode, payload) {
+        Ok(s) => s,
+        Err(_) => format!("<raw {} bytes>", payload.len()),
+    };
+    format!("{name:<24} {payload_str}")
+}
+
+fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
+    use x3_lang_common::{decode_asset_op_payload, decode_bridge_payload, decode_capability_payload};
+    if (TRADING_BEGIN..=TRADING_BRIDGE).contains(&opcode) {
+        let op = decode_trading_operation(opcode, payload)?;
+        return Ok(format!("{op:?}"));
+    }
+    if matches!(opcode, 0x20..=0x24) {
+        let p = decode_asset_op_payload(opcode, payload).map_err(|_| X3Error::CodegenError {
+            message: "bad asset payload".into(),
+            span: None,
+        })?;
+        return Ok(format!("{p:?}"));
+    }
+    if opcode == 0x25 {
+        let p = decode_bridge_payload(payload).map_err(|_| X3Error::CodegenError {
+            message: "bad bridge payload".into(),
+            span: None,
+        })?;
+        return Ok(format!("{p:?}"));
+    }
+    if opcode == VENUE_SETTLEMENT {
+        // Rendered as the two facts the record carries rather than as raw bytes: the
+        // artifact is what a counterparty or an auditor reads the settlement
+        // assumption out of, and `x3c inspect` is where they read it.
+        let text = std::str::from_utf8(payload).map_err(|_| X3Error::CodegenError {
+            message: "VENUE_SETTLEMENT payload is not UTF-8".into(),
+            span: None,
+        })?;
+        let (venue, shape) = text.split_once(':').ok_or_else(|| X3Error::CodegenError {
+            message: "VENUE_SETTLEMENT record carries no separator".into(),
+            span: None,
+        })?;
+        let shape = if shape.is_empty() { "none" } else { shape };
+        return Ok(format!("venue {venue} settles {shape}"));
+    }
+    // `EMIT` and `CALL_HOST` are capability records too — they are the two this range used to
+    // leave out, so a reader saw the raw payload as lossy UTF-8 instead of the event or the call
+    // it states.
+    if opcode == EMIT || opcode == CALL_HOST || (0x80..=0x9C).contains(&opcode) || (0xA0..=0xAB).contains(&opcode) {
+        let p = decode_capability_payload(opcode, payload).map_err(|_| X3Error::CodegenError {
+            message: "bad capability payload".into(),
+            span: None,
+        })?;
+        return Ok(format!("{p:?}"));
+    }
+    Ok(String::from_utf8_lossy(payload).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::{
+        ChainMetricKind, CrdtKind, EmergencyKind, LifecycleKind, ProofKind, SerialFormat, StorageKind, VectorOp,
+    };
+    use x3_lang_common::{decode_capability_payload, CapabilityPayload};
+
+    /// The number of instructions a trace lists.
+    ///
+    /// The entry lines are `  {index}  0x{opcode}  {detail}` and the metadata
+    /// lines are `  {index}  meta.{record} = …`, so the second column is what
+    /// separates them — counting lines that contain `0x` anywhere counts the
+    /// version banner too, which is how the first version of this assertion was
+    /// off by one in the direction that looks like a passing test.
+    fn instruction_lines(trace: &str) -> usize {
+        trace
+            .lines()
+            .filter(|line| {
+                line.split_whitespace()
+                    .nth(1)
+                    .is_some_and(|column| column.starts_with("0x"))
+            })
+            .count()
+    }
+
+    #[test]
+    fn emits_all_capability_opcodes_0x80_through_0x9a() {
+        let mut ir = X3IR::new();
+        ir.operations = vec![
+            Operation::GpuDispatch {
+                kernel: "k".into(),
+                args: vec!["a".into()],
+                is_simd: true,
+            },
+            Operation::Simulate {
+                body: vec![Operation::Nop],
+                receipt_slot: "receipt".into(),
+            },
+            Operation::ScheduledDispatch {
+                period_blocks: 1,
+                entry: vec![Operation::Nop],
+            },
+            Operation::IntentResolve {
+                constraints: vec!["c".into()],
+                resolver: "r".into(),
+            },
+            Operation::CrdtOp {
+                kind: CrdtKind::Set,
+                key: "k".into(),
+                value: Some("v".into()),
+            },
+            Operation::ProofVerify {
+                kind: ProofKind::Zk,
+                proof: "p".into(),
+                input: "i".into(),
+                key_or_threshold: "vk".into(),
+            },
+            Operation::StorageOp {
+                kind: StorageKind::Store,
+                data: "d".into(),
+            },
+            Operation::Pathfind {
+                from: "a".into(),
+                to: "b".into(),
+                max_depth: 2,
+            },
+            Operation::MempoolScan { max_results: 3 },
+            Operation::OracleRequest {
+                token: "X3".into(),
+                reward: 4,
+            },
+            Operation::EmergencyControl {
+                kind: EmergencyKind::Pause,
+            },
+            Operation::Lifecycle {
+                kind: LifecycleKind::Migrate,
+                target: Some("next".into()),
+            },
+            Operation::Serialize {
+                format: SerialFormat::Rlp,
+                data: "d".into(),
+            },
+            Operation::Deserialize {
+                format: SerialFormat::Cbor,
+                data: "d".into(),
+            },
+            Operation::GasEstimate {
+                chain: "evm".into(),
+                route: "r".into(),
+            },
+            Operation::ChainMetric {
+                metric: ChainMetricKind::BaseFee,
+            },
+            Operation::EventProvenance {
+                event_type: "e".into(),
+                data: "d".into(),
+            },
+            Operation::MultiHopSwap {
+                path: vec!["a".into(), "b".into()],
+                amount: 5,
+            },
+            Operation::VectorMath {
+                op: VectorOp::DotProduct,
+                a: "a".into(),
+                b: "b".into(),
+                size: 2,
+            },
+            Operation::RoleCheck { role: "admin".into() },
+            Operation::MultisigCheck { required: 2, total: 3 },
+            Operation::VersionMeta {
+                version: "1.0.0".into(),
+                upgrade_from: Some("0.9.0".into()),
+            },
+            Operation::StorageNamespace {
+                package: "pkg".into(),
+                key: "k".into(),
+            },
+            Operation::AbiExport {
+                function: "f".into(),
+                params: vec!["u64".into()],
+                ret: "()".into(),
+            },
+            Operation::DocEmbed { content: "docs".into() },
+            Operation::GasAdaptive {
+                high_gas_ops: vec![Operation::Nop],
+                low_gas_ops: vec![Operation::Nop],
+            },
+            Operation::Bounty {
+                amount: 6,
+                condition: "done".into(),
+            },
+        ];
+
+        let bytecode = emit_x3ir(&ir).expect("capability operations should emit");
+        // Past the version byte and the version-binding record the emitter always writes
+        // (PHASE 45), which is where the first instruction starts.
+        let mut cursor = 1 + VERSIONS_RECORD_LEN;
+        for expected in 0x80u8..=0x9A {
+            assert_eq!(bytecode[cursor], expected);
+            let len = u16::from_le_bytes([bytecode[cursor + 1], bytecode[cursor + 2]]) as usize;
+            let payload = decode_capability_payload(expected, &bytecode[cursor + 3..cursor + 3 + len])
+                .expect("emitted capability payload should decode");
+            if expected == 0x94 {
+                assert_eq!(payload, CapabilityPayload::MultisigCheck { required: 2, total: 3 });
+            }
+            cursor += 3 + len;
+            while cursor % 4 != 0 {
+                cursor += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn nonce_metadata_does_not_shift_the_instruction_stream() {
+        // Regression for `x3c explain`: the reader aligned the metadata block
+        // while the writer does not, so the walk started one byte late and read
+        // payload bytes as opcodes. A 15-byte nonce makes the difference
+        // visible, since `[version][META_NONCE][u16 len][nonce]` is then 19
+        // bytes rather than a multiple of four.
+        let mut ir = X3IR::new();
+        ir.metadata.nonce = Some("simple_swap_001".to_string());
+        // A non-zero opcode: `NOP` encodes as four zero bytes, which the
+        // disassembler treats as padding and skips.
+        ir.operations = vec![Operation::AtomicBegin];
+
+        let bytecode = emit_x3ir(&ir).expect("should emit");
+        assert_eq!(bytecode.len() % 4, 0, "the stream must be 4-byte aligned");
+
+        let trace = disassemble(&bytecode).expect("should disassemble");
+        assert!(trace.contains("meta.nonce"), "the nonce must be reported: {trace}");
+        assert!(
+            trace.contains("ATOMIC_BEGIN"),
+            "the instruction after the metadata must decode: {trace}"
+        );
+    }
+
+    #[test]
+    fn chain_id_metadata_is_read_at_its_real_width() {
+        // The disassembler read `chain_id` as a u32 and advanced five bytes,
+        // while the writer emits a u64. Any stream carrying a chain id desynced
+        // immediately after it.
+        let mut ir = X3IR::new();
+        ir.metadata.nonce = Some("nonce_1".to_string());
+        ir.metadata.chain_id = Some(0x0123_4567_89AB_CDEF);
+        ir.operations = vec![Operation::AtomicBegin];
+
+        let bytecode = emit_x3ir(&ir).expect("should emit");
+        let trace = disassemble(&bytecode).expect("should disassemble");
+        assert!(
+            trace.contains("81985529216486895"),
+            "chain_id must be reported as the u64 that was written: {trace}"
+        );
+        assert!(
+            trace.contains("ATOMIC_BEGIN"),
+            "the instruction after the chain id must decode: {trace}"
+        );
+    }
+
+    #[test]
+    fn a_fixed_frame_operator_with_a_non_zero_operand_does_not_truncate_the_walk() {
+        // `REQUIRE` is a fixed four-byte frame whose second and third bytes are
+        // an operand, not a payload length. Listing it as a payload opcode made
+        // the walker read `[comparison][threshold_lo]` as a length: a guard with
+        // comparison 1 and threshold 4 (`0x0401`) jumped a kilobyte past the end
+        // of the stream and everything after it vanished from the listing.
+        //
+        // The stream below is the one the emitter writes for a guard at the head
+        // of a program: the guard's four bytes at offset 1 — over the version
+        // byte — then the padding that puts the next instruction on the next
+        // absolute multiple of four, then `HALT`. Because the guard's content is
+        // four bytes rather than three, the instruction after it starts at 8, so
+        // a reader that assumed three bytes landed on the padding instead.
+        let mut bytes = vec![BYTECODE_VERSION_1];
+        bytes.extend_from_slice(&[REQUIRE, 0x01, 0x04, 0x00]); // comparison GE, threshold 4
+        bytes.extend_from_slice(&[0x00, 0x00, 0x00]); // the padding `pad_to_4` writes
+        bytes.extend_from_slice(&[HALT, 0x00, 0x00, 0x00]);
+
+        let trace = disassemble(&bytes).expect("should disassemble");
+        assert!(trace.contains("REQUIRE"), "the guard must be listed: {trace}");
+        assert!(
+            trace.contains("HALT"),
+            "the instruction after it must be listed: {trace}"
+        );
+    }
+
+    #[test]
+    fn a_payload_first_program_is_walked_at_the_writers_boundaries() {
+        // The same property as the guard-first test above, for the other shape a
+        // program can start with, and asserted against the emitter rather than
+        // against a hand-built stream: every operation the lowering emitted must
+        // appear once, and nothing else may appear.
+        //
+        // A payload frame at offset 1 is `3 + len` bytes and the reader advances
+        // by `align4(pc + 3 + len)`, whatever `pc` is, so this shape was already
+        // walked correctly — it is here to keep the two shapes measured
+        // together, because the defect was a reader that treated "offset 1" as
+        // if it were "offset 0".
+        let source = "intent payload_first {\n    from ethereum.USDC amount 1\n    to \
+                      solana.SOL\n    route {\n        swap uniswap ethereum.USDC -> solana.SOL \
+                      amount 1 min_output 1\n    }\n}\n";
+        let program = crate::parser::parse_source(source).expect("source should parse");
+        let ir = crate::compile_to_ir(&program).expect("source should lower");
+        let bytecode = emit_x3ir(&ir).expect("should emit");
+
+        let trace = disassemble(&bytecode).expect("should disassemble");
+        assert!(
+            !trace.contains("UNKNOWN"),
+            "no byte of the stream may be presented as an instruction the language does not have: {trace}"
+        );
+        assert_eq!(
+            instruction_lines(&trace),
+            ir.operations.iter().filter(|op| !matches!(op, Operation::Nop)).count(),
+            "the walk must visit exactly the instructions the writer wrote: {trace}"
+        );
+    }
+
+    #[test]
+    fn a_guard_first_program_is_walked_at_the_writers_boundaries() {
+        // `risk_policy { max_slippage 120 }` lowers the guard to the program's
+        // first instruction, so the stream is `[version][REQUIRE][flags][threshold
+        // u16]` followed by padding. The reader advanced four bytes from offset 1
+        // — onto the guard's own padding — and printed the padding and the next
+        // operation's payload as opcodes: eighteen lines of `UNKNOWN` for the ten
+        // instructions below. The property is agreement, so it is asserted as a
+        // count of listed instructions against the IR, and as the absence of any
+        // name the language does not define.
+        let source = "risk_policy {\n    max_slippage 120\n}\n\nintent guard_first {\n    from \
+                      ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        swap uniswap \
+                      ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    require \
+                      slippage <= 120\n    on_fail refund ethereum.USDC to sender\n}\n";
+        let program = crate::parser::parse_source(source).expect("source should parse");
+        let ir = crate::compile_to_ir(&program).expect("source should lower");
+        let bytecode = emit_x3ir(&ir).expect("should emit");
+
+        // The version binding sits between the version byte and the first instruction
+        // (PHASE 45), so the guard is the first *instruction* rather than the second byte.
+        assert_eq!(
+            bytecode[1 + VERSIONS_RECORD_LEN],
+            REQUIRE,
+            "the fixture is only a regression test if the guard really is the first instruction"
+        );
+        let trace = disassemble(&bytecode).expect("should disassemble");
+        assert!(
+            !trace.contains("UNKNOWN"),
+            "no byte of the stream may be presented as an instruction the language does not have: {trace}"
+        );
+        assert_eq!(
+            instruction_lines(&trace),
+            ir.operations.iter().filter(|op| !matches!(op, Operation::Nop)).count(),
+            "the walk must visit exactly the instructions the writer wrote: {trace}"
+        );
+    }
+
+    #[test]
+    fn payload_carrying_instructions_are_walked_by_their_length() {
+        // `EMIT` and `CALL_HOST` carry a length-prefixed payload, and the two
+        // readers used to disagree about them: this crate's list named `0x66`,
+        // which no emitter arm produces, instead of `CALL_HOST` (`0x61`), and the
+        // VM's list named neither. A reader that calls them fixed-width walks
+        // four bytes into the payload and then reads payload text as opcodes.
+        for opcode in [EMIT, CALL_HOST] {
+            let mut bytes = vec![BYTECODE_VERSION_1];
+            bytes.extend_from_slice(&[opcode, 5, 0]); // five-byte payload
+            bytes.extend_from_slice(b"hello");
+            while bytes.len() % 4 != 0 {
+                bytes.push(0);
+            }
+            bytes.extend_from_slice(&[HALT, 0, 0, 0]);
+
+            let trace = disassemble(&bytes).expect("should disassemble");
+            assert!(
+                trace.contains("HALT"),
+                "opcode 0x{opcode:02x} must be walked by its payload length, not as a fixed frame: {trace}"
+            );
+        }
+    }
+}

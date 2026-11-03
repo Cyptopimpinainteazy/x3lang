@@ -1,0 +1,64 @@
+// Intent fusion — spec build-order item 21, PHASE 21.
+//
+// Three participants whose flows close a ring: Alice gives ETH and wants SOL,
+// Bob gives SOL and wants USDC, Charlie gives USDC and wants ETH. Every
+// participant's want is supplied by the next one, so none of them has to trade
+// outside the ring.
+//
+//   x3c fusion examples/intent_fusion.x3
+//     ring alice -> bob -> charlie (assets ethereum.ETH -> ethereum.SOL -> ethereum.USDC)
+//     authorization: satisfied   asset correctness: satisfied
+//     minimum output: satisfied  deadline: satisfied   fairness: satisfied
+//     verdict: fusable — no external liquidity needed for the ringed assets
+//
+// `allow intent_fusion` is the consent that makes a participant eligible. It is
+// a closed feature set and an unknown name is refused, because a permission the
+// compiler guesses at is not a permission. The consent travels in the artifact
+// (`FEATURE_ALLOW`), so a runtime deciding whether it may net this intent against
+// another has something to check.
+//
+// The numbers are the point. Each participant declares what it will accept, and
+// the ring is refused outright if any of them would be handed less — netting that
+// satisfies some participants and shorts others is the fairness failure PHASE 21
+// names, and the compiler does not get to decide who loses. It reports
+// `unverifiable` instead of `satisfied` wherever a quantity is missing, so a ring
+// that looks checked is one that was.
+
+intent alice {
+    from ethereum.ETH amount 10 receiver 0x1
+    to ethereum.SOL receiver 0x2
+    route {
+        swap uniswap ethereum.ETH -> ethereum.SOL amount 10 min_output 9
+    }
+    allow intent_fusion
+    require nonce unused alice_nonce
+    require slippage <= 50
+    timeout 30s refund ethereum.ETH to sender
+    on_fail rollback
+}
+
+intent bob {
+    from ethereum.SOL amount 9 receiver 0x2
+    to ethereum.USDC receiver 0x3
+    route {
+        swap uniswap ethereum.SOL -> ethereum.USDC amount 9 min_output 8
+    }
+    allow intent_fusion
+    require nonce unused bob_nonce
+    require slippage <= 50
+    timeout 20s refund ethereum.SOL to sender
+    on_fail rollback
+}
+
+intent charlie {
+    from ethereum.USDC amount 8 receiver 0x3
+    to ethereum.ETH receiver 0x1
+    route {
+        swap uniswap ethereum.USDC -> ethereum.ETH amount 8 min_output 7
+    }
+    allow intent_fusion
+    require nonce unused charlie_nonce
+    require slippage <= 50
+    timeout 60s refund ethereum.USDC to sender
+    on_fail rollback
+}

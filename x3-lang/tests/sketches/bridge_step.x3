@@ -1,0 +1,9 @@
+// Cross-chain bridge step — locks X3 on source, attests on destination
+fn main() -> i64 {
+    let from_chain = "x3";
+    let to_chain = "ethereum";
+    let asset = "X3";
+    let amount = 500;
+    let receiver = "0x1234...5678";
+    return bridge_lock(from_chain, to_chain, asset, amount, receiver);
+}

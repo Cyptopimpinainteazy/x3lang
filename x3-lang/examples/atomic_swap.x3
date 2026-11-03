@@ -1,0 +1,35 @@
+// X3 Atomic Swap — Example Source
+//
+// Full `atomic swap` block syntax for cross-VM swaps.
+//
+// The `require relayer_quorum >= 3` guard asserts that at least three relayers
+// attest the swap, so the program has to say which swarm attests it — the
+// guard is checked against `relayers { quorum ... }` at compile time.
+
+finality_policy strict {
+    chain eth
+    requirement finalized
+    blocks 12
+}
+
+finality_policy strict {
+    chain sol
+    requirement finalized
+}
+
+relayers {
+    quorum_numerator 3
+    quorum_denominator 5
+    relayers [relayer_a, relayer_b, relayer_c, relayer_d, relayer_e]
+}
+
+atomic swap eth.USDC -> sol.SOL {
+  amount 500
+  receiver sol.wallet.owner
+  hashlock sha256(secret)
+  timeout source 40m
+  timeout destination 20m
+  require finality.eth >= 12
+  require finality.sol == finalized
+  require relayer_quorum >= 3
+}
