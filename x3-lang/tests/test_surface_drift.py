@@ -118,6 +118,7 @@ READS = {
     "arb_solana_eth.x3",
     "intent_fusion.x3",
     "multi_leg_route.x3",
+    "near_intents_sol_to_near.x3",
     "route_fallback.x3",
     "simple_swap.x3",
     "staking_intent.x3",

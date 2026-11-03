@@ -296,6 +296,16 @@ def _parse_route_step(ln: SourceLine) -> Dict[str, Any]:
         source = _asset_ref(parts[2], ln.no, "bridge.from")
         dest = _asset_ref(parts[4], ln.no, "bridge.to")
         step = {"type": "bridge", "via": parts[1].lower(), "from_ref": source, "to_ref": dest, "asset": source["asset"]}
+        # `amount` and `min_receive` are the compiler's bridge-step fields
+        # (`parser.rs::parse_bridge_step`). This surface dropped both, so a floor written on a
+        # bridge leg never reached anything that could enforce it; `near_intents.py` checks
+        # a solver's guaranteed output against `min_receive`.
+        for key in ("amount", "min_receive"):
+            if key in parts:
+                idx = parts.index(key)
+                if idx + 1 >= len(parts):
+                    raise X3ParseError("X3_PARSE_BRIDGE", f"bridge {key} requires a value", ln.no, f"route.bridge.{key}")
+                step[key] = parts[idx + 1]
         receiver = _parse_receiver(parts, ln.no)
         if receiver:
             step["receiver"] = receiver

@@ -241,6 +241,15 @@ def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle
                 execution.append({'ok': False, 'reason': out.get('error'), 'step': out})
                 failed = True
                 break
+            if out.get('settles_via') == 'near_intents_1click':
+                execution.append({
+                    'ok': False,
+                    'reason': 'this leg settles through NEAR Intents; run `near_intents.py quote --live` on the program',
+                    'code': 'X3_NEAR_INTENTS_EXECUTOR',
+                    'step': out,
+                })
+                failed = True
+                break
             execution.append({'ok': False, 'reason': 'production backend not configured', 'code': 'X3_BACKEND_REQUIRED', 'step': out})
             failed = True
             break

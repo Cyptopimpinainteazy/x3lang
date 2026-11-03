@@ -1,0 +1,32 @@
+// near_intents_sol_to_near.x3 — 25 USDC on Solana delivered as USDC on NEAR, settled by
+// the NEAR Intents solver network through the 1Click API (`near_intents.py`).
+//
+// The solvers choose the route. This program decides what is acceptable:
+//
+// - `min_receive` is an absolute floor on what the quote must *guarantee* (its
+//   minAmountOut), so a quote that only meets the slippage bound is still refused if it is
+//   priced badly in the first place.
+// - `require slippage` becomes 1Click's slippageTolerance (50 bps), and the returned quote
+//   is checked to be no wider than that.
+// - `require fees` caps the quote's effective cost — USD in versus USD out — at 100 bps.
+// - `require nonce unused` is consumed when a live quote passes, so the same program cannot
+//   open a second deposit address.
+// - `timeout 10m` is the 1Click deadline: if the swap has not settled by then, the USDC is
+//   refunded to the `from` receiver on Solana.
+//
+// Amounts are base units: 25 USDC at six decimals is 25_000_000.
+//
+// The receivers below are placeholders. Replace both with addresses you control before
+// running `near_intents.py quote --live`.
+intent near_intents_sol_to_near {
+    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;
+    }
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused near_intents_sol_to_near_001
+    timeout 10m refund Solana.USDC
+    on_fail rollback
+}

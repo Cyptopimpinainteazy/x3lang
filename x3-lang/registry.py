@@ -8,6 +8,9 @@ CHAIN_DOMAINS = {
     'polygon': {'aliases': {'matic'}, 'address': 'evm'},
     'bitcoin': {'aliases': {'btc'}, 'address': 'btc'},
     'x3': {'aliases': set(), 'address': 'x3'},
+    # NEAR is a destination and origin for `bridge NearIntents` legs, which settle through the
+    # NEAR Intents 1Click API (`near_intents.py`). Its receivers are NEAR account IDs.
+    'near': {'aliases': set(), 'address': 'near'},
 }
 
 ALIASES = {alias: chain for chain, meta in CHAIN_DOMAINS.items() for alias in meta['aliases']}
@@ -20,10 +23,14 @@ ASSETS_BY_CHAIN = {
     'polygon': {'USDC', 'USDT', 'WETH', 'MATIC', 'DAI'},
     'bitcoin': {'BTC', 'WBTC'},
     'x3': {'SOL', 'USDC', 'WSOL', 'WETH', 'BTC', 'X3'},
+    'near': {'NEAR', 'wNEAR', 'USDC', 'USDT'},
 }
 
 KNOWN_DEXS = {'raydium', 'orca', 'uniswap', 'sushiswap', 'curve'}
-KNOWN_BRIDGES = {'x3', 'wormhole', 'layerzero', 'axelar'}
+# The spellings of the NEAR Intents adapter. The parser lowercases `via`, so `NearIntents` in
+# source arrives as `nearintents`; `near_intents` is accepted so either spelling works.
+NEAR_INTENTS_VIAS = {'nearintents', 'near_intents'}
+KNOWN_BRIDGES = {'x3', 'wormhole', 'layerzero', 'axelar'} | NEAR_INTENTS_VIAS
 SUPPORTED_OPERATIONS = {'swap', 'bridge', 'lock', 'mint', 'burn', 'release'}
 # The guard kinds this surface reads. It is a **subset** of the compiler's — the Rust
 # `require_kind_from_str` knows eighteen, this knows nine — and that is a deliberate
@@ -131,4 +138,20 @@ def is_valid_receiver(chain, receiver):
         return re.fullmatch(r'(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,90}', str(receiver)) is not None
     if kind == 'x3':
         return re.fullmatch(r'(x3_[a-zA-Z0-9_]{6,}|0x[a-fA-F0-9]{40})', str(receiver)) is not None
+    if kind == 'near':
+        return is_valid_near_account(receiver)
     return False
+
+
+# NEAR account ID rules (nomicon "Account ID"): 2–64 characters, lowercase alphanumerics
+# separated by `-` or `_` within a part and by `.` between parts. A 64-character lowercase hex
+# implicit account satisfies the same pattern; an ETH-implicit account is `0x` plus 40 hex.
+_NEAR_ACCOUNT_RE = re.compile(r'(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+')
+_NEAR_ETH_IMPLICIT_RE = re.compile(r'0x[a-f0-9]{40}')
+
+
+def is_valid_near_account(account):
+    text = str(account)
+    if _NEAR_ETH_IMPLICIT_RE.fullmatch(text):
+        return True
+    return 2 <= len(text) <= 64 and _NEAR_ACCOUNT_RE.fullmatch(text) is not None

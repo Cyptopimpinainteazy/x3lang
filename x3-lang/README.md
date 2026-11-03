@@ -77,6 +77,34 @@ adapters, multi-validator execution, an external audit.
 
 All configured via environment variables. Never silently falls back to dry-run.
 
+## NEAR Intents adapter (`near_intents.py`)
+
+An `intent` whose route is one `bridge NearIntents <from> -> <to>` leg settles through the NEAR
+Intents solver network via the 1Click API. The program's clauses become the quote request, and
+the returned quote is checked against the program's guards before any deposit is made.
+
+Canonical example: `examples/near_intents_sol_to_near.x3`.
+
+```bash
+python3 x3-lang/near_intents.py plan  x3-lang/examples/near_intents_sol_to_near.x3   # request only
+python3 x3-lang/near_intents.py quote x3-lang/examples/near_intents_sol_to_near.x3   # dry quote + guard check
+python3 x3-lang/near_intents.py quote <file.x3> --live      # deposit address, nonce consumed, receipt written
+python3 x3-lang/near_intents.py submit-deposit --deposit-address <addr> --tx-hash <hash>
+python3 x3-lang/near_intents.py status --deposit-address <addr> --wait --receipt <intent>.near-receipt.json
+```
+
+Enforced on every quote: echoed request, exact `amountIn`, `min_receive` floor on the guaranteed
+output, slippage spread, `require fees` effective cost, and (live) deposit address, 1Click
+signature and a deadline the quote's own time estimate fits in. `require nonce unused` is
+enforced by a local nonce store. Refused by code rather than approximated: multi-leg routes,
+guards 1Click cannot enforce (`finality`, `proof_complete`, …), missing slippage or timeout,
+refunds in another asset, and `on_fail halt`/`quarantine`.
+
+Environment: `NEAR_INTENTS_JWT` (API key; without it the unauthenticated fee schedule applies),
+`NEAR_INTENTS_BASE_URL`, `NEAR_INTENTS_REFERRAL`, `X3_NEAR_NONCE_STORE`. The adapter never signs
+or sends the deposit; that is made from the sender's wallet. 1Click has no testnet, so live runs
+use real funds — start small.
+
 ## Quick start
 
 ```bash
