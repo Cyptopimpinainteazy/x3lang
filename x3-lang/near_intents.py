@@ -45,6 +45,13 @@ would allow partial execution with no rollback), a guard 1Click gives no way to 
 (`finality`, `proof_complete`, …), a missing slippage bound or timeout, a refund in an asset
 other than the one deposited, and `on_fail halt` / `quarantine`, which 1Click cannot express.
 
+## Account preflight
+
+Before any quote is requested, every NEAR account the swap pays out to (the recipient, or the
+refund address when the origin is NEAR) is looked up on chain. 1Click answers a quote toward a
+NEAR account that does not exist with HTTP 400 `Internal server error`; the preflight refuses
+it as `X3_NEAR_ACCOUNT_UNKNOWN`, naming the account. Implicit accounts are not looked up.
+
 ## Replay protection
 
 `require nonce unused <id>` is enforced by a local nonce store (`X3_NEAR_NONCE_STORE`, default
@@ -57,6 +64,8 @@ because that is the moment a deposit address exists for it. Dry quotes never con
   (an extra 0.25% per the 1Click docs), which `require fees` will see.
 - `NEAR_INTENTS_BASE_URL` — defaults to `https://1click.chaindefuser.com`.
 - `NEAR_INTENTS_REFERRAL` — optional lowercase `referral` identifier.
+- `NEAR_RPC_URL` — NEAR JSON-RPC used to check that NEAR receivers exist before quoting;
+  defaults to FastNEAR's free endpoint (`rpc.mainnet.near.org` is deprecated).
 
 This module never signs or sends the deposit. `quote --live` returns the deposit address and
 the exact amount; the deposit is made from the sender's wallet, after which `submit-deposit`
@@ -602,11 +611,15 @@ class OneClickClient:
             data = None
         if status >= 400:
             message = data.get("message") if isinstance(data, dict) else None
+            detail: Dict[str, Any] = {"status": status}
+            if isinstance(data, dict) and data.get("correlationId"):
+                # 1Click support traces a failed request by this ID.
+                detail["correlationId"] = data["correlationId"]
             raise NearIntentsError(
                 "X3_NEAR_HTTP",
                 f"{method} {path} returned {status}: {message or raw[:300].decode('utf-8', 'replace')}",
                 path,
-                {"status": status},
+                detail,
             )
         if data is None:
             raise NearIntentsError("X3_NEAR_HTTP", f"{method} {path} returned no JSON", path)
@@ -627,6 +640,75 @@ class OneClickClient:
     def status(self, deposit_address: str, deposit_memo: Optional[str] = None) -> Dict[str, Any]:
         query = urllib.parse.urlencode({k: v for k, v in (("depositAddress", deposit_address), ("depositMemo", deposit_memo)) if v})
         return self._call("GET", f"/v0/status?{query}")
+
+
+# --------------------------------------------------------------------------------------------
+# NEAR account preflight
+# --------------------------------------------------------------------------------------------
+
+DEFAULT_NEAR_RPC_URL = "https://free.rpc.fastnear.com"
+_IMPLICIT_ACCOUNT_RE = re.compile(r"[a-f0-9]{64}|0x[a-f0-9]{40}")
+
+
+class NearRpc:
+    """Just enough NEAR JSON-RPC to ask whether a named account exists.
+
+    1Click answers a quote for a NEAR receiver that does not exist with HTTP 400 and the body
+    `Internal server error`, which names nothing. Asking the chain first turns that into a
+    refusal that says which address is wrong — and keeps a live run from ever being quoted
+    toward an account that cannot receive the funds.
+    """
+
+    def __init__(self, url: Optional[str] = None, transport: Transport = urllib_transport, timeout: float = 15.0):
+        self.url = url or os.environ.get("NEAR_RPC_URL") or DEFAULT_NEAR_RPC_URL
+        self.transport = transport
+        self.timeout = timeout
+
+    def account_exists(self, account_id: str) -> bool:
+        if _IMPLICIT_ACCOUNT_RE.fullmatch(account_id):
+            # An implicit account is its key; it exists as soon as it is funded, so a deposit
+            # to it is valid before any transaction has touched it.
+            return True
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "id": "x3-near-intents",
+            "method": "query",
+            "params": {"request_type": "view_account", "finality": "final", "account_id": account_id},
+        }).encode("utf-8")
+        status, raw = self.transport("POST", self.url, {"Content-Type": "application/json"}, body, self.timeout)
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise NearIntentsError("X3_NEAR_RPC", f"NEAR RPC {self.url} returned {status} with no JSON")
+        if isinstance(data, dict) and isinstance(data.get("result"), dict) and "amount" in data["result"]:
+            return True
+        error = data.get("error") if isinstance(data, dict) else None
+        if isinstance(error, dict):
+            cause = (error.get("cause") or {}).get("name")
+            if cause == "UNKNOWN_ACCOUNT":
+                return False
+            raise NearIntentsError("X3_NEAR_RPC", f"NEAR RPC {self.url} could not answer for {account_id!r}: "
+                                   f"{cause or error.get('message') or error}")
+        raise NearIntentsError("X3_NEAR_RPC", f"NEAR RPC {self.url} returned an unexpected body ({status})")
+
+
+def preflight_accounts(leg: Dict[str, Any], rpc: NearRpc) -> List[Dict[str, Any]]:
+    """Every NEAR account the swap pays out to must exist before a quote is requested."""
+    checks = []
+    for role, chain, account in (("recipient", leg["destination"]["chain"], leg["recipient"]),
+                                 ("refund_to", leg["origin"]["chain"], leg["refund_to"])):
+        if chain != "near":
+            continue
+        exists = rpc.account_exists(account)
+        checks.append({"guard": f"{role}_account_exists", "ok": exists, "account": account})
+        if not exists:
+            raise NearIntentsError(
+                "X3_NEAR_ACCOUNT_UNKNOWN",
+                f"NEAR account {account!r} ({role}) does not exist; 1Click cannot deliver to it",
+                "to.receiver" if role == "recipient" else "policies.timeout.action.to",
+                checks,
+            )
+    return checks
 
 
 
@@ -723,15 +805,16 @@ def plan(path: str, *, client: OneClickClient, tokens_path: Optional[str] = None
 
 def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = None, live: bool = False,
           nonce_store: Optional[NonceStore] = None, receipt_path: Optional[str] = None,
-          now: Optional[datetime] = None) -> Dict[str, Any]:
+          rpc: Optional[NearRpc] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
     planned = plan(path, client=client, tokens_path=tokens_path, live=live, now=now)
     leg, request = planned["leg"], planned["quote_request"]
     store = nonce_store or NonceStore()
     if live and leg["nonce"]:
         store.check_unused(leg["nonce"])
+    account_checks = preflight_accounts(leg, rpc or NearRpc())
 
     response = client.quote(request)
-    guards = verify_quote(leg, request, response, now=now)
+    guards = account_checks + verify_quote(leg, request, response, now=now)
 
     result: Dict[str, Any] = {
         "status": "quoted" if not live else "awaiting_deposit",
@@ -849,7 +932,8 @@ def _emit(payload: Dict[str, Any], code: int = 0) -> int:
     return code
 
 
-def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] = None) -> int:
+def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] = None,
+         rpc: Optional[NearRpc] = None) -> int:
     parser = argparse.ArgumentParser(description="Settle X3 intents through NEAR Intents (1Click API)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -885,7 +969,7 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
             return _emit({"status": "planned", "leg": planned["leg"], "quote_request": planned["quote_request"]})
         if args.command == "quote":
             result = quote(args.input, client=client, tokens_path=args.tokens, live=args.live,
-                           nonce_store=NonceStore(args.nonce_store), receipt_path=args.receipt)
+                           nonce_store=NonceStore(args.nonce_store), receipt_path=args.receipt, rpc=rpc)
             return _emit(result)
         if args.command == "submit-deposit":
             return _emit({"status": "submitted", "response": client.submit_deposit(args.deposit_address, args.tx_hash)})

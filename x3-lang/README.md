@@ -100,8 +100,12 @@ enforced by a local nonce store. Refused by code rather than approximated: multi
 guards 1Click cannot enforce (`finality`, `proof_complete`, …), missing slippage or timeout,
 refunds in another asset, and `on_fail halt`/`quarantine`.
 
+Before quoting, NEAR receivers are checked on chain (`X3_NEAR_ACCOUNT_UNKNOWN`); 1Click itself
+answers a missing NEAR account with an unexplained HTTP 400.
+
 Environment: `NEAR_INTENTS_JWT` (API key; without it the unauthenticated fee schedule applies),
-`NEAR_INTENTS_BASE_URL`, `NEAR_INTENTS_REFERRAL`, `X3_NEAR_NONCE_STORE`. The adapter never signs
+`NEAR_INTENTS_BASE_URL`, `NEAR_INTENTS_REFERRAL`, `NEAR_RPC_URL` (default FastNEAR),
+`X3_NEAR_NONCE_STORE`. The adapter never signs
 or sends the deposit; that is made from the sender's wallet. 1Click has no testnet, so live runs
 use real funds — start small.
 

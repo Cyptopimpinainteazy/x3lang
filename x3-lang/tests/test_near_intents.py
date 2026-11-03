@@ -95,6 +95,19 @@ def api(quote_fn=good_quote, statuses=None):
     return RecordingTransport(handler)
 
 
+def near_rpc(missing=(), error=None):
+    def handler(method, url, payload):
+        if error:
+            return 200, {"jsonrpc": "2.0", "id": payload["id"], "error": error}
+        account = payload["params"]["account_id"]
+        if account in missing:
+            return 200, {"jsonrpc": "2.0", "id": payload["id"],
+                         "error": {"name": "HANDLER_ERROR", "cause": {"name": "UNKNOWN_ACCOUNT", "info": {}}, "code": -32000}}
+        return 200, {"jsonrpc": "2.0", "id": payload["id"], "result": {"amount": "1", "locked": "0", "code_hash": "11111111111111111111111111111111"}}
+    transport = RecordingTransport(handler)
+    return ni.NearRpc(url="https://rpc.example.invalid", transport=transport), transport
+
+
 def program(tmp_path, *, route=None, requires=None, timeout="timeout 10m refund Solana.USDC", on_fail="on_fail rollback"):
     route = route or "bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;"
     requires = requires if requires is not None else [
@@ -295,7 +308,7 @@ def test_dry_quote_checks_guards_and_consumes_nothing(tmp_path):
     store = ni.NonceStore(str(tmp_path / "nonces.json"))
     transport = api()
     result = ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="", transport=transport), live=False,
-                      nonce_store=store, receipt_path=str(tmp_path / "r.json"), now=NOW)
+                      nonce_store=store, receipt_path=str(tmp_path / "r.json"), rpc=near_rpc()[0], now=NOW)
     assert result["status"] == "quoted"
     assert transport.calls[-1]["body"]["dry"] is True
     assert "note" in result  # unauthenticated fee schedule is called out
@@ -308,7 +321,7 @@ def test_live_quote_writes_receipt_consumes_nonce_and_refuses_replay(tmp_path):
     receipt_path = tmp_path / "r.json"
     client = ni.OneClickClient(jwt="k", transport=api())
     result = ni.quote(str(EXAMPLE), client=client, live=True, nonce_store=store,
-                      receipt_path=str(receipt_path), now=NOW)
+                      receipt_path=str(receipt_path), rpc=near_rpc()[0], now=NOW)
     assert result["status"] == "awaiting_deposit"
     assert result["deposit"]["address"] == "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
     assert result["deposit"]["amount"] == "25000000"
@@ -323,7 +336,7 @@ def test_live_quote_writes_receipt_consumes_nonce_and_refuses_replay(tmp_path):
     transport = api()
     with pytest.raises(ni.NearIntentsError) as err:
         ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=transport), live=True,
-                 nonce_store=store, receipt_path=str(receipt_path), now=NOW)
+                 nonce_store=store, receipt_path=str(receipt_path), rpc=near_rpc()[0], now=NOW)
     assert err.value.code == "X3_NEAR_NONCE_USED"
     assert not any(c["url"].endswith("/v0/quote") for c in transport.calls), "a used nonce must not request a quote"
 
@@ -333,7 +346,7 @@ def test_rejected_live_quote_does_not_consume_the_nonce(tmp_path):
     bad = lambda req: good_quote(req, amount_out=24_700_000)  # below min_receive once slippage is applied
     with pytest.raises(ni.NearIntentsError) as err:
         ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api(bad)), live=True,
-                 nonce_store=store, receipt_path=str(tmp_path / "r.json"), now=NOW)
+                 nonce_store=store, receipt_path=str(tmp_path / "r.json"), rpc=near_rpc()[0], now=NOW)
     assert err.value.code == "X3_NEAR_GUARD_FAILED"
     assert not (tmp_path / "nonces.json").exists()
     assert not (tmp_path / "r.json").exists()
@@ -349,7 +362,7 @@ def test_status_waits_to_a_terminal_outcome_and_records_it(tmp_path):
     store = ni.NonceStore(str(tmp_path / "nonces.json"))
     receipt_path = tmp_path / "r.json"
     ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api()), live=True,
-             nonce_store=store, receipt_path=str(receipt_path), now=NOW)
+             nonce_store=store, receipt_path=str(receipt_path), rpc=near_rpc()[0], now=NOW)
 
     transport = api(statuses=[_status("PENDING_DEPOSIT"), _status("PROCESSING"), _status("PROCESSING"),
                               _status("SUCCESS", amountOut="24950000")])
@@ -412,3 +425,72 @@ def test_runner_names_the_near_intents_executor_instead_of_settling():
     result = json.loads(prod.stdout)
     assert result["status"] == "rolled_back"
     assert result["execution"][0]["code"] == "X3_NEAR_INTENTS_EXECUTOR"
+
+
+# --- NEAR account preflight ----------------------------------------------------------------
+
+def test_unknown_near_recipient_is_refused_before_any_quote_is_requested(tmp_path):
+    rpc, rpc_calls = near_rpc(missing={"x3-demo.near"})
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="", transport=transport), live=False,
+                 nonce_store=ni.NonceStore(str(tmp_path / "n.json")), rpc=rpc, now=NOW)
+    assert err.value.code == "X3_NEAR_ACCOUNT_UNKNOWN"
+    assert "x3-demo.near" in err.value.message
+    assert rpc_calls.calls[0]["body"]["params"] == {"request_type": "view_account", "finality": "final", "account_id": "x3-demo.near"}
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
+
+
+def test_existing_recipient_is_recorded_as_a_passed_guard(tmp_path):
+    result = ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="", transport=api()), live=False,
+                      nonce_store=ni.NonceStore(str(tmp_path / "n.json")), rpc=near_rpc()[0], now=NOW)
+    assert {"guard": "recipient_account_exists", "ok": True, "account": "x3-demo.near"} in result["guards"]
+
+
+def test_implicit_accounts_are_not_looked_up():
+    rpc, calls = near_rpc(missing={"a" * 64})
+    assert rpc.account_exists("a" * 64)
+    assert rpc.account_exists("0x" + "b" * 40)
+    assert calls.calls == []
+
+
+def test_an_rpc_that_cannot_answer_fails_closed():
+    rpc, _ = near_rpc(error={"name": "REQUEST_VALIDATION_ERROR", "cause": {"name": "PARSE_ERROR"}, "code": -32700})
+    with pytest.raises(ni.NearIntentsError) as err:
+        rpc.account_exists("x3-demo.near")
+    assert err.value.code == "X3_NEAR_RPC"
+
+
+def test_http_errors_carry_the_1click_correlation_id():
+    body = {"message": "Internal server error", "correlationId": "0819adac-8f7e-4c9e-ac1a-4d817da91b4f", "path": "/v0/quote"}
+    client = ni.OneClickClient(jwt="", transport=RecordingTransport(lambda m, u, p: (400, body)))
+    with pytest.raises(ni.NearIntentsError) as err:
+        client.quote({"dry": True})
+    assert err.value.detail == {"status": 400, "correlationId": "0819adac-8f7e-4c9e-ac1a-4d817da91b4f"}
+
+
+# --- a real 1Click response ----------------------------------------------------------------
+
+def test_a_captured_mainnet_dry_quote_passes_the_guards_the_example_declares():
+    """Captured from 1click.chaindefuser.com on 2026-11-03 (dry quote, recipient wrap.near).
+
+    The server echoes fields this adapter did not send (`depositMode`, `confidentiality`,
+    `appFees`, …). The echo check compares the fields that were sent, so those extras pass,
+    and the cost they add is what `require fees` measures.
+    """
+    response = json.loads((ROOT / "tests" / "fixtures" / "near_intents_quote_dry_live_capture.json").read_text())
+    sent_fields = ("dry", "swapType", "slippageTolerance", "originAsset", "depositType", "destinationAsset",
+                   "amount", "refundTo", "refundType", "recipient", "recipientType", "deadline")
+    request = {k: response["quoteRequest"][k] for k in sent_fields}
+    leg = {"amount": 25_000_000, "min_receive": 24_800_000, "slippage_bps": 50, "fee_cap_bps": 100}
+    results = {r["guard"]: r for r in ni.verify_quote(leg, request, response, now=NOW)}
+    assert all(r["ok"] for r in results.values())
+    assert results["min_receive"]["guaranteed"] == "24872939"
+    assert results["slippage"]["quoted_spread_bps"] == "50.00"
+    assert results["fees"]["effective_cost_bps"] == "0.83"
+
+    # The same quote fails a floor or a fee cap it does not meet.
+    with pytest.raises(ni.NearIntentsError):
+        ni.verify_quote({**leg, "min_receive": 24_900_000}, request, response, now=NOW)
+    with pytest.raises(ni.NearIntentsError):
+        ni.verify_quote({**leg, "fee_cap_bps": 0}, request, response, now=NOW)

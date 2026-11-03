@@ -17,7 +17,8 @@
 // Amounts are base units: 25 USDC at six decimals is 25_000_000.
 //
 // The receivers below are placeholders. Replace both with addresses you control before
-// running `near_intents.py quote --live`.
+// running `near_intents.py quote` at all: the adapter checks on chain that the NEAR receiver
+// exists and refuses `x3-demo.near` with X3_NEAR_ACCOUNT_UNKNOWN until you do.
 intent near_intents_sol_to_near {
     from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
     to Near.USDC receiver x3-demo.near
