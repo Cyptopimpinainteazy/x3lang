@@ -115,6 +115,13 @@ def test_the_prompt_carries_the_mandate_and_marks_the_request_untrusted(tmp_path
     assert user.count("</untrusted_document>") == 1, "a document cannot close its own tag"
 
 
+def test_the_prompt_converts_slippage_bps_to_percent_without_ambiguity(tmp_path):
+    _, _, model = pay(tmp_path, program())
+    system, _ = model.prompts[0]
+    assert "Slippage at most 100 bps (1%, because 100 bps = 1%)" in system
+    assert "require slippage <= 1%" in system
+
+
 def test_a_dry_quote_runs_the_signed_quote_checks_too(tmp_path):
     report, code, _ = pay(tmp_path, program(amount=25_000_000), quote=True)
     assert (report["status"], code) == ("quoted", 0)
