@@ -12,6 +12,10 @@
 //!    only then reads the quote out of the verified bytes and runs every guard against the
 //!    stored policy. A policy accepts **one** quote, so a nonce opens one deposit address.
 //! 3. **The outcome.** [`Contract::record_outcome`] records how the swap ended, once.
+//! 4. **Agents.** An owner can let an AI agent's NEAR account swap on its behalf under a
+//!    [`mandate::Mandate`]: per-payment and rolling-24-hour caps, allowlisted recipients and
+//!    destination assets, a refund address the owner pins, slippage and fee ceilings, owner
+//!    approvals above a threshold, an expiry, and instant revocation. See [`mandate`].
 //!
 //! ## Trust model
 //!
@@ -39,7 +43,7 @@ use near_sdk::{bs58, env, near, require, AccountId, BorshStorageKey, NearToken, 
 
 /// NEP-297 event standard name.
 pub const EVENT_STANDARD: &str = "x3guard";
-pub const EVENT_VERSION: &str = "1.1.0";
+pub const EVENT_VERSION: &str = "1.2.0";
 
 /// The 1Click manager's Ed25519 key, from `@defuse-protocol/one-click-sdk-typescript` 0.1.26.
 pub const ONE_CLICK_MANAGER_PUBLIC_KEY: &str = "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc";
@@ -60,6 +64,7 @@ pub const MAX_CLOCK_SKEW_MS: u64 = 60_000;
 #[derive(BorshStorageKey)]
 enum StorageKey {
     Intents,
+    Mandates,
 }
 
 /// What an X3 program allows, as lowered by `near_intents.py`.
@@ -188,6 +193,12 @@ pub struct IntentRecord {
     pub registered_at_ms: u64,
     pub quote: Option<AcceptedQuote>,
     pub outcome: Option<Outcome>,
+    /// The agent that registered this intent under the owner's mandate; `None` for the owner's own.
+    pub agent: Option<AccountId>,
+    /// The mandate version it was registered under. A changed or re-created mandate voids it.
+    pub mandate_version: Option<u32>,
+    /// Approvers who signed off on it (only intents above the mandate's approval threshold).
+    pub approvals: Vec<AccountId>,
 }
 
 /// One guard's verdict, the same shape the adapter reports.
@@ -204,6 +215,7 @@ pub struct GuardResult {
 pub struct Contract {
     intents: LookupMap<String, IntentRecord>,
     manager_public_key: [u8; 32],
+    mandates: LookupMap<String, mandate::Mandate>,
 }
 
 fn key(owner: &AccountId, nonce: &str) -> String {
@@ -563,6 +575,7 @@ impl Contract {
             intents: LookupMap::new(StorageKey::Intents),
             manager_public_key: decode_ed25519::<32>(ONE_CLICK_MANAGER_PUBLIC_KEY)
                 .unwrap_or_else(|e| env::panic_str(&e)),
+            mandates: LookupMap::new(StorageKey::Mandates),
         }
     }
 
@@ -571,49 +584,7 @@ impl Contract {
     pub fn register_intent(&mut self, nonce: String, policy: Policy) -> IntentRecord {
         let initial = env::storage_usage();
         let owner = env::predecessor_account_id();
-        require_nonce(&nonce);
-        require!(
-            is_hex64(&policy.program_sha256),
-            "program_sha256 must be 64 lowercase hex characters"
-        );
-        for (field, value) in [
-            ("origin_asset", &policy.origin_asset),
-            ("destination_asset", &policy.destination_asset),
-            ("recipient", &policy.recipient),
-            ("refund_to", &policy.refund_to),
-        ] {
-            require_text(field, value);
-        }
-        require!(policy.amount.0 > 0, "amount must be positive");
-        require!(policy.slippage_bps as u128 <= BPS, "slippage_bps must be at most 10000");
-        if let Some(cap) = policy.fee_cap_bps {
-            require!(cap as u128 <= BPS, "fee_cap_bps must be at most 10000");
-        }
-        require!(
-            policy.deadline_ms > env::block_timestamp_ms(),
-            "the policy's deadline has already passed"
-        );
-
-        let k = key(&owner, &nonce);
-        require!(
-            !self.intents.contains_key(&k),
-            format!("nonce {nonce:?} is already registered by {owner}")
-        );
-
-        let record = IntentRecord {
-            owner: owner.clone(),
-            nonce: nonce.clone(),
-            policy,
-            registered_at_ms: env::block_timestamp_ms(),
-            quote: None,
-            outcome: None,
-        };
-        self.intents.insert(k, record.clone());
-        self.intents.flush();
-        emit(
-            "intent_registered",
-            json!({ "owner": owner, "nonce": nonce, "program_sha256": record.policy.program_sha256 }),
-        );
+        let record = self.insert_intent(owner, nonce, policy, None);
         settle_storage(initial);
         record
     }
@@ -625,50 +596,13 @@ impl Contract {
     pub fn accept_quote(&mut self, nonce: String, signed_payload: String, signature: String) -> Vec<GuardResult> {
         let initial = env::storage_usage();
         let owner = env::predecessor_account_id();
-        let k = key(&owner, &nonce);
-        let mut record = self
-            .intents
-            .get(&k)
-            .cloned()
-            .unwrap_or_else(|| env::panic_str(&format!("no intent {nonce:?} registered by {owner}")));
-        if let Some(accepted) = &record.quote {
+        let record = self.load_intent(&owner, &nonce);
+        if let Some(agent) = &record.agent {
             env::panic_str(&format!(
-                "intent {nonce:?} already accepted quote {}",
-                accepted.facts.quote_hash
+                "intent {nonce:?} was registered by agent {agent} under a mandate; it is accepted with agent_accept_quote"
             ));
         }
-
-        let facts =
-            verify_signed_quote(&self.manager_public_key, &signed_payload, &signature).unwrap_or_else(|reason| {
-                env::panic_str(&format!(
-                    "X3_NEAR_INVALID_SIGNATURE: Cryptographic quote verification failed; deposit prohibited ({reason})"
-                ))
-            });
-        let now = env::block_timestamp_ms();
-        let results = evaluate(&record.policy, &facts, now);
-        let failed: Vec<&str> = results.iter().filter(|r| !r.ok).map(|r| r.guard.as_str()).collect();
-        require!(
-            failed.is_empty(),
-            format!("quote rejected by {}; do not deposit", failed.join(", "))
-        );
-
-        emit(
-            "quote_accepted",
-            json!({
-                "owner": owner,
-                "nonce": nonce,
-                "quote_hash": facts.quote_hash,
-                "deposit_address": facts.deposit_address,
-                "min_amount_out": facts.min_amount_out,
-            }),
-        );
-        record.quote = Some(AcceptedQuote {
-            facts,
-            signed_payload,
-            accepted_at_ms: now,
-        });
-        self.intents.insert(k, record);
-        self.intents.flush();
+        let results = self.accept_verified(record, signed_payload, signature, None);
         settle_storage(initial);
         results
     }
@@ -685,48 +619,8 @@ impl Contract {
     ) -> Outcome {
         let initial = env::storage_usage();
         let owner = env::predecessor_account_id();
-        let k = key(&owner, &nonce);
-        let mut record = self
-            .intents
-            .get(&k)
-            .cloned()
-            .unwrap_or_else(|| env::panic_str(&format!("no intent {nonce:?} registered by {owner}")));
-        let min_out = record
-            .quote
-            .as_ref()
-            .map(|q| q.facts.min_amount_out.0)
-            .unwrap_or_else(|| env::panic_str("no quote has been accepted for this intent"));
-        require!(record.outcome.is_none(), "this intent's outcome is already recorded");
-        require!(
-            tx_hashes.len() <= MAX_TX_HASHES,
-            format!("at most {MAX_TX_HASHES} transaction hashes")
-        );
-        for hash in &tx_hashes {
-            require_text("tx_hashes[]", hash);
-        }
-        let floor_met = match status {
-            Status::Settled => {
-                let delivered = amount_out.unwrap_or_else(|| env::panic_str("a settled outcome states amount_out"));
-                Some(delivered.0 >= min_out)
-            }
-            Status::Refunded | Status::Failed => None,
-        };
-
-        let outcome = Outcome {
-            status,
-            amount_out,
-            refunded_amount,
-            tx_hashes,
-            floor_met,
-            recorded_at_ms: env::block_timestamp_ms(),
-        };
-        emit(
-            "outcome_recorded",
-            json!({ "owner": owner, "nonce": nonce, "status": outcome.status, "floor_met": outcome.floor_met }),
-        );
-        record.outcome = Some(outcome.clone());
-        self.intents.insert(k, record);
-        self.intents.flush();
+        let record = self.load_intent(&owner, &nonce);
+        let outcome = self.record_outcome_for(record, status, amount_out, refunded_amount, tx_hashes);
         settle_storage(initial);
         outcome
     }
@@ -777,6 +671,190 @@ impl Contract {
         }
     }
 }
+
+/// Internals shared by the owner's methods and the agent methods in [`mandate`].
+impl Contract {
+    fn load_intent(&self, owner: &AccountId, nonce: &str) -> IntentRecord {
+        self.intents
+            .get(&key(owner, nonce))
+            .cloned()
+            .unwrap_or_else(|| env::panic_str(&format!("no intent {nonce:?} registered by {owner}")))
+    }
+
+    fn store_intent(&mut self, record: IntentRecord) {
+        self.intents.insert(key(&record.owner, &record.nonce), record);
+        self.intents.flush();
+    }
+
+    /// Validate and store a new policy under `(owner, nonce)`. `agent` is `(agent, mandate
+    /// version)` when an agent registers it under the owner's mandate.
+    fn insert_intent(
+        &mut self,
+        owner: AccountId,
+        nonce: String,
+        policy: Policy,
+        agent: Option<(AccountId, u32)>,
+    ) -> IntentRecord {
+        require_nonce(&nonce);
+        require!(
+            is_hex64(&policy.program_sha256),
+            "program_sha256 must be 64 lowercase hex characters"
+        );
+        for (field, value) in [
+            ("origin_asset", &policy.origin_asset),
+            ("destination_asset", &policy.destination_asset),
+            ("recipient", &policy.recipient),
+            ("refund_to", &policy.refund_to),
+        ] {
+            require_text(field, value);
+        }
+        require!(policy.amount.0 > 0, "amount must be positive");
+        require!(policy.slippage_bps as u128 <= BPS, "slippage_bps must be at most 10000");
+        if let Some(cap) = policy.fee_cap_bps {
+            require!(cap as u128 <= BPS, "fee_cap_bps must be at most 10000");
+        }
+        require!(
+            policy.deadline_ms > env::block_timestamp_ms(),
+            "the policy's deadline has already passed"
+        );
+
+        let k = key(&owner, &nonce);
+        require!(
+            !self.intents.contains_key(&k),
+            format!("nonce {nonce:?} is already registered by {owner}")
+        );
+
+        let (agent, mandate_version) = match agent {
+            Some((a, v)) => (Some(a), Some(v)),
+            None => (None, None),
+        };
+        let record = IntentRecord {
+            owner: owner.clone(),
+            nonce: nonce.clone(),
+            policy,
+            registered_at_ms: env::block_timestamp_ms(),
+            quote: None,
+            outcome: None,
+            agent,
+            mandate_version,
+            approvals: Vec::new(),
+        };
+        self.intents.insert(k, record.clone());
+        self.intents.flush();
+        emit(
+            "intent_registered",
+            json!({
+                "owner": owner,
+                "nonce": nonce,
+                "program_sha256": record.policy.program_sha256,
+                "agent": record.agent,
+            }),
+        );
+        record
+    }
+
+    /// Verify the quote, run every guard, and record it if all pass; panics (changing nothing)
+    /// otherwise. `spent` adds the agent's rolling spend to the event.
+    fn accept_verified(
+        &mut self,
+        mut record: IntentRecord,
+        signed_payload: String,
+        signature: String,
+        spent: Option<u128>,
+    ) -> Vec<GuardResult> {
+        if let Some(accepted) = &record.quote {
+            env::panic_str(&format!(
+                "intent {:?} already accepted quote {}",
+                record.nonce, accepted.facts.quote_hash
+            ));
+        }
+        let facts =
+            verify_signed_quote(&self.manager_public_key, &signed_payload, &signature).unwrap_or_else(|reason| {
+                env::panic_str(&format!(
+                    "X3_NEAR_INVALID_SIGNATURE: Cryptographic quote verification failed; deposit prohibited ({reason})"
+                ))
+            });
+        let now = env::block_timestamp_ms();
+        let results = evaluate(&record.policy, &facts, now);
+        let failed: Vec<&str> = results.iter().filter(|r| !r.ok).map(|r| r.guard.as_str()).collect();
+        require!(
+            failed.is_empty(),
+            format!("quote rejected by {}; do not deposit", failed.join(", "))
+        );
+        emit(
+            "quote_accepted",
+            json!({
+                "owner": record.owner,
+                "nonce": record.nonce,
+                "quote_hash": facts.quote_hash,
+                "deposit_address": facts.deposit_address,
+                "min_amount_out": facts.min_amount_out,
+                "agent": record.agent,
+                "agent_spent_24h": spent.map(U128),
+            }),
+        );
+        record.quote = Some(AcceptedQuote {
+            facts,
+            signed_payload,
+            accepted_at_ms: now,
+        });
+        self.store_intent(record);
+        results
+    }
+
+    fn record_outcome_for(
+        &mut self,
+        mut record: IntentRecord,
+        status: Status,
+        amount_out: Option<U128>,
+        refunded_amount: Option<U128>,
+        tx_hashes: Vec<String>,
+    ) -> Outcome {
+        let min_out = record
+            .quote
+            .as_ref()
+            .map(|q| q.facts.min_amount_out.0)
+            .unwrap_or_else(|| env::panic_str("no quote has been accepted for this intent"));
+        require!(record.outcome.is_none(), "this intent's outcome is already recorded");
+        require!(
+            tx_hashes.len() <= MAX_TX_HASHES,
+            format!("at most {MAX_TX_HASHES} transaction hashes")
+        );
+        for hash in &tx_hashes {
+            require_text("tx_hashes[]", hash);
+        }
+        let floor_met = match status {
+            Status::Settled => {
+                let delivered = amount_out.unwrap_or_else(|| env::panic_str("a settled outcome states amount_out"));
+                Some(delivered.0 >= min_out)
+            }
+            Status::Refunded | Status::Failed => None,
+        };
+        let outcome = Outcome {
+            status,
+            amount_out,
+            refunded_amount,
+            tx_hashes,
+            floor_met,
+            recorded_at_ms: env::block_timestamp_ms(),
+        };
+        emit(
+            "outcome_recorded",
+            json!({
+                "owner": record.owner,
+                "nonce": record.nonce,
+                "status": outcome.status,
+                "floor_met": outcome.floor_met,
+                "agent": record.agent,
+            }),
+        );
+        record.outcome = Some(outcome.clone());
+        self.store_intent(record);
+        outcome
+    }
+}
+
+pub mod mandate;
 
 #[cfg(test)]
 mod tests;

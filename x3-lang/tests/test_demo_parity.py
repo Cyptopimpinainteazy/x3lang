@@ -144,3 +144,62 @@ def test_guards_agree_on_real_dry_quotes(tmp_path, name):
     got = _case(tmp_path, leg, request, response, now, ONE_CLICK_KEY)
     assert _guard_view(got["results"]) == _guard_view(expected)
     assert got["verdict"] == "dry_pass"
+
+
+# --- agent mandates ---------------------------------------------------------------------------
+
+from test_near_mandate import (  # noqa: E402
+    AGENT_INTENT, BASE, MANDATE, POLICY_CASES, agent_intent, mandate_file, nm, replaced, tokens,
+)
+
+
+def test_the_agent_example_lowers_identically():
+    expected = python_lower(AGENT_INTENT)
+    assert expected["leg"]["mandate_owner"] == "x3-owner.near"
+    assert js("lower", AGENT_INTENT, TOKENS, NOW_MS) == expected
+
+
+def test_the_example_mandate_compiles_identically():
+    got = js("mandate", MANDATE, TOKENS, NOW_MS)["compiled"]
+    assert got == nm.compile_mandate(str(MANDATE), tokens(), now=NOW)
+
+
+MANDATE_REFUSALS = [
+    BASE + ["spend_everything yes"],
+    BASE + ["per_payment 1"],
+    replaced("expires", None),
+    BASE + ["require nonce unused x"],
+    replaced("agent", "agent x3-owner.near"),
+    replaced("per_24h", "per_24h 1000"),
+    replaced("per_payment", "per_payment 0"),
+    replaced("refund_to", "refund_to x3-owner.near"),
+    replaced("allow recipients", "allow recipients UPPER.near"),
+    replaced("allow assets", "allow assets Near.NOPE"),
+    replaced("require fees", None),
+    replaced("expires", "expires 0d"),
+    BASE + ["approve above 50000000 by 1 of x3-owner.near"],
+    BASE + ["approve above 1 by 1 of x3-agent.near"],
+    BASE + ["approve above 1 by 3 of x3-owner.near, carol.near"],
+]
+
+
+@pytest.mark.parametrize("lines", MANDATE_REFUSALS, ids=lambda ls: ls[-1] if ls is not BASE else "base")
+def test_mandates_are_refused_with_the_same_code(tmp_path, lines):
+    path = mandate_file(tmp_path, *lines)
+    with pytest.raises(ni.NearIntentsError) as err:
+        nm.compile_mandate(path, tokens(), now=NOW)
+    assert js("mandate", path, TOKENS, NOW_MS).get("error", {}).get("code") == err.value.code
+
+
+@pytest.mark.parametrize("name,kwargs,expected", POLICY_CASES, ids=[c[0] for c in POLICY_CASES])
+def test_an_agent_intent_gets_the_same_mandate_verdict(tmp_path, name, kwargs, expected):
+    intent = agent_intent(tmp_path, **kwargs)
+    got = js("mandate", MANDATE, TOKENS, NOW_MS, intent)
+    _, leg = ni.compile_program(intent, now=NOW)
+    request = ni.build_quote_request(leg, tokens(), dry=True)
+    policy = ni.policy_for(leg, request, got["policy"]["program_sha256"])
+    assert got["policy"] == policy
+    python = nm.check_mandate({**nm.compile_mandate(str(MANDATE), tokens(), now=NOW), "version": None,
+                               "revoked": False, "spends": []}, policy, NOW_MS)
+    assert [(c["guard"], c["ok"]) for c in got["checks"]] == [(c["guard"], c["ok"]) for c in python]
+    assert [c["guard"] for c in python if not c["ok"]] == expected

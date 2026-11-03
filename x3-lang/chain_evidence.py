@@ -235,6 +235,29 @@ class NearViews:
             raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{url} query result has no block_height")
         return result
 
+    def view_json(self, contract: str, method: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """A contract view's JSON result at one final block, identical on every endpoint."""
+        first = self._call(self.urls[0], contract, method, args, {"finality": "final"})
+        height = first["block_height"]
+        reads = [(self.urls[0], first)]
+        for url in self.urls[1:]:
+            reads.append((url, self._call(url, contract, method, args, {"block_id": height})))
+
+        def decode(result: Dict[str, Any]) -> Any:
+            raw = result.get("result")
+            if not isinstance(raw, list) or not all(isinstance(b, int) and 0 <= b < 256 for b in raw):
+                raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{method} returned no result bytes")
+            try:
+                return json.loads(bytes(raw).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{method} did not return JSON")
+
+        values = [decode(r) for _, r in reads]
+        if any(v != values[0] for v in values[1:]):
+            raise ChainEvidenceError("X3_EVIDENCE_RPC_DISAGREE", f"endpoints disagree on {contract}.{method} at block {height}")
+        return {"value": values[0], "block_height": height, "block_hash": first.get("block_hash"),
+                "rpcs": [{"url": url, "result_sha256": sha256_json(r)} for url, r in reads]}
+
     def ft_balance(self, token: str, account: str) -> Dict[str, Any]:
         """Balance at one final block, read from every endpoint at that same block height."""
         first = self._call(self.urls[0], token, "ft_balance_of", {"account_id": account}, {"finality": "final"})

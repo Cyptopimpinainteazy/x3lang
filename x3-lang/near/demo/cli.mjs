@@ -4,6 +4,7 @@
 //   node cli.mjs lower  <program.x3> <tokens.json> <now-ms>
 //   node cli.mjs verify <response.json> [manager-key]
 //   node cli.mjs guards <case.json>      ({ leg, request, response, now_ms, manager_public_key })
+//   node cli.mjs mandate <mandate.x3> <tokens.json> <now-ms> [<intent.x3>]
 import { readFileSync } from "node:fs";
 import * as x3 from "./x3guard.mjs";
 
@@ -28,6 +29,23 @@ try {
   } else if (cmd === "guards") {
     const c = JSON.parse(read(args[0]));
     out(await x3.verifyQuote(c.leg, c.request, c.response, { nowMs: c.now_ms, managerPublicKey: c.manager_public_key }));
+  } else if (cmd === "mandate") {
+    const [mandatePath, tokensPath, now, intentPath] = args;
+    const tokens = JSON.parse(read(tokensPath));
+    const source = read(mandatePath);
+    const compiled = x3.lowerMandate(x3.parseMandate(source), tokens, Number(now), await x3.sha256Hex(source));
+    const result = { compiled };
+    if (intentPath) {
+      const intentSource = read(intentPath);
+      const leg = x3.lower(x3.parse(intentSource), Number(now));
+      const request = x3.buildQuoteRequest(leg, tokens, { dry: true });
+      const policy = x3.policyFor(leg, request, await x3.sha256Hex(intentSource));
+      const mandate = { ...compiled, version: null, revoked: false, spends: [] };
+      result.policy = policy;
+      result.checks = x3.checkMandate(mandate, policy, Number(now));
+      result.approvals_needed = x3.approvalsNeeded(mandate, policy.amount);
+    }
+    out(result);
   } else {
     throw new Error(`unknown command ${cmd}`);
   }

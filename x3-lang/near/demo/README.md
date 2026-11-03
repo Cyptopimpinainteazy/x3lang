@@ -15,6 +15,11 @@ Each verdict is shown next to the line of the program it came from.
   `x3-lang/near_intents.py`. `x3-lang/tests/test_demo_parity.py` runs both on 16 programs,
   2 real 1Click quotes and 15 live-quote cases, and requires identical results.
 
+- **AI agents under a mandate.** "Try it as an AI agent" loads an agent's payment and its
+  owner's mandate. The mandate is checked in the browser before 1Click is asked for anything,
+  with the contract's checks in the contract's order. A payment to someone the owner didn't
+  list is refused, and each failed term is marked on its line of both programs.
+
 ## Run it
 
 ```bash
@@ -29,7 +34,7 @@ host serves it; there is no build step.
 ## Test it
 
 ```bash
-node --test x3-lang/near/demo/test/*.test.mjs        # 10 tests, incl. real 1Click signatures
+node --test x3-lang/near/demo/test/*.test.mjs        # 11 tests, incl. real 1Click signatures
 python3 -m pytest x3-lang/tests/test_demo_parity.py  # JS and Python agree (needs Node 20+)
 ```
 

@@ -1,0 +1,170 @@
+{
+  "agent": "x3-agent.near",
+  "create_mandate": {
+    "agent": "x3-agent.near",
+    "terms": {
+      "approval_above": "30000000",
+      "approval_threshold": 1,
+      "approvers": [
+        "x3-owner.near"
+      ],
+      "asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+      "daily_cap": "200000000",
+      "destination_assets": [
+        "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
+      ],
+      "expires_at_ms": 1796266800000,
+      "max_fee_bps": 100,
+      "max_slippage_bps": 100,
+      "per_payment_cap": "50000000",
+      "program_sha256": "629c008639c5fea35c1f2f9f1e9e3c67717860f72b1b7e14450db042f17012d4",
+      "recipients": [
+        "x3-demo.near"
+      ],
+      "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD"
+    }
+  },
+  "now_ms": 1793674800000,
+  "outcome": {
+    "amount_out": "24950000",
+    "nonce": "agent_payment_001",
+    "owner": "x3-owner.near",
+    "refunded_amount": null,
+    "status": "Settled",
+    "tx_hashes": [
+      "o1",
+      "n1"
+    ]
+  },
+  "owner": "x3-owner.near",
+  "policy_cases": [
+    {
+      "failed": [],
+      "name": "allowed",
+      "policy": {
+        "amount": "25000000",
+        "deadline_ms": 1793675400000,
+        "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "fee_cap_bps": 100,
+        "min_receive": "24750000",
+        "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "program_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "recipient": "x3-demo.near",
+        "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+        "slippage_bps": 50
+      }
+    },
+    {
+      "failed": [
+        "mandate_recipient"
+      ],
+      "name": "recipient",
+      "policy": {
+        "amount": "25000000",
+        "deadline_ms": 1793675400000,
+        "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "fee_cap_bps": 100,
+        "min_receive": "24750000",
+        "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "program_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "recipient": "attacker.near",
+        "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+        "slippage_bps": 50
+      }
+    },
+    {
+      "failed": [
+        "mandate_per_payment"
+      ],
+      "name": "per_payment",
+      "policy": {
+        "amount": "50000001",
+        "deadline_ms": 1793675400000,
+        "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "fee_cap_bps": 100,
+        "min_receive": "49500000",
+        "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "program_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "recipient": "x3-demo.near",
+        "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+        "slippage_bps": 50
+      }
+    },
+    {
+      "failed": [
+        "mandate_slippage"
+      ],
+      "name": "slippage",
+      "policy": {
+        "amount": "25000000",
+        "deadline_ms": 1793675400000,
+        "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "fee_cap_bps": 100,
+        "min_receive": "24750000",
+        "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "program_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "recipient": "x3-demo.near",
+        "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+        "slippage_bps": 150
+      }
+    },
+    {
+      "failed": [
+        "mandate_fees"
+      ],
+      "name": "no_fee_cap",
+      "policy": {
+        "amount": "25000000",
+        "deadline_ms": 1793675400000,
+        "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "fee_cap_bps": null,
+        "min_receive": "24750000",
+        "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "program_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "recipient": "x3-demo.near",
+        "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+        "slippage_bps": 50
+      }
+    },
+    {
+      "failed": [
+        "mandate_fees"
+      ],
+      "name": "fee_cap",
+      "policy": {
+        "amount": "25000000",
+        "deadline_ms": 1793675400000,
+        "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "fee_cap_bps": 150,
+        "min_receive": "24750000",
+        "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "program_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "recipient": "x3-demo.near",
+        "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+        "slippage_bps": 50
+      }
+    }
+  ],
+  "quote": {
+    "nonce": "agent_payment_001",
+    "owner": "x3-owner.near",
+    "signature": "ed25519:2d365UUhQ5t2DgWAoB6fgwY6RaxZS1Pmv2cxV3emrp2wGE8T9V9tMHtTLVbmBb4YGGNTZrv4qr3bxwDgo6yXXpMG",
+    "signed_payload": "{\"amount\":\"25000000\",\"amountIn\":\"25000000\",\"amountInFormatted\":\"25.0\",\"amountInUsd\":\"24.995\",\"amountOut\":\"24950000\",\"amountOutFormatted\":\"24.95\",\"amountOutUsd\":\"24.94\",\"deadline\":\"2026-11-03T03:10:00.000Z\",\"depositAddress\":\"9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"dry\":false,\"minAmountIn\":\"25000000\",\"minAmountOut\":\"24825250\",\"originAsset\":\"nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near\",\"recipient\":\"x3-demo.near\",\"recipientType\":\"DESTINATION_CHAIN\",\"refundFee\":\"244425\",\"refundTo\":\"4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\",\"refundType\":\"ORIGIN_CHAIN\",\"slippageTolerance\":50,\"swapType\":\"EXACT_INPUT\",\"timeEstimate\":20,\"timeWhenInactive\":\"2026-11-03T03:10:00.000Z\",\"timestamp\":\"2026-11-03T03:00:00.000Z\"}"
+  },
+  "register": {
+    "nonce": "agent_payment_001",
+    "owner": "x3-owner.near",
+    "policy": {
+      "amount": "25000000",
+      "deadline_ms": 1793675400000,
+      "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+      "fee_cap_bps": 100,
+      "min_receive": "24800000",
+      "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+      "program_sha256": "2b0f946464b82f0fc0186d47a9f968c8cb3ab4c038668bcc361c293bbf83021d",
+      "recipient": "x3-demo.near",
+      "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+      "slippage_bps": 50
+    }
+  }
+}
