@@ -125,8 +125,10 @@ initializer. Do not call `new()` over existing state:
 ```bash
 near contract deploy <contract-account> use-file target/near/x3_guard.wasm \
   without-init-call network-config mainnet sign-with-access-key-file <key-file.json> send
-near contract call <contract-account> migrate '{}' --gas 30Tgas --deposit 0 \
-  network-config mainnet sign-with-access-key-file <key-file.json> send
+near contract call-function as-transaction <contract-account> migrate \
+  json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' \
+  sign-as <signer-account> network-config mainnet \
+  sign-with-access-key-file <key-file.json> send
 ```
 
 ## Deploy

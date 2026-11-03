@@ -431,3 +431,38 @@ def test_cli_pay_prints_the_report_and_exits_by_verdict(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert (code, out["status"]) == (0, "allowed")
     assert out["nonce"].startswith("agent_")
+
+
+def test_approved_program_replay_never_calls_model_again(tmp_path):
+    dry, code, _ = pay(tmp_path, program(amount=25_000_000))
+    assert code == 0
+    approved_path = tmp_path / 'p.x3'
+    approved_bytes = approved_path.read_bytes()
+
+    class MustNotCall:
+        def complete(self, *_):
+            raise AssertionError('live approval must not call the model')
+
+    report, code = agent.run('Pay x3-demo.near 25 USDC for invoice 4411.', str(MANDATE),
+        model=MustNotCall(), client=client(), tokens_path=str(TOKENS),
+        approved_program=str(approved_path), out_path=str(approved_path),
+        approve=dry['program']['sha256'], live=True, guard_contract='x3-guard.near',
+        near_views=views(chain_mandate()), rpc=near_rpc()[0], now=NOW,
+        nonce_store=agent.ni.NonceStore(str(tmp_path / 'replay-nonces.json')),
+        receipt_path=str(tmp_path / 'replay-receipt.json'))
+    assert (report['status'], code) == ('live_quote_written', 0)
+    assert report['model']['provider'] == 'approved_source'
+    assert approved_path.read_bytes() == approved_bytes
+    assert report['program']['sha256'] == dry['program']['sha256']
+
+
+def test_approved_program_changed_after_dry_run_fails_closed(tmp_path):
+    dry, code, _ = pay(tmp_path, program(amount=25_000_000))
+    assert code == 0
+    approved_path = tmp_path / 'p.x3'
+    approved_path.write_text(approved_path.read_text().replace('25000000', '24000000'))
+    with pytest.raises(agent.NearIntentsError, match='approval hash'):
+        agent.run('Pay 25 USDC.', str(MANDATE), model=Scripted('REFUSE: no'),
+            client=client(), tokens_path=str(TOKENS), approved_program=str(approved_path),
+            approve=dry['program']['sha256'], live=True, now=NOW)
+    assert not (tmp_path / 'replay-receipt.json').exists()

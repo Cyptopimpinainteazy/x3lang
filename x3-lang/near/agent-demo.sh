@@ -74,6 +74,7 @@ cmd_setup() {
   [[ "$sol" =~ ^[1-9A-HJ-NP-Za-km-z]{32,44}$ ]] || die "that is not a Solana address."
   read -rp "  Payment amount in USDC [25]: " amount
   amount="${amount:-25}"
+  [[ "$amount" =~ ^[1-9][0-9]*$ ]] || die "amount must be a positive whole-number USDC amount (no decimals)"
 
   cat > "$MANDATE" <<EOF
 // Owner mandate for the AI Money Agent demo. Replace accounts before running.
@@ -129,7 +130,7 @@ cmd_pay_live() {
   [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || die "give the program SHA-256 from pay-dry."
   say "Owner-approved live quote"
   agent pay "Pay x3-demo.near ${AMOUNT} USDC for invoice 4411." --mandate "$MANDATE" \
-    --out "$ALLOWED" --guard-contract "$CONTRACT" --live --approve "$sha" \
+    --out "$ALLOWED" --approved-program "$ALLOWED" --guard-contract "$CONTRACT" --live --approve "$sha" \
     --nonce-store "$RUN_DIR/nonces.json" --receipt "$RECEIPT" > "$RUN_DIR/live-quote.json"
   chmod 600 "$RECEIPT"
   info "Live quote written. Next: $0 register"
@@ -152,8 +153,14 @@ cmd_deposit() {
   [[ "$sig" =~ ^[1-9A-HJ-NP-Za-km-z]{64,90}$ ]] || die "give the Solana transaction signature."
   adapter submit-deposit --deposit-address "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deposit"]["address"])' "$RECEIPT")" \
     --tx-hash "$sig" --receipt "$RECEIPT"
+  local status_code=0
   adapter status --deposit-address "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deposit"]["address"])' "$RECEIPT")" \
-    --wait --interval 10 --max-wait 1800 --receipt "$RECEIPT"
+    --wait --interval 10 --max-wait 1800 --receipt "$RECEIPT" || status_code=$?
+  if [[ "$status_code" -ne 0 ]]; then
+    info "Swap did not settle successfully (status exit $status_code). Preserve the receipt."
+    info "For a refund, provide its Solana signature to verify-settlement --refund-tx before any on-chain outcome call."
+    return "$status_code"
+  fi
   adapter verify-deposit --receipt "$RECEIPT"
   adapter verify-settlement --receipt "$RECEIPT"
   confirm "Record the outcome on NEAR."

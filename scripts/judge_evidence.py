@@ -175,23 +175,16 @@ def inspect_receipt(receipt_path: Path | None, *, refresh_chain: bool,
     if not refresh_chain or not (valid and bound and out["live_quote"]):
         return out
 
-    try:
-        deposit = near.verify_deposit(receipt)
-        out["deposit_independently_rechecked"] = bool(deposit.get("verified"))
-        if out["deposit_independently_rechecked"]:
-            if claimed == "refunded" and refund_tx:
-                end = near.verify_settlement(receipt, refund_tx=refund_tx)
-                out["refund_independently_rechecked"] = bool(end.get("verified"))
-            else:
-                end = near.verify_settlement(receipt)
-                out["delivery_independently_rechecked"] = bool(end.get("verified"))
-    except (near.NearIntentsError, near.chain_evidence.ChainEvidenceError,
-            ValueError, TypeError, KeyError):
-        return out
+    # SECURITY: A signed 1Click quote authenticates quote terms, not local receipt
+    # fields (leg, tokens, settlement_baseline). The chain readers currently use
+    # these unauthenticated fields when selecting transfer/balance evidence.
+    # Until that binding can be reconstructed independently from signed terms and
+    # immutable historical RPC evidence, NEVER elevate this receipt to chain proof.
+    out['status'] = 'unverified_receipt_chain_binding'
+    out['caveat'] = ('Live quote signature is valid, but the receipt leg, token mapping, '
+                     'and historical settlement baseline are not independently authenticated; '
+                     'no deposit/delivery/refund verification was attempted')
 
-    if (out["deposit_independently_rechecked"] and
-        (out["delivery_independently_rechecked"] or out["refund_independently_rechecked"])):
-        out["status"] = "chain_facts_rechecked_but_causality_unproven"
     return out
 
 

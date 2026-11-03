@@ -39,6 +39,8 @@ import os
 import re
 import secrets
 import sys
+import tempfile
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -330,7 +332,7 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
         quote: bool = False, live: bool = False, approve: Optional[str] = None,
         confirm: Optional[Callable[[str], str]] = None, nonce: Optional[str] = None,
         nonce_store: Optional[Any] = None, receipt_path: Optional[str] = None,
-        now: Optional[datetime] = None) -> Tuple[Dict[str, Any], int]:
+        now: Optional[datetime] = None, approved_program: Optional[str] = None) -> Tuple[Dict[str, Any], int]:
     """Run one request end to end. Returns (report, exit code). Raises only for errors that are
     not a verdict (a provider outage, a missing file)."""
     now = now or datetime.now(timezone.utc)
@@ -340,6 +342,24 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
         raise NearIntentsError("X3_AGENT_REQUEST", f"attached documents exceed {MAX_CONTEXT_BYTES} bytes", "context")
     tokens = ni.load_tokens(client, tokens_path)
     brief = mandate_brief(mandate_path, tokens, now=now)
+    if approved_program:
+        source_bytes = Path(approved_program).read_bytes()
+        if not source_bytes or len(source_bytes) > MAX_PROGRAM_BYTES:
+            raise NearIntentsError('X3_AGENT_APPROVAL', 'approved program size is invalid', 'approved_program')
+        try:
+            approved_source = source_bytes.decode('utf-8')
+        except UnicodeDecodeError as exc:
+            raise NearIntentsError('X3_AGENT_APPROVAL', 'approved program must be UTF-8', 'approved_program') from exc
+        match = re.search(r'(?m)^\s*require\s+nonce\s+unused\s+(\S+)\s*$', approved_source)
+        if not match:
+            raise NearIntentsError('X3_AGENT_APPROVAL', 'approved program has no nonce', 'approved_program')
+        if nonce is not None and nonce != match.group(1):
+            raise NearIntentsError('X3_AGENT_APPROVAL', 'approved program nonce changed', 'approved_program')
+        nonce = match.group(1)
+        if live and approve != hashlib.sha256(source_bytes).hexdigest():
+            raise NearIntentsError('X3_AGENT_APPROVAL', 'approved source does not match the exact approval hash', 'approve')
+    else:
+        approved_source = None
     nonce = nonce or new_nonce(now)
     system, user = build_prompt(brief, request, nonce, context)
     stages: List[Dict[str, Any]] = []
@@ -351,7 +371,9 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
         report["status"] = status
         return report, code
 
-    answer = model.complete(system, user)
+    answer = ({'text': f'```x3\n{approved_source}\n```', 'provider': 'approved_source',
+               'model': 'not_invoked', 'id': None, 'stop_reason': 'approved_replay', 'usage': None}
+              if approved_source is not None else model.complete(system, user))
     report["model"] = {k: answer.get(k) for k in ("provider", "model", "id", "stop_reason", "usage")}
     report["model_output"] = answer["text"]
     kind, value = extract_program(answer["text"])
@@ -363,9 +385,13 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
         return verdict("rejected", EXIT_AGENT_REFUSED)
     _stage(stages, "model", True)
 
-    out_path = out_path or f"agent_{nonce}.x3"
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(value)
+    out_path = out_path or approved_program or f"agent_{nonce}.x3"
+    if approved_program and os.path.abspath(out_path) == os.path.abspath(approved_program):
+        # The approved source must never be overwritten by a second generation.
+        pass
+    else:
+        with open(out_path, 'w', encoding='utf-8') as f:
+            f.write(value)
     program_sha256 = hashlib.sha256(value.encode("utf-8")).hexdigest()
     report["program"] = {"path": out_path, "sha256": program_sha256, "source": value}
 
@@ -417,9 +443,17 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
             return verdict("awaiting_approval", EXIT_AGENT_REFUSED)
         _stage(stages, "approval", True, program_sha256=program_sha256)
 
-    result = ni.quote(out_path, client=client, tokens_path=tokens_path, live=live, nonce_store=nonce_store,
-                      receipt_path=receipt_path, rpc=rpc, now=now, near_views=near_views,
-                      mandate_path=mandate_path, guard_contract=guard_contract)
+    # Quote a private immutable-by-convention snapshot, not a mutable public --out path.
+    # Rehash the source before snapshotting: fail closed if it changed since approval.
+    if hashlib.sha256(Path(out_path).read_bytes()).hexdigest() != program_sha256:
+        raise NearIntentsError('X3_AGENT_APPROVAL', 'program changed after approval', 'approve')
+    with tempfile.TemporaryDirectory(prefix='x3-approved-') as private_dir:
+        snapshot = os.path.join(private_dir, 'approved.x3')
+        with open(snapshot, 'xb') as target:
+            target.write(value.encode('utf-8'))
+        result = ni.quote(snapshot, client=client, tokens_path=tokens_path, live=live, nonce_store=nonce_store,
+                          receipt_path=receipt_path, rpc=rpc, now=now, near_views=near_views,
+                          mandate_path=mandate_path, guard_contract=guard_contract)
     _stage(stages, "quote", True, mode=result["mode"], guards=[g["guard"] for g in result["guards"]])
     report["quote"] = {k: result.get(k) for k in ("mode", "eligible_for_wallet_authorization", "deposit", "receipt_path")}
     if live:
@@ -572,6 +606,7 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
     p_pay.add_argument("--quote", action="store_true", help="also request a dry 1Click quote and check it")
     p_pay.add_argument("--live", action="store_true", help="request a live quote (needs the owner's approval)")
     p_pay.add_argument("--approve", help="the program SHA-256 the owner approves (from the dry run)")
+    p_pay.add_argument('--approved-program', help='reuse exact dry-run X3 source for a live quote; never invoke model again')
     p_pay.add_argument("--receipt")
     p_pay.add_argument("--nonce-store")
     p_reg = sub.add_parser("register-args", help="agent_register_intent arguments for a program, without a quote")
@@ -599,7 +634,8 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
                     key_file=args.key_file, network=args.network, method="agent_register_intent",
                 ))
             return ni._emit(out, 0)
-        model = model or model_from_env()
+        if not (args.command == 'pay' and args.approved_program):
+            model = model or model_from_env()
         if args.command == "redteam":
             os.makedirs(args.out_dir, exist_ok=True)
             result = redteam(args.mandate, model=model, client=client, tokens_path=args.tokens, out_dir=args.out_dir,
@@ -615,7 +651,7 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
                            context=context, out_path=args.out, guard_contract=args.guard_contract,
                            near_views=near_views, rpc=rpc, quote=args.quote, live=args.live, approve=args.approve,
                            confirm=confirm, nonce_store=ni.NonceStore(args.nonce_store) if args.live else None,
-                           receipt_path=args.receipt)
+                           receipt_path=args.receipt, approved_program=args.approved_program)
         return ni._emit(report, code)
     except NearIntentsError as exc:
         print(json.dumps({"status": "error", "errors": [exc.to_dict()]}, indent=2, sort_keys=True), file=sys.stderr)

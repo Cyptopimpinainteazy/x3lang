@@ -180,3 +180,34 @@ def test_attacker_cannot_relabel_a_signed_dry_quote_as_live(tmp_path):
     assert classified['receipt_binding_valid'] is False
     assert classified['live_quote'] is False
     assert classified['cross_chain_causality_proven'] is False
+
+
+def test_signed_live_quote_cannot_trust_unsigned_receipt_fields(tmp_path, monkeypatch):
+    import near_intents as near
+    captured = json.loads((ROOT / 'x3-lang/tests/fixtures/near_intents_quote_dry_live_capture.json').read_text())
+    captured['quoteRequest']['dry'] = False
+    monkeypatch.setattr(near, 'check_oneclick_quote_signature', lambda _: (True, 'test-only'))
+    def no_chain_call(*args, **kwargs):
+        raise AssertionError('must not verify chain against untrusted receipt leg/baseline')
+    monkeypatch.setattr(near, 'verify_deposit', no_chain_call)
+    monkeypatch.setattr(near, 'verify_settlement', no_chain_call)
+    receipt = {
+        'kind': 'x3.near_intents.v1',
+        'quote_response': captured,
+        'quote_request': captured['quoteRequest'],
+        'signed_payload': near.signed_quote_payload(captured),
+        'quote_hash': near.oneclick_quote_hash(captured),
+        'quote_response_sha256': near.chain_evidence.sha256_json(captured),
+        'leg': {'recipient': 'attacker.near'},
+        'tokens': {'USDC': 'attacker-token'},
+        'evidence': {'settlement_baseline': '0'},
+        'verified_outcome': 'settled',
+    }
+    path = tmp_path / 'forged-local-fields.json'
+    path.write_text(json.dumps(receipt))
+    r = judge_evidence.inspect_receipt(path, refresh_chain=True)
+    assert r['quote_signature_valid'] and r['receipt_binding_valid'] and r['live_quote']
+    assert r['status'] == 'unverified_receipt_chain_binding'
+    assert not r['delivery_independently_rechecked']
+    assert not r['deposit_independently_rechecked']
+    assert not r['cross_chain_causality_proven']
