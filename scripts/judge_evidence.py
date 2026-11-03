@@ -107,9 +107,10 @@ def inspect_receipt(receipt_path: Path | None, *, refresh_chain: bool,
     """Inspect a locally provided receipt without copying potentially sensitive fields.
 
     Local 'verified' flags are self-reported JSON and carry ZERO proof weight.
-    With --refresh-chain, the real chain readers re-query RPC and require a
-    valid pinned-key 1Click quote signature and receipt-field hashes first.
-    Even that cannot prove solver-level *causal attribution* for NEAR delivery.
+    With --refresh-chain, signed quote and receipt-field hashes are checked,
+    but chain readers are intentionally NOT invoked: unauthenticated local
+    leg/token/baseline fields could select unrelated transfers or balances.
+    Live receipts remain unverified until those fields can be independently bound.
     """
     out: dict[str, Any] = {
         "status": "not_supplied" if receipt_path is None else "unverified",

@@ -146,9 +146,10 @@ English request -> model -> X3 intent (untrusted) -> compiler -> `under mandate`
 export ANTHROPIC_API_KEY=...            # or X3_AGENT_PROVIDER=openai-compatible with
                                         # X3_AGENT_BASE_URL=http://localhost:11434/v1 X3_AGENT_MODEL=...
 python3 x3-lang/near_agent.py pay "Pay x3-demo.near 25 USDC for invoice 4411" \
-  --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> --quote
+  --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> \
+  --out approved-program.x3 --quote
 python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... \
-  --out <approved-program.x3> --approved-program <approved-program.x3> \
+  --out approved-program.x3 --approved-program approved-program.x3 \
   --live --approve <sha256 from the dry run>
 python3 x3-lang/near_agent.py redteam --mandate ... --out-dir evidence/   # adversarial requests, real model
 python3 x3-lang/near_agent.py register-args <program.x3> --mandate <mandate.x3> \
@@ -173,7 +174,7 @@ to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses 
 | Part | Status |
 |---|---|
 | Anthropic and OpenAI-compatible clients | implemented; tested against recorded request and response shapes; live-model evidence is pending an API key |
-| Pipeline, checks, approval binding, register-args | implemented; 34 tests (`tests/test_near_agent.py`), including eight adversarial cases |
+| Pipeline, checks, approval binding, register-args | implemented; regression tests in `tests/test_near_agent.py`, including eight adversarial cases |
 | On-chain refusal path | `register-args` produces `agent_register_intent` arguments without a quote; contract tests confirm they are refused with `X3_MANDATE_DENIED`; no production deployment was verified |
 | Guided live demo | `near/agent-demo.sh` prepares steps and asks before transactions; it can initiate owner-approved on-chain operations and requires live review |
 | Deployed contract and real payment | not done: needs a deployed x3-guard account, owner-authorized wallet action and funds |

@@ -343,7 +343,8 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
     tokens = ni.load_tokens(client, tokens_path)
     brief = mandate_brief(mandate_path, tokens, now=now)
     if approved_program:
-        source_bytes = Path(approved_program).read_bytes()
+        with open(approved_program, "rb") as approved_file:
+            source_bytes = approved_file.read(MAX_PROGRAM_BYTES + 1)
         if not source_bytes or len(source_bytes) > MAX_PROGRAM_BYTES:
             raise NearIntentsError('X3_AGENT_APPROVAL', 'approved program size is invalid', 'approved_program')
         try:
@@ -356,7 +357,7 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
         if nonce is not None and nonce != match.group(1):
             raise NearIntentsError('X3_AGENT_APPROVAL', 'approved program nonce changed', 'approved_program')
         nonce = match.group(1)
-        if live and approve != hashlib.sha256(source_bytes).hexdigest():
+        if live and approve is not None and approve != hashlib.sha256(source_bytes).hexdigest():
             raise NearIntentsError('X3_AGENT_APPROVAL', 'approved source does not match the exact approval hash', 'approve')
     else:
         approved_source = None

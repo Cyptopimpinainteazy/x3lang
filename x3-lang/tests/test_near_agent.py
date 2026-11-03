@@ -464,5 +464,35 @@ def test_approved_program_changed_after_dry_run_fails_closed(tmp_path):
     with pytest.raises(agent.NearIntentsError, match='approval hash'):
         agent.run('Pay 25 USDC.', str(MANDATE), model=Scripted('REFUSE: no'),
             client=client(), tokens_path=str(TOKENS), approved_program=str(approved_path),
-            approve=dry['program']['sha256'], live=True, now=NOW)
+            approve=dry['program']['sha256'], live=True, now=NOW,
+            receipt_path=str(tmp_path / 'replay-receipt.json'))
     assert not (tmp_path / 'replay-receipt.json').exists()
+
+
+def test_approved_program_interactive_confirmation_reuses_source(tmp_path):
+    dry, code, _ = pay(tmp_path, program(amount=25_000_000))
+    assert code == 0
+    approved_path = tmp_path / 'p.x3'
+    seen = []
+    class ForbiddenModel:
+        def complete(self, *_):
+            raise AssertionError('approved replay must not call the model')
+    report, code = agent.run('Pay x3-demo.near 25 USDC.', str(MANDATE),
+        model=ForbiddenModel(), client=client(), tokens_path=str(TOKENS),
+        approved_program=str(approved_path), live=True, guard_contract='x3-guard.near',
+        near_views=views(chain_mandate()), rpc=near_rpc()[0], now=NOW,
+        confirm=lambda prompt: seen.append(prompt) or dry['program']['sha256'],
+        nonce_store=agent.ni.NonceStore(str(tmp_path / 'interactive-nonces.json')),
+        receipt_path=str(tmp_path / 'interactive-receipt.json'))
+    assert (report['status'], code) == ('live_quote_written', 0)
+    assert len(seen) == 1 and 'SHA-256' in seen[0]
+    assert (tmp_path / 'interactive-receipt.json').exists()
+
+
+def test_approved_source_size_limit_rejects_before_full_read(tmp_path):
+    huge = tmp_path / 'huge.x3'
+    huge.write_bytes(b'x' * (agent.MAX_PROGRAM_BYTES + 1024))
+    with pytest.raises(agent.NearIntentsError, match='size is invalid'):
+        agent.run('Pay x3-demo.near 25 USDC.', str(MANDATE), model=Scripted('REFUSE: no'),
+            client=client(), tokens_path=str(TOKENS), approved_program=str(huge),
+            live=True, approve='0' * 64, now=NOW)

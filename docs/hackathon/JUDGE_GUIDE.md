@@ -58,7 +58,7 @@ Set SOLANA_RPC_URLS and NEAR_RPC_URLS to comma-separated trusted endpoints;
 one RPC endpoint is not a verification quorum. Missing/error/disagreement
 must produce unverified, never an optimistic guess.
 
-Exit 0 means the requested local test gates passed (without `--require-live`). Exit 1 = test failure. Exit 2 = invalid invocation; malformed receipts may be classified unverified.
+Exit 0 means all tests **that were actually executed** passed and no live-proof requirement failed; `--skip-tests` runs no tests and may still exit 0. Receipt classification alone does not change exit 0 without `--require-live`. Exit 1 = test failure. Exit 2 = invalid invocation; malformed receipts may be classified unverified.
 Exit 5 = required live on-chain facts missing or not independently rechecked.
 
 **Evidence limit:** A finalized Solana SPL transfer and NEAR NEP-141 balance
