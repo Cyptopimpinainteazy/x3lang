@@ -12,8 +12,50 @@ against the program's guards. This contract makes those decisions public:
 | `record_outcome(nonce, status, …)` | Records how the swap ended, once, and whether a settlement met the guaranteed floor. |
 | `get_intent`, `is_nonce_used`, `check_quote`, `get_manager_public_key` | Views. `check_quote` dry-runs the signature check and the guards. |
 
-Events are NEP-297 (`standard: "x3guard"`): `intent_registered`, `quote_accepted`,
-`outcome_recorded`.
+Events are NEP-297 (`standard: "x3guard"`, version 1.2.0): `intent_registered`, `quote_accepted`,
+`outcome_recorded`, `mandate_created`, `mandate_revoked`, `intent_approved`.
+
+## Agent mandates
+
+An owner can let an AI agent's NEAR account swap in the owner's name, inside limits the owner
+sets once. The mandate is written in X3 (`x3-lang/examples/near_mandate_agent.x3`) and
+compiled by `near_intents.py mandate args`.
+
+| Call | Who | What it does |
+|---|---|---|
+| `create_mandate(agent, terms)` | owner | Stores the terms for that agent. Replacing them increases the version, which voids every intent the agent registered under the old terms and has not had accepted. |
+| `revoke_mandate(agent)` | owner | Stops the agent at once: nothing it registered can be accepted any more. A quote already accepted is not undone, since its deposit address exists. |
+| `agent_register_intent(owner, nonce, policy)` | agent | Registers an intent under the owner, after checking every term. |
+| `approve_intent(owner, nonce)` | an approver | Signs off on a payment above `approval_above`. The agent is never an approver. |
+| `agent_accept_quote(owner, nonce, signed_payload, signature)` | agent | Checks the mandate again (revocation, expiry, version, approvals, rolling spend), then the quote exactly as `accept_quote`, and counts the payment. |
+| `agent_record_outcome(owner, nonce, …)` | agent | As `record_outcome`; the owner can use `record_outcome` itself. |
+| `get_mandate`, `check_agent_intent` | anyone | Views. `check_agent_intent` dry-runs the terms for a policy. |
+
+The terms checked, in order (`mandate::check_mandate`, mirrored check for check by
+`near_mandate.py` and the browser demo):
+
+| Check | Refuses |
+|---|---|
+| `mandate_active` | a revoked or expired mandate |
+| `mandate_asset` | spending anything but the mandate's one origin asset |
+| `mandate_destination_asset`, `mandate_recipient` | paying out in an asset, or to an account, not on the owner's lists |
+| `mandate_refund_to` | a refund address other than the owner's. Without this, an agent could name itself as the refund address and fail the swap on purpose |
+| `mandate_per_payment` | a payment over the per-payment cap |
+| `mandate_daily` | going over the cap in **any rolling 24 hours**, or a 65th payment in 24 hours |
+| `mandate_slippage`, `mandate_fees` | a looser slippage bound, or a missing or looser fee cap, than the owner allows |
+| `mandate_deadline` | an intent whose deadline outlives the mandate |
+| `mandate_approvals` (at acceptance) | a payment above `approval_above` without N of M approvals |
+
+A payment is counted when its quote is accepted, because that is when a deposit address is
+authorized. A refunded swap is not credited back, so the counter errs toward spending less.
+The owner cannot accept an agent's intent with `accept_quote`, so the counter cannot be
+bypassed from either side.
+
+**What a mandate does not do.** The contract holds no funds. The deposit is sent from the
+owner's wallet on the origin chain. A mandate binds any wallet or runtime that deposits only to
+an address x3-guard accepted, which is what `near_intents.py` reports as
+`eligible_for_wallet_authorization`. It cannot stop someone who holds the origin-chain wallet
+key from sending funds directly, so give the agent a NEAR account and never the wallet key.
 
 **Trust model.**
 
@@ -37,14 +79,17 @@ Events are NEP-297 (`standard: "x3guard"`): `intent_registered`, `quote_accepted
 
 ```bash
 cd x3-lang/near/x3-guard
-cargo test          # 27 unit tests on near-sdk's mocked chain
+cargo test          # 42 unit tests on near-sdk's mocked chain
 cargo clippy --all-targets -- -D warnings
 ```
 
 The tests include two real 1Click-signed quotes, verified under the production key, and the
 exact arguments `near_intents.py guard-args` generates (`x3-lang/tests/fixtures/x3_guard_args.json`,
 signed with a test key both suites derive from the same seed), so the adapter and the contract
-are tested against each other.
+are tested against each other. The mandate tests do the same with
+`x3-lang/tests/fixtures/x3_guard_mandate_args.json`: the adapter's `create_mandate` and agent
+calls run the full lifecycle on the contract, and the contract must reach the adapter's verdict
+on every policy in it.
 
 ## Build
 
@@ -80,5 +125,21 @@ near_intents.py guard-args --receipt <intent>.near-receipt.json --step register 
 ```
 
 Order: live quote → `register` → `quote` (the contract verifies the signature and re-checks
-every guard) → deposit from your wallet → `status --wait` → `outcome`. The program's `timeout` is
+every guard) → deposit from your wallet → `status --wait` → `outcome`.
+
+As an agent, the owner sends the mandate once, and the agent's receipts select the agent
+methods by themselves:
+
+```bash
+near_intents.py mandate args mandate.x3 --contract <contract-account> --key-file <owner-key.json>
+near_intents.py mandate check mandate.x3 intent.x3 --guard-contract <contract-account>   # exit 6 if refused
+near_intents.py quote intent.x3 --live --mandate mandate.x3 --guard-contract <contract-account>
+near_intents.py guard-args --receipt <receipt> --step register|approve|quote|outcome \
+  --contract <contract-account> --signer <agent-or-approver> --key-file <key.json>
+near_intents.py mandate revoke mandate.x3 --contract <contract-account> --key-file <owner-key.json>
+```
+
+A live quote for an intent `under mandate` needs `--mandate`, and with `--guard-contract` it
+reads the mandate the contract holds (revocation, version, what was spent in the last 24 hours).
+A payment the mandate refuses is never quoted, so it never gets a deposit address. The program's `timeout` is
 the policy deadline, and a quote is fresh for 5 minutes, so register and accept promptly.

@@ -100,3 +100,24 @@ test("a forged quote stops at the signature and nothing else is read", async () 
   assert.equal(verdict, "invalid_signature");
   assert.deepEqual(results.map((g) => g.guard), ["quote_signature"]);
 });
+
+test("an agent's intent is checked against its owner's mandate, term by term", async () => {
+  const tokens = JSON.parse(readFileSync(new URL("../../../tests/fixtures/near_intents_tokens.json", import.meta.url), "utf8"));
+  const mandateSource = readFileSync(new URL("../../../examples/near_mandate_agent.x3", import.meta.url), "utf8");
+  const intentSource = readFileSync(new URL("../../../examples/near_intents_agent_payment.x3", import.meta.url), "utf8");
+  const now = Date.UTC(2026, 10, 3, 3, 0, 0);
+  const compiled = x3.lowerMandate(x3.parseMandate(mandateSource), tokens, now, await x3.sha256Hex(mandateSource));
+  const mandate = { ...compiled, version: 1, revoked: false, spends: [] };
+  const leg = x3.lower(x3.parse(intentSource), now);
+  assert.equal(leg.mandate_owner, "x3-owner.near");
+  const policy = x3.policyFor(leg, x3.buildQuoteRequest(leg, tokens, { dry: true }), "0".repeat(64));
+  const failed = (m, p, t = now) => x3.checkMandate(m, p, t).filter((c) => !c.ok).map((c) => c.guard);
+  assert.deepEqual(failed(mandate, policy), []);
+  assert.deepEqual(failed(mandate, { ...policy, recipient: "attacker.near" }), ["mandate_recipient"]);
+  assert.deepEqual(failed({ ...mandate, revoked: true }, policy), ["mandate_active"]);
+  const spends = [{ at_ms: now - 1000, amount: "190000000", nonce: "x" }];
+  assert.deepEqual(failed({ ...mandate, spends }, policy), ["mandate_daily"]);
+  assert.deepEqual(failed({ ...mandate, spends }, policy, now + 86_400_000 - 999), []);
+  assert.equal(x3.approvalsNeeded(mandate, "30000001"), 1);
+  assert.throws(() => x3.parseMandate(mandateSource.replace("expires 30d", "expires 30d\n    drain everything")), /not a mandate clause/);
+});

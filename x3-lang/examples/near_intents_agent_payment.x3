@@ -1,0 +1,24 @@
+// near_intents_agent_payment.x3 — an AI agent's payment, under its owner's mandate.
+//
+// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:
+// `under mandate x3-owner.near`. The agent account registers and accepts it through
+// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:
+//
+//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3
+//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \
+//       --guard-contract <x3-guard account>
+//
+// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.
+intent near_intents_agent_payment {
+    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;
+    }
+    under mandate x3-owner.near
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused agent_payment_001
+    timeout 10m refund Solana.USDC
+    on_fail rollback
+}

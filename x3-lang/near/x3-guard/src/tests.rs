@@ -33,6 +33,7 @@ fn test_contract() -> Contract {
     Contract {
         intents: LookupMap::new(StorageKey::Intents),
         manager_public_key: test_key().verifying_key().to_bytes(),
+        mandates: LookupMap::new(StorageKey::Mandates),
     }
 }
 
@@ -590,3 +591,6 @@ fn the_adapters_generated_arguments_run_the_full_lifecycle() {
     assert_eq!(outcome.floor_met, Some(true));
     assert!(c.get_intent(accounts(0), o.nonce).unwrap().outcome.is_some());
 }
+
+#[path = "mandate_tests.rs"]
+mod mandate_tests;

@@ -461,6 +461,15 @@ def parse_file(path):
                 timeout["action"] = _parse_refund(parts[2:], ln.no)
             result["constraints"]["timeout"] = parts[1]
             result["policies"]["timeout"] = timeout
+        elif text.startswith("under "):
+            # `under mandate <owner>`: an agent wrote this intent and spends under the owner's
+            # mandate (`near_mandate.py`). The owner is a NEAR account; the adapter validates it.
+            parts = text.split()
+            if len(parts) != 3 or parts[1] != "mandate":
+                raise X3ParseError("X3_PARSE_MANDATE", "expected `under mandate <owner account>`", ln.no, "mandate")
+            if "mandate" in result:
+                raise X3ParseError("X3_PARSE_MANDATE", "an intent is under one mandate", ln.no, "mandate")
+            result["mandate"] = {"owner": parts[2].strip('"')}
         elif text.startswith("on_fail "):
             parts = text.split()[1:]
             if parts and parts[0] == "rollback":

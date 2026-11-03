@@ -95,11 +95,26 @@ def test_every_example_the_suite_uses_is_readable_by_this_surface():
     failures = []
     for path in examples:
         try:
-            cli.parse_file(path)
+            if os.path.basename(path) in MANDATE_FILES:
+                # Not an intent: read by its own surface, which must accept it just as strictly.
+                _mandate_parser().parse_mandate(path)
+            else:
+                cli.parse_file(path)
         except Exception as error:  # noqa: BLE001 - the point is to report any refusal
             failures.append(f"{os.path.basename(path)}: {error}")
 
     assert not failures, "every example must be readable by this surface:\n" + "\n".join(failures)
+
+
+#: Examples that declare an owner's `mandate` for an AI agent. They hold no `intent`, so this
+#: surface refuses them (see REFUSES); `near_mandate.py` is the surface that reads them, and the
+#: gate above holds it to the same rule.
+MANDATE_FILES = {"near_mandate_agent.x3"}
+
+
+def _mandate_parser():
+    from test_near_intents import ni
+    return ni.mandates()
 
 
 #: What this surface reads today, and what it refuses **and why**, one entry per file.
@@ -118,6 +133,7 @@ READS = {
     "arb_solana_eth.x3",
     "intent_fusion.x3",
     "multi_leg_route.x3",
+    "near_intents_agent_payment.x3",
     "near_intents_sol_to_near.x3",
     "route_fallback.x3",
     "simple_swap.x3",
@@ -138,6 +154,7 @@ REFUSES = {
     "events_and_host_calls.x3": "X3_PARSE_NO_INTENT",
     "flagship_b52.x3": "X3_PARSE_NO_INTENT",
     "mainnet_safe_swap.x3": "X3_PARSE_NO_INTENT",
+    "near_mandate_agent.x3": "X3_PARSE_NO_INTENT",
     "objective_routing.x3": "X3_PARSE_NO_INTENT",
     "opportunity_graph.x3": "X3_PARSE_NO_INTENT",
     "parallel_dag.x3": "X3_PARSE_NO_INTENT",
