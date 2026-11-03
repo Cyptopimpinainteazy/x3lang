@@ -50,5 +50,8 @@ an authorized wallet transaction or a completed cross-chain settlement.
   modules from `xxxstar` draft PR #727; those contain unresolved review issues.
 - Cross-chain causality/settlement attribution and refund proofs remain
   release gates. There is no on-chain X3Lang trading execution claim here.
+- The implemented controls and unresolved wallet, policy-binding, migration,
+  storage, and settlement risks are tracked in the
+  [X3 Shield threat model](docs/security/X3_SHIELD_THREAT_MODEL.md).
 - Licensing, independent security review and exact-head GitHub Actions
   verification are required before a production release.
