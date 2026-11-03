@@ -33,7 +33,8 @@ decides whether the result is acceptable.
 - `amountIn` is the amount the program spends;
 - `minAmountOut` clears the leg's `min_receive` floor;
 - the spread between `amountOut` and `minAmountOut` is within the requested slippage;
-- `require fees <= N` holds for the quote's effective cost (`amountInUsd` vs `amountOutUsd`);
+- `require fees <= N` holds on every path: the quote's effective cost (`amountInUsd` vs
+  `amountOutUsd`) and, separately, the `refundFee` a failed swap would be charged;
 - a live quote carries a deposit address, a 1Click signature, and a deadline far enough out
   for its own `timeEstimate`.
 
@@ -542,6 +543,21 @@ def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[st
             record("fees", cost_bps <= leg["fee_cap_bps"], cap_bps=leg["fee_cap_bps"],
                    effective_cost_bps=str(cost_bps.quantize(Decimal("0.01"))),
                    amount_in_usd=str(usd_in), amount_out_usd=str(usd_out))
+        # The refund is a path of this intent too, and 1Click charges for it (`refundFee`, in
+        # origin base units). `require fees` bounds every path, so a quote whose refund costs
+        # more than the cap is refused even though the happy path is cheap. An absent
+        # `refundFee` is an unknown cost, not a zero one.
+        refund_fee = quote.get("refundFee")
+        if refund_fee is None:
+            record("refund_fee", False, reason="quote states no refundFee, so the refund path's cost is unknown")
+        else:
+            try:
+                refund_fee_units = int(refund_fee)
+            except (TypeError, ValueError):
+                raise NearIntentsError("X3_NEAR_QUOTE_MALFORMED", f"refundFee is not an integer: {refund_fee!r}", "quote.refundFee")
+            refund_bps = Decimal(refund_fee_units) * 10000 / Decimal(leg["amount"])
+            record("refund_fee", refund_bps <= leg["fee_cap_bps"], cap_bps=leg["fee_cap_bps"],
+                   refund_fee=str(refund_fee_units), refund_fee_bps=str(refund_bps.quantize(Decimal("0.01"))))
 
     if not request.get("dry"):
         record("deposit_address", bool(quote.get("depositAddress")), deposit_address=quote.get("depositAddress"))

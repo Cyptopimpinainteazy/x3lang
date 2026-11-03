@@ -62,6 +62,7 @@ def good_quote(request, *, amount_out=24_950_000, min_out=None, usd_out="24.94",
         "amountOutUsd": usd_out,
         "minAmountOut": str(min_out),
         "timeEstimate": time_estimate,
+        "refundFee": "244425",
     }
     if not request["dry"]:
         quote.update({
@@ -247,7 +248,7 @@ def test_a_quote_that_meets_every_guard_passes():
     leg, req = _leg_and_request(live=True)
     results = ni.verify_quote(leg, req, good_quote(req), now=NOW)
     assert {r["guard"] for r in results} == {
-        "quote_request_echo", "amount_in", "min_receive", "slippage", "fees",
+        "quote_request_echo", "amount_in", "min_receive", "slippage", "fees", "refund_fee",
         "deposit_address", "quote_signature", "deadline",
     }
     assert all(r["ok"] for r in results)
@@ -263,6 +264,8 @@ def test_a_quote_that_meets_every_guard_passes():
     (lambda q: q.update(signature=""), "quote_signature"),
     (lambda q: q["quote"].update(timeEstimate=900), "deadline"),
     (lambda q: q["quote"].update(amountInUsd="0"), "fees"),
+    (lambda q: q["quote"].update(refundFee="250001"), "refund_fee"),  # 100.0004 bps of 25 USDC
+    (lambda q: q["quote"].pop("refundFee"), "refund_fee"),
 ])
 def test_a_quote_breaking_a_guard_is_rejected_before_deposit(mutate, guard):
     leg, req = _leg_and_request(live=True)
@@ -488,6 +491,7 @@ def test_a_captured_mainnet_dry_quote_passes_the_guards_the_example_declares():
     assert results["min_receive"]["guaranteed"] == "24872939"
     assert results["slippage"]["quoted_spread_bps"] == "50.00"
     assert results["fees"]["effective_cost_bps"] == "0.83"
+    assert results["refund_fee"]["refund_fee_bps"] == "97.77"
 
     # The same quote fails a floor or a fee cap it does not meet.
     with pytest.raises(ni.NearIntentsError):
