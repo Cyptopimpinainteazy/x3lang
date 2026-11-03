@@ -1,5 +1,7 @@
 # X3 Guard demo
 
+**Live: https://x3-guard.pages.dev**
+
 One static page: edit an X3 intent, get a real 1Click dry quote, and see every rule checked.
 Each verdict is shown next to the line of the program it came from.
 

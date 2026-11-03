@@ -103,7 +103,7 @@ enforced by a local nonce store. Refused by code rather than approximated: multi
 guards 1Click cannot enforce (`finality`, `proof_complete`, …), missing slippage or timeout,
 refunds in another asset, and `on_fail halt`/`quarantine`.
 
-Browser demo: `x3-lang/near/demo` is a static page that compiles an intent, fetches a real
+Browser demo (live at https://x3-guard.pages.dev): `x3-lang/near/demo` is a static page that compiles an intent, fetches a real
 1Click dry quote, verifies its signature with WebCrypto and marks each program line with its
 verdict. A parity suite keeps it identical to this adapter.
 
