@@ -10,7 +10,8 @@
     "all_known_costs_output_units": 20000,
     "quote_id": "ILLUSTRATIVE_REFERENCE_NOT_A_SIGNED_QUOTE",
     "quoted_at_seconds": 100,
-    "expires_at_seconds": 160
+    "expires_at_seconds": 160,
+    "costs_complete": true
   },
   "candidate": {
     "input_chain": "solana",
@@ -23,7 +24,8 @@
     "all_known_costs_output_units": 30000,
     "quote_id": "ILLUSTRATIVE_CANDIDATE_NOT_A_SIGNED_QUOTE",
     "quoted_at_seconds": 101,
-    "expires_at_seconds": 160
+    "expires_at_seconds": 160,
+    "costs_complete": true
   },
   "policy": {
     "opted_in": true,

@@ -32,6 +32,9 @@ class ComparableOffer:
     quote_id: str
     quoted_at_seconds: int
     expires_at_seconds: int
+    # Explicit evidence that the caller reconciled ALL known cost categories;
+    # merely supplying zero cost cannot establish completeness.
+    costs_complete: bool = False
 
     @property
     def net_units(self) -> int:
@@ -87,8 +90,11 @@ def _validate_offer(offer: ComparableOffer, now_seconds: int) -> None:
             or offer.all_known_costs_output_units < 0
             or offer.all_known_costs_output_units > offer.guaranteed_output_units):
         raise ValueFeeError("quote cost is unknown, negative, or exceeds output")
+    if offer.costs_complete is not True:
+        raise ValueFeeError('quote cost reconciliation incomplete')
     if (type(offer.quoted_at_seconds) is not int or type(offer.expires_at_seconds) is not int
             or offer.quoted_at_seconds > now_seconds
+            or now_seconds - offer.quoted_at_seconds > 120
             or offer.expires_at_seconds < now_seconds
             or offer.expires_at_seconds <= offer.quoted_at_seconds):
         raise ValueFeeError("quote freshness is unverifiable or expired")

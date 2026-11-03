@@ -27,6 +27,7 @@ def offer(*, output=10_000, costs=0, observed=100, ttl=60, quote="base"):
         quote_id=quote,
         quoted_at_seconds=observed,
         expires_at_seconds=observed + ttl,
+        costs_complete=True,
     )
 
 
@@ -222,3 +223,18 @@ def test_zero_net_reference_is_valid_and_fee_preview_still_requires_improvement(
     assert result.candidate_pre_fee_units == 10_150
     assert result.eligible and result.user_benefit_units > 0
     assert not result.collectible
+
+
+def test_fee_preview_refuses_unreconciled_costs():
+    with pytest.raises(ValueFeeError, match='reconciliation incomplete'):
+        calculate_value_fee(
+            dataclasses.replace(offer(quote='reference'), costs_complete=False),
+            offer(output=10_500, quote='candidate'), policy(), now_seconds=105)
+
+
+def test_fee_preview_refuses_ancient_but_unexpired_quote():
+    with pytest.raises(ValueFeeError, match='fresh'):
+        calculate_value_fee(
+            offer(observed=0, ttl=1000, quote='reference'),
+            offer(output=10_500, observed=0, ttl=1000, quote='candidate'),
+            policy(), now_seconds=200)

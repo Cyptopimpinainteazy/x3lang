@@ -115,3 +115,8 @@ loans or asset custody without audited contracts and real finality evidence.
 verifiable *realized* net benefit exceeds its clearly approved X3 fee. The
 service works even if an AI prompt is malicious, while the open X3Lang source
 remains usable without secret monetization switches.
+
+**Cost reconciliation guard:** the preview requires `costs_complete: true` for
+both offers; this is a caller assertion, **not independently verified proof**.
+It remains non-billable (`collectible: false`) and is invalid if either quote
+is more than 120 seconds old, even when a provider sets a distant expiry.
