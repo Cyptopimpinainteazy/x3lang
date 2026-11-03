@@ -1,0 +1,99 @@
+name: X3Lang Security Audit (candidate gates)
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x3lang-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-invariants:
+    name: NEAR Guard security regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/x3-guard
+      - name: Contract formatting
+        working-directory: x3-lang/near/x3-guard
+        run: cargo fmt --all -- --check
+      - name: Policy, nonce, signature, replay and migration regression tests
+        working-directory: x3-lang/near/x3-guard
+        run: cargo test --locked --quiet
+      - name: Guard allocator dependency gate
+        run: bash scripts/check-near-allocator.sh
+      - name: Guard Clippy (initial non-blocking baseline)
+        working-directory: x3-lang/near/x3-guard
+        continue-on-error: true
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  dependency-advisories:
+    name: RustSec advisory report (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+      - name: Install RustSec cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit both independently locked Rust workspaces
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p reports
+          for name in vm guard; do
+            if [ "$name" = vm ]; then lockfile=x3-lang/Cargo.lock; else lockfile=x3-lang/near/x3-guard/Cargo.lock; fi
+            echo "Auditing $lockfile"
+            cargo audit --file "$lockfile" --json > "reports/$name.json"
+            status=$?
+            printf '%s\n' "$status" > "reports/$name.exitcode"
+            echo "$name cargo-audit exit status: $status"
+          done
+          echo "Advisory only: findings and tool errors are not a production clearance."
+      - name: Retain RustSec reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x3lang-rustsec-reports
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  wasm-reproducibility-experiment:
+    name: Guard WASM two-build comparison (manual, advisory)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          targets: wasm32-unknown-unknown
+      - name: Attempt separate locked WASM builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          for n in a b; do
+            CARGO_TARGET_DIR="$RUNNER_TEMP/x3-guard-$n" \
+              cargo build --manifest-path x3-lang/near/x3-guard/Cargo.toml \
+              --locked --release --target wasm32-unknown-unknown
+            cp "$RUNNER_TEMP/x3-guard-$n/wasm32-unknown-unknown/release/x3_guard.wasm" "$RUNNER_TEMP/guard-$n.wasm"
+          done
+          sha256sum "$RUNNER_TEMP/guard-a.wasm" "$RUNNER_TEMP/guard-b.wasm"
+          cmp "$RUNNER_TEMP/guard-a.wasm" "$RUNNER_TEMP/guard-b.wasm"
+          echo "Two runner-local outputs match. NOT NEP-330 or deployed-bytecode verification."
