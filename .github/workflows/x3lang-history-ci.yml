@@ -82,6 +82,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: x3-lang/near/x3-guard
+      - name: Ensure no abandoned wasm32 allocator in NEAR Guard
+        run: bash scripts/check-near-allocator.sh
       - name: Rust NEAR Guard contract tests
         working-directory: x3-lang/near/x3-guard
         run: cargo test --locked --quiet
