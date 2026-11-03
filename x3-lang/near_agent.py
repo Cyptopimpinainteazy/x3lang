@@ -294,14 +294,15 @@ def new_nonce(now: datetime) -> str:
     return f"agent_{now.strftime('%Y%m%dT%H%M%S')}_{secrets.token_hex(4)}"
 
 
-def register_args(program_path: str, mandate_path: str, *, client, tokens_path: Optional[str] = None) -> Dict[str, Any]:
+def register_args(program_path: str, mandate_path: str, *, client, tokens_path: Optional[str] = None,
+                  now: Optional[datetime] = None) -> Dict[str, Any]:
     """`agent_register_intent` arguments for a program, with no quote and no model call.
 
     This exists so a refused program can still be submitted to x3-guard and fail on chain with
     `X3_MANDATE_DENIED`: the owner and nonce are bound, and the contract re-runs the mandate.
     """
     tokens = ni.load_tokens(client, tokens_path)
-    _, leg = ni.compile_program(program_path)
+    _, leg = ni.compile_program(program_path, now=now)
     request = ni.build_quote_request(leg, tokens, dry=True)
     with open(program_path, "rb") as handle:
         program_sha256 = hashlib.sha256(handle.read()).hexdigest()

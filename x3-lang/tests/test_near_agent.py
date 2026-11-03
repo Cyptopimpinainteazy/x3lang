@@ -389,6 +389,14 @@ def test_register_args_builds_agent_register_intent_without_quote_or_model():
     assert out["attached_deposit"] == agent.ni.GUARD_DEPOSITS["register"]
 
 
+def test_register_args_matches_the_guard_contract_fixture():
+    fixture = json.loads((ROOT / "tests" / "fixtures" / "x3_guard_mandate_args.json").read_text())
+    program_path = ROOT / "examples" / "near_intents_agent_payment.x3"
+    out = agent.register_args(str(program_path), str(MANDATE), client=client(),
+                              tokens_path=str(TOKENS), now=NOW)
+    assert out["args"] == fixture["register"]
+
+
 def test_register_args_does_not_check_the_mandate_so_the_chain_can_refuse(tmp_path):
     source = agent.extract_program(program(recipient="attacker.near"))[1]
     path = tmp_path / "refused.x3"
