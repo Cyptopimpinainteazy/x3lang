@@ -11,25 +11,21 @@
   },
   "quote": {
     "nonce": "n_001",
-    "quote": {
-      "amount_in": "25000000",
-      "amount_in_usd": "24.995",
-      "amount_out": "24950000",
-      "amount_out_usd": "24.94",
-      "deposit_address": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
-      "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-      "min_amount_out": "24825250",
-      "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
-      "quote_deadline_ms": 1793675400000,
-      "quote_response_sha256": "5ac3973b7d719c6de9d3089e51ebe68ac9dc33367201231835b2d19f1eb440ec",
-      "recipient": "x3-demo.near",
-      "refund_fee": "244425",
-      "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
-      "signature": "ed25519:3Kz",
-      "slippage_tolerance_bps": 50,
-      "time_estimate_s": 20
-    }
+    "signature": "ed25519:2d365UUhQ5t2DgWAoB6fgwY6RaxZS1Pmv2cxV3emrp2wGE8T9V9tMHtTLVbmBb4YGGNTZrv4qr3bxwDgo6yXXpMG",
+    "signed_payload": "{\"amount\":\"25000000\",\"amountIn\":\"25000000\",\"amountInFormatted\":\"25.0\",\"amountInUsd\":\"24.995\",\"amountOut\":\"24950000\",\"amountOutFormatted\":\"24.95\",\"amountOutUsd\":\"24.94\",\"deadline\":\"2026-11-03T03:10:00.000Z\",\"depositAddress\":\"9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"dry\":false,\"minAmountIn\":\"25000000\",\"minAmountOut\":\"24825250\",\"originAsset\":\"nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near\",\"recipient\":\"x3-demo.near\",\"recipientType\":\"DESTINATION_CHAIN\",\"refundFee\":\"244425\",\"refundTo\":\"4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\",\"refundType\":\"ORIGIN_CHAIN\",\"slippageTolerance\":50,\"swapType\":\"EXACT_INPUT\",\"timeEstimate\":20,\"timeWhenInactive\":\"2026-11-03T03:10:00.000Z\",\"timestamp\":\"2026-11-03T03:00:00.000Z\"}"
   },
+  "real_1click_dry_quotes": [
+    {
+      "quote_hash": "EgJWANgZ5TFdSxtxDHUYaGj5JzyG9CN6b6SY8npneAN5",
+      "signature": "ed25519:mao2Y1gakEypKEMhqoSi9UoFNCKHZhU4Ey6Hd9UM4DBwMiNpiNTpUptxaUZSAXuYzBAt2KTVaU5QhPJgSLJgGKB",
+      "signed_payload": "{\"amount\":\"25000000\",\"amountIn\":\"25000000\",\"amountInFormatted\":\"25.0\",\"amountInUsd\":\"24.982750000000\",\"amountOut\":\"24997929\",\"amountOutFormatted\":\"24.997929\",\"amountOutUsd\":\"24.980680428990\",\"deadline\":\"2026-11-03T04:06:46.297Z\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"dry\":true,\"minAmountIn\":\"25000000\",\"minAmountOut\":\"24872939\",\"originAsset\":\"nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near\",\"recipient\":\"wrap.near\",\"recipientType\":\"DESTINATION_CHAIN\",\"refundTo\":\"4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\",\"refundType\":\"ORIGIN_CHAIN\",\"slippageTolerance\":50,\"swapType\":\"EXACT_INPUT\",\"timestamp\":\"2026-11-03T03:56:47.575Z\"}"
+    },
+    {
+      "quote_hash": "HAgUJ3X5LXgjvg2bQEAs1JF94ynSG146uPL7cEKLPnvA",
+      "signature": "ed25519:212wrwFvuT85fZ1fzj3noxkSEFanw13um9tRyko9VXZhrkjAU9jEiqsEtH2QgpZAzyfDGcdfNqVxim3ucAceLdqw",
+      "signed_payload": "{\"amount\":\"25000000\",\"amountIn\":\"25000000\",\"amountInFormatted\":\"25.0\",\"amountInUsd\":\"24.983000000000\",\"amountOut\":\"24993591\",\"amountOutFormatted\":\"24.993591\",\"amountOutUsd\":\"24.976595358120\",\"deadline\":\"2026-11-03T04:28:04.780Z\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"dry\":true,\"minAmountIn\":\"25000000\",\"minAmountOut\":\"24868623\",\"originAsset\":\"nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near\",\"recipient\":\"f464e8aa90661507c667b20b39bdc9e97ccfb06822030f2ecbf3741af9d85f02\",\"recipientType\":\"DESTINATION_CHAIN\",\"refundTo\":\"4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\",\"refundType\":\"ORIGIN_CHAIN\",\"slippageTolerance\":50,\"swapType\":\"EXACT_INPUT\",\"timestamp\":\"2026-11-03T04:18:05.521Z\"}"
+    }
+  ],
   "register": {
     "nonce": "n_001",
     "policy": {

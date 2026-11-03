@@ -35,6 +35,26 @@ def _load(name, path):
 
 ni = _load("near_intents_under_test", ROOT / "near_intents.py")
 
+#: The production trust anchor, written out here so a change to the pinned key fails a test.
+ONE_CLICK_KEY = "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc"
+#: A throwaway signing key for synthetic quotes. `near/x3-guard/src/tests.rs` derives the same
+#: key from the same seed, so quotes signed here verify there.
+TEST_SEED = __import__("hashlib").sha256(b"x3-lang test key: never fund").digest()
+TEST_KEY = "ed25519:" + ni.ed25519.b58encode(ni.ed25519.public_key(TEST_SEED))
+
+
+def sign(response):
+    """Sign `response` as 1Click would, with the test key."""
+    message = ni.oneclick_quote_hash(response).encode()
+    response["signature"] = "ed25519:" + ni.ed25519.b58encode(ni.ed25519.sign(TEST_SEED, message))
+    return response
+
+
+@pytest.fixture(autouse=True)
+def _trust_the_test_key(monkeypatch):
+    """Synthetic quotes are signed with TEST_KEY. Tests of real 1Click quotes pass ONE_CLICK_KEY."""
+    monkeypatch.setattr(ni, "ONE_CLICK_MANAGER_PUBLIC_KEY", TEST_KEY)
+
 
 class RecordingTransport:
     """Test double for the 1Click HTTP API: answers from a handler, records every call."""
@@ -70,13 +90,13 @@ def good_quote(request, *, amount_out=24_950_000, min_out=None, usd_out="24.94",
             "deadline": deadline or request["deadline"],
             "timeWhenInactive": request["deadline"],
         })
-    return {
+    return sign({
         "correlationId": "c0ffee",
         "timestamp": "2026-11-03T03:00:00.000Z",
-        "signature": "ed25519:3Kz",
+        "signature": "",
         "quoteRequest": dict(request),
         "quote": quote,
-    }
+    })
 
 
 def api(quote_fn=good_quote, statuses=None):
@@ -248,9 +268,10 @@ def test_a_quote_that_meets_every_guard_passes():
     leg, req = _leg_and_request(live=True)
     results = ni.verify_quote(leg, req, good_quote(req), now=NOW)
     assert {r["guard"] for r in results} == {
-        "quote_request_echo", "amount_in", "min_receive", "slippage", "fees", "refund_fee",
-        "deposit_address", "quote_signature", "deadline",
+        "quote_signature", "quote_freshness", "quote_request_echo", "amount_in", "min_receive",
+        "slippage", "fees", "refund_fee", "deposit_address", "deadline",
     }
+    assert results[0]["guard"] == "quote_signature", "the signature is checked before anything is read"
     assert all(r["ok"] for r in results)
 
 
@@ -261,16 +282,17 @@ def test_a_quote_that_meets_every_guard_passes():
     (lambda q: q["quote"].update(amountIn="20000000"), "amount_in"),
     (lambda q: q["quoteRequest"].update(recipient="attacker.near"), "quote_request_echo"),
     (lambda q: q["quote"].pop("depositAddress"), "deposit_address"),
-    (lambda q: q.update(signature=""), "quote_signature"),
     (lambda q: q["quote"].update(timeEstimate=900), "deadline"),
     (lambda q: q["quote"].update(amountInUsd="0"), "fees"),
     (lambda q: q["quote"].update(refundFee="250001"), "refund_fee"),  # 100.0004 bps of 25 USDC
     (lambda q: q["quote"].pop("refundFee"), "refund_fee"),
 ])
 def test_a_quote_breaking_a_guard_is_rejected_before_deposit(mutate, guard):
+    """1Click itself quoting something the program forbids: validly signed, still refused."""
     leg, req = _leg_and_request(live=True)
     response = good_quote(req)
     mutate(response)
+    sign(response)
     with pytest.raises(ni.NearIntentsError) as err:
         ni.verify_quote(leg, req, response, now=NOW)
     assert err.value.code == "X3_NEAR_GUARD_FAILED"
@@ -282,7 +304,7 @@ def test_echoed_deadline_with_different_precision_still_matches():
     leg, req = _leg_and_request()
     response = good_quote(req)
     response["quoteRequest"]["deadline"] = "2026-11-03T03:10:00Z"
-    ni.verify_quote(leg, req, response, now=NOW)
+    ni.verify_quote(leg, req, sign(response), now=NOW)
 
 
 # --- client --------------------------------------------------------------------------------
@@ -486,8 +508,12 @@ def test_a_captured_mainnet_dry_quote_passes_the_guards_the_example_declares():
                    "amount", "refundTo", "refundType", "recipient", "recipientType", "deadline")
     request = {k: response["quoteRequest"][k] for k in sent_fields}
     leg = {"amount": 25_000_000, "min_receive": 24_800_000, "slippage_bps": 50, "fee_cap_bps": 100}
-    results = {r["guard"]: r for r in ni.verify_quote(leg, request, response, now=NOW)}
+    issued = ni.parse_timestamp(response["timestamp"])
+    results = {r["guard"]: r for r in ni.verify_quote(leg, request, response, now=issued,
+                                                         manager_public_key=ONE_CLICK_KEY)}
     assert all(r["ok"] for r in results.values())
+    assert results["quote_signature"]["quote_hash"] == "EgJWANgZ5TFdSxtxDHUYaGj5JzyG9CN6b6SY8npneAN5"
+    assert results["refund_fee"]["signed"] is False, "1Click does not sign a dry quote's refundFee"
     assert results["min_receive"]["guaranteed"] == "24872939"
     assert results["slippage"]["quoted_spread_bps"] == "50.00"
     assert results["fees"]["effective_cost_bps"] == "0.83"
@@ -495,9 +521,11 @@ def test_a_captured_mainnet_dry_quote_passes_the_guards_the_example_declares():
 
     # The same quote fails a floor or a fee cap it does not meet.
     with pytest.raises(ni.NearIntentsError):
-        ni.verify_quote({**leg, "min_receive": 24_900_000}, request, response, now=NOW)
+        ni.verify_quote({**leg, "min_receive": 24_900_000}, request, response, now=issued,
+                        manager_public_key=ONE_CLICK_KEY)
     with pytest.raises(ni.NearIntentsError):
-        ni.verify_quote({**leg, "fee_cap_bps": 0}, request, response, now=NOW)
+        ni.verify_quote({**leg, "fee_cap_bps": 0}, request, response, now=issued,
+                        manager_public_key=ONE_CLICK_KEY)
 
 
 # --- x3-guard contract arguments -----------------------------------------------------------
@@ -516,7 +544,14 @@ def _settled_receipt(tmp_path):
 
 
 def _all_guard_args(receipt):
-    return {step: ni.guard_args(receipt, step) for step in ni.GUARD_STEPS}
+    args = {step: ni.guard_args(receipt, step) for step in ni.GUARD_STEPS}
+    # Real quotes signed by 1Click's key: the contract must verify these exactly as the SDK does.
+    args["real_1click_dry_quotes"] = [
+        {"signed_payload": ni.signed_quote_payload(r), "signature": r["signature"], "quote_hash": ni.oneclick_quote_hash(r)}
+        for r in (json.loads((ROOT / "tests" / "fixtures" / name).read_text())
+                  for name in ("near_intents_quote_dry_live_capture.json", "near_intents_quote_dry_implicit_capture.json"))
+    ]
+    return args
 
 
 def test_guard_args_carry_the_policy_and_quote_the_adapter_verified(tmp_path):
@@ -530,11 +565,17 @@ def test_guard_args_carry_the_policy_and_quote_the_adapter_verified(tmp_path):
     assert (policy["slippage_bps"], policy["fee_cap_bps"]) == (50, 100)
     assert policy["deadline_ms"] == int((NOW + timedelta(minutes=10)).timestamp() * 1000)
 
-    quote = args["quote"]["quote"]
-    assert quote["quote_response_sha256"] == receipt["quote_response_sha256"]
-    assert quote["deposit_address"] == "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
-    assert quote["quote_deadline_ms"] == policy["deadline_ms"]
-    assert quote["refund_fee"] == "244425"
+    quote_args = args["quote"]
+    assert set(quote_args) == {"nonce", "signed_payload", "signature"}
+    assert quote_args["signed_payload"] == receipt["signed_payload"]
+    signed = json.loads(quote_args["signed_payload"])
+    assert signed["depositAddress"] == "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+    assert signed["deadline"] == "2026-11-03T03:10:00.000Z" and signed["refundFee"] == "244425"
+    assert "appFees" not in signed, "unsigned echo fields stay out of what the contract reads"
+    digest = __import__("hashlib").sha256(quote_args["signed_payload"].encode()).digest()
+    assert ni.ed25519.b58encode(digest) == receipt["quote_hash"]
+    assert ni.ed25519.verify(ni.ed25519.b58decode(TEST_KEY[8:]), receipt["quote_hash"].encode(),
+                             ni.ed25519.b58decode(quote_args["signature"][8:]))
 
     assert args["outcome"] == {"nonce": "n_001", "status": "Settled", "amount_out": "24950000",
                                "refunded_amount": None, "tx_hashes": ["o1", "n1"]}
@@ -553,6 +594,13 @@ def test_guard_args_match_the_fixture_the_contract_tests_read(tmp_path):
     assert json.loads(GUARD_FIXTURE.read_text()) == args
 
 
+def test_quote_args_refuse_a_dry_receipt(tmp_path):
+    receipt = _settled_receipt(tmp_path)
+    receipt["quote_response"]["quoteRequest"]["dry"] = True
+    with pytest.raises(ni.NearIntentsError):
+        ni.guard_args(receipt, "quote")
+
+
 def test_outcome_args_need_a_terminal_status(tmp_path):
     receipt_path = tmp_path / "r.json"
     ni.quote(program(tmp_path), client=ni.OneClickClient(jwt="k", transport=api()), live=True,
@@ -569,6 +617,7 @@ def test_a_deposit_address_outliving_the_program_timeout_is_rejected():
     later = ni.format_timestamp(ni.parse_timestamp(req["deadline"]) + timedelta(seconds=1))
     with pytest.raises(ni.NearIntentsError) as err:
         ni.verify_quote(leg, req, good_quote(req, deadline=later), now=NOW)
+    assert err.value.code == "X3_NEAR_GUARD_FAILED"
     failed = [r for r in err.value.detail if not r["ok"]]
     assert [r["guard"] for r in failed] == ["deadline"]
     assert failed[0]["within_program_timeout"] is False
@@ -585,3 +634,173 @@ def test_cli_guard_args_prints_the_near_cli_command(tmp_path, capsys):
     assert words[:6] == ["near", "contract", "call-function", "as-transaction", "x3guard.near", "register_intent"]
     assert json.loads(words[words.index("json-args") + 1]) == out["args"]
     assert words[-4:] == ["mainnet", "sign-with-access-key-file", "/k.json", "send"]
+
+
+# --- 1Click quote signatures ---------------------------------------------------------------
+
+CAPTURES = ("near_intents_quote_dry_live_capture.json", "near_intents_quote_dry_implicit_capture.json")
+
+
+def _capture(name):
+    return json.loads((ROOT / "tests" / "fixtures" / name).read_text())
+
+
+def test_the_pinned_manager_key_is_the_sdks():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("near_intents_pristine", str(ROOT / "near_intents.py"))
+    pristine = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pristine)
+    assert pristine.ONE_CLICK_MANAGER_PUBLIC_KEY == ONE_CLICK_KEY
+
+
+@pytest.mark.parametrize("name,expected_hash", [
+    (CAPTURES[0], "EgJWANgZ5TFdSxtxDHUYaGj5JzyG9CN6b6SY8npneAN5"),
+    (CAPTURES[1], "HAgUJ3X5LXgjvg2bQEAs1JF94ynSG146uPL7cEKLPnvA"),
+])
+def test_real_1click_quotes_verify_under_the_manager_key(name, expected_hash):
+    """Both hashes are the official SDK's `quoteHash` for these responses (SDK 0.1.26)."""
+    response = _capture(name)
+    assert ni.oneclick_quote_hash(response) == expected_hash
+    assert ni.verify_oneclick_quote_signature(response, ONE_CLICK_KEY)
+
+
+def test_a_test_key_signature_does_not_verify_under_the_real_key():
+    leg, req = _leg_and_request(live=True)
+    assert ni.verify_oneclick_quote_signature(good_quote(req), TEST_KEY)
+    assert not ni.verify_oneclick_quote_signature(good_quote(req), ONE_CLICK_KEY)
+
+
+@pytest.mark.parametrize("tamper", [
+    lambda r: r["quote"].update(amountOut=str(int(r["quote"]["amountOut"]) + 1)),
+    lambda r: r["quote"].update(minAmountOut=str(int(r["quote"]["minAmountOut"]) + 1)),
+    lambda r: r["quote"].update(amountIn="1"),
+    lambda r: r["quote"].update(amountOutUsd="99.0"),
+    lambda r: r["quoteRequest"].update(recipient="attacker.near"),
+    lambda r: r["quoteRequest"].update(refundTo="So11111111111111111111111111111111111111112"),
+    lambda r: r["quoteRequest"].update(destinationAsset="nep141:wrap.near"),
+    lambda r: r["quoteRequest"].update(slippageTolerance=5000),
+    lambda r: r["quoteRequest"].update(deadline="2026-11-04T04:28:04.780Z"),
+    lambda r: r["quoteRequest"].update(dry=False),
+    lambda r: r.update(timestamp="2026-11-03T05:00:00.000Z"),
+    lambda r: r.update(signature=r["signature"][:-2] + ("11" if not r["signature"].endswith("11") else "22")),
+])
+@pytest.mark.parametrize("name", CAPTURES)
+def test_any_change_to_a_signed_field_breaks_a_real_signature(name, tamper):
+    response = _capture(name)
+    tamper(response)
+    assert not ni.verify_oneclick_quote_signature(response, ONE_CLICK_KEY)
+
+
+@pytest.mark.parametrize("tamper", [
+    lambda r: r["quote"].update(depositAddress="AttackerDepositAddress1111111111111111111111"),
+    lambda r: r["quote"].update(deadline="2026-11-03T05:00:00.000Z"),
+    lambda r: r["quote"].update(refundFee="1"),
+    lambda r: r["quote"].update(timeEstimate=1),
+    lambda r: r["quote"].pop("depositAddress"),
+    lambda r: r["quote"].update(amountOut="25500000"),
+])
+def test_live_only_fields_are_covered_on_live_quotes(tamper):
+    leg, req = _leg_and_request(live=True)
+    response = good_quote(req)
+    tamper(response)
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_quote(leg, req, response, now=NOW)
+    assert err.value.code == "X3_NEAR_INVALID_SIGNATURE"
+    assert err.value.message == "Cryptographic quote verification failed; deposit prohibited"
+
+
+def test_unsigned_echo_fields_do_not_affect_the_signature():
+    """`appFees`, `depositMode` and `correlationId` are echoed by 1Click but not signed."""
+    response = _capture(CAPTURES[0])
+    response["quoteRequest"]["appFees"] = [{"recipient": "someone.near", "fee": 9999}]
+    response["quoteRequest"]["depositMode"] = "MEMO"
+    response["correlationId"] = "anything"
+    assert ni.verify_oneclick_quote_signature(response, ONE_CLICK_KEY)
+
+
+@pytest.mark.parametrize("response", [
+    None,
+    [],
+    {"quote": {}, "quoteRequest": {}, "timestamp": "2026-11-03T04:18:05.521Z"},
+    {"quote": {}, "quoteRequest": {}, "signature": "ed25519:abc", "timestamp": "t"},
+    {"quote": "x", "quoteRequest": {}, "signature": "ed25519:abc", "timestamp": "t"},
+])
+def test_unsupported_response_shapes_are_invalid_not_errors(response):
+    ok, reason = ni.check_oneclick_quote_signature(response, ONE_CLICK_KEY)
+    assert ok is False and reason
+
+
+@pytest.mark.parametrize("signature", [
+    "",
+    "secp256k1:" + "1" * 64,
+    "212wrwFvuT85fZ1fzj3noxkSEFanw13um9tRyko9VXZhrkjAU9jEiqsEtH2QgpZAzyfDGcdfNqVxim3ucAceLdqw",  # no prefix
+    "ed25519:0OIl",  # not base58
+    "ed25519:" + "2" * 10,  # wrong length
+    "FAKE_SIGNATURE",
+])
+def test_malformed_signatures_are_rejected(signature):
+    response = _capture(CAPTURES[1])
+    response["signature"] = signature
+    assert not ni.verify_oneclick_quote_signature(response, ONE_CLICK_KEY)
+
+
+def test_a_float_in_a_signed_field_is_refused_rather_than_guessed():
+    response = _capture(CAPTURES[1])
+    response["quoteRequest"]["slippageTolerance"] = 50.5
+    ok, reason = ni.check_oneclick_quote_signature(response, ONE_CLICK_KEY)
+    assert not ok and "unsupported number" in reason
+    response["quoteRequest"]["slippageTolerance"] = 50.0  # JSON 50.0 is the number 50 in JavaScript
+    assert ni.verify_oneclick_quote_signature(response, ONE_CLICK_KEY)
+
+
+def test_a_live_quote_without_a_deadline_signs_no_deadline():
+    """The SDK spreads `deadline: undefined` over the request's deadline, removing it."""
+    leg, req = _leg_and_request(live=True)
+    response = good_quote(req)
+    del response["quote"]["deadline"]
+    assert '"deadline"' not in ni.signed_quote_payload(response)
+    response_dry = good_quote({**req, "dry": True})
+    assert '"deadline":"2026-11-03T03:10:00.000Z"' in ni.signed_quote_payload(response_dry)
+
+
+def test_stale_and_future_dated_quotes_are_refused():
+    leg, req = _leg_and_request(live=True)
+    for now in (NOW + timedelta(seconds=ni.MAX_QUOTE_AGE_S + 1), NOW - timedelta(seconds=ni.MAX_CLOCK_SKEW_S + 1)):
+        with pytest.raises(ni.NearIntentsError) as err:
+            ni.verify_quote(leg, req, good_quote(req), now=now)
+        assert "quote_freshness" in {r["guard"] for r in err.value.detail if not r["ok"]}
+
+
+def test_a_forged_quote_never_reaches_the_nonce_store_or_receipt(tmp_path):
+    forged = lambda req: {**good_quote(req), "signature": "ed25519:" + "1" * 88}
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api(forged)), live=True,
+                 nonce_store=ni.NonceStore(str(tmp_path / "n.json")), receipt_path=str(tmp_path / "r.json"),
+                 rpc=near_rpc()[0], now=NOW)
+    assert err.value.code == "X3_NEAR_INVALID_SIGNATURE"
+    assert not (tmp_path / "n.json").exists() and not (tmp_path / "r.json").exists()
+
+
+def test_js_stable_stringify_matches_javascript():
+    assert ni.js_stable_stringify({"b": 1, "a": [True, None, ni.UNDEFINED], "c": ni.UNDEFINED, "é": "\n\u0001\"x"}) == \
+        '{"a":[true,null,null],"b":1,"é":"\\n\\u0001\\"x"}'
+
+
+@pytest.mark.parametrize("name", CAPTURES)
+def test_the_pure_python_fallback_verifies_real_quotes_too(name, monkeypatch):
+    """A server without the `cryptography` package uses the RFC 8032 reference verifier."""
+    monkeypatch.setattr(ni.ed25519, "_verify", ni.ed25519._verify_reference)
+    response = _capture(name)
+    assert ni.verify_oneclick_quote_signature(response, ONE_CLICK_KEY)
+    response["quote"]["amountOut"] = "1"
+    assert not ni.verify_oneclick_quote_signature(response, ONE_CLICK_KEY)
+
+
+def test_only_a_fully_verified_live_quote_is_eligible_for_wallet_authorization(tmp_path):
+    common = dict(nonce_store=ni.NonceStore(str(tmp_path / "n.json")), rpc=near_rpc()[0], now=NOW)
+    dry = ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api()), live=False, **common)
+    assert dry["eligible_for_wallet_authorization"] is False
+    live = ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api()), live=True,
+                    receipt_path=str(tmp_path / "r.json"), **common)
+    assert live["eligible_for_wallet_authorization"] is True
+    assert "wallet signature" in live["authorization_note"]

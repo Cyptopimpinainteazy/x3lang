@@ -93,9 +93,12 @@ python3 x3-lang/near_intents.py submit-deposit --deposit-address <addr> --tx-has
 python3 x3-lang/near_intents.py status --deposit-address <addr> --wait --receipt <intent>.near-receipt.json
 ```
 
-Enforced on every quote: echoed request, exact `amountIn`, `min_receive` floor on the guaranteed
-output, slippage spread, `require fees` effective cost, and (live) deposit address, 1Click
-signature and a deadline the quote's own time estimate fits in. `require nonce unused` is
+Every quote's 1Click Ed25519 signature is verified first, on dry and live quotes, against the
+manager key the official SDK pins, over the exact payload the SDK signs; a forged or altered
+quote fails with `X3_NEAR_INVALID_SIGNATURE` before anything else is read. Then, enforced on
+every quote: freshness (≤ 5 min), echoed request, exact `amountIn`, `min_receive` floor on the guaranteed
+output, slippage spread, `require fees` on the swap cost and the refund fee, and (live) a deposit
+address and a deadline that fits the quote's own time estimate and the program's `timeout`. `require nonce unused` is
 enforced by a local nonce store. Refused by code rather than approximated: multi-leg routes,
 guards 1Click cannot enforce (`finality`, `proof_complete`, …), missing slippage or timeout,
 refunds in another asset, and `on_fail halt`/`quarantine`.

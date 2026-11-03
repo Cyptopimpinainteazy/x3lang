@@ -1,27 +1,30 @@
-//! # x3-guard — the X3 policy of a NEAR Intents swap, enforced on chain
+//! # x3-guard: the X3 policy of a NEAR Intents swap, enforced on chain
 //!
 //! `x3-lang/near_intents.py` lowers an X3 `intent` to a 1Click quote request and checks the
-//! returned quote against the program's guards. This contract makes three of those decisions
-//! public and permanent:
+//! returned quote against the program's guards. This contract makes those decisions public and
+//! permanent:
 //!
-//! 1. **The policy.** [`Contract::register_intent`] stores what the program allows — the
+//! 1. **The policy.** [`Contract::register_intent`] stores what the program allows (the
 //!    program's SHA-256, assets, amount, `min_receive` floor, slippage bound, fee cap, receivers
-//!    and deadline — under `(caller, nonce)`.
-//! 2. **The quote.** [`Contract::accept_quote`] re-runs every quote guard *here*, against the
-//!    stored policy, and records the accepted quote (its response hash, 1Click signature and
-//!    deposit address). A policy accepts **one** quote, so a nonce opens one deposit address:
-//!    replay protection that anyone can check, not a file on one machine.
+//!    and deadline) under `(caller, nonce)`.
+//! 2. **The quote.** [`Contract::accept_quote`] takes the exact payload 1Click signed and its
+//!    signature, verifies the signature **on chain** against the pinned 1Click manager key, and
+//!    only then reads the quote out of the verified bytes and runs every guard against the
+//!    stored policy. A policy accepts **one** quote, so a nonce opens one deposit address.
 //! 3. **The outcome.** [`Contract::record_outcome`] records how the swap ended, once.
 //!
-//! ## Trust model, stated so it does not have to be inferred
+//! ## Trust model
 //!
-//! - The quote facts are submitted by the policy's owner. The contract proves they satisfy
-//!   the policy and binds them to the 1Click response by hash and signature; anyone holding
-//!   the receipt can recompute the hash and check the signature off chain. 1Click does not
-//!   publish the signed message format, so the signature is stored, not verified here.
-//! - The outcome is the owner's attestation of what `GET /v0/status` reported. The contract
-//!   checks it is consistent (terminal, once, after a quote) and records whether the delivered
-//!   amount met the guaranteed floor — it does not observe the destination chain.
+//! - Every number a quote guard reads comes from the payload whose Ed25519 signature verified
+//!   under the 1Click manager key. The caller cannot alter an amount, receiver, deposit address
+//!   or deadline without the signature failing. The signed message is the one the official
+//!   SDK verifies: `base58(sha256(payload))` as UTF-8 bytes
+//!   (`@defuse-protocol/one-click-sdk-typescript` 0.1.26, `verifyQuoteSignature`).
+//! - The manager key is set at initialization to the SDK's published key and has no setter.
+//!   The contract has no owner and no admin. Rotating the key means deploying new code.
+//! - The outcome is the policy owner's attestation of what `GET /v0/status` reported: 1Click
+//!   does not sign status responses. The contract checks it is consistent (terminal, once,
+//!   after a quote) and records whether a settlement met the signed guaranteed minimum.
 //!
 //! ## Storage
 //!
@@ -29,20 +32,29 @@
 //! refunded in the same call.
 
 use near_sdk::json_types::U128;
+use near_sdk::serde::Deserialize;
 use near_sdk::serde_json::{self, json};
 use near_sdk::store::LookupMap;
-use near_sdk::{env, near, require, AccountId, BorshStorageKey, NearToken, PanicOnDefault, Promise};
+use near_sdk::{bs58, env, near, require, AccountId, BorshStorageKey, NearToken, PanicOnDefault, Promise};
 
 /// NEP-297 event standard name.
 pub const EVENT_STANDARD: &str = "x3guard";
-pub const EVENT_VERSION: &str = "1.0.0";
+pub const EVENT_VERSION: &str = "1.1.0";
+
+/// The 1Click manager's Ed25519 key, from `@defuse-protocol/one-click-sdk-typescript` 0.1.26.
+pub const ONE_CLICK_MANAGER_PUBLIC_KEY: &str = "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc";
+const ED25519_PREFIX: &str = "ed25519:";
 
 const MAX_TEXT: usize = 256;
 const MAX_NONCE: usize = 128;
 const MAX_TX_HASHES: usize = 16;
+const MAX_SIGNED_PAYLOAD: usize = 4096;
 const BPS: u128 = 10_000;
 /// Fixed-point scale for 1Click's decimal USD strings (it sends 12 fractional digits).
 const USD_DECIMALS: usize = 18;
+/// The same freshness window as `near_intents.py` (`MAX_QUOTE_AGE_S`, `MAX_CLOCK_SKEW_S`).
+pub const MAX_QUOTE_AGE_MS: u64 = 300_000;
+pub const MAX_CLOCK_SKEW_MS: u64 = 60_000;
 
 #[near(serializers = [borsh])]
 #[derive(BorshStorageKey)]
@@ -73,33 +85,78 @@ pub struct Policy {
     pub deadline_ms: u64,
 }
 
-/// The facts of a 1Click quote that the guards read, copied from the quote response.
+/// The payload 1Click signs, as `json-stable-stringify` writes it. Unknown fields are ignored;
+/// a missing required field, or one of the wrong type, refuses the quote.
+#[derive(Deserialize)]
+#[serde(crate = "near_sdk::serde", rename_all = "camelCase")]
+struct SignedPayload {
+    dry: bool,
+    swap_type: String,
+    deposit_type: String,
+    refund_type: String,
+    recipient_type: String,
+    slippage_tolerance: u32,
+    origin_asset: String,
+    destination_asset: String,
+    amount: String,
+    refund_to: String,
+    recipient: String,
+    amount_in: String,
+    amount_out: String,
+    min_amount_out: String,
+    amount_in_usd: String,
+    amount_out_usd: String,
+    #[serde(default)]
+    deposit_address: Option<String>,
+    #[serde(default)]
+    deadline: Option<String>,
+    #[serde(default)]
+    time_estimate: Option<u64>,
+    #[serde(default)]
+    refund_fee: Option<String>,
+    timestamp: String,
+}
+
+/// A quote as read from a verified 1Click payload: every field here was signed.
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq)]
 pub struct QuoteFacts {
-    /// SHA-256 of the canonical quote response JSON, lowercase hex (`quote_response_sha256` in
-    /// the adapter's receipt).
-    pub quote_response_sha256: String,
-    /// 1Click's signature over the quote (`ed25519:…`).
+    /// The signed message: base58 SHA-256 of the payload (the SDK's `quoteHash`).
+    pub quote_hash: String,
     pub signature: String,
-    pub deposit_address: String,
-    // The request as 1Click echoed it.
+    pub dry: bool,
+    pub swap_type: String,
+    pub deposit_type: String,
+    pub refund_type: String,
+    pub recipient_type: String,
     pub origin_asset: String,
     pub destination_asset: String,
     pub recipient: String,
     pub refund_to: String,
     pub slippage_tolerance_bps: u32,
-    // The quote.
+    /// The request's `amount`.
+    pub amount: U128,
     pub amount_in: U128,
     pub amount_out: U128,
     pub min_amount_out: U128,
     pub amount_in_usd: String,
     pub amount_out_usd: String,
     pub refund_fee: Option<U128>,
-    /// The quote's own deadline, Unix milliseconds.
+    /// Empty when the payload has none (dry quotes).
+    pub deposit_address: String,
+    /// 0 when the payload has none (dry quotes).
     pub quote_deadline_ms: u64,
-    /// 1Click's estimate of execution time after the deposit, seconds.
     pub time_estimate_s: u64,
+    pub issued_at_ms: u64,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AcceptedQuote {
+    pub facts: QuoteFacts,
+    /// The exact bytes 1Click signed, kept so anyone can re-verify the acceptance.
+    pub signed_payload: String,
+    pub accepted_at_ms: u64,
 }
 
 #[near(serializers = [borsh, json])]
@@ -117,7 +174,7 @@ pub struct Outcome {
     pub amount_out: Option<U128>,
     pub refunded_amount: Option<U128>,
     pub tx_hashes: Vec<String>,
-    /// For `Settled`: whether `amount_out` met the accepted quote's guaranteed minimum.
+    /// For `Settled`: whether `amount_out` met the accepted quote's signed guaranteed minimum.
     pub floor_met: Option<bool>,
     pub recorded_at_ms: u64,
 }
@@ -129,8 +186,7 @@ pub struct IntentRecord {
     pub nonce: String,
     pub policy: Policy,
     pub registered_at_ms: u64,
-    pub quote: Option<QuoteFacts>,
-    pub quote_accepted_at_ms: Option<u64>,
+    pub quote: Option<AcceptedQuote>,
     pub outcome: Option<Outcome>,
 }
 
@@ -147,6 +203,7 @@ pub struct GuardResult {
 #[derive(PanicOnDefault)]
 pub struct Contract {
     intents: LookupMap<String, IntentRecord>,
+    manager_public_key: [u8; 32],
 }
 
 fn key(owner: &AccountId, nonce: &str) -> String {
@@ -178,32 +235,143 @@ fn require_nonce(nonce: &str) {
     );
 }
 
+/// `ed25519:<base58>` -> exactly `N` bytes.
+pub fn decode_ed25519<const N: usize>(value: &str) -> Result<[u8; N], String> {
+    let body = value
+        .strip_prefix(ED25519_PREFIX)
+        .ok_or_else(|| format!("expected an {ED25519_PREFIX}<base58> value"))?;
+    let raw = bs58::decode(body)
+        .into_vec()
+        .map_err(|e| format!("invalid base58: {e}"))?;
+    raw.as_slice()
+        .try_into()
+        .map_err(|_| format!("expected {N} bytes, decoded {}", raw.len()))
+}
+
+/// The SDK's `quoteHash`: base58 of SHA-256 over the signed payload.
+pub fn quote_hash(signed_payload: &str) -> String {
+    bs58::encode(env::sha256(signed_payload.as_bytes())).into_string()
+}
+
 /// Parse a non-negative decimal string into a fixed-point integer with [`USD_DECIMALS`].
 /// More fractional digits than that are refused rather than rounded.
-pub fn parse_usd(field: &str, text: &str) -> u128 {
-    let (whole, frac) = match text.split_once('.') {
-        Some((w, f)) => (w, f),
-        None => (text, ""),
-    };
+pub fn parse_usd(field: &str, text: &str) -> Result<u128, String> {
+    let (whole, frac) = text.split_once('.').unwrap_or((text, ""));
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    require!(
-        digits(whole) && (frac.is_empty() || digits(frac)),
-        format!("{field} is not a decimal: {text:?}")
-    );
-    require!(
-        frac.len() <= USD_DECIMALS,
-        format!("{field} has more than {USD_DECIMALS} fractional digits")
-    );
+    if !(digits(whole) && (frac.is_empty() || digits(frac))) {
+        return Err(format!("{field} is not a decimal: {text:?}"));
+    }
+    if frac.len() > USD_DECIMALS {
+        return Err(format!("{field} has more than {USD_DECIMALS} fractional digits"));
+    }
     let scale = 10u128.pow(USD_DECIMALS as u32);
-    let whole: u128 = whole
-        .parse()
-        .unwrap_or_else(|_| env::panic_str(&format!("{field} is too large")));
-    let frac_padded = format!("{frac:0<USD_DECIMALS$}");
-    let frac: u128 = frac_padded.parse().unwrap_or(0);
+    let whole: u128 = whole.parse().map_err(|_| format!("{field} is too large"))?;
+    let frac: u128 = format!("{frac:0<USD_DECIMALS$}").parse().unwrap_or(0);
     whole
         .checked_mul(scale)
         .and_then(|w| w.checked_add(frac))
-        .unwrap_or_else(|| env::panic_str(&format!("{field} is too large")))
+        .ok_or_else(|| format!("{field} is too large"))
+}
+
+fn parse_units(field: &str, text: &str) -> Result<u128, String> {
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("{field} is not an integer amount: {text:?}"));
+    }
+    text.parse().map_err(|_| format!("{field} is too large"))
+}
+
+/// `YYYY-MM-DDTHH:MM:SS[.fff…]Z` (UTC, as 1Click writes it) -> Unix milliseconds.
+pub fn parse_utc_ms(text: &str) -> Result<u64, String> {
+    let bad = || format!("unreadable UTC timestamp {text:?}");
+    let body = text.strip_suffix('Z').ok_or_else(bad)?;
+    let (main, frac) = body.split_once('.').unwrap_or((body, ""));
+    let b = main.as_bytes();
+    if b.len() != 19 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' {
+        return Err(bad());
+    }
+    if !frac.bytes().all(|c| c.is_ascii_digit()) {
+        return Err(bad());
+    }
+    let num = |r: std::ops::Range<usize>| -> Result<u64, String> { main[r].parse::<u64>().map_err(|_| bad()) };
+    let (y, mo, d, h, mi, s) = (
+        num(0..4)?,
+        num(5..7)?,
+        num(8..10)?,
+        num(11..13)?,
+        num(14..16)?,
+        num(17..19)?,
+    );
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if !(1970..=9999).contains(&y)
+        || !(1..=12).contains(&mo)
+        || d == 0
+        || d > month_days[(mo - 1) as usize]
+        || h > 23
+        || mi > 59
+        || s > 59
+    {
+        return Err(bad());
+    }
+    // Days from the civil date (H. Hinnant), for years >= 1970.
+    let (yy, mm) = if mo <= 2 { (y - 1, mo + 9) } else { (y, mo - 3) };
+    let era = yy / 400;
+    let yoe = yy - era * 400;
+    let doy = (153 * mm + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let ms: u64 = format!("{:0<3}", &frac[..frac.len().min(3)]).parse().unwrap_or(0);
+    Ok(((days * 86_400 + h * 3_600 + mi * 60 + s) * 1_000) + ms)
+}
+
+/// Verify a 1Click signature over `signed_payload` and read the quote out of it.
+/// Nothing is parsed until the signature verifies.
+pub fn verify_signed_quote(
+    manager_public_key: &[u8; 32],
+    signed_payload: &str,
+    signature: &str,
+) -> Result<QuoteFacts, String> {
+    if signed_payload.is_empty() || signed_payload.len() > MAX_SIGNED_PAYLOAD {
+        return Err(format!("signed payload must be 1..={MAX_SIGNED_PAYLOAD} bytes"));
+    }
+    let signature_bytes = decode_ed25519::<64>(signature)?;
+    let hash = quote_hash(signed_payload);
+    if !env::ed25519_verify(&signature_bytes, hash.as_bytes(), manager_public_key) {
+        return Err("signature does not verify under the 1Click manager key".into());
+    }
+    let p: SignedPayload =
+        serde_json::from_str(signed_payload).map_err(|e| format!("signed payload is not a 1Click quote: {e}"))?;
+    Ok(QuoteFacts {
+        quote_hash: hash,
+        signature: signature.to_string(),
+        dry: p.dry,
+        swap_type: p.swap_type,
+        deposit_type: p.deposit_type,
+        refund_type: p.refund_type,
+        recipient_type: p.recipient_type,
+        origin_asset: p.origin_asset,
+        destination_asset: p.destination_asset,
+        recipient: p.recipient,
+        refund_to: p.refund_to,
+        slippage_tolerance_bps: p.slippage_tolerance,
+        amount: U128(parse_units("amount", &p.amount)?),
+        amount_in: U128(parse_units("amountIn", &p.amount_in)?),
+        amount_out: U128(parse_units("amountOut", &p.amount_out)?),
+        min_amount_out: U128(parse_units("minAmountOut", &p.min_amount_out)?),
+        amount_in_usd: p.amount_in_usd,
+        amount_out_usd: p.amount_out_usd,
+        refund_fee: p
+            .refund_fee
+            .as_deref()
+            .map(|f| parse_units("refundFee", f))
+            .transpose()?
+            .map(U128),
+        deposit_address: p.deposit_address.unwrap_or_default(),
+        quote_deadline_ms: p.deadline.as_deref().map(parse_utc_ms).transpose()?.unwrap_or(0),
+        // The SDK omits a zero `timeEstimate` from the payload.
+        time_estimate_s: p.time_estimate.unwrap_or(0),
+        issued_at_ms: parse_utc_ms(&p.timestamp)?,
+    })
 }
 
 /// `a * BPS <= cap * b`, without overflow panics on honest inputs.
@@ -215,8 +383,8 @@ fn within_bps(numerator: u128, denominator: u128, cap_bps: u128) -> bool {
     }
 }
 
-/// Run every guard of `policy` over `quote` at `now_ms`. Pure, so it is unit-tested directly
-/// and exposed as a view ([`Contract::check_quote`]).
+/// Run every guard of `policy` over a verified quote at `now_ms`. Pure, so it is unit-tested
+/// directly and also exposed through the view [`Contract::check_quote`].
 pub fn evaluate(policy: &Policy, quote: &QuoteFacts, now_ms: u64) -> Vec<GuardResult> {
     let mut out = Vec::new();
     let mut record = |guard: &str, ok: bool, detail: String| {
@@ -227,12 +395,34 @@ pub fn evaluate(policy: &Policy, quote: &QuoteFacts, now_ms: u64) -> Vec<GuardRe
         })
     };
 
+    record(
+        "quote_kind",
+        !quote.dry
+            && quote.swap_type == "EXACT_INPUT"
+            && quote.deposit_type == "ORIGIN_CHAIN"
+            && quote.refund_type == "ORIGIN_CHAIN"
+            && quote.recipient_type == "DESTINATION_CHAIN",
+        format!(
+            "dry {}, {} / {} / {} / {}: a deposit needs a live EXACT_INPUT ORIGIN_CHAIN quote",
+            quote.dry, quote.swap_type, quote.deposit_type, quote.refund_type, quote.recipient_type
+        ),
+    );
+
+    let age_ok = now_ms.saturating_sub(quote.issued_at_ms) <= MAX_QUOTE_AGE_MS
+        && quote.issued_at_ms <= now_ms.saturating_add(MAX_CLOCK_SKEW_MS);
+    record(
+        "quote_freshness",
+        age_ok,
+        format!("issued {}, now {now_ms}", quote.issued_at_ms),
+    );
+
     let mismatched: Vec<&str> = [
         ("originAsset", quote.origin_asset == policy.origin_asset),
         ("destinationAsset", quote.destination_asset == policy.destination_asset),
         ("recipient", quote.recipient == policy.recipient),
         ("refundTo", quote.refund_to == policy.refund_to),
         ("slippageTolerance", quote.slippage_tolerance_bps == policy.slippage_bps),
+        ("amount", quote.amount == policy.amount),
     ]
     .into_iter()
     .filter(|(_, same)| !same)
@@ -281,21 +471,24 @@ pub fn evaluate(policy: &Policy, quote: &QuoteFacts, now_ms: u64) -> Vec<GuardRe
     }
 
     if let Some(cap) = policy.fee_cap_bps {
-        let usd_in = parse_usd("amount_in_usd", &quote.amount_in_usd);
-        let usd_out = parse_usd("amount_out_usd", &quote.amount_out_usd);
-        if usd_in == 0 {
-            record(
+        match (
+            parse_usd("amountInUsd", &quote.amount_in_usd),
+            parse_usd("amountOutUsd", &quote.amount_out_usd),
+        ) {
+            (Ok(usd_in), Ok(usd_out)) if usd_in > 0 => {
+                let cost = usd_in.saturating_sub(usd_out);
+                record(
+                    "fees",
+                    within_bps(cost, usd_in, cap as u128),
+                    format!("cost {cost} of {usd_in} (1e-18 USD), cap {cap} bps"),
+                );
+            }
+            (Ok(_), Ok(_)) => record(
                 "fees",
                 false,
                 "no USD price for the input; cost cannot be measured".into(),
-            );
-        } else {
-            let cost = usd_in.saturating_sub(usd_out);
-            record(
-                "fees",
-                within_bps(cost, usd_in, cap as u128),
-                format!("cost {cost} of {usd_in} (1e-18 USD), cap {cap} bps"),
-            );
+            ),
+            (Err(e), _) | (_, Err(e)) => record("fees", false, e),
         }
         match quote.refund_fee {
             None => record(
@@ -315,12 +508,6 @@ pub fn evaluate(policy: &Policy, quote: &QuoteFacts, now_ms: u64) -> Vec<GuardRe
         "deposit_address",
         !quote.deposit_address.is_empty(),
         quote.deposit_address.clone(),
-    );
-    record("quote_signature", !quote.signature.is_empty(), String::new());
-    record(
-        "quote_response_hash",
-        is_hex64(&quote.quote_response_sha256),
-        "64 lowercase hex characters".into(),
     );
 
     let remaining_ms = quote.quote_deadline_ms.saturating_sub(now_ms);
@@ -369,10 +556,13 @@ fn settle_storage(initial_usage: u64) {
 
 #[near]
 impl Contract {
+    /// Initialize with the 1Click manager key the official SDK pins. There is no setter.
     #[init]
     pub fn new() -> Self {
         Self {
             intents: LookupMap::new(StorageKey::Intents),
+            manager_public_key: decode_ed25519::<32>(ONE_CLICK_MANAGER_PUBLIC_KEY)
+                .unwrap_or_else(|e| env::panic_str(&e)),
         }
     }
 
@@ -416,7 +606,6 @@ impl Contract {
             policy,
             registered_at_ms: env::block_timestamp_ms(),
             quote: None,
-            quote_accepted_at_ms: None,
             outcome: None,
         };
         self.intents.insert(k, record.clone());
@@ -429,10 +618,11 @@ impl Contract {
         record
     }
 
-    /// Re-run every quote guard against the stored policy and, if all pass, record the quote.
-    /// A policy accepts one quote; a failing quote changes nothing and may be retried.
+    /// Verify a 1Click quote's signature on chain, read the quote from the signed bytes, run
+    /// every guard against the stored policy and, if all pass, record it. A policy accepts one
+    /// quote. A forged or failing quote changes nothing.
     #[payable]
-    pub fn accept_quote(&mut self, nonce: String, quote: QuoteFacts) -> Vec<GuardResult> {
+    pub fn accept_quote(&mut self, nonce: String, signed_payload: String, signature: String) -> Vec<GuardResult> {
         let initial = env::storage_usage();
         let owner = env::predecessor_account_id();
         let k = key(&owner, &nonce);
@@ -441,28 +631,21 @@ impl Contract {
             .get(&k)
             .cloned()
             .unwrap_or_else(|| env::panic_str(&format!("no intent {nonce:?} registered by {owner}")));
-        require!(
-            record.quote.is_none(),
-            format!(
+        if let Some(accepted) = &record.quote {
+            env::panic_str(&format!(
                 "intent {nonce:?} already accepted quote {}",
-                record
-                    .quote
-                    .as_ref()
-                    .map(|q| q.quote_response_sha256.as_str())
-                    .unwrap_or("")
-            )
-        );
-        for (field, value) in [
-            ("signature", &quote.signature),
-            ("deposit_address", &quote.deposit_address),
-            ("amount_in_usd", &quote.amount_in_usd),
-            ("amount_out_usd", &quote.amount_out_usd),
-        ] {
-            require_text(field, value);
+                accepted.facts.quote_hash
+            ));
         }
 
+        let facts =
+            verify_signed_quote(&self.manager_public_key, &signed_payload, &signature).unwrap_or_else(|reason| {
+                env::panic_str(&format!(
+                    "X3_NEAR_INVALID_SIGNATURE: Cryptographic quote verification failed; deposit prohibited ({reason})"
+                ))
+            });
         let now = env::block_timestamp_ms();
-        let results = evaluate(&record.policy, &quote, now);
+        let results = evaluate(&record.policy, &facts, now);
         let failed: Vec<&str> = results.iter().filter(|r| !r.ok).map(|r| r.guard.as_str()).collect();
         require!(
             failed.is_empty(),
@@ -474,13 +657,16 @@ impl Contract {
             json!({
                 "owner": owner,
                 "nonce": nonce,
-                "quote_response_sha256": quote.quote_response_sha256,
-                "deposit_address": quote.deposit_address,
-                "min_amount_out": quote.min_amount_out,
+                "quote_hash": facts.quote_hash,
+                "deposit_address": facts.deposit_address,
+                "min_amount_out": facts.min_amount_out,
             }),
         );
-        record.quote = Some(quote);
-        record.quote_accepted_at_ms = Some(now);
+        record.quote = Some(AcceptedQuote {
+            facts,
+            signed_payload,
+            accepted_at_ms: now,
+        });
         self.intents.insert(k, record);
         self.intents.flush();
         settle_storage(initial);
@@ -508,7 +694,7 @@ impl Contract {
         let min_out = record
             .quote
             .as_ref()
-            .map(|q| q.min_amount_out.0)
+            .map(|q| q.facts.min_amount_out.0)
             .unwrap_or_else(|| env::panic_str("no quote has been accepted for this intent"));
         require!(record.outcome.is_none(), "this intent's outcome is already recorded");
         require!(
@@ -553,13 +739,42 @@ impl Contract {
         self.intents.contains_key(&key(&owner, &nonce))
     }
 
-    /// Dry-run the guards for a registered intent without changing anything.
-    pub fn check_quote(&self, owner: AccountId, nonce: String, quote: QuoteFacts) -> Vec<GuardResult> {
+    /// The 1Click manager key quotes are verified against, as `ed25519:<base58>`.
+    pub fn get_manager_public_key(&self) -> String {
+        format!(
+            "{ED25519_PREFIX}{}",
+            bs58::encode(self.manager_public_key).into_string()
+        )
+    }
+
+    /// Dry-run the signature check and the guards for a registered intent. Changes nothing.
+    pub fn check_quote(
+        &self,
+        owner: AccountId,
+        nonce: String,
+        signed_payload: String,
+        signature: String,
+    ) -> Vec<GuardResult> {
         let record = self
             .intents
             .get(&key(&owner, &nonce))
             .unwrap_or_else(|| env::panic_str(&format!("no intent {nonce:?} registered by {owner}")));
-        evaluate(&record.policy, &quote, env::block_timestamp_ms())
+        match verify_signed_quote(&self.manager_public_key, &signed_payload, &signature) {
+            Err(reason) => vec![GuardResult {
+                guard: "quote_signature".into(),
+                ok: false,
+                detail: reason,
+            }],
+            Ok(facts) => {
+                let mut results = vec![GuardResult {
+                    guard: "quote_signature".into(),
+                    ok: true,
+                    detail: facts.quote_hash.clone(),
+                }];
+                results.extend(evaluate(&record.policy, &facts, env::block_timestamp_ms()));
+                results
+            }
+        }
     }
 }
 

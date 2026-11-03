@@ -29,14 +29,21 @@ decides whether the result is acceptable.
 
 ## What is checked on the quote (`verify_quote`)
 
+- **first, on dry and live quotes:** the 1Click Ed25519 signature, against the pinned manager
+  key, over the exact payload the official SDK signs (`verify_oneclick_quote_signature`).
+  Nothing else in the response is trusted until it verifies;
+- the quote is fresh: issued no more than 5 minutes ago and not dated in the future;
 - the echoed `quoteRequest` is the request that was sent;
 - `amountIn` is the amount the program spends;
 - `minAmountOut` clears the leg's `min_receive` floor;
 - the spread between `amountOut` and `minAmountOut` is within the requested slippage;
 - `require fees <= N` holds on every path: the quote's effective cost (`amountInUsd` vs
   `amountOutUsd`) and, separately, the `refundFee` a failed swap would be charged;
-- a live quote carries a deposit address, a 1Click signature, and a deadline far enough out
-  for its own `timeEstimate`.
+- a live quote carries a deposit address and a deadline far enough out for its own
+  `timeEstimate`, and no later than the program's `timeout`.
+
+A dry quote's `refundFee`, `deadline`, `timeEstimate` and `depositAddress` are not signed by
+1Click; only a live quote's are, and only a live quote can authorize a deposit.
 
 ## What is refused, by code
 
@@ -103,6 +110,7 @@ def _load(name: str):
 
 
 registry = _load("registry")
+ed25519 = _load("ed25519")
 
 DEFAULT_BASE_URL = "https://1click.chaindefuser.com"
 DEFAULT_NONCE_STORE = os.path.join(os.path.expanduser("~"), ".x3", "near_intents_nonces.json")
@@ -473,6 +481,166 @@ def build_quote_request(leg: Dict[str, Any], tokens: List[Dict[str, Any]], *, dr
 # Quote verification
 # --------------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------------
+# 1Click quote signatures
+# --------------------------------------------------------------------------------------------
+#
+# A port of `verifyQuoteSignature` from @defuse-protocol/one-click-sdk-typescript 0.1.26
+# (`src/quote-signature.ts`), checked against that SDK on real 1Click responses
+# (`tests/test_near_intents.py`). The signed message is
+#
+#     base58(sha256(json_stable_stringify({ ...signedRequest, ...signedQuote, timestamp })))
+#
+# as UTF-8 bytes, Ed25519-signed by the 1Click manager key. Only allow-listed fields are
+# signed, and a dry quote signs fewer than a live one: `depositAddress`, `deadline`,
+# `timeEstimate`, `refundFee` and `withdrawFee` are covered **only on live quotes**. Fields
+# 1Click echoes but does not sign (`appFees`, `depositMode`, `confidentiality`, …) are left out.
+
+#: The 1Click manager's Ed25519 key, pinned from SDK 0.1.26. It is the trust anchor for every
+#: quote, so it is a constant in reviewed code, not configuration: a rotated key is a code change.
+ONE_CLICK_MANAGER_PUBLIC_KEY = "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc"
+ED25519_PREFIX = "ed25519:"
+#: A quote older than this, or dated further than the skew into the future, is not fresh.
+MAX_QUOTE_AGE_S = 300
+MAX_CLOCK_SKEW_S = 60
+
+SIGNED_REQUEST_FIELDS = (
+    "dry", "swapType", "slippageTolerance", "originAsset", "depositType", "destinationAsset",
+    "amount", "refundTo", "refundType", "recipient", "recipientType", "deadline",
+)
+#: Request fields the SDK includes only when they are truthy (`x ? x : undefined`).
+SIGNED_REQUEST_FIELDS_IF_SET = (
+    "quoteWaitingTimeMs", "referral", "virtualChainRecipient", "virtualChainRefundRecipient",
+    "customRecipientMsg",
+)
+SIGNED_QUOTE_FIELDS = (
+    "amountIn", "amountInFormatted", "amountInUsd", "minAmountIn",
+    "amountOut", "amountOutFormatted", "amountOutUsd", "minAmountOut",
+)
+#: Live-only quote fields, included only when truthy (`x || undefined`).
+SIGNED_LIVE_QUOTE_FIELDS_IF_SET = (
+    "depositAddress", "depositMemo", "deadline", "timeWhenInactive", "timeEstimate", "refundFee", "withdrawFee",
+)
+
+
+class _Undefined:
+    """JavaScript `undefined`: a key holding it is omitted from the serialized object."""
+
+    def __repr__(self) -> str:
+        return "undefined"
+
+
+UNDEFINED = _Undefined()
+
+
+class QuoteSignatureFormatError(ValueError):
+    """The response cannot be serialized the way the 1Click SDK would serialize it."""
+
+
+def _js_truthy(value: Any) -> bool:
+    if value is UNDEFINED or value is None or value is False:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value == value and value != 0  # NaN and 0 are falsy
+    if isinstance(value, str):
+        return value != ""
+    return True
+
+
+def _js_number(value: Any) -> str:
+    """`JSON.stringify` of a number, for the integers 1Click sends. Anything else is refused."""
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value == value and abs(value) < 1e21 and value.is_integer():
+        return str(int(value))
+    raise QuoteSignatureFormatError(f"unsupported number in a signed field: {value!r}")
+
+
+def js_stable_stringify(value: Any) -> str:
+    """`json-stable-stringify` 1.3.0 with default options, for JSON-shaped Python values."""
+    if value is UNDEFINED:
+        raise QuoteSignatureFormatError("undefined has no JSON form")
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, (int, float)):
+        return _js_number(value)
+    if isinstance(value, str):
+        # JSON.stringify escapes the same set Python does with ensure_ascii=False: `"`, `\\`,
+        # \b \f \n \r \t and other control characters as lowercase \u00xx.
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, list):
+        return "[" + ",".join("null" if v is UNDEFINED else js_stable_stringify(v) for v in value) + "]"
+    if isinstance(value, dict):
+        for key in value:
+            if not isinstance(key, str):
+                raise QuoteSignatureFormatError(f"non-string key {key!r}")
+        # JavaScript's default sort compares UTF-16 code units.
+        keys = sorted(value, key=lambda k: k.encode("utf-16-be"))
+        parts = [json.dumps(k, ensure_ascii=False) + ":" + js_stable_stringify(value[k]) for k in keys if value[k] is not UNDEFINED]
+        return "{" + ",".join(parts) + "}"
+    raise QuoteSignatureFormatError(f"unsupported value of type {type(value).__name__}")
+
+
+def signed_quote_payload(response: Dict[str, Any]) -> str:
+    """The exact string 1Click signs the hash of, built as the SDK builds it."""
+    if not isinstance(response, dict):
+        raise QuoteSignatureFormatError("quote response is not an object")
+    request, quote = response.get("quoteRequest"), response.get("quote")
+    if not isinstance(request, dict) or not isinstance(quote, dict):
+        raise QuoteSignatureFormatError("quote response lacks quoteRequest/quote objects")
+    if "timestamp" not in response or not isinstance(response["timestamp"], str):
+        raise QuoteSignatureFormatError("quote response lacks a string timestamp")
+
+    merged: Dict[str, Any] = {k: request.get(k, UNDEFINED) for k in SIGNED_REQUEST_FIELDS}
+    for k in SIGNED_REQUEST_FIELDS_IF_SET:
+        merged[k] = request[k] if _js_truthy(request.get(k, UNDEFINED)) else UNDEFINED
+    signed_quote: Dict[str, Any] = {k: quote.get(k, UNDEFINED) for k in SIGNED_QUOTE_FIELDS}
+    if not _js_truthy(request.get("dry", UNDEFINED)):
+        for k in SIGNED_LIVE_QUOTE_FIELDS_IF_SET:
+            signed_quote[k] = quote[k] if _js_truthy(quote.get(k, UNDEFINED)) else UNDEFINED
+    # `{ ...request, ...quote }`: a quote key overrides the request's, even with `undefined` —
+    # so a live quote with no `deadline` drops the request's deadline from the signed payload.
+    merged.update(signed_quote)
+    merged["timestamp"] = response["timestamp"]
+    return js_stable_stringify(merged)
+
+
+def oneclick_quote_hash(response: Dict[str, Any]) -> str:
+    """The SDK's `quoteHash`: base58 of SHA-256 over the signed payload."""
+    return ed25519.b58encode(hashlib.sha256(signed_quote_payload(response).encode("utf-8")).digest())
+
+
+def _decode_ed25519(value: Any, length: int) -> bytes:
+    if not isinstance(value, str) or not value.startswith(ED25519_PREFIX):
+        raise QuoteSignatureFormatError(f"expected an {ED25519_PREFIX}<base58> value")
+    raw = ed25519.b58decode(value[len(ED25519_PREFIX):])
+    if len(raw) != length:
+        raise QuoteSignatureFormatError(f"expected {length} bytes, decoded {len(raw)}")
+    return raw
+
+
+def check_oneclick_quote_signature(response: Dict[str, Any], manager_public_key: Optional[str] = None) -> Tuple[bool, str]:
+    """(valid, reason). Never raises: anything it cannot check is invalid."""
+    try:
+        public = _decode_ed25519(manager_public_key or ONE_CLICK_MANAGER_PUBLIC_KEY, 32)
+        signature = _decode_ed25519(response.get("signature") if isinstance(response, dict) else None, 64)
+        message = oneclick_quote_hash(response).encode("utf-8")
+    except (QuoteSignatureFormatError, ValueError) as exc:
+        return False, f"unsupported quote format: {exc}"
+    if not ed25519.verify(public, message, signature):
+        return False, "signature does not verify under the 1Click manager key"
+    return True, "verified"
+
+
+def verify_oneclick_quote_signature(response: Dict[str, Any], manager_public_key: Optional[str] = None) -> bool:
+    """True only if `response` is signed by the 1Click manager key over its signed fields."""
+    return check_oneclick_quote_signature(response, manager_public_key)[0]
+
+
 _ECHO_FIELDS = (
     "swapType", "slippageTolerance", "originAsset", "depositType", "destinationAsset",
     "amount", "refundTo", "refundType", "recipient", "recipientType", "deadline",
@@ -493,13 +661,34 @@ def _same(field: str, sent: Any, echoed: Any) -> bool:
     return sent == echoed
 
 
-def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[str, Any], *, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
-    """Check a 1Click quote against the program. Raises with every result if any guard fails."""
+def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[str, Any], *, now: Optional[datetime] = None,
+                 manager_public_key: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Check a 1Click quote against the program. Raises with every result if any guard fails.
+
+    The signature is checked first, on dry and live quotes alike, and nothing else in the
+    response is read until it verifies: every later guard reads fields the signature covers.
+    """
     now = now or datetime.now(timezone.utc)
     results: List[Dict[str, Any]] = []
 
     def record(guard: str, ok: bool, **detail: Any) -> None:
         results.append({"guard": guard, "ok": bool(ok), **detail})
+
+    signature_valid, reason = check_oneclick_quote_signature(response, manager_public_key)
+    record("quote_signature", signature_valid, reason=reason,
+           manager_public_key=manager_public_key or ONE_CLICK_MANAGER_PUBLIC_KEY, backend=ed25519.BACKEND,
+           quote_hash=oneclick_quote_hash(response) if signature_valid else None)
+    if not signature_valid:
+        raise NearIntentsError(
+            "X3_NEAR_INVALID_SIGNATURE",
+            "Cryptographic quote verification failed; deposit prohibited",
+            "quote.signature",
+            results,
+        )
+    issued = parse_timestamp(response["timestamp"])
+    age = (now - issued).total_seconds()
+    record("quote_freshness", -MAX_CLOCK_SKEW_S <= age <= MAX_QUOTE_AGE_S,
+           age_s=int(age), max_age_s=MAX_QUOTE_AGE_S, issued_at=response["timestamp"])
 
     quote = response.get("quote")
     if not isinstance(quote, dict):
@@ -557,11 +746,12 @@ def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[st
                 raise NearIntentsError("X3_NEAR_QUOTE_MALFORMED", f"refundFee is not an integer: {refund_fee!r}", "quote.refundFee")
             refund_bps = Decimal(refund_fee_units) * 10000 / Decimal(leg["amount"])
             record("refund_fee", refund_bps <= leg["fee_cap_bps"], cap_bps=leg["fee_cap_bps"],
-                   refund_fee=str(refund_fee_units), refund_fee_bps=str(refund_bps.quantize(Decimal("0.01"))))
+                   refund_fee=str(refund_fee_units), refund_fee_bps=str(refund_bps.quantize(Decimal("0.01"))),
+                   # 1Click signs refundFee only on live quotes.
+                   signed=not request.get("dry"))
 
     if not request.get("dry"):
         record("deposit_address", bool(quote.get("depositAddress")), deposit_address=quote.get("depositAddress"))
-        record("quote_signature", bool(response.get("signature")))
         deadline = quote.get("deadline")
         if not deadline:
             record("deadline", False, reason="live quote carries no deadline")
@@ -826,7 +1016,8 @@ def plan(path: str, *, client: OneClickClient, tokens_path: Optional[str] = None
 
 def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = None, live: bool = False,
           nonce_store: Optional[NonceStore] = None, receipt_path: Optional[str] = None,
-          rpc: Optional[NearRpc] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
+          rpc: Optional[NearRpc] = None, now: Optional[datetime] = None,
+          manager_public_key: Optional[str] = None) -> Dict[str, Any]:
     planned = plan(path, client=client, tokens_path=tokens_path, live=live, now=now)
     leg, request = planned["leg"], planned["quote_request"]
     store = nonce_store or NonceStore()
@@ -835,7 +1026,7 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     account_checks = preflight_accounts(leg, rpc or NearRpc())
 
     response = client.quote(request)
-    guards = account_checks + verify_quote(leg, request, response, now=now)
+    guards = account_checks + verify_quote(leg, request, response, now=now, manager_public_key=manager_public_key)
 
     result: Dict[str, Any] = {
         "status": "quoted" if not live else "awaiting_deposit",
@@ -848,6 +1039,15 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     }
     if not client.authenticated:
         result["note"] = "no NEAR_INTENTS_JWT: the unauthenticated 1Click fee schedule applies"
+    # Reaching this line means the signature verified, the echoed request matched, every policy
+    # guard passed, the destination account exists and the quote is fresh. Only a live quote's
+    # deposit address and deadline are signed, so only a live quote can be eligible.
+    result["eligible_for_wallet_authorization"] = live
+    result["authorization_note"] = (
+        "eligible: a separate wallet signature is still required before any funds move; this "
+        "adapter never signs or sends the deposit"
+        if live else "dry quote: not a deposit instruction"
+    )
     if not live:
         return result
 
@@ -866,6 +1066,9 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
         "quote_request": request,
         "quote_response": response,
         "quote_response_sha256": _sha256_json(response),
+        # What 1Click signed, and its hash: anyone can re-verify the receipt with these.
+        "quote_hash": oneclick_quote_hash(response),
+        "signed_payload": signed_quote_payload(response),
         "guards": guards,
         "deposit": {
             "address": quote_obj.get("depositAddress"),
@@ -947,30 +1150,11 @@ def guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
             },
         }
     if step == "quote":
-        quote, echoed = response["quote"], response["quoteRequest"]
-        if not quote.get("deadline"):
-            raise NearIntentsError("X3_NEAR_RECEIPT", "the receipt's quote has no deadline; it is not a live quote")
-        return {
-            "nonce": nonce,
-            "quote": {
-                "quote_response_sha256": receipt["quote_response_sha256"],
-                "signature": response["signature"],
-                "deposit_address": quote["depositAddress"],
-                "origin_asset": echoed["originAsset"],
-                "destination_asset": echoed["destinationAsset"],
-                "recipient": echoed["recipient"],
-                "refund_to": echoed["refundTo"],
-                "slippage_tolerance_bps": int(echoed["slippageTolerance"]),
-                "amount_in": _u128(quote["amountIn"]),
-                "amount_out": _u128(quote["amountOut"]),
-                "min_amount_out": _u128(quote["minAmountOut"]),
-                "amount_in_usd": str(quote["amountInUsd"]),
-                "amount_out_usd": str(quote["amountOutUsd"]),
-                "refund_fee": _u128(quote.get("refundFee")),
-                "quote_deadline_ms": _unix_ms(quote["deadline"]),
-                "time_estimate_s": int(Decimal(str(quote["timeEstimate"]))),
-            },
-        }
+        # The contract verifies 1Click's signature itself and reads every value from these
+        # bytes, so nothing here is a claim the caller could edit.
+        if response.get("quoteRequest", {}).get("dry"):
+            raise NearIntentsError("X3_NEAR_RECEIPT", "the receipt's quote is a dry quote; only a live quote can be accepted")
+        return {"nonce": nonce, "signed_payload": signed_quote_payload(response), "signature": response["signature"]}
     terminal = [s for s in receipt.get("status_history") or [] if s.get("terminal")]
     if not terminal:
         raise NearIntentsError(
