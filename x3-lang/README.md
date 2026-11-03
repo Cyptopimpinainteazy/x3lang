@@ -130,6 +130,47 @@ checks every term when the agent registers and again when it accepts a quote, an
 revoke the agent at once. The contract holds no funds; see its README for what that leaves to
 the wallet.
 
+### AI Money Agent (`near_agent.py`)
+
+A real model writes the agent's X3 program from an English request. The model is a writer, never
+a gate: what it writes is compiled and checked exactly like a hand-written program, so a
+prompt-injected or mistaken model can only produce a program that is refused.
+
+```text
+English request -> model -> X3 intent (untrusted) -> compiler -> `under mandate` + issued nonce
+  -> owner's mandate (file, or live from x3-guard) -> signed 1Click quote
+  -> owner approval of the program's SHA-256 -> x3-guard on NEAR (guard-args steps)
+```
+
+```bash
+export ANTHROPIC_API_KEY=...            # or X3_AGENT_PROVIDER=openai-compatible with
+                                        # X3_AGENT_BASE_URL=http://localhost:11434/v1 X3_AGENT_MODEL=...
+python3 x3-lang/near_agent.py pay "Pay x3-demo.near 25 USDC for invoice 4411" \
+  --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> --quote
+python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... --live --approve <sha256 from the dry run>
+python3 x3-lang/near_agent.py redteam --mandate ... --out-dir evidence/   # adversarial requests, real model
+```
+
+The request and any `--context` document go to the model as untrusted data. The pipeline issues
+the nonce and refuses a program that does not use it, and refuses one that is not
+`under mandate <owner>`. Then the mandate decides who may be paid, how much, in what, and where
+refunds go. A live quote needs the owner to approve this exact program by its SHA-256 (`--approve`,
+or typed at a prompt). Nothing here signs or sends the deposit.
+
+`redteam` sends eight attacks through the configured model: recipient substitution, overspend,
+splitting a payment to get around the cap, refund redirection, prompt injection in the request and
+in an attached invoice, a homoglyph recipient, and another asset. For each, it records the model's
+actual output and where the attack stopped. Exit 0 means every attack was refused.
+
+Keep demo payments at about 25 USDC or more under a 100 bps fee cap. 1Click's refund fee is close
+to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses the quote.
+
+| Part | Status |
+|---|---|
+| Anthropic and OpenAI-compatible clients | implemented; tested against recorded request and response shapes; not yet run against a live model |
+| Pipeline, checks and approval binding | implemented; 28 tests (`tests/test_near_agent.py`), including eight attacks a fooled model would attempt |
+| Live run with a real model, quote and x3-guard | not yet done: needs an API key, a deployed x3-guard and funds |
+
 Before quoting, NEAR receivers are checked on chain (`X3_NEAR_ACCOUNT_UNKNOWN`); 1Click itself
 answers a missing NEAR account with an unexplained HTTP 400.
 
