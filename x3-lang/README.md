@@ -103,6 +103,10 @@ enforced by a local nonce store. Refused by code rather than approximated: multi
 guards 1Click cannot enforce (`finality`, `proof_complete`, …), missing slippage or timeout,
 refunds in another asset, and `on_fail halt`/`quarantine`.
 
+Browser demo: `x3-lang/near/demo` is a static page that compiles an intent, fetches a real
+1Click dry quote, verifies its signature with WebCrypto and marks each program line with its
+verdict. A parity suite keeps it identical to this adapter.
+
 On-chain policy: `x3-lang/near/x3-guard` is a NEAR contract that stores the program's policy,
 re-runs the quote guards on chain, accepts one quote per nonce and records the outcome.
 `near_intents.py guard-args --receipt R --step register|quote|outcome` prints each call.

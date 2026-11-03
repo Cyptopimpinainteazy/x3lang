@@ -105,7 +105,16 @@ def _load(name: str):
     path = os.path.join(_HERE, f"{name}.py")
     spec = importlib.util.spec_from_file_location(f"x3lang_{name}", path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Sibling modules import `numeric` as a top-level module. Make sure this directory is on
+    # the path while they load, however this module itself was imported.
+    added = _HERE not in sys.path
+    if added:
+        sys.path.insert(0, _HERE)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if added:
+            sys.path.remove(_HERE)
     return module
 
 
