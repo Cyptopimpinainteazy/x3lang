@@ -1,0 +1,20 @@
+# Build outputs, caches, and credentials must never be included in an import.
+**/target/
+**/node_modules/
+**/.pytest_cache/
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/dist/
+**/build/
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+*.secret
+id_rsa
+id_ed25519
+.DS_Store

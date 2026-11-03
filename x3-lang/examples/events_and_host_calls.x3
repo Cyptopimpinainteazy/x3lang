@@ -1,0 +1,24 @@
+// `emit` and a host call — the two instructions whose payload the compiler wrote by hand.
+//
+// Both go to the host (`emit` to the EVM backend, a call to the SVM backend), and both used to
+// build an artifact the verifier refused with `X3_VERIFY_FAILED: InvalidOperand`: the emitter
+// formatted the payload itself as `"{name}:{args:?}"` while the shared decoder had no arm for
+// `EMIT` (`0x60`) or `CALL_HOST` (`0x61`), and the string it wrote carried the compiler's own Rust
+// `Debug` output. They are records now, and this is the smallest program that exercises them:
+//
+//     x3c build examples/events_and_host_calls.x3 -o /tmp/events.x3b
+//     x3c explain /tmp/events.x3b      # the event and the calls, as records
+//     x3c run /tmp/events.x3b          # executes every instruction
+
+// A subscription item states its rate and charges through the host by name.
+subscription keeper: 100, 30 {
+    emit Charged(100);
+}
+
+// `@subscribe` and `@sponsor` are host calls too: neither is a statement the VM can execute on
+// its own, so each asks the host for one by name.
+@subscribe(TransferDone)
+@sponsor
+fn main() {
+    emit TransferDone(1);
+}

@@ -1,0 +1,41 @@
+finality_policy strict {
+    chain polygon
+    requirement finalized
+    blocks 32
+}
+
+risk_policy {
+    min_route_score 90
+}
+
+intent multi_leg_portfolio {
+    from polygon.USDC amount 1000
+
+    route {
+        bridge X3 polygon.USDC -> arbitrum.USDC amount 400
+        // The absolute floor for this leg. Without one the swap has no floor at
+        // all: `min_output 0` accepts any output, so the structural IR verifier
+        // rejects it. The intent's `require slippage <= 120` is the tighter,
+        // run-time bound; this is the floor beneath it.
+        swap Uniswap polygon.USDC -> solana.SOL amount 300 min_output 250
+        bridge X3 polygon.USDC -> sui.SUI amount 200
+        bridge X3 polygon.USDC -> bitcoin.BTC amount 100
+    }
+
+    require nonce unused multi_leg_portfolio_001
+    require finality.polygon >= 32
+    require slippage <= 120
+    require route_score >= 90
+
+    timeout 600s refund polygon.USDC to sender
+    on_fail rollback
+}
+
+// The bridge above cannot be claimed on the far side without evidence that the
+// source chain locked the funds and that the destination chain filled them.
+// Those are this program's proof obligations, so it declares them rather than
+// leaving the verifier to warn about each one.
+proofs required {
+    source_lock_proof
+    destination_fill_proof
+}

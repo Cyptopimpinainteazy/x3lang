@@ -1,0 +1,2669 @@
+//! Atomic trading execution and the capability-controlled host boundary.
+//!
+//! The VM owns accounting, guard evaluation, atomic rollback, and receipt
+//! readiness. Venue and provider behavior is supplied through an explicit
+//! [`TradingHost`] capability implementation.
+
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use std::collections::{BTreeMap, BTreeSet};
+use std::error::Error;
+use std::fmt;
+
+use crate::profit::Profit;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use x3_lang_compiler::ir::{AssetKey, CompiledTradingPolicy, CostKind, InvariantKind, TradingOperation, ValueRef};
+
+/// Whether a capability manifest represents deterministic fixtures or a real
+/// production integration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityMode {
+    Fixture,
+    Production,
+}
+
+/// Execution mode requested by the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionMode {
+    Development,
+    Production,
+}
+
+/// Declared host capabilities. Fixture manifests can never satisfy production
+/// execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityManifest {
+    pub mode: CapabilityMode,
+    pub version: String,
+    pub chain: String,
+    /// The state every venue result has to report, and the commitment the receipt
+    /// carries.
+    ///
+    /// [`TradingVm::check_commitment`] refuses a result whose `state_commitment`
+    /// differs from this one, which is what makes a **dropped transaction**
+    /// distinguishable from a settled leg: a transaction that never landed leaves the
+    /// state where it started, so a venue reporting that honestly reports something
+    /// other than the state the plan expects to *end* at, and is refused. Declare the
+    /// state the plan expects to **end** at. Declaring the state it started from
+    /// inverts the check — the dropped leg is then the one that matches, and it
+    /// commits with a receipt.
+    ///
+    /// The field was undocumented and that inversion was reachable: measured, a
+    /// manifest anchored at the pre-state refuses the venue that reports the
+    /// post-state and commits the one whose transaction was dropped, with
+    /// `receipt_emitted = true`. Anchored at the post-state it is the other way round,
+    /// which is the behaviour PHASE 48's `dropped transaction` row relies on.
+    ///
+    /// `x3c receipt execute` derives this from the compiled bytecode
+    /// (`sha256_with_domain(&bytecode, b"x3c-receipt-execute-state-commitment")`) and
+    /// runs with a `CapabilityMode::Fixture` manifest under
+    /// `ExecutionMode::Development`; a fixture manifest is refused in production mode
+    /// (`TradingExecError::NonProductionCapability`), so that surface is an artifact
+    /// binding and not a claim about a chain's state.
+    pub state_commitment: [u8; 32],
+    pub private_submission: bool,
+    pub providers: BTreeSet<String>,
+    pub venues: BTreeSet<String>,
+    pub bridges: BTreeSet<String>,
+}
+
+/// Per-execution context supplied by the caller.
+/// Safety/economic policy values are compiled into the trading artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TradeExecutionContext {
+    pub mode: ExecutionMode,
+    pub current_block: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BorrowRequest {
+    pub provider: String,
+    pub asset: AssetKey,
+    pub principal: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BorrowResult {
+    pub asset: AssetKey,
+    pub principal: u128,
+    pub fee: u128,
+    pub state_commitment: [u8; 32],
+}
+
+/// A pre-execution price quote, requested before committing to a swap so
+/// the VM has a reference point to measure realized slippage against.
+/// `min_output` alone is an absolute floor set once at compile time; this
+/// is a live figure the host is expected to refresh per call, letting the
+/// VM catch "the market moved more than the policy allows" even when the
+/// actual output still clears that floor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuoteRequest {
+    pub venue: String,
+    pub from: AssetKey,
+    pub to: AssetKey,
+    pub input: u128,
+}
+
+/// An independent price reading, reported alongside the primary quote for
+/// oracle-firewall cross-checking. What "independent" means is a host
+/// concern (a second venue's pool, a TWAP, a signed off-chain feed) — the
+/// VM only ever compares numbers, it never trusts a source because of its
+/// name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PriceSource {
+    pub name: String,
+    pub expected_output: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuoteResult {
+    pub expected_output: u128,
+    /// Independent readings for the same route/input, for policies that
+    /// declare `max_oracle_deviation`. Empty means the host has no
+    /// cross-check data — which is only a problem if the policy actually
+    /// requires the check; see `enforce_oracle_firewall`.
+    pub sources: Vec<PriceSource>,
+    /// The block the quote was taken at, as reported by the host. Required, not
+    /// optional: a policy that declares `quote_freshness` cannot enforce a
+    /// ceiling without it, and a host that cannot say when its price was valid
+    /// has no business satisfying a policy that bounds quote age. The VM
+    /// measures age against the caller-supplied
+    /// `TradeExecutionContext::current_block`; the caller is responsible for
+    /// tying that block to the clock of the quote's own chain.
+    pub quote_block: u64,
+}
+
+/// A host-reported risk measurement tied to a named source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeasuredRisk {
+    pub source: String,
+    pub bps: u128,
+}
+
+/// `numerator` as basis points of `denominator`, rounded down.
+///
+/// The one place a ratio is computed, so the figure execution enforces and the figure a receipt
+/// carries cannot drift apart: `check_fee_bps`/`check_slippage_bps` compare its result against the
+/// compiled ceiling, and the receipt records the same value for replay to re-check.
+///
+/// `None` on overflow (a numerator above `u128::MAX / 10_000`), which callers turn into their own
+/// typed arithmetic error rather than silently recording a saturated figure.
+pub fn basis_points_of(numerator: u128, denominator: u128) -> Option<u128> {
+    numerator.checked_mul(10_000)?.checked_div(denominator.max(1))
+}
+
+/// Round the charged rate **up**, never down, when enforcing a fee ceiling.
+/// A charge of 10.01 bps must not pass an integer 10-bps maximum. Using the
+/// same helper for execution and receipt replay prevents economic drift.
+fn fee_basis_points_ceiling(numerator: u128, denominator: u128) -> Option<u128> {
+    let scaled = numerator.checked_mul(10_000)?;
+    let quotient = scaled.checked_div(denominator)?;
+    let remainder = scaled.checked_rem(denominator)?;
+    quotient.checked_add(u128::from(remainder != 0))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwapRequest {
+    pub venue: String,
+    pub from: AssetKey,
+    pub to: AssetKey,
+    pub input: u128,
+    pub min_output: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwapResult {
+    pub from: AssetKey,
+    pub to: AssetKey,
+    pub input: u128,
+    pub output: u128,
+    pub fee: u128,
+    pub fee_asset: AssetKey,
+    pub state_commitment: [u8; 32],
+}
+
+/// A cross-chain transfer request. No `min_output`/slippage: a bridge
+/// transfer is proven by a cryptographic inclusion/finality proof at
+/// settlement time, not a venue quote — see `x3_lang_vm::bridge` for the
+/// real proof-verification machinery a production host is expected to use
+/// to actually fulfill this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeRequest {
+    pub via: String,
+    pub from: AssetKey,
+    pub to: AssetKey,
+    pub input: u128,
+    pub receiver: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeTransferResult {
+    pub from: AssetKey,
+    pub to: AssetKey,
+    pub input: u128,
+    pub output: u128,
+    pub fee: u128,
+    pub fee_asset: AssetKey,
+    pub receiver: String,
+    pub state_commitment: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepayRequest {
+    pub debt_id: String,
+    pub asset: AssetKey,
+    pub amount: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepayResult {
+    pub debt_id: String,
+    pub asset: AssetKey,
+    pub amount_paid: u128,
+    pub fee: u128,
+    pub state_commitment: [u8; 32],
+}
+
+/// A cost committed by the host that must be included in net-profit checks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommittedCost {
+    pub asset: AssetKey,
+    pub amount: u128,
+    pub kind: String,
+}
+
+/// Host failure type. Production hosts should map transport/provider errors
+/// into explicit, stable variants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostError {
+    pub code: String,
+    pub message: String,
+}
+
+impl fmt::Display for HostError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
+impl Error for HostError {}
+
+/// Capability-controlled external venue/provider boundary.
+pub trait TradingHost {
+    fn capabilities(&self) -> &CapabilityManifest;
+
+    /// Begin a host-side transaction for an atomic trade.
+    ///
+    /// Production adapters must stage or journal external side effects after
+    /// this call so a later VM rejection can roll them back.
+    fn begin_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    /// Commit the host-side transaction after every VM invariant has passed.
+    fn commit_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    /// Roll back every staged host-side side effect for the current trade.
+    fn rollback_transaction(&mut self) -> Result<(), HostError> {
+        Ok(())
+    }
+
+    fn open_debt(&mut self, request: BorrowRequest) -> Result<BorrowResult, HostError>;
+    /// Return a live reference price for a prospective swap, requested
+    /// immediately before the swap itself so the VM can measure realized
+    /// slippage against it. Required, not optional: a host with no real
+    /// pricing source has no business claiming to satisfy a policy that
+    /// declares a slippage ceiling.
+    fn quote(&self, request: QuoteRequest) -> Result<QuoteResult, HostError>;
+    /// Report pre-execution estimated price impact, in basis points, for a
+    /// prospective swap. This check runs before swap(), never after.
+    /// `None` means this host has no source; a policy that declares
+    /// `max_price_impact` then fails closed.
+    fn price_impact(&self, _request: &QuoteRequest) -> Result<Option<MeasuredRisk>, HostError> {
+        Ok(None)
+    }
+    /// Report pre-execution estimated MEV exposure, in basis points, for a prospective swap.
+    /// Estimates cannot guarantee resistance to a future validator reorder.
+    /// `None` means no source; a policy that declares
+    /// `max_mev_leakage` fails closed.
+    fn mev_leakage(&self, _request: &QuoteRequest) -> Result<Option<MeasuredRisk>, HostError> {
+        Ok(None)
+    }
+    fn swap(&mut self, request: SwapRequest) -> Result<SwapResult, HostError>;
+    fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError>;
+    fn execution_costs(&self) -> Result<Vec<CommittedCost>, HostError>;
+
+    /// Move a settled amount to another chain through a bridge. Defaults
+    /// to a clear, explicit rejection: unlike `quote`/`swap`, most trades
+    /// never bridge at all, so a host with no bridging capability
+    /// shouldn't need to change to keep supporting everything else — but
+    /// a trade that *does* try to bridge against a host that can't must
+    /// fail closed, not silently no-op as if it succeeded. A real
+    /// production host is expected to fulfill this by delegating to
+    /// `x3_lang_vm::bridge`'s real proof-verifying `BridgeAdapter`
+    /// machinery, not by inventing its own verification.
+    fn bridge(&mut self, request: BridgeRequest) -> Result<BridgeTransferResult, HostError> {
+        let _ = request;
+        Err(HostError {
+            code: "X3_BRIDGE_NOT_SUPPORTED".to_string(),
+            message: "this host does not implement cross-chain bridging".to_string(),
+        })
+    }
+}
+
+/// Explicit VM-side trading execution errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TradingExecError {
+    NonProductionCapability,
+    CapabilityChainMismatch {
+        expected: String,
+        actual: String,
+    },
+    CapabilityVersionMismatch {
+        expected: u16,
+        actual: String,
+    },
+    PrivateSubmissionRequired,
+    InconsistentSubmissionProfile,
+    UnknownCapability(String),
+    UnsupportedOperation(String),
+    InvalidSequence(String),
+    /// The program fails the compiler's own verifier
+    /// (`x3_lang_compiler::verify::verify_trading_program`, the trading rules of `verify_ir`):
+    /// each entry is one diagnostic. A program that did not come from this build's compiler (a
+    /// network peer's, or bytes decoded with `decode_trading_program`) is held to the same rules as
+    /// one that did, before any host call.
+    RefusedByVerifier(Vec<String>),
+    HostRejected(HostError),
+    AssetMismatch(String),
+    OutputBelowMinOut {
+        minimum: u128,
+        actual: u128,
+    },
+    StateCommitmentMismatch,
+    DeadlineExpired {
+        current: u64,
+        deadline: u64,
+    },
+    FeeCeilingExceeded {
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    SlippageExceeded {
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    PriceImpactMeasurementMissing,
+    PriceImpactExceeded {
+        source: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    MevLeakageMeasurementMissing,
+    MevLeakageExceeded {
+        source: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    /// Policy requires an oracle-firewall check (`max_oracle_deviation` is
+    /// set) but the host reported zero independent price sources. Declaring
+    /// the requirement and then not being able to satisfy it fails closed,
+    /// the same way an unclaimed PrivateSubmissionRequired does.
+    OracleFirewallUnsatisfied,
+    OracleDeviationExceeded {
+        source: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    /// The venue quote the trade was about to be priced from is older than the
+    /// compiled `quote_freshness` ceiling allows. Trading against a stale price
+    /// is how a "profitable" route settles at a loss, so this fails closed
+    /// before the swap is attempted rather than after.
+    QuoteStale {
+        age_blocks: u64,
+        ceiling_blocks: u64,
+    },
+    OpenDebtAtCommit(String),
+    /// A compiled policy declares a minimum net profit and does not say which
+    /// asset it is denominated in.
+    ///
+    /// The floor cannot be checked against an unnamed asset, and checking it
+    /// against "whichever asset did best" is what the missing field used to
+    /// cause.
+    NetProfitFloorWithoutAsset,
+    /// The assembled profit decomposition and the recorded net delta disagree.
+    ///
+    /// They are two computations of one quantity — `net = credits - debits -
+    /// costs` is an identity of this accounting — so a disagreement means a
+    /// movement or a cost was recorded in one place and not the other, and any
+    /// profit figure taken from either side would be a guess.
+    ProfitReconciliationMismatch {
+        asset: AssetKey,
+        assembled: i128,
+        recorded: i128,
+    },
+    NetProfitBelowFloor {
+        minimum: i128,
+        actual: i128,
+    },
+    MissingReceipt,
+    AccountingOverflow,
+    InvariantViolated {
+        kind: InvariantKind,
+        asset: AssetKey,
+        deficit: i128,
+    },
+    GasCeilingExceeded {
+        asset: AssetKey,
+        ceiling: u128,
+        actual: u128,
+    },
+    /// Committing this trade would push the VM instance's running realized
+    /// total for `asset` — summed across every trade it has already
+    /// committed under a policy declaring `max_cumulative_loss` — below
+    /// `-ceiling`. A cross-trade circuit breaker, not a per-trade guard.
+    CumulativeLossCeilingExceeded {
+        asset: AssetKey,
+        ceiling: u128,
+        projected_loss: u128,
+    },
+    /// A host (or a receipt) reported a cost category that is not one of the
+    /// known `CostKind` values. Fail closed: an unclassifiable cost cannot be
+    /// checked against the policy's `allowed_cost_kinds` allowlist, so
+    /// accepting it would let a host escape that allowlist by inventing a
+    /// category name.
+    UnknownCostKind(String),
+    /// A cost was committed in a category the compiled policy's
+    /// `allowed_cost_kinds` allowlist does not permit. Enforced for both
+    /// host-reported execution costs and the fees the VM itself accrues for
+    /// borrow/swap/bridge/repay legs, so a venue cannot bypass the allowlist
+    /// by folding an unlisted cost into a leg fee.
+    CostKindNotAllowed {
+        kind: CostKind,
+        asset: AssetKey,
+    },
+}
+
+impl fmt::Display for TradingExecError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonProductionCapability => write!(f, "production execution rejected fixture capabilities"),
+            Self::CapabilityChainMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "compiled policy chain '{expected}' does not match host chain '{actual}'"
+                )
+            }
+            Self::CapabilityVersionMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "compiled policy version {expected} is not supported by host version '{actual}'"
+                )
+            }
+            Self::PrivateSubmissionRequired => write!(f, "compiled policy requires private submission capability"),
+            Self::InconsistentSubmissionProfile => {
+                write!(f, "legacy private-submission flag does not match submission profile")
+            }
+            Self::UnknownCapability(capability) => write!(f, "unknown capability '{capability}'"),
+            Self::UnsupportedOperation(operation) => write!(f, "unsupported operation '{operation}'"),
+            Self::InvalidSequence(message) => write!(f, "invalid atomic sequence: {message}"),
+            Self::RefusedByVerifier(diagnostics) => {
+                write!(f, "the IR verifier refuses this program: {}", diagnostics.join("; "))
+            }
+            Self::HostRejected(error) => write!(f, "host rejected the operation: {error}"),
+            Self::AssetMismatch(message) => write!(f, "asset mismatch: {message}"),
+            Self::OutputBelowMinOut { minimum, actual } => {
+                write!(f, "swap output {actual} is below min_out {minimum}")
+            }
+            Self::StateCommitmentMismatch => write!(f, "host state commitment does not match the manifest"),
+            Self::DeadlineExpired { current, deadline } => {
+                write!(f, "trade deadline expired at block {deadline} (current {current})")
+            }
+            Self::FeeCeilingExceeded {
+                ceiling_bps,
+                actual_bps,
+            } => {
+                write!(f, "host fee {actual_bps} bps exceeds ceiling {ceiling_bps} bps")
+            }
+            Self::SlippageExceeded {
+                ceiling_bps,
+                actual_bps,
+            } => {
+                write!(
+                    f,
+                    "realized slippage {actual_bps} bps exceeds compiled ceiling {ceiling_bps} bps"
+                )
+            }
+            Self::PriceImpactMeasurementMissing => write!(
+                f,
+                "compiled policy requires price-impact evidence but the host reported none"
+            ),
+            Self::PriceImpactExceeded {
+                source,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "price-impact source '{source}' reports {actual_bps} bps, exceeding the compiled ceiling {ceiling_bps} bps"
+            ),
+            Self::MevLeakageMeasurementMissing => write!(
+                f,
+                "compiled policy requires MEV-leakage evidence but the host reported none"
+            ),
+            Self::MevLeakageExceeded {
+                source,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "MEV-leakage source '{source}' reports {actual_bps} bps, exceeding the compiled ceiling {ceiling_bps} bps"
+            ),
+            Self::OracleFirewallUnsatisfied => write!(
+                f,
+                "compiled policy requires oracle-deviation cross-checking but the host reported no independent price sources"
+            ),
+            Self::OracleDeviationExceeded {
+                source,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "price source '{source}' deviates {actual_bps} bps from the primary quote, exceeding the compiled ceiling {ceiling_bps} bps"
+            ),
+            Self::QuoteStale {
+                age_blocks,
+                ceiling_blocks,
+            } => write!(
+                f,
+                "venue quote is {age_blocks} blocks old, exceeding the compiled quote_freshness ceiling of {ceiling_blocks} blocks"
+            ),
+            Self::OpenDebtAtCommit(debt) => write!(f, "debt '{debt}' is still open at commit"),
+            Self::NetProfitFloorWithoutAsset => write!(
+                f,
+                "compiled policy declares a minimum net profit with no asset; the floor cannot be \
+                 checked against an asset it does not name"
+            ),
+            Self::ProfitReconciliationMismatch {
+                asset,
+                assembled,
+                recorded,
+            } => write!(
+                f,
+                "profit decomposition for {}::{} is {assembled} but the recorded net delta is \
+                 {recorded}; the two are different computations of the same quantity, so one of them \
+                 is missing a movement or a cost",
+                asset.chain, asset.symbol
+            ),
+            Self::NetProfitBelowFloor { minimum, actual } => {
+                write!(f, "realized net profit {actual} is below floor {minimum}")
+            }
+            Self::MissingReceipt => write!(f, "borrowed-capital trade did not emit a receipt"),
+            Self::AccountingOverflow => write!(f, "checked trading accounting overflowed"),
+            Self::InvariantViolated { kind, asset, deficit } => write!(
+                f,
+                "invariant '{}' violated: {} nets to a deficit of {}",
+                kind.as_str(),
+                asset.symbol,
+                -deficit
+            ),
+            Self::GasCeilingExceeded { asset, ceiling, actual } => write!(
+                f,
+                "accrued {} cost {actual} exceeds compiled max_gas ceiling {ceiling}",
+                asset.symbol
+            ),
+            Self::CumulativeLossCeilingExceeded {
+                asset,
+                ceiling,
+                projected_loss,
+            } => write!(
+                f,
+                "committing this trade would bring cumulative {} losses to {projected_loss}, exceeding the compiled max_cumulative_loss ceiling {ceiling}",
+                asset.symbol
+            ),
+            Self::UnknownCostKind(kind) => write!(
+                f,
+                "host reported an unknown cost kind '{kind}' that no compiled policy can classify or bound"
+            ),
+            Self::CostKindNotAllowed { kind, asset } => write!(
+                f,
+                "cost kind '{}' is not permitted by the compiled policy's allowed_cost_kinds allowlist (charged in {})",
+                kind.as_str(),
+                asset.symbol
+            ),
+        }
+    }
+}
+
+impl Error for TradingExecError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebtRecord {
+    pub asset: AssetKey,
+    pub principal: u128,
+    pub fee: u128,
+}
+
+/// State touched by trading operations inside the atomic journal.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TradingState {
+    pub balances: BTreeMap<AssetKey, u128>,
+    pub open_debts: BTreeMap<String, DebtRecord>,
+    pub closed_debts: BTreeSet<String>,
+    pub closed_debt_records: BTreeMap<String, DebtRecord>,
+    pub bindings: BTreeMap<String, AssetKey>,
+    /// Per-asset rollup of every committed cost, used for the `max_gas`
+    /// ceiling. Lossy by design: it cannot say which category a cost was.
+    pub costs: BTreeMap<AssetKey, u128>,
+    /// Append-ordered ledger of every committed cost with its category
+    /// preserved. This is what receipts carry, so an independent verifier can
+    /// check each cost against the policy's `allowed_cost_kinds` allowlist.
+    /// Before this existed, receipts wrote the placeholder
+    /// `kind: "committed"` for every cost, which made `allowed_cost_kinds`
+    /// structurally unverifiable after the fact.
+    pub cost_ledger: Vec<CommittedCost>,
+    /// Everything credited to each asset, and everything debited from it.
+    ///
+    /// Recorded so the profit decomposition can be assembled from the parts and
+    /// then reconciled against `net_deltas`: `net = credits - debits - costs` is
+    /// an identity of this accounting, and a profit figure that disagrees with
+    /// the recorded delta means a movement or a cost was written in one place and
+    /// not the other.
+    pub credits: BTreeMap<AssetKey, u128>,
+    pub debits: BTreeMap<AssetKey, u128>,
+    pub net_deltas: BTreeMap<AssetKey, i128>,
+    /// The quote window each executed swap leg was priced in, in execution order.
+    ///
+    /// This is what a receipt carries, so an independent verifier can re-derive
+    /// the age `quote_freshness` bounds instead of trusting a conclusion.
+    pub leg_quote_windows: Vec<LegQuoteWindow>,
+    pub receipt_emitted: bool,
+    pub committed: bool,
+}
+
+/// Minimal VM-side atomic journal over trading state.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TradingVm {
+    pub trading_state: TradingState,
+    expected_commitment: Option<[u8; 32]>,
+    compiled_policy: Option<CompiledTradingPolicy>,
+    /// Realized net proceeds, per asset, summed across every trade this VM
+    /// instance has actually committed (never a simulated or failed one).
+    /// Lives for the lifetime of the `TradingVm`, not any single trade —
+    /// this is the state a cross-trade circuit breaker like
+    /// `max_cumulative_loss` reads and updates. A fresh `TradingVm::new()`
+    /// starts a fresh strategy session with an empty ledger.
+    cumulative_realized: BTreeMap<AssetKey, i128>,
+}
+
+/// Result of a successful atomic trading execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TradeExecution {
+    pub committed_state: TradingState,
+}
+
+impl TradingVm {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Execute a lowered trading operation sequence atomically. On success,
+    /// the host-side transaction is committed for real.
+    pub fn execute_atomic(
+        &mut self,
+        operations: &[TradingOperation],
+        host: &mut dyn TradingHost,
+        context: TradeExecutionContext,
+    ) -> Result<TradeExecution, TradingExecError> {
+        self.run_atomic(operations, host, context, true)
+    }
+
+    /// Run a trade through the exact same policy validation, host calls,
+    /// and guard checks as `execute_atomic` — but never let it land.
+    /// `host.commit_transaction()` is never called, `host.rollback_transaction()`
+    /// is always called, and `self.trading_state` is always restored to its
+    /// pre-call snapshot, whether the guards passed or failed.
+    ///
+    /// This is a real dry run against the real host, not a synthetic
+    /// re-implementation: it exercises the same `TradingHost` staging
+    /// contract (`begin_transaction`/`rollback_transaction`) that
+    /// production adapters already have to support for rollback-on-
+    /// rejection, so the projected `TradeExecution` returned on success
+    /// reflects exactly what would have committed. Useful for previewing a
+    /// trade — or screening many candidate routes — without paying for a
+    /// real settlement or risking a host-side transaction actually
+    /// landing.
+    ///
+    /// `committed_state.committed` on the returned execution reflects that
+    /// the trade's own `CommitAtomicTrade` guard passed, not that any host
+    /// funds moved: nothing a simulation returns is final.
+    pub fn simulate_atomic(
+        &mut self,
+        operations: &[TradingOperation],
+        host: &mut dyn TradingHost,
+        context: TradeExecutionContext,
+    ) -> Result<TradeExecution, TradingExecError> {
+        self.run_atomic(operations, host, context, false)
+    }
+
+    fn run_atomic(
+        &mut self,
+        operations: &[TradingOperation],
+        host: &mut dyn TradingHost,
+        context: TradeExecutionContext,
+        commit: bool,
+    ) -> Result<TradeExecution, TradingExecError> {
+        // The VM used to take the operation list on trust: its run-time guards catch a missing
+        // receipt or an open debt, but a sequence with *no* minimum-profit guard, no all-debts
+        // guard, a second receipt, a receipt before the guards, or an operation after the commit
+        // committed — measured on the fixture trade, all five returned `committed: true` while
+        // `verify_ir` refused each of them. The compiler runs `verify_ir` before it emits, so a
+        // compiled program always passed; a program from anywhere else did not have to. Now every
+        // program passes the same trading rules before the first host call.
+        if let Err(diagnostics) = x3_lang_compiler::verify::verify_trading_program(operations) {
+            return Err(TradingExecError::RefusedByVerifier(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| format!("{:?}: {}", diagnostic.code, diagnostic.message))
+                    .collect(),
+            ));
+        }
+        let manifest = host.capabilities();
+        if context.mode == ExecutionMode::Production && manifest.mode != CapabilityMode::Production {
+            return Err(TradingExecError::NonProductionCapability);
+        }
+        let first = operations
+            .first()
+            .ok_or_else(|| TradingExecError::InvalidSequence("empty trading program".to_string()))?;
+        let policy = match first {
+            TradingOperation::BeginAtomicTrade { policy, .. } => policy,
+            _ => {
+                return Err(TradingExecError::InvalidSequence(
+                    "trading program must begin with BeginAtomicTrade".to_string(),
+                ))
+            }
+        };
+        self.validate_compiled_policy(policy, manifest)?;
+        if context.current_block > policy.deadline_blocks {
+            return Err(TradingExecError::DeadlineExpired {
+                current: context.current_block,
+                deadline: policy.deadline_blocks,
+            });
+        }
+
+        let snapshot = self.trading_state.clone();
+        self.expected_commitment = Some(manifest.state_commitment);
+        self.compiled_policy = Some(policy.clone());
+
+        host.begin_transaction().map_err(TradingExecError::HostRejected)?;
+
+        let outcome = self.execute_inner(operations, host, context);
+        if commit {
+            match outcome {
+                Ok(execution) => {
+                    if let Err(error) = host.commit_transaction() {
+                        let _ = host.rollback_transaction();
+                        self.trading_state = snapshot;
+                        return Err(TradingExecError::HostRejected(error));
+                    }
+                    self.record_cumulative_realized(&execution.committed_state);
+                    Ok(execution)
+                }
+                Err(error) => {
+                    let rollback = host.rollback_transaction();
+                    self.trading_state = snapshot;
+                    if let Err(rollback_error) = rollback {
+                        return Err(TradingExecError::HostRejected(rollback_error));
+                    }
+                    Err(error)
+                }
+            }
+        } else {
+            // Simulation: always roll back and restore state, regardless
+            // of outcome — nothing is allowed to land. If the rollback
+            // itself fails, we can't vouch the host is actually clean, so
+            // that failure takes priority over handing back a projected
+            // "this would have succeeded" result.
+            let rollback = host.rollback_transaction();
+            self.trading_state = snapshot;
+            if let Err(rollback_error) = rollback {
+                return Err(TradingExecError::HostRejected(rollback_error));
+            }
+            outcome
+        }
+    }
+
+    fn execute_inner(
+        &mut self,
+        operations: &[TradingOperation],
+        host: &mut dyn TradingHost,
+        context: TradeExecutionContext,
+    ) -> Result<TradeExecution, TradingExecError> {
+        let mut saw_commit = false;
+        for operation in operations {
+            match operation {
+                TradingOperation::BeginAtomicTrade { .. } => {
+                    self.trading_state = TradingState::default();
+                }
+                TradingOperation::OpenDebt {
+                    debt_id,
+                    provider,
+                    asset,
+                    principal,
+                } => {
+                    if !host.capabilities().providers.contains(provider) {
+                        return Err(TradingExecError::UnknownCapability(provider.clone()));
+                    }
+                    let result = host
+                        .open_debt(BorrowRequest {
+                            provider: provider.clone(),
+                            asset: asset.clone(),
+                            principal: *principal,
+                        })
+                        .map_err(TradingExecError::HostRejected)?;
+                    self.check_commitment(&result.state_commitment)?;
+                    if &result.asset != asset || result.principal != *principal {
+                        return Err(TradingExecError::AssetMismatch(format!(
+                            "borrow result for {debt_id} does not match the requested asset/principal"
+                        )));
+                    }
+                    self.check_fee_bps(result.principal, result.fee, self.compiled_policy().max_flash_fee_bps)?;
+                    // The fee is owed here and paid with the repayment; it is accrued as a cost
+                    // once, when it is paid (below). Accruing it here as well counted it twice —
+                    // once as a cost and once inside the repayment debit — which the production
+                    // engine's differential suite exposed (x3lang_trading_differential.rs).
+                    if result.fee > 0
+                        && !self
+                            .compiled_policy()
+                            .allowed_cost_kinds
+                            .contains(&CostKind::FlashLiquidityFee)
+                    {
+                        return Err(TradingExecError::CostKindNotAllowed {
+                            kind: CostKind::FlashLiquidityFee,
+                            asset: asset.clone(),
+                        });
+                    }
+                    self.credit(asset, result.principal)?;
+                    self.trading_state.open_debts.insert(
+                        debt_id.clone(),
+                        DebtRecord {
+                            asset: asset.clone(),
+                            principal: result.principal,
+                            fee: result.fee,
+                        },
+                    );
+                }
+                TradingOperation::ExecuteSwap {
+                    binding,
+                    venue,
+                    from,
+                    to,
+                    input,
+                    min_output,
+                } => {
+                    if !host.capabilities().venues.contains(venue) {
+                        return Err(TradingExecError::UnknownCapability(venue.clone()));
+                    }
+                    let input_units = match input {
+                        ValueRef::Literal(amount) => *amount,
+                        ValueRef::Binding(name) => {
+                            if let Some((debt_id, _field)) = name.split_once('.') {
+                                self.trading_state
+                                    .open_debts
+                                    .get(debt_id)
+                                    .map(|debt| debt.principal)
+                                    .ok_or_else(|| {
+                                        TradingExecError::InvalidSequence(format!(
+                                            "binding '{name}' references unknown debt '{debt_id}'"
+                                        ))
+                                    })?
+                            } else {
+                                *self.trading_state.balances.get(from).unwrap_or(&0)
+                            }
+                        }
+                    };
+                    // Quote first, before the swap actually executes, so the
+                    // reference price can't be influenced by the swap's own
+                    // effects.
+                    let quote_request = QuoteRequest {
+                        venue: venue.clone(),
+                        from: from.clone(),
+                        to: to.clone(),
+                        input: input_units,
+                    };
+                    let quote = host
+                        .quote(quote_request.clone())
+                        .map_err(TradingExecError::HostRejected)?;
+                    // Checked before `swap()`, not after: a stale price must
+                    // abort the leg before the host is asked to move value, so
+                    // there is no host-side side effect to unwind.
+                    self.enforce_quote_freshness(&quote, context.current_block)?;
+                    // These are *pre-trade* risk bounds. Require the oracle,
+                    // price-impact, and MEV estimates before invoking a venue
+                    // with external side effects. A VM journal rollback cannot
+                    // undo a finalized on-chain swap; reporting a failure only
+                    // after `host.swap()` is far too late for prevention.
+                    let oracle_deviation_bps = match self.compiled_policy().max_oracle_deviation_bps {
+                        Some(ceiling_bps) => {
+                            Some(self.enforce_oracle_firewall(quote.expected_output, &quote.sources, ceiling_bps)?)
+                        }
+                        None => None,
+                    };
+                    let price_impact = host
+                        .price_impact(&quote_request)
+                        .map_err(TradingExecError::HostRejected)?;
+                    let mev_leakage = host
+                        .mev_leakage(&quote_request)
+                        .map_err(TradingExecError::HostRejected)?;
+                    self.enforce_price_impact(price_impact.clone())?;
+                    self.enforce_mev_leakage(mev_leakage.clone())?;
+                    let result = host
+                        .swap(SwapRequest {
+                            venue: venue.clone(),
+                            from: from.clone(),
+                            to: to.clone(),
+                            input: input_units,
+                            min_output: *min_output,
+                        })
+                        .map_err(TradingExecError::HostRejected)?;
+                    self.check_commitment(&result.state_commitment)?;
+                    if &result.from != from || &result.to != to || result.input != input_units {
+                        return Err(TradingExecError::AssetMismatch(format!(
+                            "swap result for {binding} does not match the requested route"
+                        )));
+                    }
+                    if result.output < *min_output {
+                        return Err(TradingExecError::OutputBelowMinOut {
+                            minimum: *min_output,
+                            actual: result.output,
+                        });
+                    }
+                    self.check_slippage_bps(
+                        quote.expected_output,
+                        result.output,
+                        self.compiled_policy().max_slippage_bps,
+                    )?;
+                    // The figure the ceiling above was checked against, recorded so a replay can
+                    // re-check it. Computed by the same helper, so the two cannot drift.
+                    let realized_slippage_bps = basis_points_of(
+                        quote.expected_output.saturating_sub(result.output),
+                        quote.expected_output,
+                    );
+                    self.debit(from, result.input)?;
+                    self.credit(to, result.output)?;
+                    self.accrue_cost(&result.fee_asset, result.fee, CostKind::LiquidityFee)?;
+                    self.trading_state.bindings.insert(binding.clone(), to.clone());
+                    // The window this leg was priced in, recorded with the
+                    // accounting rather than after it: the receipt is assembled
+                    // from this state, and an age that only exists inside this
+                    // function is one a receipt cannot carry (TICKET-017).
+                    self.trading_state.leg_quote_windows.push(LegQuoteWindow {
+                        venue: venue.clone(),
+                        quote_block: quote.quote_block,
+                        executed_at_block: context.current_block,
+                        price_impact,
+                        mev_leakage,
+                        realized_slippage_bps,
+                        oracle_deviation_bps,
+                    });
+                }
+                TradingOperation::Bridge {
+                    via,
+                    from,
+                    to,
+                    input,
+                    receiver,
+                } => {
+                    if !host.capabilities().bridges.contains(via) {
+                        return Err(TradingExecError::UnknownCapability(via.clone()));
+                    }
+                    let input_units = match input {
+                        ValueRef::Literal(amount) => *amount,
+                        ValueRef::Binding(name) => {
+                            if let Some((debt_id, _field)) = name.split_once('.') {
+                                self.trading_state
+                                    .open_debts
+                                    .get(debt_id)
+                                    .map(|debt| debt.principal)
+                                    .ok_or_else(|| {
+                                        TradingExecError::InvalidSequence(format!(
+                                            "binding '{name}' references unknown debt '{debt_id}'"
+                                        ))
+                                    })?
+                            } else {
+                                *self.trading_state.balances.get(from).unwrap_or(&0)
+                            }
+                        }
+                    };
+                    let result = host
+                        .bridge(BridgeRequest {
+                            via: via.clone(),
+                            from: from.clone(),
+                            to: to.clone(),
+                            input: input_units,
+                            receiver: receiver.clone(),
+                        })
+                        .map_err(TradingExecError::HostRejected)?;
+                    self.check_commitment(&result.state_commitment)?;
+                    if &result.from != from
+                        || &result.to != to
+                        || result.input != input_units
+                        || result.receiver != *receiver
+                    {
+                        return Err(TradingExecError::AssetMismatch(format!(
+                            "bridge result via {via} does not match the requested transfer"
+                        )));
+                    }
+                    if result.output == 0 {
+                        return Err(TradingExecError::AssetMismatch(format!(
+                            "bridge via {via} reported zero output"
+                        )));
+                    }
+                    self.debit(from, result.input)?;
+                    self.credit(to, result.output)?;
+                    // A bridge leg's fee is a cross-domain cost: the trade
+                    // paid a different domain to move value.
+                    self.accrue_cost(&result.fee_asset, result.fee, CostKind::CrossDomainFee)?;
+                }
+                TradingOperation::CloseDebt { debt_id } => {
+                    let record = self
+                        .trading_state
+                        .open_debts
+                        .get(debt_id)
+                        .cloned()
+                        .ok_or_else(|| TradingExecError::InvalidSequence(format!("unknown debt '{debt_id}'")))?;
+                    let required = record
+                        .principal
+                        .checked_add(record.fee)
+                        .ok_or(TradingExecError::AccountingOverflow)?;
+                    let result = host
+                        .close_debt(RepayRequest {
+                            debt_id: debt_id.clone(),
+                            asset: record.asset.clone(),
+                            amount: required,
+                        })
+                        .map_err(TradingExecError::HostRejected)?;
+                    self.check_commitment(&result.state_commitment)?;
+                    if result.debt_id != *debt_id || result.asset != record.asset {
+                        return Err(TradingExecError::AssetMismatch(format!(
+                            "repayment result for {debt_id} does not match the debt"
+                        )));
+                    }
+                    let paid = result
+                        .amount_paid
+                        .checked_add(result.fee)
+                        .ok_or(TradingExecError::AccountingOverflow)?;
+                    if paid < required {
+                        return Err(TradingExecError::AssetMismatch(format!(
+                            "repayment for {debt_id} is below principal plus fee"
+                        )));
+                    }
+                    // The repayment returns the principal and pays the fee owed since the borrow:
+                    // the principal (and any overpayment) is a debit, the fee a flash-liquidity cost
+                    // — counted once — plus any further fee the provider charged on repayment.
+                    let fee_paid = record
+                        .fee
+                        .checked_add(result.fee)
+                        .ok_or(TradingExecError::AccountingOverflow)?;
+                    self.debit(&record.asset, paid - fee_paid)?;
+                    self.accrue_cost(&record.asset, fee_paid, CostKind::FlashLiquidityFee)?;
+                    self.trading_state.open_debts.remove(debt_id);
+                    self.trading_state.closed_debts.insert(debt_id.clone());
+                    self.trading_state.closed_debt_records.insert(
+                        debt_id.clone(),
+                        DebtRecord {
+                            asset: record.asset,
+                            principal: record.principal,
+                            fee: record.fee,
+                        },
+                    );
+                }
+                TradingOperation::AssertMinNetProfit {
+                    settlement_asset,
+                    minimum,
+                } => {
+                    self.accrue_host_execution_costs(host)?;
+                    let actual = self.net_profit(settlement_asset)?;
+                    let minimum = i128::try_from(*minimum).map_err(|_| TradingExecError::AccountingOverflow)?;
+                    if actual < minimum {
+                        return Err(TradingExecError::NetProfitBelowFloor { minimum, actual });
+                    }
+                }
+                TradingOperation::AssertAllDebtsClosed => {
+                    if let Some((debt, _)) = self.trading_state.open_debts.iter().next() {
+                        return Err(TradingExecError::OpenDebtAtCommit(debt.clone()));
+                    }
+                }
+                TradingOperation::AssertInvariant { kind } => {
+                    self.accrue_host_execution_costs(host)?;
+                    match kind {
+                        InvariantKind::Solvent => {
+                            if let Some((asset, deficit)) =
+                                self.trading_state.net_deltas.iter().find(|(_, delta)| **delta < 0)
+                            {
+                                return Err(TradingExecError::InvariantViolated {
+                                    kind: *kind,
+                                    asset: asset.clone(),
+                                    deficit: *deficit,
+                                });
+                            }
+                        }
+                    }
+                }
+                TradingOperation::EmitTradeReceipt => {
+                    self.trading_state.receipt_emitted = true;
+                }
+                TradingOperation::CommitAtomicTrade => {
+                    if let Some((debt, _)) = self.trading_state.open_debts.iter().next() {
+                        return Err(TradingExecError::OpenDebtAtCommit(debt.clone()));
+                    }
+                    // Guaranteed, not conditional: a trade using a
+                    // policy-level minimum_net_profit instead of an
+                    // explicit `require net_profit`/`invariant solvent`
+                    // statement would otherwise never call
+                    // accrue_host_execution_costs, and the gas ceiling
+                    // would silently never be checked.
+                    self.accrue_host_execution_costs(host)?;
+                    self.trading_state.committed = true;
+                    saw_commit = true;
+                }
+                TradingOperation::AbortAtomicTrade => {
+                    return Err(TradingExecError::HostRejected(HostError {
+                        code: "X3_TRADING_ABORTED".to_string(),
+                        message: "trade aborted by explicit AbortAtomicTrade".to_string(),
+                    }));
+                }
+            }
+        }
+        if !saw_commit {
+            return Err(TradingExecError::InvalidSequence(
+                "trading program did not commit".to_string(),
+            ));
+        }
+        if !self.trading_state.open_debts.is_empty() {
+            return Err(TradingExecError::OpenDebtAtCommit(
+                self.trading_state.open_debts.keys().next().cloned().unwrap_or_default(),
+            ));
+        }
+        if !self.trading_state.closed_debts.is_empty() && !self.trading_state.receipt_emitted {
+            return Err(TradingExecError::MissingReceipt);
+        }
+        self.accrue_host_execution_costs(host)?;
+        if let Some(minimum) = self.compiled_policy().minimum_net_profit {
+            // The floor is denominated in the policy's settlement asset, so the
+            // check reads that asset. It used to take the *maximum* delta across
+            // every asset, which passed a trade that lost on the settlement asset
+            // whenever some side asset happened to gain.
+            let asset = self
+                .compiled_policy()
+                .minimum_net_profit_asset
+                .clone()
+                .ok_or(TradingExecError::NetProfitFloorWithoutAsset)?;
+            let actual = self.net_profit(&asset)?;
+            let minimum = i128::try_from(minimum).map_err(|_| TradingExecError::AccountingOverflow)?;
+            if actual < minimum {
+                return Err(TradingExecError::NetProfitBelowFloor { minimum, actual });
+            }
+        }
+        if let (Some(ceiling), Some(asset)) = (
+            self.compiled_policy().max_cumulative_loss,
+            self.compiled_policy().max_cumulative_loss_asset.clone(),
+        ) {
+            let prior = self.cumulative_realized.get(&asset).copied().unwrap_or(0);
+            let this_trade = self.trading_state.net_deltas.get(&asset).copied().unwrap_or(0);
+            let projected = prior
+                .checked_add(this_trade)
+                .ok_or(TradingExecError::AccountingOverflow)?;
+            let ceiling_i128 = i128::try_from(ceiling).map_err(|_| TradingExecError::AccountingOverflow)?;
+            if projected < -ceiling_i128 {
+                let projected_loss = u128::try_from(-projected).map_err(|_| TradingExecError::AccountingOverflow)?;
+                return Err(TradingExecError::CumulativeLossCeilingExceeded {
+                    asset,
+                    ceiling,
+                    projected_loss,
+                });
+            }
+        }
+        Ok(TradeExecution {
+            committed_state: self.trading_state.clone(),
+        })
+    }
+
+    /// Merge a just-committed trade's realized deltas into the VM's
+    /// cross-trade ledger. Only called from the real-commit path in
+    /// `run_atomic` — never for a simulated or failed trade — so
+    /// `max_cumulative_loss` only ever reflects trades that actually
+    /// landed. Uses `saturating_add`: by the time this runs, the host has
+    /// already committed for real, so a ledger update can no longer fail
+    /// the trade; the guard check above already used `checked_add` on the
+    /// one asset a policy actually cares about; a general ledger entry at
+    /// the practical limits of `i128` is not a case worth failing an
+    /// already-landed trade over.
+    fn record_cumulative_realized(&mut self, state: &TradingState) {
+        for (asset, delta) in &state.net_deltas {
+            let entry = self.cumulative_realized.entry(asset.clone()).or_insert(0);
+            *entry = entry.saturating_add(*delta);
+        }
+    }
+
+    /// Realized net proceeds for `asset`, summed across every trade this
+    /// VM instance has committed so far (0 if the asset has never been
+    /// touched by a committed trade). Never affected by `simulate_atomic`.
+    pub fn cumulative_realized(&self, asset: &AssetKey) -> i128 {
+        self.cumulative_realized.get(asset).copied().unwrap_or(0)
+    }
+
+    fn validate_compiled_policy(
+        &self,
+        policy: &CompiledTradingPolicy,
+        manifest: &CapabilityManifest,
+    ) -> Result<(), TradingExecError> {
+        if !policy.submission_profile_is_consistent() {
+            return Err(TradingExecError::InconsistentSubmissionProfile);
+        }
+        if policy.chain != manifest.chain {
+            return Err(TradingExecError::CapabilityChainMismatch {
+                expected: policy.chain.clone(),
+                actual: manifest.chain.clone(),
+            });
+        }
+        let supported_version = manifest
+            .version
+            .strip_prefix("trading-policy-v")
+            .and_then(|value| value.parse::<u16>().ok());
+        if supported_version != Some(policy.policy_version) {
+            return Err(TradingExecError::CapabilityVersionMismatch {
+                expected: policy.policy_version,
+                actual: manifest.version.clone(),
+            });
+        }
+        if policy.require_private_submission && !manifest.private_submission {
+            return Err(TradingExecError::PrivateSubmissionRequired);
+        }
+        Ok(())
+    }
+
+    fn compiled_policy(&self) -> &CompiledTradingPolicy {
+        self.compiled_policy
+            .as_ref()
+            .expect("compiled policy must be set before execution")
+    }
+
+    fn accrue_host_execution_costs(&mut self, host: &dyn TradingHost) -> Result<(), TradingExecError> {
+        let costs = host.execution_costs().map_err(TradingExecError::HostRejected)?;
+        for cost in costs {
+            // Classify before accruing. An unparseable category used to be
+            // silently discarded along with the rest of the report's
+            // structure; now it is a hard failure, because a cost the policy
+            // cannot classify is a cost the policy cannot bound.
+            let kind =
+                CostKind::from_str(&cost.kind).ok_or_else(|| TradingExecError::UnknownCostKind(cost.kind.clone()))?;
+            let already = self.trading_state.costs.get(&cost.asset).copied().unwrap_or(0);
+            if cost.amount > already {
+                self.accrue_cost(&cost.asset, cost.amount - already, kind)?;
+            }
+        }
+        self.enforce_gas_ceiling()
+    }
+
+    /// Compiled `max_gas` used to be dead metadata — parsed, carried through
+    /// IR, never actually checked against anything. This is the actual
+    /// enforcement: total accrued cost in the policy's declared gas asset
+    /// must not exceed the compiled ceiling.
+    fn enforce_gas_ceiling(&self) -> Result<(), TradingExecError> {
+        let policy = self.compiled_policy();
+        let actual = self
+            .trading_state
+            .costs
+            .get(&policy.max_gas_asset)
+            .copied()
+            .unwrap_or(0);
+        if actual > policy.max_gas {
+            return Err(TradingExecError::GasCeilingExceeded {
+                asset: policy.max_gas_asset.clone(),
+                ceiling: policy.max_gas,
+                actual,
+            });
+        }
+        Ok(())
+    }
+
+    fn check_commitment(&self, commitment: &[u8; 32]) -> Result<(), TradingExecError> {
+        // The host result commitment must equal the manifest commitment the
+        // caller supplied to the capability boundary.
+        let manifest_commitment = self
+            .expected_commitment
+            .ok_or(TradingExecError::StateCommitmentMismatch)?;
+        if commitment != &manifest_commitment {
+            return Err(TradingExecError::StateCommitmentMismatch);
+        }
+        Ok(())
+    }
+
+    fn check_fee_bps(&self, principal: u128, fee: u128, ceiling_bps: u16) -> Result<(), TradingExecError> {
+        let actual_bps = fee_basis_points_ceiling(fee, principal).ok_or(TradingExecError::AccountingOverflow)?;
+        if actual_bps > ceiling_bps as u128 {
+            return Err(TradingExecError::FeeCeilingExceeded {
+                ceiling_bps,
+                actual_bps,
+            });
+        }
+        Ok(())
+    }
+
+    fn enforce_price_impact(&self, measurement: Option<MeasuredRisk>) -> Result<(), TradingExecError> {
+        let Some(ceiling_bps) = self.compiled_policy().max_price_impact_bps else {
+            return Ok(());
+        };
+        let measurement = measurement.ok_or(TradingExecError::PriceImpactMeasurementMissing)?;
+        if measurement.bps > ceiling_bps as u128 {
+            return Err(TradingExecError::PriceImpactExceeded {
+                source: measurement.source,
+                ceiling_bps,
+                actual_bps: measurement.bps,
+            });
+        }
+        Ok(())
+    }
+
+    fn enforce_mev_leakage(&self, measurement: Option<MeasuredRisk>) -> Result<(), TradingExecError> {
+        let Some(ceiling_bps) = self.compiled_policy().max_mev_leakage_bps else {
+            return Ok(());
+        };
+        let measurement = measurement.ok_or(TradingExecError::MevLeakageMeasurementMissing)?;
+        if measurement.bps > ceiling_bps as u128 {
+            return Err(TradingExecError::MevLeakageExceeded {
+                source: measurement.source,
+                ceiling_bps,
+                actual_bps: measurement.bps,
+            });
+        }
+        Ok(())
+    }
+
+    /// Realized slippage is only ever a shortfall against the quote: an
+    /// `actual` at or above `expected` is zero slippage (or better than
+    /// quoted), never negative. `min_output` is a separate, absolute floor
+    /// checked elsewhere — this catches "still above the floor, but worse
+    /// than the policy's tolerance for how far the market can move."
+    fn check_slippage_bps(&self, expected: u128, actual: u128, ceiling_bps: u16) -> Result<(), TradingExecError> {
+        let actual_bps =
+            basis_points_of(expected.saturating_sub(actual), expected).ok_or(TradingExecError::AccountingOverflow)?;
+        if actual_bps > ceiling_bps as u128 {
+            return Err(TradingExecError::SlippageExceeded {
+                ceiling_bps,
+                actual_bps,
+            });
+        }
+        Ok(())
+    }
+
+    /// Reject a venue quote older than the compiled `quote_freshness` ceiling.
+    ///
+    /// Age is measured against the caller-supplied `current_block`. A quote
+    /// whose block is *ahead* of `current_block` saturates to age 0 rather than
+    /// being rejected: a trade's policy chain and a destination-chain venue do
+    /// not share a block clock, so a quote block above the policy chain's
+    /// current block is an ordinary cross-chain reading, not evidence of
+    /// staleness.
+    ///
+    /// A policy that does not declare `quote_freshness` imposes no bound, so
+    /// this is a no-op for it.
+    fn enforce_quote_freshness(&self, quote: &QuoteResult, current_block: u64) -> Result<(), TradingExecError> {
+        let Some(ceiling_blocks) = self.compiled_policy().quote_freshness_blocks else {
+            return Ok(());
+        };
+        let age_blocks = current_block.saturating_sub(quote.quote_block);
+        if age_blocks > ceiling_blocks {
+            return Err(TradingExecError::QuoteStale {
+                age_blocks,
+                ceiling_blocks,
+            });
+        }
+        Ok(())
+    }
+
+    /// Cross-check the primary quote against every independent source the
+    /// host reported. Deviation is measured both directions — a source
+    /// quoting *higher* than the primary is just as much a disagreement
+    /// (and just as suspicious a manipulation signal) as one quoting lower.
+    /// A policy that opts into this check and gets zero sources back fails
+    /// closed rather than silently skipping the check it asked for.
+    /// Returns the largest deviation measured, which the leg's receipt window records so a replay
+    /// can re-check the ceiling.
+    fn enforce_oracle_firewall(
+        &self,
+        primary_expected: u128,
+        sources: &[PriceSource],
+        ceiling_bps: u16,
+    ) -> Result<u128, TradingExecError> {
+        if sources.is_empty() {
+            return Err(TradingExecError::OracleFirewallUnsatisfied);
+        }
+        let mut largest_bps = 0u128;
+        for source in sources {
+            let diff = primary_expected.abs_diff(source.expected_output);
+            // `basis_points_of`, so the figure enforced here and the figure the receipt carries are
+            // computed by one function (it is the same arithmetic this used to spell out inline).
+            let actual_bps = basis_points_of(diff, primary_expected).ok_or(TradingExecError::AccountingOverflow)?;
+            largest_bps = largest_bps.max(actual_bps);
+            if actual_bps > ceiling_bps as u128 {
+                return Err(TradingExecError::OracleDeviationExceeded {
+                    source: source.name.clone(),
+                    ceiling_bps,
+                    actual_bps,
+                });
+            }
+        }
+        Ok(largest_bps)
+    }
+
+    fn credit(&mut self, asset: &AssetKey, amount: u128) -> Result<(), TradingExecError> {
+        let entry = self.trading_state.balances.entry(asset.clone()).or_insert(0);
+        *entry = entry.checked_add(amount).ok_or(TradingExecError::AccountingOverflow)?;
+        let credited = self.trading_state.credits.entry(asset.clone()).or_insert(0);
+        *credited = credited
+            .checked_add(amount)
+            .ok_or(TradingExecError::AccountingOverflow)?;
+        let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
+        *delta = delta
+            .checked_add(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
+            .ok_or(TradingExecError::AccountingOverflow)?;
+        Ok(())
+    }
+
+    fn debit(&mut self, asset: &AssetKey, amount: u128) -> Result<(), TradingExecError> {
+        let entry = self.trading_state.balances.entry(asset.clone()).or_insert(0);
+        *entry = entry.checked_sub(amount).ok_or(TradingExecError::AccountingOverflow)?;
+        let debited = self.trading_state.debits.entry(asset.clone()).or_insert(0);
+        *debited = debited
+            .checked_add(amount)
+            .ok_or(TradingExecError::AccountingOverflow)?;
+        let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
+        *delta = delta
+            .checked_sub(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
+            .ok_or(TradingExecError::AccountingOverflow)?;
+        Ok(())
+    }
+
+    /// Commit `amount` of `asset` as a cost of category `kind`.
+    ///
+    /// The category is validated against the compiled policy's
+    /// `allowed_cost_kinds` allowlist *before* any accounting state is
+    /// touched, so a rejected cost leaves balances and net deltas exactly as
+    /// they were. A zero amount is not a cost and is skipped: failing a trade
+    /// because a host reported a zero-amount category the policy happens not
+    /// to list would be noise, not safety.
+    fn accrue_cost(&mut self, asset: &AssetKey, amount: u128, kind: CostKind) -> Result<(), TradingExecError> {
+        if amount == 0 {
+            return Ok(());
+        }
+        if !self.compiled_policy().allowed_cost_kinds.contains(&kind) {
+            return Err(TradingExecError::CostKindNotAllowed {
+                kind,
+                asset: asset.clone(),
+            });
+        }
+        let entry = self.trading_state.costs.entry(asset.clone()).or_insert(0);
+        *entry = entry.checked_add(amount).ok_or(TradingExecError::AccountingOverflow)?;
+        let delta = self.trading_state.net_deltas.entry(asset.clone()).or_insert(0);
+        *delta = delta
+            .checked_sub(i128::try_from(amount).map_err(|_| TradingExecError::AccountingOverflow)?)
+            .ok_or(TradingExecError::AccountingOverflow)?;
+        self.trading_state.cost_ledger.push(CommittedCost {
+            asset: asset.clone(),
+            amount,
+            kind: kind.as_str().to_string(),
+        });
+        Ok(())
+    }
+
+    /// Assemble the profit decomposition for one asset from the ledger.
+    ///
+    /// `gross` is what was credited to the asset and `principal` what was
+    /// debited from it — in this accounting those are the proceeds and the
+    /// capital committed. The safety buffer is zero because the policy declares
+    /// none: the spec lists one, the language has no field for it, and a
+    /// non-zero figure here would be invented.
+    ///
+    /// The result is reconciled against the recorded net delta before it is
+    /// returned. The two must agree, and a mismatch is an error rather than a
+    /// preference for one of them.
+    pub fn profit(&self, asset: &AssetKey) -> Result<Profit, TradingExecError> {
+        let costs: Vec<crate::profit::LedgerCost> = self
+            .trading_state
+            .cost_ledger
+            .iter()
+            .filter(|cost| &cost.asset == asset)
+            .map(|cost| crate::profit::LedgerCost {
+                amount: cost.amount,
+                kind: cost.kind.clone(),
+            })
+            .collect();
+        let profit = Profit::from_ledger(
+            self.trading_state.credits.get(asset).copied().unwrap_or(0),
+            self.trading_state.debits.get(asset).copied().unwrap_or(0),
+            0,
+            &costs,
+        )
+        .map_err(|unknown| TradingExecError::UnknownCostKind(unknown.0))?;
+
+        let recorded = self.trading_state.net_deltas.get(asset).copied().unwrap_or(0);
+        if profit.net != recorded {
+            return Err(TradingExecError::ProfitReconciliationMismatch {
+                asset: asset.clone(),
+                assembled: profit.net,
+                recorded,
+            });
+        }
+        Ok(profit)
+    }
+
+    /// The realised net profit for an asset, signed: a loss is negative.
+    pub fn net_profit(&self, asset: &AssetKey) -> Result<i128, TradingExecError> {
+        Ok(self.profit(asset)?.net)
+    }
+}
+
+/// Helper for constructing a deterministic capability manifest in tests or
+/// fixture execution.
+pub fn fixture_manifest(state_commitment: [u8; 32]) -> CapabilityManifest {
+    CapabilityManifest {
+        mode: CapabilityMode::Fixture,
+        version: "trading-policy-v1".to_string(),
+        chain: "ethereum".to_string(),
+        state_commitment,
+        private_submission: false,
+        providers: BTreeSet::new(),
+        venues: BTreeSet::new(),
+        bridges: BTreeSet::new(),
+    }
+}
+
+/// Success or failure classification carried by a trade receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TradeOutcome {
+    Success,
+    Failure { reason: String },
+}
+
+/// Typed amount inside a receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypedReceiptAmount {
+    pub asset: AssetKey,
+    pub amount: u128,
+}
+
+/// Final per-asset delta committed by the trade.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetDelta {
+    pub asset: AssetKey,
+    pub delta: i128,
+}
+
+/// Debt repayment status recorded in a receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DebtReceipt {
+    pub debt_id: String,
+    pub asset: AssetKey,
+    pub principal: u128,
+    pub fee: u128,
+    pub repaid: bool,
+}
+
+/// The block a swap leg was priced from, and the block its swap executed at.
+///
+/// Both numbers are recorded because the quantity `quote_freshness` bounds is
+/// their difference: a receipt carrying only an age would state the conclusion and
+/// leave nothing to re-derive it from. Both are inside the receipt hash, so the
+/// window a receipt claims cannot be edited without invalidating it, and
+/// `verify_receipt_economics` re-checks the age against the compiled policy — which
+/// it could not do while the receipt did not carry the window (TICKET-017).
+///
+/// `realized_slippage_bps` is carried for the same reason: `max_slippage_bps` is a ceiling on a
+/// quantity only the run can measure (how far the venue's output fell short of its quote), so a
+/// receipt that did not carry it left the ceiling unverifiable at replay. It is computed by the
+/// same helper that enforces the ceiling, so the figure a replay re-checks is the figure execution
+/// checked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LegQuoteWindow {
+    /// The venue the leg traded on. Carried so a window can be matched to the
+    /// executed swap rather than to a position in a list.
+    pub venue: String,
+    pub quote_block: u64,
+    pub executed_at_block: u64,
+    #[serde(default)]
+    pub price_impact: Option<MeasuredRisk>,
+    #[serde(default)]
+    pub mev_leakage: Option<MeasuredRisk>,
+    /// Slippage of this leg in basis points of the quote's expected output, `None` for a receipt
+    /// written before the field existed (format version 2 and earlier) or a leg that did not run
+    /// through a quote.
+    #[serde(default)]
+    pub realized_slippage_bps: Option<u128>,
+    /// The largest disagreement, in basis points of the primary quote, between this leg's quote
+    /// and the independent price sources the host reported. `Some` only when the compiled policy
+    /// declares `max_oracle_deviation_bps` (the only case the sources are consulted); `None` for a
+    /// receipt written before format version 4.
+    #[serde(default)]
+    pub oracle_deviation_bps: Option<u128>,
+}
+
+impl LegQuoteWindow {
+    /// How old the quote was when the leg executed.
+    ///
+    /// Saturating, for the reason `enforce_quote_freshness` gives: a quote block
+    /// *ahead* of the execution block is an ordinary cross-chain reading rather
+    /// than evidence of staleness, so it saturates to zero instead of wrapping.
+    pub fn age_blocks(&self) -> u64 {
+        self.executed_at_block.saturating_sub(self.quote_block)
+    }
+}
+
+/// Deterministic, tamper-evident trading receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TradeReceipt {
+    pub format_version: u16,
+    pub compiler_version: String,
+    pub artifact_hash: [u8; 32],
+    pub trade_id: String,
+    pub policy_id: String,
+    pub state_commitment: [u8; 32],
+    pub operations: Vec<TradingOperation>,
+    pub costs: Vec<CommittedCost>,
+    pub debts: Vec<DebtReceipt>,
+    pub deltas: Vec<AssetDelta>,
+    /// The quote window of every swap leg in `operations`, in the same order.
+    ///
+    /// Carried because `quote_freshness` bounds the age of the price a leg traded
+    /// against, and an age is only checkable from the two blocks it is the
+    /// difference of. Absent for a policy that declares no ceiling, and then
+    /// informational — `verify_receipt_economics` refuses a receipt whose leg was
+    /// priced outside the ceiling (TICKET-017).
+    pub legs: Vec<LegQuoteWindow>,
+    pub realized_net_profit: Option<TypedReceiptAmount>,
+    pub outcome: TradeOutcome,
+    pub receipt_hash: [u8; 32],
+    pub attestation: Option<ReceiptAttestation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiptAttestation {
+    pub key_id: String,
+    pub public_key: [u8; 32],
+    pub signature: Vec<u8>,
+}
+
+/// Receipt encoding and validation errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceiptError {
+    Encoding(String),
+    HashMismatch {
+        expected: [u8; 32],
+        actual: [u8; 32],
+    },
+    OpenDebtInSuccessfulReceipt(String),
+    ProfitInFailedReceipt,
+    EmptyOperationList,
+    EconomicReplayMismatch(String),
+    MissingAttestation,
+    UntrustedAttestor(String),
+    /// The attestor is in the key registry and has been revoked: a key that may be compromised,
+    /// so nothing it signed is accepted, including receipts signed before the revocation.
+    RevokedAttestor(String),
+    InvalidAttestation,
+    /// This exact receipt (by `receipt_hash`) has already been accepted by
+    /// this `ReceiptReplayLedger` once before. Distinct from
+    /// `EconomicReplayMismatch`, which is about re-deriving a receipt's
+    /// reported numbers from its own operations — this is about the same
+    /// valid, correctly signed receipt being presented for settlement a
+    /// second time.
+    ReceiptAlreadySettled([u8; 32]),
+    /// The receipt's realized net for `asset` is below the profit floor its operation sequence
+    /// states. `AssertMinNetProfit` is the source-level floor the trade ran under; a receipt is
+    /// checked against it rather than against its own arithmetic alone.
+    ProfitBelowCompiledFloor {
+        asset: AssetKey,
+        floor: u128,
+        realized: i128,
+    },
+    /// The compiled policy states a profit floor without the asset it is denominated in, so the
+    /// floor cannot be read against any realized figure. Fail closed rather than assume an asset.
+    ProfitFloorWithoutAsset,
+    /// A swap leg the receipt records carries no realized slippage figure, so the artifact's
+    /// `max_slippage_bps` ceiling cannot be re-derived for it. A receipt written before format
+    /// version 3 is such a receipt.
+    MissingRealizedSlippage {
+        venue: String,
+    },
+    /// The receipt's realized slippage for a leg exceeds the artifact's `max_slippage_bps`.
+    SlippageExceeded {
+        venue: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    /// The artifact declares `max_oracle_deviation_bps`, and the receipt's window for a leg
+    /// carries no oracle deviation (a receipt before format version 4, or one that dropped it).
+    MissingOracleDeviation {
+        venue: String,
+    },
+    /// The receipt's largest oracle deviation for a leg exceeds the artifact's ceiling.
+    OracleDeviationExceeded {
+        venue: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+    /// The receipt's costs in the policy's gas asset sum past the artifact's `max_gas`.
+    GasCeilingExceeded {
+        ceiling: u128,
+        actual: u128,
+    },
+    /// The receipt's fee on a debt exceeds the artifact's `max_flash_fee_bps`.
+    FeeCeilingExceeded {
+        debt_id: String,
+        ceiling_bps: u16,
+        actual_bps: u128,
+    },
+}
+
+impl fmt::Display for ReceiptError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Encoding(message) => write!(f, "receipt encoding error: {message}"),
+            Self::HashMismatch { expected, actual } => {
+                write!(f, "receipt hash mismatch: expected {expected:?}, actual {actual:?}")
+            }
+            Self::OpenDebtInSuccessfulReceipt(debt) => {
+                write!(f, "successful receipt contains open debt '{debt}'")
+            }
+            Self::ProfitInFailedReceipt => write!(f, "failed receipt must not report realized profit"),
+            Self::EmptyOperationList => write!(f, "receipt must contain at least one operation"),
+            Self::EconomicReplayMismatch(message) => write!(f, "receipt economic replay mismatch: {message}"),
+            Self::MissingAttestation => write!(f, "receipt is missing a trusted attestation"),
+            Self::UntrustedAttestor(key_id) => write!(f, "receipt attestor '{key_id}' is not trusted"),
+            Self::RevokedAttestor(key_id) => {
+                write!(f, "receipt attestor '{key_id}' is revoked in the key registry")
+            }
+            Self::InvalidAttestation => write!(f, "receipt attestation signature is invalid"),
+            Self::ReceiptAlreadySettled(hash) => {
+                write!(f, "receipt {hash:?} has already been settled once")
+            }
+            Self::ProfitBelowCompiledFloor { asset, floor, realized } => write!(
+                f,
+                "receipt's realized net for {} is {realized}, below the compiled profit floor {floor}",
+                asset.symbol
+            ),
+            Self::ProfitFloorWithoutAsset => write!(
+                f,
+                "the compiled policy states a profit floor without the asset it is denominated in"
+            ),
+            Self::MissingOracleDeviation { venue } => write!(
+                f,
+                "receipt records no oracle deviation for the leg on venue '{venue}', so the \
+                 compiled max_oracle_deviation_bps ceiling cannot be re-derived"
+            ),
+            Self::OracleDeviationExceeded {
+                venue,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "leg on venue '{venue}' reports an oracle deviation of {actual_bps} bps, exceeding \
+                 the compiled ceiling of {ceiling_bps} bps"
+            ),
+            Self::GasCeilingExceeded { ceiling, actual } => write!(
+                f,
+                "receipt costs in the policy's gas asset total {actual}, exceeding the compiled \
+                 max_gas ceiling {ceiling}"
+            ),
+            Self::MissingRealizedSlippage { venue } => write!(
+                f,
+                "receipt records no realized slippage for the leg on venue '{venue}', so the \
+                 compiled max_slippage_bps ceiling cannot be re-derived"
+            ),
+            Self::SlippageExceeded {
+                venue,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "leg on venue '{venue}' slipped {actual_bps} bps, exceeding the compiled \
+                 max_slippage_bps ceiling of {ceiling_bps} bps"
+            ),
+            Self::FeeCeilingExceeded {
+                debt_id,
+                ceiling_bps,
+                actual_bps,
+            } => write!(
+                f,
+                "debt '{debt_id}' was charged {actual_bps} bps, exceeding the compiled \
+                 max_flash_fee_bps ceiling of {ceiling_bps} bps"
+            ),
+        }
+    }
+}
+
+impl Error for ReceiptError {}
+
+/// Canonical receipt bytes with `receipt_hash` zeroed.
+pub fn canonical_receipt_bytes(receipt: &TradeReceipt) -> Result<Vec<u8>, ReceiptError> {
+    let mut canonical = receipt.clone();
+    canonical.receipt_hash = [0u8; 32];
+    canonical.attestation = None;
+    serde_json::to_vec(&canonical).map_err(|err| ReceiptError::Encoding(err.to_string()))
+}
+
+/// Compute the deterministic receipt hash over canonical bytes.
+pub fn compute_receipt_hash(receipt: &TradeReceipt) -> Result<[u8; 32], ReceiptError> {
+    let bytes = canonical_receipt_bytes(receipt)?;
+    let digest = Sha256::digest(bytes);
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&digest);
+    Ok(hash)
+}
+
+/// Fill in a receipt's hash from its canonical encoding.
+pub fn finalize_receipt(mut receipt: TradeReceipt) -> Result<TradeReceipt, ReceiptError> {
+    receipt.receipt_hash = compute_receipt_hash(&receipt)?;
+    Ok(receipt)
+}
+
+/// Verify a receipt hash and its accounting/tamper invariants.
+pub fn verify_receipt(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
+    if receipt.operations.is_empty() {
+        return Err(ReceiptError::EmptyOperationList);
+    }
+    let actual = compute_receipt_hash(receipt)?;
+    if actual != receipt.receipt_hash {
+        return Err(ReceiptError::HashMismatch {
+            expected: receipt.receipt_hash,
+            actual,
+        });
+    }
+    match &receipt.outcome {
+        TradeOutcome::Failure { .. } => {
+            if receipt.realized_net_profit.is_some() {
+                return Err(ReceiptError::ProfitInFailedReceipt);
+            }
+        }
+        TradeOutcome::Success => {
+            if let Some(debt) = receipt.debts.iter().find(|debt| !debt.repaid) {
+                return Err(ReceiptError::OpenDebtInSuccessfulReceipt(debt.debt_id.clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptError> {
+    let first = receipt.operations.first().ok_or(ReceiptError::EmptyOperationList)?;
+    let (trade_id, compiled_policy) = match first {
+        TradingOperation::BeginAtomicTrade { trade_id, policy } => (trade_id, policy),
+        _ => {
+            return Err(ReceiptError::EconomicReplayMismatch(
+                "operation sequence does not begin with BeginAtomicTrade".to_string(),
+            ))
+        }
+    };
+    if trade_id != &receipt.trade_id {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt trade_id does not match compiled operation sequence".to_string(),
+        ));
+    }
+    if compiled_policy.policy_id != receipt.policy_id {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt policy_id does not match compiled operation sequence".to_string(),
+        ));
+    }
+    if !matches!(receipt.operations.last(), Some(TradingOperation::CommitAtomicTrade)) {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "successful receipt operation sequence must terminate in CommitAtomicTrade".to_string(),
+        ));
+    }
+
+    let mut open_debts: BTreeMap<String, (AssetKey, u128)> = BTreeMap::new();
+    let mut closed_debts: BTreeSet<String> = BTreeSet::new();
+    let mut saw_profit_guard = false;
+    let mut saw_all_debts_guard = false;
+    let mut saw_receipt_emit = false;
+    // The floors this receipt's own operation sequence states, in the order it states them. Each
+    // is enforced against the figures below; recording only that a guard was *present* was the
+    // hole that let a receipt net below the floor it claims to have run under (TICKET-150).
+    let mut profit_floors: Vec<(AssetKey, u128)> = Vec::new();
+
+    for operation in &receipt.operations {
+        match operation {
+            TradingOperation::BeginAtomicTrade { .. } => {}
+            TradingOperation::OpenDebt {
+                debt_id,
+                asset,
+                principal,
+                ..
+            } => {
+                if open_debts
+                    .insert(debt_id.clone(), (asset.clone(), *principal))
+                    .is_some()
+                    || closed_debts.contains(debt_id)
+                {
+                    return Err(ReceiptError::EconomicReplayMismatch(format!(
+                        "debt '{debt_id}' opens more than once"
+                    )));
+                }
+            }
+            TradingOperation::CloseDebt { debt_id } => {
+                if open_debts.remove(debt_id).is_none() || !closed_debts.insert(debt_id.clone()) {
+                    return Err(ReceiptError::EconomicReplayMismatch(format!(
+                        "debt '{debt_id}' closes without a matching open debt"
+                    )));
+                }
+            }
+            TradingOperation::AssertMinNetProfit {
+                settlement_asset,
+                minimum,
+            } => {
+                saw_profit_guard = true;
+                profit_floors.push((settlement_asset.clone(), *minimum));
+            }
+            TradingOperation::AssertAllDebtsClosed => {
+                if !open_debts.is_empty() {
+                    return Err(ReceiptError::EconomicReplayMismatch(
+                        "all-debts guard appears while debts remain open".to_string(),
+                    ));
+                }
+                saw_all_debts_guard = true;
+            }
+            TradingOperation::AssertInvariant { .. } => {}
+            TradingOperation::EmitTradeReceipt => saw_receipt_emit = true,
+            TradingOperation::CommitAtomicTrade => {}
+            TradingOperation::AbortAtomicTrade => {
+                return Err(ReceiptError::EconomicReplayMismatch(
+                    "successful receipt cannot contain AbortAtomicTrade".to_string(),
+                ))
+            }
+            TradingOperation::ExecuteSwap { .. } => {}
+            TradingOperation::Bridge { .. } => {}
+        }
+    }
+
+    if !open_debts.is_empty() {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt operation sequence leaves debt open".to_string(),
+        ));
+    }
+    if !saw_profit_guard || !saw_all_debts_guard || !saw_receipt_emit {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt operation sequence is missing required final guards/receipt emission".to_string(),
+        ));
+    }
+
+    // A policy-level floor is a second way the same requirement reaches the artifact (the source
+    // can state `min_profit` in the risk policy instead of a `require net_profit` guard), and the
+    // VM enforces it at commit. Both are read here, so a receipt cannot report a net that satisfies
+    // the guard it carries while missing the floor its policy states.
+    if let Some(minimum) = compiled_policy.minimum_net_profit {
+        let asset = compiled_policy
+            .minimum_net_profit_asset
+            .clone()
+            .ok_or(ReceiptError::ProfitFloorWithoutAsset)?;
+        profit_floors.push((asset, minimum));
+    }
+
+    // Quote freshness, re-derived rather than trusted. The receipt carries the two
+    // blocks each leg was priced between and the compiled policy carries the
+    // ceiling, so a receipt whose leg was priced outside the ceiling is refused
+    // here even though execution let it through — which is the point of replay: a
+    // receipt is checked against the policy, not against the run that produced it.
+    //
+    // The windows are matched to the `ExecuteSwap` operations in order, and the
+    // counts have to agree in both directions. A receipt that dropped a window
+    // would otherwise be replayed as though that leg had no quote to age.
+    if let Some(ceiling_blocks) = compiled_policy.quote_freshness_blocks {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no quote window for the executed leg on venue '{venue}', so the \
+                     age the compiled quote_freshness ceiling of {ceiling_blocks} blocks bounds \
+                     cannot be re-derived"
+                )));
+            };
+            if &window.venue != venue {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt's quote window names venue '{}' where the executed leg is on '{venue}'",
+                    window.venue
+                )));
+            }
+            let age_blocks = window.age_blocks();
+            if age_blocks > ceiling_blocks {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' was priced {age_blocks} blocks before it executed, \
+                     exceeding the compiled quote_freshness ceiling of {ceiling_blocks} blocks"
+                )));
+            }
+        }
+        if let Some(unused) = windows.next() {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt carries a quote window for venue '{}' with no executed leg to age",
+                unused.venue
+            )));
+        }
+    }
+
+    if let Some(ceiling) = compiled_policy.max_price_impact_bps {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no risk window for the executed leg on venue '{venue}', so \
+                     max_price_impact cannot be re-derived"
+                )));
+            };
+            let measurement = window.price_impact.as_ref().ok_or_else(|| {
+                ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' has no max_price_impact measurement, but the compiled policy \
+                     requires one"
+                ))
+            })?;
+            if measurement.bps > ceiling as u128 {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' reports max_price_impact {} bps, exceeding the compiled ceiling \
+                     {ceiling} bps",
+                    measurement.bps
+                )));
+            }
+        }
+    }
+    if let Some(ceiling) = compiled_policy.max_mev_leakage_bps {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no risk window for the executed leg on venue '{venue}', so \
+                     max_mev_leakage cannot be re-derived"
+                )));
+            };
+            let measurement = window.mev_leakage.as_ref().ok_or_else(|| {
+                ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' has no max_mev_leakage measurement, but the compiled policy \
+                     requires one"
+                ))
+            })?;
+            if measurement.bps > ceiling as u128 {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "leg on venue '{venue}' reports max_mev_leakage {} bps, exceeding the compiled ceiling \
+                     {ceiling} bps",
+                    measurement.bps
+                )));
+            }
+        }
+    }
+
+    // The ceiling on what a leg may lose against its own quote. Only the run can measure it, which
+    // is why the window carries the figure; a window without one (a receipt written before format
+    // version 3) leaves the ceiling unverifiable, and that is a refusal rather than a pass.
+    {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let Some(window) = windows.next() else {
+                return Err(ReceiptError::EconomicReplayMismatch(format!(
+                    "receipt records no window for the executed leg on venue '{venue}', so \
+                     max_slippage_bps cannot be re-derived"
+                )));
+            };
+            let actual_bps = window
+                .realized_slippage_bps
+                .ok_or_else(|| ReceiptError::MissingRealizedSlippage { venue: venue.clone() })?;
+            if actual_bps > compiled_policy.max_slippage_bps as u128 {
+                return Err(ReceiptError::SlippageExceeded {
+                    venue: venue.clone(),
+                    ceiling_bps: compiled_policy.max_slippage_bps,
+                    actual_bps,
+                });
+            }
+        }
+    }
+
+    // The oracle firewall, re-derived. Only the run can consult the price sources, so the window
+    // carries the largest deviation the run measured; a window without it (format version 3 or
+    // earlier) leaves a declared ceiling unverifiable, which is a refusal (X3-LANG-002).
+    if let Some(ceiling_bps) = compiled_policy.max_oracle_deviation_bps {
+        let mut windows = receipt.legs.iter();
+        for operation in &receipt.operations {
+            let TradingOperation::ExecuteSwap { venue, .. } = operation else {
+                continue;
+            };
+            let actual_bps = windows
+                .next()
+                .and_then(|window| window.oracle_deviation_bps)
+                .ok_or_else(|| ReceiptError::MissingOracleDeviation { venue: venue.clone() })?;
+            if actual_bps > ceiling_bps as u128 {
+                return Err(ReceiptError::OracleDeviationExceeded {
+                    venue: venue.clone(),
+                    ceiling_bps,
+                    actual_bps,
+                });
+            }
+        }
+    }
+
+    // The gas ceiling, re-derived. Every cost the run accrued is on the receipt with its asset
+    // (the same ledger the VM's per-asset rollup is summed from), so the total in the policy's gas
+    // asset is a figure the receipt fully determines (X3-LANG-002).
+    let gas_total = receipt
+        .costs
+        .iter()
+        .filter(|cost| cost.asset == compiled_policy.max_gas_asset)
+        .try_fold(0u128, |total, cost| total.checked_add(cost.amount))
+        .ok_or_else(|| ReceiptError::EconomicReplayMismatch("gas cost overflow".to_string()))?;
+    if gas_total > compiled_policy.max_gas {
+        return Err(ReceiptError::GasCeilingExceeded {
+            ceiling: compiled_policy.max_gas,
+            actual: gas_total,
+        });
+    }
+
+    let mut expected_debts: BTreeMap<String, (&AssetKey, u128)> = BTreeMap::new();
+    for operation in &receipt.operations {
+        if let TradingOperation::OpenDebt {
+            debt_id,
+            asset,
+            principal,
+            ..
+        } = operation
+        {
+            expected_debts.insert(debt_id.clone(), (asset, *principal));
+        }
+    }
+    for debt in &receipt.debts {
+        let Some((asset, principal)) = expected_debts.get(&debt.debt_id) else {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt reports unknown debt '{}'",
+                debt.debt_id
+            )));
+        };
+        if *asset != &debt.asset || *principal != debt.principal {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt debt '{}' does not match compiled operation",
+                debt.debt_id
+            )));
+        }
+        if debt.repaid && debt.fee > debt.principal {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt debt '{}' reports an implausible fee above principal",
+                debt.debt_id
+            )));
+        }
+        // The flash fee the run paid is in the receipt already (principal and fee on the debt
+        // record), so the artifact's ceiling on it is re-derivable without the host. Computed
+        // through the same helper execution used, so the two figures cannot drift.
+        if debt.repaid {
+            let actual_bps = fee_basis_points_ceiling(debt.fee, debt.principal)
+                .ok_or_else(|| ReceiptError::EconomicReplayMismatch("fee conversion overflow".to_string()))?;
+            if actual_bps > compiled_policy.max_flash_fee_bps as u128 {
+                return Err(ReceiptError::FeeCeilingExceeded {
+                    debt_id: debt.debt_id.clone(),
+                    ceiling_bps: compiled_policy.max_flash_fee_bps,
+                    actual_bps,
+                });
+            }
+        }
+    }
+    if expected_debts.len() != receipt.debts.len() {
+        return Err(ReceiptError::EconomicReplayMismatch(
+            "receipt debt set does not match compiled operation sequence".to_string(),
+        ));
+    }
+
+    // The reported deltas are read where they are needed (`realized_net`) rather than accumulated
+    // into a map first: the previous accumulator added each cost to a total nothing read, which
+    // invited a reader to believe costs were being counted twice when in fact `TradingState`'s
+    // `accrue_cost` had already netted them into the deltas.
+    for cost in &receipt.costs {
+        // A cost the policy cannot classify is a cost the policy cannot
+        // bound, so an unknown category is a replay failure rather than a
+        // value to be carried through the totals.
+        let kind = CostKind::from_str(&cost.kind).ok_or_else(|| {
+            ReceiptError::EconomicReplayMismatch(format!("receipt reports unknown cost kind '{}'", cost.kind))
+        })?;
+        if !compiled_policy.allowed_cost_kinds.contains(&kind) {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "receipt reports cost kind '{}', which the compiled policy's allowed_cost_kinds allowlist does not permit",
+                kind.as_str()
+            )));
+        }
+    }
+
+    if let Some(profit) = &receipt.realized_net_profit {
+        let replayed = receipt
+            .deltas
+            .iter()
+            .find(|delta| delta.asset == profit.asset)
+            .map(|delta| u128::try_from(delta.delta.max(0)).unwrap_or(0))
+            .unwrap_or(0);
+        if replayed != profit.amount {
+            return Err(ReceiptError::EconomicReplayMismatch(format!(
+                "reported profit {} does not equal replayed delta {} for {}",
+                profit.amount, replayed, profit.asset.symbol
+            )));
+        }
+    }
+
+    for debt in &receipt.debts {
+        if matches!(receipt.outcome, TradeOutcome::Success) && !debt.repaid {
+            return Err(ReceiptError::OpenDebtInSuccessfulReceipt(debt.debt_id.clone()));
+        }
+    }
+
+    // The floors the artifact states, each against the net it is denominated in. A receipt that
+    // reports no delta for that asset realized nothing there — that is 0, and 0 is below any
+    // positive floor — so a missing figure is refused rather than read as "no evidence, pass".
+    if matches!(receipt.outcome, TradeOutcome::Success) {
+        for (asset, floor) in &profit_floors {
+            let realized = realized_net(&receipt.deltas, asset)?;
+            let floor_i128 = i128::try_from(*floor)
+                .map_err(|_| ReceiptError::EconomicReplayMismatch("profit floor conversion overflow".to_string()))?;
+            if realized < floor_i128 {
+                return Err(ReceiptError::ProfitBelowCompiledFloor {
+                    asset: asset.clone(),
+                    floor: *floor,
+                    realized,
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// The net a receipt reports for one asset, summed across the deltas that name it.
+///
+/// A `TradingState` nets costs into `net_deltas` as they accrue, so a receipt's deltas are already
+/// net of the cost ledger beside them and this is the realized figure a floor is checked against.
+fn realized_net(deltas: &[AssetDelta], asset: &AssetKey) -> Result<i128, ReceiptError> {
+    let mut total: i128 = 0;
+    for delta in deltas.iter().filter(|delta| &delta.asset == asset) {
+        total = total
+            .checked_add(delta.delta)
+            .ok_or_else(|| ReceiptError::EconomicReplayMismatch("delta overflow".to_string()))?;
+    }
+    Ok(total)
+}
+
+pub fn sign_receipt(
+    mut receipt: TradeReceipt,
+    key_id: &str,
+    signing_key: &SigningKey,
+) -> Result<TradeReceipt, ReceiptError> {
+    receipt.attestation = None;
+    receipt.receipt_hash = compute_receipt_hash(&receipt)?;
+    let signature = signing_key.sign(&receipt.receipt_hash);
+    receipt.attestation = Some(ReceiptAttestation {
+        key_id: key_id.to_string(),
+        public_key: signing_key.verifying_key().to_bytes(),
+        signature: signature.to_bytes().to_vec(),
+    });
+    Ok(receipt)
+}
+
+pub fn verify_receipt_attestation(
+    receipt: &TradeReceipt,
+    trusted_keys: &BTreeMap<String, [u8; 32]>,
+) -> Result<(), ReceiptError> {
+    let attestation = receipt.attestation.as_ref().ok_or(ReceiptError::MissingAttestation)?;
+    let trusted = trusted_keys
+        .get(&attestation.key_id)
+        .ok_or_else(|| ReceiptError::UntrustedAttestor(attestation.key_id.clone()))?;
+    if trusted != &attestation.public_key {
+        return Err(ReceiptError::UntrustedAttestor(attestation.key_id.clone()));
+    }
+    let verifying_key = VerifyingKey::from_bytes(trusted).map_err(|_| ReceiptError::InvalidAttestation)?;
+    let signature_bytes: [u8; 64] = attestation
+        .signature
+        .as_slice()
+        .try_into()
+        .map_err(|_| ReceiptError::InvalidAttestation)?;
+    let signature = Signature::from_bytes(&signature_bytes);
+    verifying_key
+        .verify(&receipt.receipt_hash, &signature)
+        .map_err(|_| ReceiptError::InvalidAttestation)
+}
+
+pub fn verify_receipt_trusted(
+    receipt: &TradeReceipt,
+    trusted_keys: &BTreeMap<String, [u8; 32]>,
+) -> Result<(), ReceiptError> {
+    verify_receipt(receipt)?;
+    verify_receipt_economics(receipt)?;
+    verify_receipt_attestation(receipt, trusted_keys)
+}
+
+/// Where a receipt-signing key stands in its lifecycle.
+///
+/// Receipts carry no signing time a verifier could trust, so the lifecycle is by state, not by
+/// date: rotating a key moves it from `Active` to `Retired`, and it keeps verifying what it signed
+/// (those receipts are genuine); revoking a key, for compromise, refuses everything it ever signed,
+/// because a forger holding it can produce receipts indistinguishable from the old ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiptKeyStatus {
+    /// Signs new receipts and verifies.
+    Active,
+    /// Rotated out: verifies the receipts it signed, must not sign new ones.
+    Retired,
+    /// Compromised or withdrawn: verifies nothing.
+    Revoked,
+}
+
+/// One entry of a receipt key registry, as written in its JSON file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegisteredReceiptKey {
+    pub key_id: String,
+    /// The ed25519 public key, 64 hex characters.
+    pub public_key: String,
+    pub status: ReceiptKeyStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReceiptKeyRegistryFile {
+    keys: Vec<RegisteredReceiptKey>,
+}
+
+/// The keys a settlement trusts to sign receipts, and where each is in its lifecycle
+/// (X3-LANG-003: `--trusted` named keys per invocation, with no record of which keys were
+/// retired or revoked, so a compromised key stayed trusted wherever an old invocation named it).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReceiptKeyRegistry {
+    keys: BTreeMap<String, ([u8; 32], ReceiptKeyStatus)>,
+}
+
+impl ReceiptKeyRegistry {
+    /// Build a registry, refusing one a verifier could misread: an empty or duplicated key id,
+    /// a key that is not 32 bytes of hex, one public key under two ids (a revocation of one id
+    /// would leave the key trusted under the other), or no active key at all.
+    pub fn from_entries(entries: Vec<RegisteredReceiptKey>) -> Result<Self, String> {
+        let mut keys = BTreeMap::new();
+        let mut seen_public: BTreeMap<[u8; 32], String> = BTreeMap::new();
+        for entry in entries {
+            if entry.key_id.trim().is_empty() {
+                return Err("a registry entry names no key id".to_string());
+            }
+            let public_key = decode_public_key_hex(&entry.public_key)
+                .map_err(|reason| format!("key '{}': {reason}", entry.key_id))?;
+            if let Some(other) = seen_public.insert(public_key, entry.key_id.clone()) {
+                return Err(format!(
+                    "keys '{other}' and '{}' are the same public key: revoking one id would leave \
+                     the key trusted under the other",
+                    entry.key_id
+                ));
+            }
+            if keys.insert(entry.key_id.clone(), (public_key, entry.status)).is_some() {
+                return Err(format!("key id '{}' is listed twice", entry.key_id));
+            }
+        }
+        if !keys.values().any(|(_, status)| *status == ReceiptKeyStatus::Active) {
+            return Err("the registry has no active key".to_string());
+        }
+        Ok(Self { keys })
+    }
+
+    /// Parse a registry file: `{"keys": [{"key_id", "public_key", "status"}, ...]}`.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let file: ReceiptKeyRegistryFile = serde_json::from_str(json).map_err(|e| format!("key registry: {e}"))?;
+        Self::from_entries(file.keys)
+    }
+
+    pub fn status(&self, key_id: &str) -> Option<ReceiptKeyStatus> {
+        self.keys.get(key_id).map(|(_, status)| *status)
+    }
+
+    /// The public key the registry lists under `key_id`, whatever its status.
+    pub fn public_key(&self, key_id: &str) -> Option<[u8; 32]> {
+        self.keys.get(key_id).map(|(key, _)| *key)
+    }
+
+    /// Whether `key_id` may sign a new receipt: only an active key may.
+    pub fn may_sign(&self, key_id: &str) -> bool {
+        self.status(key_id) == Some(ReceiptKeyStatus::Active)
+    }
+
+    /// Everything `verify_receipt_trusted` checks, with the trusted set taken from this registry:
+    /// an active or retired signer verifies, a revoked one is refused by name.
+    pub fn verify(&self, receipt: &TradeReceipt) -> Result<(), ReceiptError> {
+        verify_receipt(receipt)?;
+        verify_receipt_economics(receipt)?;
+        let attestation = receipt.attestation.as_ref().ok_or(ReceiptError::MissingAttestation)?;
+        if self.status(&attestation.key_id) == Some(ReceiptKeyStatus::Revoked) {
+            return Err(ReceiptError::RevokedAttestor(attestation.key_id.clone()));
+        }
+        // Revoked signers were refused above; every remaining listed key is a verifier.
+        let verifying: BTreeMap<String, [u8; 32]> = self.keys.iter().map(|(id, (key, _))| (id.clone(), *key)).collect();
+        verify_receipt_attestation(receipt, &verifying)
+    }
+}
+
+/// Domain separator for a registry signature, so it can never be mistaken for a receipt's.
+pub const REGISTRY_SIGNATURE_DOMAIN: &[u8] = b"x3-receipt-key-registry-v1";
+
+/// A detached signature over a receipt key registry file, written next to it as
+/// `<registry>.sig.json` (X3-LANG-003).
+///
+/// The registry says which keys may sign receipts; without this, anyone who could edit the file
+/// could add a key of their own and every verifier reading it would trust that key. The signature
+/// covers the file's **exact bytes** (not a re-serialization, so no two encodings of one registry
+/// can disagree about what was signed) and is checked against a root key the *verifier* names —
+/// the `root_public_key` carried here is a label for a reader, never a trust decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrySignature {
+    /// The signing root's ed25519 public key, 64 hex characters.
+    pub root_public_key: String,
+    /// sha256 of the registry file's bytes, 64 hex characters.
+    pub registry_sha256: String,
+    /// ed25519 signature over [`registry_signing_digest`], 128 hex characters.
+    pub signature: String,
+}
+
+/// The digest a registry root signs: the domain, then the registry file's sha256.
+pub fn registry_signing_digest(registry_bytes: &[u8]) -> [u8; 32] {
+    let file_digest: [u8; 32] = Sha256::digest(registry_bytes).into();
+    let mut hasher = Sha256::new();
+    hasher.update(REGISTRY_SIGNATURE_DOMAIN);
+    hasher.update(file_digest);
+    hasher.finalize().into()
+}
+
+fn hex_of(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn bytes_of_hex(hex: &str) -> Option<Vec<u8>> {
+    let hex = hex.trim();
+    if !hex.is_ascii() || hex.len() % 2 != 0 {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
+}
+
+/// Sign a registry file's bytes with `root`.
+pub fn sign_registry(registry_bytes: &[u8], root: &SigningKey) -> RegistrySignature {
+    RegistrySignature {
+        root_public_key: hex_of(&root.verifying_key().to_bytes()),
+        registry_sha256: hex_of(&Sha256::digest(registry_bytes)),
+        signature: hex_of(&root.sign(&registry_signing_digest(registry_bytes)).to_bytes()),
+    }
+}
+
+/// Check `signature` over `registry_bytes` against the root key the verifier trusts. Every refusal
+/// names what broke: another root, another file, or a signature that does not verify.
+pub fn verify_registry_signature(
+    registry_bytes: &[u8],
+    signature: &RegistrySignature,
+    trusted_root: &[u8; 32],
+) -> Result<(), String> {
+    let claimed_root = bytes_of_hex(&signature.root_public_key)
+        .ok_or_else(|| "registry signature: root_public_key is not hex".to_string())?;
+    if claimed_root.as_slice() != trusted_root {
+        return Err(format!(
+            "the registry is signed by root {}, not the root you trust ({})",
+            signature.root_public_key,
+            hex_of(trusted_root)
+        ));
+    }
+    let file_digest = hex_of(&Sha256::digest(registry_bytes));
+    if !signature.registry_sha256.eq_ignore_ascii_case(&file_digest) {
+        return Err("the registry signature is about a different file: its sha256 does not match".to_string());
+    }
+    let key = VerifyingKey::from_bytes(trusted_root)
+        .map_err(|_| "the trusted registry root is not a valid ed25519 key".to_string())?;
+    let bytes = bytes_of_hex(&signature.signature)
+        .and_then(|bytes| <[u8; 64]>::try_from(bytes.as_slice()).ok())
+        .ok_or_else(|| "registry signature: signature is not 64 bytes of hex".to_string())?;
+    key.verify(&registry_signing_digest(registry_bytes), &Signature::from_bytes(&bytes))
+        .map_err(|_| "the registry signature does not verify under the trusted root".to_string())
+}
+
+impl ReceiptKeyRegistry {
+    /// Parse a registry file only after its detached signature verifies under `trusted_root`.
+    pub fn from_signed_json(
+        registry_bytes: &[u8],
+        signature: &RegistrySignature,
+        trusted_root: &[u8; 32],
+    ) -> Result<Self, String> {
+        verify_registry_signature(registry_bytes, signature, trusted_root)?;
+        let json = core::str::from_utf8(registry_bytes).map_err(|_| "key registry: not UTF-8".to_string())?;
+        Self::from_json(json)
+    }
+}
+
+fn decode_public_key_hex(hex: &str) -> Result<[u8; 32], String> {
+    let hex = hex.trim();
+    // Checked before slicing: a multi-byte character would put a byte index off a char boundary.
+    if !hex.is_ascii() {
+        return Err("public key is not hex".to_string());
+    }
+    if hex.len() != 64 {
+        return Err(format!("public key must be 64 hex characters, got {}", hex.len()));
+    }
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).map_err(|_| "public key is not hex".to_string())?;
+    }
+    Ok(out)
+}
+
+/// Replay protection for receipt settlement.
+///
+/// `verify_receipt_trusted` alone checks that a receipt is well-formed,
+/// economically consistent, and signed by a trusted key — but it is a pure
+/// function with no memory: the identical valid, correctly signed receipt
+/// verifies successfully every single time it's presented. A settlement
+/// service that used `verify_receipt_trusted` as its sole admission check
+/// would accept (and presumably act on) the same trade's receipt twice.
+///
+/// This ledger closes that gap: it wraps `verify_receipt_trusted` with a
+/// record of every `receipt_hash` already accepted, so the second
+/// presentation of an identical receipt is rejected even though every
+/// other check about it still passes. It is deliberately not persisted or
+/// distributed by this crate — a real settlement service is expected to
+/// back this (or an equivalent check) with whatever durable, possibly
+/// shared storage its deployment actually needs; this type documents and
+/// enforces the invariant in-process.
+#[derive(Debug, Clone, Default)]
+pub struct ReceiptReplayLedger {
+    seen: BTreeSet<[u8; 32]>,
+}
+
+impl ReceiptReplayLedger {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Verify `receipt` exactly as `verify_receipt_trusted` does, and
+    /// additionally reject it if this ledger has already accepted the same
+    /// `receipt_hash`. On success, the hash is recorded, so a later replay
+    /// of the identical receipt is rejected even though it would otherwise
+    /// still pass every other check.
+    pub fn verify_and_record(
+        &mut self,
+        receipt: &TradeReceipt,
+        trusted_keys: &BTreeMap<String, [u8; 32]>,
+    ) -> Result<(), ReceiptError> {
+        verify_receipt_trusted(receipt, trusted_keys)?;
+        if !self.seen.insert(receipt.receipt_hash) {
+            return Err(ReceiptError::ReceiptAlreadySettled(receipt.receipt_hash));
+        }
+        Ok(())
+    }
+
+    /// Whether `receipt_hash` has already been accepted by this ledger.
+    pub fn has_settled(&self, receipt_hash: &[u8; 32]) -> bool {
+        self.seen.contains(receipt_hash)
+    }
+}
+
+/// Build and finalize a canonical receipt from an execution result.
+#[allow(clippy::too_many_arguments)]
+pub fn build_receipt(
+    compiler_version: &str,
+    artifact_hash: [u8; 32],
+    trade_id: &str,
+    policy_id: &str,
+    state_commitment: [u8; 32],
+    operations: &[TradingOperation],
+    state: &TradingState,
+    settlement_asset: Option<&AssetKey>,
+    outcome: TradeOutcome,
+) -> Result<TradeReceipt, ReceiptError> {
+    // The ledger, not the per-asset rollup: the rollup cannot say which
+    // category each cost belonged to, and an independent verifier needs that
+    // category to check the cost against the policy's
+    // `allowed_cost_kinds` allowlist.
+    let costs = state.cost_ledger.clone();
+    let mut debts: Vec<DebtReceipt> = state
+        .closed_debt_records
+        .iter()
+        .map(|(debt_id, record)| DebtReceipt {
+            debt_id: debt_id.clone(),
+            asset: record.asset.clone(),
+            principal: record.principal,
+            fee: record.fee,
+            repaid: true,
+        })
+        .collect();
+    for (debt_id, record) in &state.open_debts {
+        debts.push(DebtReceipt {
+            debt_id: debt_id.clone(),
+            asset: record.asset.clone(),
+            principal: record.principal,
+            fee: record.fee,
+            repaid: false,
+        });
+    }
+    let deltas = state
+        .net_deltas
+        .iter()
+        .map(|(asset, delta)| AssetDelta {
+            asset: asset.clone(),
+            delta: *delta,
+        })
+        .collect();
+    let realized_net_profit = match outcome {
+        TradeOutcome::Success => match settlement_asset {
+            Some(asset) => {
+                let raw = state.net_deltas.get(asset).copied().unwrap_or(0).max(0);
+                Some(TypedReceiptAmount {
+                    asset: asset.clone(),
+                    amount: u128::try_from(raw)
+                        .map_err(|_| ReceiptError::EconomicReplayMismatch("profit conversion overflow".to_string()))?,
+                })
+            }
+            None => None,
+        },
+        TradeOutcome::Failure { .. } => None,
+    };
+
+    finalize_receipt(TradeReceipt {
+        // 3: the receipt carries the quote window of every swap leg — including the leg's realized
+        // slippage — which is what makes `quote_freshness` and `max_slippage_bps` re-derivable at
+        // replay (TICKET-017, TICKET-150). A reader of version 1 sees no windows; a version 2
+        // receipt's windows have no slippage figure, and replay refuses such a leg when the
+        // artifact declares a `max_slippage_bps` ceiling rather than treating the missing figure as
+        // a satisfied one.
+        // 4: each window also carries the leg's largest oracle deviation, so
+        // `max_oracle_deviation_bps` is re-derivable at replay; a version 3 window has none, and
+        // replay refuses such a leg when the artifact declares that ceiling.
+        format_version: 4,
+        compiler_version: compiler_version.to_string(),
+        artifact_hash,
+        trade_id: trade_id.to_string(),
+        policy_id: policy_id.to_string(),
+        state_commitment,
+        operations: operations.to_vec(),
+        costs,
+        debts,
+        deltas,
+        legs: state.leg_quote_windows.clone(),
+        realized_net_profit,
+        outcome,
+        receipt_hash: [0u8; 32],
+        attestation: None,
+    })
+}

@@ -1,0 +1,44 @@
+// Demonstrates the `effects` and `guarantees` clauses on an atomic trade.
+//
+// Both vocabularies are closed, and both are checked against the body:
+//   * every declared effect must be produced by a statement, and
+//   * every declared guarantee must be discharged by a guard.
+//
+// A declaration the compiler cannot check would read like a promise while
+// meaning nothing, so a claim the body does not keep is a compile error rather
+// than a comment. Try deleting the `repay debt` line, or the
+// `require all_debts_repaid` line, and the build refuses the trade with the
+// name of the effect or guarantee that went unfulfilled.
+
+asset USDC = evm.ethereum.0xA0b8 {
+    decimals: 6
+}
+
+asset ETH = evm.ethereum.0x0000000000000000000000000000000000000000 {
+    decimals: 18
+}
+
+risk policy EffectsDemo {
+    max_slippage: 30 bps
+    max_gas: 0.02 ETH
+    max_flash_fee: 10 bps
+    deadline: 2 blocks
+    require_private_submission: false
+}
+
+atomic trade BorrowSwapRepay using EffectsDemo
+    effects [borrow, swap, repay]
+    guarantees [debt_closed, min_profit]
+{
+    borrow 1_000_000 USDC from aave_v3 as debt
+
+    let weth = swap debt.amount USDC -> ETH
+        via uniswap_v3
+        min_out 1 ETH
+
+    repay debt
+
+    require net_profit >= 1_000 USDC
+    require all_debts_repaid
+    emit receipt
+}

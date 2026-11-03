@@ -1,0 +1,19 @@
+[package]
+name = "x3-lang-ast"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Abstract Syntax Tree (AST) definitions for X3 programming language"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+x3-lang-common = { path = "../x3-common" }
+indexmap = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
