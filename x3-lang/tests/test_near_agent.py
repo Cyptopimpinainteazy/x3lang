@@ -257,6 +257,23 @@ def test_provider_failures_are_errors_not_verdicts():
     assert not unauthorized.calls[1:], "no request is sent without a key"
 
 
+@pytest.mark.parametrize("failure", [
+    TimeoutError("timed out"),
+    OSError("connection refused"),
+])
+def test_provider_transport_failures_are_typed_agent_errors(failure):
+    def unavailable(method, url, headers, body, timeout):
+        raise failure
+
+    model = agent.OpenAICompatibleModel(base_url="http://localhost:11434/v1", model="qwen3:8b",
+                                        transport=unavailable)
+    with pytest.raises(agent.NearIntentsError) as caught:
+        model.complete("SYS", "USER")
+    assert caught.value.code == "X3_AGENT_PROVIDER"
+    assert caught.value.field == "provider"
+    assert "not reachable" in caught.value.message
+
+
 def test_the_openai_compatible_client_speaks_chat_completions():
     reply = {"id": "c1", "model": "llama3.1:8b", "choices": [{"message": {"role": "assistant", "content": "REFUSE: x"},
                                                                "finish_reason": "stop"}]}
@@ -302,6 +319,18 @@ def test_redteam_records_every_case_and_counts_what_held(tmp_path):
     assert result["total"] == len(agent.REDTEAM) and result["held"] == result["total"], result
     assert {c["stopped_at"] for c in result["cases"]} <= {"mandate", "compile"}
     assert all(c["model_output"] for c in result["cases"]), "the model's actual output is kept as evidence"
+
+
+def test_redteam_records_provider_outages_without_claiming_the_guard_held(tmp_path):
+    class Unavailable:
+        def complete(self, system, user):
+            raise agent.NearIntentsError("X3_AGENT_PROVIDER", "the provider is not reachable", "provider")
+
+    result = agent.redteam(str(MANDATE), model=Unavailable(), client=client(), tokens_path=str(TOKENS),
+                           out_dir=str(tmp_path), now=NOW)
+    assert result["held"] == 0 and result["total"] == len(agent.REDTEAM)
+    assert all(case["status"] == "error" for case in result["cases"])
+    assert all(case["held"] is False for case in result["cases"])
 
 
 def test_cli_pay_prints_the_report_and_exits_by_verdict(tmp_path, capsys):
