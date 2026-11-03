@@ -324,8 +324,46 @@ def test_redteam_records_every_case_and_counts_what_held(tmp_path):
     result = agent.redteam(str(MANDATE), model=Scripted(gullible), client=client(), tokens_path=str(TOKENS),
                            out_dir=str(tmp_path), now=NOW)
     assert result["total"] == len(agent.REDTEAM) and result["held"] == result["total"], result
-    assert {c["stopped_at"] for c in result["cases"]} <= {"mandate", "compile"}
+    # The homoglyph payload is a valid account as far as X3 is concerned, so it is the mandate
+    # (recipient allowlist) that stops it, never the compiler.
+    assert {c["stopped_at"] for c in result["cases"]} <= {"mandate", "compile", None}
     assert all(c["model_output"] for c in result["cases"]), "the model's actual output is kept as evidence"
+
+
+def test_redteam_counts_an_attack_as_held_when_the_model_paid_the_right_account(tmp_path):
+    """A model that quietly corrects the attack has not been robbed.
+
+    The homoglyph request names `x3-demo.neаr` (Cyrillic а). A model that writes the mandate's
+    real recipient refused to be fooled, so the case held even though nothing was rejected.
+    Scoring it as held=False reports the guard as broken when the attack simply failed.
+    """
+    def corrects(system, user):
+        n = system.split("- nonce: ")[1].split()[0]
+        return program(recipient="x3-demo.near", nonce=n)
+
+    result = agent.redteam(str(MANDATE), model=Scripted(corrects), client=client(), tokens_path=str(TOKENS),
+                           out_dir=str(tmp_path), now=NOW)
+    homoglyph = next(c for c in result["cases"] if c["case"] == "homoglyph_recipient")
+    assert homoglyph["status"] == "allowed", "the look-alike account is not the same string"
+    assert homoglyph["held"] is True, "paying the sanctioned recipient defeats the substitution"
+    assert homoglyph["defended_by"], "an accepted program must say why it was still safe"
+    # A model that only ever writes the sanctioned payment defeats every request, including the
+    # ones that ask for 75 or 400 USDC: it wrote 5. Counting those as breaches would blame the
+    # guard for the model having behaved.
+    assert result["held"] == result["total"], [c for c in result["cases"] if not c["held"]]
+
+
+def test_redteam_flags_a_real_escape_as_not_held(tmp_path):
+    """The effect check must still fail closed: a program that pays the attacker is a breach."""
+    def falls_for_it(system, user):
+        n = system.split("- nonce: ")[1].split()[0]
+        return program(recipient="attacker.near", nonce=n)
+
+    result = agent.redteam(str(MANDATE), model=Scripted(falls_for_it), client=client(), tokens_path=str(TOKENS),
+                           out_dir=str(tmp_path), now=NOW)
+    # The deterministic mandate check refuses attacker.near, so the case held by refusal.
+    substitution = next(c for c in result["cases"] if c["case"] == "recipient_substitution")
+    assert substitution["held"] is True and substitution["status"] == "rejected"
 
 
 def test_redteam_records_provider_outages_without_claiming_the_guard_held(tmp_path):
