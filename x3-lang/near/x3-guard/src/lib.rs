@@ -35,6 +35,8 @@
 //! Every write is paid by the caller: attach NEAR to cover the bytes added, and the excess is
 //! refunded in the same call.
 
+use near_sdk::borsh::io::{ErrorKind, Read, Write};
+use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::json_types::U128;
 use near_sdk::serde::Deserialize;
 use near_sdk::serde_json::{self, json};
@@ -43,7 +45,10 @@ use near_sdk::{bs58, env, near, require, AccountId, BorshStorageKey, NearToken, 
 
 /// NEP-297 event standard name.
 pub const EVENT_STANDARD: &str = "x3guard";
-pub const EVENT_VERSION: &str = "1.2.0";
+pub const EVENT_VERSION: &str = "1.3.0";
+
+/// Current persisted contract state layout.
+pub const STATE_VERSION: u16 = 2;
 
 /// The 1Click manager's Ed25519 key, from `@defuse-protocol/one-click-sdk-typescript` 0.1.26.
 pub const ONE_CLICK_MANAGER_PUBLIC_KEY: &str = "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc";
@@ -184,7 +189,7 @@ pub struct Outcome {
     pub recorded_at_ms: u64,
 }
 
-#[near(serializers = [borsh, json])]
+#[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq)]
 pub struct IntentRecord {
     pub owner: AccountId,
@@ -201,6 +206,98 @@ pub struct IntentRecord {
     pub approvals: Vec<AccountId>,
 }
 
+impl BorshSerialize for IntentRecord {
+    fn serialize<W: Write>(&self, writer: &mut W) -> near_sdk::borsh::io::Result<()> {
+        self.owner.serialize(writer)?;
+        self.nonce.serialize(writer)?;
+        self.policy.serialize(writer)?;
+        self.registered_at_ms.serialize(writer)?;
+        self.quote.serialize(writer)?;
+        self.outcome.serialize(writer)?;
+        self.agent.serialize(writer)?;
+        self.mandate_version.serialize(writer)?;
+        self.approvals.serialize(writer)?;
+        Ok(())
+    }
+}
+
+/// Read a Borsh option tag without using `Option<T>`'s decoder, whose
+/// truncation error does not distinguish a legacy record boundary from a
+/// malformed new field.
+fn read_optional_presence<R: Read>(reader: &mut R) -> near_sdk::borsh::io::Result<Option<bool>> {
+    let mut tag = [0u8; 1];
+    match reader.read_exact(&mut tag) {
+        Ok(()) => match tag[0] {
+            0 => Ok(Some(false)),
+            1 => Ok(Some(true)),
+            _ => Err(near_sdk::borsh::io::Error::new(
+                ErrorKind::InvalidData,
+                "invalid persisted option tag",
+            )),
+        },
+        Err(error) if error.kind() == ErrorKind::UnexpectedEof => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+impl BorshDeserialize for IntentRecord {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> near_sdk::borsh::io::Result<Self> {
+        let owner = AccountId::deserialize_reader(reader)?;
+        let nonce = String::deserialize_reader(reader)?;
+        let policy = Policy::deserialize_reader(reader)?;
+        let registered_at_ms = u64::deserialize_reader(reader)?;
+        let quote = Option::<AcceptedQuote>::deserialize_reader(reader)?;
+        let outcome = Option::<Outcome>::deserialize_reader(reader)?;
+
+        // v1.1 records ended at `outcome`; v1.2 appended the agent fields.
+        let agent = match read_optional_presence(reader)? {
+            None => {
+                return Ok(Self {
+                    owner,
+                    nonce,
+                    policy,
+                    registered_at_ms,
+                    quote,
+                    outcome,
+                    agent: None,
+                    mandate_version: None,
+                    approvals: Vec::new(),
+                });
+            }
+            Some(false) => None,
+            Some(true) => Some(AccountId::deserialize_reader(reader)?),
+        };
+        let mandate_version = match read_optional_presence(reader)? {
+            Some(false) => None,
+            Some(true) => Some(u32::deserialize_reader(reader)?),
+            None => {
+                return Err(near_sdk::borsh::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "persisted agent binding is missing its mandate version",
+                ));
+            }
+        };
+        let approvals = Vec::<AccountId>::deserialize_reader(reader)?;
+        if agent.is_some() != mandate_version.is_some() || (agent.is_none() && !approvals.is_empty()) {
+            return Err(near_sdk::borsh::io::Error::new(
+                ErrorKind::InvalidData,
+                "inconsistent persisted agent mandate fields",
+            ));
+        }
+        Ok(Self {
+            owner,
+            nonce,
+            policy,
+            registered_at_ms,
+            quote,
+            outcome,
+            agent,
+            mandate_version,
+            approvals,
+        })
+    }
+}
+
 /// One guard's verdict, the same shape the adapter reports.
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq)]
@@ -213,6 +310,20 @@ pub struct GuardResult {
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct Contract {
+    intents: LookupMap<String, IntentRecord>,
+    manager_public_key: [u8; 32],
+    mandates: LookupMap<String, mandate::Mandate>,
+    state_version: u16,
+}
+
+#[near(serializers = [borsh])]
+struct ContractV11 {
+    intents: LookupMap<String, IntentRecord>,
+    manager_public_key: [u8; 32],
+}
+
+#[near(serializers = [borsh])]
+struct ContractV12 {
     intents: LookupMap<String, IntentRecord>,
     manager_public_key: [u8; 32],
     mandates: LookupMap<String, mandate::Mandate>,
@@ -576,7 +687,70 @@ impl Contract {
             manager_public_key: decode_ed25519::<32>(ONE_CLICK_MANAGER_PUBLIC_KEY)
                 .unwrap_or_else(|e| env::panic_str(&e)),
             mandates: LookupMap::new(StorageKey::Mandates),
+            state_version: STATE_VERSION,
         }
+    }
+
+    /// Upgrade a Guard deployed with the pre-mandate (v1.1) or unversioned
+    /// mandate (v1.2) state layout. The existing map prefixes and manager key
+    /// are preserved; v1.1 records decode their missing agent fields as `None`.
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        let bytes = env::storage_read(b"STATE")
+            .unwrap_or_else(|| env::panic_str("state has no recognized x3-guard migration layout"));
+        if let Ok(current) = Contract::try_from_slice(&bytes) {
+            require!(
+                current.state_version != STATE_VERSION,
+                format!("state already uses schema version {STATE_VERSION}")
+            );
+            require!(
+                current.state_version < STATE_VERSION,
+                format!(
+                    "cannot downgrade state version {} to {STATE_VERSION}",
+                    current.state_version
+                )
+            );
+            let migrated = Self {
+                intents: current.intents,
+                manager_public_key: current.manager_public_key,
+                mandates: current.mandates,
+                state_version: STATE_VERSION,
+            };
+            emit(
+                "state_migrated",
+                json!({ "from_version": current.state_version, "to_version": STATE_VERSION }),
+            );
+            return migrated;
+        }
+
+        let (intents, manager_public_key, mandates, from_version) =
+            if let Ok(legacy) = ContractV12::try_from_slice(&bytes) {
+                (legacy.intents, legacy.manager_public_key, legacy.mandates, 1u16)
+            } else if let Ok(legacy) = ContractV11::try_from_slice(&bytes) {
+                (
+                    legacy.intents,
+                    legacy.manager_public_key,
+                    LookupMap::new(StorageKey::Mandates),
+                    0u16,
+                )
+            } else {
+                env::panic_str("state has no recognized x3-guard migration layout")
+            };
+        let migrated = Self {
+            intents,
+            manager_public_key,
+            mandates,
+            state_version: STATE_VERSION,
+        };
+        emit(
+            "state_migrated",
+            json!({ "from_version": from_version, "to_version": STATE_VERSION }),
+        );
+        migrated
+    }
+
+    pub fn state_version(&self) -> u16 {
+        self.state_version
     }
 
     /// Store an X3 program's policy under `(caller, nonce)`. A nonce is registered once.
@@ -858,3 +1032,6 @@ pub mod mandate;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod migration_tests;
