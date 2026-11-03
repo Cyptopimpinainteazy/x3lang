@@ -133,8 +133,8 @@ the wallet.
 ### AI Money Agent (`near_agent.py`)
 
 A real model writes the agent's X3 program from an English request. The model is a writer, never
-a gate: what it writes is compiled and checked exactly like a hand-written program, so a
-prompt-injected or mistaken model can only produce a program that is refused.
+a gate: what it writes is compiled and checked exactly like a hand-written program, so an unsafe
+prompt-injected or mistaken model output is refused; a corrected in-mandate program may pass.
 
 ```text
 English request -> model -> X3 intent (untrusted) -> compiler -> `under mandate` + issued nonce
@@ -147,7 +147,9 @@ export ANTHROPIC_API_KEY=...            # or X3_AGENT_PROVIDER=openai-compatible
                                         # X3_AGENT_BASE_URL=http://localhost:11434/v1 X3_AGENT_MODEL=...
 python3 x3-lang/near_agent.py pay "Pay x3-demo.near 25 USDC for invoice 4411" \
   --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> --quote
-python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... --live --approve <sha256 from the dry run>
+python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... \
+  --out <approved-program.x3> --approved-program <approved-program.x3> \
+  --live --approve <sha256 from the dry run>
 python3 x3-lang/near_agent.py redteam --mandate ... --out-dir evidence/   # adversarial requests, real model
 python3 x3-lang/near_agent.py register-args <program.x3> --mandate <mandate.x3> \
   --contract <x3-guard account> --signer <agent account> --key-file <agent key>
@@ -163,7 +165,7 @@ or typed at a prompt). Nothing here signs or sends the deposit.
 `redteam` sends eight attacks through the configured model: recipient substitution, overspend,
 splitting a payment to get around the cap, refund redirection, prompt injection in the request and
 in an attached invoice, a homoglyph recipient, and another asset. For each, it records the model's
-actual output and where the attack stopped. Exit 0 means every attack was refused.
+actual output and where the attack stopped. Exit 0 means every unsafe attack was held: either refused or neutralized into a compliant program.
 
 Keep demo payments at about 25 USDC or more under a 100 bps fee cap. 1Click's refund fee is close
 to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses the quote.
@@ -171,9 +173,9 @@ to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses 
 | Part | Status |
 |---|---|
 | Anthropic and OpenAI-compatible clients | implemented; tested against recorded request and response shapes; live-model evidence is pending an API key |
-| Pipeline, checks, approval binding, register-args | implemented; 34 tests (`tests/test_near_agent.py`), including eight attacks a fooled model would attempt |
-| On-chain refusal path | `register-args` produces `agent_register_intent` arguments without a quote; the deployed contract refuses them with `X3_MANDATE_DENIED` |
-| Guided live demo | `near/agent-demo.sh` prepares every step and asks before each NEAR transaction; it never moves USDC |
+| Pipeline, checks, approval binding, register-args | implemented; 34 tests (`tests/test_near_agent.py`), including eight adversarial cases |
+| On-chain refusal path | `register-args` produces `agent_register_intent` arguments without a quote; contract tests confirm they are refused with `X3_MANDATE_DENIED`; no production deployment was verified |
+| Guided live demo | `near/agent-demo.sh` prepares steps and asks before transactions; it can initiate owner-approved on-chain operations and requires live review |
 | Deployed contract and real payment | not done: needs a deployed x3-guard account, owner-authorized wallet action and funds |
 
 `agent-demo.sh` runs the judge-facing sequence in order: mandate, dry model run, owner-approved
@@ -223,3 +225,7 @@ cargo run -p x3-tools --bin x3c -- parse/check/lower/build/simulate/run/explain 
 ```
 
 **x3-lang status: compiles, verifies and simulates trading programs in this workspace; not executable on chain until it targets X3BC.**
+
+### Judge evidence gate limitation (2026-11-03)
+
+`judge_evidence.py --refresh-chain` deliberately reports `unverified_receipt_chain_binding` for otherwise valid live quote receipts. A valid quote signature does **not** authenticate local receipt `leg`, token mappings, or historical settlement baseline. Until those are independently bound to signed requests and chain history, this gate refuses to claim a verified deposit/delivery/refund. Do not present this as a successful chain proof.

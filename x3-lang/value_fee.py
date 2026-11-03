@@ -85,7 +85,7 @@ def _validate_offer(offer: ComparableOffer, now_seconds: int) -> None:
         raise ValueFeeError("incomparable quote: non-positive guaranteed output")
     if (type(offer.all_known_costs_output_units) is not int
             or offer.all_known_costs_output_units < 0
-            or offer.all_known_costs_output_units >= offer.guaranteed_output_units):
+            or offer.all_known_costs_output_units > offer.guaranteed_output_units):
         raise ValueFeeError("quote cost is unknown, negative, or exceeds output")
     if (type(offer.quoted_at_seconds) is not int or type(offer.expires_at_seconds) is not int
             or offer.quoted_at_seconds > now_seconds

@@ -1,7 +1,8 @@
 # X3 Shield threat model and unresolved-risk register
 
-**Snapshot:** prepared against `main@e44a9931` on November 3, 2026. Update this document when
-authorization, settlement, or deployment code changes.
+**Historical baseline:** `main@e44a9931` on November 3, 2026. This register is
+updated on the integration branch; see the commit containing this document for
+review provenance. Do not mistake the baseline for the current head.
 
 This document describes the trust boundaries of the code currently in the repository. It is not
 a mainnet approval, a claim of contract immutability, or evidence that a live payment has
@@ -114,7 +115,7 @@ Source code cannot prove the deployed account's key policy.
 | Direct wallet transfer bypasses Guard | Must be prevented by wallet-level enforcement | **Open architectural gap** |
 | Destination asset and recipient are individually allowed but not a valid pair | Refuse | **Open; current lists are not tuple-bound** |
 | Agent registers unlimited unaccepted intents | Bound active state per owner | **Open; intent storage is unbounded** |
-| Upgrade from pre-mandate state destroys or misreads records | Explicit migration with fail-closed decoding | Proposed in draft PR #9 |
+| Upgrade from pre-mandate state destroys or misreads records | Explicit migration with fail-closed decoding | Implemented and locally tested in integration PR #14; deployment and migration on a real contract remain unverified |
 | Deployment key replaces Guard code | Lock or govern the contract account key | **Open deployment risk** |
 | Compromised RPC reports favorable balances | Require independent endpoints and disagreement checks | Operational control only; no public quorum evidence |
 | Solver causality inferred from two transfers | Keep causality unproven | Correctly reported unproven |

@@ -211,3 +211,14 @@ def test_fee_cli_rejects_incomparable_quotes_without_creating_receipt():
     assert result.returncode == 2
     assert result.stdout == ""
     assert "fresh" in result.stderr.lower()
+
+
+def test_zero_net_reference_is_valid_and_fee_preview_still_requires_improvement():
+    result = calculate_value_fee(
+        offer(output=10_000, costs=10_000, quote='reference'),
+        offer(output=10_200, costs=50, quote='candidate'),
+        policy(), now_seconds=105)
+    assert result.reference_net_units == 0
+    assert result.candidate_pre_fee_units == 10_150
+    assert result.eligible and result.user_benefit_units > 0
+    assert not result.collectible

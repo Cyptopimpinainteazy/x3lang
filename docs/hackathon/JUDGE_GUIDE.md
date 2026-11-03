@@ -48,14 +48,17 @@ When a live X3 swap has actually occurred:
 
     python3 scripts/judge_evidence.py --skip-tests --receipt /private/receipt.json --refresh-chain --require-live --report-dir /tmp/x3-live
 
-This read-only operation independently re-queries Solana deposit and NEAR
-recipient balance information with the existing X3 chain-evidence reader.
+Current safe behavior: the judge gate **does not** promote imported receipts to
+independently verified Solana deposits, NEAR deliveries, or refunds. It returns
+`unverified_receipt_chain_binding` for valid live quotes because the receipt's
+leg, token mapping, and historical balance baseline are not cryptographically
+bound to the signed request. A true independent chain proof requires a new,
+reviewed verifier that reconstructs those facts from authenticated data.
 Set SOLANA_RPC_URLS and NEAR_RPC_URLS to comma-separated trusted endpoints;
 one RPC endpoint is not a verification quorum. Missing/error/disagreement
 must produce unverified, never an optimistic guess.
 
-Exit 0 means requested local test gates passed, or required on-chain facts
-were re-read. Exit 1 = test failure. Exit 2 = invalid invocation/receipt.
+Exit 0 means the requested local test gates passed (without `--require-live`). Exit 1 = test failure. Exit 2 = invalid invocation; malformed receipts may be classified unverified.
 Exit 5 = required live on-chain facts missing or not independently rechecked.
 
 **Evidence limit:** A finalized Solana SPL transfer and NEAR NEP-141 balance

@@ -58,10 +58,10 @@ fee cap/recipient checks. Reuse existing mandate keys and spending counters
 rather than creating duplicate or inconsistent authorization state.
 
 **Phase 4 (not implemented):** add 1Click `appFees` only if the provider's
-signed quote **echoes the authorized fee**, gives a strictly better net result
+signed quote **cryptographically covers the authorized fee** (an echoed but unsigned `appFees` field is insufficient), gives a strictly better net result
 than the reference, and refunds/failure receipts are reconciled. An app fee is
 expressed as bps of the trade, NOT bps of savings; compute a safe integer bps
-ceiling (round down), re-quote including the app fee, reject rounding that
+floor (round down), re-quote including the app fee, reject rounding that
 would violate the user's absolute cap or minimum benefit, and prove provider
 paid exactly one authorized recipient. No silent `appFees`, referral, markup,
 retry billing, or fee on failures/refunds. Respect 1Click partner fee terms.
