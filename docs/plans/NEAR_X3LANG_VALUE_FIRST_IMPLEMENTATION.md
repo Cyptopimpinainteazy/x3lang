@@ -46,13 +46,16 @@ amount after existing protocol/solver fees, bridge/gas/refund charges and
 slippage. If available quote infrastructure only provides one route, return
 `reference_unavailable`, don't invent savings. Persist evidence/hashes.
 
-**Phase 3 (not implemented):** integrate with X3Lang compiler and NEAR Guard's
-**real** mandate rules via a versioned fee-policy AST + typed, signed artifact.
-Reject unknown/unenforceable policies in both Rust and Python surfaces. Review
-other agent's `mandate_tests.rs`, `mandate.rs`, `near_mandate.py` work **after
-its PR is available**, resolve interactions without introducing duplicate
-spender/nonces/fee accounting. The NEAR contract enforces wallet permission,
-recipient, per-intent and daily caps, N-of-M approvals, expiry and replay.
+**Phase 3 (fee linkage not implemented):** The independent NEAR agent mandates
+work was merged on `x3lang/main` in **PR #3** (`78f72a9`) after this branch
+started. Its `mandate.rs` and `near_mandate.py` implement Guard-side agent
+registration/acceptance restrictions, rolling limits, owner revocation and
+approval checks. **Do not claim mandates themselves authorize a wallet spend**:
+Guard holds no funds and an external wallet could bypass it unless separately
+restricted. The missing monetization integration requires a versioned X3Lang
+fee-policy AST + typed, signed artifact, explicit owner consent and Guard-side
+fee cap/recipient checks. Reuse existing mandate keys and spending counters
+rather than creating duplicate or inconsistent authorization state.
 
 **Phase 4 (not implemented):** add 1Click `appFees` only if the provider's
 signed quote **echoes the authorized fee**, gives a strictly better net result

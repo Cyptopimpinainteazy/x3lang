@@ -63,6 +63,12 @@
   .program-head h2 { margin: 0; font-size: 1rem; font-weight: 700; }
   .program-head .file { font-family: var(--mono); font-size: 0.75rem; color: var(--ink-soft); }
   .editor { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); height: min(66vh, 640px); min-height: 420px; }
+  .editor.short { height: min(48vh, 460px); min-height: 300px; }
+  .left { display: grid; gap: 20px; min-width: 0; }
+  .program.mandate { border-color: var(--seal); }
+  .program.mandate .program-head h2 { color: var(--seal); }
+  .program-head .sub { margin: 2px 0 0; font-size: 0.85rem; color: var(--ink-soft); font-weight: 400; }
+  .checks-title { margin: 0; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-soft); }
   .gutter { margin: 0; padding: 14px 0; list-style: none; overflow: hidden; border-right: 1px solid var(--rule); font: 400 0.78rem/var(--line) var(--mono); color: var(--idle); user-select: none; }
   .gutter li { display: grid; grid-template-columns: 1.6rem 2.2rem; align-items: center; height: var(--line); padding-right: 6px; }
   .gutter .mark { justify-self: center; font-weight: 600; font-size: 0.95rem; }
@@ -152,10 +158,11 @@
   </header>
 
   <main class="bench">
+    <div class="left">
     <section class="program" aria-labelledby="program-title">
       <div class="program-head">
         <h2 id="program-title">Your rules</h2>
-        <span class="file">near_intents_sol_to_near.x3</span>
+        <span class="file" id="program-file">near_intents_sol_to_near.x3</span>
       </div>
       <div class="editor">
         <ol class="gutter" id="gutter" aria-hidden="true"></ol>
@@ -166,9 +173,27 @@
       <div class="actions">
         <button class="primary" id="run" type="button">Get a live quote</button>
         <button class="quiet" id="reset" type="button">Restore the example</button>
+        <button class="quiet" id="agent" type="button">Try it as an AI agent</button>
         <span class="hint">A dry quote: nothing is signed, deposited or sent.</span>
       </div>
     </section>
+
+    <section class="program mandate" id="mandate-panel" aria-labelledby="mandate-title" hidden>
+      <div class="program-head">
+        <div>
+          <h2 id="mandate-title">The owner's mandate</h2>
+          <p class="sub">What the agent above may spend. x3-guard enforces it on NEAR.</p>
+        </div>
+        <span class="file">near_mandate_agent.x3</span>
+      </div>
+      <div class="editor short">
+        <ol class="gutter" id="mgutter" aria-hidden="true"></ol>
+        <label class="sr" for="mcode">X3 mandate</label>
+        <textarea class="code" id="mcode" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea>
+      </div>
+      <p class="diagnostic" id="mdiagnostic" role="alert"></p>
+    </section>
+    </div>
 
     <section class="report" aria-labelledby="report-title">
       <h2 id="report-title" class="sr">What 1Click quoted</h2>
@@ -185,8 +210,9 @@
         <li><strong>1Click quotes it, and signs the quote</strong><p>The request goes straight from your browser to the 1Click API. 1Click signs every quote with its Ed25519 manager key.</p></li>
         <li><strong>This page checks the signature before reading a number</strong><p>It rebuilds the exact bytes 1Click signed, using the same steps as NEAR's official SDK, and verifies them with your browser's own cryptography. A forged or altered quote stops here.</p></li>
         <li><strong>Every rule is checked against the signed numbers</strong><p>The amount, the floor, slippage, the cost of the swap and of a refund, and whether the quote is fresh. Each verdict lands on the line of the program it came from.</p></li>
+        <li><strong>An AI agent spends only inside its owner's mandate</strong><p>A program that says <code>under mandate &lt;owner&gt;</code> was written by an agent. Before 1Click is asked for anything, the page checks it against the owner's mandate: who may be paid, in what, how much per payment and per 24 hours, where refunds go, and the loosest slippage and fees allowed. On NEAR, x3-guard runs the same checks when the agent registers and again when it accepts a quote, and the owner can revoke the agent at once.</p></li>
       </ol>
-      <p class="limits">For a real swap, the <a href="https://github.com/Cyptopimpinainteazy/xxxstar/tree/feat/near-intents-adapter/x3-lang/near/x3-guard">x3-guard contract</a> does step 3 and step 4 again on NEAR, with <code>env::ed25519_verify</code>, and lets each nonce open only one deposit address. This page stays on dry quotes, so it never holds keys or moves funds.</p>
+      <p class="limits">For a real swap, the <a href="https://github.com/Cyptopimpinainteazy/xxxstar/tree/feat/near-intents-adapter/x3-lang/near/x3-guard">x3-guard contract</a> does step 3 and step 4 again on NEAR, with <code>env::ed25519_verify</code>, and lets each nonce open only one deposit address. Spending over 24 hours, approvals and revocation live in the contract, so this page checks a mandate as written, with nothing spent yet. It stays on dry quotes, so it never holds keys or moves funds.</p>
     </div>
   </section>
 
@@ -217,54 +243,107 @@ intent near_intents_sol_to_near {
 }
 `;
 
+const AGENT_EXAMPLE = `// An AI agent's payment, under its owner's mandate (below).
+// Try paying someone the mandate doesn't list, or raising the amount.
+intent agent_payment {
+    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    to Near.USDC receiver wrap.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;
+    }
+    under mandate x3-owner.near
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused agent_001
+    timeout 10m refund Solana.USDC
+    on_fail rollback
+}
+`;
+
+const MANDATE_EXAMPLE = `// What x3-owner.near lets its agent spend.
+mandate shopping_agent {
+    owner x3-owner.near
+    agent x3-agent.near
+    spend Solana.USDC
+    per_payment 50000000
+    per_24h 200000000
+    allow recipients wrap.near
+    allow assets Near.USDC
+    refund_to 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    require slippage <= 1%
+    require fees <= 100 bps
+    approve above 30000000 by 1 of x3-owner.near
+    expires 30d
+}
+`;
+
 const $ = (id) => document.getElementById(id);
 const code = $("code"), gutter = $("gutter"), statusEl = $("status"), result = $("result"), diag = $("diagnostic"), run = $("run");
+const mcode = $("mcode"), mgutter = $("mgutter"), mdiag = $("mdiagnostic"), mpanel = $("mandate-panel");
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 
 code.value = store.get("x3guard.program") ?? EXAMPLE;
+mcode.value = store.get("x3guard.mandate") ?? MANDATE_EXAMPLE;
 let marks = {};
+let mmarks = {};
 
-function renderGutter(animate = false) {
-  const n = code.value.split("\n").length;
-  gutter.replaceChildren();
+function paint(area, list, m, animate) {
+  const n = area.value.split("\n").length;
+  list.replaceChildren();
   let order = 0;
   for (let i = 1; i <= n; i++) {
     const li = document.createElement("li");
-    const m = marks[i];
-    if (m) { li.className = m.state + (animate ? " land" : ""); li.style.setProperty("--i", order++); }
-    li.innerHTML = `<span class="mark">${m ? { pass: "✓", fail: "✗", note: "○" }[m.state] : ""}</span><span class="no">${i}</span>`;
-    gutter.append(li);
+    const v = m[i];
+    if (v) { li.className = v.state + (animate ? " land" : ""); li.style.setProperty("--i", order++); }
+    li.innerHTML = `<span class="mark">${v ? { pass: "✓", fail: "✗", note: "○" }[v.state] : ""}</span><span class="no">${i}</span>`;
+    list.append(li);
   }
-  gutter.scrollTop = code.scrollTop;
+  list.scrollTop = area.scrollTop;
 }
+const underMandate = () => /^\s*under\s+mandate\b/m.test(code.value);
+function renderGutter(animate = false) {
+  paint(code, gutter, marks, animate);
+  mpanel.hidden = !underMandate();
+  if (!mpanel.hidden) paint(mcode, mgutter, mmarks, animate);
+}
+const clearMarks = () => { marks = {}; mmarks = {}; for (const d of [diag, mdiag]) { d.textContent = ""; d.className = "diagnostic"; } };
 code.addEventListener("scroll", () => { gutter.scrollTop = code.scrollTop; });
-code.addEventListener("input", () => { store.set("x3guard.program", code.value); marks = {}; diag.textContent = ""; diag.className = "diagnostic"; renderGutter(); });
-$("reset").addEventListener("click", () => { code.value = EXAMPLE; code.dispatchEvent(new Event("input")); });
+mcode.addEventListener("scroll", () => { mgutter.scrollTop = mcode.scrollTop; });
+code.addEventListener("input", () => { store.set("x3guard.program", code.value); clearMarks(); renderGutter(); });
+mcode.addEventListener("input", () => { store.set("x3guard.mandate", mcode.value); clearMarks(); renderGutter(); });
+$("reset").addEventListener("click", () => { code.value = EXAMPLE; $("program-file").textContent = "near_intents_sol_to_near.x3"; code.dispatchEvent(new Event("input")); });
+$("agent").addEventListener("click", () => {
+  code.value = AGENT_EXAMPLE; mcode.value = MANDATE_EXAMPLE; $("program-file").textContent = "near_intents_agent_payment.x3";
+  store.set("x3guard.mandate", mcode.value); code.dispatchEvent(new Event("input"));
+});
 
-function goTo(line) {
-  const lines = code.value.split("\n");
+function goTo(line, area = code) {
+  const lines = area.value.split("\n");
   const start = lines.slice(0, line - 1).reduce((a, l) => a + l.length + 1, 0);
-  code.focus();
-  code.setSelectionRange(start, start + (lines[line - 1]?.length ?? 0));
-  const lh = parseFloat(getComputedStyle(code).lineHeight);
-  code.scrollTop = Math.max(0, (line - 4) * lh);
+  area.focus();
+  area.setSelectionRange(start, start + (lines[line - 1]?.length ?? 0));
+  const lh = parseFloat(getComputedStyle(area).lineHeight);
+  area.scrollTop = Math.max(0, (line - 4) * lh);
 }
 
 function setStatus(text, kind = "") { statusEl.textContent = text; statusEl.className = "status" + (kind ? " " + kind : ""); }
 
-function fail(e) {
+function fail(e, inMandate = false) {
   run.disabled = false;
   const line = e.line ?? null;
-  marks = line ? { [line]: { state: "fail" } } : {};
+  marks = {}; mmarks = {};
+  if (line) (inMandate ? mmarks : marks)[line] = { state: "fail" };
   renderGutter(true);
-  diag.className = "diagnostic fail";
-  diag.innerHTML = "";
-  diag.append(document.createTextNode(e.message + " "));
+  const d = inMandate ? mdiag : diag;
+  d.className = "diagnostic fail";
+  d.innerHTML = "";
+  d.append(document.createTextNode(e.message + " "));
   const ref = document.createElement("span");
   ref.className = "code-ref";
   ref.textContent = `${e.code ?? "error"}${line ? `, line ${line}` : ""}`;
-  diag.append(ref);
-  setStatus(line ? "The program can't be honoured as written. Nothing was quoted." : e.message, "fail");
+  d.append(ref);
+  setStatus(inMandate ? "The mandate can't be honoured as written. Nothing was quoted."
+    : line ? "The program can't be honoured as written. Nothing was quoted." : e.message, "fail");
 }
 
 const units = (raw, decimals) => {
@@ -290,6 +369,31 @@ const WHY = {
   refund_fee: (r) => r.signed === false ? "A dry quote's refund fee isn't signed by 1Click; a live one's is." : "",
 };
 
+const MANDATE_LABELS = {
+  mandate_active: (r) => r.ok ? "The mandate is in force" : "The mandate has expired",
+  mandate_asset: (r, t) => r.ok ? `Spends ${t.oSym} on ${t.oChain}, the only asset allowed` : `Spends an asset the mandate doesn't allow`,
+  mandate_destination_asset: (r, t) => r.ok ? `Pays out in ${t.dSym}, which the mandate allows` : `Pays out in ${t.dSym}, which the mandate doesn't allow`,
+  mandate_recipient: (r, t) => r.ok ? `${t.recipient} is on the owner's list` : `${t.recipient} is not on the owner's list`,
+  mandate_refund_to: (r) => r.ok ? "Refunds go to the owner's address" : "Refunds would go to an address the owner didn't pin",
+  mandate_per_payment: (r, t) => `${units(t.amount, t.oDec)} ${t.oSym}, limit ${units(t.m.per_payment_cap, t.oDec)} a payment`,
+  mandate_daily: (r, t) => `Fits ${units(t.m.daily_cap, t.oDec)} ${t.oSym} per 24 hours`,
+  mandate_slippage: (r, t) => `Slippage limit ${t.slip} bps, the owner allows ${t.m.max_slippage_bps}`,
+  mandate_fees: (r, t) => t.fee == null ? "No fee cap: the owner requires one" : `Fee cap ${t.fee} bps, the owner allows ${t.m.max_fee_bps}`,
+  mandate_deadline: (r) => r.ok ? "Settles before the mandate expires" : "The deadline outlives the mandate",
+};
+const MANDATE_WHY = { mandate_daily: "x3-guard counts what the agent already spent; this page assumes nothing yet." };
+
+function mandateLines(intent, parsed) {
+  const L = intent.lines, by = Object.fromEntries(intent.requires.map((r) => [r.kind, r.line]));
+  const M = parsed.line_of, mreq = Object.fromEntries(parsed.requires.map((r) => [r.kind, r.line]));
+  return {
+    mandate_active: [L.mandate, M.expires], mandate_asset: [L.from, M.spend], mandate_destination_asset: [L.to, M.allow_assets],
+    mandate_recipient: [L.to, M.allow_recipients], mandate_refund_to: [L.timeout, M.refund_to], mandate_per_payment: [L.from, M.per_payment],
+    mandate_daily: [L.from, M.per_24h], mandate_slippage: [by.slippage, mreq.slippage], mandate_fees: [by.fees, mreq.fees],
+    mandate_deadline: [L.timeout, M.expires],
+  };
+}
+
 function lineFor(guard, intent, req) {
   const L = intent.lines, by = Object.fromEntries(intent.requires.map((r) => [r.kind, r.line]));
   return {
@@ -310,6 +414,27 @@ async function quote() {
   } catch (e) { return fail(e); }
 
   run.disabled = true;
+  let mandate = null;
+  if (leg.mandate_owner) {
+    setStatus("Checking the owner's mandate…");
+    let parsed, compiled, tokens;
+    try { parsed = x3.parseMandate(mcode.value); } catch (e) { return fail(e, true); }
+    try { tokens = await x3.fetchTokens(); } catch (e) { return fail(new x3.X3Error("X3_NEAR_UNREACHABLE", "The 1Click API couldn't be reached from this page. Check your connection and try again.")); }
+    try { compiled = x3.lowerMandate(parsed, tokens, Date.now(), await x3.sha256Hex(mcode.value)); } catch (e) { return fail(e, true); }
+    if (compiled.owner !== leg.mandate_owner) return fail(new x3.X3Error("X3_MANDATE_OWNER", `The program is under ${leg.mandate_owner}'s mandate, but this mandate is ${compiled.owner}'s.`, { line: intent.lines.mandate }));
+    let request;
+    try { request = x3.buildQuoteRequest(leg, tokens, { dry: true }); } catch (e) { return fail(e); }
+    const policy = x3.policyFor(leg, request, await x3.sha256Hex(code.value));
+    const m = { ...compiled, version: null, revoked: false, spends: [] };
+    const o = x3.resolveAsset(tokens, leg.origin.chain, leg.origin.asset), d = x3.resolveAsset(tokens, leg.destination.chain, leg.destination.asset);
+    mandate = { parsed, compiled, checks: x3.checkMandate(m, policy, Date.now()), approvals: x3.approvalsNeeded(m, policy.amount),
+      t: { oDec: o.decimals, oSym: o.symbol, oChain: leg.origin.chain.charAt(0).toUpperCase() + leg.origin.chain.slice(1), dSym: d.symbol, recipient: leg.recipient, amount: policy.amount,
+           slip: policy.slippage_bps, fee: policy.fee_cap_bps, m: compiled.terms } };
+    if (mandate.checks.some((c) => !c.ok)) {
+      run.disabled = false;
+      return renderMandateOnly(intent, mandate);
+    }
+  }
   setStatus("Asking 1Click for a quote…");
   try {
     if (leg.destination.chain === "near") {
@@ -321,7 +446,7 @@ async function quote() {
     const response = await x3.requestQuote(request);
     const verdict = await x3.verifyQuote(leg, request, response, { nowMs: Date.now() });
     const o = x3.resolveAsset(tokens, leg.origin.chain, leg.origin.asset), d = x3.resolveAsset(tokens, leg.destination.chain, leg.destination.asset);
-    render(intent, leg, request, response, verdict, { oDec: o.decimals, oSym: o.symbol, dDec: d.decimals, dSym: d.symbol });
+    render(intent, leg, request, response, verdict, { oDec: o.decimals, oSym: o.symbol, dDec: d.decimals, dSym: d.symbol }, mandate);
   } catch (e) {
     if (e.code === "X3_NEAR_HTTP") e.message += ". 1Click also answers this way when a receiver doesn't exist.";
     if (e instanceof TypeError) e = new x3.X3Error("X3_NEAR_UNREACHABLE", "The 1Click API couldn't be reached from this page. Check your connection and try again.");
@@ -329,10 +454,55 @@ async function quote() {
   } finally { run.disabled = false; }
 }
 
-function render(intent, leg, request, response, { results, verdict }, t) {
+function markOn(target, line, state) {
+  if (!line) return;
+  const cur = target[line]?.state;
+  if (cur === "fail") return;
+  if (cur === "pass" && state === "note") return;
+  target[line] = { state };
+}
+
+function mandateList(intent, mandate) {
+  const where = mandateLines(intent, mandate.parsed);
+  for (const c of mandate.checks) {
+    const [pl, ml] = where[c.guard] ?? [];
+    markOn(marks, pl, c.ok ? "pass" : "fail");
+    markOn(mmarks, ml, c.ok ? "pass" : "fail");
+  }
+  markOn(marks, intent.lines.mandate, mandate.checks.every((c) => c.ok) ? "pass" : "fail");
+  const items = mandate.checks.map((c) => {
+    const [pl, ml] = where[c.guard] ?? [];
+    const label = (MANDATE_LABELS[c.guard] ?? (() => c.guard))(c, mandate.t);
+    const why = MANDATE_WHY[c.guard] ?? "";
+    const at = ml ? `<a class="at" href="#mcode" data-mline="${ml}">mandate ${ml}</a>` : pl ? `<a class="at" href="#code" data-line="${pl}">line ${pl}</a>` : "";
+    return `<li class="${c.ok ? "pass" : "fail"}"><span class="mark">${c.ok ? "✓" : "✗"}</span><span class="what">${esc(label)}${why ? `<span class="why">${esc(why)}</span>` : ""}</span>${at}</li>`;
+  });
+  if (mandate.approvals) items.push(`<li class="note"><span class="mark">○</span><span class="what">Needs ${mandate.approvals} approval${mandate.approvals > 1 ? "s" : ""} on NEAR<span class="why">Above the mandate's approval threshold, x3-guard waits for the listed approvers before the agent can accept a quote.</span></span><a class="at" href="#mcode" data-mline="${mandate.parsed.line_of.approve}">mandate ${mandate.parsed.line_of.approve}</a></li>`);
+  return `<p class="checks-title">The owner's mandate</p><ul class="checks">${items.join("")}</ul>`;
+}
+
+function wireLinks() {
+  result.querySelectorAll("a.at").forEach((a) => a.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    if (a.dataset.mline) goTo(Number(a.dataset.mline), mcode); else goTo(Number(a.dataset.line));
+  }));
+}
+
+function renderMandateOnly(intent, mandate) {
+  marks = {}; mmarks = {};
+  const html = mandateList(intent, mandate);
+  renderGutter(true);
+  const failed = mandate.checks.filter((c) => !c.ok).length;
+  setStatus(`The owner's mandate refuses this payment (${failed === 1 ? "one term" : failed + " terms"}). 1Click was never asked for a quote, and x3-guard would refuse it on NEAR the same way.`, "fail");
+  result.innerHTML = html;
+  wireLinks();
+}
+
+function render(intent, leg, request, response, { results, verdict }, t, mandate = null) {
   const L = intent.lines;
-  marks = {};
-  const set = (line, state) => { if (!line) return; const cur = marks[line]?.state; if (cur === "fail") return; if (cur === "pass" && state === "note") return; marks[line] = { state }; };
+  marks = {}; mmarks = {};
+  const set = (line, state) => markOn(marks, line, state);
+  const mandateHtml = mandate ? mandateList(intent, mandate) : "";
   for (const r of results) set(lineFor(r.guard, intent, request), r.ok ? "pass" : "fail");
   if (verdict !== "invalid_signature") {
     set(intent.requires.find((r) => r.kind === "nonce")?.line, "note");
@@ -346,7 +516,9 @@ function render(intent, leg, request, response, { results, verdict }, t) {
   const failed = results.filter((r) => !r.ok);
   if (verdict === "invalid_signature") setStatus("Refused: the quote's signature does not verify. Nothing else in it was read.", "fail");
   else if (failed.length) setStatus(`Refused by ${failed.length === 1 ? "one rule" : failed.length + " rules"}. A live quote like this could not be deposited to.`, "fail");
-  else setStatus("Every rule holds. As a live quote, this would be eligible for a wallet signature, and nothing moves without one.", "pass");
+  else setStatus(mandate
+    ? "Every rule and every term of the mandate holds. As a live quote, the agent could register and accept it on NEAR; the deposit still needs the owner's wallet."
+    : "Every rule holds. As a live quote, this would be eligible for a wallet signature, and nothing moves without one.", "pass");
 
   const parts = [];
   if (verdict !== "invalid_signature") {
@@ -369,15 +541,16 @@ function render(intent, leg, request, response, { results, verdict }, t) {
   }).join("")}
     ${intent.requires.some((r) => r.kind === "nonce") ? `<li class="note"><span class="mark">○</span><span class="what">One deposit address per nonce<span class="why">Enforced on NEAR by the x3-guard contract when a live quote is accepted.</span></span><a class="at" href="#code" data-line="${intent.requires.find((r) => r.kind === "nonce").line}">line ${intent.requires.find((r) => r.kind === "nonce").line}</a></li>` : ""}
   </ul>`);
+  if (mandateHtml) parts.push(mandateHtml);
   parts.push(`<details class="raw"><summary>Request and signed response</summary><pre>${esc(JSON.stringify({ request, response }, null, 2))}</pre></details>`);
   result.innerHTML = parts.join("");
-  result.querySelectorAll("a.at").forEach((a) => a.addEventListener("click", (ev) => { ev.preventDefault(); goTo(Number(a.dataset.line)); }));
+  wireLinks();
 }
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 run.addEventListener("click", quote);
-code.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") quote(); });
+for (const area of [code, mcode]) area.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") quote(); });
 
 const themes = ["system", "light", "dark"];
 let theme = store.get("x3guard.theme") ?? "system";

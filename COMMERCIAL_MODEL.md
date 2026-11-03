@@ -59,6 +59,16 @@ The open X3Lang policy math is **not** the revenue product. The differentiated
 managed business is the live quote/solver infrastructure, independently
 verified receipts, uptime, support, and authorized settlement services.
 
+## NEAR Guard mandates and spending limits (existing on main)
+
+PR #3 introduced NEAR agent mandates (`x3-lang/near/x3-guard/src/mandate.rs`,
+`x3-lang/near_mandate.py`) with Guard-level spending rules, revocation and
+approval thresholds. **Those do not make this fee preview billable**. Future
+fees need explicit owner approval for the service/cut/recipient and direct
+wallet or contract enforcement. The existing Guard holds no assets and is not
+an unrestricted wallet policy engine. This separate feature branch should
+reuse those mandates rather than copy unrelated `xxxstar` PR #727 code.
+
 ## NEAR Intents integration path
 
 NEAR's published 1Click API supports an optional `appFees` quote field of

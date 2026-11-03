@@ -228,6 +228,12 @@ export function parse(source) {
       if (p.length > 2) timeout.action = parseRefund(p.slice(2), ln.no);
       intent.policies.timeout = timeout;
       intent.lines.timeout = ln.no;
+    } else if (t.startsWith("under ")) {
+      const p = t.split(/\s+/);
+      if (p.length !== 3 || p[1] !== "mandate") throw new X3Error("X3_PARSE_MANDATE", "expected `under mandate <owner account>`", { line: ln.no, field: "mandate" });
+      if (intent.mandate) throw new X3Error("X3_PARSE_MANDATE", "an intent is under one mandate", { line: ln.no, field: "mandate" });
+      intent.mandate = { owner: p[2].replace(/"/g, "") };
+      intent.lines.mandate = ln.no;
     } else if (t.startsWith("on_fail ")) {
       const p = t.split(/\s+/).slice(1);
       intent.policies.on_fail = ["rollback", "halt", "quarantine"].includes(p[0]) ? { type: p[0] } : parseRefund(p, ln.no);
@@ -417,7 +423,7 @@ export function lower(intent, nowMs = Date.now()) {
     if (refundTo !== null && refundTo !== target) throw new X3Error("X3_NEAR_REFUND_TO", "timeout and on_fail refund to different addresses; 1Click takes one", { field: "policies", line });
     refundTo = target;
   }
-  return {
+  const out = {
     intent: intent.intent,
     origin: { chain: source.chain, asset: source.asset },
     destination: { chain: dest.chain, asset: dest.asset },
@@ -430,6 +436,13 @@ export function lower(intent, nowMs = Date.now()) {
     nonce: nonces[0] ?? null,
     deadline: formatTimestamp(nowMs + windowMs),
   };
+  if (intent.mandate) {
+    const owner = intent.mandate.owner;
+    if (!owner || !isValidNearAccount(owner)) throw new X3Error("X3_MANDATE_OWNER", `\`under mandate\` names '${owner}', which is not a NEAR account`, { field: "mandate.owner", line: L.mandate });
+    if (!out.nonce) throw new X3Error("X3_NEAR_NONCE", "an intent under a mandate needs `require nonce unused <id>`: x3-guard records it under the owner by its nonce", { field: "requires.nonce", line: L.mandate });
+    out.mandate_owner = owner;
+  }
+  return out;
 }
 
 export function resolveAsset(tokens, chain, asset) {
@@ -716,4 +729,204 @@ export async function nearAccountExists(account, rpcUrl = NEAR_RPC_URL) {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------------------
+// Agent mandates (near_mandate.py; the contract's `check_mandate` in x3-guard/src/mandate.rs)
+// ---------------------------------------------------------------------------------------
+
+export const MANDATE_WINDOW_MS = 86_400_000;
+export const MAX_PAYMENTS_PER_WINDOW = 64;
+const MANDATE_MAX_LIST = 16;
+const MANDATE_MAX_APPROVERS = 8;
+const MANDATE_KEYS = ["owner", "agent", "spend", "per_payment", "per_24h", "refund_to", "expires"];
+const mandateList = (text) => text.split(",").map((x) => x.trim().replace(/"/g, "")).filter(Boolean);
+const fieldName = (f) => (f.startsWith("allow_") ? f.replace("_", " ") : f);
+
+/** One `mandate` declaration. Strict: a line it does not know is an error. */
+export function parseMandate(source) {
+  const lines = cleanLines(source);
+  if (!lines.length) throw new X3Error("X3_MANDATE_PARSE", "the file is empty");
+  const head = /^mandate\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{$/.exec(lines[0].text);
+  if (!head) throw new X3Error("X3_MANDATE_PARSE", "expected `mandate <name> {` as the first line", { line: lines[0].no, field: "mandate" });
+  const out = { name: head[1], requires: [], line_of: {} };
+  let closed = false;
+  for (const ln of lines.slice(1)) {
+    const t = ln.text;
+    if (closed) throw new X3Error("X3_MANDATE_PARSE", `unexpected '${t}' after the mandate's closing brace`, { line: ln.no, field: "mandate" });
+    if (t === "}") { closed = true; continue; }
+    const words = t.split(/\s+/);
+    let field;
+    let value;
+    if (words[0] === "require") {
+      let req;
+      try { req = parseRequire(ln); } catch (e) { throw new X3Error("X3_MANDATE_PARSE", e.message, { line: ln.no, field: "require" }); }
+      if (req.kind !== "slippage" && req.kind !== "fees") throw new X3Error("X3_MANDATE_PARSE", `a mandate bounds slippage and fees; \`require ${req.kind}\` belongs in the agent's intent`, { line: ln.no, field: "require" });
+      out.requires.push(req);
+      continue;
+    }
+    if (words[0] === "allow" && words.length >= 3 && (words[1] === "recipients" || words[1] === "assets")) {
+      field = `allow_${words[1]}`;
+      value = mandateList(t.split(/\s+/).slice(2).join(" "));
+    } else if (words[0] === "approve") {
+      const m = /^approve\s+above\s+(\S+)\s+by\s+(\d+)\s+of\s+(.+)$/.exec(t);
+      if (!m) throw new X3Error("X3_MANDATE_PARSE", "expected `approve above <amount> by <n> of <account>, …`", { line: ln.no, field: "approve" });
+      field = "approve";
+      value = { above: m[1], threshold: Number(m[2]), approvers: mandateList(m[3]) };
+    } else if (MANDATE_KEYS.includes(words[0]) && words.length === 2) {
+      field = words[0];
+      value = words[1].replace(/"/g, "");
+    } else {
+      throw new X3Error("X3_MANDATE_PARSE", `'${t}' is not a mandate clause`, { line: ln.no, field: "mandate" });
+    }
+    if (field in out) throw new X3Error("X3_MANDATE_PARSE", `\`${fieldName(field)}\` appears twice`, { line: ln.no, field });
+    out[field] = value;
+    out.line_of[field] = ln.no;
+  }
+  if (!closed) throw new X3Error("X3_MANDATE_PARSE", "the mandate is never closed", { line: lines[lines.length - 1].no, field: "mandate" });
+  for (const req of ["owner", "agent", "spend", "per_payment", "per_24h", "allow_recipients", "allow_assets", "refund_to", "expires"]) {
+    if (!(req in out)) throw new X3Error("X3_MANDATE_PARSE", `a mandate must state \`${fieldName(req)}\``, { field: req });
+  }
+  return out;
+}
+
+function mandateChainAsset(ref, field, line) {
+  const m = /^([A-Za-z][A-Za-z0-9_-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/.exec(ref);
+  if (!m) throw new X3Error("X3_MANDATE_ASSET", `'${ref}' is not a chain.asset reference`, { field, line });
+  const chain = normalizeChain(m[1]);
+  if (!CHAIN_TO_BLOCKCHAIN[chain]) throw new X3Error("X3_MANDATE_ASSET", `'${ref}': chain has no NEAR Intents mapping`, { field, line });
+  return { chain, asset: m[2] };
+}
+
+function mandateAccount(value, field, line) {
+  if (!isValidNearAccount(value)) throw new X3Error("X3_MANDATE_ACCOUNT", `'${value}' is not a NEAR account`, { field, line });
+  return value;
+}
+
+export function parseExpiryMs(text, line = null) {
+  const m = /^(\d+)(ms|s|m|h|d)$/.exec(String(text).trim());
+  if (!m || Number(m[1]) === 0) throw new X3Error("X3_MANDATE_EXPIRES", `expires '${text}' must be a positive <n>ms|s|m|h|d duration`, { field: "expires", line });
+  return Number(m[1]) * { ms: 1, s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
+}
+
+const distinct = (xs) => new Set(xs).size === xs.length;
+
+/** The `create_mandate` call: who sends it, and its `agent` and `terms`. */
+export function lowerMandate(parsed, tokens, nowMs, sourceSha256) {
+  const at = parsed.line_of;
+  const owner = mandateAccount(parsed.owner, "owner", at.owner);
+  const agent = mandateAccount(parsed.agent, "agent", at.agent);
+  if (owner === agent) throw new X3Error("X3_MANDATE_ACCOUNT", "the agent must be a different account from the owner", { field: "agent", line: at.agent });
+  const spend = mandateChainAsset(parsed.spend, "spend", at.spend);
+  const spendId = resolveAsset(tokens, spend.chain, spend.asset).assetId;
+  const destinations = parsed.allow_assets.map((r) => mandateChainAsset(r, "allow assets", at.allow_assets));
+  const destinationIds = destinations.map((d) => resolveAsset(tokens, d.chain, d.asset).assetId);
+  const perPayment = baseUnits(parsed.per_payment, "per_payment");
+  const per24h = baseUnits(parsed.per_24h, "per_24h");
+  if (perPayment > per24h) throw new X3Error("X3_MANDATE_LIMIT", "per_payment must not exceed per_24h", { field: "per_payment", line: at.per_payment });
+  const recipients = parsed.allow_recipients;
+  const chains = [...new Set(destinations.map((d) => d.chain))].sort();
+  for (const r of recipients) {
+    if (r === "sender" || !chains.some((c) => isValidReceiver(c, r))) throw new X3Error("X3_MANDATE_RECIPIENT", `'${r}' is not an address on ${chains.join(", ")}`, { field: "allow recipients", line: at.allow_recipients });
+  }
+  const refundTo = parsed.refund_to;
+  if (refundTo === "sender" || !isValidReceiver(spend.chain, refundTo)) throw new X3Error("X3_MANDATE_REFUND_TO", `'${refundTo}' is not a ${spend.chain} address`, { field: "refund_to", line: at.refund_to });
+  for (const [field, items] of [["allow recipients", recipients], ["allow assets", destinationIds]]) {
+    if (!items.length || items.length > MANDATE_MAX_LIST || !distinct(items)) throw new X3Error("X3_MANDATE_LIST", `${field} must list 1..${MANDATE_MAX_LIST} distinct entries`, { field });
+  }
+  const bounds = {};
+  for (const kind of ["slippage", "fees"]) {
+    const found = parsed.requires.filter((r) => r.kind === kind).map((r) => upperBoundBps(r, `require ${kind}`));
+    if (!found.length) throw new X3Error("X3_MANDATE_BOUND", `a mandate must bound \`require ${kind} <= …\`: the agent would otherwise choose it`, { field: "require" });
+    bounds[kind] = Math.min(...found);
+  }
+  let approvalAbove = null;
+  let approvers = [];
+  let threshold = 0;
+  if (parsed.approve) {
+    const a = parsed.approve;
+    approvalAbove = baseUnits(a.above, "approve above");
+    approvers = a.approvers.map((x) => mandateAccount(x, "approve", at.approve));
+    threshold = a.threshold;
+    const bad = (msg) => new X3Error("X3_MANDATE_APPROVAL", msg, { field: "approve", line: at.approve });
+    if (approvalAbove >= perPayment) throw bad("`approve above` must be below per_payment, or no payment could need it");
+    if (!approvers.length || approvers.length > MANDATE_MAX_APPROVERS || !distinct(approvers)) throw bad(`approvers must be 1..${MANDATE_MAX_APPROVERS} distinct accounts`);
+    if (approvers.includes(agent)) throw bad("the agent cannot approve its own payments");
+    if (threshold < 1 || threshold > approvers.length) throw bad("the threshold must be 1..the number of approvers");
+  }
+  const expiresAt = nowMs + parseExpiryMs(parsed.expires, at.expires);
+  return {
+    name: parsed.name,
+    owner,
+    agent,
+    terms: {
+      program_sha256: sourceSha256,
+      asset: spendId,
+      per_payment_cap: perPayment.toString(),
+      daily_cap: per24h.toString(),
+      destination_assets: destinationIds,
+      recipients,
+      refund_to: refundTo,
+      max_slippage_bps: bounds.slippage,
+      max_fee_bps: bounds.fees,
+      approval_above: approvalAbove === null ? null : approvalAbove.toString(),
+      approvers,
+      approval_threshold: threshold,
+      expires_at_ms: expiresAt,
+    },
+    expires: formatTimestamp(expiresAt),
+  };
+}
+
+export async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** x3-guard's `Policy` for a lowered leg and its quote request. */
+export function policyFor(leg, request, programSha256) {
+  return {
+    program_sha256: programSha256,
+    origin_asset: request.originAsset,
+    destination_asset: request.destinationAsset,
+    amount: String(leg.amount),
+    min_receive: leg.min_receive == null ? null : String(leg.min_receive),
+    slippage_bps: leg.slippage_bps,
+    fee_cap_bps: leg.fee_cap_bps,
+    recipient: leg.recipient,
+    refund_to: leg.refund_to,
+    deadline_ms: parseTimestampMs(leg.deadline),
+  };
+}
+
+function spentInWindow(spends, nowMs) {
+  const since = Math.max(nowMs - MANDATE_WINDOW_MS, 0);
+  const inside = spends.filter((s) => Number(s.at_ms) > since);
+  return [inside.reduce((sum, s) => sum + BigInt(s.amount), 0n), inside.length];
+}
+
+/** The contract's `check_mandate`, check for check, in the same order. */
+export function checkMandate(mandate, policy, nowMs) {
+  const t = mandate.terms;
+  const out = [];
+  const record = (guard, ok, detail) => out.push({ guard, ok: Boolean(ok), detail });
+  const revoked = Boolean(mandate.revoked);
+  record("mandate_active", !revoked && nowMs < Number(t.expires_at_ms), `version ${mandate.version ?? "None"}, revoked ${revoked}, expires ${t.expires_at_ms}, now ${nowMs}`);
+  record("mandate_asset", policy.origin_asset === t.asset, `spends ${policy.origin_asset}, mandate allows ${t.asset}`);
+  record("mandate_destination_asset", t.destination_assets.includes(policy.destination_asset), `${policy.destination_asset}, allowed ${t.destination_assets.join(", ")}`);
+  record("mandate_recipient", t.recipients.includes(policy.recipient), `${policy.recipient}, allowed ${t.recipients.join(", ")}`);
+  record("mandate_refund_to", policy.refund_to === t.refund_to, `refunds to ${policy.refund_to}, mandate pins ${t.refund_to}`);
+  const amount = BigInt(policy.amount);
+  record("mandate_per_payment", amount <= BigInt(t.per_payment_cap), `${amount} of at most ${t.per_payment_cap}`);
+  const [spent, count] = spentInWindow(mandate.spends ?? [], nowMs);
+  record("mandate_daily", spent + amount <= BigInt(t.daily_cap) && count < MAX_PAYMENTS_PER_WINDOW, `${spent} spent in ${count} payments over 24h, plus ${amount}, cap ${t.daily_cap}`);
+  record("mandate_slippage", policy.slippage_bps <= t.max_slippage_bps, `${policy.slippage_bps} bps of at most ${t.max_slippage_bps}`);
+  record("mandate_fees", policy.fee_cap_bps != null && policy.fee_cap_bps <= t.max_fee_bps, `fee cap ${policy.fee_cap_bps} bps, mandate requires at most ${t.max_fee_bps}`);
+  record("mandate_deadline", policy.deadline_ms <= Number(t.expires_at_ms), `intent deadline ${policy.deadline_ms}, mandate expires ${t.expires_at_ms}`);
+  return out;
+}
+
+export function approvalsNeeded(mandate, amount) {
+  const above = mandate.terms.approval_above;
+  return above != null && BigInt(amount) > BigInt(above) ? mandate.terms.approval_threshold : 0;
 }

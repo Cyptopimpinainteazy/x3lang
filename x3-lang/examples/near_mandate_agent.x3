@@ -1,0 +1,31 @@
+// near_mandate_agent.x3 — what an owner lets an AI agent spend, enforced on NEAR by x3-guard.
+//
+// The owner sends this once (`near_intents.py mandate args`). From then on the agent account
+// can register swaps in the owner's name, and x3-guard refuses any that break a term:
+//
+// - `spend` and `per_payment`: Solana USDC only, at most 50 USDC a payment.
+// - `per_24h`: at most 200 USDC in any rolling 24 hours (and at most 64 payments).
+// - `allow recipients` / `allow assets`: where the money may go, and as what.
+// - `refund_to`: a failed swap refunds here. The agent cannot point refunds at itself.
+// - `require slippage` / `require fees`: the loosest bounds an agent's intent may declare.
+// - `approve above`: a payment over 30 USDC waits for one of the listed approvers.
+// - `expires`: the mandate ends 30 days after it is compiled. The owner can revoke it at
+//   any time (`near_intents.py mandate revoke`), and every unaccepted intent stops at once.
+//
+// Amounts are base units: 50 USDC at six decimals is 50_000_000.
+//
+// The accounts are placeholders. Replace them with accounts you control.
+mandate x3_shopping_agent {
+    owner x3-owner.near
+    agent x3-agent.near
+    spend Solana.USDC
+    per_payment 50000000
+    per_24h 200000000
+    allow recipients x3-demo.near
+    allow assets Near.USDC
+    refund_to 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    require slippage <= 1%
+    require fees <= 100 bps
+    approve above 30000000 by 1 of x3-owner.near
+    expires 30d
+}

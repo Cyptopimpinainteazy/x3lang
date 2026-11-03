@@ -137,6 +137,35 @@ def _load(name: str):
 registry = _load("registry")
 ed25519 = _load("ed25519")
 chain_evidence = _load("chain_evidence")
+_MANDATE_MODULE = None
+_CLI_MODULE = None
+
+
+def cli_module():
+    global _CLI_MODULE
+    if _CLI_MODULE is None:
+        _CLI_MODULE = _load("cli")
+    return _CLI_MODULE
+
+
+def mandates():
+    """`near_mandate.py`, bound to this adapter's errors, units and asset resolution."""
+    global _MANDATE_MODULE
+    if _MANDATE_MODULE is None:
+        module = _load("near_mandate")
+        module.bind(sys.modules.get(__name__) or _AdapterView())
+        _MANDATE_MODULE = module
+    return _MANDATE_MODULE
+
+
+class _AdapterView:
+    """This module's namespace, for when it was loaded by path and is not in `sys.modules`."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(name)
 
 DEFAULT_BASE_URL = "https://1click.chaindefuser.com"
 DEFAULT_NONCE_STORE = os.path.join(os.path.expanduser("~"), ".x3", "near_intents_nonces.json")
@@ -172,6 +201,7 @@ TERMINAL_STATUSES = {"SUCCESS", "REFUNDED", "FAILED"}
 # Exit codes for `status`, so a script can branch on the outcome.
 OUTCOME_EXIT_CODES = {"settled": 0, "refunded": 2, "failed": 3}
 EXIT_NOT_TERMINAL = 4
+EXIT_MANDATE_DENIED = 6
 
 
 class NearIntentsError(Exception):
@@ -299,6 +329,9 @@ def _upper_bound_bps(req: Dict[str, Any], field: str) -> int:
     if whole < 0:
         raise NearIntentsError("X3_NEAR_BOUND_UNIT", f"{field} allows no value at all", field)
     return whole
+
+
+upper_bound_bps = _upper_bound_bps
 
 
 # --------------------------------------------------------------------------------------------
@@ -446,7 +479,7 @@ def lower(intent: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str
             raise NearIntentsError("X3_NEAR_REFUND_TO", "timeout and on_fail refund to different addresses; 1Click takes one", "policies")
         refund_to = target
 
-    return {
+    leg_out: Dict[str, Any] = {
         "intent": intent.get("intent"),
         "origin": {"chain": source["chain"], "asset": source["asset"]},
         "destination": {"chain": dest["chain"], "asset": dest["asset"]},
@@ -459,6 +492,18 @@ def lower(intent: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str
         "nonce": nonces[0] if nonces else None,
         "deadline": format_timestamp(now + window),
     }
+    mandate = intent.get("mandate")
+    if mandate is not None:
+        owner = (mandate or {}).get("owner")
+        if not owner or not registry.is_valid_near_account(owner):
+            raise NearIntentsError("X3_MANDATE_OWNER", f"`under mandate` names {owner!r}, which is not a NEAR account",
+                                   "mandate.owner")
+        if not leg_out["nonce"]:
+            raise NearIntentsError("X3_NEAR_NONCE", "an intent under a mandate needs `require nonce unused <id>`: "
+                                   "x3-guard records it under the owner by its nonce", "requires.nonce")
+        # Only present for agent intents, so every other program lowers exactly as before.
+        leg_out["mandate_owner"] = owner
+    return leg_out
 
 
 def resolve_asset(tokens: List[Dict[str, Any]], chain: str, asset: str) -> Dict[str, Any]:
@@ -1058,17 +1103,38 @@ def nep141_contract(asset_id: str) -> str:
 def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = None, live: bool = False,
           nonce_store: Optional[NonceStore] = None, receipt_path: Optional[str] = None,
           rpc: Optional[NearRpc] = None, now: Optional[datetime] = None,
-          manager_public_key: Optional[str] = None, near_views: Optional[Any] = None) -> Dict[str, Any]:
+          manager_public_key: Optional[str] = None, near_views: Optional[Any] = None,
+          mandate_path: Optional[str] = None, guard_contract: Optional[str] = None) -> Dict[str, Any]:
     planned = plan(path, client=client, tokens_path=tokens_path, live=live, now=now)
     leg, request = planned["leg"], planned["quote_request"]
     store = nonce_store or NonceStore()
     if live and leg["nonce"]:
         store.check_unused(leg["nonce"])
     rpc = rpc or NearRpc()
+    # An agent's intent is checked against its mandate before 1Click is asked for anything,
+    # so a payment the contract would refuse never gets a deposit address.
+    mandate_check = None
+    if leg.get("mandate_owner") or mandate_path:
+        if not mandate_path:
+            if live:
+                raise NearIntentsError(
+                    "X3_MANDATE_REQUIRED",
+                    f"this intent is `under mandate {leg['mandate_owner']}`: a live quote needs --mandate <file> "
+                    "(and --guard-contract to read the mandate's live state)",
+                    "mandate",
+                )
+        else:
+            with open(path, "rb") as f:
+                intent_sha = hashlib.sha256(f.read()).hexdigest()
+            mandate_check = check_against_mandate(
+                leg, request, intent_sha, mandate_path,
+                tokens=load_tokens(client, tokens_path), guard_contract=guard_contract,
+                near_views=near_views or (near_views_for(rpc) if guard_contract else None), now=now)
     account_checks = preflight_accounts(leg, rpc)
 
     response = client.quote(request)
-    guards = account_checks + verify_quote(leg, request, response, now=now, manager_public_key=manager_public_key)
+    guards = (mandate_check["checks"] if mandate_check else []) + account_checks + verify_quote(
+        leg, request, response, now=now, manager_public_key=manager_public_key)
 
     result: Dict[str, Any] = {
         "status": "quoted" if not live else "awaiting_deposit",
@@ -1079,6 +1145,8 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
         "quote_response": response,
         "guards": guards,
     }
+    if mandate_check:
+        result["mandate"] = mandate_check
     if not client.authenticated:
         result["note"] = "no NEAR_INTENTS_JWT: the unauthenticated 1Click fee schedule applies"
     # Reaching this line means the signature verified, the echoed request matched, every policy
@@ -1134,6 +1202,8 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
         "tokens": planned["tokens"],
         "evidence": {"settlement_baseline": baseline},
     }
+    if mandate_check:
+        receipt["mandate"] = mandate_check
     if leg["nonce"]:
         store.consume(leg["nonce"], {
             "intent": leg["intent"],
@@ -1148,15 +1218,66 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     return result
 
 
+def check_against_mandate(leg: Dict[str, Any], request: Dict[str, Any], program_sha256: str, mandate_path: str, *,
+                          tokens: List[Dict[str, Any]], guard_contract: Optional[str] = None,
+                          near_views: Optional[Any] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Check an agent's lowered intent against its mandate, as x3-guard will.
+
+    With `guard_contract`, the mandate the contract holds is read from chain (revocation,
+    version, rolling spend) and is the one checked; the file only names owner and agent.
+    Without it the compiled file is checked, which cannot know about revocation or spending.
+    Raises `X3_MANDATE_DENIED` with every check if any fails.
+    """
+    m = mandates()
+    compiled = m.compile_mandate(mandate_path, tokens, now=now)
+    owner = leg.get("mandate_owner")
+    if owner != compiled["owner"]:
+        raise NearIntentsError("X3_MANDATE_OWNER",
+                               f"the intent is under mandate {owner!r}, but {mandate_path} is {compiled['owner']}'s",
+                               "mandate.owner")
+    source: Dict[str, Any] = {"kind": "file", "path": mandate_path}
+    mandate = {"owner": compiled["owner"], "agent": compiled["agent"], "terms": compiled["terms"], "version": None,
+               "revoked": False, "spends": []}
+    if guard_contract:
+        try:
+            view = near_views.view_json(guard_contract, "get_mandate", {"owner": compiled["owner"], "agent": compiled["agent"]})
+        except chain_evidence.ChainEvidenceError as exc:
+            raise NearIntentsError("X3_MANDATE_CHAIN", f"could not read the mandate from {guard_contract}: {exc.message}",
+                                   "mandate", exc.detail)
+        if view["value"] is None:
+            raise NearIntentsError("X3_MANDATE_DENIED",
+                                   f"{guard_contract} holds no mandate from {compiled['owner']} for {compiled['agent']}; "
+                                   "the owner sends `mandate args` first", "mandate")
+        mandate = m.mandate_from_chain(view["value"])
+        source = {"kind": "chain", "contract": guard_contract, "block_height": view["block_height"],
+                  "block_hash": view["block_hash"], "path": mandate_path}
+    policy = policy_for(leg, request, program_sha256)
+    now_ms = int((now or datetime.now(timezone.utc)).timestamp() * 1000)
+    checks = m.check_mandate(mandate, policy, now_ms)
+    out = {"owner": mandate["owner"], "agent": mandate["agent"], "version": mandate["version"], "source": source,
+           "checks": checks, "approvals_needed": m.approvals_needed(mandate, int(policy["amount"]))}
+    failed = [c["guard"] for c in checks if not c["ok"]]
+    if failed:
+        raise NearIntentsError("X3_MANDATE_DENIED", f"the mandate refuses this intent: {', '.join(failed)}", "mandate", out)
+    return out
+
+
 # --------------------------------------------------------------------------------------------
 # x3-guard contract arguments
 # --------------------------------------------------------------------------------------------
 
 GUARD_STEPS = ("register", "quote", "outcome")
 GUARD_METHODS = {"register": "register_intent", "quote": "accept_quote", "outcome": "record_outcome"}
+# An agent's intent (`under mandate <owner>`) goes through the agent methods, which take the
+# owner and check the mandate; `approve` is sent by an approver for payments above the
+# mandate's approval threshold.
+AGENT_STEPS = GUARD_STEPS + ("approve",)
+AGENT_METHODS = {"register": "agent_register_intent", "quote": "agent_accept_quote",
+                 "outcome": "agent_record_outcome", "approve": "approve_intent"}
 # Attached NEAR per call. Storage is charged by the bytes written and the excess refunded in
 # the same call, so these are ceilings, not prices.
-GUARD_DEPOSITS = {"register": "0.05 NEAR", "quote": "0.05 NEAR", "outcome": "0.02 NEAR"}
+GUARD_DEPOSITS = {"register": "0.05 NEAR", "quote": "0.05 NEAR", "outcome": "0.02 NEAR", "approve": "0.02 NEAR",
+                  "mandate": "0.1 NEAR", "revoke": "0 NEAR"}
 GUARD_GAS = "30 Tgas"
 _STATUS_TO_GUARD = {"SUCCESS": "Settled", "REFUNDED": "Refunded", "FAILED": "Failed"}
 MAX_GUARD_TX_HASHES = 16
@@ -1170,7 +1291,35 @@ def _u128(value: Any) -> Optional[str]:
     return None if value is None else str(int(value))
 
 
+def policy_for(leg: Dict[str, Any], request: Dict[str, Any], program_sha256: str) -> Dict[str, Any]:
+    """The x3-guard `Policy` for a lowered leg and its quote request."""
+    return {
+        "program_sha256": program_sha256,
+        "origin_asset": request["originAsset"],
+        "destination_asset": request["destinationAsset"],
+        "amount": str(leg["amount"]),
+        "min_receive": _u128(leg.get("min_receive")),
+        "slippage_bps": leg["slippage_bps"],
+        "fee_cap_bps": leg.get("fee_cap_bps"),
+        "recipient": leg["recipient"],
+        "refund_to": leg["refund_to"],
+        "deadline_ms": _unix_ms(leg["deadline"]),
+    }
+
+
+def guard_method(receipt: Dict[str, Any], step: str) -> str:
+    owner = (receipt.get("leg") or {}).get("mandate_owner")
+    return AGENT_METHODS[step] if owner else GUARD_METHODS[step]
+
+
 def guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
+    """Arguments for one x3-guard call; an agent's receipt gets the agent methods' `owner`."""
+    args = _guard_args(receipt, step)
+    owner = (receipt.get("leg") or {}).get("mandate_owner")
+    return {"owner": owner, **args} if owner else args
+
+
+def _guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
     """The JSON arguments for one `x3-guard` call, built from a live-quote receipt.
 
     Built from the receipt rather than retyped, so the policy the contract stores is the one
@@ -1178,8 +1327,11 @@ def guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
     """
     if receipt.get("kind") != RECEIPT_KIND:
         raise NearIntentsError("X3_NEAR_RECEIPT", f"not an {RECEIPT_KIND} receipt")
-    if step not in GUARD_STEPS:
-        raise NearIntentsError("X3_NEAR_GUARD_STEP", f"step must be one of {', '.join(GUARD_STEPS)}")
+    agent = bool((receipt.get("leg") or {}).get("mandate_owner"))
+    steps = AGENT_STEPS if agent else GUARD_STEPS
+    if step not in steps:
+        raise NearIntentsError("X3_NEAR_GUARD_STEP", f"step must be one of {', '.join(steps)}"
+                               + ("" if agent else "; `approve` is for an intent under a mandate"))
     leg, request, response = receipt["leg"], receipt["quote_request"], receipt["quote_response"]
     nonce = leg.get("nonce")
     if not nonce:
@@ -1189,21 +1341,9 @@ def guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
             "requires.nonce",
         )
     if step == "register":
-        return {
-            "nonce": nonce,
-            "policy": {
-                "program_sha256": receipt["program_sha256"],
-                "origin_asset": request["originAsset"],
-                "destination_asset": request["destinationAsset"],
-                "amount": str(leg["amount"]),
-                "min_receive": _u128(leg.get("min_receive")),
-                "slippage_bps": leg["slippage_bps"],
-                "fee_cap_bps": leg.get("fee_cap_bps"),
-                "recipient": leg["recipient"],
-                "refund_to": leg["refund_to"],
-                "deadline_ms": _unix_ms(leg["deadline"]),
-            },
-        }
+        return {"nonce": nonce, "policy": policy_for(leg, request, receipt["program_sha256"])}
+    if step == "approve":
+        return {"nonce": nonce}
     if step == "quote":
         # The contract verifies 1Click's signature itself and reads every value from these
         # bytes, so nothing here is a claim the caller could edit.
@@ -1232,10 +1372,10 @@ def guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
 
 
 def guard_command(step: str, args: Dict[str, Any], *, contract: str, signer: str, key_file: str,
-                  network: str = "mainnet") -> List[str]:
+                  network: str = "mainnet", method: Optional[str] = None) -> List[str]:
     """The near-cli-rs (0.30) command that sends one `x3-guard` call."""
     return [
-        "near", "contract", "call-function", "as-transaction", contract, GUARD_METHODS[step],
+        "near", "contract", "call-function", "as-transaction", contract, method or GUARD_METHODS[step],
         "json-args", json.dumps(args, separators=(",", ":"), sort_keys=True),
         "prepaid-gas", GUARD_GAS,
         "attached-deposit", GUARD_DEPOSITS[step],
@@ -1438,6 +1578,8 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                          help="request a real deposit address, consume the nonce and write a receipt")
     p_quote.add_argument("--receipt", help="receipt path for --live (default <intent>.near-receipt.json)")
     p_quote.add_argument("--nonce-store", help="nonce store path (default $X3_NEAR_NONCE_STORE or ~/.x3/...)")
+    p_quote.add_argument("--mandate", help="the owner's mandate file, for an intent `under mandate <owner>`")
+    p_quote.add_argument("--guard-contract", help="read the mandate's live state from this x3-guard account")
 
     p_submit = sub.add_parser("submit-deposit", help="tell 1Click the deposit transaction hash")
     p_submit.add_argument("--deposit-address", required=True)
@@ -1454,11 +1596,27 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
 
     p_guard = sub.add_parser("guard-args", help="x3-guard contract call arguments (and command) from a receipt")
     p_guard.add_argument("--receipt", required=True)
-    p_guard.add_argument("--step", required=True, choices=GUARD_STEPS)
+    p_guard.add_argument("--step", required=True, choices=AGENT_STEPS)
     p_guard.add_argument("--contract", help="x3-guard account; with --signer and --key-file, prints the near CLI command")
     p_guard.add_argument("--signer")
     p_guard.add_argument("--key-file")
     p_guard.add_argument("--network", default="mainnet")
+
+    p_mandate = sub.add_parser("mandate", help="an owner's mandate for an AI agent, enforced by x3-guard")
+    msub = p_mandate.add_subparsers(dest="mandate_command", required=True)
+    for name, text in (("args", "create_mandate arguments (and command) from a mandate file"),
+                       ("revoke", "revoke_mandate arguments (and command): stops the agent at once")):
+        mp = msub.add_parser(name, help=text)
+        mp.add_argument("input")
+        mp.add_argument("--tokens")
+        mp.add_argument("--contract")
+        mp.add_argument("--key-file", help="the owner's key; with --contract, prints the near CLI command")
+        mp.add_argument("--network", default="mainnet")
+    mc = msub.add_parser("check", help="check an agent's intent against a mandate before quoting")
+    mc.add_argument("mandate")
+    mc.add_argument("intent")
+    mc.add_argument("--tokens")
+    mc.add_argument("--guard-contract", help="check against the mandate this x3-guard holds on chain")
 
     p_status = sub.add_parser("status", help="report the swap's X3 outcome")
     p_status.add_argument("--deposit-address", required=True)
@@ -1477,7 +1635,7 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
         if args.command == "quote":
             result = quote(args.input, client=client, tokens_path=args.tokens, live=args.live,
                            nonce_store=NonceStore(args.nonce_store), receipt_path=args.receipt, rpc=rpc,
-                           near_views=near_views)
+                           near_views=near_views, mandate_path=args.mandate, guard_contract=args.guard_contract)
             return _emit(result)
         if args.command == "submit-deposit":
             response = client.submit_deposit(args.deposit_address, args.tx_hash)
@@ -1505,13 +1663,45 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
             with open(args.receipt, "r", encoding="utf-8") as f:
                 receipt = json.load(f)
             call_args = guard_args(receipt, args.step)
-            out: Dict[str, Any] = {"method": GUARD_METHODS[args.step], "args": call_args,
+            method = guard_method(receipt, args.step)
+            out: Dict[str, Any] = {"method": method, "args": call_args,
                                    "attached_deposit": GUARD_DEPOSITS[args.step], "gas": GUARD_GAS}
             if args.contract and args.signer and args.key_file:
                 import shlex
                 out["command"] = shlex.join(guard_command(args.step, call_args, contract=args.contract,
                                                           signer=args.signer, key_file=args.key_file,
-                                                          network=args.network))
+                                                          network=args.network, method=method))
+            return _emit(out)
+        if args.command == "mandate":
+            if args.mandate_command == "check":
+                intent, leg = compile_program(args.intent)
+                tokens = load_tokens(client, args.tokens)
+                request = build_quote_request(leg, tokens, dry=True)
+                with open(args.intent, "rb") as f:
+                    intent_sha = hashlib.sha256(f.read()).hexdigest()
+                views = (near_views or near_views_for(rpc or NearRpc())) if args.guard_contract else None
+                try:
+                    checked = check_against_mandate(leg, request, intent_sha, args.mandate, tokens=tokens,
+                                                    guard_contract=args.guard_contract, near_views=views)
+                except NearIntentsError as exc:
+                    if exc.code != "X3_MANDATE_DENIED" or not isinstance(exc.detail, dict):
+                        raise
+                    return _emit({"status": "denied", "mandate": exc.detail}, EXIT_MANDATE_DENIED)
+                return _emit({"status": "allowed", "mandate": checked})
+            compiled = mandates().compile_mandate(args.input, load_tokens(client, args.tokens))
+            if args.mandate_command == "args":
+                step, method, call_args = "mandate", "create_mandate", {"agent": compiled["agent"], "terms": compiled["terms"]}
+            else:
+                step, method, call_args = "revoke", "revoke_mandate", {"agent": compiled["agent"]}
+            out = {"method": method, "args": call_args, "signer": compiled["owner"],
+                   "attached_deposit": GUARD_DEPOSITS[step], "gas": GUARD_GAS}
+            if step == "mandate":
+                out["expires"] = compiled["expires"]
+            if args.contract and args.key_file:
+                import shlex
+                out["command"] = shlex.join(guard_command(step, call_args, contract=args.contract,
+                                                          signer=compiled["owner"], key_file=args.key_file,
+                                                          network=args.network, method=method))
             return _emit(out)
         if args.command == "status":
             observed = track(client, args.deposit_address, memo=args.memo, wait=args.wait,

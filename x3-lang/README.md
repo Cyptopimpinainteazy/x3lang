@@ -120,6 +120,16 @@ On-chain policy: `x3-lang/near/x3-guard` is a NEAR contract that stores the prog
 re-runs the quote guards on chain, accepts one quote per nonce and records the outcome.
 `near_intents.py guard-args --receipt R --step register|quote|outcome` prints each call.
 
+AI agents: an owner writes a `mandate` (`examples/near_mandate_agent.x3`) naming an agent's NEAR
+account, the one asset it may spend, per-payment and rolling-24-hour caps, allowed recipients
+and destination assets, a pinned refund address, the loosest slippage and fees, approvals above
+a threshold, and an expiry. An agent's intent says `under mandate <owner>`
+(`examples/near_intents_agent_payment.x3`). `near_intents.py mandate args|check|revoke`
+compiles and checks it (`near_mandate.py`), and x3-guard enforces it on NEAR. The contract
+checks every term when the agent registers and again when it accepts a quote, and the owner can
+revoke the agent at once. The contract holds no funds; see its README for what that leaves to
+the wallet.
+
 Before quoting, NEAR receivers are checked on chain (`X3_NEAR_ACCOUNT_UNKNOWN`); 1Click itself
 answers a missing NEAR account with an unexplained HTTP 400.
 
