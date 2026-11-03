@@ -103,6 +103,11 @@ enforced by a local nonce store. Refused by code rather than approximated: multi
 guards 1Click cannot enforce (`finality`, `proof_complete`, …), missing slippage or timeout,
 refunds in another asset, and `on_fail halt`/`quarantine`.
 
+First real swap: `x3-lang/near/first-swap.sh` walks one small swap end to end:
+`setup` → `check` → `build` → `deploy` → `quote` (live quote, registered and accepted on NEAR) →
+you send the USDC → `deposited <solana-tx>` (track, prove from both chains, record the outcome).
+It never moves your funds and asks before every step that spends NEAR.
+
 Chain evidence: `verify-deposit --receipt R` proves the Solana deposit and `verify-settlement
 --receipt R [--refund-tx SIG]` proves the NEAR delivery (balance rise from a baseline taken at
 quote time) or the Solana refund. A receipt's `verified_outcome` is set only from chain data.

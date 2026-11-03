@@ -227,6 +227,10 @@ def test_settled_end_to_end_through_the_cli(tmp_path, capsys):
     assert receipt["verification"] == {"status": "verified", "outcome": "settled", "missing": [],
                                        "1click_reported": "settled", "1click_agrees": True}
     assert receipt["evidence"]["settlement"]["delivered"] == "24950000"
+    # The contract records the amount the chain proved, not 1Click's unsigned status.
+    chain.balances[(NEAR_USDC_CONTRACT, "x3-demo.near")] = 1_000_000 + 24_960_000
+    assert ni.verify_settlement(receipt, near_views=views)["delivered"] == "24960000"
+    assert ni.guard_args(receipt, "outcome")["amount_out"] == "24960000"
 
 
 def test_refunded_end_to_end(tmp_path):

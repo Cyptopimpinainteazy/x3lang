@@ -1218,10 +1218,14 @@ def guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
         )
     last = terminal[-1]
     hashes = [h for h in (last.get("origin_tx") or []) + (last.get("destination_tx") or []) + (last.get("near_tx") or []) if h]
+    # The amount the chain proved delivered, when there is one: 1Click's status is unsigned.
+    settlement = (receipt.get("evidence") or {}).get("settlement") or {}
+    proven_out = settlement.get("delivered") if settlement.get("verified") else None
     return {
         "nonce": nonce,
         "status": _STATUS_TO_GUARD[last["status"]],
-        "amount_out": _u128(last.get("amount_out")) if last["status"] == "SUCCESS" else None,
+        "amount_out": (_u128(proven_out) if proven_out is not None else _u128(last.get("amount_out")))
+        if last["status"] == "SUCCESS" else None,
         "refunded_amount": _u128(last.get("refunded_amount")) if last["status"] == "REFUNDED" else None,
         "tx_hashes": hashes[:MAX_GUARD_TX_HASHES],
     }
