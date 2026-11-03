@@ -53,6 +53,9 @@ jobs:
       - name: Audit both independently locked Rust workspaces
         shell: bash
         run: |
+          # GitHub invokes bash with -e; disable it ONLY for this advisory scan.
+          # Capture each audit exit code instead of failing before writing reports.
+          set +e
           set -uo pipefail
           mkdir -p reports
           for name in vm guard; do
