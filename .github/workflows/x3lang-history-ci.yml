@@ -1,0 +1,87 @@
+name: X3Lang History and Reproducibility
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Confirm historical baseline and exclusions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse baseline^{commit})" = a0a711e7381943fbe5544f6c0da3842e3a3bc89a
+          git merge-base --is-ancestor baseline HEAD
+          git merge-base --is-ancestor cb3e48a78bcdd5101048d5e57bcb7010196169ed HEAD
+          test ! -e x3-lang/vm/src/liquidity.rs
+          test ! -e x3-lang/vm/src/agent_firewall.rs
+          test -f PRIOR_WORK.md
+          grep -q 'baseline...main' PRIOR_WORK.md
+          git diff --check baseline...HEAD -- PRIOR_WORK.md README.md .github/workflows/
+
+  python-and-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r x3-lang/requirements.txt pytest
+      - name: X3Lang Python and NEAR adapter tests
+        env:
+          PYTHONPATH: x3-lang
+        run: python -m pytest x3-lang/tests -q
+      - name: Browser demo
+        run: node --test x3-lang/near/demo/test/*.test.mjs
+
+  rust-vm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang
+      - name: Test Rust VM with archived proofs
+        working-directory: x3-lang
+        run: cargo test -p x3-lang-vm --locked --quiet
+      - name: Formatting
+        working-directory: x3-lang
+        run: cargo fmt --all -- --check
+      - name: Strict lint
+        working-directory: x3-lang
+        run: cargo clippy -p x3-lang-vm --all-targets --locked -- -D warnings
+
+  near-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/x3-guard
+      - name: Rust NEAR Guard contract tests
+        working-directory: x3-lang/near/x3-guard
+        run: cargo test --locked --quiet
