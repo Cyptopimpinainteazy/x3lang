@@ -71,6 +71,7 @@ MAX_TOKENS = 1500
 MAX_PROGRAM_BYTES = 8_192
 MAX_REQUEST_BYTES = 4_096
 MAX_CONTEXT_BYTES = 16_384
+MAX_MODEL_RESPONSE_BYTES = 65_536
 EXIT_AGENT_REFUSED = 7
 
 Transport = Callable[[str, str, Dict[str, str], Optional[bytes], float], Tuple[int, bytes]]
@@ -90,6 +91,8 @@ def _post_json(transport: Transport, url: str, headers: Dict[str, str], body: Di
             f"the model provider at {url} is not reachable: {exc}",
             "provider",
         ) from exc
+    if len(raw) > MAX_MODEL_RESPONSE_BYTES:
+        raise NearIntentsError('X3_AGENT_PROVIDER_SIZE', 'provider response exceeds size limit', 'provider')
     try:
         data = json.loads(raw.decode("utf-8")) if raw else None
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -335,6 +338,7 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
         now: Optional[datetime] = None, approved_program: Optional[str] = None) -> Tuple[Dict[str, Any], int]:
     """Run one request end to end. Returns (report, exit code). Raises only for errors that are
     not a verdict (a provider outage, a missing file)."""
+    user_supplied_clock = now is not None
     now = now or datetime.now(timezone.utc)
     if not request.strip() or len(request.encode("utf-8")) > MAX_REQUEST_BYTES:
         raise NearIntentsError("X3_AGENT_REQUEST", f"the request must be 1..{MAX_REQUEST_BYTES} bytes", "request")
@@ -375,6 +379,10 @@ def run(request: str, mandate_path: str, *, model, client, tokens_path: Optional
     answer = ({'text': f'```x3\n{approved_source}\n```', 'provider': 'approved_source',
                'model': 'not_invoked', 'id': None, 'stop_reason': 'approved_replay', 'usage': None}
               if approved_source is not None else model.complete(system, user))
+    if not user_supplied_clock:
+        # A provider may take minutes to answer. Recheck real time before
+        # building quote deadlines or evaluating expiry under mandate.
+        now = datetime.now(timezone.utc)
     report["model"] = {k: answer.get(k) for k in ("provider", "model", "id", "stop_reason", "usage")}
     report["model_output"] = answer["text"]
     kind, value = extract_program(answer["text"])
@@ -643,9 +651,18 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
                              guard_contract=args.guard_contract, near_views=near_views)
             return ni._emit(result, 0 if result["held"] == result["total"] else 1)
         context = []
+        budget = MAX_CONTEXT_BYTES
         for path in args.context:
-            with open(path, "r", encoding="utf-8") as f:
-                context.append((os.path.basename(path), f.read()))
+            with open(path, 'rb') as f:
+                data = f.read(budget + 1)
+            if len(data) > budget:
+                raise NearIntentsError('X3_AGENT_REQUEST', 'attached documents exceed size limit', 'context')
+            try:
+                value = data.decode('utf-8')
+            except UnicodeDecodeError as exc:
+                raise NearIntentsError('X3_AGENT_REQUEST', 'attached documents must be UTF-8', 'context') from exc
+            context.append((os.path.basename(path), value))
+            budget -= len(data)
         if args.live and args.approve is None and confirm is None and sys.stdin.isatty():
             confirm = input
         report, code = run(args.request, args.mandate, model=model, client=client, tokens_path=args.tokens,

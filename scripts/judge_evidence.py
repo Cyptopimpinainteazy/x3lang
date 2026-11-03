@@ -44,6 +44,8 @@ def plan_tests(mode: str) -> list[dict]:
         "x3-lang/tests/test_chain_evidence.py",
         "x3-lang/tests/test_near_intents.py",
         "x3-lang/tests/test_judge_evidence.py",
+        "x3-lang/tests/test_near_agent.py",
+        "x3-lang/tests/test_value_fee.py",
     ]
     jobs = [
         _step("python_policy_and_chain_evidence_tests",
@@ -72,8 +74,11 @@ def plan_tests(mode: str) -> list[dict]:
 
 
 def run_tests(mode: str) -> list[dict]:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(LANG)
+    # Subprocess test runners must never inherit operational wallet or API credentials.
+    env = {k: v for k, v in os.environ.items()
+           if k in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR',
+                    'RUSTUP_HOME', 'CARGO_HOME', 'RUSTFLAGS', 'PYTHONHOME')}
+    env['PYTHONPATH'] = str(LANG)
     results = []
     for step in plan_tests(mode):
         started = time.monotonic()
@@ -127,13 +132,14 @@ def inspect_receipt(receipt_path: Path | None, *, refresh_chain: bool,
     }
     if receipt_path is None:
         return out
-    raw = Path(receipt_path).read_bytes()
+    with open(receipt_path, 'rb') as handle:
+        raw = handle.read(5_000_001)
     if len(raw) > 5_000_000:
         raise ValueError("receipt exceeds safe size limit")
     out["receipt_file_sha256"] = hashlib.sha256(raw).hexdigest()
     try:
         receipt = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return out
     if not isinstance(receipt, dict) or receipt.get("kind") != "x3.near_intents.v1":
         return out

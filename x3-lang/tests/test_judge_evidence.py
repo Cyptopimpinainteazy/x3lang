@@ -211,3 +211,44 @@ def test_signed_live_quote_cannot_trust_unsigned_receipt_fields(tmp_path, monkey
     assert not r['delivery_independently_rechecked']
     assert not r['deposit_independently_rechecked']
     assert not r['cross_chain_causality_proven']
+
+
+def test_quick_mode_includes_model_and_fee_tests():
+    steps = judge_evidence.plan_tests('quick')
+    python_argv = next(step['argv'] for step in steps if 'pytest' in step['argv'])
+    assert 'x3-lang/tests/test_near_agent.py' in python_argv
+    assert 'x3-lang/tests/test_value_fee.py' in python_argv
+
+
+def test_malformed_nested_receipt_fails_closed(tmp_path):
+    deeply_nested = ('[' * 2000) + '0' + (']' * 2000)
+    p = tmp_path / 'deep.json'
+    p.write_text(deeply_nested)
+    report = judge_evidence.inspect_receipt(p, refresh_chain=True)
+    assert report['status'] == 'unverified'
+
+
+def test_oversized_receipt_rejected_without_unbounded_read(tmp_path):
+    p = tmp_path / 'large-receipt.json'
+    p.write_bytes(b'x' * 5_000_002)
+    with pytest.raises(ValueError, match='safe size'):
+        judge_evidence.inspect_receipt(p, refresh_chain=True)
+
+
+def test_judge_subprocess_environment_strips_wallet_secrets(monkeypatch):
+    monkeypatch.setenv('NEAR_INTENTS_JWT', 'do-not-copy')
+    monkeypatch.setenv('X3_AGENT_API_KEY', 'do-not-copy')
+    observed = []
+    class Completed:
+        returncode = 0
+        stdout = 'ok'
+    def recording_run(argv, **kwargs):
+        observed.append(kwargs['env'])
+        return Completed()
+    monkeypatch.setattr(judge_evidence, 'plan_tests', lambda _: [{'name':'test', 'argv':['echo','ok'],
+        'cwd':ROOT, 'timeout':2}])
+    monkeypatch.setattr(judge_evidence.subprocess, 'run', recording_run)
+    checks = judge_evidence.run_tests('quick')
+    assert checks[0]['status'] == 'passed'
+    assert 'NEAR_INTENTS_JWT' not in observed[0]
+    assert 'X3_AGENT_API_KEY' not in observed[0]

@@ -496,3 +496,19 @@ def test_approved_source_size_limit_rejects_before_full_read(tmp_path):
         agent.run('Pay x3-demo.near 25 USDC.', str(MANDATE), model=Scripted('REFUSE: no'),
             client=client(), tokens_path=str(TOKENS), approved_program=str(huge),
             live=True, approve='0' * 64, now=NOW)
+
+
+def test_provider_oversize_response_is_rejected_before_parsing():
+    model = agent.OpenAICompatibleModel(base_url='http://localhost:11434/v1', model='test',
+        transport=lambda *_: (200, b'x' * (agent.MAX_MODEL_RESPONSE_BYTES + 1)))
+    with pytest.raises(agent.NearIntentsError, match='provider response exceeds size limit'):
+        model.complete('policy', 'request')
+
+
+def test_cli_oversized_context_is_rejected_before_loading_entire_file(tmp_path):
+    context = tmp_path / 'huge.txt'
+    context.write_bytes(b'x' * (agent.MAX_CONTEXT_BYTES + 100))
+    rc = agent.main(['pay', 'Pay x3-demo.near 5 USDC', '--mandate', str(MANDATE),
+                     '--context', str(context), '--tokens', str(TOKENS)],
+                    model=Scripted(program()), client=client())
+    assert rc == 1
