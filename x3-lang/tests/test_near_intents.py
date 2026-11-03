@@ -498,3 +498,90 @@ def test_a_captured_mainnet_dry_quote_passes_the_guards_the_example_declares():
         ni.verify_quote({**leg, "min_receive": 24_900_000}, request, response, now=NOW)
     with pytest.raises(ni.NearIntentsError):
         ni.verify_quote({**leg, "fee_cap_bps": 0}, request, response, now=NOW)
+
+
+# --- x3-guard contract arguments -----------------------------------------------------------
+
+GUARD_FIXTURE = ROOT / "tests" / "fixtures" / "x3_guard_args.json"
+
+
+def _settled_receipt(tmp_path):
+    receipt_path = tmp_path / "r.json"
+    ni.quote(program(tmp_path), client=ni.OneClickClient(jwt="k", transport=api()), live=True,
+             nonce_store=ni.NonceStore(str(tmp_path / "n.json")), receipt_path=str(receipt_path),
+             rpc=near_rpc()[0], now=NOW)
+    ni.track(ni.OneClickClient(jwt="k", transport=api(statuses=[_status("SUCCESS", amountOut="24950000")])),
+             "9xQe", receipt_path=str(receipt_path))
+    return json.loads(receipt_path.read_text())
+
+
+def _all_guard_args(receipt):
+    return {step: ni.guard_args(receipt, step) for step in ni.GUARD_STEPS}
+
+
+def test_guard_args_carry_the_policy_and_quote_the_adapter_verified(tmp_path):
+    receipt = _settled_receipt(tmp_path)
+    args = _all_guard_args(receipt)
+    policy = args["register"]["policy"]
+    assert args["register"]["nonce"] == "n_001"
+    assert policy["program_sha256"] == receipt["program_sha256"]
+    assert policy["origin_asset"] == SOL_USDC and policy["destination_asset"] == NEAR_USDC
+    assert policy["amount"] == "25000000" and policy["min_receive"] == "24800000"
+    assert (policy["slippage_bps"], policy["fee_cap_bps"]) == (50, 100)
+    assert policy["deadline_ms"] == int((NOW + timedelta(minutes=10)).timestamp() * 1000)
+
+    quote = args["quote"]["quote"]
+    assert quote["quote_response_sha256"] == receipt["quote_response_sha256"]
+    assert quote["deposit_address"] == "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+    assert quote["quote_deadline_ms"] == policy["deadline_ms"]
+    assert quote["refund_fee"] == "244425"
+
+    assert args["outcome"] == {"nonce": "n_001", "status": "Settled", "amount_out": "24950000",
+                               "refunded_amount": None, "tx_hashes": ["o1", "n1"]}
+
+
+def test_guard_args_match_the_fixture_the_contract_tests_read(tmp_path):
+    """`near/x3-guard/src/tests.rs` deserializes this file and runs the on-chain guards on it.
+
+    If this test fails because the adapter's output changed on purpose, regenerate the
+    fixture with `X3_REGEN_GUARD_FIXTURE=1` and run the contract tests.
+    """
+    import os
+    args = _all_guard_args(_settled_receipt(tmp_path))
+    if os.environ.get("X3_REGEN_GUARD_FIXTURE") == "1":
+        GUARD_FIXTURE.write_text(json.dumps(args, indent=2, sort_keys=True) + "\n")
+    assert json.loads(GUARD_FIXTURE.read_text()) == args
+
+
+def test_outcome_args_need_a_terminal_status(tmp_path):
+    receipt_path = tmp_path / "r.json"
+    ni.quote(program(tmp_path), client=ni.OneClickClient(jwt="k", transport=api()), live=True,
+             nonce_store=ni.NonceStore(str(tmp_path / "n.json")), receipt_path=str(receipt_path),
+             rpc=near_rpc()[0], now=NOW)
+    receipt = json.loads(receipt_path.read_text())
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.guard_args(receipt, "outcome")
+    assert err.value.code == "X3_NEAR_NOT_TERMINAL"
+
+
+def test_a_deposit_address_outliving_the_program_timeout_is_rejected():
+    leg, req = _leg_and_request(live=True)
+    later = ni.format_timestamp(ni.parse_timestamp(req["deadline"]) + timedelta(seconds=1))
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_quote(leg, req, good_quote(req, deadline=later), now=NOW)
+    failed = [r for r in err.value.detail if not r["ok"]]
+    assert [r["guard"] for r in failed] == ["deadline"]
+    assert failed[0]["within_program_timeout"] is False
+
+
+def test_cli_guard_args_prints_the_near_cli_command(tmp_path, capsys):
+    receipt = _settled_receipt(tmp_path)
+    (tmp_path / "settled.json").write_text(json.dumps(receipt))
+    code = ni.main(["guard-args", "--receipt", str(tmp_path / "settled.json"), "--step", "register",
+                    "--contract", "x3guard.near", "--signer", "x3guard.near", "--key-file", "/k.json"])
+    assert code == 0
+    out = json.loads(capsys.readouterr().out)
+    words = __import__("shlex").split(out["command"])
+    assert words[:6] == ["near", "contract", "call-function", "as-transaction", "x3guard.near", "register_intent"]
+    assert json.loads(words[words.index("json-args") + 1]) == out["args"]
+    assert words[-4:] == ["mainnet", "sign-with-access-key-file", "/k.json", "send"]

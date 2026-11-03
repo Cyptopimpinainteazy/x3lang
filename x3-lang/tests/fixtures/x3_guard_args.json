@@ -1,0 +1,48 @@
+{
+  "outcome": {
+    "amount_out": "24950000",
+    "nonce": "n_001",
+    "refunded_amount": null,
+    "status": "Settled",
+    "tx_hashes": [
+      "o1",
+      "n1"
+    ]
+  },
+  "quote": {
+    "nonce": "n_001",
+    "quote": {
+      "amount_in": "25000000",
+      "amount_in_usd": "24.995",
+      "amount_out": "24950000",
+      "amount_out_usd": "24.94",
+      "deposit_address": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+      "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+      "min_amount_out": "24825250",
+      "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+      "quote_deadline_ms": 1793675400000,
+      "quote_response_sha256": "5ac3973b7d719c6de9d3089e51ebe68ac9dc33367201231835b2d19f1eb440ec",
+      "recipient": "x3-demo.near",
+      "refund_fee": "244425",
+      "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+      "signature": "ed25519:3Kz",
+      "slippage_tolerance_bps": 50,
+      "time_estimate_s": 20
+    }
+  },
+  "register": {
+    "nonce": "n_001",
+    "policy": {
+      "amount": "25000000",
+      "deadline_ms": 1793675400000,
+      "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+      "fee_cap_bps": 100,
+      "min_receive": "24800000",
+      "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+      "program_sha256": "4a10bb5096681f2ab4b31bf8ad17b5be2690bd5f023a6d747700a95883b47ae2",
+      "recipient": "x3-demo.near",
+      "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+      "slippage_bps": 50
+    }
+  }
+}

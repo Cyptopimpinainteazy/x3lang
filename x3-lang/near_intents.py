@@ -566,10 +566,15 @@ def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[st
         if not deadline:
             record("deadline", False, reason="live quote carries no deadline")
         else:
-            remaining = (parse_timestamp(deadline) - now).total_seconds()
+            quote_deadline = parse_timestamp(deadline)
+            remaining = (quote_deadline - now).total_seconds()
             estimate = Decimal(str(quote.get("timeEstimate", 0)))
-            record("deadline", remaining > 0 and Decimal(str(remaining)) >= estimate,
-                   seconds_remaining=int(remaining), time_estimate_s=str(estimate))
+            # A deposit address that outlives the program's `timeout` could settle after the
+            # program said refund; the guard contract refuses it too (`x3-guard::evaluate`).
+            within_timeout = quote_deadline <= parse_timestamp(leg["deadline"])
+            record("deadline", remaining > 0 and Decimal(str(remaining)) >= estimate and within_timeout,
+                   seconds_remaining=int(remaining), time_estimate_s=str(estimate),
+                   within_program_timeout=within_timeout)
 
     failed = [r for r in results if not r["ok"]]
     if failed:
@@ -885,6 +890,119 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     return result
 
 
+# --------------------------------------------------------------------------------------------
+# x3-guard contract arguments
+# --------------------------------------------------------------------------------------------
+
+GUARD_STEPS = ("register", "quote", "outcome")
+GUARD_METHODS = {"register": "register_intent", "quote": "accept_quote", "outcome": "record_outcome"}
+# Attached NEAR per call. Storage is charged by the bytes written and the excess refunded in
+# the same call, so these are ceilings, not prices.
+GUARD_DEPOSITS = {"register": "0.05 NEAR", "quote": "0.05 NEAR", "outcome": "0.02 NEAR"}
+GUARD_GAS = "30 Tgas"
+_STATUS_TO_GUARD = {"SUCCESS": "Settled", "REFUNDED": "Refunded", "FAILED": "Failed"}
+MAX_GUARD_TX_HASHES = 16
+
+
+def _unix_ms(text: str) -> int:
+    return int(parse_timestamp(text).timestamp() * 1000)
+
+
+def _u128(value: Any) -> Optional[str]:
+    return None if value is None else str(int(value))
+
+
+def guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
+    """The JSON arguments for one `x3-guard` call, built from a live-quote receipt.
+
+    Built from the receipt rather than retyped, so the policy the contract stores is the one
+    this adapter lowered and the quote facts are the ones it verified.
+    """
+    if receipt.get("kind") != RECEIPT_KIND:
+        raise NearIntentsError("X3_NEAR_RECEIPT", f"not an {RECEIPT_KIND} receipt")
+    if step not in GUARD_STEPS:
+        raise NearIntentsError("X3_NEAR_GUARD_STEP", f"step must be one of {', '.join(GUARD_STEPS)}")
+    leg, request, response = receipt["leg"], receipt["quote_request"], receipt["quote_response"]
+    nonce = leg.get("nonce")
+    if not nonce:
+        raise NearIntentsError(
+            "X3_NEAR_NONCE",
+            "x3-guard keys every intent by its nonce; add `require nonce unused <id>` to the program",
+            "requires.nonce",
+        )
+    if step == "register":
+        return {
+            "nonce": nonce,
+            "policy": {
+                "program_sha256": receipt["program_sha256"],
+                "origin_asset": request["originAsset"],
+                "destination_asset": request["destinationAsset"],
+                "amount": str(leg["amount"]),
+                "min_receive": _u128(leg.get("min_receive")),
+                "slippage_bps": leg["slippage_bps"],
+                "fee_cap_bps": leg.get("fee_cap_bps"),
+                "recipient": leg["recipient"],
+                "refund_to": leg["refund_to"],
+                "deadline_ms": _unix_ms(leg["deadline"]),
+            },
+        }
+    if step == "quote":
+        quote, echoed = response["quote"], response["quoteRequest"]
+        if not quote.get("deadline"):
+            raise NearIntentsError("X3_NEAR_RECEIPT", "the receipt's quote has no deadline; it is not a live quote")
+        return {
+            "nonce": nonce,
+            "quote": {
+                "quote_response_sha256": receipt["quote_response_sha256"],
+                "signature": response["signature"],
+                "deposit_address": quote["depositAddress"],
+                "origin_asset": echoed["originAsset"],
+                "destination_asset": echoed["destinationAsset"],
+                "recipient": echoed["recipient"],
+                "refund_to": echoed["refundTo"],
+                "slippage_tolerance_bps": int(echoed["slippageTolerance"]),
+                "amount_in": _u128(quote["amountIn"]),
+                "amount_out": _u128(quote["amountOut"]),
+                "min_amount_out": _u128(quote["minAmountOut"]),
+                "amount_in_usd": str(quote["amountInUsd"]),
+                "amount_out_usd": str(quote["amountOutUsd"]),
+                "refund_fee": _u128(quote.get("refundFee")),
+                "quote_deadline_ms": _unix_ms(quote["deadline"]),
+                "time_estimate_s": int(Decimal(str(quote["timeEstimate"]))),
+            },
+        }
+    terminal = [s for s in receipt.get("status_history") or [] if s.get("terminal")]
+    if not terminal:
+        raise NearIntentsError(
+            "X3_NEAR_NOT_TERMINAL",
+            "the receipt records no terminal status yet; run `status --wait --receipt` first",
+        )
+    last = terminal[-1]
+    hashes = [h for h in (last.get("origin_tx") or []) + (last.get("destination_tx") or []) + (last.get("near_tx") or []) if h]
+    return {
+        "nonce": nonce,
+        "status": _STATUS_TO_GUARD[last["status"]],
+        "amount_out": _u128(last.get("amount_out")) if last["status"] == "SUCCESS" else None,
+        "refunded_amount": _u128(last.get("refunded_amount")) if last["status"] == "REFUNDED" else None,
+        "tx_hashes": hashes[:MAX_GUARD_TX_HASHES],
+    }
+
+
+def guard_command(step: str, args: Dict[str, Any], *, contract: str, signer: str, key_file: str,
+                  network: str = "mainnet") -> List[str]:
+    """The near-cli-rs (0.30) command that sends one `x3-guard` call."""
+    return [
+        "near", "contract", "call-function", "as-transaction", contract, GUARD_METHODS[step],
+        "json-args", json.dumps(args, separators=(",", ":"), sort_keys=True),
+        "prepaid-gas", GUARD_GAS,
+        "attached-deposit", GUARD_DEPOSITS[step],
+        "sign-as", signer,
+        "network-config", network,
+        "sign-with-access-key-file", key_file,
+        "send",
+    ]
+
+
 def write_receipt(path: str, receipt: Dict[str, Any]) -> None:
     tmp = f"{path}.tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -969,6 +1087,14 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_submit.add_argument("--deposit-address", required=True)
     p_submit.add_argument("--tx-hash", required=True)
 
+    p_guard = sub.add_parser("guard-args", help="x3-guard contract call arguments (and command) from a receipt")
+    p_guard.add_argument("--receipt", required=True)
+    p_guard.add_argument("--step", required=True, choices=GUARD_STEPS)
+    p_guard.add_argument("--contract", help="x3-guard account; with --signer and --key-file, prints the near CLI command")
+    p_guard.add_argument("--signer")
+    p_guard.add_argument("--key-file")
+    p_guard.add_argument("--network", default="mainnet")
+
     p_status = sub.add_parser("status", help="report the swap's X3 outcome")
     p_status.add_argument("--deposit-address", required=True)
     p_status.add_argument("--memo")
@@ -989,6 +1115,18 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
             return _emit(result)
         if args.command == "submit-deposit":
             return _emit({"status": "submitted", "response": client.submit_deposit(args.deposit_address, args.tx_hash)})
+        if args.command == "guard-args":
+            with open(args.receipt, "r", encoding="utf-8") as f:
+                receipt = json.load(f)
+            call_args = guard_args(receipt, args.step)
+            out: Dict[str, Any] = {"method": GUARD_METHODS[args.step], "args": call_args,
+                                   "attached_deposit": GUARD_DEPOSITS[args.step], "gas": GUARD_GAS}
+            if args.contract and args.signer and args.key_file:
+                import shlex
+                out["command"] = shlex.join(guard_command(args.step, call_args, contract=args.contract,
+                                                          signer=args.signer, key_file=args.key_file,
+                                                          network=args.network))
+            return _emit(out)
         if args.command == "status":
             observed = track(client, args.deposit_address, memo=args.memo, wait=args.wait,
                              interval=args.interval, max_wait=args.max_wait, receipt_path=args.receipt)

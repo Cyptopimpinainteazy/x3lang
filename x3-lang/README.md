@@ -100,6 +100,10 @@ enforced by a local nonce store. Refused by code rather than approximated: multi
 guards 1Click cannot enforce (`finality`, `proof_complete`, …), missing slippage or timeout,
 refunds in another asset, and `on_fail halt`/`quarantine`.
 
+On-chain policy: `x3-lang/near/x3-guard` is a NEAR contract that stores the program's policy,
+re-runs the quote guards on chain, accepts one quote per nonce and records the outcome.
+`near_intents.py guard-args --receipt R --step register|quote|outcome` prints each call.
+
 Before quoting, NEAR receivers are checked on chain (`X3_NEAR_ACCOUNT_UNKNOWN`); 1Click itself
 answers a missing NEAR account with an unexplained HTTP 400.
 
