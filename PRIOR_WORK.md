@@ -66,6 +66,7 @@ These are original xxxstar commits reachable from the pinned source branch:
 | Nov 3, 2026 | [`6008ae7`](https://github.com/Cyptopimpinainteazy/xxxstar/commit/6008ae74af477a5321cd40f304b3cba93c2bcef9) | Browser-signed quote validation demo |
 | Nov 3, 2026 | [`525ff6a`](https://github.com/Cyptopimpinainteazy/xxxstar/commit/525ff6a8c4dec65e3ef1c5e660853fdea77c6d4c) | Chain evidence checks |
 | Nov 3, 2026 | [`9558720`](https://github.com/Cyptopimpinainteazy/xxxstar/commit/95587205d5febc40c1047c845f379946c023228d) | Guided first-swap script |
+| Nov 3, 2026 | [`ffae47f`](https://github.com/Cyptopimpinainteazy/xxxstar/commit/ffae47f5d6f08b0365ff948742ac14062d4f3536) | Agent mandates enforced by x3-guard (applied here as a patch after the import, not through filter-repo) |
 
 This table identifies particular NEAR-window changes. Other X3Lang commits
 after October 19 may be independent core development and are **not** claimed
