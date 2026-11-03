@@ -79,8 +79,15 @@ Transport = Callable[[str, str, Dict[str, str], Optional[bytes], float], Tuple[i
 # --------------------------------------------------------------------------------------------
 
 def _post_json(transport: Transport, url: str, headers: Dict[str, str], body: Dict[str, Any], timeout: float) -> Dict[str, Any]:
-    status, raw = transport("POST", url, {"content-type": "application/json", **headers},
-                            json.dumps(body).encode("utf-8"), timeout)
+    try:
+        status, raw = transport("POST", url, {"content-type": "application/json", **headers},
+                                json.dumps(body).encode("utf-8"), timeout)
+    except OSError as exc:
+        raise NearIntentsError(
+            "X3_AGENT_PROVIDER",
+            f"the model provider at {url} is not reachable: {exc}",
+            "provider",
+        ) from exc
     try:
         data = json.loads(raw.decode("utf-8")) if raw else None
     except (UnicodeDecodeError, json.JSONDecodeError):
