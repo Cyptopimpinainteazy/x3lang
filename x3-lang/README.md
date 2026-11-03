@@ -130,6 +130,60 @@ checks every term when the agent registers and again when it accepts a quote, an
 revoke the agent at once. The contract holds no funds; see its README for what that leaves to
 the wallet.
 
+### AI Money Agent (`near_agent.py`)
+
+A real model writes the agent's X3 program from an English request. The model is a writer, never
+a gate: what it writes is compiled and checked exactly like a hand-written program, so a
+prompt-injected or mistaken model can only produce a program that is refused.
+
+```text
+English request -> model -> X3 intent (untrusted) -> compiler -> `under mandate` + issued nonce
+  -> owner's mandate (file, or live from x3-guard) -> signed 1Click quote
+  -> owner approval of the program's SHA-256 -> x3-guard on NEAR (guard-args steps)
+```
+
+```bash
+export ANTHROPIC_API_KEY=...            # or X3_AGENT_PROVIDER=openai-compatible with
+                                        # X3_AGENT_BASE_URL=http://localhost:11434/v1 X3_AGENT_MODEL=...
+python3 x3-lang/near_agent.py pay "Pay x3-demo.near 25 USDC for invoice 4411" \
+  --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> --quote
+python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... --live --approve <sha256 from the dry run>
+python3 x3-lang/near_agent.py redteam --mandate ... --out-dir evidence/   # adversarial requests, real model
+python3 x3-lang/near_agent.py register-args <program.x3> --mandate <mandate.x3> \
+  --contract <x3-guard account> --signer <agent account> --key-file <agent key>
+x3-lang/near/agent-demo.sh setup && x3-lang/near/agent-demo.sh show
+```
+
+The request and any `--context` document go to the model as untrusted data. The pipeline issues
+the nonce and refuses a program that does not use it, and refuses one that is not
+`under mandate <owner>`. Then the mandate decides who may be paid, how much, in what, and where
+refunds go. A live quote needs the owner to approve this exact program by its SHA-256 (`--approve`,
+or typed at a prompt). Nothing here signs or sends the deposit.
+
+`redteam` sends eight attacks through the configured model: recipient substitution, overspend,
+splitting a payment to get around the cap, refund redirection, prompt injection in the request and
+in an attached invoice, a homoglyph recipient, and another asset. For each, it records the model's
+actual output and where the attack stopped. Exit 0 means every attack was refused.
+
+Keep demo payments at about 25 USDC or more under a 100 bps fee cap. 1Click's refund fee is close
+to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses the quote.
+
+| Part | Status |
+|---|---|
+| Anthropic and OpenAI-compatible clients | implemented; tested against recorded request and response shapes; live-model evidence is pending an API key |
+| Pipeline, checks, approval binding, register-args | implemented; 34 tests (`tests/test_near_agent.py`), including eight attacks a fooled model would attempt |
+| On-chain refusal path | `register-args` produces `agent_register_intent` arguments without a quote; the deployed contract refuses them with `X3_MANDATE_DENIED` |
+| Guided live demo | `near/agent-demo.sh` prepares every step and asks before each NEAR transaction; it never moves USDC |
+| Deployed contract and real payment | not done: needs a deployed x3-guard account, owner-authorized wallet action and funds |
+
+`agent-demo.sh` runs the judge-facing sequence in order: mandate, dry model run, owner-approved
+live quote, agent register/accept, owner deposit, chain verification, one on-chain refusal, and
+owner revocation. Store any committed red-team evidence under `evidence/agent-redteam-<date>/`.
+
+What the agent cannot do: x3-guard holds no funds, so a holder of the origin wallet key can still
+deposit directly and bypass Guard. The mandate restricts Guard methods and is meant for an agent
+that is given a NEAR account but never the wallet key.
+
 Before quoting, NEAR receivers are checked on chain (`X3_NEAR_ACCOUNT_UNKNOWN`); 1Click itself
 answers a missing NEAR account with an unexplained HTTP 400.
 
