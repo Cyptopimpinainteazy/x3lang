@@ -287,6 +287,31 @@ def new_nonce(now: datetime) -> str:
     return f"agent_{now.strftime('%Y%m%dT%H%M%S')}_{secrets.token_hex(4)}"
 
 
+def register_args(program_path: str, mandate_path: str, *, client, tokens_path: Optional[str] = None) -> Dict[str, Any]:
+    """`agent_register_intent` arguments for a program, with no quote and no model call.
+
+    This exists so a refused program can still be submitted to x3-guard and fail on chain with
+    `X3_MANDATE_DENIED`: the owner and nonce are bound, and the contract re-runs the mandate.
+    """
+    tokens = ni.load_tokens(client, tokens_path)
+    _, leg = ni.compile_program(program_path)
+    request = ni.build_quote_request(leg, tokens, dry=True)
+    with open(program_path, "rb") as handle:
+        program_sha256 = hashlib.sha256(handle.read()).hexdigest()
+    compiled = ni.mandates().compile_mandate(mandate_path, tokens)
+    return {
+        "method": "agent_register_intent",
+        "args": {
+            "owner": compiled["owner"],
+            "nonce": leg["nonce"],
+            "policy": ni.policy_for(leg, request, program_sha256),
+        },
+        "attached_deposit": ni.GUARD_DEPOSITS["register"],
+        "gas": ni.GUARD_GAS,
+        "program_sha256": program_sha256,
+    }
+
+
 def _stage(stages: List[Dict[str, Any]], name: str, ok: bool, **detail: Any) -> None:
     stages.append({"stage": name, "ok": bool(ok), **detail})
 
@@ -479,6 +504,14 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
     p_pay.add_argument("--approve", help="the program SHA-256 the owner approves (from the dry run)")
     p_pay.add_argument("--receipt")
     p_pay.add_argument("--nonce-store")
+    p_reg = sub.add_parser("register-args", help="agent_register_intent arguments for a program, without a quote")
+    p_reg.add_argument("program")
+    p_reg.add_argument("--mandate", required=True)
+    p_reg.add_argument("--tokens")
+    p_reg.add_argument("--contract", help="x3-guard account; with --signer and --key-file, prints the near CLI command")
+    p_reg.add_argument("--signer")
+    p_reg.add_argument("--key-file")
+    p_reg.add_argument("--network", default="mainnet")
     p_red = sub.add_parser("redteam", help="run adversarial requests through the real model and record the outcome")
     p_red.add_argument("--mandate", required=True)
     p_red.add_argument("--tokens")
@@ -487,6 +520,15 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
     args = parser.parse_args(argv)
     client = client or ni.OneClickClient()
     try:
+        if args.command == "register-args":
+            out = register_args(args.program, args.mandate, client=client, tokens_path=args.tokens)
+            if args.contract and args.signer and args.key_file:
+                import shlex
+                out["command"] = shlex.join(ni.guard_command(
+                    "register", out["args"], contract=args.contract, signer=args.signer,
+                    key_file=args.key_file, network=args.network, method="agent_register_intent",
+                ))
+            return ni._emit(out, 0)
         model = model or model_from_env()
         if args.command == "redteam":
             os.makedirs(args.out_dir, exist_ok=True)

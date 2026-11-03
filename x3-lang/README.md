@@ -149,6 +149,9 @@ python3 x3-lang/near_agent.py pay "Pay x3-demo.near 25 USDC for invoice 4411" \
   --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> --quote
 python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... --live --approve <sha256 from the dry run>
 python3 x3-lang/near_agent.py redteam --mandate ... --out-dir evidence/   # adversarial requests, real model
+python3 x3-lang/near_agent.py register-args <program.x3> --mandate <mandate.x3> \
+  --contract <x3-guard account> --signer <agent account> --key-file <agent key>
+x3-lang/near/agent-demo.sh setup && x3-lang/near/agent-demo.sh show
 ```
 
 The request and any `--context` document go to the model as untrusted data. The pipeline issues
@@ -167,9 +170,19 @@ to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses 
 
 | Part | Status |
 |---|---|
-| Anthropic and OpenAI-compatible clients | implemented; tested against recorded request and response shapes; not yet run against a live model |
-| Pipeline, checks and approval binding | implemented; 28 tests (`tests/test_near_agent.py`), including eight attacks a fooled model would attempt |
-| Live run with a real model, quote and x3-guard | not yet done: needs an API key, a deployed x3-guard and funds |
+| Anthropic and OpenAI-compatible clients | implemented; tested against recorded request and response shapes; live-model evidence is pending an API key |
+| Pipeline, checks, approval binding, register-args | implemented; 34 tests (`tests/test_near_agent.py`), including eight attacks a fooled model would attempt |
+| On-chain refusal path | `register-args` produces `agent_register_intent` arguments without a quote; the deployed contract refuses them with `X3_MANDATE_DENIED` |
+| Guided live demo | `near/agent-demo.sh` prepares every step and asks before each NEAR transaction; it never moves USDC |
+| Deployed contract and real payment | not done: needs a deployed x3-guard account, owner-authorized wallet action and funds |
+
+`agent-demo.sh` runs the judge-facing sequence in order: mandate, dry model run, owner-approved
+live quote, agent register/accept, owner deposit, chain verification, one on-chain refusal, and
+owner revocation. Store any committed red-team evidence under `evidence/agent-redteam-<date>/`.
+
+What the agent cannot do: x3-guard holds no funds, so a holder of the origin wallet key can still
+deposit directly and bypass Guard. The mandate restricts Guard methods and is meant for an agent
+that is given a NEAR account but never the wallet key.
 
 Before quoting, NEAR receivers are checked on chain (`X3_NEAR_ACCOUNT_UNKNOWN`); 1Click itself
 answers a missing NEAR account with an unexplained HTTP 400.

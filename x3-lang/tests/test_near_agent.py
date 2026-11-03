@@ -333,6 +333,36 @@ def test_redteam_records_provider_outages_without_claiming_the_guard_held(tmp_pa
     assert all(case["held"] is False for case in result["cases"])
 
 
+def test_register_args_builds_agent_register_intent_without_quote_or_model():
+    program_path = ROOT / "examples" / "near_intents_agent_payment.x3"
+    out = agent.register_args(str(program_path), str(MANDATE), client=client(), tokens_path=str(TOKENS))
+    assert out["method"] == "agent_register_intent"
+    assert out["args"]["owner"] == "x3-owner.near"
+    assert out["args"]["nonce"] == "agent_payment_001"
+    assert out["args"]["policy"]["recipient"] == "x3-demo.near"
+    assert out["args"]["policy"]["program_sha256"] == out["program_sha256"]
+    assert out["attached_deposit"] == agent.ni.GUARD_DEPOSITS["register"]
+
+
+def test_register_args_does_not_check_the_mandate_so_the_chain_can_refuse(tmp_path):
+    source = agent.extract_program(program(recipient="attacker.near"))[1]
+    path = tmp_path / "refused.x3"
+    path.write_text(source)
+    out = agent.register_args(str(path), str(MANDATE), client=client(), tokens_path=str(TOKENS))
+    assert out["args"]["policy"]["recipient"] == "attacker.near"
+
+
+def test_cli_register_args_needs_no_model_or_api_key(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    program_path = ROOT / "examples" / "near_intents_agent_payment.x3"
+    code = agent.main(["register-args", str(program_path), "--mandate", str(MANDATE),
+                       "--tokens", str(TOKENS)], client=client())
+    assert code == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["method"] == "agent_register_intent"
+    assert out["args"]["owner"] == "x3-owner.near"
+
+
 def test_cli_pay_prints_the_report_and_exits_by_verdict(tmp_path, capsys):
     common = ["--mandate", str(MANDATE), "--tokens", str(TOKENS), "--out", str(tmp_path / "p.x3")]
     code = agent.main(["pay", "Pay x3-demo.near 5 USDC.", *common], model=Scripted(program(nonce="will-not-match")),
