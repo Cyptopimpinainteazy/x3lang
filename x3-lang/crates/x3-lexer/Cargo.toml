@@ -1,0 +1,23 @@
+[package]
+name = "x3-lang-lexer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Lexical analyzer for the X3 programming language"
+
+[features]
+default = []
+logos = ["dep:logos"]
+
+[dependencies]
+x3-lang-common = { path = "../x3-common" }
+logos = { workspace = true, optional = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,22 @@
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 12
+}
+
+finality_policy strict {
+    chain solana
+    requirement finalized
+    blocks 32
+}
+
+intent refundable_swap {
+    from ethereum.USDC amount 1000 receiver 0x1111111111111111111111111111111111111111
+    to solana.SOL receiver 0x5678
+
+    require slippage <= 1
+    require finality.ethereum >= 12
+    require finality.solana >= 32
+
+    timeout 3600s refund ethereum.USDC to 0x1111111111111111111111111111111111111111
+}

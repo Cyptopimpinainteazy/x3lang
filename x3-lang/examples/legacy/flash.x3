@@ -1,0 +1,188 @@
+// flash.x3 - Flash Loan Liquidation Script
+// Example: Execute flash loan liquidation with collateral seizure
+//
+// @gas_limit(800000)
+// @priority(high)
+// @deadline(block + 1)
+
+contract FlashLiquidation {
+    // Lending protocols
+    const AAVE_POOL: address = 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9;
+    const COMPOUND_COMPTROLLER: address = 0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B;
+    
+    // Common tokens
+    const WETH: address = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    const USDC: address = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    const DAI: address = 0x6B175474E89094C44Da98b954EesE8DBDCFE8D4;
+    
+    // cTokens for Compound
+    const cETH: address = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
+    const cUSDC: address = 0x39AA39c021dfbaE8faC545936693aC917d5E7563;
+
+    // Entry point for Aave liquidation
+    @swarm
+    @atomic
+    fn liquidate_aave(
+        borrower: address,
+        debt_asset: address,
+        collateral_asset: address,
+        debt_amount: u256
+    ) -> u256 {
+        // Step 1: Flash borrow the debt asset
+        let borrowed = flash_borrow(AAVE_POOL, debt_asset, debt_amount);
+        
+        // Step 2: Execute liquidation on Aave
+        // Liquidation bonus is typically 5-10%
+        call(debt_asset, "approve", (AAVE_POOL, debt_amount));
+        
+        let collateral_seized = call(AAVE_POOL, "liquidationCall", 
+            (collateral_asset, debt_asset, borrower, debt_amount, false));
+        
+        // Step 3: Swap seized collateral back to debt asset
+        let swapped_amount = swap_to_asset(collateral_asset, debt_asset, collateral_seized);
+        
+        // Step 4: Repay flash loan
+        let fee = debt_amount * 9 / 10000; // 0.09% fee
+        let repay_amount = debt_amount + fee;
+        flash_repay(AAVE_POOL, debt_asset, repay_amount);
+        
+        // Step 5: Calculate and emit profit
+        let profit = swapped_amount - repay_amount;
+        require(profit > 0, "Liquidation not profitable");
+        
+        emit LiquidationExecuted(borrower, debt_asset, collateral_asset, debt_amount, profit);
+        return profit;
+    }
+
+    // Entry point for Compound liquidation
+    @swarm
+    @atomic
+    fn liquidate_compound(
+        borrower: address,
+        ctoken_repay: address,
+        ctoken_seize: address,
+        repay_amount: u256
+    ) -> u256 {
+        // Get underlying asset
+        let underlying = call(ctoken_repay, "underlying");
+        
+        // Step 1: Flash borrow underlying
+        let borrowed = flash_borrow(AAVE_POOL, underlying, repay_amount);
+        
+        // Step 2: Approve and liquidate
+        call(underlying, "approve", (ctoken_repay, repay_amount));
+        
+        let err = call(ctoken_repay, "liquidateBorrow", 
+            (borrower, repay_amount, ctoken_seize));
+        require(err == 0, "Liquidation failed");
+        
+        // Step 3: Redeem seized cTokens
+        let seized_ctokens = balance_of(ctoken_seize, self);
+        call(ctoken_seize, "redeem", (seized_ctokens));
+        
+        let seized_underlying = call(ctoken_seize, "underlying");
+        let seized_amount = balance_of(seized_underlying, self);
+        
+        // Step 4: Swap back to repay asset if different
+        let final_amount: u256;
+        if seized_underlying != underlying {
+            final_amount = swap_to_asset(seized_underlying, underlying, seized_amount);
+        } else {
+            final_amount = seized_amount;
+        }
+        
+        // Step 5: Repay flash loan
+        let fee = repay_amount * 9 / 10000;
+        flash_repay(AAVE_POOL, underlying, repay_amount + fee);
+        
+        // Calculate profit
+        let profit = final_amount - repay_amount - fee;
+        require(profit > 0, "Not profitable");
+        
+        emit LiquidationExecuted(borrower, underlying, seized_underlying, repay_amount, profit);
+        return profit;
+    }
+
+    // Batch liquidation for multiple positions
+    @swarm
+    @atomic
+    fn batch_liquidate(positions: Position[]) -> u256 {
+        let total_profit: u256 = 0;
+        
+        for pos in positions {
+            if pos.protocol == "aave" {
+                let profit = liquidate_aave(
+                    pos.borrower,
+                    pos.debt_asset,
+                    pos.collateral_asset,
+                    pos.debt_amount
+                );
+                total_profit = total_profit + profit;
+            } else if pos.protocol == "compound" {
+                let profit = liquidate_compound(
+                    pos.borrower,
+                    pos.ctoken_repay,
+                    pos.ctoken_seize,
+                    pos.repay_amount
+                );
+                total_profit = total_profit + profit;
+            }
+        }
+        
+        emit BatchLiquidationComplete(positions.len(), total_profit);
+        return total_profit;
+    }
+
+    // Helper: Swap to target asset using best route
+    fn swap_to_asset(from: address, to: address, amount: u256) -> u256 {
+        // Use 1inch aggregator for best price
+        const ONE_INCH: address = 0x1111111254fb6c44bAC0beD2854e76F90643097d;
+        
+        call(from, "approve", (ONE_INCH, amount));
+        
+        let result = call(ONE_INCH, "swap", (from, to, amount, 0, self));
+        return result;
+    }
+
+    // Helper: Flash borrow
+    fn flash_borrow(pool: address, asset: address, amount: u256) -> u256 {
+        call(pool, "flashLoan", (self, asset, amount, ""));
+        return amount;
+    }
+
+    // Helper: Flash repay
+    fn flash_repay(pool: address, asset: address, amount: u256) {
+        call(asset, "approve", (pool, amount));
+    }
+
+    // Helper: Get balance
+    fn balance_of(token: address, account: address) -> u256 {
+        return call(token, "balanceOf", (account));
+    }
+
+    // Position struct
+    struct Position {
+        protocol: string,
+        borrower: address,
+        debt_asset: address,
+        collateral_asset: address,
+        debt_amount: u256,
+        ctoken_repay: address,
+        ctoken_seize: address,
+        repay_amount: u256,
+    }
+
+    // Events
+    event LiquidationExecuted(
+        borrower: address,
+        debt_asset: address,
+        collateral_asset: address,
+        debt_amount: u256,
+        profit: u256
+    );
+    
+    event BatchLiquidationComplete(
+        count: u256,
+        total_profit: u256
+    );
+}

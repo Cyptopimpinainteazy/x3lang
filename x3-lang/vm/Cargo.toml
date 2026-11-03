@@ -1,0 +1,32 @@
+[package]
+name = "x3-lang-vm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "X3 Virtual Machine core runtime (executor, JIT, and glue)"
+
+[features]
+# Target F in the production contract: BTC/UTXO adapter is
+# feature-gated. The default build fails closed on every BTC call
+# (X3_BTC_ADAPTER_DISABLED). Enable this feature only on a node
+# that has wired up a real Bitcoin light client verifier.
+bitcoin-adapter = []
+
+[dependencies]
+x3-lang-common = { path = "../crates/x3-common" }
+x3-lang-compiler = { path = "../compiler" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+sha2 = { workspace = true }
+sha3 = { workspace = true }
+ed25519-dalek = { workspace = true }
+reqwest = { workspace = true, features = ["blocking", "json"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

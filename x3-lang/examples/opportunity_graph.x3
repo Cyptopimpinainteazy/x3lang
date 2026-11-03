@@ -1,0 +1,68 @@
+// The opportunity graph — spec build-order item 16, PHASE 14.
+//
+// Each `venue` is a node with declared attributes: what it takes in, what it
+// gives out, its fee, its depth, the slippage it admits at that depth, how long
+// it takes to settle, how much finality it needs, its risk, and the proof a
+// claim against it must carry. `x3c graph --from <asset> --to <asset>` searches
+// these declarations for routes and ranks them.
+//
+//   x3c graph examples/opportunity_graph.x3 \
+//       --from ethereum.USDC --to solana.SOL --max-slippage-bps 10
+//
+//   x3c optimize examples/opportunity_graph.x3 \
+//       --from ethereum.USDC --to solana.SOL --objective minimize_slippage
+//
+// `graph` lists what is available; `optimize` picks one and says whether the
+// objective decided it or a canonical tie-break did.
+//
+// The two ways out of USDC are deliberately unlike each other: `deep_pool` is
+// dearer and tighter, `wide_pool` is cheaper and slippier. Which one is a
+// better opportunity depends on the constraint, which is the point — the
+// planner ranks what survives the constraints rather than picking for you.
+
+venue deep_pool {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.USDC
+    asset_out ethereum.ETH
+    fee_bps 7
+    liquidity 4_000_000
+    slippage_bps 8
+    latency_ms 12
+    finality_blocks 12
+    risk 2
+    proof source_lock_proof
+}
+
+venue wide_pool {
+    kind pool
+    chain ethereum
+    domain evm
+    asset_in ethereum.USDC
+    asset_out ethereum.ETH
+    fee_bps 4
+    liquidity 100_000
+    slippage_bps 21
+    latency_ms 14
+    finality_blocks 12
+    risk 3
+    proof source_lock_proof
+}
+
+// A bridge adapter is a venue like any other: it moves an asset to another
+// chain and charges for it, so it is an edge in the same graph.
+venue x3_bridge {
+    kind bridge
+    chain ethereum
+    domain evm
+    asset_in ethereum.ETH
+    asset_out solana.SOL
+    fee_bps 2
+    liquidity 500_000
+    slippage_bps 5
+    latency_ms 900
+    finality_blocks 32
+    risk 4
+    proof destination_fill_proof
+}

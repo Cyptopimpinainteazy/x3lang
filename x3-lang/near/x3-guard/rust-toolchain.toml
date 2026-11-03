@@ -1,0 +1,6 @@
+# The repository root pins 1.90 for the node and runtime. This contract is built separately
+# with cargo-near, which needs the wasm32 target; it overrides the root pin for this folder.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

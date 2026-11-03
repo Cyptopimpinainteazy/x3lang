@@ -1,0 +1,41 @@
+finality_policy strict {
+    chain ethereum
+    requirement finalized
+    blocks 32
+}
+
+finality_policy strict {
+    chain solana
+    requirement finalized
+    blocks 32
+}
+
+risk_policy {
+    min_route_score 85
+}
+
+intent cross_vm_stake {
+    from ethereum.ETH amount 10
+    to solana.stakedSOL receiver vault
+
+    route {
+        bridge X3 ethereum.ETH -> solana.stakedSOL receiver vault
+    }
+
+    require nonce unused cross_vm_stake_001
+    require finality.ethereum >= 32
+    require finality.solana >= 32
+    require route_score >= 85
+
+    timeout 300s refund ethereum.ETH to sender
+    on_fail rollback
+}
+
+// The bridge above cannot be claimed on the far side without evidence that the
+// source chain locked the funds and that the destination chain filled them.
+// Those are this program's proof obligations, so it declares them rather than
+// leaving the verifier to warn about each one.
+proofs required {
+    source_lock_proof
+    destination_fill_proof
+}

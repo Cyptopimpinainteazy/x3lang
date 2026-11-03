@@ -1,0 +1,305 @@
+// jit_lp.x3 - Just-In-Time Liquidity Provision Script
+// Example: Provide concentrated liquidity exactly when large swaps occur
+//
+// @gas_limit(600000)
+// @latency(low)
+// @mempool_watch(true)
+
+contract JITLiquidity {
+    // Uniswap V3 contracts
+    const UNISWAP_V3_FACTORY: address = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
+    const NONFUNGIBLE_POSITION_MANAGER: address = 0xC36442b4a4522E871399CD717aBDD847Ab11FE88;
+    const SWAP_ROUTER: address = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
+    
+    // Pool fee tiers
+    const FEE_LOW: u24 = 500;      // 0.05%
+    const FEE_MEDIUM: u24 = 3000;  // 0.3%
+    const FEE_HIGH: u24 = 10000;   // 1%
+    
+    // JIT parameters
+    const MIN_SWAP_VALUE: u256 = 10 ether;
+    const TICK_RANGE: i24 = 10;  // ±10 ticks around current price
+    const POSITION_DURATION: u256 = 2;  // Hold for 2 blocks
+
+    // Storage
+    mapping(u256 => JITPosition) active_positions;
+    u256 position_counter;
+
+    // Main entry: Provide JIT liquidity for detected swap
+    @swarm
+    @atomic
+    @mempool
+    fn provide_jit(
+        pool: address,
+        token0: address,
+        token1: address,
+        fee: u24,
+        pending_swap: SwapData,
+        liquidity_amount: u256
+    ) -> u256 {
+        // Verify swap is large enough
+        require(pending_swap.value >= MIN_SWAP_VALUE, "Swap too small");
+        
+        // Get current pool state
+        let (sqrtPriceX96, tick, , , , , ) = call(pool, "slot0");
+        
+        // Calculate optimal tick range
+        let tick_lower: i24;
+        let tick_upper: i24;
+        
+        if pending_swap.zero_for_one {
+            // Swap is selling token0, price will decrease
+            tick_lower = tick - TICK_RANGE;
+            tick_upper = tick;
+        } else {
+            // Swap is buying token0, price will increase  
+            tick_lower = tick;
+            tick_upper = tick + TICK_RANGE;
+        }
+        
+        // Round to tick spacing
+        let tick_spacing = get_tick_spacing(fee);
+        tick_lower = (tick_lower / tick_spacing) * tick_spacing;
+        tick_upper = (tick_upper / tick_spacing) * tick_spacing;
+        
+        // Calculate token amounts needed
+        let (amount0, amount1) = get_amounts_for_liquidity(
+            sqrtPriceX96,
+            tick_lower,
+            tick_upper,
+            liquidity_amount
+        );
+        
+        // Approve tokens
+        call(token0, "approve", (NONFUNGIBLE_POSITION_MANAGER, amount0));
+        call(token1, "approve", (NONFUNGIBLE_POSITION_MANAGER, amount1));
+        
+        // Mint position
+        let mint_params = MintParams {
+            token0: token0,
+            token1: token1,
+            fee: fee,
+            tickLower: tick_lower,
+            tickUpper: tick_upper,
+            amount0Desired: amount0,
+            amount1Desired: amount1,
+            amount0Min: amount0 * 995 / 1000,
+            amount1Min: amount1 * 995 / 1000,
+            recipient: self,
+            deadline: block.timestamp + 60,
+        };
+        
+        let (token_id, liquidity, amount0_actual, amount1_actual) = 
+            call(NONFUNGIBLE_POSITION_MANAGER, "mint", (mint_params));
+        
+        // Store position info
+        position_counter = position_counter + 1;
+        active_positions[position_counter] = JITPosition {
+            token_id: token_id,
+            pool: pool,
+            tick_lower: tick_lower,
+            tick_upper: tick_upper,
+            liquidity: liquidity,
+            created_block: block.number,
+            pending_swap_hash: pending_swap.tx_hash,
+        };
+        
+        emit JITProvided(
+            position_counter,
+            pool,
+            token_id,
+            liquidity,
+            tick_lower,
+            tick_upper
+        );
+        
+        return token_id;
+    }
+
+    // Remove JIT position after swap executes
+    @swarm
+    @atomic
+    fn remove_jit(position_id: u256) -> (u256, u256) {
+        let pos = active_positions[position_id];
+        require(pos.token_id != 0, "Position not found");
+        require(block.number >= pos.created_block + POSITION_DURATION, "Too early");
+        
+        // Collect fees earned
+        let collect_params = CollectParams {
+            tokenId: pos.token_id,
+            recipient: self,
+            amount0Max: type(u128).max,
+            amount1Max: type(u128).max,
+        };
+        
+        let (fees0, fees1) = call(NONFUNGIBLE_POSITION_MANAGER, "collect", (collect_params));
+        
+        // Remove liquidity
+        let decrease_params = DecreaseLiquidityParams {
+            tokenId: pos.token_id,
+            liquidity: pos.liquidity,
+            amount0Min: 0,
+            amount1Min: 0,
+            deadline: block.timestamp + 60,
+        };
+        
+        let (amount0, amount1) = call(NONFUNGIBLE_POSITION_MANAGER, "decreaseLiquidity", (decrease_params));
+        
+        // Collect remaining tokens
+        let (collected0, collected1) = call(NONFUNGIBLE_POSITION_MANAGER, "collect", (collect_params));
+        
+        // Burn NFT
+        call(NONFUNGIBLE_POSITION_MANAGER, "burn", (pos.token_id));
+        
+        // Clear storage
+        delete active_positions[position_id];
+        
+        emit JITRemoved(
+            position_id,
+            pos.pool,
+            fees0,
+            fees1,
+            amount0 + collected0,
+            amount1 + collected1
+        );
+        
+        return (fees0 + collected0, fees1 + collected1);
+    }
+
+    // Batch remove expired positions
+    @swarm
+    fn cleanup_expired() -> u256 {
+        let removed: u256 = 0;
+        
+        for (id, pos) in active_positions {
+            if block.number >= pos.created_block + POSITION_DURATION + 10 {
+                remove_jit(id);
+                removed = removed + 1;
+            }
+        }
+        
+        return removed;
+    }
+
+    // Calculate amounts for given liquidity
+    fn get_amounts_for_liquidity(
+        sqrtPriceX96: u160,
+        tick_lower: i24,
+        tick_upper: i24,
+        liquidity: u128
+    ) -> (u256, u256) {
+        let sqrtRatioAX96 = get_sqrt_ratio_at_tick(tick_lower);
+        let sqrtRatioBX96 = get_sqrt_ratio_at_tick(tick_upper);
+        
+        let amount0: u256 = 0;
+        let amount1: u256 = 0;
+        
+        if sqrtPriceX96 <= sqrtRatioAX96 {
+            amount0 = get_amount0_for_liquidity(sqrtRatioAX96, sqrtRatioBX96, liquidity);
+        } else if sqrtPriceX96 < sqrtRatioBX96 {
+            amount0 = get_amount0_for_liquidity(sqrtPriceX96, sqrtRatioBX96, liquidity);
+            amount1 = get_amount1_for_liquidity(sqrtRatioAX96, sqrtPriceX96, liquidity);
+        } else {
+            amount1 = get_amount1_for_liquidity(sqrtRatioAX96, sqrtRatioBX96, liquidity);
+        }
+        
+        return (amount0, amount1);
+    }
+
+    // Get tick spacing for fee tier
+    fn get_tick_spacing(fee: u24) -> i24 {
+        if fee == FEE_LOW {
+            return 10;
+        } else if fee == FEE_MEDIUM {
+            return 60;
+        } else {
+            return 200;
+        }
+    }
+
+    // Math helpers (simplified)
+    fn get_sqrt_ratio_at_tick(tick: i24) -> u160 {
+        // Simplified: actual implementation uses Q64.96 math
+        return 79228162514264337593543950336 * (1001 ** (tick / 10)) / (1000 ** (tick / 10));
+    }
+
+    fn get_amount0_for_liquidity(sqrtA: u160, sqrtB: u160, liquidity: u128) -> u256 {
+        return liquidity * (sqrtB - sqrtA) / sqrtA / sqrtB;
+    }
+
+    fn get_amount1_for_liquidity(sqrtA: u160, sqrtB: u160, liquidity: u128) -> u256 {
+        return liquidity * (sqrtB - sqrtA);
+    }
+
+    // Data structures
+    struct JITPosition {
+        token_id: u256,
+        pool: address,
+        tick_lower: i24,
+        tick_upper: i24,
+        liquidity: u128,
+        created_block: u256,
+        pending_swap_hash: bytes32,
+    }
+
+    struct SwapData {
+        tx_hash: bytes32,
+        zero_for_one: bool,
+        amount_in: u256,
+        value: u256,
+    }
+
+    struct MintParams {
+        token0: address,
+        token1: address,
+        fee: u24,
+        tickLower: i24,
+        tickUpper: i24,
+        amount0Desired: u256,
+        amount1Desired: u256,
+        amount0Min: u256,
+        amount1Min: u256,
+        recipient: address,
+        deadline: u256,
+    }
+
+    struct CollectParams {
+        tokenId: u256,
+        recipient: address,
+        amount0Max: u128,
+        amount1Max: u128,
+    }
+
+    struct DecreaseLiquidityParams {
+        tokenId: u256,
+        liquidity: u128,
+        amount0Min: u256,
+        amount1Min: u256,
+        deadline: u256,
+    }
+
+    // Events
+    event JITProvided(
+        position_id: u256,
+        pool: address,
+        token_id: u256,
+        liquidity: u128,
+        tick_lower: i24,
+        tick_upper: i24
+    );
+
+    event JITRemoved(
+        position_id: u256,
+        pool: address,
+        fees0: u256,
+        fees1: u256,
+        amount0: u256,
+        amount1: u256
+    );
+}
+
+// JIT Liquidity provides:
+// 1. Concentrated liquidity exactly where swaps will execute
+// 2. Maximum fee capture from large trades
+// 3. Minimal impermanent loss due to short duration
+// 4. Atomic execution prevents front-running

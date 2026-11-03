@@ -1,0 +1,7 @@
+intent invalid_route {
+    from Ethereum.USDC amount 100 receiver 0x1111111111111111111111111111111111111111
+    to Ethereum.USDC receiver 0x2222222222222222222222222222222222222222
+    route {
+        bridge X3 ethereum.USDC -> ethereum.USDC receiver 0x2222222222222222222222222222222222222222
+    }
+}

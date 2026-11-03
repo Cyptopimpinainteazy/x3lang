@@ -1,0 +1,13 @@
+// A **sketch**, not a program: an atomic swap called as a stdlib function. See `README.md`
+// beside this file. The current form of this subject is the `atomic swap` *declaration*
+// (`examples/atomic_swap.x3`), which is a block with a route, guards and a refund path rather
+// than a call — so this is the older dialect, not a translation of the current one
+// (TICKET-014).
+// Atomic swap — swaps with min_output guarantee
+fn main() -> i64 {
+    let pair = ("X3", "USDC");
+    let amount_in = 1000;
+    let min_out = 950;
+    let deadline = block_number() + 100;
+    return atomic_swap(pair, amount_in, min_out, deadline);
+}
