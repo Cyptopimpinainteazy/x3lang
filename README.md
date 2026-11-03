@@ -3,6 +3,10 @@
 X3Lang is an existing experimental compiler, transaction-policy VM and
 cross-chain verification toolkit developed as part of the X3 blockchain.
 
+**Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
+The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
+public mainnet transaction links remain pending and are **not** fabricated.
+
 **Hackathon disclosure:** the original language and its trading engine were
 created **before** the current NEAR hackathon. This repository preserves their
 real Git history. Start with [PRIOR_WORK.md](PRIOR_WORK.md), including its
