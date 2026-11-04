@@ -323,6 +323,16 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             CALL => {
                 // CALL - push return and jump
                 let addr = operand as usize;
+                if vm.state.call_stack.len() >= vm.config.max_stack {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_CALL_STACK_LIMIT: call depth {} reached max_stack {}",
+                        vm.state.call_stack.len(),
+                        vm.config.max_stack
+                    )));
+                }
                 vm.state.call_stack.push(pc_next);
                 vm.state.pc = addr;
                 continue;
@@ -2339,6 +2349,23 @@ mod tests {
             matches!(error, ExecError::Panic(ref message) if message.contains("X3_REQUIRE_FAILED")),
             "the original failure must propagate, got {error:?}"
         );
+    }
+
+    #[test]
+    fn call_stack_limit_is_enforced() {
+        let code: &[u8] = &[instr(CALL, 4), instr(CALL, 8), instr(CALL, 12), instr(HALT, 0)].concat();
+        let config = VMConfig {
+            max_stack: 2,
+            ..VMConfig::default()
+        };
+        let mut vm = VM::new(code.to_vec(), config, 1_000_000);
+
+        let error = execute(&mut vm).expect_err("the third call must exceed max_stack");
+        assert!(
+            matches!(error, ExecError::Panic(ref message) if message.contains("X3_CALL_STACK_LIMIT")),
+            "got {error:?}"
+        );
+        assert_eq!(vm.state.call_stack.len(), 2);
     }
 
     // ── Capability opcode tests ─────────────────────────────────
