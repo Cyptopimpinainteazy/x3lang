@@ -1,0 +1,37 @@
+name: X3Lang Exact-Head Local Execution Proof
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/compiler/**'
+      - 'x3-lang/vm/**'
+      - 'scripts/proof/x3lang_execution_proof.py'
+      - 'scripts/proof/check_x3lang_mirror.py'
+      - '.github/workflows/x3lang-execution-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  x3lang-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang
+      - name: Execute exact-head compiler and VM proof
+        run: python3 scripts/proof/x3lang_execution_proof.py --output-dir "$RUNNER_TEMP/x3lang-proof"
+      - name: Publish signed-off-by-no-one evidence (not a chain proof)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x3lang-local-execution-proof
+          path: ${{ runner.temp }}/x3lang-proof/
+          if-no-files-found: warn
+          retention-days: 14
