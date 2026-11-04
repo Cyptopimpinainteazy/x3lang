@@ -99,7 +99,7 @@ def main() -> int:
                 code = 127
             logfile = output / f"{name}.log"
             logfile.write_bytes(data)
-            summaries = re.findall(rb"test result: ok\\.\\s+(\\d+) passed;\\s+(\\d+) failed", data)
+            summaries = re.findall(rb"test result: ok\.\s+(\d+) passed;\s+(\d+) failed", data)
             cases = sum(int(successes) for successes, _ in summaries)
             if code == 0 and (not summaries or cases == 0):
                 print(f"FAIL {name}: no executed test cases found", flush=True)
