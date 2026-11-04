@@ -189,20 +189,32 @@ pub fn verify_with_register_limit(
         // width comes from `spec/opcodes.rs` so it cannot drift from the writer.
         let operand = fixed_frame_operand(opcode, compiler_stream, bytes[pc + 2], bytes[pc + 3]);
         validate_register_operands(opcode, operand, pc, max_registers)?;
+        let next_pc = if compiler_stream {
+            align4(pc + fixed_frame_content_len(opcode))
+        } else {
+            pc + 4
+        };
         // check flags & operand ranges depending on opcode (simplified)
         // for branches ensure destination is inside code and aligned
         match opcode {
             IF | LOOP => {
-                // relative or absolute jumps; compute target
-                let rel = operand as i16;
-                let target = (pc + 4) as i32 + rel as i32; // relative
-                if target < 0 || (target as usize) >= bytes.len() {
+                // Both executor branches carry a 6-bit instruction count, not a
+                // byte offset. IF counts forward from the next frame; LOOP counts
+                // backward from the current frame.
+                let (_, _, imm) = decode_reg_reg_imm(operand);
+                let distance = (imm as usize).saturating_mul(4);
+                let target = if opcode == IF {
+                    next_pc.saturating_add(distance)
+                } else {
+                    pc.saturating_sub(distance)
+                };
+                if target >= bytes.len() {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
-                if ((target as usize) % 4) != 0 {
-                    return Err(VerifyError::JumpToNonBoundary(pc, target as usize));
+                if target % 4 != 0 {
+                    return Err(VerifyError::JumpToNonBoundary(pc, target));
                 }
-                control_flow_targets.push((pc, target as usize));
+                control_flow_targets.push((pc, target));
             }
             REQUIRE => {
                 // Bits 0-1 are the comparison mode; bits 2-4 the guard's own
@@ -288,12 +300,7 @@ pub fn verify_with_register_limit(
         // with no padding. The two agree today only because raw streams start at
         // zero and stay aligned, so the bound is written out rather than
         // inferred from the offset.
-        let content_len = if compiler_stream {
-            fixed_frame_content_len(opcode)
-        } else {
-            4
-        };
-        pc = align4(pc + content_len);
+        pc = next_pc;
     }
     for (source, target) in control_flow_targets {
         if !boundaries.contains(&target) {
@@ -896,21 +903,42 @@ mod tests {
     }
 
     #[test]
-    fn verifier_rejects_each_control_flow_opcode_jumping_to_padding() {
-        // Each instruction targets pc 8. HALT occupies pc 4; pc 8 is aligned
-        // padding. Alignment alone is not enough to make padding executable.
-        for (opcode, operand) in [
-            (IF, 4),   // relative: (0 + 4) + 4 = 8
-            (LOOP, 4), // relative: (0 + 4) + 4 = 8
-            (CALL, 8), // absolute target
-        ] {
-            let code = InstructionStream::new(vec![opcode, 0, operand, 0, HALT, 0, 0, 0, 0, 0, 0, 0]);
+    fn verifier_rejects_if_targeting_trailing_padding() {
+        // The executor reads a 6-bit instruction count and multiplies it by
+        // four. IF at pc 0 with imm 4 targets pc 20; pc 4 is HALT and the rest
+        // is padding, so the target is aligned but not executable.
+        let code = InstructionStream::new(vec![
+            IF, 0, 0, 0x10, // imm = 4
+            HALT, 0, 0, 0, //
+            0, 0, 0, 0, //
+            0, 0, 0, 0, //
+            0, 0, 0, 0, //
+            0, 0, 0, 0, //
+        ]);
 
-            assert!(
-                matches!(verify(&code), Err(VerifyError::JumpToNonBoundary(0, 8))),
-                "opcode 0x{opcode:02X} must reject a jump into trailing padding"
-            );
-        }
+        assert!(
+            matches!(verify(&code), Err(VerifyError::JumpToNonBoundary(0, 20))),
+            "IF must reject a jump into trailing padding"
+        );
+    }
+
+    #[test]
+    fn verifier_rejects_call_targeting_trailing_padding() {
+        let code = InstructionStream::new(vec![CALL, 0, 8, 0, HALT, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        assert!(
+            matches!(verify(&code), Err(VerifyError::JumpToNonBoundary(0, 8))),
+            "CALL must reject a jump into trailing padding"
+        );
+    }
+
+    #[test]
+    fn verifier_agrees_with_executor_on_if_and_loop_offset_units() {
+        let if_to_eight = InstructionStream::new(vec![IF, 0, 0, 0x04, HALT, 0, 0, 0, HALT, 0, 0, 0]);
+        assert!(verify(&if_to_eight).is_ok());
+
+        let loop_to_zero = InstructionStream::new(vec![NOP, 0, 0, 0, LOOP, 0, 0, 0x04, HALT, 0, 0, 0]);
+        assert!(verify(&loop_to_zero).is_ok());
     }
 
     #[test]
