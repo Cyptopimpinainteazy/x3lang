@@ -50,6 +50,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: x3-lang
+      - name: Syntax-check both mirrored proof runners
+        run: python3 -m py_compile scripts/proof/x3lang_execution_proof.py scripts/proof/x3lang_runtime_equivalence.py scripts/proof/check_x3lang_mirror.py
       - name: Execute exact-head compiler and VM proof
         run: python3 scripts/proof/x3lang_execution_proof.py --output-dir "$RUNNER_TEMP/x3lang-proof"
       - name: Publish signed-off-by-no-one evidence (not a chain proof)
