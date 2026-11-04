@@ -133,6 +133,7 @@ READS = {
     "arb_solana_eth.x3",
     "intent_fusion.x3",
     "multi_leg_route.x3",
+    "near_intents_agent_denied.x3",
     "near_intents_agent_payment.x3",
     "near_intents_sol_to_near.x3",
     "route_fallback.x3",
