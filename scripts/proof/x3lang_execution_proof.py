@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -98,8 +99,14 @@ def main() -> int:
                 code = 127
             logfile = output / f"{name}.log"
             logfile.write_bytes(data)
+            summaries = re.findall(rb"test result: ok\\.\\s+(\\d+) passed;\\s+(\\d+) failed", data)
+            cases = sum(int(successes) for successes, _ in summaries)
+            if code == 0 and (not summaries or cases == 0):
+                print(f"FAIL {name}: no executed test cases found", flush=True)
+                code = 65
             report["tests"].append({
                 "name": name, "command": command, "exit_code": code,
+                "test_cases_passed": cases,
                 "log_sha256": sha256(data),
                 "log_file": logfile.name,
             })
