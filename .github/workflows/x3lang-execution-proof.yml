@@ -3,8 +3,7 @@ name: X3Lang Exact-Head Local Execution Proof
 on:
   pull_request:
     paths:
-      - 'x3-lang/compiler/**'
-      - 'x3-lang/vm/**'
+      - 'x3-lang/**'
       - 'scripts/proof/x3lang_execution_proof.py'
       - 'scripts/proof/check_x3lang_mirror.py'
       - '.github/workflows/x3lang-execution-proof.yml'
@@ -21,6 +20,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
         with:
           fetch-depth: 0
       - name: Checkout matching peer feature branch
@@ -39,6 +41,9 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.90.0'
