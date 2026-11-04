@@ -171,6 +171,13 @@ pub fn verify_with_register_limit(
         if is_payload_opcode(opcode, compiler_stream) {
             let payload = read_payload(bytes, pc)?;
             validate_payload_opcode(opcode, payload, pc, bytes.len())?;
+            if opcode == IF_MEASURED {
+                if let Some((_, _, _, skip)) = parse_if_measured(payload) {
+                    let after = align4(pc + 3 + payload.len());
+                    let target = after.saturating_add((skip as usize).saturating_mul(4));
+                    control_flow_targets.push((pc, target));
+                }
+            }
             pc = align4(pc + 3 + payload.len());
             continue;
         }
@@ -904,6 +911,27 @@ mod tests {
                 "opcode 0x{opcode:02X} must reject a jump into trailing padding"
             );
         }
+    }
+
+    #[test]
+    fn verifier_rejects_a_measured_branch_into_padding() {
+        let payload = if_measured_payload(MEASURED_UNIT_CODE_PROFIT_BPS, false, 0, 1).into_bytes();
+        let mut bytes = vec![IF_MEASURED];
+        bytes.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        while bytes.len() % 4 != 0 {
+            bytes.push(0);
+        }
+        bytes.extend_from_slice(&[HALT, 0, 0, 0]);
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+
+        assert!(
+            matches!(
+                verify(&InstructionStream::new(bytes)),
+                Err(VerifyError::JumpToNonBoundary(0, 16))
+            ),
+            "a measured branch into trailing padding must be rejected"
+        );
     }
 
     /// A compiler stream: version byte, metadata records, then `ATOMIC_BEGIN`.
