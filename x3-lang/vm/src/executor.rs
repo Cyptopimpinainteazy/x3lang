@@ -53,6 +53,12 @@ pub type GasCost = u128;
 /// If no handler exists, return `false`.
 fn try_dispatch_handler(vm: &mut VM) -> bool {
     if let Some(handler_pc) = vm.state.failure_handlers.pop() {
+        let Ok(boundaries) = crate::verifier::verify(&vm.code) else {
+            return false;
+        };
+        if !boundaries.contains(&handler_pc) {
+            return false;
+        }
         vm.state.pc = handler_pc;
         true
     } else {
@@ -2313,6 +2319,25 @@ mod tests {
         assert_eq!(
             vm.state.registers[0], 42,
             "ON_FAIL handler should catch REQUIRE failure and set r0 to marker value"
+        );
+    }
+
+    #[test]
+    fn an_invalid_failure_handler_must_not_turn_failure_into_success() {
+        let code: &[u8] = &[
+            instr(ON_FAIL, enc_rri(1, 0, 0)),
+            instr_flags(REQUIRE, REQUIRE_COMPARE_GE, 1),
+            instr(HALT, 0),
+        ]
+        .concat();
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
+        vm.state.registers[0] = 0;
+        vm.state.registers[1] = 64; // past the end of the code
+
+        let error = execute(&mut vm).expect_err("an invalid handler must not handle the failure");
+        assert!(
+            matches!(error, ExecError::Panic(ref message) if message.contains("X3_REQUIRE_FAILED")),
+            "the original failure must propagate, got {error:?}"
         );
     }
 
