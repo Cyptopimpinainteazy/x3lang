@@ -48,3 +48,46 @@ and conflict rejection. Do not put a write-capable token into untrusted PR jobs.
 
 None of these obligations is discharged merely because this local test gate
 passes.
+
+
+## Canonical runtime equivalence: second-stage gate
+
+The mirrored `scripts/proof/x3lang_runtime_equivalence.py` is executed by
+**xxxstar only**, because the standalone X3Lang checkout does not contain the
+canonical runtime crate `crates/x3-integration`. In the full chain repository
+it runs six real Rust suites:
+
+- `source_language`: source compilation and local three-engine outcomes.
+- `chain_engine`: actual canonical on-chain VM entry behavior.
+- `opcode_differential`: opcode agreement and fail-closed refusal.
+- `gas_accounting`: bounded execution at the interpreter boundary.
+- `x3lang_trading_rollback`: no partial commit after rejected trades.
+- `x3lang_trading_receipt_replay`: signature trust and replay verification.
+
+Run on a machine containing the full chain repository and toolchain:
+
+```bash
+python3 scripts/proof/x3lang_runtime_equivalence.py \
+  --output-dir /tmp/x3lang-runtime-proof
+```
+
+Both proof runners **reject zero-test Cargo successes**. Evidence contains
+executed case counts, command exits, test log hashes, source input hashes, and
+exact checked-out Git revision. The runtime suite is a new independent CI job
+on the `xxxstar` self-hosted X3 runner; until it completes successfully on
+the exact PR head, runtime equivalence has **not** been proven.
+
+This is not an independent blockchain deployment proof. In particular,
+`execute_on_chain` in a Rust test does not prove a deployed chain executed
+the bytecode, and local engine consensus does not prove real EVM/SVM/NEAR
+transaction finality, atomic refunds, authentic attestor key custody, or
+signed external inclusion evidence.
+
+### Release admission beyond local proof
+
+For a cross-chain settlement release, require independently fetched,
+verifiable, finalized source **and** destination chain evidence, transaction
+and chain IDs, proofs of amount and asset identity, timeout/refund state,
+trusted verifier keys, replay-protected binding to the same X3 execution
+receipt, and deployed runtime artifact hash comparison. If any are missing,
+the release gate must remain **closed**, irrespective of these local tests.
