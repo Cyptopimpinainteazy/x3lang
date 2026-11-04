@@ -48,7 +48,7 @@ funds:
 
 ```bash
 python3 scripts/hackathon/demo.py
-python3 scripts/hackathon/verify.sh
+bash scripts/hackathon/verify.sh
 ```
 
 It shows one owner mandate deciding an allowed payment, an approval-required

@@ -29,7 +29,7 @@ step to the existing Python/browser job and the missing checks to the existing G
 ## Local equivalent
 
 ```bash
-python3 scripts/hackathon/verify.sh
+bash scripts/hackathon/verify.sh
 ```
 
 This uses the existing

@@ -106,7 +106,7 @@ reproducible offline. They are never presented as chain reads.
 Run the existing evidence recorder, terminal demo and readiness projection:
 
 ```bash
-python3 scripts/hackathon/verify.sh
+bash scripts/hackathon/verify.sh
 ```
 
 This produces `/tmp/x3lang-hackathon-readiness.json` and prints the exact test commands and counts.

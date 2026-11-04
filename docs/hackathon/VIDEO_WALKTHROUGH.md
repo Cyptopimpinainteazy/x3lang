@@ -48,7 +48,7 @@ the same guard order. Python and browser decisions are tested for parity.”
 **Show:** Panel 5 and the output of:
 
 ```bash
-python3 scripts/hackathon/verify.sh
+bash scripts/hackathon/verify.sh
 ```
 
 **Say:** “The verified claim stops at deterministic local policy plus the contract test suite.

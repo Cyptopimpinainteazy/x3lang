@@ -58,7 +58,7 @@ decision with each check marked on its line, the cross-chain leg, and the eviden
 
 ```bash
 python3 scripts/hackathon/demo.py                         # same scenarios, one terminal command
-python3 scripts/hackathon/verify.sh                       # tests + demo + readiness report
+bash scripts/hackathon/verify.sh                          # tests + demo + readiness report
 python3 x3-lang/near/demo/judge/build_scenarios.py            # after changing an example
 python3 x3-lang/near/demo/judge/collect_evidence.py           # run the tests; panel 5 shows them
 python3 x3-lang/near/demo/judge/collect_evidence.py --with-contract   # also x3-guard's cargo tests

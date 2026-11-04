@@ -31,7 +31,7 @@ Official instructions were checked against
 
 - [ ] Create and activate a project-local Python virtual environment.
 - [ ] Install `x3-lang/requirements.txt`, pytest, Node 22+ and the Rust toolchain.
-- [ ] Run `python3 scripts/hackathon/verify.sh`.
+- [ ] Run `bash scripts/hackathon/verify.sh`.
 - [ ] Confirm the readiness report names the current clean commit.
 - [ ] Confirm the demo prints allowed, approval-required and refused decisions.
 - [ ] Confirm `evidence_level` is `local_policy_preview_only`.

@@ -169,7 +169,7 @@ def render(report: dict[str, Any]) -> str:
         "  Browser parity: run node --test x3-lang/near/demo/test/*.test.mjs",
         "  Browser console: python3 -m http.server 8000 --directory x3-lang/near/demo",
         "                   then open http://localhost:8000/judge.html",
-        "  Full local evidence: python3 scripts/hackathon/verify.sh",
+        "  Full local evidence: bash scripts/hackathon/verify.sh",
         "  No wallet signature, on-chain authorization, signed quote or settlement is claimed.",
         "",
         "Tracks: " + ", ".join(report["tracks"]),
