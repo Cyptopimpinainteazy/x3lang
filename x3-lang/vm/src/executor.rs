@@ -506,6 +506,13 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 // if any subsequent opcode within this scope panics, the VM
                 // jumps to the handler target before aborting.
                 let (ra, _rb, _imm) = decode_reg_reg_imm(operand);
+                if vm.state.failure_handlers.len() >= vm.config.max_stack {
+                    return Err(ExecError::Panic(format!(
+                        "X3_FAILURE_HANDLER_DEPTH: handler depth {} reached max_stack {}",
+                        vm.state.failure_handlers.len(),
+                        vm.config.max_stack
+                    )));
+                }
                 let handler_pc = vm.state.registers[ra as usize] as usize;
                 vm.state.failure_handlers.push(handler_pc);
             }
@@ -2366,6 +2373,29 @@ mod tests {
             "got {error:?}"
         );
         assert_eq!(vm.state.call_stack.len(), 2);
+    }
+
+    #[test]
+    fn failure_handler_stack_limit_is_enforced() {
+        let code: &[u8] = &[
+            instr(ON_FAIL, enc_rri(1, 0, 0)),
+            instr(ON_FAIL, enc_rri(1, 0, 0)),
+            instr(HALT, 0),
+        ]
+        .concat();
+        let config = VMConfig {
+            max_stack: 1,
+            ..VMConfig::default()
+        };
+        let mut vm = VM::new(code.to_vec(), config, 1_000_000);
+        vm.state.registers[1] = 8;
+
+        let error = execute(&mut vm).expect_err("the second registered handler must exceed max_stack");
+        assert!(
+            matches!(error, ExecError::Panic(ref message) if message.contains("X3_FAILURE_HANDLER_DEPTH")),
+            "got {error:?}"
+        );
+        assert_eq!(vm.state.failure_handlers.len(), 1);
     }
 
     // ── Capability opcode tests ─────────────────────────────────
