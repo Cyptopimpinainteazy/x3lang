@@ -581,3 +581,64 @@ fn the_contract_and_the_adapter_reach_the_same_verdict_on_every_policy() {
         );
     }
 }
+
+
+#[test]
+fn agent_quote_view_must_recheck_revocation_and_never_approve_spending() {
+    let mut c = with_mandate(terms());
+    let (p, signed_payload, signature) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "preflight_revoked".into(), p);
+    let permitted = c.check_quote(owner(), "preflight_revoked".into(), signed_payload.clone(), signature.clone());
+    assert!(failed(&permitted).is_empty(), "{permitted:?}");
+    assert!(c.get_intent(owner(), "preflight_revoked".into()).unwrap().quote.is_none());
+
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    c.revoke_mandate(agent());
+    let denied = c.check_quote(owner(), "preflight_revoked".into(), signed_payload, signature);
+    assert!(failed(&denied).contains(&"mandate_active".into()), "{denied:?}");
+    assert!(c.get_intent(owner(), "preflight_revoked".into()).unwrap().quote.is_none());
+}
+
+#[test]
+fn agent_quote_view_checks_approvals_mandate_version_and_signature() {
+    let mut t = terms();
+    t.approval_above = Some(U128(10 * USDC));
+    t.approvers = vec![accounts(2)];
+    t.approval_threshold = 1;
+    let mut c = with_mandate(t.clone());
+    let (p, text, sig) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "preflight_approvals".into(), p);
+
+    let denied = c.check_quote(owner(), "preflight_approvals".into(), text.clone(), sig.clone());
+    assert!(failed(&denied).contains(&"mandate_approvals".into()), "{denied:?}");
+
+    ctx(accounts(2), NOW_MS, one_near());
+    c.approve_intent(owner(), "preflight_approvals".into());
+    let ok = c.check_quote(owner(), "preflight_approvals".into(), text.clone(), sig.clone());
+    assert!(failed(&ok).is_empty(), "{ok:?}");
+    assert!(c.get_intent(owner(), "preflight_approvals".into()).unwrap().quote.is_none());
+
+    let tampered = c.check_quote(owner(), "preflight_approvals".into(), text.clone() + " ", sig.clone());
+    assert!(failed(&tampered).contains(&"quote_signature".into()), "{tampered:?}");
+
+    ctx(owner(), NOW_MS, one_near());
+    c.create_mandate(agent(), t);
+    let stale = c.check_quote(owner(), "preflight_approvals".into(), text, sig);
+    assert!(failed(&stale).contains(&"mandate_version".into()), "{stale:?}");
+}
+
+#[test]
+fn agent_quote_view_refuses_unregistered_and_owner_only_intents() {
+    let (p, text, sig) = quote_at(NOW_MS, 25 * USDC);
+    let mut c = with_mandate(terms());
+    let missing = c.check_quote(owner(), "does_not_exist".into(), text.clone(), sig.clone());
+    assert!(failed(&missing).contains(&"intent_registered".into()), "{missing:?}");
+
+    ctx(owner(), NOW_MS, one_near());
+    c.register_intent("owner_only".into(), p);
+    // Owner-submitted policies have no mandate. The legacy owner quote-view path is unchanged.
+    let owner_view = c.check_quote(owner(), "owner_only".into(), text, sig);
+    assert!(failed(&owner_view).is_empty(), "{owner_view:?}");
+}
