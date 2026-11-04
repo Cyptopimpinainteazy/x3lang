@@ -192,6 +192,7 @@
 
 <script type="module">
 import * as judge from "./judge/judge.mjs";
+import { webCryptoProblem } from "./x3guard.mjs";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -384,6 +385,9 @@ $("theme").addEventListener("click", () => { theme = themes[(themes.indexOf(them
 applyTheme();
 
 try {
+  // The checker hashes each program with WebCrypto; without it every scenario would fail for the wrong reason.
+  const noCrypto = webCryptoProblem();
+  if (noCrypto) throw new Error(noCrypto);
   DATA = await (await fetch("./judge/scenarios.json", { cache: "no-store" })).json();
   for (const s of DATA.scenarios) {
     try { RESULTS[s.id] = await judge.evaluate(DATA, s); }
@@ -393,7 +397,7 @@ try {
   show(location.hash.slice(1));
   window.addEventListener("hashchange", () => show(location.hash.slice(1)));
 } catch (e) {
-  $("panels").innerHTML = `<p class="none"><strong>The scenarios couldn't be loaded.</strong> Serve this folder over http (<code>python3 -m http.server</code>), not file://. ${esc(e.message)}</p>`;
+  $("panels").innerHTML = `<p class="none"><strong>The scenarios couldn't be checked.</strong> ${esc(e.message)}${webCryptoProblem() ? "" : " Serve this folder over http (<code>python3 -m http.server</code>), not file://."}</p>`;
 }
 renderEvidence();
 </script>

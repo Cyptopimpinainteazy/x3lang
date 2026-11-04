@@ -405,6 +405,9 @@ function lineFor(guard, intent, req) {
 
 async function quote() {
   diag.textContent = ""; diag.className = "diagnostic"; result.replaceChildren(); marks = {}; renderGutter();
+  // Without WebCrypto no signature can be checked, so don't ask 1Click for a quote at all.
+  const noCrypto = x3.webCryptoProblem();
+  if (noCrypto) return fail(new x3.X3Error("X3_NO_WEBCRYPTO", noCrypto));
   let intent, leg;
   try {
     intent = x3.parse(code.value);
