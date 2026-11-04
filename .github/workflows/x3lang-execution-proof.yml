@@ -5,6 +5,7 @@ on:
     paths:
       - 'x3-lang/**'
       - 'scripts/proof/x3lang_execution_proof.py'
+      - 'scripts/proof/x3lang_runtime_equivalence.py'
       - 'scripts/proof/check_x3lang_mirror.py'
       - '.github/workflows/x3lang-execution-proof.yml'
   workflow_dispatch:
