@@ -14,6 +14,23 @@ permissions:
   contents: read
 
 jobs:
+  mirrored-proof-files:
+    if: github.event_name == 'pull_request'
+    name: Verify identical proof code in both GitHub repos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout matching peer feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Cyptopimpinainteazy/xxxstar
+          ref: ${{ github.head_ref }}
+          path: peer-checkout
+          persist-credentials: false
+      - name: Reject mirrored-file drift
+        run: python3 scripts/proof/check_x3lang_mirror.py --peer-repo peer-checkout
+
   x3lang-proof:
     runs-on: ubuntu-latest
     timeout-minutes: 75
