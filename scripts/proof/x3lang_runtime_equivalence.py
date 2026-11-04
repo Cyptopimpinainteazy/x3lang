@@ -91,7 +91,7 @@ def main() -> int:
                 data, code = str(exc).encode(), 127
             logfile = output / (name + ".log")
             logfile.write_bytes(data)
-            summaries = re.findall(rb"test result: ok\\.\\s+(\\d+) passed;\\s+(\\d+) failed", data)
+            summaries = re.findall(rb"test result: ok\.\s+(\d+) passed;\s+(\d+) failed", data)
             cases = sum(int(successes) for successes, _ in summaries)
             if code == 0 and (not summaries or cases == 0):
                 code = 65  # Empty suite is never evidence of equivalence.
