@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X3 Shield Console</title>
+<meta name="description" content="One X3 mandate, one policy checker: watch an AI agent's payments approved, held for approval, or refused, with every claim's evidence level stated.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231C2631'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' stroke='%2357B98F' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;600&family=Schibsted+Grotesk:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #E8ECEF; --sheet: #F4F6F8; --ink: #1C2631; --ink-soft: #4A5867; --rule: #B7C1CA;
+    --pass: #1E6A4E; --fail: #AE2F3B; --seal: #3A4AA4; --note: #8A5A00; --idle: #8794A1; --focus: #3A4AA4;
+    --hl: rgba(58, 74, 164, 0.10); --hl-fail: rgba(174, 47, 59, 0.10);
+    --sans: "Schibsted Grotesk", system-ui, sans-serif;
+    --mono: "Martian Mono", ui-monospace, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #131A21; --sheet: #1A232C; --ink: #DCE3E8; --ink-soft: #9DAAB6; --rule: #33414E;
+      --pass: #57B98F; --fail: #F0717C; --seal: #9AA6F2; --note: #E0B45C; --idle: #6C7A87; --focus: #9AA6F2;
+      --hl: rgba(154, 166, 242, 0.12); --hl-fail: rgba(240, 113, 124, 0.13);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131A21; --sheet: #1A232C; --ink: #DCE3E8; --ink-soft: #9DAAB6; --rule: #33414E;
+    --pass: #57B98F; --fail: #F0717C; --seal: #9AA6F2; --note: #E0B45C; --idle: #6C7A87; --focus: #9AA6F2;
+    --hl: rgba(154, 166, 242, 0.12); --hl-fail: rgba(240, 113, 124, 0.13);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 1rem/1.55 var(--sans); }
+  a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { color: var(--seal); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 3px; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 40px); }
+
+  header.top { padding: clamp(24px, 4vw, 44px) 0 18px; display: grid; gap: 12px; }
+  .brand { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .brand h1 { margin: 0; font-weight: 900; font-size: clamp(2rem, 4.6vw, 3.2rem); line-height: 0.95; letter-spacing: -0.035em; }
+  .brand .by { color: var(--ink-soft); font-size: 0.95rem; }
+  .lede { margin: 0; max-width: 64ch; font-size: clamp(1.02rem, 1.6vw, 1.2rem); line-height: 1.45; }
+  .banner { margin: 0; padding: 10px 14px; border: 1px solid var(--rule); border-left: 4px solid var(--seal); border-radius: 8px; background: var(--sheet); font-size: 0.92rem; max-width: 92ch; }
+  .tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button, .btn { font: 500 0.9rem var(--sans); color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 7px 12px; cursor: pointer; text-decoration: none; }
+  button:hover, .btn:hover { border-color: var(--seal); color: var(--seal); }
+
+  .layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: clamp(16px, 2.4vw, 28px); align-items: start; padding-bottom: 56px; }
+  @media (max-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+  nav.rail { position: sticky; top: 16px; display: grid; gap: 18px; }
+  @media (max-width: 960px) { nav.rail { position: static; } }
+  .rail h2 { margin: 0 0 6px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+  .rail ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .rail button { width: 100%; text-align: left; display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); gap: 8px; align-items: start; padding: 9px 10px; }
+  .rail button[aria-current="true"] { border-color: var(--seal); box-shadow: inset 3px 0 0 var(--seal); }
+  .rail .mark { font-weight: 700; text-align: center; }
+  .rail .t { display: block; font-weight: 600; line-height: 1.3; }
+  .rail .d { display: block; font-size: 0.78rem; color: var(--ink-soft); }
+
+  .panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(14px, 2vw, 22px); }
+  @media (max-width: 1180px) { .panels { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; min-width: 0; overflow: hidden; }
+  .panel.wide { grid-column: 1 / -1; }
+  .panel > header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--rule); }
+  .panel h3 { margin: 0; font-size: 1rem; font-weight: 700; }
+  .panel h3 .n { font-family: var(--mono); font-size: 0.75rem; color: var(--ink-soft); margin-right: 8px; }
+  .panel .file { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+  .body { padding: 14px 16px; display: grid; gap: 12px; }
+  .sub { margin: 0; font-size: 0.9rem; color: var(--ink-soft); }
+
+  pre.src { margin: 0; padding: 10px 0; overflow-x: auto; font: 400 0.76rem/1.65 var(--mono); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; }
+  pre.src span.ln { display: block; padding: 0 12px 0 0; white-space: pre; }
+  body.hide-comments pre.src span.ln.comment { display: none; }
+  pre.src span.ln::before { content: attr(data-n); display: inline-block; width: 2.6rem; padding-right: 10px; text-align: right; color: var(--idle); user-select: none; }
+  pre.src span.ln.comment { color: var(--ink-soft); }
+  pre.src span.ln.edit { background: var(--hl); box-shadow: inset 3px 0 0 var(--seal); }
+  pre.src span.ln.bad { background: var(--hl-fail); box-shadow: inset 3px 0 0 var(--fail); }
+  details > summary { cursor: pointer; font-size: 0.88rem; color: var(--ink-soft); }
+  details pre { margin: 8px 0 0; padding: 10px 12px; overflow-x: auto; font: 400 0.72rem/1.55 var(--mono); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; }
+
+  .verdict { display: grid; gap: 4px; padding: 12px 14px; border-radius: 8px; border: 1px solid currentColor; }
+  .verdict strong { font-size: 1.25rem; font-weight: 900; letter-spacing: -0.01em; }
+  .verdict span { color: var(--ink); font-size: 0.92rem; }
+  .tone-pass { color: var(--pass); } .tone-fail { color: var(--fail); } .tone-note { color: var(--note); } .tone-seal { color: var(--seal); }
+  ul.checks { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+  ul.checks li { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--rule); font-size: 0.9rem; }
+  ul.checks li:last-child { border-bottom: 0; }
+  ul.checks .mark { font-weight: 700; text-align: center; }
+  ul.checks .g { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-soft); display: block; overflow-wrap: anywhere; }
+  .agree { font-size: 0.88rem; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--rule); }
+  .agree.ok { border-color: var(--pass); } .agree.bad { border-color: var(--fail); color: var(--fail); font-weight: 700; }
+
+  .route { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: stretch; }
+  @media (max-width: 560px) { .route { grid-template-columns: minmax(0, 1fr); } .route .arrow { transform: rotate(90deg); justify-self: center; } }
+  .leg { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; background: var(--paper); min-width: 0; }
+  .leg .k { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+  .leg .v { font-weight: 700; font-size: 1.05rem; }
+  .leg .a { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-soft); overflow-wrap: anywhere; }
+  .arrow { align-self: center; color: var(--ink-soft); font-size: 1.4rem; }
+  dl.facts { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: 0.88rem; }
+  dl.facts dt { color: var(--ink-soft); } dl.facts dd { margin: 0; font-family: var(--mono); font-size: 0.76rem; overflow-wrap: anywhere; }
+  .none { padding: 10px 12px; border: 1px dashed var(--rule); border-radius: 8px; font-size: 0.9rem; }
+
+  ol.ladder { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  ol.ladder li { display: grid; grid-template-columns: 1.4rem 13rem minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 0.88rem; }
+  @media (max-width: 720px) { ol.ladder li { grid-template-columns: 1.4rem minmax(0, 1fr); } ol.ladder li .how { grid-column: 2; } }
+  ol.ladder .mark { font-weight: 700; text-align: center; }
+  ol.ladder .lbl { font-weight: 600; } ol.ladder .how { color: var(--ink-soft); }
+  table.runs { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  table.runs th, table.runs td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  table.runs th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); font-weight: 600; }
+  table.runs code { font: 400 0.72rem var(--mono); overflow-wrap: anywhere; }
+  .runs-wrap { overflow-x: auto; }
+  footer { padding: 0 0 40px; color: var(--ink-soft); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><h1>X3 Shield Console</h1><span class="by">one X3 mandate, one policy checker, three tracks</span></div>
+    <p class="lede">An owner writes what an AI agent may spend as an X3 program. The agent writes each payment as an X3 program. Pick a scenario: the same checker approves it, holds it for approval, or refuses it, and says which term decided.</p>
+    <p class="banner" id="banner"><strong>Local policy preview.</strong> Nothing on this page authorizes, signs, quotes, deposits or settles. Each claim below says what level of evidence backs it.</p>
+    <div class="tools">
+      <a class="btn" href="./index.html">X3 Guard: get a real signed 1Click quote</a>
+      <button id="comments" type="button" aria-pressed="false">Show file comments</button>
+      <button id="theme" type="button">Theme: system</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="rail" aria-label="Scenarios">
+      <div><h2>A · Authorized agent payment</h2><ol id="rail-A"></ol></div>
+      <div><h2>B · Forbidden actions</h2><ol id="rail-B"></ol></div>
+      <p class="sub" id="tracks"></p>
+    </nav>
+
+    <main class="panels" id="panels" aria-live="polite">
+      <section class="panel">
+        <header><h3><span class="n">1</span>The owner's policy</h3><span class="file" id="mandate-file"></span></header>
+        <div class="body"><p class="sub">The owner's X3 mandate: which asset, how much per payment and per day, to whom, where refunds go, the fee and slippage limits, and when approval is needed.</p><pre class="src" id="mandate-src"></pre></div>
+      </section>
+
+      <section class="panel">
+        <header><h3><span class="n">2</span>The agent's request</h3><span class="file" id="intent-file"></span></header>
+        <div class="body">
+          <p class="sub" id="story"></p>
+          <pre class="src" id="intent-src"></pre>
+          <p class="none" id="model"></p>
+          <details><summary>What the compiler produced: the policy x3-guard would store</summary><pre id="policy-json"></pre></details>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header><h3><span class="n">3</span>The security decision</h3><span class="file">x3guard.mjs checkMandate · track_control.py</span></header>
+        <div class="body">
+          <div class="verdict" id="verdict"></div>
+          <p class="sub" id="state"></p>
+          <ul class="checks" id="checks"></ul>
+          <div class="agree" id="agree"></div>
+          <div id="contract"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header><h3><span class="n">4</span>The cross-chain transaction</h3><span class="file">one NEAR Intents leg</span></header>
+        <div class="body">
+          <div class="route" id="route"></div>
+          <dl class="facts" id="facts"></dl>
+          <p class="none"><strong>Transactions: none.</strong> This console asks neither 1Click nor NEAR for anything, so it has no quote, deposit address, or transaction hash to show. No atomic rollback across Solana and NEAR is claimed: a failed swap is refunded by 1Click to the refund address above.</p>
+          <div class="tools"><button id="open-guard" type="button">Open this payment in X3 Guard for a signed dry quote</button></div>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <header><h3><span class="n">5</span>Verification evidence</h3><span class="file" id="evidence-file">judge/evidence.json</span></header>
+        <div class="body">
+          <p class="sub">What is proven for these scenarios, and what is not. Only the first level holds here; each other level names what would prove it.</p>
+          <ol class="ladder" id="ladder"></ol>
+          <div id="runs"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <footer>Scenarios are generated by <code>x3-lang/near/demo/judge/build_scenarios.py</code> from checked-in examples, at a fixed time with an archived token list, so every result here is reproducible.</footer>
+</div>
+
+<script type="module">
+import * as judge from "./judge/judge.mjs";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const MARK = { pass: "✓", fail: "✗", note: "○", seal: "◆" };
+
+const units = (raw, decimals) => {
+  const s = BigInt(raw).toString().padStart(decimals + 1, "0");
+  const whole = s.slice(0, s.length - decimals), frac = s.slice(s.length - decimals).replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole;
+};
+const usdc = (raw) => `${units(raw, 6)} USDC`;
+
+const LABEL = {
+  mandate_active: (c, r) => c.ok ? "The mandate is in force" : (r.state?.revoked ? "The owner revoked the mandate" : "The mandate has expired"),
+  mandate_asset: (c) => c.ok ? "Spends Solana USDC, the only asset allowed" : "Spends an asset the mandate doesn't allow",
+  mandate_destination_asset: (c) => c.ok ? "Pays out in NEAR USDC, which is allowed" : "Pays out in an asset the mandate doesn't allow",
+  mandate_recipient: (c, r) => c.ok ? `${r.leg.recipient} is on the owner's list` : `${r.leg.recipient} is not on the owner's list`,
+  mandate_refund_to: (c) => c.ok ? "Refunds go to the owner's pinned address" : "Refunds would go to an address the owner didn't pin",
+  mandate_per_payment: (c, r) => `${usdc(r.policy.amount)}, limit ${usdc(r.mandate.terms.per_payment_cap)} a payment`,
+  mandate_daily: (c, r) => `${usdc(r.policy.amount)}${spentText(r)}, limit ${usdc(r.mandate.terms.daily_cap)} per 24 hours`,
+  mandate_slippage: (c, r) => `Slippage limit ${r.policy.slippage_bps} bps, the owner allows ${r.mandate.terms.max_slippage_bps}`,
+  mandate_fees: (c, r) => r.policy.fee_cap_bps == null ? "No fee cap: the owner requires one" : `Fee cap ${r.policy.fee_cap_bps} bps, the owner allows ${r.mandate.terms.max_fee_bps}`,
+  mandate_deadline: (c) => c.ok ? "Settles before the mandate expires" : "The deadline outlives the mandate",
+  mandate_owner: () => "The payment is under a different owner's mandate",
+};
+const spentText = (r) => {
+  const total = (r.state?.spends ?? []).reduce((a, s) => a + BigInt(s.amount), 0n);
+  return total ? ` on top of ${usdc(total)} already spent` : "";
+};
+// Which mandate line each guard reads, so a refusal points at the owner's own words.
+const MANDATE_FIELD = {
+  mandate_active: "expires", mandate_asset: "spend", mandate_destination_asset: "allow_assets",
+  mandate_recipient: "allow_recipients", mandate_refund_to: "refund_to", mandate_per_payment: "per_payment",
+  mandate_daily: "per_24h", mandate_deadline: "expires",
+};
+const mandateLine = (guard, parsed) => {
+  if (guard === "mandate_slippage" || guard === "mandate_fees") {
+    const kind = guard.replace("mandate_", "");
+    return parsed.requires.find((r) => r.kind === kind)?.line;
+  }
+  return parsed.line_of[MANDATE_FIELD[guard]];
+};
+
+function sourceHtml(text, { edit = new Set(), bad = new Set() } = {}) {
+  return text.replace(/\n$/, "").split("\n").map((line, i) => {
+    const n = i + 1;
+    const cls = ["ln", /^\s*\/\//.test(line) ? "comment" : "", bad.has(n) ? "bad" : edit.has(n) ? "edit" : ""].filter(Boolean).join(" ");
+    return `<span class="${cls}" data-n="${n}">${esc(line) || " "}</span>`;
+  }).join("");
+}
+
+function editedLines(s) {
+  const lines = s.intent.source.split("\n");
+  const out = new Set();
+  for (const e of s.intent.edits) lines.forEach((l, i) => { if (l.includes(e.to)) out.add(i + 1); });
+  return out;
+}
+
+let DATA, RESULTS = {};
+
+function renderRail(current) {
+  for (const group of ["A", "B"]) {
+    $(`rail-${group}`).innerHTML = DATA.scenarios.filter((s) => s.group === group).map((s) => {
+      const r = RESULTS[s.id];
+      const shown = r.error ? "denied_by_policy" : judge.shownDecision(s, r);
+      const d = judge.DECISIONS[shown];
+      return `<li><button type="button" data-id="${esc(s.id)}" aria-current="${s.id === current}">
+        <span class="mark tone-${d.tone}" aria-hidden="true">${MARK[d.tone]}</span>
+        <span><span class="t">${esc(s.title)}</span><span class="d">${esc(d.label)}</span></span></button></li>`;
+    }).join("");
+  }
+  document.querySelectorAll(".rail button[data-id]").forEach((b) => b.addEventListener("click", () => show(b.dataset.id)));
+}
+
+function show(id) {
+  const s = DATA.scenarios.find((x) => x.id === id) ?? DATA.scenarios[0];
+  const r = RESULTS[s.id];
+  history.replaceState(null, "", `#${s.id}`);
+  renderRail(s.id);
+
+  const failed = new Set(r.denied_guards ?? []);
+  const badMandate = new Set([...failed].map((g) => r.parsedMandate && mandateLine(g, r.parsedMandate)).filter(Boolean));
+  $("mandate-file").textContent = `${DATA.mandate.file} · sha256 ${DATA.mandate.sha256.slice(0, 12)}…`;
+  $("mandate-src").innerHTML = sourceHtml(DATA.mandate.source, { bad: badMandate });
+
+  $("intent-file").textContent = s.intent.edits.length ? `${s.intent.file}, ${s.intent.edits.length === 1 ? "one line" : s.intent.edits.length + " lines"} changed` : s.intent.file;
+  $("story").textContent = s.story;
+  $("intent-src").innerHTML = sourceHtml(s.intent.source, { edit: editedLines(s) });
+  $("model").innerHTML = `<strong>Model evidence: none.</strong> This payment program is checked into the repository${s.intent.edits.length === 1 ? "; the highlighted line is this scenario's change" : s.intent.edits.length ? "; the highlighted lines are this scenario's changes" : ""}. No AI provider was called, so there is no model, prompt or provider response to show.`;
+  $("policy-json").textContent = JSON.stringify(r.error ? { error: r.error } : r.policy ?? { mandate_owner: r.leg.mandate_owner }, null, 2);
+
+  const shown = r.error ? "denied_by_policy" : judge.shownDecision(s, r);
+  const d = judge.DECISIONS[shown];
+  $("verdict").className = `verdict tone-${d.tone}`;
+  $("verdict").innerHTML = `<strong>${esc(d.label)}</strong><span>${esc(r.error ? `The program doesn't compile: ${r.error.message}` : d.detail)}</span>`;
+  const st = s.assumed_guard_state;
+  $("state").textContent = st
+    ? `Assumed Guard state, stated, not read from NEAR: ${st.revoked ? "the owner has revoked the mandate" : ""}${st.spends ? `the agent already spent ${usdc(st.spends.reduce((a, x) => a + BigInt(x.amount), 0n))} in the last 24 hours` : ""}.`
+    : "Assumed Guard state: never revoked, nothing spent yet.";
+
+  $("checks").innerHTML = (r.checks ?? []).map((c) => {
+    const tone = c.ok ? "pass" : "fail";
+    return `<li><span class="mark tone-${tone}" aria-label="${c.ok ? "holds" : "fails"}">${MARK[tone]}</span><span>${esc((LABEL[c.guard] ?? (() => c.guard))(c, r))}<span class="g">${esc(c.guard)}</span></span></li>`;
+  }).join("") + (r.denied_guards?.includes("mandate_owner") ? `<li><span class="mark tone-fail">✗</span><span>${esc(LABEL.mandate_owner())}<span class="g">mandate_owner</span></span></li>` : "")
+    + (r.approvals_needed ? `<li><span class="mark tone-note">○</span><span>Needs ${r.approvals_needed} approval${r.approvals_needed > 1 ? "s" : ""} from the listed approvers, above ${usdc(r.mandate.terms.approval_above)}<span class="g">approvals_needed</span></span></li>` : "");
+
+  const ok = !r.error && judge.agrees(s, r);
+  $("agree").className = `agree ${ok ? "ok" : "bad"}`;
+  $("agree").innerHTML = ok
+    ? `<span class="tone-pass">✓</span> Python's <code>track_control.py</code> reached the same decision through the same ${s.python.checks.length} checks.`
+    : "✗ This page and Python's track_control.py disagree on this scenario. Treat the result as unverified.";
+  $("contract").innerHTML = s.contract_tests.length ? `<p class="sub">${esc(s.contract_note ?? "The deployed contract makes this check again, on NEAR:")}</p>
+    <ul class="checks">${s.contract_tests.map((t) => `<li><span class="mark tone-seal">◆</span><span><code>${esc(t.split("::")[1])}</code><span class="g">x3-lang/${esc(t.split("::")[0])}</span></span></li>`).join("")}</ul>` : "";
+
+  renderRoute(r);
+}
+
+function renderRoute(r) {
+  const leg = r.leg;
+  if (!leg || !r.policy) {
+    $("route").innerHTML = `<p class="none">Nothing to route: the payment was refused before it was lowered to a quote request.</p>`;
+    $("facts").innerHTML = "";
+    return;
+  }
+  const chain = (c) => c.charAt(0).toUpperCase() + c.slice(1);
+  $("route").innerHTML = `
+    <div class="leg"><div class="k">Source</div><div class="v">${esc(usdc(leg.amount))}</div><div>${esc(chain(leg.origin.chain))} · ${esc(leg.origin.asset)}</div><div class="a">${esc(r.policy.origin_asset)}</div></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="leg"><div class="k">Destination</div><div class="v">at least ${esc(usdc(leg.min_receive))}</div><div>${esc(chain(leg.destination.chain))} · ${esc(leg.destination.asset)} to ${esc(leg.recipient)}</div><div class="a">${esc(r.policy.destination_asset)}</div></div>`;
+  $("facts").innerHTML = [
+    ["Route", "NEAR Intents (1Click)"],
+    ["Refund to", leg.refund_to],
+    ["Deadline", leg.deadline],
+    ["Slippage limit", `${leg.slippage_bps} bps`],
+    ["Fee cap", leg.fee_cap_bps == null ? "none" : `${leg.fee_cap_bps} bps`],
+    ["Program sha256", r.policy.program_sha256],
+  ].map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+}
+
+async function renderEvidence() {
+  $("ladder").innerHTML = judge.EVIDENCE_LADDER.map((l) => `<li>
+    <span class="mark tone-${l.proven ? "pass" : "fail"}" aria-label="${l.proven ? "proven" : "not proven"}">${l.proven ? "✓" : "✗"}</span>
+    <span class="lbl">${esc(l.label)}</span><span class="how">${esc(l.how)}</span></li>`).join("");
+  let ev = null;
+  try {
+    const res = await fetch("./judge/evidence.json", { cache: "no-store" });
+    if (res.ok) ev = await res.json();
+  } catch {}
+  if (!ev) {
+    $("runs").innerHTML = `<p class="none"><strong>No test run recorded.</strong> Run <code>python3 x3-lang/near/demo/judge/collect_evidence.py</code> from the repository root to run the tests and record their results here.</p>`;
+    return;
+  }
+  const dirty = ev.worktree_clean === false ? ` <strong class="tone-fail">The worktree had uncommitted changes, so these results are not tied to that commit alone.</strong>` : "";
+  $("runs").innerHTML = `<p class="sub">Recorded ${esc(ev.recorded_at)} at commit <code>${esc(ev.commit)}</code>.${dirty}</p>
+    <div class="runs-wrap"><table class="runs"><thead><tr><th>Check</th><th>Command</th><th>Exit</th><th>Passed</th><th>Failed</th><th>Skipped</th></tr></thead><tbody>
+    ${ev.runs.map((x) => `<tr><td>${esc(x.name)}</td><td><code>${esc(x.command)}</code></td>
+      <td class="tone-${x.exit_code === 0 ? "pass" : "fail"}">${x.exit_code === null ? "not run" : esc(x.exit_code)}</td>
+      <td>${esc(x.passed ?? "–")}</td><td>${esc(x.failed ?? "–")}</td><td>${esc(x.skipped ?? "–")}</td></tr>${x.note ? `<tr><td></td><td colspan="5" class="sub">${esc(x.note)}</td></tr>` : ""}`).join("")}
+    </tbody></table></div>`;
+}
+
+$("open-guard").addEventListener("click", () => {
+  const s = DATA.scenarios.find((x) => `#${x.id}` === location.hash) ?? DATA.scenarios[0];
+  store.set("x3guard.program", s.intent.source);
+  store.set("x3guard.mandate", DATA.mandate.source);
+  location.href = "./index.html";
+});
+
+// Comments are hidden by default so the terms come first; line numbers stay the file's own.
+const applyComments = (showing) => {
+  document.body.classList.toggle("hide-comments", !showing);
+  $("comments").setAttribute("aria-pressed", String(showing));
+  $("comments").textContent = showing ? "Hide file comments" : "Show file comments";
+};
+$("comments").addEventListener("click", () => {
+  const showing = !document.body.classList.contains("hide-comments");
+  store.set("x3judge.comments", showing ? "hide" : "show");
+  applyComments(!showing);
+});
+applyComments(store.get("x3judge.comments") === "show");
+
+const themes = ["system", "light", "dark"];
+let theme = store.get("x3guard.theme") ?? "system";
+const applyTheme = () => {
+  if (theme === "system") document.documentElement.removeAttribute("data-theme"); else document.documentElement.dataset.theme = theme;
+  $("theme").textContent = `Theme: ${theme}`;
+};
+$("theme").addEventListener("click", () => { theme = themes[(themes.indexOf(theme) + 1) % 3]; store.set("x3guard.theme", theme); applyTheme(); });
+applyTheme();
+
+try {
+  DATA = await (await fetch("./judge/scenarios.json", { cache: "no-store" })).json();
+  for (const s of DATA.scenarios) {
+    try { RESULTS[s.id] = await judge.evaluate(DATA, s); }
+    catch (e) { RESULTS[s.id] = { error: { code: e.code ?? "error", message: e.message }, checks: [], denied_guards: [] }; }
+  }
+  $("tracks").textContent = `The same mandate and checker serve ${DATA.tracks.join(", ")}.`;
+  show(location.hash.slice(1));
+  window.addEventListener("hashchange", () => show(location.hash.slice(1)));
+} catch (e) {
+  $("panels").innerHTML = `<p class="none"><strong>The scenarios couldn't be loaded.</strong> Serve this folder over http (<code>python3 -m http.server</code>), not file://. ${esc(e.message)}</p>`;
+}
+renderEvidence();
+</script>
+</body>
+</html>
