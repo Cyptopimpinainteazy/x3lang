@@ -186,13 +186,16 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             META_NONCE => {
                 // LOAD_RAI: R[a] = mem[R[b] + imm16]
                 let (ra, rb, imm) = decode_reg_reg_imm(operand);
-                let addr = (vm.state.registers[rb as usize] as usize).wrapping_add(imm as usize);
-                if addr + 16 > vm.state.memory.len() {
-                    if try_dispatch_handler(vm) {
-                        continue;
+                let addr = match checked_memory_address(vm.state.registers[rb as usize], imm, 16, vm.state.memory.len())
+                {
+                    Ok(addr) => addr,
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
                     }
-                    return Err(ExecError::MemoryOutOfBounds);
-                }
+                };
                 // Read 16 bytes and produce u128 (little endian)
                 let mut val = 0u128;
                 for i in 0..16 {
@@ -203,13 +206,16 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             META_CHAIN_ID => {
                 // STORE_RAI
                 let (ra, rb, imm) = decode_reg_reg_imm(operand);
-                let addr = (vm.state.registers[rb as usize] as usize).wrapping_add(imm as usize);
-                if addr + 16 > vm.state.memory.len() {
-                    if try_dispatch_handler(vm) {
-                        continue;
+                let addr = match checked_memory_address(vm.state.registers[rb as usize], imm, 16, vm.state.memory.len())
+                {
+                    Ok(addr) => addr,
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
                     }
-                    return Err(ExecError::MemoryOutOfBounds);
-                }
+                };
                 let val = vm.state.registers[ra as usize];
                 for i in 0..16 {
                     vm.state.memory[addr + i] = ((val >> (i * 8)) & 0xFF) as u8;
@@ -1727,6 +1733,16 @@ fn record_measurement(vm: &mut VM, reply: &[u8]) {
     }
 }
 
+fn checked_memory_address(base: u128, offset: u16, width: usize, memory_len: usize) -> Result<usize, ExecError> {
+    let base = usize::try_from(base).map_err(|_| ExecError::MemoryOutOfBounds)?;
+    let addr = base.checked_add(offset as usize).ok_or(ExecError::MemoryOutOfBounds)?;
+    let end = addr.checked_add(width).ok_or(ExecError::MemoryOutOfBounds)?;
+    if end > memory_len {
+        return Err(ExecError::MemoryOutOfBounds);
+    }
+    Ok(addr)
+}
+
 fn bytes_to_register(bytes: &[u8]) -> u128 {
     let mut value = 0u128;
     for (idx, byte) in bytes.iter().take(16).enumerate() {
@@ -2032,7 +2048,7 @@ mod tests {
             instr(0xFF, 0),                // HALT
         ]
         .concat();
-        let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), u128::MAX);
         vm.state.registers[0] = 5;
         execute(&mut vm).unwrap();
         assert_eq!(vm.state.registers[0], 0, "Loop counter should decrement to 0");
@@ -2415,6 +2431,19 @@ mod tests {
                     if message.contains("X3_VERIFY_FAILED") && message.contains("register")
             ),
             "an out-of-range register must be a verification error, not an execution panic"
+        );
+    }
+
+    #[test]
+    fn oversized_memory_address_is_rejected_without_integer_overflow() {
+        let code: &[u8] = &[instr(META_NONCE, enc_rri(0, 1, 0)), instr(HALT, 0)].concat();
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), u128::MAX);
+        vm.state.registers[1] = u128::MAX;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute(&mut vm)));
+        assert!(
+            matches!(result, Ok(Err(ExecError::MemoryOutOfBounds))),
+            "an oversized address must be a bounds error, not an arithmetic panic: {result:?}"
         );
     }
 
