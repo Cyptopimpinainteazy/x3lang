@@ -1742,7 +1742,7 @@ fn read_u16_le(bytes: &[u8], idx: usize) -> Option<u16> {
     Some((bytes[idx] as u16) | ((bytes[idx + 1] as u16) << 8))
 }
 
-fn decode_regtriplet(operand: u16) -> (u8, u8, u8) {
+pub(crate) fn decode_regtriplet(operand: u16) -> (u8, u8, u8) {
     // operand packs three 5-bit registers: r0[0..4], r1[5..9], r2[10..14]
     let ra = (operand & 0x1F) as u8;
     let rb = ((operand >> 5) & 0x1F) as u8;
@@ -1750,7 +1750,7 @@ fn decode_regtriplet(operand: u16) -> (u8, u8, u8) {
     (ra, rb, rc)
 }
 
-fn decode_reg_reg_imm(operand: u16) -> (u8, u8, u16) {
+pub(crate) fn decode_reg_reg_imm(operand: u16) -> (u8, u8, u16) {
     // operand: low 5 bits ra, next 5 bits rb, top 6 bits imm6 - extend
     let ra = (operand & 0x1F) as u8;
     let rb = ((operand >> 5) & 0x1F) as u8;
@@ -2396,6 +2396,26 @@ mod tests {
             "got {error:?}"
         );
         assert_eq!(vm.state.failure_handlers.len(), 1);
+    }
+
+    #[test]
+    fn configured_register_file_limit_is_checked_before_execution() {
+        let code: &[u8] = &[instr(POW, enc_tt(0, 0, 2)), instr(HALT, 0)].concat();
+        let config = VMConfig {
+            max_registers: 2,
+            ..VMConfig::default()
+        };
+        let mut vm = VM::new(code.to_vec(), config, 1_000_000);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.verify_and_execute()));
+        assert!(
+            matches!(
+                result,
+                Ok(Err(ExecError::Panic(ref message)))
+                    if message.contains("X3_VERIFY_FAILED") && message.contains("register")
+            ),
+            "an out-of-range register must be a verification error, not an execution panic"
+        );
     }
 
     // ── Capability opcode tests ─────────────────────────────────

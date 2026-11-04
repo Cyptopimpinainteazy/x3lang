@@ -8,6 +8,7 @@
 
 use crate::x3_lang_vm::InstructionStream;
 // Import shared opcode constants
+use crate::executor::{decode_reg_reg_imm, decode_regtriplet};
 use crate::spec::opcodes::*;
 use std::collections::HashSet;
 use x3_lang_common::{
@@ -52,6 +53,12 @@ pub enum VerifyError {
         version: u8,
         pc: usize,
     },
+    /// A bytecode instruction names a register outside the VM's configured register file.
+    RegisterOutOfRange {
+        register: u8,
+        pc: usize,
+        max_registers: usize,
+    },
 }
 
 impl std::fmt::Display for VerifyError {
@@ -81,6 +88,15 @@ impl std::fmt::Display for VerifyError {
                      bytecode version {version}"
                 ))
             ),
+            VerifyError::RegisterOutOfRange {
+                register,
+                pc,
+                max_registers,
+            } => write!(
+                f,
+                "X3_REGISTER_OUT_OF_RANGE: at pc {pc}, register r{register} is outside the \
+                 configured register file of {max_registers} registers"
+            ),
             other => write!(f, "{other:?}"),
         }
     }
@@ -88,6 +104,14 @@ impl std::fmt::Display for VerifyError {
 
 /// Validate that `code` is valid bytecode and return set of instruction boundaries.
 pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
+    verify_with_register_limit(code, 32)
+}
+
+/// Verify bytecode against the register-file size the execution host will allocate.
+pub fn verify_with_register_limit(
+    code: &InstructionStream,
+    max_registers: usize,
+) -> Result<HashSet<usize>, VerifyError> {
     // Emitted X3 bytecode is padded to 4-byte alignment, while capability
     // operations themselves use opcode + u16 payload length + payload.
     if code.len() % 4 != 0 {
@@ -157,6 +181,7 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         // fixed frame, whose high half is the padding the emitter writes. The
         // width comes from `spec/opcodes.rs` so it cannot drift from the writer.
         let operand = fixed_frame_operand(opcode, compiler_stream, bytes[pc + 2], bytes[pc + 3]);
+        validate_register_operands(opcode, operand, pc, max_registers)?;
         // check flags & operand ranges depending on opcode (simplified)
         // for branches ensure destination is inside code and aligned
         match opcode {
@@ -269,6 +294,40 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         }
     }
     Ok(boundaries)
+}
+
+fn validate_register(register: u8, pc: usize, max_registers: usize) -> Result<(), VerifyError> {
+    if usize::from(register) >= max_registers {
+        return Err(VerifyError::RegisterOutOfRange {
+            register,
+            pc,
+            max_registers,
+        });
+    }
+    Ok(())
+}
+
+fn validate_register_operands(opcode: u8, operand: u16, pc: usize, max_registers: usize) -> Result<(), VerifyError> {
+    match opcode {
+        ADD | SUB | POW => {
+            let (ra, rb, rc) = decode_regtriplet(operand);
+            for register in [ra, rb, rc] {
+                validate_register(register, pc, max_registers)?;
+            }
+        }
+        META_NONCE | META_CHAIN_ID => {
+            let (ra, rb, _) = decode_reg_reg_imm(operand);
+            for register in [ra, rb] {
+                validate_register(register, pc, max_registers)?;
+            }
+        }
+        IF | LOOP | ON_FAIL => {
+            let (ra, _, _) = decode_reg_reg_imm(operand);
+            validate_register(ra, pc, max_registers)?;
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Read the version binding and refuse an artifact this runtime must not run.
