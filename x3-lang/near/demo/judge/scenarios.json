@@ -134,8 +134,8 @@
       "story": "40 USDC is under the 50 USDC cap but over the 30 USDC approval threshold.",
       "intent": {
         "file": "x3-lang/examples/near_intents_agent_payment.x3",
-        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 40000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 39680000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
-        "sha256": "74dd974c11caca02f1cc496eecf87a880e9215210505cccd45d4de57c9f9faa1",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 40 USDC is below the 50 USDC cap but above the 30 USDC approval threshold.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 40000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 39680000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "69c481783c9188f524ea01c7cdea1dbdc60e090291ee9da56a70e121d41465b9",
         "edits": [
           {
             "from": "amount 25000000",
@@ -144,6 +144,10 @@
           {
             "from": "min_receive 24800000",
             "to": "min_receive 39680000"
+          },
+          {
+            "from": "// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.",
+            "to": "// 40 USDC is below the 50 USDC cap but above the 30 USDC approval threshold."
           }
         ]
       },
@@ -208,8 +212,8 @@
       "story": "60 USDC in one payment, over the owner's 50 USDC cap.",
       "intent": {
         "file": "x3-lang/examples/near_intents_agent_payment.x3",
-        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 60000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 59520000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
-        "sha256": "1fc93befe62862e4ba2e6be3acd672453b500700a8c2ab10bc3e89e1edcffe17",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 60 USDC exceeds the owner's 50 USDC per-payment cap.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 60000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 59520000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "3df39f5a533528b167003acb944700f494ab6fb39e4946f147b59dfdec35a9e0",
         "edits": [
           {
             "from": "amount 25000000",
@@ -218,6 +222,10 @@
           {
             "from": "min_receive 24800000",
             "to": "min_receive 59520000"
+          },
+          {
+            "from": "// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.",
+            "to": "// 60 USDC exceeds the owner's 50 USDC per-payment cap."
           }
         ]
       },

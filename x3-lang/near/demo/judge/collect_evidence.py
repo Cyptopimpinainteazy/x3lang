@@ -96,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             str(p.relative_to(REPO)) for p in (REPO / "x3-lang/near/demo/test").glob("*.test.mjs"))], counts_node),
         run("Console scenarios match the examples", [sys.executable, "x3-lang/near/demo/judge/build_scenarios.py", "--check"],
             counts_none),
+        run("Offline five-panel judge demo", [sys.executable, "scripts/hackathon/demo.py"], counts_none),
     ]
     if args.with_contract and shutil.which("cargo"):
         runs.append(run("x3-guard contract (Rust)", ["cargo", "test", "--locked", "--quiet"], counts_cargo,
