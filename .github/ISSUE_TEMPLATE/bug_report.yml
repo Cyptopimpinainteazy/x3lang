@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Security vulnerabilities should not be filed publicly.** Read [SECURITY.md](../../SECURITY.md) and use private reporting if available.
+        **Security vulnerabilities should not be filed publicly.** Read [SECURITY.md](https://github.com/Cyptopimpinainteazy/x3lang/blob/main/SECURITY.md) and use private reporting if available.
         Do not paste credentials, private wallet material, signed live transactions, or customer information.
   - type: dropdown
     id: component
