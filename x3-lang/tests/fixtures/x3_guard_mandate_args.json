@@ -166,5 +166,21 @@
       "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
       "slippage_bps": 50
     }
+  },
+  "refused_register": {
+    "nonce": "agent_refused_001",
+    "owner": "x3-owner.near",
+    "policy": {
+      "amount": "25000000",
+      "deadline_ms": 1793675400000,
+      "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+      "fee_cap_bps": 100,
+      "min_receive": "24800000",
+      "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+      "program_sha256": "5e4d8a5963859e539d87d30a899ab6d392ef3874a72c349982205357c64309bc",
+      "recipient": "attacker.near",
+      "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+      "slippage_bps": 50
+    }
   }
 }

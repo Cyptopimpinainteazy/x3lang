@@ -527,6 +527,7 @@ struct MandateFixture {
     agent: AccountId,
     create_mandate: CreateArgs,
     register: AgentRegisterArgs,
+    refused_register: AgentRegisterArgs,
     quote: AgentQuoteArgs,
     outcome: AgentOutcomeArgs,
     policy_cases: Vec<PolicyCase>,
@@ -562,6 +563,20 @@ fn the_adapters_mandate_and_agent_calls_run_the_full_lifecycle() {
         c.get_mandate(f.owner, f.agent).unwrap().spent_in_window(f.now_ms).0,
         25 * USDC
     );
+}
+
+#[test]
+fn the_contract_refuses_the_register_args_for_an_out_of_mandate_program() {
+    let f = mandate_fixture();
+    ctx(f.owner.clone(), f.now_ms, one_near());
+    let mut c = test_contract();
+    c.create_mandate(f.create_mandate.agent, f.create_mandate.terms);
+
+    ctx(f.agent.clone(), f.now_ms, one_near());
+    let refused = f.refused_register;
+    let err = panics(|| c.agent_register_intent(refused.owner, refused.nonce, refused.policy));
+    assert!(err.contains("X3_MANDATE_DENIED"), "{err}");
+    assert!(err.contains("mandate_recipient"), "{err}");
 }
 
 #[test]
