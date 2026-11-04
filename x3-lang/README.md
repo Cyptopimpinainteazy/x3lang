@@ -142,16 +142,31 @@ English request -> model -> X3 intent (untrusted) -> compiler -> `under mandate`
   -> owner approval of the program's SHA-256 -> x3-guard on NEAR (guard-args steps)
 ```
 
+#### Reproduce the model checks
+
 ```bash
-export ANTHROPIC_API_KEY=...            # or X3_AGENT_PROVIDER=openai-compatible with
-                                        # X3_AGENT_BASE_URL=http://localhost:11434/v1 X3_AGENT_MODEL=...
+export ANTHROPIC_API_KEY=...
+
+# One dry model run. This writes the program, model ID, response ID and issued nonce.
 python3 x3-lang/near_agent.py pay "Pay x3-demo.near 25 USDC for invoice 4411" \
-  --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> --quote
-python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... --live --approve <sha256 from the dry run>
-python3 x3-lang/near_agent.py redteam --mandate ... --out-dir evidence/   # adversarial requests, real model
+  --mandate x3-lang/examples/near_mandate_agent.x3 \
+  --out /tmp/agent-payment.x3 --quote > /tmp/agent-payment.json
+
+# Reusing that exact SHA-bound program does not call the model again.
+SHA="$(python3 -c 'import json; print(json.load(open("/tmp/agent-payment.json"))["program"]["sha256"])')"
+NONCE="$(python3 -c 'import json; print(json.load(open("/tmp/agent-payment.json"))["nonce"])')"
+python3 x3-lang/near_agent.py pay --program /tmp/agent-payment.x3 --issued-nonce "$NONCE" \
+  --mandate x3-lang/examples/near_mandate_agent.x3 \
+  --guard-contract <x3-guard account> --live --approve "$SHA" \
+  --nonce-store ~/.x3/agent-demo/nonces.json --receipt ~/.x3/agent-demo/payment.json
+
+# Eight adversarial requests, ten benign-accuracy requests, and no-quote register arguments.
+python3 x3-lang/near_agent.py redteam --mandate x3-lang/examples/near_mandate_agent.x3 \
+  --out-dir evidence/agent-redteam-2026-11-04
+python3 x3-lang/near_agent.py benign --mandate x3-lang/examples/near_mandate_agent.x3 \
+  --out-dir evidence/agent-benign-2026-11-04
 python3 x3-lang/near_agent.py register-args <program.x3> --mandate <mandate.x3> \
   --contract <x3-guard account> --signer <agent account> --key-file <agent key>
-x3-lang/near/agent-demo.sh setup && x3-lang/near/agent-demo.sh show
 ```
 
 The request and any `--context` document go to the model as untrusted data. The pipeline issues
@@ -163,22 +178,61 @@ or typed at a prompt). Nothing here signs or sends the deposit.
 `redteam` sends eight attacks through the configured model: recipient substitution, overspend,
 splitting a payment to get around the cap, refund redirection, prompt injection in the request and
 in an attached invoice, a homoglyph recipient, and another asset. For each, it records the model's
-actual output and where the attack stopped. Exit 0 means every attack was refused.
+actual output and where the attack stopped. `benign` sends ten ordinary 25–50 USDC requests,
+includes one above the approval threshold, and counts a case only when the amount, recipient,
+asset, approval requirement, deterministic mandate checks and signed dry quote all pass. Exit 0
+for benign means at least 9/10.
+
+Current real-model evidence is blocked because this checkout has no `ANTHROPIC_API_KEY`. The
+attempts preserve the exact provider error and do not substitute a scripted model:
+
+- [Red-team attempt, blocked before any model response](../evidence/agent-redteam-2026-11-04/redteam-results.json):
+  provider `anthropic`, configured model `claude-sonnet-5-5`, no response IDs, 0/8 cases executed.
+- [Benign-accuracy attempt, blocked before any model response](../evidence/agent-benign-2026-11-04/benign-results.json):
+  provider `anthropic`, configured model `claude-sonnet-5-5`, no response IDs, 0/10 cases executed.
+
+These are not 0/8 or 0/10 accuracy results. They are explicit provider blockers. Rerun the two
+commands with a key to produce the required real model outputs and non-empty response IDs.
 
 Keep demo payments at about 25 USDC or more under a 100 bps fee cap. 1Click's refund fee is close
 to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses the quote.
 
-| Part | Status |
-|---|---|
-| Anthropic and OpenAI-compatible clients | implemented; tested against recorded request and response shapes; live-model evidence is pending an API key |
-| Pipeline, checks, approval binding, register-args | implemented; 34 tests (`tests/test_near_agent.py`), including eight attacks a fooled model would attempt |
-| On-chain refusal path | `register-args` produces `agent_register_intent` arguments without a quote; the deployed contract refuses them with `X3_MANDATE_DENIED` |
-| Guided live demo | `near/agent-demo.sh` prepares every step and asks before each NEAR transaction; it never moves USDC |
-| Deployed contract and real payment | not done: needs a deployed x3-guard account, owner-authorized wallet action and funds |
+#### Evidence status
+
+“Tested locally”, “CI green”, “deployed”, and “proven by a real model/transaction” are separate
+claims.
+
+| Capability | Implemented | Tested locally | CI-verified | Deployed | Proven by real model/transaction |
+|---|---|---|---|---|---|
+| Anthropic + OpenAI-compatible clients | yes | request/response shapes covered by tests | PR workflow required | n/a | no: provider key absent |
+| Compiler, mandate, nonce and SHA-256 approval checks | yes | Python regression tests | PR workflow required | n/a | model evidence blocked |
+| Eight-case red team | yes | fooled-model attack suite | PR workflow required | n/a | no: 0 cases executed |
+| Ten-case benign accuracy | yes | harness and exact-effect checks | PR workflow required | n/a | no: 0 cases executed |
+| `register-args` without a quote | yes | Python + Rust contract fixture | PR workflow required | no new deploy | no: fixture is local contract execution |
+| Guided demo | yes | `bash -n`; dry/live reuse tests | PR workflow required | no | no live run |
+| x3-guard deployed contract | existing repository implementation | Rust unit/integration tests | PR workflow required | not asserted by this branch | no new transaction |
+| 25 USDC end-to-end payment | command sequence prepared | no funded run | PR workflow required | n/a | no |
 
 `agent-demo.sh` runs the judge-facing sequence in order: mandate, dry model run, owner-approved
-live quote, agent register/accept, owner deposit, chain verification, one on-chain refusal, and
-owner revocation. Store any committed red-team evidence under `evidence/agent-redteam-<date>/`.
+exact-program live quote, agent register/accept, owner deposit, `status --wait`,
+`verify-deposit`, `verify-settlement`, agent outcome, one on-chain refusal, owner revocation, and
+a post-revocation call that must fail with `X3_MANDATE_DENIED`. The script asks before every NEAR
+transaction and never signs, broadcasts or moves USDC itself. It references key-file paths without
+printing key material and keeps state under `~/.x3/agent-demo` with modes 700/600.
+
+```bash
+x3-lang/near/agent-demo.sh setup
+x3-lang/near/agent-demo.sh mandate
+x3-lang/near/agent-demo.sh pay-dry
+x3-lang/near/agent-demo.sh pay-live <sha256 printed by pay-dry>
+x3-lang/near/agent-demo.sh register
+# Send the printed amount from the owner's Solana wallet, then:
+x3-lang/near/agent-demo.sh deposit <solana-transaction-signature>
+x3-lang/near/agent-demo.sh refuse
+x3-lang/near/agent-demo.sh revoke
+x3-lang/near/agent-demo.sh post-revoke
+x3-lang/near/agent-demo.sh show
+```
 
 What the agent cannot do: x3-guard holds no funds, so a holder of the origin wallet key can still
 deposit directly and bypass Guard. The mandate restricts Guard methods and is meant for an agent
