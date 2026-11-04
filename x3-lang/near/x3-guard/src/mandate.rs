@@ -484,6 +484,84 @@ impl Contract {
         self.mandates.get(&mandate_key(&owner, &agent)).cloned()
     }
 
+    /// Read-only preflight for a registered agent quote. Rechecks the same mandate state,
+    /// approvals, and signed quote constraints that acceptance checks. This view NEVER grants
+    /// wallet authority and its result can go stale before the agent submits a transaction.
+    ///
+    /// Unlike the owner-only `check_quote` view, this includes revocation, changed mandate
+    /// versions, payment counters, and missing approvals. Missing records fail closed as
+    /// explicit negative results instead of returning an apparently green quote-only verdict.
+    pub fn check_agent_quote(
+        &self,
+        owner: AccountId,
+        nonce: String,
+        signed_payload: String,
+        signature: String,
+    ) -> Vec<GuardResult> {
+        let Some(record) = self.intents.get(&key(&owner, &nonce)) else {
+            return vec![GuardResult {
+                guard: "intent_registered".into(),
+                ok: false,
+                detail: format!("no intent {nonce:?} registered by {owner}"),
+            }];
+        };
+        let Some(agent) = &record.agent else {
+            return vec![GuardResult {
+                guard: "mandate_agent".into(),
+                ok: false,
+                detail: format!("intent {nonce:?} is not agent-registered"),
+            }];
+        };
+        let Some(m) = self.mandates.get(&mandate_key(&owner, agent)) else {
+            return vec![GuardResult {
+                guard: "mandate_active".into(),
+                ok: false,
+                detail: format!("{owner} has no mandate for {agent}"),
+            }];
+        };
+
+        let now = env::block_timestamp_ms();
+        let mut out = vec![GuardResult {
+            guard: "mandate_version".into(),
+            ok: record.mandate_version == Some(m.version),
+            detail: format!("intent version {:?}, mandate version {}", record.mandate_version, m.version),
+        }];
+        out.extend(check_mandate(m, &record.policy, now));
+        let needed = m.approvals_needed(record.policy.amount.0) as usize;
+        let approval_count = record.approvals.iter().filter(|a| m.terms.approvers.contains(a)).count();
+        out.push(GuardResult {
+            guard: "mandate_approvals".into(),
+            ok: approval_count >= needed,
+            detail: format!("{approval_count} of {needed} approvals"),
+        });
+        out.push(GuardResult {
+            guard: "quote_unaccepted".into(),
+            ok: record.quote.is_none(),
+            detail: if record.quote.is_some() {
+                "quote already accepted".into()
+            } else {
+                "quote not yet accepted".into()
+            },
+        });
+
+        match verify_signed_quote(&self.manager_public_key, &signed_payload, &signature) {
+            Err(reason) => out.push(GuardResult {
+                guard: "quote_signature".into(),
+                ok: false,
+                detail: reason,
+            }),
+            Ok(facts) => {
+                out.push(GuardResult {
+                    guard: "quote_signature".into(),
+                    ok: true,
+                    detail: facts.quote_hash.clone(),
+                });
+                out.extend(evaluate(&record.policy, &facts, now));
+            }
+        }
+        out
+    }
+
     /// Dry-run the mandate for a policy the agent is about to register. Changes nothing.
     pub fn check_agent_intent(&self, owner: AccountId, agent: AccountId, policy: Policy) -> Vec<GuardResult> {
         match self.mandates.get(&mandate_key(&owner, &agent)) {
