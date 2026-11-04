@@ -830,20 +830,21 @@ mod tests {
     }
 
     #[test]
-    fn verifier_rejects_a_jump_to_aligned_padding_that_is_not_an_instruction() {
-        // IF at pc 0 jumps four bytes past its own four-byte frame: target 8.
-        // HALT occupies pc 4; pc 8 is aligned padding. Alignment alone is not
-        // enough to make padding executable.
-        let code = InstructionStream::new(vec![
-            IF, 0, 4, 0, // target = (0 + 4) + 4 = 8
-            HALT, 0, 0, 0, // real instruction boundary
-            0, 0, 0, 0, // padding, not an instruction
-        ]);
+    fn verifier_rejects_each_control_flow_opcode_jumping_to_padding() {
+        // Each instruction targets pc 8. HALT occupies pc 4; pc 8 is aligned
+        // padding. Alignment alone is not enough to make padding executable.
+        for (opcode, operand) in [
+            (IF, 4),   // relative: (0 + 4) + 4 = 8
+            (LOOP, 4), // relative: (0 + 4) + 4 = 8
+            (CALL, 8), // absolute target
+        ] {
+            let code = InstructionStream::new(vec![opcode, 0, operand, 0, HALT, 0, 0, 0, 0, 0, 0, 0]);
 
-        assert!(
-            matches!(verify(&code), Err(VerifyError::JumpToNonBoundary(0, 8))),
-            "a jump into trailing padding must be rejected"
-        );
+            assert!(
+                matches!(verify(&code), Err(VerifyError::JumpToNonBoundary(0, 8))),
+                "opcode 0x{opcode:02X} must reject a jump into trailing padding"
+            );
+        }
     }
 
     /// A compiler stream: version byte, metadata records, then `ATOMIC_BEGIN`.
