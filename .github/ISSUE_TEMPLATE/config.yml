@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "Security vulnerability? Read the private-reporting policy"
+    url: "https://github.com/Cyptopimpinainteazy/x3lang/blob/main/SECURITY.md"
+    about: "Do not publish vulnerabilities, private keys, or live wallet data in public issues. Review the available private reporting options first."
