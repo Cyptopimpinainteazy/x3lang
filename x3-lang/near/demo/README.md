@@ -57,6 +57,8 @@ decision with each check marked on its line, the cross-chain leg, and the eviden
   page states that no approval, deployment, quote, transaction or settlement is behind it.
 
 ```bash
+python3 scripts/hackathon/demo.py                         # same scenarios, one terminal command
+python3 scripts/hackathon/verify.sh                       # tests + demo + readiness report
 python3 x3-lang/near/demo/judge/build_scenarios.py            # after changing an example
 python3 x3-lang/near/demo/judge/collect_evidence.py           # run the tests; panel 5 shows them
 python3 x3-lang/near/demo/judge/collect_evidence.py --with-contract   # also x3-guard's cargo tests
@@ -64,6 +66,11 @@ python3 x3-lang/near/demo/judge/collect_evidence.py --with-contract   # also x3-
 
 `judge/evidence.json` is a local record and is not committed: it names the commit it ran on, and
 a committed copy would always describe an earlier one.
+
+The [judge package](../../../docs/hackathon/JUDGE_PACKAGE.md),
+[three-minute walkthrough](../../../docs/hackathon/VIDEO_WALKTHROUGH.md) and
+[submission checklist](../../../docs/hackathon/SUBMISSION_CHECKLIST.md) provide the
+judge-facing narrative and evidence boundaries.
 
 ## What it does not do
 
