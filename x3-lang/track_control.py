@@ -20,17 +20,29 @@ TRACKS = ("AI Security & Defense", "Agent Economy", "Unstoppable DeFi")
 
 
 def evaluate(mandate_path: str, intent_path: str, tokens: list[dict[str, Any]], *,
-             now: datetime | None = None) -> dict[str, Any]:
+             now: datetime | None = None, assumed_state: dict[str, Any] | None = None) -> dict[str, Any]:
     """Compile an X3 mandate and intent, then apply the contract-parity checks locally.
 
     No HTTP calls, nonce consumption, signing or deposits. `preflight_passed`
     means the *local* policy check passed, not that an agent may spend funds.
+
+    `assumed_state` (`revoked`, `spends`) replaces the default "never revoked,
+    nothing spent" Guard state with a stated assumption. It is echoed in the
+    report, and it is never read from chain.
     """
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
     if not isinstance(tokens, list):
         raise ValueError("tokens must be a list of 1Click token records")
+    state: dict[str, Any] = {"revoked": False, "spends": []}
+    if assumed_state is not None:
+        unknown = set(assumed_state) - set(state)
+        if unknown:
+            raise ValueError(f"assumed_state accepts only revoked and spends, not {sorted(unknown)}")
+        state.update(assumed_state)
+        if not isinstance(state["revoked"], bool) or not isinstance(state["spends"], list):
+            raise ValueError("assumed_state needs revoked as a bool and spends as a list")
 
     mandate = ni.mandates().compile_mandate(mandate_path, tokens, now=now)
     _, leg = ni.compile_program(intent_path, now=now)
@@ -48,13 +60,15 @@ def evaluate(mandate_path: str, intent_path: str, tokens: list[dict[str, Any]], 
         "checks": [],
         "approvals_needed": 0,
     }
+    if assumed_state is not None:
+        result["assumed_guard_state"] = state
     if leg.get("mandate_owner") != mandate["owner"]:
         result.update(decision="denied_by_policy", denied_guards=["mandate_owner"])
         return result
 
     request = ni.build_quote_request(leg, tokens, dry=True)
     policy = ni.policy_for(leg, request, intent_sha)
-    preview_state = {**mandate, "version": None, "revoked": False, "spends": []}
+    preview_state = {**mandate, "version": None, **state}
     checks = ni.mandates().check_mandate(preview_state, policy, int(now.timestamp() * 1000))
     denied = [check["guard"] for check in checks if not check["ok"]]
     approvals = ni.mandates().approvals_needed(preview_state, int(policy["amount"]))

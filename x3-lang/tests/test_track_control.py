@@ -68,3 +68,35 @@ def test_naive_time_is_refused():
     import pytest
     with pytest.raises(ValueError, match="timezone-aware"):
         tc.evaluate(str(MANDATE), str(ALLOWED), [], now=datetime(2026, 11, 3))
+
+
+def test_assumed_revocation_and_spends_reach_the_same_mandate_checks():
+    tokens = json.loads(TOKENS.read_text())
+    revoked = tc.evaluate(str(MANDATE), str(ALLOWED), tokens, now=NOW, assumed_state={"revoked": True})
+    assert revoked["denied_guards"] == ["mandate_active"]
+    assert revoked["assumed_guard_state"] == {"revoked": True, "spends": []}
+    assert revoked["authorization"] == "not_verified"
+    hour_ago = int(NOW.timestamp() * 1000) - 3_600_000
+    spent = tc.evaluate(str(MANDATE), str(ALLOWED), tokens, now=NOW,
+                        assumed_state={"spends": [{"amount": "180000000", "at_ms": hour_ago}]})
+    assert spent["denied_guards"] == ["mandate_daily"]
+
+
+def test_no_assumed_state_keeps_the_original_report():
+    assert "assumed_guard_state" not in evaluate(ALLOWED)
+
+
+def test_assumed_state_rejects_anything_but_revoked_and_spends():
+    import pytest
+    tokens = json.loads(TOKENS.read_text())
+    for bad in ({"version": 3}, {"revoked": "yes"}, {"spends": {}}):
+        with pytest.raises(ValueError, match="assumed_state"):
+            tc.evaluate(str(MANDATE), str(ALLOWED), tokens, now=NOW, assumed_state=bad)
+
+
+def test_judge_console_scenarios_are_current():
+    import subprocess
+    import sys
+    script = ROOT / "near" / "demo" / "judge" / "build_scenarios.py"
+    proc = subprocess.run([sys.executable, str(script), "--check"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
