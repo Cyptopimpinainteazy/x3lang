@@ -94,6 +94,7 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         return Err(VerifyError::OutOfBounds(code.len()));
     }
     let mut boundaries = HashSet::new();
+    let mut control_flow_targets = Vec::new();
     let bytes = code.as_slice();
     let compiler_stream = has_compiler_header(bytes);
     // Which opcode set the artifact's own version promises. A raw stream (no version byte) is not
@@ -169,6 +170,7 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                 if ((target as usize) % 4) != 0 {
                     return Err(VerifyError::JumpToNonBoundary(pc, target as usize));
                 }
+                control_flow_targets.push((pc, target as usize));
             }
             REQUIRE => {
                 // Bits 0-1 are the comparison mode; bits 2-4 the guard's own
@@ -233,6 +235,7 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                 if target % 4 != 0 {
                     return Err(VerifyError::JumpToNonBoundary(pc, target));
                 }
+                control_flow_targets.push((pc, target));
             }
             RET => { /* RET - valid */ }
             _ => {}
@@ -259,6 +262,11 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
             4
         };
         pc = align4(pc + content_len);
+    }
+    for (source, target) in control_flow_targets {
+        if !boundaries.contains(&target) {
+            return Err(VerifyError::JumpToNonBoundary(source, target));
+        }
     }
     Ok(boundaries)
 }
@@ -819,6 +827,23 @@ mod tests {
                 "opcode 0x{opcode:02x} should reject malformed payload"
             );
         }
+    }
+
+    #[test]
+    fn verifier_rejects_a_jump_to_aligned_padding_that_is_not_an_instruction() {
+        // IF at pc 0 jumps four bytes past its own four-byte frame: target 8.
+        // HALT occupies pc 4; pc 8 is aligned padding. Alignment alone is not
+        // enough to make padding executable.
+        let code = InstructionStream::new(vec![
+            IF, 0, 4, 0, // target = (0 + 4) + 4 = 8
+            HALT, 0, 0, 0, // real instruction boundary
+            0, 0, 0, 0, // padding, not an instruction
+        ]);
+
+        assert!(
+            matches!(verify(&code), Err(VerifyError::JumpToNonBoundary(0, 8))),
+            "a jump into trailing padding must be rejected"
+        );
     }
 
     /// A compiler stream: version byte, metadata records, then `ATOMIC_BEGIN`.
