@@ -11,6 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 SHARED = (
     "scripts/proof/x3lang_execution_proof.py",
+    "scripts/proof/x3lang_runtime_equivalence.py",
     "scripts/proof/check_x3lang_mirror.py",
     "x3-lang/compiler/tests/test_control_flow_e2e.rs",
     "x3-lang/compiler/tests/test_bytecode_version_gate.rs",
