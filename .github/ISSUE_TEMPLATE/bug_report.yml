@@ -1,0 +1,65 @@
+name: "Bug report"
+description: "Report a reproducible X3Lang parser, VM, Guard, or documentation defect"
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security vulnerabilities should not be filed publicly.** Read [SECURITY.md](https://github.com/Cyptopimpinainteazy/x3lang/blob/main/SECURITY.md) and use private reporting if available.
+        Do not paste credentials, private wallet material, signed live transactions, or customer information.
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Affected component"
+      options:
+        - ".x3 parser / type checking"
+        - "Rust compiler or X3BC bytecode"
+        - "X3Lang VM / receipt verification"
+        - "NEAR Intents adapter"
+        - "X3 Guard / mandates"
+        - "CI / tooling"
+        - "Documentation"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: "Observed behavior"
+      description: "What happened? Include the exact non-sensitive error."
+      placeholder: "Expected ...; observed ..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: "Reproduction"
+      description: "Minimal .x3 input and commands, with only unfunded test accounts."
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: sha
+    attributes:
+      label: "Git commit SHA"
+      description: "Full commit SHA tested, not just a branch name."
+      placeholder: "0123456789abcdef..."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: "Test results and evidence boundary"
+      description: "Commands, exit codes, links to CI, whether this was a fixture, signed quote, or independently verified chain observation."
+    validations:
+      required: false
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: "Safety checks"
+      options:
+        - label: "No private keys, credentials, sensitive data, or live wallet signatures are included."
+          required: true
+        - label: "I have not described a dry quote or simulated result as a live settlement."
+          required: true

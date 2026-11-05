@@ -1,0 +1,46 @@
+name: "Feature request"
+description: "Suggest a focused improvement to X3Lang"
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        X3Lang is experimental financial infrastructure. Prefer small, testable changes that preserve existing language and bytecode semantics.
+        Search existing issues and pull requests before proposing a competing implementation.
+  - type: dropdown
+    id: component
+    attributes:
+      label: "Component"
+      options:
+        - ".x3 language"
+        - "Compiler / bytecode / verifier"
+        - "VM and receipts"
+        - "Agent mandate / Guard"
+        - "NEAR Intents integration"
+        - "Developer experience / CI"
+        - "Docs / demo"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem to solve"
+      description: "Explain the concrete problem, rather than listing technology to add."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Acceptance tests and evidence"
+      description: "What negative/failure cases and reproducible proofs make this complete?"
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: "Compatibility, dependencies, and trust boundaries"
+      description: "Existing interfaces, overlaps with the X3 monorepo, and security implications."
+    validations:
+      required: false
