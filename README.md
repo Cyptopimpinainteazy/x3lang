@@ -60,6 +60,28 @@ PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 node --test x3-lang/near/demo/test/*.test.mjs
 ```
 
+### Experimental Solana owner-controlled token vault
+
+The [X3 Solana Mandate Vault](x3-lang/solana/x3-mandate-vault/README.md)
+is a new hackathon-stage, standalone Solana program for **funds already held
+in its PDA-controlled classic SPL Token account**. An owner must approve
+the exact destination token account and its owner, amount, quote digest,
+nonce and expiry. A designated agent can then execute that single approval
+using a signed `TransferChecked` CPI; revocation, recovery and true
+rolling 24-hour limits are evaluated on-chain.
+
+The vault's test harness invokes the actual X3 and SPL Token processors
+under Solana `program-test`, **not public mainnet**. It has no automatic
+NEAR/1Click authority and does not enforce any unrelated Solana wallet.
+The source-chain event is a basis for a future evidence verifier, not
+proof of destination-chain causality.
+
+```bash
+(cd x3-lang/solana/x3-mandate-vault && cargo test --locked)
+(cd x3-lang/solana/x3-mandate-vault && cargo fmt --all -- --check)
+(cd x3-lang/solana/x3-mandate-vault && cargo clippy --all-targets --locked -- -D warnings)
+```
+
 ### Public browser demonstration
 
 [**X3 Guard — signed dry-quote validation**](https://x3-guard.pages.dev/)
