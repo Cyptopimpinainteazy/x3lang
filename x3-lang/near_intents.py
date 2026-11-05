@@ -1856,7 +1856,8 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_submit = sub.add_parser("submit-deposit", help="tell 1Click the deposit transaction hash")
     p_submit.add_argument("--deposit-address", required=True)
     p_submit.add_argument("--tx-hash", required=True)
-    p_submit.add_argument("--receipt", help="also record the deposit transaction in this receipt")
+    p_submit.add_argument("--receipt", required=True,
+                          help="live quote receipt; verify finalized Solana transfer before notifying 1Click")
 
     p_vdep = sub.add_parser("verify-deposit", help="prove from the origin chain that the deposit reached 1Click")
     p_vdep.add_argument("--receipt", required=True)
@@ -1949,14 +1950,44 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 })
             return _emit(result)
         if args.command == "submit-deposit":
+            # A 1Click notification is an external side effect. Never notify it about a
+            # transaction that the live quote did not authorize or that Solana has not
+            # finalized to the exact signed deposit address, mint, and amount.
+            receipt = _load_receipt(args.receipt)
+            signed = _signed_quote(receipt)
+            response_data = receipt.get("quote_response")
+            valid, reason = check_oneclick_quote_signature(response_data)
+            if not valid:
+                raise NearIntentsError("X3_NEAR_INVALID_SIGNATURE",
+                                       f"receipt's 1Click signature did not verify: {reason}")
+            if (receipt.get("quote_response_sha256") != _sha256_json(response_data)
+                    or receipt.get("quote_hash") != oneclick_quote_hash(response_data)
+                    or receipt.get("signed_payload") != signed_quote_payload(response_data)):
+                raise NearIntentsError("X3_NEAR_RECEIPT",
+                                       "receipt differs from the original signed quote")
+            recorded = receipt.get("deposit") or {}
+            if (recorded.get("amount") != signed.get("amountIn")
+                    or recorded.get("deadline") != signed.get("deadline")
+                    or recorded.get("asset") != (receipt.get("quote_request") or {}).get("originAsset")):
+                raise NearIntentsError("X3_NEAR_RECEIPT",
+                                       "recorded deposit details differ from the signed quote")
+            if (recorded.get("address") != args.deposit_address
+                    or signed.get("depositAddress") != args.deposit_address):
+                raise NearIntentsError("X3_NEAR_RECEIPT",
+                                       "that deposit address does not match this receipt's signed quote")
+            if recorded.get("tx_hash") and recorded["tx_hash"] != args.tx_hash:
+                raise NearIntentsError("X3_NEAR_RECEIPT",
+                                       "this receipt already binds to a different deposit transaction")
+            evidence = verify_deposit(receipt, tx_signature=args.tx_hash, solana=solana)
+            if not evidence.get("verified"):
+                raise NearIntentsError("X3_EVIDENCE_UNVERIFIED",
+                                       "a finalized, correct Solana transfer must be proven before notifying 1Click",
+                                       "deposit", evidence)
             response = client.submit_deposit(args.deposit_address, args.tx_hash)
-            if args.receipt:
-                receipt = _load_receipt(args.receipt)
-                if (receipt.get("deposit") or {}).get("address") != args.deposit_address:
-                    raise NearIntentsError("X3_NEAR_RECEIPT", "that deposit address is not this receipt's")
-                receipt["deposit"]["tx_hash"] = args.tx_hash
-                write_receipt(args.receipt, receipt)
-            return _emit({"status": "submitted", "response": response})
+            receipt["deposit"]["tx_hash"] = args.tx_hash
+            write_receipt(args.receipt, receipt)
+            return _emit({"status": "submitted", "response": response,
+                          "deposit_verified": True})
         if args.command in ("verify-deposit", "verify-settlement"):
             receipt = _load_receipt(args.receipt)
             if args.command == "verify-deposit":
