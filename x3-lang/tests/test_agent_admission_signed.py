@@ -74,6 +74,12 @@ class SignedAdmissionTests(unittest.TestCase):
     def test_other_key_cannot_sign(self):
         self.assertIn("signature", self.verify(approval=self.approval(key=self.other)).reasons)
 
+    def test_malformed_expiry_fails_closed(self):
+        self.assertIn(
+            "approval_invalid_expiry",
+            self.verify(approval=replace(self.approval(), expires_at="bad")).reasons,
+        )
+
     def test_approval_outliving_child_is_rejected(self):
         child = replace(self.child, expires_at=75)
         a = self.approval(child=child)
