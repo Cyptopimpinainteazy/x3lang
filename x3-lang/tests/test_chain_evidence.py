@@ -319,6 +319,33 @@ def test_refund_rejects_unsigned_zero_or_invalid_signed_fee(tmp_path, fee):
     assert fake.calls == []
 
 
+def test_refund_rejects_deposit_recheck_without_real_slot(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["deposit"]["tx_hash"] = DEPOSIT_SIG
+    rpc, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
+    assert ni.verify_deposit(receipt, solana=rpc)["verified"]
+    # The old caller blindly reused an unsigned source-evidence slot.
+    # Mimic an incomplete/corrupt RPC result that claims success without a slot.
+    receipt["evidence"]["deposit"]["slot"] = None
+
+    class MissingSlotSolana:
+        def __init__(self):
+            self.calls = []
+
+        def verify_transfer(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs["purpose"] == "deposit":
+                return {**receipt["evidence"]["deposit"], "verified": True, "slot": None}
+            return {"verified": True, "observed": str(25_000_000 - 244_425)}
+
+    malformed_rpc = MissingSlotSolana()
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=malformed_rpc)
+    assert error.value.code == "X3_EVIDENCE_BINDING"
+    assert len(malformed_rpc.calls) == 1  # no refund RPC when deposit slot is absent
+
+
 def test_guard_refund_amount_must_come_from_verified_chain_evidence(tmp_path):
     path, _, _ = live_receipt(tmp_path)
     receipt = json.loads(path.read_text())

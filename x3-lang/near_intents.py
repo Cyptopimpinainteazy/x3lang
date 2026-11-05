@@ -1525,6 +1525,9 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
             raise NearIntentsError("X3_EVIDENCE_BINDING",
                                    "could not independently recheck the original deposit") from exc
         if (not fresh_deposit.get("verified")
+                or type(fresh_deposit.get("slot")) is not int
+                or fresh_deposit["slot"] < 0
+                or type(original.get("slot")) is not int
                 or fresh_deposit.get("signature") != original_tx
                 or fresh_deposit.get("slot") != original.get("slot")
                 or fresh_deposit.get("owner") != original.get("owner")
