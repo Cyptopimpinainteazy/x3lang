@@ -7,6 +7,7 @@ CHAIN_DOMAINS = {
     'arbitrum': {'aliases': {'arb'}, 'address': 'evm'},
     'polygon': {'aliases': {'matic'}, 'address': 'evm'},
     'bitcoin': {'aliases': {'btc'}, 'address': 'btc'},
+    'bsc': {'aliases': {'bnb', 'binance', 'bnbchain'}, 'address': 'evm'},
     'x3': {'aliases': set(), 'address': 'x3'},
     # NEAR is a destination and origin for `bridge NearIntents` legs, which settle through the
     # NEAR Intents 1Click API (`near_intents.py`). Its receivers are NEAR account IDs.
@@ -22,6 +23,7 @@ ASSETS_BY_CHAIN = {
     'arbitrum': {'USDC', 'USDT', 'WETH', 'ETH', 'ARB'},
     'polygon': {'USDC', 'USDT', 'WETH', 'MATIC', 'DAI'},
     'bitcoin': {'BTC', 'WBTC'},
+    'bsc': {'BNB', 'USDC', 'USDT'},
     'x3': {'SOL', 'USDC', 'WSOL', 'WETH', 'BTC', 'X3'},
     'near': {'NEAR', 'wNEAR', 'USDC', 'USDT'},
 }
@@ -122,6 +124,9 @@ def is_valid_receiver(chain, receiver):
         return True
     chain = normalize_chain(chain)
     kind = CHAIN_DOMAINS.get(chain, {}).get('address')
+    if kind == 'evm' and chain == 'bsc':
+        # The BSC connector addresses real deposits and refunds, never short DSL placeholders.
+        return re.fullmatch(r'0x[a-fA-F0-9]{40}', str(receiver)) is not None
     if kind == 'evm':
         # **Any `0x`-prefixed hex**, not exactly forty digits. The compiler validates no
         # address shape at all, so requiring forty here made this surface refuse files the
