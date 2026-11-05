@@ -34,6 +34,7 @@ fn test_contract() -> Contract {
         intents: LookupMap::new(StorageKey::Intents),
         manager_public_key: test_key().verifying_key().to_bytes(),
         mandates: LookupMap::new(StorageKey::Mandates),
+        state_version: STATE_VERSION,
     }
 }
 
