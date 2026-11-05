@@ -1,0 +1,71 @@
+{
+  "all_required_checks_passed": true,
+  "canonical_rpc": {
+    "block_time": 1784487060,
+    "checks": [
+      {
+        "check": "finalized",
+        "ok": true,
+        "reason": null
+      },
+      {
+        "check": "endpoints_agree",
+        "endpoints": 1,
+        "ok": true
+      },
+      {
+        "check": "signature_matches",
+        "ok": true
+      },
+      {
+        "check": "succeeded",
+        "ok": true
+      },
+      {
+        "check": "amount",
+        "ok": true,
+        "received": "64672839261950",
+        "required": "64672839261950"
+      }
+    ],
+    "commitment": "finalized",
+    "evidence_version": 1,
+    "kind": "solana_spl_transfer",
+    "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+    "observed": "64672839261950",
+    "owner": "GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52",
+    "purpose": "independent_public_historical_example",
+    "required": "64672839261950",
+    "rpcs": [
+      {
+        "result_sha256": "c497916710a0735dc9c80a98f613d33f42857399be01afc37c85a25de28c5760",
+        "url": "https://api.mainnet-beta.solana.com"
+      }
+    ],
+    "signature": "5xSKzM8bvpudE521jikHqASzMr23Ms4X4ieY3K8oFPFrJWCSSgYocJmHznrR8b12voDxKDH8ykdCLXSRrx6duVLH",
+    "slot": 433950192,
+    "verified": true
+  },
+  "checked_at": "2026-11-05T09:37:49.514250+00:00",
+  "context": "Public transaction from Helius official API docs; not an X3-originated transaction or user funds",
+  "data_source": "Authenticated Helius Parsed Events + public Solana finalized JSON-RPC",
+  "helius_parsed_events": {
+    "block_time": 1784487060,
+    "kind": "helius_parsed_events_crosscheck",
+    "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+    "note": "Provider parsing cross-check only; finalized Solana RPC is the canonical chain evidence.",
+    "owner": "GV6UUmNxz2RpKxmNAPadYKb7uQpszwqQAu3qLJxVdC52",
+    "raw_token_net_amount": "64672839261950",
+    "response_sha256": "cdbb68fb735e7be8926de4450627d2b346981012080ef6c3305bdfbd2a59bd54",
+    "signature": "5xSKzM8bvpudE521jikHqASzMr23Ms4X4ieY3K8oFPFrJWCSSgYocJmHznrR8b12voDxKDH8ykdCLXSRrx6duVLH",
+    "slot": 433950192,
+    "verified": true
+  },
+  "negative_claims": [
+    "Does not prove X3 Guard approval",
+    "Does not prove 1Click fulfillment",
+    "Does not prove NEAR settlement",
+    "Does not imply cross-chain transaction causality"
+  ],
+  "schema": "x3lang.readonly_helius_parsed_events_crosscheck.v1"
+}
