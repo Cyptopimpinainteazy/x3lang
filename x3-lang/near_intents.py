@@ -812,14 +812,20 @@ def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[st
             record("refund_fee", False, reason="quote states no refundFee, so the refund path's cost is unknown")
         else:
             try:
+                if isinstance(refund_fee, bool):
+                    raise ValueError("refundFee is a boolean")
                 refund_fee_units = int(refund_fee)
             except (TypeError, ValueError):
                 raise NearIntentsError("X3_NEAR_QUOTE_MALFORMED", f"refundFee is not an integer: {refund_fee!r}", "quote.refundFee")
+            # Zero is omitted by 1Click's truthy-only live signed fields; both
+            # zero and a negative value could otherwise pass the fee-cap check.
+            fee_safe = 0 < refund_fee_units < int(leg["amount"])
             refund_bps = Decimal(refund_fee_units) * 10000 / Decimal(leg["amount"])
-            record("refund_fee", refund_bps <= leg["fee_cap_bps"], cap_bps=leg["fee_cap_bps"],
+            record("refund_fee", fee_safe and refund_bps <= leg["fee_cap_bps"], cap_bps=leg["fee_cap_bps"],
                    refund_fee=str(refund_fee_units), refund_fee_bps=str(refund_bps.quantize(Decimal("0.01"))),
-                   # 1Click signs refundFee only on live quotes.
-                   signed=not request.get("dry"))
+                   reason=None if fee_safe else "refund fee must be positive and less than amountIn",
+                   # 1Click signs refundFee only on live quotes and only when truthy.
+                   signed=not request.get("dry") and bool(refund_fee))
 
     if not request.get("dry"):
         record("deposit_address", bool(quote.get("depositAddress")), deposit_address=quote.get("depositAddress"))
@@ -1361,12 +1367,25 @@ def _guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
     # The amount the chain proved delivered, when there is one: 1Click's status is unsigned.
     settlement = (receipt.get("evidence") or {}).get("settlement") or {}
     proven_out = settlement.get("delivered") if settlement.get("verified") else None
+    refund = (receipt.get("evidence") or {}).get("refund") or {}
+    verified_refund_amount = None
+    if last["status"] == "REFUNDED":
+        deposit = (receipt.get("evidence") or {}).get("deposit") or {}
+        raw_amount = refund.get("observed")
+        try:
+            amount = int(raw_amount)
+        except (TypeError, ValueError):
+            amount = 0
+        if not deposit.get("verified") or not refund.get("verified") or amount <= 0:
+            raise NearIntentsError("X3_EVIDENCE_BINDING",
+                                   "refund outcome requires proven deposit and positive, verified Solana refund")
+        verified_refund_amount = str(amount)
     return {
         "nonce": nonce,
         "status": _STATUS_TO_GUARD[last["status"]],
         "amount_out": (_u128(proven_out) if proven_out is not None else _u128(last.get("amount_out")))
         if last["status"] == "SUCCESS" else None,
-        "refunded_amount": _u128(last.get("refunded_amount")) if last["status"] == "REFUNDED" else None,
+        "refunded_amount": verified_refund_amount if last["status"] == "REFUNDED" else None,
         "tx_hashes": hashes[:MAX_GUARD_TX_HASHES],
     }
 
@@ -1470,17 +1489,52 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
                 or receipt.get("quote_response_sha256") != _sha256_json(response)):
             raise NearIntentsError("X3_EVIDENCE_BINDING",
                                    "refund destination or quote receipt differs from the authenticated live quote")
-        if quote_obj.get("refundFee") is None:
-            raise NearIntentsError("X3_EVIDENCE_BINDING", "signed quote has no refund fee")
+        # A numeric zero is not signed in 1Click's live-quote format: the
+        # provider only includes truthy optional refund fees in the Ed25519
+        # payload. Refuse zero, negative, malformed and excessive values.
+        try:
+            fee_value = quote_obj.get("refundFee")
+            if isinstance(fee_value, bool) or fee_value is None:
+                raise ValueError("missing refund fee")
+            fee = int(fee_value)
+            amount_in = int(quote_obj["amountIn"])
+        except (TypeError, ValueError, KeyError) as exc:
+            raise NearIntentsError("X3_EVIDENCE_BINDING", "invalid signed refund amount or fee") from exc
+        if amount_in <= 0 or not (0 < fee < amount_in):
+            raise NearIntentsError("X3_EVIDENCE_BINDING",
+                                   "refund fee must be positive, signed, and below the deposited amount")
         mint = _solana_mint(receipt)
-        expected = int(quote_obj["amountIn"]) - int(quote_obj["refundFee"])
-        if expected <= 0:
-            raise NearIntentsError("X3_EVIDENCE_BINDING", "invalid signed refund amount")
-        deposit_slot = ((receipt.get("evidence") or {}).get("deposit") or {}).get("slot")
+        original = ((receipt.get("evidence") or {}).get("deposit") or {})
+        recorded_tx = (receipt.get("deposit") or {}).get("tx_hash")
+        original_tx = original.get("signature")
+        if (not original.get("verified") or not isinstance(original_tx, str)
+                or not original_tx or (recorded_tx and recorded_tx != original_tx)):
+            raise NearIntentsError("X3_EVIDENCE_BINDING",
+                                   "refund requires an independently verified deposit transaction")
+        # A locally saved 'verified' field is not permanent proof. Re-read the
+        # actual finalized Solana deposit against THIS signed quote, including
+        # its quoted address, amount, mint and deadline, before refund evidence.
         solana = solana or solana_rpc_default()
+        try:
+            fresh_deposit = solana.verify_transfer(
+                signature=original_tx, mint=mint, owner=quote_obj["depositAddress"],
+                min_amount=amount_in,
+                not_after_ms=int(parse_timestamp(quote_obj["deadline"]).timestamp() * 1000),
+                purpose="deposit")
+        except chain_evidence.ChainEvidenceError as exc:
+            raise NearIntentsError("X3_EVIDENCE_BINDING",
+                                   "could not independently recheck the original deposit") from exc
+        if (not fresh_deposit.get("verified")
+                or fresh_deposit.get("signature") != original_tx
+                or fresh_deposit.get("slot") != original.get("slot")
+                or fresh_deposit.get("owner") != original.get("owner")
+                or fresh_deposit.get("mint") != original.get("mint")):
+            raise NearIntentsError("X3_EVIDENCE_BINDING",
+                                   "original deposit evidence does not match this signed live quote")
+        expected = amount_in - fee
         return _record_evidence(receipt, "refund", lambda: solana.verify_transfer(
             signature=refund_tx, mint=mint, owner=refund_target, min_amount=expected,
-            not_after_ms=None, purpose="refund", after_slot=deposit_slot))
+            not_after_ms=None, purpose="refund", after_slot=fresh_deposit["slot"]))
     if leg["destination"]["chain"] != "near":
         raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"delivery evidence is implemented for NEAR destinations, not {leg['destination']['chain']}")
     baseline = (receipt.get("evidence") or {}).get("settlement_baseline")

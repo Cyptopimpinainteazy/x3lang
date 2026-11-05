@@ -10,7 +10,7 @@ import pytest
 
 from test_near_intents import (  # noqa: E402,F401  (_trust_the_test_key is an autouse fixture)
     EXAMPLE, NOW, NEAR_USDC, SOL_ADDR, FakeNearChain, RecordingTransport, _status, _trust_the_test_key, api, ni,
-    near_rpc,
+    near_rpc, sign,
 )
 
 ce = ni.chain_evidence
@@ -256,7 +256,7 @@ def test_refund_cannot_use_mutated_unsigned_recipient(tmp_path):
     })
     with pytest.raises(ni.NearIntentsError) as error:
         ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)
-    assert error.value.code in ("X3_EVIDENCE_BINDING", "X3_NEAR_INVALID_SIGNATURE")
+    assert error.value.code == "X3_EVIDENCE_BINDING"
     assert fake.calls == []
 
 
@@ -271,6 +271,72 @@ def test_refund_cannot_use_mutated_saved_quote_refund_target(tmp_path):
         ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)
     assert error.value.code == "X3_EVIDENCE_BINDING"
     assert fake.calls == []
+
+
+def _reseal_live_quote(receipt, *, fee=None, deposit_address=None):
+    response = json.loads(json.dumps(receipt["quote_response"]))
+    if fee is not None:
+        response["quote"]["refundFee"] = fee
+    if deposit_address is not None:
+        response["quote"]["depositAddress"] = deposit_address
+        receipt["deposit"]["address"] = deposit_address
+    sign(response)  # test-only deterministic Ed25519 signer, not a live key
+    receipt["quote_response"] = response
+    receipt["quote_hash"] = ni.oneclick_quote_hash(response)
+    receipt["signed_payload"] = ni.signed_quote_payload(response)
+    receipt["quote_response_sha256"] = ni._sha256_json(response)
+
+
+def test_refund_reverifies_original_deposit_against_current_signed_quote(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["deposit"]["tx_hash"] = DEPOSIT_SIG
+    sol, fake = solana({
+        DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000),
+        REFUND_SIG: spl_tx(REFUND_SIG, to=SOL_ADDR, sender=DEPOSIT,
+                           amount=25_000_000 - 244_425, slot=350_000_900),
+    })
+    assert ni.verify_deposit(receipt, solana=sol)["verified"]
+    # Swap to another *validly signed* quote after the original deposit was proven.
+    # Its destination is a different address, so old evidence must not be reused.
+    _reseal_live_quote(receipt, deposit_address=SENDER)
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)
+    assert err.value.code == "X3_EVIDENCE_BINDING"
+    assert len(fake.calls) >= 2  # source deposit was fetched again before refund acceptance
+
+
+@pytest.mark.parametrize("fee", [0, "-1", "25000000", "9999999999"])
+def test_refund_rejects_unsigned_zero_or_invalid_signed_fee(tmp_path, fee):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["deposit"]["tx_hash"] = DEPOSIT_SIG
+    _reseal_live_quote(receipt, fee=fee)
+    sol, fake = solana({})
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)
+    assert err.value.code == "X3_EVIDENCE_BINDING"
+    assert fake.calls == []
+
+
+def test_guard_refund_amount_must_come_from_verified_chain_evidence(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["deposit"]["tx_hash"] = DEPOSIT_SIG
+    receipt["status_history"] = [{"status": "REFUNDED", "outcome": "refunded", "terminal": True,
+                                  "refunded_amount": "999999999999"}]
+    with pytest.raises(ni.NearIntentsError):
+        ni.guard_args(receipt, "outcome")
+    sol, _ = solana({
+        DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000),
+        REFUND_SIG: spl_tx(REFUND_SIG, to=SOL_ADDR, sender=DEPOSIT,
+                           amount=25_000_000 - 244_425, slot=350_000_900),
+    })
+    assert ni.verify_deposit(receipt, solana=sol)["verified"]
+    assert ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)["verified"]
+    args = ni.guard_args(receipt, "outcome")
+    assert args["refunded_amount"] == str(25_000_000 - 244_425)
+    assert args["refunded_amount"] != "999999999999"
 
 
 def test_a_refund_from_before_the_deposit_proves_nothing(tmp_path):
