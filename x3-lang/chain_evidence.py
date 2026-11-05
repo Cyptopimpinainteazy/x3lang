@@ -311,6 +311,13 @@ class BscRpc:
         self.timeout = timeout
 
     def _facts(self, url: str, tx_hash: str) -> Tuple[Dict[str, Any], str]:
+        # A transaction hash alone does not identify an EVM chain.
+        # Never authenticate BSC mainnet evidence against Ethereum or BSC testnet RPC.
+        chain_id = _hex_int(json_rpc(self.transport, url, "eth_chainId", [], self.timeout),
+                            "eth_chainId")
+        if chain_id != 56:
+            raise ChainEvidenceError("X3_EVIDENCE_WRONG_CHAIN",
+                                     f"RPC returned chain ID {chain_id}, expected BSC mainnet 56")
         tx = json_rpc(self.transport, url, "eth_getTransactionByHash", [tx_hash], self.timeout)
         receipt = json_rpc(self.transport, url, "eth_getTransactionReceipt", [tx_hash], self.timeout)
         block = None
@@ -318,7 +325,7 @@ class BscRpc:
         if isinstance(tx, dict) and tx.get("blockNumber"):
             block = json_rpc(self.transport, url, "eth_getBlockByNumber", [tx["blockNumber"], False], self.timeout)
             finalized = json_rpc(self.transport, url, "eth_getBlockByNumber", ["finalized", False], self.timeout)
-        raw = {"transaction": tx, "receipt": receipt, "block": block, "finalized": finalized}
+        raw = {"chainId": chain_id, "transaction": tx, "receipt": receipt, "block": block, "finalized": finalized}
         return bsc_native_transfer_facts(
             tx=tx,
             receipt=receipt,

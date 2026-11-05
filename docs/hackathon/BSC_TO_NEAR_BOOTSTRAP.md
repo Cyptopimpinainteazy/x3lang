@@ -135,3 +135,7 @@ Replace BOTH placeholders with validated user-controlled addresses. The receiver
     }
 
 All amounts are base units. Provider fee schedules and minimum swaps may make small transfers uneconomical. A quote being refused is a valid security outcome.
+
+### BSC RPC identity gate
+
+Every native-BNB evidence endpoint must return `eth_chainId = 0x38` (56); Ethereum and BSC testnet endpoints are refused before a deposit/refund can verify. The chain ID is included in the evidence observation hash. This checks the configured RPC identity but is not a trustless proof of endpoint honesty.

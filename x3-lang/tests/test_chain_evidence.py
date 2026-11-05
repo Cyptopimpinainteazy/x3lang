@@ -64,16 +64,19 @@ class FakeSolana:
 
 
 class FakeBsc:
-    def __init__(self, by_url, *, finalized):
+    def __init__(self, by_url, *, finalized, chain_id=56):
         self.by_url = by_url
         self.finalized = finalized
+        self.chain_id = chain_id
         self.calls = []
 
     def __call__(self, method, url, payload):
         self.calls.append(payload)
         entry = self.by_url[url]
         call = payload["method"]
-        if call == "eth_getTransactionByHash":
+        if call == "eth_chainId":
+            result = hex(self.chain_id)
+        elif call == "eth_getTransactionByHash":
             tx = entry[payload["params"][0]]
             result = tx
         elif call == "eth_getTransactionReceipt":
@@ -113,9 +116,9 @@ def bsc_tx(*, tx_hash=BSC_TX, to=BSC_DEPOSIT, value=1_000_000_000_000_000, statu
     }
 
 
-def bsc_rpc(tx=None, *, urls=("https://bsc-a.example.invalid",), finalized=45_000_020):
+def bsc_rpc(tx=None, *, urls=("https://bsc-a.example.invalid",), finalized=45_000_020, chain_id=56):
     tx = tx or bsc_tx()
-    fake = FakeBsc({url: {tx["hash"]: tx} for url in urls}, finalized=finalized)
+    fake = FakeBsc({url: {tx["hash"]: tx} for url in urls}, finalized=finalized, chain_id=chain_id)
     return ce.BscRpc(transport=RecordingTransport(fake), urls=list(urls)), fake
 
 
@@ -200,7 +203,8 @@ def test_a_finalized_native_bnb_deposit_is_verified_from_chain_data():
     assert evidence["observed"] == "1000000000000000"
     assert evidence["blockNumber"] == 45_000_000
     assert evidence["finalizedBlock"] == 45_000_020
-    assert [call["method"] for call in fake.calls][:2] == [
+    assert [call["method"] for call in fake.calls][:3] == [
+        "eth_chainId",
         "eth_getTransactionByHash",
         "eth_getTransactionReceipt",
     ]
@@ -223,6 +227,16 @@ def test_an_unproven_native_bnb_deposit_is_refused(tx, failed):
     )
     assert evidence["verified"] is False
     assert checks(evidence)[failed] is False
+
+
+def test_bsc_wrong_chain_rpc_is_rejected_even_if_transfer_looks_correct():
+    rpc, fake = bsc_rpc(chain_id=1)
+    with pytest.raises(ce.ChainEvidenceError) as exc:
+        rpc.verify_native_transfer(
+            tx_hash=BSC_TX, recipient=BSC_DEPOSIT,
+            min_amount=1, not_after_ms=None, purpose="deposit",
+        )
+    assert exc.value.code == "X3_EVIDENCE_WRONG_CHAIN"
 
 
 def test_an_unfinalized_native_bnb_deposit_is_refused():
