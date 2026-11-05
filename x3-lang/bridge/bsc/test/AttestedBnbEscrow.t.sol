@@ -127,6 +127,24 @@ contract AttestedBnbEscrowTest {
         require(LP.balance == 1 ether, "committee certificate was not decisive");
     }
 
+    function testNotFundedCertificateRequiresBscExpiry() public {
+        bytes[] memory proof = _pair(ID, AttestedBnbEscrow.NearOutcome.NotFunded);
+        vm.expectRevert();
+        escrow.settle(ID, AttestedBnbEscrow.NearOutcome.NotFunded, proof);
+        uint256 before = address(this).balance;
+        vm.warp(START + WAIT);
+        escrow.settle(ID, AttestedBnbEscrow.NearOutcome.NotFunded, proof);
+        require(address(this).balance == before + 1 ether, "missing funding refund failed");
+        require(escrow.lockedBnb() == 0, "liability not discharged");
+    }
+
+    function testClaimCertificateCannotBeReplayedAsNotFunded() public {
+        bytes[] memory claimProof = _pair(ID, AttestedBnbEscrow.NearOutcome.Claimed);
+        vm.warp(START + WAIT);
+        vm.expectRevert();
+        escrow.settle(ID, AttestedBnbEscrow.NearOutcome.NotFunded, claimProof);
+    }
+
     function testCannotDoubleSettleOrRefundAfterClaim() public {
         bytes[] memory claimProof = _pair(ID, AttestedBnbEscrow.NearOutcome.Claimed);
         escrow.settle(ID, AttestedBnbEscrow.NearOutcome.Claimed, claimProof);

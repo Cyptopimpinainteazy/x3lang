@@ -18,7 +18,8 @@ contract AttestedBnbEscrow {
     }
     enum NearOutcome {
         Claimed,
-        Refunded
+        Refunded,
+        NotFunded
     }
 
     struct Swap {
@@ -116,8 +117,11 @@ contract AttestedBnbEscrow {
         Swap storage s = swaps[swapId];
         require(s.state == State.Locked, "not locked");
         // No deadline on a proven CLAIMED outcome: a late but finalized proof
-        // must win over a potential refund. REFUNDED needs expiry + evidence.
-        if (outcome == NearOutcome.Refunded) require(block.timestamp >= s.expiresAt, "refund too soon");
+        // must win over a potential refund. Both refund paths need expiry
+        // AND an authenticated final NEAR terminal outcome certificate.
+        // NotFunded requires irrevocably closed NEAR funding window state;
+        // this contract cannot independently authenticate that fact.
+        if (outcome != NearOutcome.Claimed) require(block.timestamp >= s.expiresAt, "refund too soon");
         require(signatures.length == 2, "need two signatures");
         bytes32 digest = attestationDigest(swapId, outcome);
         address firstSigner = _recover(digest, signatures[0]);

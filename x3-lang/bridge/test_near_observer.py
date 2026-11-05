@@ -147,3 +147,33 @@ class NearObserverTests(unittest.TestCase):
         with self.assertRaises(ObservationError):
             b.record("testnet", VAULT, SWAP, "Claimed", "D" * 44)
         assert b.get("testnet", VAULT, SWAP) == ("Claimed", BLOCK)
+
+class FundingWindowObservationTests(unittest.TestCase):
+    def test_closed_unfunded_window_is_read_only_not_authorized(self):
+        from near_observer import observe_window
+        raw = {"initiator": INITIATOR, "recipient": RECIPIENT,
+               "hashlock": list(HASHLOCK), "amount": str(AMOUNT),
+               "deadline_ns": 1800000000000000000, "expiry_ns": 1890000000000000000,
+               "state": "NotFunded"}
+        reply = replies()
+        reply["result"]["result"] = list(json.dumps(raw).encode())
+        fetch, calls = fake_network({"https://rpc-a.example": reply, "https://rpc-b.example": reply})
+        o = observe_window(["https://rpc-a.example", "https://rpc-b.example"],
+                           vault=VAULT, swap_id=SWAP, recipient=RECIPIENT, initiator=INITIATOR,
+                           hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                           funding_deadline_ns=raw["deadline_ns"], expiry_ns=raw["expiry_ns"], fetch=fetch)
+        self.assertEqual(o.outcome, "NotFunded")
+        self.assertFalse(o.authorized_to_sign)
+        self.assertEqual({p["params"]["method_name"] for _, p in calls}, {"get_window"})
+
+    def test_unregistered_window_cannot_be_treated_as_not_funded(self):
+        from near_observer import observe_window
+        reply = replies()
+        reply["result"]["result"] = list(b"null")
+        fetch, _ = fake_network({"https://rpc-a.example": reply, "https://rpc-b.example": reply})
+        with self.assertRaises(ObservationError):
+            observe_window(["https://rpc-a.example", "https://rpc-b.example"],
+                           vault=VAULT, swap_id=SWAP, recipient=RECIPIENT, initiator=INITIATOR,
+                           hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                           funding_deadline_ns=1800000000000000000, expiry_ns=1890000000000000000,
+                           fetch=fetch)

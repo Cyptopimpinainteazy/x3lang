@@ -138,6 +138,76 @@ def observe(endpoints: list[str], *, vault: str, swap_id: str, recipient: str,
     return Observation(network, vault, swap_id, outcome, block_hash, height, amount, recipient)
 
 
+def observe_window(endpoints: list[str], *, vault: str, swap_id: str, recipient: str,
+                   initiator: str, hashlock: bytes, near_amount_yocto: int,
+                   funding_deadline_ns: int, expiry_ns: int, fetch=None,
+                   network: str = "testnet") -> Observation:
+    """Check registered on-chain funding window via RPC; NEVER authorize signing.
+
+    Only an already-registered, terminal NotFunded window provides meaningful
+    nonfunding evidence. Agreement across RPC hosts is still NOT proof of state.
+    """
+    if (network != "testnet" or type(funding_deadline_ns) is not int
+            or type(expiry_ns) is not int or funding_deadline_ns <= 0
+            or expiry_ns <= funding_deadline_ns):
+        raise ObservationError("invalid funding window configuration")
+    if (not isinstance(swap_id, str) or not re.fullmatch(r"[0-9a-f]{64}", swap_id)
+            or type(near_amount_yocto) is not int or near_amount_yocto <= 0
+            or not isinstance(hashlock, bytes) or len(hashlock) != 32):
+        raise ObservationError("invalid swap identity")
+    for account in (vault, initiator, recipient):
+        if not isinstance(account, str) or len(account) > 64 or not re.fullmatch(
+                r"[a-z0-9_-]+(?:\.[a-z0-9_-]+)*", account):
+            raise ObservationError("invalid NEAR account")
+    if not isinstance(endpoints, list) or not 2 <= len(endpoints) <= 5:
+        raise ObservationError("multiple RPC endpoints required")
+    seen = set()
+    for endpoint in endpoints:
+        parsed = urlparse(endpoint)
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.hostname in seen
+                or parsed.username or parsed.password or parsed.fragment or parsed.query):
+            raise ObservationError("unacceptable or duplicate RPC endpoint")
+        seen.add(parsed.hostname)
+    import base64
+    payload = {"jsonrpc": "2.0", "id": "x3-near-observer", "method": "query", "params": {
+        "request_type": "call_function", "finality": "final", "account_id": vault,
+        "method_name": "get_window", "args_base64": base64.b64encode(
+            json.dumps({"id": swap_id}, separators=(",", ":")).encode()).decode()}}
+    read = fetch or _get
+    observed = []
+    for endpoint in endpoints:
+        try:
+            reply = read(endpoint, payload)
+            if (not isinstance(reply, dict) or reply.get("id") != "x3-near-observer"
+                    or reply.get("error") is not None):
+                raise ObservationError("RPC error or request mismatch")
+            result = reply.get("result")
+            if not isinstance(result, dict) or result.get("logs") != []:
+                raise ObservationError("malformed NEAR window response")
+            height, block_hash = result.get("block_height"), result.get("block_hash")
+            if type(height) is not int or height <= 0 or not isinstance(block_hash, str) or not block_hash:
+                raise ObservationError("unidentified block")
+            window = json.loads(_strict_bytes(result.get("result")))
+            if not isinstance(window, dict):
+                raise ObservationError("missing NEAR funding registration")
+            if (window.get("initiator") != initiator or window.get("recipient") != recipient
+                    or _strict_bytes(window.get("hashlock")) != hashlock
+                    or window.get("amount") != str(near_amount_yocto)
+                    or window.get("deadline_ns") != funding_deadline_ns
+                    or window.get("expiry_ns") != expiry_ns
+                    or window.get("state") != "NotFunded"):
+                raise ObservationError("wrong or nonterminal NEAR funding window")
+            observed.append((block_hash, height, json.dumps(window, sort_keys=True)))
+        except ObservationError:
+            raise
+        except (ValueError, TypeError, UnicodeError, OSError) as exc:
+            raise ObservationError("malformed or unavailable funding RPC") from exc
+    if any(item != observed[0] for item in observed[1:]):
+        raise ObservationError("RPCs disagree on funding window")
+    return Observation(network, vault, swap_id, "NotFunded", observed[0][0],
+                       observed[0][1], near_amount_yocto, recipient)
+
+
 class OutcomeJournal:
     """Local crash-persistent anti-equivocation record, not a distributed lock."""
     def __init__(self, path: str | Path):
