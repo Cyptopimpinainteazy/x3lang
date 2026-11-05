@@ -140,3 +140,9 @@ def test_helius_rejects_float_amounts_not_raw_integer_base_units(tmp_path):
     witness = ParsedEventsWitness(api_key="secret-for-tests", transport=HeliusReply(reply))
     result = ni.verify_deposit(receipt, tx_signature=DEPOSIT_SIG, solana=rpc, helius=witness)
     assert result["verified"] is False
+
+
+def test_public_helius_module_and_cli_share_error_type():
+    import helius_evidence
+    assert ni.helius_evidence.HeliusEvidenceError is helius_evidence.HeliusEvidenceError
+    assert ni.helius_evidence.ParsedEventsWitness is helius_evidence.ParsedEventsWitness

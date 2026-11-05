@@ -137,7 +137,7 @@ def _load(name: str):
 registry = _load("registry")
 ed25519 = _load("ed25519")
 chain_evidence = _load("chain_evidence")
-helius_evidence = _load("helius_evidence")
+helius_evidence = importlib.import_module("helius_evidence")
 _MANDATE_MODULE = None
 _CLI_MODULE = None
 

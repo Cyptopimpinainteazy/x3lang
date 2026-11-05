@@ -230,7 +230,11 @@ cmd_deposited() {
   esac
 
   say "Proving the deposit from Solana"
-  adapter verify-deposit --receipt "$RECEIPT" || info "The deposit is not proven yet (finalization takes ~15 s). Rerun this step."
+  local helius_args=()
+  if [[ "${X3_REQUIRE_HELIUS:-0}" == "1" ]]; then
+    helius_args=(--helius)
+  fi
+  adapter verify-deposit --receipt "$RECEIPT" "${helius_args[@]}" || die "The Solana deposit is not independently proven; rerun this step after finality."
 
   say "Proving the outcome"
   local vcode=0
