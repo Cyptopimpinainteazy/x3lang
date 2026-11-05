@@ -1,0 +1,31 @@
+{
+  "schema": "x3.judge.bnb-readiness.v1",
+  "recorded_at": "2026-11-05T10:06:37.500981+00:00",
+  "mode": "read_only_dry_quote",
+  "connector_revision": "82d1d554c6d90483a770435b5f551ab2392b9e34",
+  "connector_worktree_clean": false,
+  "plan": {
+    "exit_code": 0,
+    "kind": "planned",
+    "source_chain": "bsc",
+    "source_asset": "BNB",
+    "destination_chain": "near",
+    "destination_asset": "wNEAR",
+    "amount_base_units": "1000000000000000",
+    "dry": true
+  },
+  "quote": {
+    "exit_code": 1,
+    "kind": "rejected",
+    "error_codes": [
+      "X3_NEAR_PROVIDER_MINIMUM"
+    ],
+    "provider_minimum_usd": "1000"
+  },
+  "wallet_ownership_proven": false,
+  "near_recipient_owner_verified": false,
+  "live_guard_authorization_proven": false,
+  "live_settlement_proven": false,
+  "transaction_hashes": [],
+  "warning": "This program uses deliberately unusable placeholder wallet addresses. Never fund this quote."
+}
