@@ -62,16 +62,43 @@ The owner must pre-create an initialized classic SPL token account with the deri
 
 ### Event format for Solana-side evidence
 
-A successful execution emits `sol_log_data` with six binary fields, in order:
+A successful execution emits `sol_log_data` with seven binary fields, in order:
 
 1. Literal UTF-8 `X3_VAULT_EXECUTE_V1`
 2. Policy PDA public key (32 bytes)
 3. Owner-approved nonce (little-endian u64)
 4. SHA-256 quote digest (32 bytes)
 5. Exact destination token account public key (32 bytes)
-6. Transferred amount in token base units (little-endian u64)
+6. Approved destination **token-account owner** (32 bytes); this must match the 1Click-signed deposit address
+7. Transferred amount in token base units (little-endian u64)
 
-A verifier must read a **finalized, successful Solana transaction**, prove that this event was emitted **in the expected program's execution frame**, and validate the actual SPL Token `TransferChecked` source/mint/destination and token balance deltas. **Matching a log string alone is not proof.** On NEAR, independently verify the correct destination transfer/receipt and its causal link; a recipient's balance increase alone may be unrelated. This second proof is still a release blocker.
+The standalone [read-only Solana source verifier](../vault_evidence.py) checks the
+finalized transaction from at least two distinct Solana RPC endpoints, decodes the
+seven binary event fields **within the expected vault-program invocation frame**,
+verifies the exact classic SPL Token `TransferChecked` CPI grouped under that
+instruction, validates the cryptographically signed live 1Click quote, and binds
+the approved destination-token owner to the quote's signed deposit address.
+
+```bash
+# Read-only: asks two Solana RPCs for the finalized transaction, never signs.
+python3 x3-lang/solana/vault_evidence.py \
+  --receipt /path/to/live-quote.near-receipt.json \
+  --tx <finalized-solana-transaction-signature> \
+  --program <audited-deployed-X3-vault-program-id> \
+  --policy <exact-vault-policy-PDA> \
+  --source-token <PDA-owned-SPL-token-account> \
+  --destination-token <1Click-deposit-SPL-token-account> \
+  --nonce <owner-approved-u64-nonce> \
+  --rpc-url https://<first-solana-rpc> \
+  --rpc-url https://<second-solana-rpc>
+```
+
+The verifier returns `source_verified: true` **only** when every source
+check succeeds and both RPCs agree. Its `cross_chain_causality_proven` and
+`destination_verified` fields **always remain false**: it cannot by itself
+prove solver causality or NEAR payout. The deployed SBF program ID/code hash
+must also be independently checked against the reviewed source. A recipient's
+balance increase alone may be unrelated. This second proof is still a release blocker.
 
 ## Local validation
 
