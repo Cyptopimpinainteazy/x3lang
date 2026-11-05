@@ -1,0 +1,701 @@
+{
+  "schema": "x3.judge-console.scenarios.v1",
+  "generated_by": "x3-lang/near/demo/judge/build_scenarios.py",
+  "evaluated_at": "2026-11-03T03:00:00Z",
+  "evidence_level": "local_policy_preview_only",
+  "tracks": [
+    "AI Security & Defense",
+    "Agent Economy",
+    "Unstoppable DeFi"
+  ],
+  "mandate": {
+    "file": "x3-lang/examples/near_mandate_agent.x3",
+    "source": "// near_mandate_agent.x3 \u2014 what an owner lets an AI agent spend, enforced on NEAR by x3-guard.\n//\n// The owner sends this once (`near_intents.py mandate args`). From then on the agent account\n// can register swaps in the owner's name, and x3-guard refuses any that break a term:\n//\n// - `spend` and `per_payment`: Solana USDC only, at most 50 USDC a payment.\n// - `per_24h`: at most 200 USDC in any rolling 24 hours (and at most 64 payments).\n// - `allow recipients` / `allow assets`: where the money may go, and as what.\n// - `refund_to`: a failed swap refunds here. The agent cannot point refunds at itself.\n// - `require slippage` / `require fees`: the loosest bounds an agent's intent may declare.\n// - `approve above`: a payment over 30 USDC waits for one of the listed approvers.\n// - `expires`: the mandate ends 30 days after it is compiled. The owner can revoke it at\n//   any time (`near_intents.py mandate revoke`), and every unaccepted intent stops at once.\n//\n// Amounts are base units: 50 USDC at six decimals is 50_000_000.\n//\n// The accounts are placeholders. Replace them with accounts you control.\nmandate x3_shopping_agent {\n    owner x3-owner.near\n    agent x3-agent.near\n    spend Solana.USDC\n    per_payment 50000000\n    per_24h 200000000\n    allow recipients x3-demo.near\n    allow assets Near.USDC\n    refund_to 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    require slippage <= 1%\n    require fees <= 100 bps\n    approve above 30000000 by 1 of x3-owner.near\n    expires 30d\n}\n",
+    "sha256": "629c008639c5fea35c1f2f9f1e9e3c67717860f72b1b7e14450db042f17012d4"
+  },
+  "tokens": {
+    "file": "x3-lang/tests/fixtures/near_intents_tokens.json",
+    "records": [
+      {
+        "assetId": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "decimals": 6,
+        "blockchain": "sol",
+        "symbol": "USDC",
+        "price": 0.9998,
+        "priceUpdatedAt": "2026-11-02T20:00:00.000Z",
+        "contractAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+      },
+      {
+        "assetId": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "decimals": 6,
+        "blockchain": "near",
+        "symbol": "USDC",
+        "price": 0.9998,
+        "priceUpdatedAt": "2026-11-02T20:00:00.000Z",
+        "contractAddress": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
+      },
+      {
+        "assetId": "nep141:wrap.near",
+        "decimals": 24,
+        "blockchain": "near",
+        "symbol": "wNEAR",
+        "price": 2.41,
+        "priceUpdatedAt": "2026-11-02T20:00:00.000Z",
+        "contractAddress": "wrap.near"
+      },
+      {
+        "assetId": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+        "decimals": 6,
+        "blockchain": "eth",
+        "symbol": "USDC",
+        "price": 0.9998,
+        "priceUpdatedAt": "2026-11-02T20:00:00.000Z",
+        "contractAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+      },
+      {
+        "assetId": "nep141:sol.omft.near",
+        "decimals": 9,
+        "blockchain": "sol",
+        "symbol": "SOL",
+        "price": 162.5,
+        "priceUpdatedAt": "2026-11-02T20:00:00.000Z"
+      }
+    ],
+    "note": "Archived 1Click token list. Not a live response."
+  },
+  "scenarios": [
+    {
+      "id": "authorized",
+      "group": "A",
+      "title": "Authorized payment",
+      "story": "The agent pays 25 USDC to a listed recipient, inside every limit.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_payment.x3",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "2b0f946464b82f0fc0186d47a9f968c8cb3ab4c038668bcc361c293bbf83021d",
+        "edits": []
+      },
+      "assumed_guard_state": null,
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [],
+      "python": {
+        "decision": "preflight_passed",
+        "denied_guards": [],
+        "approvals_needed": 0,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": true
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "needs-approval",
+      "group": "A",
+      "title": "Payment that needs approval",
+      "story": "40 USDC is under the 50 USDC cap but over the 30 USDC approval threshold.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_payment.x3",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 40 USDC is below the 50 USDC cap but above the 30 USDC approval threshold.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 40000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 39680000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "69c481783c9188f524ea01c7cdea1dbdc60e090291ee9da56a70e121d41465b9",
+        "edits": [
+          {
+            "from": "amount 25000000",
+            "to": "amount 40000000"
+          },
+          {
+            "from": "min_receive 24800000",
+            "to": "min_receive 39680000"
+          },
+          {
+            "from": "// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.",
+            "to": "// 40 USDC is below the 50 USDC cap but above the 30 USDC approval threshold."
+          }
+        ]
+      },
+      "assumed_guard_state": null,
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [
+        "near/x3-guard/src/mandate_tests.rs::payments_above_the_threshold_need_n_of_m_approvals"
+      ],
+      "python": {
+        "decision": "approval_required",
+        "denied_guards": [],
+        "approvals_needed": 1,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": true
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "over-limit",
+      "group": "B",
+      "title": "Exceeds the spending limit",
+      "story": "60 USDC in one payment, over the owner's 50 USDC cap.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_payment.x3",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 60 USDC exceeds the owner's 50 USDC per-payment cap.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 60000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 59520000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "3df39f5a533528b167003acb944700f494ab6fb39e4946f147b59dfdec35a9e0",
+        "edits": [
+          {
+            "from": "amount 25000000",
+            "to": "amount 60000000"
+          },
+          {
+            "from": "min_receive 24800000",
+            "to": "min_receive 59520000"
+          },
+          {
+            "from": "// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.",
+            "to": "// 60 USDC exceeds the owner's 50 USDC per-payment cap."
+          }
+        ]
+      },
+      "assumed_guard_state": null,
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [],
+      "python": {
+        "decision": "denied_by_policy",
+        "denied_guards": [
+          "mandate_per_payment"
+        ],
+        "approvals_needed": 1,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": true
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": false
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "wrong-recipient",
+      "group": "B",
+      "title": "Unauthorized recipient",
+      "story": "The agent tries to pay attacker.near, who is not on the owner's list.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_denied.x3",
+        "source": "// Deliberately forbidden recipient. Same owner, asset, fee and refund policy.\n// This must fail `mandate_recipient` under near_mandate_agent.x3.\nintent near_intents_agent_denied {\n    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver attacker.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_denied_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "0d5aede64cde0f9dc282fe294521fa3201905af194c82988ed81c25d9c9d8bc2",
+        "edits": []
+      },
+      "assumed_guard_state": null,
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [],
+      "python": {
+        "decision": "denied_by_policy",
+        "denied_guards": [
+          "mandate_recipient"
+        ],
+        "approvals_needed": 0,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": false
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "refund-redirect",
+      "group": "B",
+      "title": "Redirected refund",
+      "story": "The agent points a failed swap's refund at an address the owner did not pin.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_payment.x3",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC to So11111111111111111111111111111111111111112\n    on_fail rollback\n}\n",
+        "sha256": "e00e6ca9fe1f1a4044314017250b22495f493a652643f321da50d539e5396caf",
+        "edits": [
+          {
+            "from": "timeout 10m refund Solana.USDC",
+            "to": "timeout 10m refund Solana.USDC to So11111111111111111111111111111111111111112"
+          }
+        ]
+      },
+      "assumed_guard_state": null,
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [],
+      "python": {
+        "decision": "denied_by_policy",
+        "denied_guards": [
+          "mandate_refund_to"
+        ],
+        "approvals_needed": 0,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": true
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": false
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "fee-too-high",
+      "group": "B",
+      "title": "Fee cap above the owner's limit",
+      "story": "The agent accepts up to 150 bps in fees; the owner allows 100.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_payment.x3",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 150 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "0f3036c29e5f2edc5b0f4074730ffd4b3bf9ff477fa8274eb9e3d6e2fee239bd",
+        "edits": [
+          {
+            "from": "require fees <= 100 bps",
+            "to": "require fees <= 150 bps"
+          }
+        ]
+      },
+      "assumed_guard_state": null,
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [],
+      "python": {
+        "decision": "denied_by_policy",
+        "denied_guards": [
+          "mandate_fees"
+        ],
+        "approvals_needed": 0,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": true
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": false
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "daily-cap",
+      "group": "B",
+      "title": "Over the rolling 24-hour cap",
+      "story": "Assuming the agent already spent 180 USDC an hour ago, 25 more breaks the 200 USDC day.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_payment.x3",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "2b0f946464b82f0fc0186d47a9f968c8cb3ab4c038668bcc361c293bbf83021d",
+        "edits": []
+      },
+      "assumed_guard_state": {
+        "spends": [
+          {
+            "amount": "180000000",
+            "at_ms": 1793671200000
+          }
+        ]
+      },
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [
+        "near/x3-guard/src/mandate_tests.rs::the_daily_cap_is_a_rolling_window_checked_when_a_quote_is_accepted"
+      ],
+      "python": {
+        "decision": "denied_by_policy",
+        "denied_guards": [
+          "mandate_daily"
+        ],
+        "approvals_needed": 0,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": true
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": false
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "revoked",
+      "group": "B",
+      "title": "After the owner revoked the mandate",
+      "story": "Assuming the owner revoked the mandate, the same authorized payment is refused.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_payment.x3",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "2b0f946464b82f0fc0186d47a9f968c8cb3ab4c038668bcc361c293bbf83021d",
+        "edits": []
+      },
+      "assumed_guard_state": {
+        "revoked": true
+      },
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [
+        "near/x3-guard/src/mandate_tests.rs::revoking_stops_the_agent_at_once_and_replacing_voids_old_intents"
+      ],
+      "python": {
+        "decision": "denied_by_policy",
+        "denied_guards": [
+          "mandate_active"
+        ],
+        "approvals_needed": 0,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": false
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": true
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "nonce-reuse",
+      "group": "B",
+      "title": "Reused nonce",
+      "story": "The agent registers agent_payment_001 a second time to open another deposit address.",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_payment.x3",
+        "source": "// near_intents_agent_payment.x3 \u2014 an AI agent's payment, under its owner's mandate.\n//\n// The same NEAR Intents swap as `near_intents_sol_to_near.x3`, with one more clause:\n// `under mandate x3-owner.near`. The agent account registers and accepts it through\n// x3-guard's agent methods, which check `near_mandate_agent.x3`'s terms on chain first:\n//\n//   near_intents.py mandate check near_mandate_agent.x3 near_intents_agent_payment.x3\n//   near_intents.py quote near_intents_agent_payment.x3 --live --mandate near_mandate_agent.x3 \\\n//       --guard-contract <x3-guard account>\n//\n// 25 USDC is under the mandate's 30 USDC approval threshold, so no approval is needed.\nintent near_intents_agent_payment {\n    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver x3-demo.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_payment_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "2b0f946464b82f0fc0186d47a9f968c8cb3ab4c038668bcc361c293bbf83021d",
+        "edits": []
+      },
+      "assumed_guard_state": null,
+      "contract_only": true,
+      "contract_note": "A nonce is state on NEAR. The local checker cannot see which nonces were used, so it passes this payment; x3-guard panics with \"already registered\" on the second registration, and a policy accepts one quote.",
+      "contract_tests": [
+        "near/x3-guard/src/tests.rs::a_nonce_registers_once",
+        "near/x3-guard/src/tests.rs::a_policy_accepts_one_quote"
+      ],
+      "python": {
+        "decision": "preflight_passed",
+        "denied_guards": [],
+        "approvals_needed": 0,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": true
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    }
+  ]
+}

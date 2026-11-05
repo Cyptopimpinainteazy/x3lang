@@ -560,6 +560,20 @@ function decodeEd25519(value, length) {
   return raw;
 }
 
+/**
+ * Why this browser cannot hash or verify, or null if it can. Browsers expose WebCrypto only
+ * to secure contexts: https:// pages and http://localhost. Opened at a plain http:// LAN
+ * address, `crypto.subtle` is missing, and that is not the quote's fault.
+ */
+export function webCryptoProblem(g = globalThis) {
+  if (g.isSecureContext === false || !g.crypto?.subtle) {
+    return "This browser has turned off WebCrypto for this page, so it cannot check 1Click's signature. "
+      + "Browsers do that on plain http:// addresses other than localhost. Open the page at https:// or http://localhost "
+      + "(from another computer, tunnel the port with ssh -L).";
+  }
+  return null;
+}
+
 export async function quoteHash(response) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(signedQuotePayload(response)));
   return b58encode(new Uint8Array(digest));
@@ -568,6 +582,8 @@ export async function quoteHash(response) {
 /** { valid, reason, hash }. Never throws: anything it cannot check is invalid. */
 export async function checkQuoteSignature(response, managerPublicKey = ONE_CLICK_MANAGER_PUBLIC_KEY) {
   let key;
+  const unavailable = webCryptoProblem();
+  if (unavailable) return { valid: false, reason: unavailable, hash: null };
   try {
     const pub = decodeEd25519(managerPublicKey, 32);
     const sig = decodeEd25519(response?.signature, 64);

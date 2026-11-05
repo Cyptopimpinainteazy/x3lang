@@ -41,6 +41,23 @@ node --test x3-lang/near/demo/test/*.test.mjs
 verifies a real 1Click quote and checks risk rules. This is **not** proof of
 an authorized wallet transaction or a completed cross-chain settlement.
 
+### Hackathon judge package
+
+The offline three-track demonstration needs no wallet, network request or
+funds:
+
+```bash
+python3 scripts/hackathon/demo.py
+bash scripts/hackathon/verify.sh
+```
+
+It shows one owner mandate deciding an allowed payment, an approval-required
+payment and a refused payment through the same X3Lang policy checker. See
+[`docs/hackathon/JUDGE_PACKAGE.md`](docs/hackathon/JUDGE_PACKAGE.md), the
+[three-minute walkthrough](docs/hackathon/VIDEO_WALKTHROUGH.md) and the
+[submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md). Local policy
+acceptance is not wallet authorization, a signed quote or settlement.
+
 ## Release boundaries
 
 - Historical X3Lang source is not newly invented hackathon work.

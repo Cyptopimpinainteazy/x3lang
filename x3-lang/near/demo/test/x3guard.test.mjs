@@ -121,3 +121,24 @@ test("an agent's intent is checked against its owner's mandate, term by term", a
   assert.equal(x3.approvalsNeeded(mandate, "30000001"), 1);
   assert.throws(() => x3.parseMandate(mandateSource.replace("expires 30d", "expires 30d\n    drain everything")), /not a mandate clause/);
 });
+
+test("a page without WebCrypto is told why, not that the quote is forged", () => {
+  assert.equal(x3.webCryptoProblem({ isSecureContext: true, crypto: { subtle: {} } }), null);
+  assert.match(x3.webCryptoProblem({ isSecureContext: false, crypto: { subtle: {} } }), /http:\/\/localhost/);
+  assert.match(x3.webCryptoProblem({ isSecureContext: true, crypto: {} }), /turned off WebCrypto/);
+  assert.match(x3.webCryptoProblem({}), /turned off WebCrypto/);
+});
+
+test("without WebCrypto a real quote still fails closed, with the real reason", async () => {
+  const r = capture("near_intents_quote_dry_live_capture.json");
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  Object.defineProperty(globalThis, "crypto", { value: {}, configurable: true });
+  try {
+    const check = await x3.checkQuoteSignature(r);
+    assert.equal(check.valid, false);
+    assert.match(check.reason, /turned off WebCrypto/);
+  } finally {
+    Object.defineProperty(globalThis, "crypto", saved);
+  }
+  assert.equal((await x3.checkQuoteSignature(r)).valid, true);
+});
