@@ -2,9 +2,9 @@ name: X3Lang History and Reproducibility
 
 on:
   push:
-    branches: [main, 'feat/**']
+    branches: [main, 'feat/**', 'fix/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'integration/**']
 
 permissions:
   contents: read
@@ -81,22 +81,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.90.0'
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: x3-lang/near/x3-guard
+      - name: Install NEAR Guard WASM target
+        run: rustup target add wasm32-unknown-unknown
       - name: Ensure no abandoned wasm32 allocator in NEAR Guard
         run: bash scripts/check-near-allocator.sh
       - name: Rust NEAR Guard contract tests
         working-directory: x3-lang/near/x3-guard
         run: cargo test --locked --quiet
-      - name: Rust NEAR Guard formatting
+      - name: NEAR Guard formatting
         working-directory: x3-lang/near/x3-guard
-        run: cargo fmt -- --check
-      - name: Rust NEAR Guard strict lint
+        run: cargo fmt --all -- --check
+      - name: Strict NEAR Guard lint
         working-directory: x3-lang/near/x3-guard
         run: cargo clippy --all-targets --locked -- -D warnings
-      - name: Add NEAR contract Wasm target
-        run: rustup target add wasm32-unknown-unknown
-      - name: Rust NEAR Guard Wasm type-check
+      - name: Build NEAR Guard WASM
         working-directory: x3-lang/near/x3-guard
-        run: cargo check --target wasm32-unknown-unknown --locked
+        run: cargo build --target wasm32-unknown-unknown --release --locked

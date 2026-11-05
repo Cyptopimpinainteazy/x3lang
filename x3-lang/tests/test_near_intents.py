@@ -308,6 +308,9 @@ def test_a_quote_that_meets_every_guard_passes():
     (lambda q: q["quote"].update(timeEstimate=900), "deadline"),
     (lambda q: q["quote"].update(amountInUsd="0"), "fees"),
     (lambda q: q["quote"].update(refundFee="250001"), "refund_fee"),  # 100.0004 bps of 25 USDC
+    (lambda q: q["quote"].update(refundFee=0), "refund_fee"),  # falsey, not in signed payload
+    (lambda q: q["quote"].update(refundFee="-1"), "refund_fee"),
+    (lambda q: q["quote"].update(refundFee="0"), "refund_fee"),
     (lambda q: q["quote"].pop("refundFee"), "refund_fee"),
 ])
 def test_a_quote_breaking_a_guard_is_rejected_before_deposit(mutate, guard):
