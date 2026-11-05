@@ -2,7 +2,7 @@ name: X3Lang History and Reproducibility
 
 on:
   push:
-    branches: [main, 'feat/**', 'fix/**']
+    branches: [main, 'feat/**', 'fix/**', 'sec/**']
   pull_request:
     branches: [main, 'integration/**']
 

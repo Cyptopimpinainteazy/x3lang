@@ -827,6 +827,12 @@ impl Contract {
             .intents
             .get(&key(&owner, &nonce))
             .unwrap_or_else(|| env::panic_str(&format!("no intent {nonce:?} registered by {owner}")));
+        // The legacy quote view also serves agent-registered intents. Recheck the
+        // current mandate and approval state instead of returning quote-only green.
+        // This is non-authorizing and must never be used as wallet signing proof.
+        if record.agent.is_some() {
+            return self.check_agent_quote(owner, nonce, signed_payload, signature);
+        }
         match verify_signed_quote(&self.manager_public_key, &signed_payload, &signature) {
             Err(reason) => vec![GuardResult {
                 guard: "quote_signature".into(),
