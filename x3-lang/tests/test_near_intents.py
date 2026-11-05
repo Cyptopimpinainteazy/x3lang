@@ -15,11 +15,16 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "examples" / "near_intents_sol_to_near.x3"
+BSC_EXAMPLE = ROOT / "examples" / "bsc_bnb_to_near_wnear_dry.x3"
 TOKENS = ROOT / "tests" / "fixtures" / "near_intents_tokens.json"
 NOW = datetime(2026, 11, 3, 3, 0, 0, tzinfo=timezone.utc)
 SOL_USDC = "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near"
 NEAR_USDC = "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
 SOL_ADDR = "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD"
+BNB_ASSET = "nep245:v2_1.omni.hot.tg:56_11111111111111111111"
+WNEAR_ASSET = "nep141:wrap.near"
+BSC_ADDR = "0x" + "b" * 40
+BSC_DEPOSIT = "0x" + "c" * 40
 
 
 def _load(name, path):
@@ -92,6 +97,36 @@ def good_quote(request, *, amount_out=24_950_000, min_out=None, usd_out="24.94",
         })
     return sign({
         "correlationId": "c0ffee",
+        "timestamp": "2026-11-03T03:00:00.000Z",
+        "signature": "",
+        "quoteRequest": dict(request),
+        "quote": quote,
+    })
+
+
+def good_bsc_quote(request, *, deadline=None):
+    amount_out = 249_000_000_000_000_000_000_000
+    min_out = 247_755_000_000_000_000_000_000
+    quote = {
+        "amountIn": request["amount"],
+        "amountInFormatted": "0.001",
+        "amountInUsd": "0.600",
+        "minAmountIn": request["amount"],
+        "amountOut": str(amount_out),
+        "amountOutFormatted": "0.249",
+        "amountOutUsd": "0.599",
+        "minAmountOut": str(min_out),
+        "timeEstimate": 60,
+        "refundFee": "5000000000000",
+    }
+    if not request["dry"]:
+        quote.update({
+            "depositAddress": BSC_DEPOSIT,
+            "deadline": deadline or request["deadline"],
+            "timeWhenInactive": request["deadline"],
+        })
+    return sign({
+        "correlationId": "bsc-c0ffee",
         "timestamp": "2026-11-03T03:00:00.000Z",
         "signature": "",
         "quoteRequest": dict(request),
@@ -347,10 +382,84 @@ def test_client_sends_bearer_jwt_and_surfaces_http_errors():
     assert call["headers"]["Authorization"] == "Bearer secret"
 
 
+def test_provider_minimum_is_a_typed_non_retryable_failure():
+    transport = RecordingTransport(lambda m, u, p: (400, {
+        "message": "Temporary swap limits: minimum swap amount is $1,000",
+        "correlationId": "provider-min-123",
+    }))
+    client = ni.OneClickClient(base_url="https://example.invalid", transport=transport)
+    with pytest.raises(ni.NearIntentsError) as err:
+        client.quote({"dry": True})
+    assert err.value.code == "X3_NEAR_PROVIDER_MINIMUM"
+    assert err.value.detail["providerMinimumUsd"] == "1000"
+    assert err.value.detail["correlationId"] == "provider-min-123"
+    assert err.value.detail["retryable"] is False
+
+
 def test_client_without_jwt_sends_no_authorization_header():
     transport = api()
     ni.OneClickClient(jwt="", transport=transport).tokens()
     assert "Authorization" not in transport.calls[0]["headers"]
+
+
+def test_bsc_example_uses_the_live_provider_ids_and_validates_wrap_near():
+    transport = api()
+    planned = ni.plan(str(BSC_EXAMPLE), client=ni.OneClickClient(jwt="", transport=transport),
+                      tokens_path=str(TOKENS), now=NOW)
+    request = planned["quote_request"]
+    assert request["originAsset"] == BNB_ASSET
+    assert request["destinationAsset"] == WNEAR_ASSET
+    assert request["amount"] == "1000000000000000"
+    assert request["refundTo"] == "0x000000000000000000000000000000000000dEaD"
+    assert request["recipient"] == "wrap.near"
+
+
+def test_cli_quote_out_records_a_real_provider_refusal_without_private_data(tmp_path, capsys):
+    def minimum(method, url, payload):
+        if url.endswith("/v0/tokens"):
+            return 200, json.loads(TOKENS.read_text())
+        if url.endswith("/v0/quote"):
+            return 400, {"message": "Temporary swap limits: minimum swap amount is $1,000",
+                         "correlationId": "quote-min-456"}
+        raise AssertionError(url)
+
+    out = tmp_path / "quote-evidence.json"
+    code = ni.main(
+        ["quote", str(BSC_EXAMPLE), "--tokens", str(TOKENS), "--out", str(out)],
+        client=ni.OneClickClient(jwt="", transport=RecordingTransport(minimum)),
+        rpc=near_rpc()[0],
+    )
+    assert code == 1
+    capsys.readouterr()
+    evidence = json.loads(out.read_text())
+    assert evidence["status"] == "error"
+    assert evidence["input"] == str(BSC_EXAMPLE)
+    assert evidence["quote_request"]["amount"] == "1000000000000000"
+    assert evidence["quote_request"]["originAsset"] == BNB_ASSET
+    assert evidence["error"]["code"] == "X3_NEAR_PROVIDER_MINIMUM"
+    assert evidence["error"]["detail"]["correlationId"] == "quote-min-456"
+    assert "JWT" not in out.read_text() and "secret" not in out.read_text()
+
+
+def test_cli_quote_out_writes_a_private_success_record(tmp_path, capsys):
+    def current_quote(request):
+        response = good_bsc_quote(request)
+        response["timestamp"] = ni.format_timestamp(datetime.now(timezone.utc))
+        return sign(response)
+
+    out = tmp_path / "quote-success.json"
+    code = ni.main(
+        ["quote", str(BSC_EXAMPLE), "--tokens", str(TOKENS), "--out", str(out)],
+        client=ni.OneClickClient(jwt="", transport=api(quote_fn=current_quote)),
+        rpc=near_rpc()[0],
+    )
+    assert code == 0
+    capsys.readouterr()
+    evidence = json.loads(out.read_text())
+    assert evidence["status"] == "quoted"
+    assert evidence["quote_request"]["amount"] == "1000000000000000"
+    assert evidence["quote_response"]["quote"]["amountIn"] == "1000000000000000"
+    assert out.stat().st_mode & 0o777 == 0o600
 
 
 # --- end to end ----------------------------------------------------------------------------
@@ -534,9 +643,7 @@ def test_bsc_bnb_to_near_wnear_has_explicit_origin_and_refund(tmp_path):
     # Asset IDs checked against actual /v0/tokens. This is a unit test, not a live transfer.
     bnb_id = "nep245:v2_1.omni.hot.tg:56_11111111111111111111"
     near_id = "nep141:wrap.near"
-    tokens = json.loads(TOKENS.read_text()) + [
-        {"blockchain": "bsc", "symbol": "BNB", "assetId": bnb_id, "decimals": 18}
-    ]
+    tokens = json.loads(TOKENS.read_text())
     tokens_path = tmp_path / "tokens.json"
     tokens_path.write_text(json.dumps(tokens))
     src = "0x" + "b" * 40

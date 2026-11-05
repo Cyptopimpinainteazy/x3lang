@@ -1,0 +1,22 @@
+// bsc_bnb_to_near_wnear_dry.x3 — 0.001 BNB on BSC to wNEAR on NEAR.
+//
+// DRY QUOTE REFERENCE ONLY. Both placeholder addresses below are intentionally not team
+// wallets:
+//   - `0x...dEaD` is the BSC origin receiver/refund placeholder.
+//   - `wrap.near` is an active NEAR contract chosen only to exercise account validation.
+// Replace both before any wallet authorization. Never deposit to a quote produced for these
+// placeholders. BSC refund addresses must be complete 20-byte EVM addresses.
+//
+// 0.001 BNB in base units: 18 decimals, so 1e15.
+intent bsc_bnb_to_near_wnear_dry {
+    from Bsc.BNB amount 1000000000000000 receiver 0x000000000000000000000000000000000000dEaD
+    to Near.wNEAR receiver wrap.near
+    route {
+        bridge NearIntents Bsc.BNB -> Near.wNEAR;
+    }
+    require slippage <= 1%
+    require fees <= 100 bps
+    require nonce unused bsc_near_dry_001
+    timeout 10m refund Bsc.BNB
+    on_fail rollback
+}

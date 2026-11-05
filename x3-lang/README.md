@@ -93,6 +93,30 @@ python3 x3-lang/near_intents.py submit-deposit --deposit-address <addr> --tx-has
 python3 x3-lang/near_intents.py status --deposit-address <addr> --wait --receipt <intent>.near-receipt.json
 ```
 
+### BSC BNB → NEAR
+
+`examples/bsc_bnb_to_near_wnear_dry.x3` is a 0.001 BNB dry reference using live provider asset
+IDs. Its BSC refund address and `wrap.near` recipient are intentionally non-owned placeholders;
+replace both before any wallet action. The adapter now checks all NEAR recipients, including
+implicit accounts, on chain before asking 1Click for a quote.
+
+```bash
+PYTHONPATH=x3-lang python3 x3-lang/near_intents.py plan \
+  x3-lang/examples/bsc_bnb_to_near_wnear_dry.x3
+PYTHONPATH=x3-lang python3 x3-lang/near_intents.py quote \
+  x3-lang/examples/bsc_bnb_to_near_wnear_dry.x3 \
+  --out evidence/bsc-near-2026-11-05/quote-001-bnb.json
+```
+
+`quote --out` records the exact request on success or structured failure on refusal. A live
+quote can be turned into non-broadcast Guard calls and evidence commands with
+`near_intents.py prepare --receipt R --program P ...`; it requires the exact program source,
+re-verifies the quote, and always reports `prepared_not_authorized`.
+
+On 2026-11-05, the real 1Click endpoint refused 0.001 BNB with HTTP 400 and a temporary $1,000
+minimum. The refusal evidence is committed; no amount was silently increased. See
+[`docs/hackathon/BSC_TO_NEAR_BOOTSTRAP.md`](../docs/hackathon/BSC_TO_NEAR_BOOTSTRAP.md).
+
 Every quote's 1Click Ed25519 signature is verified first, on dry and live quotes, against the
 manager key the official SDK pins, over the exact payload the SDK signs; a forged or altered
 quote fails with `X3_NEAR_INVALID_SIGNATURE` before anything else is read. Then, enforced on
@@ -108,9 +132,12 @@ First real swap: `x3-lang/near/first-swap.sh` walks one small swap end to end:
 you send the USDC → `deposited <solana-tx>` (track, prove from both chains, record the outcome).
 It never moves your funds and asks before every step that spends NEAR.
 
-Chain evidence: `verify-deposit --receipt R` proves the Solana deposit and `verify-settlement
---receipt R [--refund-tx SIG]` proves the NEAR delivery (balance rise from a baseline taken at
-quote time) or the Solana refund. A receipt's `verified_outcome` is set only from chain data.
+Chain evidence: `verify-deposit --receipt R` proves the finalized Solana or BSC origin transfer.
+For BSC, transaction and receipt must agree on the exact native-BNB value, destination and
+successful status, and the transaction block must be finalized on every configured BSC RPC.
+`verify-settlement --receipt R [--refund-tx TX]` proves the NEAR delivery (balance rise from a
+baseline taken at quote time) or the finalized origin-chain refund. A receipt's
+`verified_outcome` is set only from chain data.
 
 Browser demo (live at https://x3-guard.pages.dev): `x3-lang/near/demo` is a static page that compiles an intent, fetches a real
 1Click dry quote, verifies its signature with WebCrypto and marks each program line with its
@@ -192,6 +219,7 @@ answers a missing NEAR account with an unexplained HTTP 400.
 
 Environment: `NEAR_INTENTS_JWT` (API key; without it the unauthenticated fee schedule applies),
 `NEAR_INTENTS_BASE_URL`, `NEAR_INTENTS_REFERRAL`, `NEAR_RPC_URL` (default FastNEAR),
+`BSC_RPC_URLS` (two public BSC endpoints by default; used for finalized native-BNB evidence),
 `X3_NEAR_NONCE_STORE`. The adapter never signs
 or sends the deposit; that is made from the sender's wallet. 1Click has no testnet, so live runs
 use real funds — start small.

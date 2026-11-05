@@ -1,0 +1,54 @@
+{
+  "authenticated": false,
+  "error": {
+    "code": "X3_NEAR_PROVIDER_MINIMUM",
+    "detail": {
+      "account_checks": [
+        {
+          "account": "wrap.near",
+          "guard": "recipient_account_exists",
+          "ok": true
+        }
+      ],
+      "correlationId": "8b22d3af-0b93-473c-ae08-735950672178",
+      "providerMinimumUsd": "1000",
+      "quote_request": {
+        "amount": "1000000000000000",
+        "deadline": "2026-11-05T10:14:30.114Z",
+        "depositType": "ORIGIN_CHAIN",
+        "destinationAsset": "nep141:wrap.near",
+        "dry": true,
+        "originAsset": "nep245:v2_1.omni.hot.tg:56_11111111111111111111",
+        "recipient": "wrap.near",
+        "recipientType": "DESTINATION_CHAIN",
+        "refundTo": "0x000000000000000000000000000000000000dEaD",
+        "refundType": "ORIGIN_CHAIN",
+        "slippageTolerance": 100,
+        "swapType": "EXACT_INPUT"
+      },
+      "retryable": false,
+      "status": 400
+    },
+    "field": "/v0/quote",
+    "message": "1Click refused this quote because its $1000 temporary minimum is above the program amount 1000000000000000 in base units"
+  },
+  "input": "x3-lang/examples/bsc_bnb_to_near_wnear_dry.x3",
+  "input_sha256": "894a1a42ef3de55da60af751ab727d06c88b4d228322d4eb782e2ec138e673b8",
+  "mode": "dry",
+  "quote_request": {
+    "amount": "1000000000000000",
+    "deadline": "2026-11-05T10:14:30.114Z",
+    "depositType": "ORIGIN_CHAIN",
+    "destinationAsset": "nep141:wrap.near",
+    "dry": true,
+    "originAsset": "nep245:v2_1.omni.hot.tg:56_11111111111111111111",
+    "recipient": "wrap.near",
+    "recipientType": "DESTINATION_CHAIN",
+    "refundTo": "0x000000000000000000000000000000000000dEaD",
+    "refundType": "ORIGIN_CHAIN",
+    "slippageTolerance": 100,
+    "swapType": "EXACT_INPUT"
+  },
+  "schema": "x3.near_intents.quote-evidence.v1",
+  "status": "error"
+}

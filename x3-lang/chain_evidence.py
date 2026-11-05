@@ -32,6 +32,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 Transport = Callable[[str, str, Dict[str, str], Optional[bytes], float], Tuple[int, bytes]]
 
 DEFAULT_SOLANA_RPC_URLS = ("https://api.mainnet-beta.solana.com",)
+DEFAULT_BSC_RPC_URLS = ("https://bsc-dataseed.binance.org", "https://bsc-rpc.publicnode.com")
 DEFAULT_NEAR_RPC_URLS = ("https://free.rpc.fastnear.com",)
 EVIDENCE_VERSION = 1
 
@@ -69,7 +70,11 @@ def rpc_urls(env_name: str, defaults: Sequence[str], override: Optional[Sequence
 def json_rpc(transport: Transport, url: str, method: str, params: Any, timeout: float = 20.0) -> Any:
     """One JSON-RPC 2.0 call. Returns `result` (which may be null); raises on any error."""
     body = json.dumps({"jsonrpc": "2.0", "id": "x3-evidence", "method": method, "params": params}).encode("utf-8")
-    status, raw = transport("POST", url, {"Content-Type": "application/json", "Accept": "application/json"}, body, timeout)
+    status, raw = transport("POST", url, {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "x3-lang-evidence/1",
+    }, body, timeout)
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -195,6 +200,149 @@ class SolanaRpc:
                           sha256_json(tx) if tx is not None else None))
         return judge_solana_transfer(facts, signature=signature, mint=mint, owner=owner, min_amount=min_amount,
                                      not_after_ms=not_after_ms, purpose=purpose, after_slot=after_slot)
+
+
+# --------------------------------------------------------------------------------------------
+# BNB Smart Chain
+# --------------------------------------------------------------------------------------------
+
+def _hex_int(value: Any, field: str) -> int:
+    if not isinstance(value, str) or not value.startswith("0x"):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{field} is not a hex quantity: {value!r}")
+    try:
+        return int(value, 16)
+    except ValueError:
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{field} is not a hex quantity: {value!r}")
+
+
+def bsc_native_transfer_facts(*, tx: Optional[Dict[str, Any]], receipt: Optional[Dict[str, Any]],
+                              block: Optional[Dict[str, Any]], finalized: Optional[Dict[str, Any]],
+                              tx_hash: str) -> Dict[str, Any]:
+    """Facts from one BSC endpoint for a native-BNB transaction and finality boundary."""
+    if tx is None or receipt is None:
+        return {"found": False}
+    if not isinstance(tx, dict) or not isinstance(receipt, dict):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "BSC transaction or receipt is not an object")
+    tx_block = _hex_int(tx.get("blockNumber"), "transaction.blockNumber")
+    receipt_block = _hex_int(receipt.get("blockNumber"), "receipt.blockNumber")
+    if tx_block != receipt_block:
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "BSC transaction and receipt disagree on blockNumber")
+    if not isinstance(block, dict):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "BSC transaction block is unavailable")
+    block_number = _hex_int(block.get("number"), "block.number")
+    if block_number != tx_block:
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "BSC block number does not match the transaction")
+    finalized_number = (
+        _hex_int(finalized.get("number"), "finalized.number")
+        if isinstance(finalized, dict) and finalized.get("number") is not None
+        else None
+    )
+    return {
+        "found": True,
+        "hash": tx.get("hash"),
+        "transaction_hash_matches": tx.get("hash") == tx_hash == receipt.get("transactionHash"),
+        "succeeded": receipt.get("status") == "0x1",
+        "from": str(tx.get("from") or "").lower(),
+        "to": str(tx.get("to") or "").lower(),
+        "value": _hex_int(tx.get("value"), "transaction.value"),
+        "blockNumber": tx_block,
+        "blockHash": tx.get("blockHash"),
+        "receiptBlockHash": receipt.get("blockHash"),
+        "blockTimestamp": _hex_int(block.get("timestamp"), "block.timestamp"),
+        "finalizedBlock": finalized_number,
+    }
+
+
+def judge_bsc_native_transfer(facts_by_url: List[Tuple[str, Dict[str, Any], Optional[str]]], *,
+                              tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
+                              purpose: str, after_block: Optional[int] = None) -> Dict[str, Any]:
+    """Verify a native BNB transfer only when every endpoint agrees it is finalized."""
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, ok: bool, **detail: Any) -> None:
+        checks.append({"check": name, "ok": bool(ok), **detail})
+
+    found = all(f.get("found") for _, f, _ in facts_by_url)
+    check("found", found)
+    first = facts_by_url[0][1]
+    if found:
+        comparable_keys = (
+            "hash", "transaction_hash_matches", "succeeded", "from", "to", "value",
+            "blockNumber", "blockHash", "receiptBlockHash", "blockTimestamp",
+        )
+        comparable = [{k: f.get(k) for k in comparable_keys} for _, f, _ in facts_by_url]
+        check("endpoints_agree", all(value == comparable[0] for value in comparable[1:]),
+              endpoints=len(facts_by_url))
+        check("transaction_hash_matches", first["transaction_hash_matches"] is True)
+        check("succeeded", first["succeeded"] is True)
+        check("recipient", first["to"] == recipient.lower(), expected=recipient.lower(), observed=first["to"])
+        check("amount", first["value"] >= min_amount, observed=str(first["value"]), required=str(min_amount))
+        finalized = [f.get("finalizedBlock") for _, f, _ in facts_by_url]
+        check("finalized", all(isinstance(n, int) and n >= first["blockNumber"] for n in finalized),
+              finalizedBlocks=finalized, transactionBlock=first["blockNumber"])
+        if not_after_ms is not None:
+            check("before_deadline", first["blockTimestamp"] * 1000 <= not_after_ms,
+                  blockTimestamp=first["blockTimestamp"], notAfterMs=not_after_ms)
+        if after_block is not None:
+            check("after_deposit", first["blockNumber"] > after_block,
+                  blockNumber=first["blockNumber"], depositBlock=after_block)
+    return {
+        "evidence_version": EVIDENCE_VERSION,
+        "kind": "bsc_native_transfer",
+        "purpose": purpose,
+        "verified": all(c["ok"] for c in checks),
+        "transaction_hash": tx_hash,
+        "recipient": recipient.lower(),
+        "required": str(min_amount),
+        "observed": str(first.get("value")) if first.get("found") else None,
+        "blockNumber": first.get("blockNumber"),
+        "finalizedBlock": first.get("finalizedBlock"),
+        "blockTimestamp": first.get("blockTimestamp"),
+        "commitment": "finalized",
+        "rpcs": [{"url": url, "result_sha256": digest} for url, _, digest in facts_by_url],
+        "checks": checks,
+    }
+
+
+class BscRpc:
+    def __init__(self, transport: Transport, urls: Optional[Sequence[str]] = None, timeout: float = 20.0):
+        self.urls = rpc_urls("BSC_RPC_URLS", DEFAULT_BSC_RPC_URLS, urls)
+        self.transport = transport
+        self.timeout = timeout
+
+    def _facts(self, url: str, tx_hash: str) -> Tuple[Dict[str, Any], str]:
+        tx = json_rpc(self.transport, url, "eth_getTransactionByHash", [tx_hash], self.timeout)
+        receipt = json_rpc(self.transport, url, "eth_getTransactionReceipt", [tx_hash], self.timeout)
+        block = None
+        finalized = None
+        if isinstance(tx, dict) and tx.get("blockNumber"):
+            block = json_rpc(self.transport, url, "eth_getBlockByNumber", [tx["blockNumber"], False], self.timeout)
+            finalized = json_rpc(self.transport, url, "eth_getBlockByNumber", ["finalized", False], self.timeout)
+        raw = {"transaction": tx, "receipt": receipt, "block": block, "finalized": finalized}
+        return bsc_native_transfer_facts(
+            tx=tx,
+            receipt=receipt,
+            block=block,
+            finalized=finalized,
+            tx_hash=tx_hash,
+        ), sha256_json(raw)
+
+    def verify_native_transfer(self, *, tx_hash: str, recipient: str, min_amount: int,
+                               not_after_ms: Optional[int], purpose: str,
+                               after_block: Optional[int] = None) -> Dict[str, Any]:
+        facts = []
+        for url in self.urls:
+            facts_by_url, digest = self._facts(url, tx_hash)
+            facts.append((url, facts_by_url, digest))
+        return judge_bsc_native_transfer(
+            facts,
+            tx_hash=tx_hash,
+            recipient=recipient,
+            min_amount=min_amount,
+            not_after_ms=not_after_ms,
+            purpose=purpose,
+            after_block=after_block,
+        )
 
 
 # --------------------------------------------------------------------------------------------

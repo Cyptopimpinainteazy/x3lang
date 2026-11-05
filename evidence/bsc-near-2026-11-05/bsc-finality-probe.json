@@ -1,0 +1,25 @@
+{
+  "method": "eth_getBlockByNumber",
+  "note": "Read-only infrastructure probe; no transaction or settlement proof.",
+  "params": [
+    "finalized",
+    false
+  ],
+  "reads": [
+    {
+      "hash": "0x7fd2df4df5da892e9af661a2c15bf5285381726f7544c918847799a4d1391b29",
+      "number": 131798116,
+      "result_sha256": "eeb9aaab7d3f36a1d857bf0d897f6649e3eb69659d831982f0cc5c5407e22979",
+      "timestamp": 1793873292,
+      "url": "https://bsc-dataseed.binance.org"
+    },
+    {
+      "hash": "0x72b990cdbee52b291d8f1204894ef8211e50059d6cc4deca92f8fc84261d41a1",
+      "number": 131798118,
+      "result_sha256": "ca4916fd0e7894b8c52520d1f529b669f19fef3c6276e1ede3c386404e243139",
+      "timestamp": 1793873293,
+      "url": "https://bsc-rpc.publicnode.com"
+    }
+  ],
+  "schema": "x3.bsc.finality-probe.v1"
+}
