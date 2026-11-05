@@ -77,7 +77,7 @@ def run_tests(mode: str) -> list[dict]:
     # Subprocess test runners must never inherit operational wallet or API credentials.
     env = {k: v for k, v in os.environ.items()
            if k in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR',
-                    'RUSTUP_HOME', 'CARGO_HOME', 'RUSTFLAGS', 'PYTHONHOME')}
+                    'RUSTUP_HOME', 'CARGO_HOME', 'PYTHONHOME')}
     env['PYTHONPATH'] = str(LANG)
     results = []
     for step in plan_tests(mode):
