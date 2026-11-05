@@ -3,10 +3,16 @@ pragma solidity 0.8.24;
 
 /**
  * @title NativeBnbHTLC
- * @notice Native BNB hash-time-locked escrow leg for experimental X3 swaps.
+ * @notice Owner-authorized native BNB escrow with hashlock commitment for bilateral X3 swaps.
  * @dev No admin withdrawal or upgrade keys. Not audited. Not approved for mainnet use.
  *      A separate NEAR-side escrow and independent finality observer are required.
  *      SHA-256 operates on exactly 32 raw preimage bytes on BOTH chains.
+ *      IMPORTANT: Claim requires the ORIGINAL DEPOSITOR to authorize the BNB payout.
+ *      A known preimage alone is not sufficient to claim BNB, because a failed
+ *      NEAR claim can disclose the preimage without delivering NEAR credit.
+ *      This is NOT a permissionless/trustless atomic swap: a dishonest depositor
+ *      could receive NEAR then refuse to authorize BNB release to the LP.
+ *      Only use with a trusted, controlled LP after independent finality checks.
  */
 contract NativeBnbHTLC {
     enum Status {
@@ -39,8 +45,13 @@ contract NativeBnbHTLC {
         uint256 amount,
         uint64 expiresAt
     );
-    event Claimed(bytes32 indexed swapId, bytes32 secret, address indexed recipient, uint256 amount);
+    event OwnerReleased(bytes32 indexed swapId, bytes32 secret, address indexed recipient, uint256 amount);
     event Refunded(bytes32 indexed swapId, address indexed initiator, uint256 amount);
+
+    /// @dev Experimental contract is *not* deployable on BSC mainnet.
+    constructor() {
+        require(block.chainid == 97 || block.chainid == 31337, "testnet-only prototype");
+    }
 
     modifier nonReentrant() {
         require(!entered, "reentrant");
@@ -61,17 +72,19 @@ contract NativeBnbHTLC {
         emit Locked(swapId, msg.sender, recipient, hashlock, msg.value, expiresAt);
     }
 
-    function claim(bytes32 swapId, bytes32 secret) external nonReentrant {
+    /// @notice Source depositor MAY release BNB after independently verifying NEAR credit.
+    /// @dev No automatic verification of NEAR state occurs on BSC. LP cannot call this.
+    function ownerRelease(bytes32 swapId, bytes32 secret) external nonReentrant {
         Swap storage s = swaps[swapId];
         require(s.status == Status.Locked, "not locked");
-        require(msg.sender == s.recipient, "not recipient");
+        require(msg.sender == s.initiator, "depositor release required");
         require(block.timestamp < s.expiresAt, "expired");
         require(sha256(abi.encodePacked(secret)) == s.hashlock, "wrong secret");
         s.status = Status.Claimed;
         lockedNativeBalance -= s.amount;
         (bool success,) = payable(s.recipient).call{value: s.amount}("");
         require(success, "claim transfer failed");
-        emit Claimed(swapId, secret, s.recipient, s.amount);
+        emit OwnerReleased(swapId, secret, s.recipient, s.amount);
     }
 
     function refund(bytes32 swapId) external nonReentrant {

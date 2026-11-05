@@ -5,6 +5,7 @@ import "../src/NativeBnbHTLC.sol";
 interface Vm {
     function warp(uint256) external;
     function deal(address, uint256) external;
+    function chainId(uint256) external;
     function prank(address) external;
     function expectRevert() external;
 }
@@ -30,11 +31,10 @@ contract NativeBnbHTLCTest {
         vault.lock{value: 1 ether}(ID, RECEIVER, hashlock, uint64(block.timestamp) + WAIT);
     }
 
-    function testRecipientClaimsNativeBnbWithCorrectSecret() public {
+    function testDepositorReleasesBnbToLPWithCorrectSecret() public {
         open();
         uint256 beforeBal = RECEIVER.balance;
-        vm.prank(RECEIVER);
-        vault.claim(ID, SECRET);
+        vault.ownerRelease(ID, SECRET);
         require(RECEIVER.balance == beforeBal + 1 ether, "incorrect native payout");
         vm.expectRevert();
         vault.refund(ID);
@@ -42,16 +42,27 @@ contract NativeBnbHTLCTest {
 
     function testWrongSecretNeverClaims() public {
         open();
-        vm.prank(RECEIVER);
         vm.expectRevert();
-        vault.claim(ID, bytes32(uint256(7)));
+        vault.ownerRelease(ID, bytes32(uint256(7)));
     }
 
-    function testOnlyRecipientCanClaim() public {
+    function testOnlyDepositorCanAuthorizeBnbPayout() public {
         open();
-        vm.prank(address(0xCAFE));
+        vm.prank(RECEIVER);
         vm.expectRevert();
-        vault.claim(ID, SECRET);
+        vault.ownerRelease(ID, SECRET);
+    }
+
+    function testLeakedPreimageCannotLetLPTakeBnbBeforeNearCredit() public {
+        open();
+        uint256 beforeBal = RECEIVER.balance;
+        // Adversarial LP learns SECRET from a failed NEAR transaction.
+        // Receiving that preimage must not authorize source-chain release.
+        vm.prank(RECEIVER);
+        vm.expectRevert();
+        vault.ownerRelease(ID, SECRET);
+        require(RECEIVER.balance == beforeBal, "stolen BNB via leaked preimage");
+        require(address(vault).balance == 1 ether, "source escrow prematurely released");
     }
 
     function testRefundAfterExpiry() public {
@@ -70,13 +81,25 @@ contract NativeBnbHTLCTest {
         vm.warp(block.timestamp + WAIT);
         vm.prank(RECEIVER);
         vm.expectRevert();
-        vault.claim(ID, SECRET);
+        vault.ownerRelease(ID, SECRET);
     }
 
     function testCannotReuseSwapId() public {
         open();
         vm.expectRevert();
         vault.lock{value: 1 ether}(ID, RECEIVER, hashlock, uint64(block.timestamp) + WAIT);
+    }
+
+    function testCannotDeployThisPrototypeToBscMainnet() public {
+        vm.chainId(56);
+        vm.expectRevert();
+        new NativeBnbHTLC();
+    }
+
+    function testCanDeployOnBscTestnet() public {
+        vm.chainId(97);
+        NativeBnbHTLC testVault = new NativeBnbHTLC();
+        require(address(testVault) != address(0), "testnet contract missing");
     }
 
     function testCannotLockZeroOrInvalidExpiry() public {
