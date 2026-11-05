@@ -7,6 +7,7 @@ and other processes require separate source-of-truth reconciliation.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,7 +31,7 @@ class Quote:
 class LiquidityBook:
     def __init__(self, path: str | Path):
         self.path = str(path)
-        with self._db() as db:
+        with closing(self._db()) as db, db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS providers (
                 id TEXT PRIMARY KEY, bsc_address TEXT NOT NULL,
@@ -71,7 +72,7 @@ class LiquidityBook:
             int(bsc_address[2:], 16)
         except ValueError as exc:
             raise LiquidityError("invalid BSC address") from exc
-        with self._db() as db:
+        with closing(self._db()) as db, db:
             db.execute("INSERT INTO providers(id,bsc_address,near_account) VALUES(?,?,?)",
                        (provider_id, bsc_address, near_account))
 
@@ -82,7 +83,7 @@ class LiquidityBook:
             raise LiquidityError("invalid assets or integer price ratio")
         if not 0 <= fee_bps <= 10000 or max_input <= 0 or expires_at <= int(time.time()):
             raise LiquidityError("invalid fee, limit, or expiry")
-        with self._db() as db:
+        with closing(self._db()) as db, db:
             db.execute("""INSERT INTO offers
                 (id,provider_id,source_asset,destination_asset,price_num,price_den,
                  fee_bps,max_input,expires_at) VALUES(?,?,?,?,?,?,?,?,?)""",
@@ -93,7 +94,7 @@ class LiquidityBook:
         """Operator action, NOT proof of a signed wallet authorization."""
         if verified:
             raise LiquidityError("authorization must be verified by a chain/wallet adapter")
-        with self._db() as db:
+        with closing(self._db()) as db, db:
             db.execute("UPDATE providers SET authorized=0 WHERE id=?", (provider_id,))
 
     def reserve(self, reservation_id: str, offer_id: str, amount_in: int,
@@ -139,7 +140,7 @@ class LiquidityBook:
 
     def release(self, reservation_id: str):
         """Cancel an unconsumed reservation; settlement marking needs chain evidence elsewhere."""
-        with self._db() as db:
+        with closing(self._db()) as db, db:
             row = db.execute("SELECT state FROM reservations WHERE id=?", (reservation_id,)).fetchone()
             if not row or row[0] != "reserved":
                 raise LiquidityError("reservation not releasable")

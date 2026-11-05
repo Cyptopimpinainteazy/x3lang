@@ -9,7 +9,13 @@ pragma solidity 0.8.24;
  *      SHA-256 operates on exactly 32 raw preimage bytes on BOTH chains.
  */
 contract NativeBnbHTLC {
-    enum Status { Absent, Locked, Claimed, Refunded }
+    enum Status {
+        Absent,
+        Locked,
+        Claimed,
+        Refunded
+    }
+
     struct Swap {
         address initiator;
         address recipient;
@@ -25,8 +31,14 @@ contract NativeBnbHTLC {
     uint256 public lockedNativeBalance;
     bool private entered;
 
-    event Locked(bytes32 indexed swapId, address indexed initiator, address indexed recipient,
-                 bytes32 hashlock, uint256 amount, uint64 expiresAt);
+    event Locked(
+        bytes32 indexed swapId,
+        address indexed initiator,
+        address indexed recipient,
+        bytes32 hashlock,
+        uint256 amount,
+        uint64 expiresAt
+    );
     event Claimed(bytes32 indexed swapId, bytes32 secret, address indexed recipient, uint256 amount);
     event Refunded(bytes32 indexed swapId, address indexed initiator, uint256 amount);
 
@@ -37,9 +49,7 @@ contract NativeBnbHTLC {
         entered = false;
     }
 
-    function lock(bytes32 swapId, address recipient, bytes32 hashlock, uint64 expiresAt)
-        external payable nonReentrant
-    {
+    function lock(bytes32 swapId, address recipient, bytes32 hashlock, uint64 expiresAt) external payable nonReentrant {
         require(swapId != bytes32(0), "zero swap id");
         require(swaps[swapId].status == Status.Absent, "swap id exists");
         require(recipient != address(0) && hashlock != bytes32(0), "invalid recipient/hashlock");
@@ -76,5 +86,7 @@ contract NativeBnbHTLC {
         emit Refunded(swapId, s.initiator, s.amount);
     }
 
-    receive() external payable { revert("use lock"); }
+    receive() external payable {
+        revert("use lock");
+    }
 }

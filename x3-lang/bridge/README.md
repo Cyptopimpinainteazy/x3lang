@@ -39,3 +39,25 @@ operator-entered rows as on-chain evidence.
 `python3 -m unittest discover -s x3-lang/bridge -p 'test_*.py' -v`
 
 Avoid placing real assets into any address derived from this local module.
+
+## BSC ↔ NEAR HTLC prototype (draft; no deployments)
+
+Experimental native-asset contracts:
+- BSC Solidity escrow: bsc/src/NativeBnbHTLC.sol. Locked native BNB is payable to a designated LP with a 32-byte SHA-256 preimage, or refundable to the depositor after expiry.
+- NEAR Rust escrow: near/src/lib.rs. Locked native NEAR becomes an enforceable on-chain recipient credit on preimage claim, with asynchronous withdrawal and failure callback to restore withdrawn credit.
+- protocol.py derives network-domain-separated swap parameters and enforces staggered expiries; no caller-supplied chain flags prove settlement.
+- monte_carlo.py estimates downside distributions, selects minimum fee meeting modeled risk limits, and refuses stale, unverified, or insufficient inventory. All outputs remain non-executable.
+
+Proposed sequence (not yet orchestrated): User locks BNB; LP independently verifies finalized BSC escrow and matching terms; LP locks NEAR with an earlier expiry; user verifies the finalized NEAR escrow; user claims the NEAR contractual credit and reveals a preimage; LP uses that preimage to claim BNB; funds are withdrawn or refunded according to each vault state.
+
+CRITICAL UNRESOLVED VULNERABILITY: A secret can leak from a failed NEAR claim transaction, which could permit the counterparty to collect BNB without the recipient receiving NEAR credit. Staggered timeouts mitigate some races but are not a cryptographic guarantee against this outcome. DO NOT deploy or fund permissionless or production swaps on this prototype. Before live release, require verified destination finality as part of the source-chain claim authorization or a redesigned atomic execution mechanism, plus adversarial tests and independent security review.
+
+Other gates: verified escrow code identities, finality-aware evidence adapters, wallet-control challenges, reserve-backed LP offers, NEAR storage/gas funding, reproducible deployments, signed quote terms, no manual oracle trust flags, testnet wallet approvals, failed-claim/mempool leakage and reorg tests, and an exact-head audited release.
+
+Reproduction on x3star1:
+- From repository root: python3 -W error::ResourceWarning -m unittest discover -s x3-lang/bridge -p 'test_*.py' -v
+- From x3-lang/bridge/bsc: ~/.foundry/bin/forge test --offline -vv
+- From x3-lang/bridge/near: cargo test --locked --offline
+- From x3-lang/bridge/near: cargo build --locked --offline --release --target wasm32-unknown-unknown
+
+No live wallet credentials are required for these builds.
