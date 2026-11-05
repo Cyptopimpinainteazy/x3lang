@@ -99,7 +99,9 @@ def test_a_request_inside_the_mandate_becomes_a_checked_program(tmp_path):
     assert all(s["ok"] for s in report["stages"])
     source = (tmp_path / "p.x3").read_text()
     assert report["program"]["sha256"] == hashlib.sha256(source.encode()).hexdigest()
-    assert report["approve_with"] == f"--approve {report['program']['sha256']}"
+    assert f"--approved-program {tmp_path / 'p.x3'}" in report["approve_with"]
+    assert "--live" in report["approve_with"]
+    assert report["approve_with"].endswith(f"--approve {report['program']['sha256']}")
     assert report["summary"] == {"pay": "5 USDC on solana", "to": "x3-demo.near", "as": "near.USDC",
                                  "approvals_needed_on_near": 0}
 
@@ -130,6 +132,14 @@ def test_the_prompt_converts_slippage_bps_to_percent_without_ambiguity(tmp_path)
     system, _ = model.prompts[0]
     assert "Slippage at most 100 bps (1%, because 100 bps = 1%)" in system
     assert "require slippage <= 1%" in system
+
+
+def test_agent_prompt_does_not_force_stablecoin_output_above_signed_quote(tmp_path):
+    _, _, model = pay(tmp_path, program())
+    system, _user = model.prompts[0]
+    assert "set min_receive to 99%" not in system
+    assert "do not invent a stablecoin conversion floor" in system
+    assert "min_receive" in system  # still supports explicit owner minimums
 
 
 def test_a_dry_quote_runs_the_signed_quote_checks_too(tmp_path):
