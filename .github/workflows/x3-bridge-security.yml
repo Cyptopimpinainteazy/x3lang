@@ -1,0 +1,65 @@
+name: X3 Native Bridge Prototype Security
+
+on:
+  push:
+    branches: [main, 'feat/**', 'integration/**']
+    paths:
+      - 'x3-lang/bridge/**'
+      - '.github/workflows/x3-bridge-security.yml'
+  pull_request:
+    paths:
+      - 'x3-lang/bridge/**'
+      - '.github/workflows/x3-bridge-security.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bridge-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fail-closed liquidity, protocol, and Monte Carlo tests
+        run: python -W error::ResourceWarning -m unittest discover -s x3-lang/bridge -p 'test_*.py' -v
+
+  bridge-bsc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Solidity escrow tests including leaked-secret exploit
+        working-directory: x3-lang/bridge/bsc
+        run: forge test -vv
+      - name: Solidity format
+        working-directory: x3-lang/bridge/bsc
+        run: forge fmt --check
+
+  bridge-near:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: wasm32-unknown-unknown
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/bridge/near
+      - name: NEAR unit tests including payout failure and refund
+        working-directory: x3-lang/bridge/near
+        run: cargo test --locked
+      - name: NEAR formatting
+        working-directory: x3-lang/bridge/near
+        run: cargo fmt --check
+      - name: NEAR deployable WASM release build (no deployment)
+        working-directory: x3-lang/bridge/near
+        run: cargo build --locked --release --target wasm32-unknown-unknown

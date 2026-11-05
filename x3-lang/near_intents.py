@@ -143,6 +143,7 @@ def _load(name: str):
 registry = _load("registry")
 ed25519 = _load("ed25519")
 chain_evidence = _load("chain_evidence")
+helius_evidence = importlib.import_module("helius_evidence")
 _MANDATE_MODULE = None
 _CLI_MODULE = None
 
@@ -1555,7 +1556,7 @@ def _record_evidence(receipt: Dict[str, Any], key: str, fn) -> Dict[str, Any]:
     """Run one evidence check; an RPC or format failure is recorded as unverified evidence."""
     try:
         evidence = fn()
-    except chain_evidence.ChainEvidenceError as exc:
+    except (chain_evidence.ChainEvidenceError, helius_evidence.HeliusEvidenceError) as exc:
         evidence = {"verified": False, "error": exc.to_dict()}
     evidence["checked_at"] = format_timestamp(datetime.now(timezone.utc))
     receipt.setdefault("evidence", {})[key] = evidence
@@ -1564,8 +1565,8 @@ def _record_evidence(receipt: Dict[str, Any], key: str, fn) -> Dict[str, Any]:
 
 
 def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = None,
-                   solana=None, bsc=None) -> Dict[str, Any]:
-    """The deposit reached 1Click's address: full amount, right asset/address, before deadline."""
+                   solana=None, bsc=None, helius=None) -> Dict[str, Any]:
+    """Check finalized BSC native transfer or Solana transfer with optional Helius witness."""
     quote_obj = _signed_quote(receipt)
     signature = tx_signature or (receipt.get("deposit") or {}).get("tx_hash")
     if not signature:
@@ -1582,9 +1583,22 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
         ))
     mint = _solana_mint(receipt)
     solana = solana or solana_rpc_default()
-    return _record_evidence(receipt, "deposit", lambda: solana.verify_transfer(
-        signature=signature, mint=mint, owner=quote_obj["depositAddress"], min_amount=int(quote_obj["amountIn"]),
-        not_after_ms=int(parse_timestamp(quote_obj["deadline"]).timestamp() * 1000), purpose="deposit"))
+    def check():
+        canonical = solana.verify_transfer(
+            signature=signature, mint=mint, owner=quote_obj["depositAddress"],
+            min_amount=int(quote_obj["amountIn"]),
+            not_after_ms=int(parse_timestamp(quote_obj["deadline"]).timestamp() * 1000),
+            purpose="deposit")
+        # Never allow a parser API to overrule a failed finalized Solana RPC proof.
+        if helius is not None and helius is not False and canonical.get("verified"):
+            witness = helius_evidence.ParsedEventsWitness() if helius is True else helius
+            canonical["helius"] = witness.attest(
+                signature=signature, mint=mint, owner=quote_obj["depositAddress"],
+                min_amount=int(quote_obj["amountIn"]), canonical=canonical)
+            canonical["verified"] = bool(canonical["helius"].get("verified"))
+        return canonical
+
+    return _record_evidence(receipt, "deposit", check)
 
 
 def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None,
@@ -1847,6 +1861,8 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_vdep = sub.add_parser("verify-deposit", help="prove from the origin chain that the deposit reached 1Click")
     p_vdep.add_argument("--receipt", required=True)
     p_vdep.add_argument("--tx", help="deposit transaction hash/signature (default: the one submit-deposit recorded)")
+    p_vdep.add_argument("--helius", action="store_true",
+                        help="require Helius Parsed Events for finalized Solana deposits (needs HELIUS_API_KEY)")
 
     p_vset = sub.add_parser("verify-settlement", help="prove the delivery on NEAR, or a refund on the origin chain")
     p_vset.add_argument("--receipt", required=True)
@@ -1944,7 +1960,8 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
         if args.command in ("verify-deposit", "verify-settlement"):
             receipt = _load_receipt(args.receipt)
             if args.command == "verify-deposit":
-                evidence = verify_deposit(receipt, tx_signature=args.tx, solana=solana, bsc=bsc)
+                evidence = verify_deposit(receipt, tx_signature=args.tx, solana=solana,
+                                          bsc=bsc, helius=args.helius)
             else:
                 evidence = verify_settlement(receipt, refund_tx=args.refund_tx, near_views=near_views,
                                              solana=solana, bsc=bsc)
