@@ -134,6 +134,20 @@ def test_the_prompt_converts_slippage_bps_to_percent_without_ambiguity(tmp_path)
     assert "require slippage <= 1%" in system
 
 
+def test_agent_prompt_explains_base_unit_arithmetic_and_inclusive_mandate_caps(tmp_path):
+    _, _, model = pay(tmp_path, program())
+    system, _user = model.prompts[0]
+    # Model guidance does not grant permission; the compiler and mandate checks
+    # remain the authority. But a permitted payment should not be refused by
+    # misreading an inclusive cap as a daily-per-payment maximum.
+    assert "26.5 USDC = 26500000 base units" in system
+    assert "50 USDC per payment is inclusive" in system
+    assert "200 USDC per 24 hours is a separate rolling total" in system
+    assert "30 USDC is within the per-payment limit" in system
+    assert "above 30 USDC requires approval; it is not an automatic refusal" in system
+    assert "If the requested payment fits these limits and the approved recipient" in system
+
+
 def test_agent_prompt_does_not_force_stablecoin_output_above_signed_quote(tmp_path):
     _, _, model = pay(tmp_path, program())
     system, _user = model.prompts[0]
