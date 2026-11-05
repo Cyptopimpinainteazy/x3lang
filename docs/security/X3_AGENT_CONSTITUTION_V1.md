@@ -33,7 +33,7 @@ All privileged execution adapters must check live identity status and capability
 
 ## Not yet implemented
 
-- Cryptographically signed manifest and approval verification.
+- Atomic admission with cryptographic proof verification tied to the current parent registry state (the pure Ed25519 preflight exists, but is not yet wired into durable admission).
 - Durable identity registry, atomic budget reservations and race safety.
 - Full ten-commandment compiler/bytecode binding and runtime adapters.
 - Persistent revocation/termination and Scrapyard lifecycle.
@@ -48,3 +48,20 @@ From the repository root:
 ```bash
 PYTHONPATH=x3-lang python3 -m unittest discover -s x3-lang/tests -p test_agent_constitution.py -v
 ```
+
+## Signed child-admission preflight (Ed25519)
+
+`x3-lang/agent_admission_signed.py` provides `approval_payload` and `verify_signed_admission`. It serializes the exact child and parent manifests as canonical JSON, domain-separated by `X3/CHILD_ADMISSION/1`, and verifies an Ed25519 signature against a **trusted parent/operator registry public key**. It also rejects altered fields, expired signatures, and approvals whose expiry outlives the child. It does **not** sign or admit agents by itself.
+
+The caller must bind the authenticated approval to a trusted parent identity and consume the nonce atomically with identity reservation. Rechecking against a **live parent version/state** and doing budget reservations transactionally are required before issuing any capability. Never let untrusted agents provide `trusted_public_key` themselves.
+
+To run these focused tests in a project-specific virtual environment (the cryptography dependency is explicit):
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r x3-lang/requirements-agent-security.txt
+PYTHONPATH=x3-lang python -m unittest discover -s x3-lang/tests -p 'test_agent_admission_signed.py' -v
+```
+
+No live signer, runtime registration, on-chain authorization, or replay-resistant database transaction has been established by this preflight.
