@@ -524,11 +524,18 @@ impl Contract {
         let mut out = vec![GuardResult {
             guard: "mandate_version".into(),
             ok: record.mandate_version == Some(m.version),
-            detail: format!("intent version {:?}, mandate version {}", record.mandate_version, m.version),
+            detail: format!(
+                "intent version {:?}, mandate version {}",
+                record.mandate_version, m.version
+            ),
         }];
         out.extend(check_mandate(m, &record.policy, now));
         let needed = m.approvals_needed(record.policy.amount.0) as usize;
-        let approval_count = record.approvals.iter().filter(|a| m.terms.approvers.contains(a)).count();
+        let approval_count = record
+            .approvals
+            .iter()
+            .filter(|a| m.terms.approvers.contains(a))
+            .count();
         out.push(GuardResult {
             guard: "mandate_approvals".into(),
             ok: approval_count >= needed,

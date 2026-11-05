@@ -582,22 +582,34 @@ fn the_contract_and_the_adapter_reach_the_same_verdict_on_every_policy() {
     }
 }
 
-
 #[test]
 fn agent_quote_view_must_recheck_revocation_and_never_approve_spending() {
     let mut c = with_mandate(terms());
     let (p, signed_payload, signature) = quote_at(NOW_MS, 25 * USDC);
     ctx(agent(), NOW_MS, one_near());
     c.agent_register_intent(owner(), "preflight_revoked".into(), p);
-    let permitted = c.check_quote(owner(), "preflight_revoked".into(), signed_payload.clone(), signature.clone());
+    let permitted = c.check_quote(
+        owner(),
+        "preflight_revoked".into(),
+        signed_payload.clone(),
+        signature.clone(),
+    );
     assert!(failed(&permitted).is_empty(), "{permitted:?}");
-    assert!(c.get_intent(owner(), "preflight_revoked".into()).unwrap().quote.is_none());
+    assert!(c
+        .get_intent(owner(), "preflight_revoked".into())
+        .unwrap()
+        .quote
+        .is_none());
 
     ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
     c.revoke_mandate(agent());
     let denied = c.check_quote(owner(), "preflight_revoked".into(), signed_payload, signature);
     assert!(failed(&denied).contains(&"mandate_active".into()), "{denied:?}");
-    assert!(c.get_intent(owner(), "preflight_revoked".into()).unwrap().quote.is_none());
+    assert!(c
+        .get_intent(owner(), "preflight_revoked".into())
+        .unwrap()
+        .quote
+        .is_none());
 }
 
 #[test]
@@ -618,7 +630,11 @@ fn agent_quote_view_checks_approvals_mandate_version_and_signature() {
     c.approve_intent(owner(), "preflight_approvals".into());
     let ok = c.check_quote(owner(), "preflight_approvals".into(), text.clone(), sig.clone());
     assert!(failed(&ok).is_empty(), "{ok:?}");
-    assert!(c.get_intent(owner(), "preflight_approvals".into()).unwrap().quote.is_none());
+    assert!(c
+        .get_intent(owner(), "preflight_approvals".into())
+        .unwrap()
+        .quote
+        .is_none());
 
     let tampered = c.check_quote(owner(), "preflight_approvals".into(), text.clone() + " ", sig.clone());
     assert!(failed(&tampered).contains(&"quote_signature".into()), "{tampered:?}");
@@ -633,8 +649,10 @@ fn agent_quote_view_checks_approvals_mandate_version_and_signature() {
 fn agent_quote_view_refuses_unregistered_and_owner_only_intents() {
     let (p, text, sig) = quote_at(NOW_MS, 25 * USDC);
     let mut c = with_mandate(terms());
-    let missing = c.check_quote(owner(), "does_not_exist".into(), text.clone(), sig.clone());
+    let missing = c.check_agent_quote(owner(), "does_not_exist".into(), text.clone(), sig.clone());
     assert!(failed(&missing).contains(&"intent_registered".into()), "{missing:?}");
+    let legacy_missing = panics(|| c.check_quote(owner(), "does_not_exist".into(), text.clone(), sig.clone()));
+    assert!(legacy_missing.contains("no intent"), "{legacy_missing}");
 
     ctx(owner(), NOW_MS, one_near());
     c.register_intent("owner_only".into(), p);
