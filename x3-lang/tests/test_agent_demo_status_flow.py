@@ -54,6 +54,7 @@ cmd_deposit "$X3_TEST_SIGNATURE" "$X3_TEST_REFUND"
         "X3_TEST_PROOF": str(proof),
         "X3_TEST_SIGNATURE": SIGNATURE,
         "X3_TEST_REFUND": refund,
+        "CONTRACT": "test-contract.near",
         "X3_AGENT_RUN_DIR": str(tmp_path),
     }
     result = subprocess.run(["bash", "-c", shell], env=env, text=True,
