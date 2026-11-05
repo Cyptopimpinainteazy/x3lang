@@ -179,6 +179,7 @@ CHAIN_TO_BLOCKCHAIN = {
     "arbitrum": "arb",
     "polygon": "pol",
     "bitcoin": "btc",
+    "bsc": "bsc",
 }
 
 # X3 asset names that 1Click lists under another symbol. NEAR is deposited and delivered as
@@ -953,10 +954,8 @@ class NearRpc:
         self.timeout = timeout
 
     def account_exists(self, account_id: str) -> bool:
-        if _IMPLICIT_ACCOUNT_RE.fullmatch(account_id):
-            # An implicit account is its key; it exists as soon as it is funded, so a deposit
-            # to it is valid before any transaction has touched it.
-            return True
+        # A syntactically valid implicit ID is not necessarily initialized on-chain.
+        # The 1Click destination requires a real account; always ask the RPC.
         body = json.dumps({
             "jsonrpc": "2.0",
             "id": "x3-near-intents",

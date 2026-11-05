@@ -498,11 +498,72 @@ def test_existing_recipient_is_recorded_as_a_passed_guard(tmp_path):
     assert {"guard": "recipient_account_exists", "ok": True, "account": "x3-demo.near"} in result["guards"]
 
 
-def test_implicit_accounts_are_not_looked_up():
+def test_uninitialized_implicit_accounts_require_real_chain_lookup():
     rpc, calls = near_rpc(missing={"a" * 64})
-    assert rpc.account_exists("a" * 64)
-    assert rpc.account_exists("0x" + "b" * 40)
-    assert calls.calls == []
+    assert rpc.account_exists("a" * 64) is False
+    assert rpc.account_exists("0x" + "b" * 40) is True
+    assert [c["body"]["params"]["account_id"] for c in calls.calls] == ["a" * 64, "0x" + "b" * 40]
+
+
+def test_uninitialized_implicit_near_recipient_refuses_before_1click(tmp_path):
+    source = EXAMPLE.read_text()
+    assert "x3-demo.near" in source
+    account = "a" * 64
+    path = tmp_path / "implicit.x3"
+    path.write_text(source.replace("x3-demo.near", account))
+    rpc, calls = near_rpc(missing={account})
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.quote(str(path), client=ni.OneClickClient(jwt="", transport=transport),
+                 tokens_path=str(TOKENS), nonce_store=ni.NonceStore(str(tmp_path / "n.json")),
+                 live=False, rpc=rpc, now=NOW)
+    assert err.value.code == "X3_NEAR_ACCOUNT_UNKNOWN"
+    assert any(c["body"]["params"]["account_id"] == account for c in calls.calls)
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
+
+
+def test_bsc_refund_receiver_requires_a_complete_evm_address():
+    # Other compiler examples allow short EVM placeholders; BSC funding is real money.
+    assert ni.registry.is_valid_receiver("bsc", "0x" + "a" * 40)
+    assert not ni.registry.is_valid_receiver("bsc", "0x" + "a" * 4)
+    assert not ni.registry.is_valid_receiver("bsc", "0x" + "z" * 40)
+    assert ni.registry.is_valid_receiver("ethereum", "0xA1")
+
+
+def test_bsc_bnb_to_near_wnear_has_explicit_origin_and_refund(tmp_path):
+    # Asset IDs checked against actual /v0/tokens. This is a unit test, not a live transfer.
+    bnb_id = "nep245:v2_1.omni.hot.tg:56_11111111111111111111"
+    near_id = "nep141:wrap.near"
+    tokens = json.loads(TOKENS.read_text()) + [
+        {"blockchain": "bsc", "symbol": "BNB", "assetId": bnb_id, "decimals": 18}
+    ]
+    tokens_path = tmp_path / "tokens.json"
+    tokens_path.write_text(json.dumps(tokens))
+    src = "0x" + "b" * 40
+    path = tmp_path / "bnb.x3"
+    path.write_text("\n".join((
+        "intent bsc_to_near {",
+        f"    from Bsc.BNB amount 20000000000000000 receiver {src}",
+        "    to Near.wNEAR receiver x3-demo.near",
+        "    route {",
+        "        bridge NearIntents Bsc.BNB -> Near.wNEAR;",
+        "    }",
+        "    require slippage <= 1%",
+        "    require fees <= 100 bps",
+        "    require nonce unused bsc_near_test_1",
+        "    timeout 10m refund Bsc.BNB",
+        "    on_fail rollback",
+        "}",
+    )))
+    planned = ni.plan(str(path), client=ni.OneClickClient(jwt="", transport=api()),
+                      tokens_path=str(tokens_path), now=NOW)
+    request = planned["quote_request"]
+    assert request["originAsset"] == bnb_id
+    assert request["destinationAsset"] == near_id
+    assert request["refundTo"] == src
+    assert request["amount"] == "20000000000000000"
+    assert request["recipient"] == "x3-demo.near"
+    assert request["dry"] is True
 
 
 def test_an_rpc_that_cannot_answer_fails_closed():
