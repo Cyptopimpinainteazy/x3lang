@@ -206,10 +206,10 @@ def test_settled_end_to_end_through_the_cli(tmp_path, capsys):
     path, chain, rpc = live_receipt(tmp_path)
     client = ni.OneClickClient(jwt="k", transport=api(statuses=[_status("SUCCESS", amountOut="24950000")]))
 
-    assert ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG, "--receipt", str(path)], client=client) == 0
-    assert json.loads(path.read_text())["deposit"]["tx_hash"] == DEPOSIT_SIG
-
     sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
+    assert ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
+                    "--receipt", str(path)], client=client, solana=sol) == 0
+    assert json.loads(path.read_text())["deposit"]["tx_hash"] == DEPOSIT_SIG
     assert ni.main(["verify-deposit", "--receipt", str(path)], solana=sol) == 0
 
     # Before the payout lands, settlement is not proven, and the receipt says so.
@@ -288,6 +288,77 @@ def test_evidence_needs_a_live_receipt_and_a_known_tx(tmp_path):
     with pytest.raises(ni.NearIntentsError) as err:
         ni.verify_deposit(receipt, tx_signature=DEPOSIT_SIG, solana=solana({})[0])
     assert err.value.code == "X3_EVIDENCE_UNSUPPORTED"
+
+
+class SubmitSpy:
+    """Observe requests to the external 1Click boundary. No network, no funds."""
+    def __init__(self):
+        self.calls = []
+
+    def submit_deposit(self, address, signature):
+        self.calls.append((address, signature))
+        return {"accepted": True}
+
+
+def test_submit_deposit_requires_receipt_before_external_request(capsys):
+    client = SubmitSpy()
+    with pytest.raises(SystemExit) as exc:
+        ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG], client=client)
+    assert exc.value.code == 2  # argparse fails closed before constructing the HTTP request.
+    assert client.calls == []
+    assert "--receipt" in capsys.readouterr().err
+
+
+def test_submit_deposit_mismatch_cannot_notify_provider(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    client = SubmitSpy()
+    before = path.read_bytes()
+    rc = ni.main(["submit-deposit", "--deposit-address", SENDER,
+                  "--tx-hash", DEPOSIT_SIG, "--receipt", str(path)], client=client)
+    assert rc == 1
+    assert client.calls == []
+    assert path.read_bytes() == before
+
+
+def test_submit_deposit_rejects_unverified_solana_transfer_before_notification(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    client = SubmitSpy()
+    # The transaction arrived but transferred one base unit less than the signed amount.
+    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=24_999_999)})
+    rc = ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
+                  "--receipt", str(path)], client=client, solana=sol)
+    assert rc == 1
+    assert client.calls == []
+    assert "tx_hash" not in json.loads(path.read_text())["deposit"]
+
+
+def test_submit_deposit_verifies_finalized_solana_transfer_before_notification(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    client = SubmitSpy()
+    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
+    rc = ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
+                  "--receipt", str(path)], client=client, solana=sol)
+    assert rc == 0
+    assert client.calls == [(DEPOSIT, DEPOSIT_SIG)]
+    receipt = json.loads(path.read_text())
+    assert receipt["deposit"]["tx_hash"] == DEPOSIT_SIG
+    assert receipt["evidence"]["deposit"]["verified"] is True
+
+
+@pytest.mark.parametrize("tamper", ["signed_amount", "deposit_amount"])
+def test_submit_deposit_rejects_modified_quote_or_receipt_before_provider(tmp_path, tamper):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    if tamper == "signed_amount":
+        receipt["quote_response"]["quote"]["amountIn"] = "1"
+    else:
+        receipt["deposit"]["amount"] = "1"
+    path.write_text(json.dumps(receipt))
+    client = SubmitSpy()
+    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
+    assert ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
+                    "--receipt", str(path)], client=client, solana=sol) == 1
+    assert client.calls == []
 
 
 def test_submit_deposit_refuses_another_receipts_address(tmp_path):
