@@ -4,6 +4,21 @@ use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise};
 use std::collections::BTreeMap;
 
+// JSON must encode NEAR yocto amounts as decimal strings. Bare u128
+// serializes unreliably for values above the serde_json numeric range.
+mod u128_decimal {
+    use near_sdk::serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &u128, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&value.to_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u128, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        raw.parse::<u128>().map_err(near_sdk::serde::de::Error::custom)
+    }
+}
+
 const MIN_LOCK_NS: u64 = 300_000_000_000;
 const MAX_LOCK_NS: u64 = 7 * 24 * 60 * 60 * 1_000_000_000;
 const MIN_NEAR_DEPOSIT: u128 = 1_000_000_000_000_000_000_000; // 0.001 NEAR.
@@ -18,11 +33,33 @@ pub enum SwapState {
 }
 
 #[near(serializers = [borsh, json])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FundingWindowState {
+    Pending,
+    Funded,
+    NotFunded,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct FundingWindow {
+    pub initiator: AccountId,
+    pub recipient: AccountId,
+    pub hashlock: Vec<u8>,
+    #[serde(with = "u128_decimal")]
+    pub amount: u128,
+    pub deadline_ns: u64,
+    pub expiry_ns: u64,
+    pub state: FundingWindowState,
+}
+
+#[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Swap {
     pub initiator: AccountId,
     pub recipient: AccountId,
     pub hashlock: Vec<u8>,
+    #[serde(with = "u128_decimal")]
     pub amount: u128,
     pub expires_at_ns: u64,
     pub state: SwapState,
@@ -31,6 +68,8 @@ pub struct Swap {
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct NativeNearHtlc {
+    registrar: AccountId,
+    windows: BTreeMap<String, FundingWindow>,
     swaps: BTreeMap<String, Swap>,
     credits: BTreeMap<AccountId, u128>,
     withdrawals_inflight: BTreeMap<AccountId, u128>,
@@ -42,11 +81,107 @@ impl NativeNearHtlc {
     #[init]
     pub fn new() -> Self {
         Self {
+            registrar: env::predecessor_account_id(),
+            windows: BTreeMap::new(),
             swaps: BTreeMap::new(),
             credits: BTreeMap::new(),
             withdrawals_inflight: BTreeMap::new(),
             total_liability: 0,
         }
+    }
+
+    /// Testnet pilot: trusted registrar reserves a unique swap identity and a
+    /// last funding deadline on-chain BEFORE the liquidity provider funds it.
+    /// Registrar/contract storage economics and deployment code identity
+    /// require independent review before any real value is permitted.
+    pub fn register_window(
+        &mut self,
+        id: String,
+        initiator: AccountId,
+        recipient: AccountId,
+        hashlock: Base64VecU8,
+        amount: U128,
+        deadline_ns: u64,
+        expiry_ns: u64,
+    ) {
+        assert_eq!(env::predecessor_account_id(), self.registrar, "registrar only");
+        assert!(
+            id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()),
+            "bad swap id"
+        );
+        assert!(
+            !self.swaps.contains_key(&id) && !self.windows.contains_key(&id),
+            "id reserved"
+        );
+        assert_eq!(hashlock.0.len(), 32, "hashlock length");
+        assert!(hashlock.0.iter().any(|b| *b != 0), "zero hashlock");
+        assert!(amount.0 >= MIN_NEAR_DEPOSIT, "amount too low");
+        assert_ne!(recipient, env::current_account_id(), "bad recipient");
+        let now = env::block_timestamp();
+        assert!(deadline_ns >= now.saturating_add(MIN_LOCK_NS), "deadline too close");
+        assert!(expiry_ns > deadline_ns.saturating_add(MIN_LOCK_NS), "unsafe expiry");
+        assert!(expiry_ns <= now.saturating_add(MAX_LOCK_NS), "expiry too far");
+        self.windows.insert(
+            id,
+            FundingWindow {
+                initiator,
+                recipient,
+                hashlock: hashlock.0,
+                amount: amount.0,
+                deadline_ns,
+                expiry_ns,
+                state: FundingWindowState::Pending,
+            },
+        );
+    }
+
+    /// The provider can only fund the exact reserved terms before deadline.
+    #[payable]
+    pub fn fund_window(&mut self, id: String) {
+        let window = self.windows.get_mut(&id).expect("unknown funding window");
+        assert_eq!(window.state, FundingWindowState::Pending, "not pending");
+        assert!(env::block_timestamp() < window.deadline_ns, "funding deadline passed");
+        assert_eq!(
+            env::predecessor_account_id(),
+            window.initiator,
+            "wrong funding provider"
+        );
+        let amount = env::attached_deposit().as_yoctonear();
+        assert_eq!(amount, window.amount, "funding amount mismatch");
+        self.total_liability = self.total_liability.checked_add(amount).expect("liability overflow");
+        self.swaps.insert(
+            id,
+            Swap {
+                initiator: window.initiator.clone(),
+                recipient: window.recipient.clone(),
+                hashlock: window.hashlock.clone(),
+                amount,
+                expires_at_ns: window.expiry_ns,
+                state: SwapState::Locked,
+            },
+        );
+        window.state = FundingWindowState::Funded;
+    }
+
+    /// Never-funding can be finalized once the contract itself forbids late funding.
+    /// This is an on-chain terminal state; RPC observations alone do NOT prove it.
+    pub fn close_unfunded(&mut self, id: String) {
+        let window = self.windows.get_mut(&id).expect("unknown funding window");
+        assert_eq!(window.state, FundingWindowState::Pending, "window already terminal");
+        assert!(
+            env::block_timestamp() >= window.deadline_ns,
+            "funding window still open"
+        );
+        assert!(!self.swaps.contains_key(&id), "already funded");
+        window.state = FundingWindowState::NotFunded;
+    }
+
+    pub fn window_state(&self, id: String) -> Option<FundingWindowState> {
+        self.windows.get(&id).map(|w| w.state.clone())
+    }
+
+    pub fn get_window(&self, id: String) -> Option<FundingWindow> {
+        self.windows.get(&id).cloned()
     }
 
     #[payable]
@@ -55,7 +190,10 @@ impl NativeNearHtlc {
             id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()),
             "swap id must be 32 bytes in hexadecimal"
         );
-        assert!(!self.swaps.contains_key(&id), "swap id already used");
+        assert!(
+            !self.swaps.contains_key(&id) && !self.windows.contains_key(&id),
+            "swap id already used"
+        );
         assert_eq!(hashlock.0.len(), 32, "hashlock must be 32 bytes");
         assert!(hashlock.0.iter().any(|b| *b != 0), "zero hashlock prohibited");
         let current = env::block_timestamp();
@@ -194,6 +332,150 @@ mod tests {
             START + 600_000_000_000,
         );
     }
+    #[test]
+    fn funding_window_json_view_has_expected_wire_fields() {
+        let mut c = NativeNearHtlc::new();
+        set("registrar.testnet", 0, START);
+        // Separate deployer from registrar is tested elsewhere; test the wire view.
+        // Contract was created in the previous VM context, so this uses its
+        // deployed registrar identity from construction, not an external key.
+        let registrar = c.registrar.to_string();
+        set(&registrar, 0, START);
+        c.register_window(
+            swap_id(),
+            "lp.testnet".parse().unwrap(),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(&secret())),
+            U128(10u128.pow(24)),
+            START + 600_000_000_000,
+            START + 1200_000_000_000,
+        );
+        let json = near_sdk::serde_json::to_value(c.get_window(swap_id()).unwrap()).unwrap();
+        assert_eq!(json["state"], "Pending");
+        assert!(json["deadline_ns"].is_number());
+        assert!(json["hashlock"].is_array());
+        assert_eq!(json["amount"], 10u128.pow(24).to_string());
+    }
+
+    #[test]
+    fn can_never_close_funding_window_early_or_fund_at_deadline() {
+        set("registrar.testnet", 0, START);
+        let mut c = NativeNearHtlc::new();
+        let deadline = START + 600_000_000_000;
+        c.register_window(
+            swap_id(),
+            "lp.testnet".parse().unwrap(),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(&secret())),
+            U128(10u128.pow(24)),
+            deadline,
+            START + 1200_000_000_000,
+        );
+        set("anyone.testnet", 0, deadline - 1);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.close_unfunded(swap_id()))).is_err());
+        set("lp.testnet", 10u128.pow(24), deadline);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
+        set("anyone.testnet", 0, deadline);
+        c.close_unfunded(swap_id());
+        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::NotFunded));
+        assert_eq!(c.liability().0, 0);
+    }
+
+    #[test]
+    fn existing_escrow_json_amount_is_exact_decimal_string() {
+        let mut c = NativeNearHtlc::new();
+        lock(&mut c);
+        let json = near_sdk::serde_json::to_value(c.get(swap_id()).unwrap()).unwrap();
+        assert_eq!(json["amount"], 10u128.pow(24).to_string());
+    }
+
+    #[test]
+    fn registered_window_can_be_irreversibly_closed_when_never_funded() {
+        set("registrar.testnet", 0, START);
+        let mut c = NativeNearHtlc::new();
+        set("registrar.testnet", 0, START);
+        c.register_window(
+            swap_id(),
+            "lp.testnet".parse().unwrap(),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(&secret())),
+            U128(10u128.pow(24)),
+            START + 600_000_000_000,
+            START + 1200_000_000_000,
+        );
+        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::Pending));
+        set("anyone.testnet", 0, START + 600_000_000_000);
+        c.close_unfunded(swap_id());
+        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::NotFunded));
+        assert!(c.get(swap_id()).is_none());
+        set("lp.testnet", 10u128.pow(24), START + 600_000_000_001);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
+            swap_id(),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(&secret())),
+            START + 1200_000_000_000
+        )))
+        .is_err());
+        assert_eq!(c.liability().0, 0);
+    }
+
+    #[test]
+    fn funded_window_cannot_be_closed_as_unfunded() {
+        set("registrar.testnet", 0, START);
+        let mut c = NativeNearHtlc::new();
+        set("registrar.testnet", 0, START);
+        c.register_window(
+            swap_id(),
+            "lp.testnet".parse().unwrap(),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(&secret())),
+            U128(10u128.pow(24)),
+            START + 600_000_000_000,
+            START + 1200_000_000_000,
+        );
+        set("lp.testnet", 10u128.pow(24), START + 1);
+        c.fund_window(swap_id());
+        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::Funded));
+        assert_eq!(c.get(swap_id()).unwrap().amount, 10u128.pow(24));
+        set("anyone.testnet", 0, START + 600_000_000_000);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.close_unfunded(swap_id()))).is_err());
+    }
+
+    #[test]
+    fn unauthorized_registrar_and_wrong_lp_or_amount_rejected() {
+        set("registrar.testnet", 0, START);
+        let mut c = NativeNearHtlc::new();
+        set("stranger.testnet", 0, START);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.register_window(
+                swap_id(),
+                "lp.testnet".parse().unwrap(),
+                "alice.testnet".parse().unwrap(),
+                Base64VecU8(env::sha256(&secret())),
+                U128(10u128.pow(24)),
+                START + 600_000_000_000,
+                START + 1200_000_000_000
+            )))
+            .is_err()
+        );
+        set("registrar.testnet", 0, START);
+        c.register_window(
+            swap_id(),
+            "lp.testnet".parse().unwrap(),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(&secret())),
+            U128(10u128.pow(24)),
+            START + 600_000_000_000,
+            START + 1200_000_000_000,
+        );
+        set("attacker.testnet", 10u128.pow(24), START + 1);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
+        set("lp.testnet", 10u128.pow(24) - 1, START + 2);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
+        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::Pending));
+    }
+
     #[test]
     fn locks_native_near_and_records_payout_owner() {
         let mut c = NativeNearHtlc::new();
