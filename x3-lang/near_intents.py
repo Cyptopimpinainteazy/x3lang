@@ -1449,12 +1449,37 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
     quote_obj = _signed_quote(receipt)
     leg = receipt["leg"]
     if refund_tx:
+        # A local receipt's leg/refund target is editable. Authenticate the live
+        # provider quote and derive the recipient only from its signed request.
+        response = receipt.get("quote_response")
+        valid, reason = check_oneclick_quote_signature(response)
+        if not valid:
+            raise NearIntentsError("X3_NEAR_INVALID_SIGNATURE",
+                                   f"refund quote signature failed: {reason}")
+        signed_request = response.get("quoteRequest") or {}
+        saved_request = receipt.get("quote_request") or {}
+        refund_target = signed_request.get("refundTo")
+        if (signed_request.get("dry") is not False
+                or signed_request.get("refundType") != "ORIGIN_CHAIN"
+                or not isinstance(refund_target, str) or not refund_target
+                or saved_request.get("refundTo") != refund_target
+                or leg.get("refund_to") != refund_target
+                or saved_request.get("originAsset") != signed_request.get("originAsset")
+                or receipt.get("signed_payload") != signed_quote_payload(response)
+                or receipt.get("quote_hash") != oneclick_quote_hash(response)
+                or receipt.get("quote_response_sha256") != _sha256_json(response)):
+            raise NearIntentsError("X3_EVIDENCE_BINDING",
+                                   "refund destination or quote receipt differs from the authenticated live quote")
+        if quote_obj.get("refundFee") is None:
+            raise NearIntentsError("X3_EVIDENCE_BINDING", "signed quote has no refund fee")
         mint = _solana_mint(receipt)
-        expected = int(quote_obj["amountIn"]) - int(quote_obj.get("refundFee") or 0)
+        expected = int(quote_obj["amountIn"]) - int(quote_obj["refundFee"])
+        if expected <= 0:
+            raise NearIntentsError("X3_EVIDENCE_BINDING", "invalid signed refund amount")
         deposit_slot = ((receipt.get("evidence") or {}).get("deposit") or {}).get("slot")
         solana = solana or solana_rpc_default()
         return _record_evidence(receipt, "refund", lambda: solana.verify_transfer(
-            signature=refund_tx, mint=mint, owner=leg["refund_to"], min_amount=expected,
+            signature=refund_tx, mint=mint, owner=refund_target, min_amount=expected,
             not_after_ms=None, purpose="refund", after_slot=deposit_slot))
     if leg["destination"]["chain"] != "near":
         raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"delivery evidence is implemented for NEAR destinations, not {leg['destination']['chain']}")

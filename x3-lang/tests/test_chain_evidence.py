@@ -246,6 +246,33 @@ def test_refunded_end_to_end(tmp_path):
     assert receipt["verified_outcome"] == "refunded"
 
 
+def test_refund_cannot_use_mutated_unsigned_recipient(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    # The signed 1Click quote still refunds to SOL_ADDR.
+    receipt["leg"]["refund_to"] = SENDER
+    sol, fake = solana({
+        REFUND_SIG: spl_tx(REFUND_SIG, to=SENDER, sender=DEPOSIT, amount=25_000_000 - 244_425),
+    })
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)
+    assert error.value.code in ("X3_EVIDENCE_BINDING", "X3_NEAR_INVALID_SIGNATURE")
+    assert fake.calls == []
+
+
+def test_refund_cannot_use_mutated_saved_quote_refund_target(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["quote_request"]["refundTo"] = SENDER
+    sol, fake = solana({REFUND_SIG: spl_tx(
+        REFUND_SIG, to=SOL_ADDR, sender=DEPOSIT, amount=25_000_000 - 244_425,
+    )})
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)
+    assert error.value.code == "X3_EVIDENCE_BINDING"
+    assert fake.calls == []
+
+
 def test_a_refund_from_before_the_deposit_proves_nothing(tmp_path):
     path, _, _ = live_receipt(tmp_path)
     receipt = json.loads(path.read_text())

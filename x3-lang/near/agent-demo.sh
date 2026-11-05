@@ -8,7 +8,7 @@
 #   x3-lang/near/agent-demo.sh pay-dry          a real model writes and checks one allowed payment
 #   x3-lang/near/agent-demo.sh pay-live <sha>   owner-approved live quote for the allowed program
 #   x3-lang/near/agent-demo.sh register         agent registers + accepts the live quote on NEAR
-#   x3-lang/near/agent-demo.sh deposit <tx-sig> track and verify the owner's Solana deposit
+#   x3-lang/near/agent-demo.sh deposit <tx-sig> [refund-tx-sig] track and verify settlement or refund
 #   x3-lang/near/agent-demo.sh refuse           send a refused program; x3-guard fails it on chain
 #   x3-lang/near/agent-demo.sh revoke           owner revokes the mandate
 #   x3-lang/near/agent-demo.sh show             where everything is
@@ -149,23 +149,42 @@ cmd_register() {
 
 cmd_deposit() {
   load_state
-  local sig="${1:-}"
+  local sig="${1:-}" refund_sig="${2:-}"
   [[ "$sig" =~ ^[1-9A-HJ-NP-Za-km-z]{64,90}$ ]] || die "give the Solana transaction signature."
-  adapter submit-deposit --deposit-address "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deposit"]["address"])' "$RECEIPT")" \
-    --tx-hash "$sig" --receipt "$RECEIPT"
+  [[ -f "$RECEIPT" ]] || die "run '$0 pay-live <sha>' first."
+  local deposit_address
+  deposit_address="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deposit"]["address"])' "$RECEIPT")"
+  adapter submit-deposit --deposit-address "$deposit_address" --tx-hash "$sig" --receipt "$RECEIPT"
+
   local status_code=0
-  adapter status --deposit-address "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deposit"]["address"])' "$RECEIPT")" \
-    --wait --interval 10 --max-wait 1800 --receipt "$RECEIPT" || status_code=$?
-  if [[ "$status_code" -ne 0 ]]; then
-    info "Swap did not settle successfully (status exit $status_code). Preserve the receipt."
-    info "For a refund, provide its Solana signature to verify-settlement --refund-tx before any on-chain outcome call."
-    return "$status_code"
+  adapter status --deposit-address "$deposit_address" --wait --interval 10 --max-wait 1800 \
+    --receipt "$RECEIPT" || status_code=$?
+  case "$status_code" in
+    0) info "1Click reports settled; checking independent chain evidence." ;;
+    2) info "1Click reports refunded; independent refund proof is required." ;;
+    3) die "1Click reports failed. Do not record a successful on-chain outcome." ;;
+    *) die "1Click outcome is not terminal (exit $status_code); retry after finality." ;;
+  esac
+
+  # Never record the on-chain outcome until the source deposit is proven.
+  adapter verify-deposit --receipt "$RECEIPT" || die "Solana deposit is not independently verified."
+
+  local proof_code=0
+  if [[ "$status_code" == 2 ]]; then
+    if [[ -z "$refund_sig" ]]; then
+      read -rp "  Finalized Solana refund transaction signature: " refund_sig
+    fi
+    [[ "$refund_sig" =~ ^[1-9A-HJ-NP-Za-km-z]{64,90}$ ]] || die "a valid Solana refund signature is required."
+    adapter verify-settlement --receipt "$RECEIPT" --refund-tx "$refund_sig" || proof_code=$?
+    [[ "$proof_code" == 2 ]] || die "Refund is not independently proven; no outcome was recorded."
+  else
+    adapter verify-settlement --receipt "$RECEIPT" || proof_code=$?
+    [[ "$proof_code" == 0 ]] || die "NEAR delivery is not independently proven; no outcome was recorded."
   fi
-  adapter verify-deposit --receipt "$RECEIPT"
-  adapter verify-settlement --receipt "$RECEIPT"
-  confirm "Record the outcome on NEAR."
+
+  confirm "Record the verified $([[ "$status_code" == 2 ]] && echo refund || echo settlement) on NEAR."
   bash -c "$(guard_cmd outcome)"
-  info "Permitted payment is now on chain with verification evidence."
+  info "Outcome recorded only after source and terminal evidence checks."
 }
 
 cmd_refuse() {
@@ -220,7 +239,7 @@ case "${1:-}" in
   pay-dry) cmd_pay_dry ;;
   pay-live) shift; cmd_pay_live "${1:-}" ;;
   register) cmd_register ;;
-  deposit) shift; cmd_deposit "${1:-}" ;;
+  deposit) shift; cmd_deposit "${1:-}" "${2:-}" ;;
   refuse) cmd_refuse ;;
   revoke) cmd_revoke ;;
   show) cmd_show ;;
