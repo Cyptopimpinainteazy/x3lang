@@ -244,6 +244,10 @@ impl std::fmt::Debug for VM {
 
 impl VM {
     pub fn new(code: Vec<u8>, cfg: VMConfig, initial_gas: u128) -> Self {
+        assert!(
+            cfg.max_registers >= 2,
+            "X3VM requires at least two architectural registers"
+        );
         let code_deposit = code.len() as u128;
         let gas = initial_gas.saturating_sub(code_deposit);
         VM {
@@ -321,6 +325,10 @@ impl VM {
         initial_gas: u128,
         bridge_config: BridgeConfig,
     ) -> ExecResult<Self> {
+        assert!(
+            cfg.max_registers >= 2,
+            "X3VM requires at least two architectural registers"
+        );
         let bridge: Box<dyn crate::bridge::BridgeAdapter> = match bridge_config.mode {
             BackendMode::DryRun => Box::new(crate::bridge::DryRunBridge::default()),
             BackendMode::Production => bridge_config.adapter.ok_or_else(|| {
@@ -351,7 +359,8 @@ impl VM {
         // support and an opcode the artifact's version does not contain (TICKET-097), and the PHASE
         // 45 binding mismatch — render a sentence here, and the rest fall back to their own `Debug`
         // spelling inside `Display`, so every existing message is unchanged.
-        crate::verifier::verify(&self.code).map_err(|err| ExecError::Panic(format!("X3_VERIFY_FAILED: {err}")))?;
+        crate::verifier::verify_with_register_limit(&self.code, self.config.max_registers)
+            .map_err(|err| ExecError::Panic(format!("X3_VERIFY_FAILED: {err}")))?;
         self.execute_unverified()
     }
 

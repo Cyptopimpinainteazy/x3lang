@@ -53,6 +53,12 @@ pub type GasCost = u128;
 /// If no handler exists, return `false`.
 fn try_dispatch_handler(vm: &mut VM) -> bool {
     if let Some(handler_pc) = vm.state.failure_handlers.pop() {
+        let Ok(boundaries) = crate::verifier::verify(&vm.code) else {
+            return false;
+        };
+        if !boundaries.contains(&handler_pc) {
+            return false;
+        }
         vm.state.pc = handler_pc;
         true
     } else {
@@ -180,13 +186,16 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             META_NONCE => {
                 // LOAD_RAI: R[a] = mem[R[b] + imm16]
                 let (ra, rb, imm) = decode_reg_reg_imm(operand);
-                let addr = (vm.state.registers[rb as usize] as usize).wrapping_add(imm as usize);
-                if addr + 16 > vm.state.memory.len() {
-                    if try_dispatch_handler(vm) {
-                        continue;
+                let addr = match checked_memory_address(vm.state.registers[rb as usize], imm, 16, vm.state.memory.len())
+                {
+                    Ok(addr) => addr,
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
                     }
-                    return Err(ExecError::MemoryOutOfBounds);
-                }
+                };
                 // Read 16 bytes and produce u128 (little endian)
                 let mut val = 0u128;
                 for i in 0..16 {
@@ -197,13 +206,16 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             META_CHAIN_ID => {
                 // STORE_RAI
                 let (ra, rb, imm) = decode_reg_reg_imm(operand);
-                let addr = (vm.state.registers[rb as usize] as usize).wrapping_add(imm as usize);
-                if addr + 16 > vm.state.memory.len() {
-                    if try_dispatch_handler(vm) {
-                        continue;
+                let addr = match checked_memory_address(vm.state.registers[rb as usize], imm, 16, vm.state.memory.len())
+                {
+                    Ok(addr) => addr,
+                    Err(error) => {
+                        if try_dispatch_handler(vm) {
+                            continue;
+                        }
+                        return Err(error);
                     }
-                    return Err(ExecError::MemoryOutOfBounds);
-                }
+                };
                 let val = vm.state.registers[ra as usize];
                 for i in 0..16 {
                     vm.state.memory[addr + i] = ((val >> (i * 8)) & 0xFF) as u8;
@@ -317,6 +329,16 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
             CALL => {
                 // CALL - push return and jump
                 let addr = operand as usize;
+                if vm.state.call_stack.len() >= vm.config.max_stack {
+                    if try_dispatch_handler(vm) {
+                        continue;
+                    }
+                    return Err(ExecError::Panic(format!(
+                        "X3_CALL_STACK_LIMIT: call depth {} reached max_stack {}",
+                        vm.state.call_stack.len(),
+                        vm.config.max_stack
+                    )));
+                }
                 vm.state.call_stack.push(pc_next);
                 vm.state.pc = addr;
                 continue;
@@ -490,6 +512,13 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 // if any subsequent opcode within this scope panics, the VM
                 // jumps to the handler target before aborting.
                 let (ra, _rb, _imm) = decode_reg_reg_imm(operand);
+                if vm.state.failure_handlers.len() >= vm.config.max_stack {
+                    return Err(ExecError::Panic(format!(
+                        "X3_FAILURE_HANDLER_DEPTH: handler depth {} reached max_stack {}",
+                        vm.state.failure_handlers.len(),
+                        vm.config.max_stack
+                    )));
+                }
                 let handler_pc = vm.state.registers[ra as usize] as usize;
                 vm.state.failure_handlers.push(handler_pc);
             }
@@ -1704,6 +1733,16 @@ fn record_measurement(vm: &mut VM, reply: &[u8]) {
     }
 }
 
+fn checked_memory_address(base: u128, offset: u16, width: usize, memory_len: usize) -> Result<usize, ExecError> {
+    let base = usize::try_from(base).map_err(|_| ExecError::MemoryOutOfBounds)?;
+    let addr = base.checked_add(offset as usize).ok_or(ExecError::MemoryOutOfBounds)?;
+    let end = addr.checked_add(width).ok_or(ExecError::MemoryOutOfBounds)?;
+    if end > memory_len {
+        return Err(ExecError::MemoryOutOfBounds);
+    }
+    Ok(addr)
+}
+
 fn bytes_to_register(bytes: &[u8]) -> u128 {
     let mut value = 0u128;
     for (idx, byte) in bytes.iter().take(16).enumerate() {
@@ -1719,7 +1758,7 @@ fn read_u16_le(bytes: &[u8], idx: usize) -> Option<u16> {
     Some((bytes[idx] as u16) | ((bytes[idx + 1] as u16) << 8))
 }
 
-fn decode_regtriplet(operand: u16) -> (u8, u8, u8) {
+pub(crate) fn decode_regtriplet(operand: u16) -> (u8, u8, u8) {
     // operand packs three 5-bit registers: r0[0..4], r1[5..9], r2[10..14]
     let ra = (operand & 0x1F) as u8;
     let rb = ((operand >> 5) & 0x1F) as u8;
@@ -1727,7 +1766,7 @@ fn decode_regtriplet(operand: u16) -> (u8, u8, u8) {
     (ra, rb, rc)
 }
 
-fn decode_reg_reg_imm(operand: u16) -> (u8, u8, u16) {
+pub(crate) fn decode_reg_reg_imm(operand: u16) -> (u8, u8, u16) {
     // operand: low 5 bits ra, next 5 bits rb, top 6 bits imm6 - extend
     let ra = (operand & 0x1F) as u8;
     let rb = ((operand >> 5) & 0x1F) as u8;
@@ -2009,7 +2048,7 @@ mod tests {
             instr(0xFF, 0),                // HALT
         ]
         .concat();
-        let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), u128::MAX);
         vm.state.registers[0] = 5;
         execute(&mut vm).unwrap();
         assert_eq!(vm.state.registers[0], 0, "Loop counter should decrement to 0");
@@ -2313,6 +2352,98 @@ mod tests {
         assert_eq!(
             vm.state.registers[0], 42,
             "ON_FAIL handler should catch REQUIRE failure and set r0 to marker value"
+        );
+    }
+
+    #[test]
+    fn an_invalid_failure_handler_must_not_turn_failure_into_success() {
+        let code: &[u8] = &[
+            instr(ON_FAIL, enc_rri(1, 0, 0)),
+            instr_flags(REQUIRE, REQUIRE_COMPARE_GE, 1),
+            instr(HALT, 0),
+        ]
+        .concat();
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), 1_000_000);
+        vm.state.registers[0] = 0;
+        vm.state.registers[1] = 64; // past the end of the code
+
+        let error = execute(&mut vm).expect_err("an invalid handler must not handle the failure");
+        assert!(
+            matches!(error, ExecError::Panic(ref message) if message.contains("X3_REQUIRE_FAILED")),
+            "the original failure must propagate, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn call_stack_limit_is_enforced() {
+        let code: &[u8] = &[instr(CALL, 4), instr(CALL, 8), instr(CALL, 12), instr(HALT, 0)].concat();
+        let config = VMConfig {
+            max_stack: 2,
+            ..VMConfig::default()
+        };
+        let mut vm = VM::new(code.to_vec(), config, 1_000_000);
+
+        let error = execute(&mut vm).expect_err("the third call must exceed max_stack");
+        assert!(
+            matches!(error, ExecError::Panic(ref message) if message.contains("X3_CALL_STACK_LIMIT")),
+            "got {error:?}"
+        );
+        assert_eq!(vm.state.call_stack.len(), 2);
+    }
+
+    #[test]
+    fn failure_handler_stack_limit_is_enforced() {
+        let code: &[u8] = &[
+            instr(ON_FAIL, enc_rri(1, 0, 0)),
+            instr(ON_FAIL, enc_rri(1, 0, 0)),
+            instr(HALT, 0),
+        ]
+        .concat();
+        let config = VMConfig {
+            max_stack: 1,
+            ..VMConfig::default()
+        };
+        let mut vm = VM::new(code.to_vec(), config, 1_000_000);
+        vm.state.registers[1] = 8;
+
+        let error = execute(&mut vm).expect_err("the second registered handler must exceed max_stack");
+        assert!(
+            matches!(error, ExecError::Panic(ref message) if message.contains("X3_FAILURE_HANDLER_DEPTH")),
+            "got {error:?}"
+        );
+        assert_eq!(vm.state.failure_handlers.len(), 1);
+    }
+
+    #[test]
+    fn configured_register_file_limit_is_checked_before_execution() {
+        let code: &[u8] = &[instr(POW, enc_tt(0, 0, 2)), instr(HALT, 0)].concat();
+        let config = VMConfig {
+            max_registers: 2,
+            ..VMConfig::default()
+        };
+        let mut vm = VM::new(code.to_vec(), config, 1_000_000);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.verify_and_execute()));
+        assert!(
+            matches!(
+                result,
+                Ok(Err(ExecError::Panic(ref message)))
+                    if message.contains("X3_VERIFY_FAILED") && message.contains("register")
+            ),
+            "an out-of-range register must be a verification error, not an execution panic"
+        );
+    }
+
+    #[test]
+    fn oversized_memory_address_is_rejected_without_integer_overflow() {
+        let code: &[u8] = &[instr(META_NONCE, enc_rri(0, 1, 0)), instr(HALT, 0)].concat();
+        let mut vm = VM::new(code.to_vec(), VMConfig::default(), u128::MAX);
+        vm.state.registers[1] = u128::MAX;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute(&mut vm)));
+        assert!(
+            matches!(result, Ok(Err(ExecError::MemoryOutOfBounds))),
+            "an oversized address must be a bounds error, not an arithmetic panic: {result:?}"
         );
     }
 

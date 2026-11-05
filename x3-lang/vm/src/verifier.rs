@@ -8,6 +8,7 @@
 
 use crate::x3_lang_vm::InstructionStream;
 // Import shared opcode constants
+use crate::executor::{decode_reg_reg_imm, decode_regtriplet};
 use crate::spec::opcodes::*;
 use std::collections::HashSet;
 use x3_lang_common::{
@@ -52,6 +53,12 @@ pub enum VerifyError {
         version: u8,
         pc: usize,
     },
+    /// A bytecode instruction names a register outside the VM's configured register file.
+    RegisterOutOfRange {
+        register: u8,
+        pc: usize,
+        max_registers: usize,
+    },
 }
 
 impl std::fmt::Display for VerifyError {
@@ -81,6 +88,15 @@ impl std::fmt::Display for VerifyError {
                      bytecode version {version}"
                 ))
             ),
+            VerifyError::RegisterOutOfRange {
+                register,
+                pc,
+                max_registers,
+            } => write!(
+                f,
+                "X3_REGISTER_OUT_OF_RANGE: at pc {pc}, register r{register} is outside the \
+                 configured register file of {max_registers} registers"
+            ),
             other => write!(f, "{other:?}"),
         }
     }
@@ -88,12 +104,21 @@ impl std::fmt::Display for VerifyError {
 
 /// Validate that `code` is valid bytecode and return set of instruction boundaries.
 pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
+    verify_with_register_limit(code, 32)
+}
+
+/// Verify bytecode against the register-file size the execution host will allocate.
+pub fn verify_with_register_limit(
+    code: &InstructionStream,
+    max_registers: usize,
+) -> Result<HashSet<usize>, VerifyError> {
     // Emitted X3 bytecode is padded to 4-byte alignment, while capability
     // operations themselves use opcode + u16 payload length + payload.
     if code.len() % 4 != 0 {
         return Err(VerifyError::OutOfBounds(code.len()));
     }
     let mut boundaries = HashSet::new();
+    let mut control_flow_targets = Vec::new();
     let bytes = code.as_slice();
     let compiler_stream = has_compiler_header(bytes);
     // Which opcode set the artifact's own version promises. A raw stream (no version byte) is not
@@ -146,6 +171,13 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         if is_payload_opcode(opcode, compiler_stream) {
             let payload = read_payload(bytes, pc)?;
             validate_payload_opcode(opcode, payload, pc, bytes.len())?;
+            if opcode == IF_MEASURED {
+                if let Some((_, _, _, skip)) = parse_if_measured(payload) {
+                    let after = align4(pc + 3 + payload.len());
+                    let target = after.saturating_add((skip as usize).saturating_mul(4));
+                    control_flow_targets.push((pc, target));
+                }
+            }
             pc = align4(pc + 3 + payload.len());
             continue;
         }
@@ -156,19 +188,33 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         // fixed frame, whose high half is the padding the emitter writes. The
         // width comes from `spec/opcodes.rs` so it cannot drift from the writer.
         let operand = fixed_frame_operand(opcode, compiler_stream, bytes[pc + 2], bytes[pc + 3]);
+        validate_register_operands(opcode, operand, pc, max_registers)?;
+        let next_pc = if compiler_stream {
+            align4(pc + fixed_frame_content_len(opcode))
+        } else {
+            pc + 4
+        };
         // check flags & operand ranges depending on opcode (simplified)
         // for branches ensure destination is inside code and aligned
         match opcode {
             IF | LOOP => {
-                // relative or absolute jumps; compute target
-                let rel = operand as i16;
-                let target = (pc + 4) as i32 + rel as i32; // relative
-                if target < 0 || (target as usize) >= bytes.len() {
+                // Both executor branches carry a 6-bit instruction count, not a
+                // byte offset. IF counts forward from the next frame; LOOP counts
+                // backward from the current frame.
+                let (_, _, imm) = decode_reg_reg_imm(operand);
+                let distance = (imm as usize).saturating_mul(4);
+                let target = if opcode == IF {
+                    next_pc.saturating_add(distance)
+                } else {
+                    pc.saturating_sub(distance)
+                };
+                if target >= bytes.len() {
                     return Err(VerifyError::InvalidOperand(pc));
                 }
-                if ((target as usize) % 4) != 0 {
-                    return Err(VerifyError::JumpToNonBoundary(pc, target as usize));
+                if target % 4 != 0 {
+                    return Err(VerifyError::JumpToNonBoundary(pc, target));
                 }
+                control_flow_targets.push((pc, target));
             }
             REQUIRE => {
                 // Bits 0-1 are the comparison mode; bits 2-4 the guard's own
@@ -233,6 +279,7 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
                 if target % 4 != 0 {
                     return Err(VerifyError::JumpToNonBoundary(pc, target));
                 }
+                control_flow_targets.push((pc, target));
             }
             RET => { /* RET - valid */ }
             _ => {}
@@ -253,14 +300,48 @@ pub fn verify(code: &InstructionStream) -> Result<HashSet<usize>, VerifyError> {
         // with no padding. The two agree today only because raw streams start at
         // zero and stay aligned, so the bound is written out rather than
         // inferred from the offset.
-        let content_len = if compiler_stream {
-            fixed_frame_content_len(opcode)
-        } else {
-            4
-        };
-        pc = align4(pc + content_len);
+        pc = next_pc;
+    }
+    for (source, target) in control_flow_targets {
+        if !boundaries.contains(&target) {
+            return Err(VerifyError::JumpToNonBoundary(source, target));
+        }
     }
     Ok(boundaries)
+}
+
+fn validate_register(register: u8, pc: usize, max_registers: usize) -> Result<(), VerifyError> {
+    if usize::from(register) >= max_registers {
+        return Err(VerifyError::RegisterOutOfRange {
+            register,
+            pc,
+            max_registers,
+        });
+    }
+    Ok(())
+}
+
+fn validate_register_operands(opcode: u8, operand: u16, pc: usize, max_registers: usize) -> Result<(), VerifyError> {
+    match opcode {
+        ADD | SUB | POW => {
+            let (ra, rb, rc) = decode_regtriplet(operand);
+            for register in [ra, rb, rc] {
+                validate_register(register, pc, max_registers)?;
+            }
+        }
+        META_NONCE | META_CHAIN_ID => {
+            let (ra, rb, _) = decode_reg_reg_imm(operand);
+            for register in [ra, rb] {
+                validate_register(register, pc, max_registers)?;
+            }
+        }
+        IF | LOOP | ON_FAIL => {
+            let (ra, _, _) = decode_reg_reg_imm(operand);
+            validate_register(ra, pc, max_registers)?;
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Read the version binding and refuse an artifact this runtime must not run.
@@ -819,6 +900,66 @@ mod tests {
                 "opcode 0x{opcode:02x} should reject malformed payload"
             );
         }
+    }
+
+    #[test]
+    fn verifier_rejects_if_targeting_trailing_padding() {
+        // The executor reads a 6-bit instruction count and multiplies it by
+        // four. IF at pc 0 with imm 4 targets pc 20; pc 4 is HALT and the rest
+        // is padding, so the target is aligned but not executable.
+        let code = InstructionStream::new(vec![
+            IF, 0, 0, 0x10, // imm = 4
+            HALT, 0, 0, 0, //
+            0, 0, 0, 0, //
+            0, 0, 0, 0, //
+            0, 0, 0, 0, //
+            0, 0, 0, 0, //
+        ]);
+
+        assert!(
+            matches!(verify(&code), Err(VerifyError::JumpToNonBoundary(0, 20))),
+            "IF must reject a jump into trailing padding"
+        );
+    }
+
+    #[test]
+    fn verifier_rejects_call_targeting_trailing_padding() {
+        let code = InstructionStream::new(vec![CALL, 0, 8, 0, HALT, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        assert!(
+            matches!(verify(&code), Err(VerifyError::JumpToNonBoundary(0, 8))),
+            "CALL must reject a jump into trailing padding"
+        );
+    }
+
+    #[test]
+    fn verifier_agrees_with_executor_on_if_and_loop_offset_units() {
+        let if_to_eight = InstructionStream::new(vec![IF, 0, 0, 0x04, HALT, 0, 0, 0, HALT, 0, 0, 0]);
+        assert!(verify(&if_to_eight).is_ok());
+
+        let loop_to_zero = InstructionStream::new(vec![NOP, 0, 0, 0, LOOP, 0, 0, 0x04, HALT, 0, 0, 0]);
+        assert!(verify(&loop_to_zero).is_ok());
+    }
+
+    #[test]
+    fn verifier_rejects_a_measured_branch_into_padding() {
+        let payload = if_measured_payload(MEASURED_UNIT_CODE_PROFIT_BPS, false, 0, 1).into_bytes();
+        let mut bytes = vec![IF_MEASURED];
+        bytes.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        while bytes.len() % 4 != 0 {
+            bytes.push(0);
+        }
+        bytes.extend_from_slice(&[HALT, 0, 0, 0]);
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+
+        assert!(
+            matches!(
+                verify(&InstructionStream::new(bytes)),
+                Err(VerifyError::JumpToNonBoundary(0, 16))
+            ),
+            "a measured branch into trailing padding must be rejected"
+        );
     }
 
     /// A compiler stream: version byte, metadata records, then `ATOMIC_BEGIN`.
