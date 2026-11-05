@@ -89,9 +89,19 @@ python3 x3-lang/solana/vault_evidence.py \
   --source-token <PDA-owned-SPL-token-account> \
   --destination-token <1Click-deposit-SPL-token-account> \
   --nonce <owner-approved-u64-nonce> \
+  --expected-mint <independently-verified-Solana-SPL-mint> \
   --rpc-url https://<first-solana-rpc> \
   --rpc-url https://<second-solana-rpc>
 ```
+
+The required `--expected-mint` is an **independently vetted** classic SPL
+mint address (for example, verified against a trusted asset registry and
+on-chain mint record); it must not be copied blindly from the receipt.
+The quote signs a 1Click asset ID, **not** the receipt's mutable
+`contractAddress` metadata. This additional input prevents mutable
+receipt metadata from silently redefining the token being "proven", but
+the operator must still establish that the pinned mint corresponds to
+the 1Click origin asset ID.
 
 The verifier returns `source_verified: true` **only** when every source
 check succeeds and both RPCs agree. Its `cross_chain_causality_proven` and

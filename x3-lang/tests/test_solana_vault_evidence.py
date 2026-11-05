@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from test_chain_evidence import (  # noqa: F401  (autouse signing-key fixture)
-    DEPOSIT_SIG, _trust_the_test_key, live_receipt, ni,
+    DEPOSIT_SIG, USDC_MINT, _trust_the_test_key, live_receipt, ni,
 )
 
 PATH = Path(__file__).resolve().parents[1] / "solana" / "vault_evidence.py"
@@ -109,6 +109,7 @@ def proof(receipt, rpc):
     return ve.verify_source(
         receipt, solana=rpc, signature=DEPOSIT_SIG, program=PROGRAM,
         policy=POLICY, source_token=SOURCE, destination_token=DEST, nonce=NONCE,
+        expected_mint=USDC_MINT,
     )
 
 
@@ -207,3 +208,21 @@ def test_event_has_seven_strict_binary_fields(tmp_path):
     assert len(ve._event_fields(line)) == 7
     with pytest.raises(ValueError):
         ve._event_fields(line + " " + b64(b"junk"))
+
+
+@pytest.mark.parametrize("field", ["token_asset_id", "token_mint", "receipt_origin_asset", "receipt_amount"])
+def test_untrusted_receipt_metadata_cannot_redefine_signed_quote_asset(tmp_path, field):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    tx = transfer_tx(receipt)  # canonical signed quote before tampering local metadata
+    if field == "token_asset_id":
+        receipt["tokens"]["origin"]["assetId"] = "spl:unrelated-token"
+    elif field == "token_mint":
+        receipt["tokens"]["origin"]["contractAddress"] = SOURCE
+        tx["meta"]["innerInstructions"][0]["instructions"][0]["parsed"]["info"]["mint"] = SOURCE
+    elif field == "receipt_origin_asset":
+        receipt["quote_request"]["originAsset"] = "spl:unrelated-token"
+    elif field == "receipt_amount":
+        receipt["quote_request"]["amount"] = "1"
+    result = proof(receipt, VaultRpc(tx, tx))
+    assert result["source_verified"] is False, (field, result)

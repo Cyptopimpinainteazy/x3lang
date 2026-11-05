@@ -134,6 +134,17 @@ def quote_commitment(receipt: dict[str, Any]) -> tuple[bytes, str, str, int]:
             or receipt.get("quote_hash") != ni.oneclick_quote_hash(response)
             or receipt.get("quote_response_sha256") != ni._sha256_json(response)):
         raise ValueError("stored quote differs from signed response")
+    # Receipt metadata is not part of the provider's signed quote. Require it
+    # to agree with the signed request, then independently pin the Solana mint.
+    saved_request = receipt.get("quote_request")
+    signed_request = response["quoteRequest"]
+    if not isinstance(saved_request, dict):
+        raise ValueError("receipt is missing the saved quote request")
+    for field in ("originAsset", "destinationAsset", "amount", "recipient",
+                  "refundTo", "depositType", "refundType", "recipientType",
+                  "deadline", "dry"):
+        if saved_request.get(field) != signed_request.get(field):
+            raise ValueError(f"receipt {field} differs from signed quote request")
     deposit = receipt.get("deposit") or {}
     quote = response.get("quote") or {}
     amount = int(quote.get("amountIn") or 0)
@@ -142,6 +153,9 @@ def quote_commitment(receipt: dict[str, Any]) -> tuple[bytes, str, str, int]:
             or deposit.get("asset") != response["quoteRequest"].get("originAsset")):
         raise ValueError("receipt deposit terms mismatch the live quote")
     origin = (receipt.get("tokens") or {}).get("origin") or {}
+    if (origin.get("assetId") != signed_request.get("originAsset")
+            or origin.get("blockchain") != "sol"):
+        raise ValueError("origin token metadata does not match signed Solana asset")
     mint = origin.get("contractAddress")
     if not mint or not isinstance(mint, str):
         raise ValueError("receipt lacks Solana mint contract")
@@ -205,7 +219,7 @@ def _facts(tx: Any, *, tx_signature: str, program: str, policy: str,
 
 def verify_source(receipt: dict[str, Any], *, solana: Any, signature: str,
                   program: str, policy: str, source_token: str,
-                  destination_token: str, nonce: int) -> dict[str, Any]:
+                  destination_token: str, nonce: int, expected_mint: str) -> dict[str, Any]:
     """Independent source proof from >=2 distinct finalized Solana RPC endpoints.
 
     Every endpoint must agree on normalized event/CPI facts. It cannot prove that
@@ -220,9 +234,11 @@ def verify_source(receipt: dict[str, Any], *, solana: Any, signature: str,
     try:
         if not isinstance(nonce, int) or nonce <= 0:
             raise ValueError("nonce must be a positive unsigned integer")
-        for value in (program, policy, source_token, destination_token):
+        for value in (program, policy, source_token, destination_token, expected_mint):
             _pubkey(value)
         digest, owner, mint, amount = quote_commitment(receipt)
+        if mint != expected_mint:
+            raise ValueError("receipt token mint does not match independently pinned mint")
         urls = getattr(solana, "urls", [])
         if len(urls) < 2 or len(set(urls)) != len(urls):
             raise ValueError("at least two distinct finalized RPC endpoints are required")
@@ -263,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-token", required=True)
     parser.add_argument("--destination-token", required=True)
     parser.add_argument("--nonce", type=int, required=True)
+    parser.add_argument("--expected-mint", required=True,
+                        help="independently trusted Solana mint, not copied from the receipt")
     parser.add_argument("--rpc-url", action="append", required=True, help="repeat for at least two distinct endpoints")
     args = parser.parse_args(argv)
     try:
@@ -273,7 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         outcome = verify_source(
             receipt, solana=rpc, signature=args.tx, program=args.program,
             policy=args.policy, source_token=args.source_token,
-            destination_token=args.destination_token, nonce=args.nonce)
+            destination_token=args.destination_token, nonce=args.nonce,
+            expected_mint=args.expected_mint)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         outcome = {"source_verified": False, "cross_chain_causality_proven": False, "failure": str(exc)}
     print(json.dumps(outcome, sort_keys=True, indent=2))
