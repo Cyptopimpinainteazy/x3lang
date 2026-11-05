@@ -4,7 +4,9 @@ on:
   push:
     branches: [main, 'feat/**']
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - 'integration/**'
 
 permissions:
   contents: read
@@ -99,3 +101,25 @@ jobs:
       - name: Build NEAR Guard WASM
         working-directory: x3-lang/near/x3-guard
         run: cargo build --target wasm32-unknown-unknown --release --locked
+
+  scrapyard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/x3-scrapyard
+      - name: Scrapyard tests
+        working-directory: crates/x3-scrapyard
+        run: cargo test --locked
+      - name: Scrapyard formatting
+        working-directory: crates/x3-scrapyard
+        run: cargo fmt --all -- --check
+      - name: Strict Scrapyard lint
+        working-directory: crates/x3-scrapyard
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
