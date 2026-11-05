@@ -9,8 +9,8 @@ import json
 import pytest
 
 from test_near_intents import (  # noqa: E402,F401  (_trust_the_test_key is an autouse fixture)
-    EXAMPLE, NOW, NEAR_USDC, SOL_ADDR, FakeNearChain, RecordingTransport, _status, _trust_the_test_key, api, ni,
-    near_rpc, sign,
+    BSC_DEPOSIT, BSC_EXAMPLE, EXAMPLE, NOW, NEAR_USDC, SOL_ADDR, TOKENS, FakeNearChain, RecordingTransport, _status,
+    _trust_the_test_key, api, good_bsc_quote, ni, near_rpc, sign,
 )
 
 ce = ni.chain_evidence
@@ -22,6 +22,10 @@ DEPOSIT_SIG = "5Kd3NBUAdUnhyzenEwVLy9pBKxSwXvE9FMPyR4UKZvpe6E3AgLr6PbXCeLRAUQh8M
 REFUND_SIG = "3pGoFxv2D5QBgG7Ckr4dkCcqufWaGyZT6fDZ6N4i3BRpYLcBy96HmYMkVuqoEhKDY4qbtCbP8WxF6wPCvhC1ZhJz"
 NEAR_USDC_CONTRACT = NEAR_USDC.split(":", 1)[1]
 T_0301 = 1793674860  # 2026-11-03T03:01:00Z, inside the 10-minute quote window
+BSC_TX = "0x" + "a" * 64
+BSC_REFUND_TX = "0x" + "1" * 64
+BSC_DEPOSIT = "0x" + "c" * 40
+BSC_REFUND_TO = "0x000000000000000000000000000000000000dEaD"
 
 
 def balance(index, owner, amount, mint=USDC_MINT):
@@ -59,6 +63,65 @@ class FakeSolana:
         return 200, {"jsonrpc": "2.0", "id": payload["id"], "result": self.by_url[url].get(sig)}
 
 
+class FakeBsc:
+    def __init__(self, by_url, *, finalized, chain_id=56):
+        self.by_url = by_url
+        self.finalized = finalized
+        self.chain_id = chain_id
+        self.calls = []
+
+    def __call__(self, method, url, payload):
+        self.calls.append(payload)
+        entry = self.by_url[url]
+        call = payload["method"]
+        if call == "eth_chainId":
+            result = hex(self.chain_id)
+        elif call == "eth_getTransactionByHash":
+            tx = entry[payload["params"][0]]
+            result = tx
+        elif call == "eth_getTransactionReceipt":
+            tx = entry[payload["params"][0]]
+            result = {
+                "transactionHash": tx["hash"],
+                "blockHash": tx["blockHash"],
+                "blockNumber": tx["blockNumber"],
+                "status": tx["status"],
+                "to": tx["to"],
+                "from": tx["from"],
+            }
+        elif call == "eth_getBlockByNumber":
+            tag = payload["params"][0]
+            if tag == "finalized":
+                result = {"number": hex(self.finalized), "hash": "0x" + "f" * 64}
+            else:
+                tx = next(tx for tx in entry.values() if tx["blockNumber"] == tag)
+                result = {"number": tx["blockNumber"], "hash": tx["blockHash"],
+                          "timestamp": hex(tx["blockTimestamp"])}
+        else:
+            raise AssertionError(call)
+        return 200, {"jsonrpc": "2.0", "id": payload["id"], "result": result}
+
+
+def bsc_tx(*, tx_hash=BSC_TX, to=BSC_DEPOSIT, value=1_000_000_000_000_000, status="0x1",
+           block=45_000_000, block_timestamp=T_0301):
+    return {
+        "hash": tx_hash,
+        "from": "0x" + "e" * 40,
+        "to": to,
+        "value": hex(value),
+        "blockNumber": hex(block),
+        "blockHash": "0x" + "b" * 64,
+        "blockTimestamp": block_timestamp,
+        "status": status,
+    }
+
+
+def bsc_rpc(tx=None, *, urls=("https://bsc-a.example.invalid",), finalized=45_000_020, chain_id=56):
+    tx = tx or bsc_tx()
+    fake = FakeBsc({url: {tx["hash"]: tx} for url in urls}, finalized=finalized, chain_id=chain_id)
+    return ce.BscRpc(transport=RecordingTransport(fake), urls=list(urls)), fake
+
+
 def solana(txs, urls=("https://sol-a.example.invalid",)):
     fake = FakeSolana({u: dict(txs) for u in urls})
     return ce.SolanaRpc(transport=RecordingTransport(fake), urls=list(urls)), fake
@@ -73,8 +136,24 @@ def live_receipt(tmp_path, chain=None):
     return path, chain, rpc
 
 
+def live_bsc_receipt(tmp_path):
+    chain = FakeNearChain(balances={("wrap.near", "wrap.near"): 1_000_000})
+    rpc, _ = near_rpc(chain=chain)
+    path = tmp_path / "bsc.json"
+    ni.quote(str(BSC_EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api(quote_fn=good_bsc_quote)),
+             tokens_path=str(TOKENS), live=True, nonce_store=ni.NonceStore(str(tmp_path / "bsc-nonces.json")),
+             receipt_path=str(path), rpc=rpc, now=NOW)
+    return path, chain, rpc
+
+
 def checks(evidence):
     return {c["check"]: c["ok"] for c in evidence["checks"]}
+
+
+def test_json_rpc_identifies_the_evidence_client():
+    transport = RecordingTransport(lambda m, u, p: (200, {"jsonrpc": "2.0", "id": p["id"], "result": "0x1"}))
+    assert ce.json_rpc(transport, "https://rpc.example.invalid", "eth_blockNumber", []) == "0x1"
+    assert transport.calls[0]["headers"]["User-Agent"] == "x3-lang-evidence/1"
 
 
 # --- Solana transfer verdicts --------------------------------------------------------------
@@ -109,6 +188,100 @@ def test_a_deposit_that_is_not_proven_is_refused(tx, failed):
                              not_after_ms=(T_0301 + 60) * 1000, purpose="deposit")
     assert ev["verified"] is False
     assert checks(ev)[failed] is False
+
+
+def test_a_finalized_native_bnb_deposit_is_verified_from_chain_data():
+    rpc, fake = bsc_rpc()
+    evidence = rpc.verify_native_transfer(
+        tx_hash=BSC_TX,
+        recipient=BSC_DEPOSIT,
+        min_amount=1_000_000_000_000_000,
+        not_after_ms=(T_0301 + 60) * 1000,
+        purpose="deposit",
+    )
+    assert evidence["verified"] is True
+    assert evidence["observed"] == "1000000000000000"
+    assert evidence["blockNumber"] == 45_000_000
+    assert evidence["finalizedBlock"] == 45_000_020
+    assert [call["method"] for call in fake.calls][:3] == [
+        "eth_chainId",
+        "eth_getTransactionByHash",
+        "eth_getTransactionReceipt",
+    ]
+
+
+@pytest.mark.parametrize("tx,failed", [
+    (bsc_tx(status="0x0"), "succeeded"),
+    (bsc_tx(to="0x" + "9" * 40), "recipient"),
+    (bsc_tx(value=999_999_999_999_999), "amount"),
+    (bsc_tx(block_timestamp=T_0301 + 3_600), "before_deadline"),
+])
+def test_an_unproven_native_bnb_deposit_is_refused(tx, failed):
+    rpc, _ = bsc_rpc(tx)
+    evidence = rpc.verify_native_transfer(
+        tx_hash=BSC_TX,
+        recipient=BSC_DEPOSIT,
+        min_amount=1_000_000_000_000_000,
+        not_after_ms=(T_0301 + 60) * 1000,
+        purpose="deposit",
+    )
+    assert evidence["verified"] is False
+    assert checks(evidence)[failed] is False
+
+
+def test_bsc_wrong_chain_rpc_is_rejected_even_if_transfer_looks_correct():
+    rpc, fake = bsc_rpc(chain_id=1)
+    with pytest.raises(ce.ChainEvidenceError) as exc:
+        rpc.verify_native_transfer(
+            tx_hash=BSC_TX, recipient=BSC_DEPOSIT,
+            min_amount=1, not_after_ms=None, purpose="deposit",
+        )
+    assert exc.value.code == "X3_EVIDENCE_WRONG_CHAIN"
+
+
+def test_an_unfinalized_native_bnb_deposit_is_refused():
+    rpc, _ = bsc_rpc(finalized=44_999_999)
+    evidence = rpc.verify_native_transfer(
+        tx_hash=BSC_TX,
+        recipient=BSC_DEPOSIT,
+        min_amount=1,
+        not_after_ms=None,
+        purpose="deposit",
+    )
+    assert evidence["verified"] is False
+    assert checks(evidence)["finalized"] is False
+
+
+def test_bsc_rpc_endpoints_that_disagree_prove_nothing():
+    a, b = "https://bsc-a.example.invalid", "https://bsc-b.example.invalid"
+    fake = FakeBsc({
+        a: {BSC_TX: bsc_tx()},
+        b: {BSC_TX: bsc_tx(value=1_000_000_000_000_001)},
+    }, finalized=45_000_020)
+    rpc = ce.BscRpc(transport=RecordingTransport(fake), urls=[a, b])
+    evidence = rpc.verify_native_transfer(
+        tx_hash=BSC_TX,
+        recipient=BSC_DEPOSIT,
+        min_amount=1,
+        not_after_ms=None,
+        purpose="deposit",
+    )
+    assert evidence["verified"] is False
+    assert checks(evidence)["endpoints_agree"] is False
+
+
+def test_a_native_bnb_refund_is_verified_after_the_deposit():
+    refund = bsc_tx(to=BSC_REFUND_TO, value=900_000_000_000_000, block=45_000_050)
+    rpc, _ = bsc_rpc(refund, finalized=45_000_070)
+    evidence = rpc.verify_native_transfer(
+        tx_hash=BSC_TX,
+        recipient=BSC_REFUND_TO,
+        min_amount=900_000_000_000_000,
+        not_after_ms=None,
+        purpose="refund",
+        after_block=45_000_000,
+    )
+    assert evidence["verified"] is True
 
 
 def test_endpoints_that_disagree_prove_nothing():
@@ -200,6 +373,114 @@ def test_a_live_quote_whose_settlement_could_never_be_measured_is_refused(tmp_pa
                  nonce_store=ni.NonceStore(str(tmp_path / "n.json")), receipt_path=str(tmp_path / "r.json"), rpc=rpc, now=NOW)
     assert err.value.code == "X3_EVIDENCE_BASELINE"
     assert not (tmp_path / "n.json").exists() and not (tmp_path / "r.json").exists()
+
+
+def test_a_bsc_live_quote_records_evm_deposit_and_near_baseline(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    assert receipt["deposit"]["address"] == BSC_DEPOSIT
+    assert receipt["deposit"]["amount"] == "1000000000000000"
+    assert receipt["tokens"]["origin"]["symbol"] == "BNB"
+    assert receipt["tokens"]["destination"]["symbol"] == "wNEAR"
+    assert receipt["evidence"]["settlement_baseline"]["token"] == "wrap.near"
+    assert receipt["evidence"]["settlement_baseline"]["account"] == "wrap.near"
+
+
+def test_verify_deposit_dispatches_bsc_native_bnb(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    rpc, _ = bsc_rpc()
+    evidence = ni.verify_deposit(receipt, tx_signature=BSC_TX, bsc=rpc)
+    assert evidence["verified"] is True
+    assert evidence["kind"] == "bsc_native_transfer"
+    assert evidence["purpose"] == "deposit"
+    assert receipt["verification"]["missing"] == ["settlement or refund"]
+
+
+def test_verify_deposit_cli_dispatches_bsc_native_bnb(tmp_path, capsys):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    rpc, _ = bsc_rpc()
+    assert ni.main([
+        "verify-deposit", "--receipt", str(path), "--tx", BSC_TX,
+    ], bsc=rpc) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["kind"] == "bsc_native_transfer"
+    assert out["evidence"]["verified"] is True
+
+
+def test_bsc_receipt_prepares_guard_and_tracking_without_authorizing(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    handoff = ni.prepare_handoff(
+        receipt,
+        receipt_path=str(path),
+        program_path=str(BSC_EXAMPLE),
+        contract="guard.near",
+        signer="agent.near",
+        key_file="/owner-only/agent.json",
+    )
+    assert handoff["status"] == "prepared_not_authorized"
+    assert handoff["broadcasted"] is False
+    assert handoff["wallet_signature_required"] is True
+    assert [step["step"] for step in handoff["guard_steps"]] == ["register", "quote"]
+    assert handoff["guard_steps"][0]["method"] == "register_intent"
+    assert handoff["guard_steps"][1]["method"] == "accept_quote"
+    assert handoff["guard_steps"][0]["command"].startswith("near contract call-function as-transaction guard.near")
+    assert handoff["deposit"]["address"] == BSC_DEPOSIT
+    assert handoff["deposit"]["asset"].startswith("nep245:")
+    assert handoff["deposit"]["amount"] == "1000000000000000"
+    assert handoff["deposit"]["deadline"] == receipt["deposit"]["deadline"]
+    assert "submit-deposit" in handoff["tracking_commands"][0]
+    assert "status" in handoff["tracking_commands"][1]
+    assert "verify-deposit" in handoff["tracking_commands"][2]
+    assert "verify-settlement" in handoff["tracking_commands"][3]
+
+
+def test_prepare_cli_never_claims_broadcast_or_authorization(tmp_path, capsys):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    code = ni.main([
+        "prepare", "--receipt", str(path), "--program", str(BSC_EXAMPLE), "--contract", "guard.near",
+        "--signer", "agent.near", "--key-file", "/owner-only/agent.json",
+    ])
+    assert code == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["status"] == "prepared_not_authorized"
+    assert out["broadcasted"] is False
+    assert out["wallet_signature_required"] is True
+    assert all(step["command"] for step in out["guard_steps"])
+
+
+def test_prepare_rejects_a_receipt_not_bound_to_the_supplied_program(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["program_sha256"] = "0" * 64
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.prepare_handoff(receipt, receipt_path=str(path), program_path=str(BSC_EXAMPLE))
+    assert error.value.code == "X3_EVIDENCE_BINDING"
+
+
+def test_bsc_refund_requires_and_reuses_finalized_deposit_evidence(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    url = "https://bsc-a.example.invalid"
+    fake = FakeBsc({
+        url: {
+            BSC_TX: bsc_tx(),
+            BSC_REFUND_TX: bsc_tx(
+                tx_hash=BSC_REFUND_TX,
+                to=BSC_REFUND_TO,
+                value=995_000_000_000_000,
+                block=45_000_050,
+            ),
+        },
+    }, finalized=45_000_070)
+    rpc = ce.BscRpc(transport=RecordingTransport(fake), urls=[url])
+    assert ni.verify_deposit(receipt, tx_signature=BSC_TX, bsc=rpc)["verified"]
+    refund = ni.verify_settlement(receipt, refund_tx=BSC_REFUND_TX, bsc=rpc)
+    assert refund["verified"] is True
+    assert refund["purpose"] == "refund"
+    assert refund["observed"] == "995000000000000"
+    assert receipt["verified_outcome"] == "refunded"
 
 
 def test_settled_end_to_end_through_the_cli(tmp_path, capsys):

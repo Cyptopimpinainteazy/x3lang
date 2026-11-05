@@ -59,6 +59,15 @@
         "symbol": "SOL",
         "price": 162.5,
         "priceUpdatedAt": "2026-11-02T20:00:00.000Z"
+      },
+      {
+        "assetId": "nep245:v2_1.omni.hot.tg:56_11111111111111111111",
+        "decimals": 18,
+        "blockchain": "bsc",
+        "symbol": "BNB",
+        "price": 600.0,
+        "priceUpdatedAt": "2026-11-05T00:00:00.000Z",
+        "contractAddress": "11111111111111111111"
       }
     ],
     "note": "Archived 1Click token list. Not a live response."
