@@ -74,6 +74,35 @@ def test_refresh_requires_receipt():
     assert "receipt" in result.stderr.lower()
 
 
+def test_refund_signature_is_explicitly_unsupported_by_judge_gate(tmp_path):
+    # This gate cannot bind an imported receipt to finalized refund evidence.
+    # Accepting --refund-tx and silently ignoring it misleads an operator.
+    path = tmp_path / "claimed-refund.json"
+    path.write_text(json.dumps({"kind": "x3.near_intents.v1", "verified_outcome": "refunded"}))
+    result = subprocess.run(
+        [sys.executable, str(MODULE), "--skip-tests", "--receipt", str(path),
+         "--refresh-chain", "--refund-tx", "5" * 88],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 2
+    assert "not supported" in result.stderr.lower()
+
+
+def test_require_live_rejects_unproven_claims_even_with_tests_skipped(tmp_path):
+    path = tmp_path / "claimed-live.json"
+    path.write_text(json.dumps({
+        "kind": "x3.near_intents.v1",
+        "verified_outcome": "settled",
+        "evidence": {"deposit": {"verified": True}, "settlement": {"verified": True}},
+    }))
+    result = subprocess.run(
+        [sys.executable, str(MODULE), "--skip-tests", "--receipt", str(path),
+         "--refresh-chain", "--require-live"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 5
+
+
 def test_evidence_json_does_not_copy_keys_or_private_quote_fields(tmp_path):
     secret = "NEAR_INTENTS_JWT_SUPER_SECRET_TEST_ONLY"
     receipt = tmp_path / "receipt.json"
