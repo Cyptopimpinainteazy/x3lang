@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import importlib.util
 import json
 import os
@@ -271,7 +272,7 @@ Rules:
 """
     parts = [f"<payment_request>\n{_neutralize(request)}\n</payment_request>"]
     for name, text in context or []:
-        parts.append(f'<untrusted_document name="{_neutralize(name)}">\n{_neutralize(text)}\n</untrusted_document>')
+        parts.append(f'<untrusted_document name="{html.escape(name, quote=True)}">\n{_neutralize(text)}\n</untrusted_document>')
     return system, "\n\n".join(parts)
 
 

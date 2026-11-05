@@ -118,6 +118,24 @@ def test_quick_and_full_modes_are_explicit_and_disjoint():
     assert any("wasm32-unknown-unknown" in " ".join(x["argv"]) for x in full)
 
 
+def test_judge_tests_do_not_inherit_unrecorded_rustflags(monkeypatch):
+    import subprocess
+    monkeypatch.setenv("RUSTFLAGS", "-C target-cpu=native")
+    captured = []
+
+    def test_process(argv, *, env, **_kwargs):
+        captured.append(dict(env))
+        return subprocess.CompletedProcess(argv, 0, stdout="pass")
+
+    monkeypatch.setattr(judge_evidence, "plan_tests", lambda mode: [{
+        "name": "rust_vm_tests", "argv": ["cargo", "test"], "cwd": ROOT, "timeout": 10
+    }])
+    monkeypatch.setattr(judge_evidence.subprocess, "run", test_process)
+    outcomes = judge_evidence.run_tests("full")
+    assert outcomes[0]["status"] == "passed"
+    assert captured and all("RUSTFLAGS" not in env for env in captured)
+
+
 def test_missing_receipt_is_not_inferred_from_optional_status():
     p = judge_evidence.inspect_receipt(None, refresh_chain=False)
     assert "settled" not in p["status"]
