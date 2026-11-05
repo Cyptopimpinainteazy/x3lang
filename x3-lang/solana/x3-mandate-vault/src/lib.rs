@@ -564,6 +564,7 @@ fn run_execute(program_id: &Pubkey, accounts: &[AccountInfo], nonce: u64, quote_
     let now = Clock::get()?.unix_timestamp;
     let (slot, _total) = policy.execution_window(now, nonce, &quote_digest)?;
     let amount = policy.pending_amount;
+    let destination_owner = policy.pending_destination_owner;
     transfer_from_vault(
         program_id,
         state,
@@ -577,7 +578,7 @@ fn run_execute(program_id: &Pubkey, accounts: &[AccountInfo], nonce: u64, quote_
     )?;
     policy.finish_execution(now, slot);
     save_policy(state, &policy)?;
-    // Six event fields identify the owner-approved SPL Token CPI.
+    // Seven event fields identify the owner-approved SPL Token CPI.
     // A verifier must also check this program's invocation/success in the
     // finalized Solana transaction, not merely grep the log text.
     let nonce_bytes = nonce.to_le_bytes();
@@ -588,6 +589,7 @@ fn run_execute(program_id: &Pubkey, accounts: &[AccountInfo], nonce: u64, quote_
         &nonce_bytes,
         &quote_digest,
         destination.key.as_ref(),
+        &destination_owner,
         &amount_bytes,
     ]);
     Ok(())
