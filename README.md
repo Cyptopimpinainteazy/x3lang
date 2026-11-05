@@ -18,6 +18,56 @@ The source was extracted with `git-filter-repo` from a **full Git clone**;
 commit authorship and chronology were preserved, not condensed into a
 single import commit. Review the SHA map in `docs/provenance/`.
 
+## Try the judge console in 60 seconds
+
+```bash
+python3 -m http.server 8000 --directory x3-lang/near/demo
+# Open http://localhost:8000/judge.html
+```
+
+The console shows one owner mandate deciding the allowed, approval-required
+and forbidden actions shown by the checked-in X3 programs. The browser runs
+the same mandate checks as the production adapter, and the page compares its
+verdict with Python guard by guard.
+
+For the terminal version:
+
+```bash
+python3 scripts/hackathon/demo.py
+bash scripts/hackathon/verify.sh
+```
+
+### What a judge can inspect
+
+| Question | Where to look |
+|---|---|
+| What exactly did the owner authorize? | Panel 1, the `.x3` mandate source and hash |
+| What did the agent request? | Panel 2, the exact intent and changed lines |
+| Was it allowed, denied, or held for approval? | Panel 3, verdict plus every guard |
+| What cross-chain route would execute? | Panel 4, source/destination assets and bounds |
+| What is actually proven? | Panel 5, evidence ladder and recorded test runs |
+| How do I reproduce it? | `build_scenarios.py`, `collect_evidence.py`, `scripts/hackathon/demo.py` |
+
+The scenario set covers spending caps, the approval threshold, unauthorized
+recipients, refund redirection, fee and slippage limits, wrong mandate owners,
+rolling spend, revocation and nonce replay. Each scenario names its judge
+takeaway and whether its decisive evidence is local or contract-level.
+
+### Evidence levels
+
+| Level | What it means | Current demo |
+|---|---|---|
+| Local policy | The mandate and intent compile, and Python/browser checks agree | Proven |
+| Signed quote | A live 1Click response verifies against the pinned manager key | Not part of the offline console |
+| On-chain authorization | A deployed x3-guard registers and accepts the policy | Not claimed |
+| Wallet transfer | The owner or authorized signer sends funds | Not claimed |
+| Settlement | Source and destination chains are independently observed | Not claimed |
+| Causality | One transaction is cryptographically proven to cause the other | Not proven |
+
+The browser console is therefore a **policy-preview and refusal demo**, not a
+payment executor. The terminal `verify.sh` emits a machine-readable readiness
+report and fails when evidence is stale, dirty or missing.
+
 ## Contents
 
 - **`x3-lang/`** — Python financial-intent DSL, Rust compiler, virtual machine,
@@ -65,6 +115,8 @@ node --test x3-lang/near/demo/test/*.test.mjs
 [**X3 Guard — signed dry-quote validation**](https://x3-guard.pages.dev/)
 verifies a real 1Click quote and checks risk rules. This is **not** proof of
 an authorized wallet transaction or a completed cross-chain settlement.
+The local `judge.html` console is the deterministic, offline companion: it
+does not contact 1Click or NEAR and can be run entirely from the repository.
 
 ### NEAR Intents integration: what works and what remains
 
