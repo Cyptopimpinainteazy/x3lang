@@ -1,7 +1,7 @@
-# X3Lang — programmable financial policies
+# X3Lang — verifiable financial policies for cross-chain execution
 
 X3Lang is an existing experimental compiler, transaction-policy VM and
-cross-chain verification toolkit developed as part of the X3 blockchain.
+cross-chain verification toolkit developed as part of the X3 blockchain. It aims to constrain trading and agent instructions with explicit authorization, recipient, fee, expiry and refund policies before funds move.
 
 **Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
 The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
@@ -65,6 +65,22 @@ node --test x3-lang/near/demo/test/*.test.mjs
 [**X3 Guard — signed dry-quote validation**](https://x3-guard.pages.dev/)
 verifies a real 1Click quote and checks risk rules. This is **not** proof of
 an authorized wallet transaction or a completed cross-chain settlement.
+
+### NEAR Intents integration: what works and what remains
+
+**[X3 Guard live dry-quote demo](https://x3-guard.pages.dev/)** · [Example .x3 intent](x3-lang/examples/near_intents_sol_to_near.x3) · [1Click adapter](x3-lang/near_intents.py) · [Guard contract and trust model](x3-lang/near/x3-guard/README.md)
+
+| Component | Demonstrable in source | Not yet established |
+| --- | --- | --- |
+| X3Lang compiler and trading VM | Python intent DSL, Rust compiler/VM, deterministic test receipts and fixture-host trading workflows | Trading-intent VM execution on a live chain |
+| NEAR Intents 1Click adapter | Plans requests; checks signed quotes, minimum received, slippage, fees, freshness and nonces | A production solver or a completed cross-chain fill |
+| NEAR Guard | On-chain contract source for policy registration, signature checks, mandates and revocation; local tests | Production security audit, independent cross-chain causality proof |
+| Browser demo | Real signed *dry* quote with visible policy verdicts | Wallet authorization, funded swap or settlement |
+| Evidence tooling | Guided first-swap script and chain-verification commands | Publicly verified authorized swap and refund evidence |
+
+**NEAR Intents partnership / pilot inquiry.** We invite NEAR Intents engineers and liquidity providers to review the adapter, assess a capped pilot, and discuss whether reduced minimum solver capital, technical mentorship, a liquidity-partner introduction, or grants/delegated liquidity could be available. We propose progressing from reproducible adversarial checks and signing-boundary review to a separately authorized small live swap, independently verified settlement or refund, measured execution costs, and *only then* larger capital or solver admission. This is a proposal, **not** an existing sponsorship, solver accreditation, or a claim that minimum requirements can be waived.
+
+Technical discussion: [open an issue titled NEAR Intents pilot](https://github.com/Cyptopimpinainteazy/x3lang/issues/new?title=NEAR%20Intents%20pilot). Review the [full adapter README](x3-lang/README.md#near-intents-adapter-near_intentspy) before executing any live commands; no testnet or wallet-free live operation is implied.
 
 ### Hackathon judge package
 
