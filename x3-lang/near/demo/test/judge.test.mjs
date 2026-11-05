@@ -1,0 +1,70 @@
+// node --test x3-lang/near/demo/test
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import * as judge from "../judge/judge.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const repo = join(here, "..", "..", "..", "..");
+const DATA = JSON.parse(readFileSync(join(here, "..", "judge", "scenarios.json"), "utf8"));
+const read = (file) => readFileSync(join(repo, file), "utf8");
+
+for (const s of DATA.scenarios) {
+  test(`${s.id}: the browser reaches Python's decision through the same guards`, async () => {
+    const result = await judge.evaluate(DATA, s);
+    assert.equal(result.decision, s.python.decision);
+    assert.deepEqual(result.denied_guards, s.python.denied_guards);
+    assert.equal(result.approvals_needed, s.python.approvals_needed);
+    assert.ok(judge.agrees(s, result));
+  });
+
+  test(`${s.id}: the program is the checked-in example plus its stated edits`, () => {
+    let source = read(s.intent.file);
+    for (const e of s.intent.edits) source = source.replace(e.from, e.to);
+    assert.equal(source, s.intent.source);
+  });
+}
+
+test("the mandate and token list are the checked-in files", () => {
+  assert.equal(DATA.mandate.source, read(DATA.mandate.file));
+  assert.deepEqual(DATA.tokens.records, JSON.parse(read(DATA.tokens.file)));
+});
+
+test("every forbidden action in group B is refused, by the contract when the checker can't see it", async () => {
+  for (const s of DATA.scenarios.filter((x) => x.group === "B")) {
+    const shown = judge.shownDecision(s, await judge.evaluate(DATA, s));
+    assert.ok(["denied_by_policy", "contract_only"].includes(shown), `${s.id} shows ${shown}`);
+    if (shown === "contract_only") assert.ok(s.contract_tests.length > 0, `${s.id} cites no contract test`);
+  }
+});
+
+test("a contract-only case never shows as passed, even though the local check passes it", async () => {
+  const s = DATA.scenarios.find((x) => x.id === "nonce-reuse");
+  const result = await judge.evaluate(DATA, s);
+  assert.equal(result.decision, "preflight_passed");
+  assert.equal(judge.shownDecision(s, result), "contract_only");
+});
+
+test("agreement fails when Python and the browser differ on one guard", async () => {
+  const s = DATA.scenarios.find((x) => x.id === "authorized");
+  const result = await judge.evaluate(DATA, s);
+  const tampered = structuredClone(s);
+  tampered.python.checks[3].ok = false;
+  assert.equal(judge.agrees(tampered, result), false);
+});
+
+test("a mandate owned by someone else is refused before any term is checked", async () => {
+  const s = structuredClone(DATA.scenarios[0]);
+  s.intent.source = s.intent.source.replace(/^(\s*)under mandate x3-owner\.near$/m, "$1under mandate someone-else.near");
+  assert.match(s.intent.source, /^\s*under mandate someone-else\.near$/m);
+  const result = await judge.evaluate(DATA, s);
+  assert.equal(result.decision, "denied_by_policy");
+  assert.deepEqual(result.denied_guards, ["mandate_owner"]);
+  assert.deepEqual(result.checks, []);
+});
+
+test("only the local policy level is claimed as proven", () => {
+  assert.deepEqual(judge.EVIDENCE_LADDER.filter((l) => l.proven).map((l) => l.level), ["local_policy"]);
+});
