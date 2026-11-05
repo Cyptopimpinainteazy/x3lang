@@ -1,0 +1,64 @@
+name: X3Lang Exact-Head Local Execution Proof
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/**'
+      - 'scripts/proof/x3lang_execution_proof.py'
+      - 'scripts/proof/x3lang_runtime_equivalence.py'
+      - 'scripts/proof/check_x3lang_mirror.py'
+      - '.github/workflows/x3lang-execution-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirrored-proof-files:
+    if: github.event_name == 'pull_request'
+    name: Verify identical proof code in both GitHub repos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Checkout matching peer feature branch
+        uses: actions/checkout@v4
+        with:
+          repository: Cyptopimpinainteazy/xxxstar
+          ref: ${{ github.head_ref }}
+          path: peer-checkout
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Reject mirrored-file drift
+        run: python3 scripts/proof/check_x3lang_mirror.py --peer-repo peer-checkout --base-ref origin/main --peer-base-ref origin/master
+
+  x3lang-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang
+      - name: Syntax-check both mirrored proof runners
+        run: python3 -m py_compile scripts/proof/x3lang_execution_proof.py scripts/proof/x3lang_runtime_equivalence.py scripts/proof/check_x3lang_mirror.py
+      - name: Execute exact-head compiler and VM proof
+        run: python3 scripts/proof/x3lang_execution_proof.py --output-dir "$RUNNER_TEMP/x3lang-proof"
+      - name: Publish signed-off-by-no-one evidence (not a chain proof)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x3lang-local-execution-proof
+          path: ${{ runner.temp }}/x3lang-proof/
+          if-no-files-found: warn
+          retention-days: 14
