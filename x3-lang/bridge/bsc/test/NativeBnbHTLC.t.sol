@@ -108,4 +108,41 @@ contract NativeBnbHTLCTest {
         vm.expectRevert();
         vault.lock{value: 1 ether}(ID, RECEIVER, hashlock, uint64(block.timestamp) + 10);
     }
+
+    /// @notice Regression witness: once NEAR credited the depositor, the source
+    /// depositor can still decline to call ownerRelease and reclaim all BNB.
+    /// This is a deliberately successful demonstration of a safety violation,
+    /// not a passing atomic-settlement proof. NEAR credit is an explicit
+    /// scenario precondition; this Solidity-only test cannot verify NEAR state.
+    function testCounterexampleNearCreditedButDepositorRefundsBnb() public {
+        open();
+        bool nearCreditFinalized = true; // Adversarial cross-chain scenario input.
+        require(nearCreditFinalized, "scenario must include NEAR payout");
+        uint256 lpBefore = RECEIVER.balance;
+        uint256 depositorBefore = address(this).balance;
+
+        // No permissionless BNB claim exists, even after the preimage is known.
+        vm.prank(RECEIVER);
+        vm.expectRevert();
+        vault.ownerRelease(ID, SECRET);
+        require(RECEIVER.balance == lpBefore, "LP unexpectedly paid");
+
+        // The NEAR payout cannot stop the BSC depositor's independent refund.
+        vm.warp(block.timestamp + WAIT);
+        vault.refund(ID);
+        require(address(this).balance == depositorBefore + 1 ether, "depositor did not recover BNB");
+        require(RECEIVER.balance == lpBefore, "LP should still be unpaid");
+    }
+
+    /// @notice Once the owner has paid out BNB, neither a refund nor a second
+    /// payout may occur, including on the timeout boundary.
+    function testOwnerPayoutCannotBeReplayedOrRefunded() public {
+        open();
+        vault.ownerRelease(ID, SECRET);
+        vm.expectRevert();
+        vault.ownerRelease(ID, SECRET);
+        vm.warp(block.timestamp + WAIT);
+        vm.expectRevert();
+        vault.refund(ID);
+    }
 }
