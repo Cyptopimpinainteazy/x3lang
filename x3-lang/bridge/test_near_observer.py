@@ -1,0 +1,131 @@
+"""Fail-closed read-only NEAR escrow observation; no signing or chain proof."""
+import base64
+import json
+import sqlite3
+import pytest
+from near_observer import observe, ObservationError, OutcomeJournal
+
+SWAP = "ab" * 32
+VAULT = "escrow.testnet"
+RECIPIENT = "alice.testnet"
+INITIATOR = "lp.testnet"
+HASHLOCK = bytes(range(32))
+AMOUNT = 10**24
+BLOCK = "B" * 44
+
+
+def replies(state="Claimed", amount=AMOUNT, block=BLOCK, vault=VAULT):
+    swap = {"initiator": INITIATOR, "recipient": RECIPIENT,
+            "hashlock": list(HASHLOCK), "amount": str(amount),
+            "expires_at_ns": 1899999999000000000, "state": state}
+    payload = json.dumps(swap).encode()
+    return {
+        "jsonrpc": "2.0", "id": "x3-near-observer", "result": {
+            "block_hash": block, "block_height": 123456,
+            "result": list(payload), "logs": []}}
+
+
+def fake_network(results):
+    calls = []
+    def fetch(endpoint, payload):
+        calls.append((endpoint, payload))
+        return results[endpoint]
+    return fetch, calls
+
+
+def test_two_independent_endpoints_agree_on_final_state():
+    fetch, calls = fake_network({"https://rpc-a.example": replies(), "https://rpc-b.example": replies()})
+    observed = observe(["https://rpc-a.example", "https://rpc-b.example"],
+        vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+        initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+        fetch=fetch)
+    assert observed.outcome == "Claimed"
+    assert observed.block_hash == BLOCK
+    assert observed.authorized_to_sign is False
+    assert all(p["params"]["finality"] == "final" for _, p in calls)
+    assert all(p["params"]["account_id"] == VAULT for _, p in calls)
+
+
+@pytest.mark.parametrize("change", ["block", "amount", "recipient", "state", "missing", "logs"])
+def test_disagreement_or_invalid_state_refuses(change):
+    first = replies()
+    second = replies()
+    if change == "block":
+        second["result"]["block_hash"] = "C" * 44
+    elif change == "amount":
+        second = replies(amount=AMOUNT + 1)
+    elif change == "recipient":
+        raw = json.loads(bytes(second["result"]["result"]))
+        raw["recipient"] = "attacker.testnet"
+        second["result"]["result"] = list(json.dumps(raw).encode())
+    elif change == "state":
+        second = replies(state="Refunded")
+    elif change == "missing":
+        second["result"]["result"] = list(b"null")
+    elif change == "logs":
+        second["result"]["logs"] = ["unexpected"]
+    fetch, _ = fake_network({"https://rpc-a.example": first, "https://rpc-b.example": second})
+    with pytest.raises(ObservationError):
+        observe(["https://rpc-a.example", "https://rpc-b.example"],
+            vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+            initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT, fetch=fetch)
+
+
+def test_same_hostname_does_not_count_as_independent():
+    fetch, _ = fake_network({})
+    with pytest.raises(ObservationError):
+        observe(["https://rpc-a.example", "https://rpc-a.example/alternate"],
+            vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+            initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT, fetch=fetch)
+
+
+def test_wrong_hashlock_refuses():
+    fetch, _ = fake_network({"https://rpc-a.example": replies(), "https://rpc-b.example": replies()})
+    with pytest.raises(ObservationError):
+        observe(["https://rpc-a.example", "https://rpc-b.example"],
+            vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+            initiator=INITIATOR, hashlock=b"x" * 32, near_amount_yocto=AMOUNT, fetch=fetch)
+
+
+def test_persistent_conflicting_outcome_is_rejected(tmp_path):
+    j = OutcomeJournal(tmp_path / "observer.sqlite")
+    assert j.record("testnet", VAULT, SWAP, "Claimed", BLOCK) is True
+    assert j.record("testnet", VAULT, SWAP, "Claimed", BLOCK) is False
+    with pytest.raises(ObservationError):
+        j.record("testnet", VAULT, SWAP, "Refunded", BLOCK)
+    assert OutcomeJournal(tmp_path / "observer.sqlite").get("testnet", VAULT, SWAP) == ("Claimed", BLOCK)
+
+
+def test_unverified_observation_cannot_enter_journal(tmp_path):
+    j = OutcomeJournal(tmp_path / "observer.sqlite")
+    with pytest.raises(ObservationError):
+        j.record("testnet", VAULT, SWAP, "OBSERVED", BLOCK)
+
+
+def test_locked_state_is_only_an_observation():
+    fetch, _ = fake_network({"https://rpc-a.example": replies(state="Locked"),
+                             "https://rpc-b.example": replies(state="Locked")})
+    o = observe(["https://rpc-a.example", "https://rpc-b.example"],
+                vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+                initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT, fetch=fetch)
+    assert o.outcome == "Locked" and not o.authorized_to_sign
+
+
+def test_rpc_error_is_never_accepted_as_unfunded():
+    fetch, _ = fake_network({"https://rpc-a.example": replies(),
+                             "https://rpc-b.example": {"jsonrpc": "2.0", "id": "x3-near-observer",
+                                                       "error": {"code": -32000, "message": "unknown account"}}})
+    with pytest.raises(ObservationError):
+        observe(["https://rpc-a.example", "https://rpc-b.example"],
+                vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+                initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT, fetch=fetch)
+
+
+def test_local_journal_does_not_allow_mutating_final_evidence(tmp_path):
+    path = tmp_path / "durable.sqlite"
+    a = OutcomeJournal(path)
+    a.record("testnet", VAULT, SWAP, "Claimed", BLOCK)
+    b = OutcomeJournal(path)
+    with pytest.raises(ObservationError):
+        b.record("testnet", VAULT, SWAP, "Claimed", "D" * 44)
+    assert b.get("testnet", VAULT, SWAP) == ("Claimed", BLOCK)
