@@ -1,92 +1,115 @@
-# X3Lang — verifiable policies for cross-chain execution
+# X3Lang — verifiable financial policies for cross-chain execution
 
-**Experimental financial-intent language, compiler, transaction-policy VM, and NEAR Intents integration.** X3Lang is being developed as part of the X3 blockchain ecosystem. The objective is to turn explicitly constrained trading and agent instructions into verifiable execution policies—not to let AI output or a quoted price authorize a transfer on its own.
+X3Lang is an existing experimental compiler, transaction-policy VM and
+cross-chain verification toolkit developed as part of the X3 blockchain. It aims to constrain trading and agent instructions with explicit authorization, recipient, fee, expiry and refund policies before funds move.
 
-**Current status:** research and development; **not a production solver, audited custody system, or demonstrated atomic cross-chain trading engine**. The public demo checks signed *dry* quotes; it does not execute a funded swap.
+**Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
+The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
+public mainnet transaction links remain pending and are **not** fabricated.
 
-[Try the X3 Guard demo](https://x3-guard.pages.dev/) · [NEAR adapter and capabilities](x3-lang/README.md#near-intents-adapter-near_intentspy) · [NEAR Guard contract](x3-lang/near/x3-guard/README.md) · [Prior work & provenance](PRIOR_WORK.md)
+**Hackathon disclosure:** the original language and its trading engine were
+created **before** the current NEAR hackathon. This repository preserves their
+real Git history. Start with [PRIOR_WORK.md](PRIOR_WORK.md), including its
+[`baseline...main` historical comparison](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...main).
 
-## Why this exists
+The exact historical source is
+[`xxxstar` / `feat/near-intents-adapter` @ `95587205`](https://github.com/Cyptopimpinainteazy/xxxstar/commit/95587205d5febc40c1047c845f379946c023228d).
+The source was extracted with `git-filter-repo` from a **full Git clone**;
+commit authorship and chronology were preserved, not condensed into a
+single import commit. Review the SHA map in `docs/provenance/`.
 
-An ordinary swap quote says what a route *might* deliver. X3Lang aims to specify **what a trading agent is allowed to do** before funds move: assets, addresses, minimum received, maximum slippage and fees, expiry, refunds, and delegated-agent limits.
+## Contents
 
-The NEAR-specific prototype compiles a policy to a NEAR Intents **1Click** request, validates the returned signed quote, and can generate arguments for an on-chain policy contract. Users retain control of the origin-chain wallet and send deposits separately.
+- **`x3-lang/`** — Python financial-intent DSL, Rust compiler, virtual machine,
+  tests, examples, NEAR Intents adapter, x3-guard smart contract, and browser demo.
+- **`crates/x3bc-core/`** — deterministic X3BC bytecode definitions required
+  by the X3Lang compiler.
+- **`docs/x3-lang/fixtures/` and `scripts/proof/`** — archived proof fixtures
+  and verifier generator used by existing VM integration tests.
 
-### Demonstrable today vs. still to prove
+### User-first commercial economics (new, opt-in)
 
-| Area | In this repository | Boundary |
-| --- | --- | --- |
-| X3Lang source and compiler/VM | Python intent DSL, Rust compiler and VM, tests and examples; transaction and receipt logic against fixture hosts | The trading-intent VM does **not** execute on-chain |
-| NEAR Intents / 1Click adapter | Quote planning, dry/live quote handling, Ed25519 quote-signature checks, amount/slippage/fee/expiry rules, nonce tracking, status/receipt tooling | A signed quote is **not** proof of settlement; the adapter never signs or sends a deposit |
-| X3 Guard (NEAR contract source) | Policy registration, signed-quote checks, nonce enforcement, agent mandates and revocation; contract tests | Contract source and tests do **not** establish an audited production deployment; outcome recording is not independent cross-chain proof |
-| Browser demonstration | Real 1Click **dry** quote validation with line-by-line policy verdicts | No authorized wallet payment, solver fill, or completed cross-chain settlement is demonstrated |
-| Chain evidence tooling | Guided first-swap flow and deposit/delivery/refund verification commands | End-to-end solver causality and refund proofs remain release gates |
-| Liquidity-provider / solver integration | Opportunity for integration and pilot collaboration | **No active production solver service, guaranteed capital facility, or verified market-making volume** |
-
-## Live demo and code entry points
-
-**[Open the X3 Guard browser demo](https://x3-guard.pages.dev/)** — inspect the intent-policy checks against a signed dry quote. The page is a demonstration of validation, not a transaction terminal.
-
-- [Canonical Solana USDC → NEAR USDC intent](x3-lang/examples/near_intents_sol_to_near.x3): route, minimum output, fee and slippage limits, timeout and refund policy. The example contains **placeholder receivers**; do not send funds to them.
-- [NEAR Intents adapter](x3-lang/near_intents.py): quote and policy validation, guarded live-quote workflow, receipt/status commands.
-- [NEAR Guard contract](x3-lang/near/x3-guard/README.md): source, trust model, tests, agent-mandate permissions, and deployment instructions.
-- [Guided first swap](x3-lang/near/first-swap.sh): opt-in small-trade workflow; **spending requires user authorization**.
-- [Trading Core v1 details](x3-lang/README.md#trading-core-v1): fixture-host execution, debt closure and deterministic receipts, with explicit limits.
-- [Historical provenance](PRIOR_WORK.md): what predates the hackathon and how that code reached this repository.
-
-## NEAR Intents collaboration / pilot proposal
-
-We are interested in working with the **NEAR Intents** team and ecosystem liquidity providers on a small, risk-limited integration pilot.
-
-**What X3Lang could contribute:** a programmable policy layer for 1Click orders and delegated trading agents, signed-quote screening, explicit risk bounds, reproducible verifier tests, and a path toward more robust settlement evidence.
-
-**What we'd like to discuss:**
-
-1. A technical review of the adapter and Guard's security assumptions.
-2. Developer or solver-pilot access, and whether **reduced minimum capital requirements** are available for controlled testing.
-3. Introductions to liquidity providers, market makers, or solver operators willing to explore a narrowly scoped trial.
-4. Whether ecosystem grants, technical mentorship, or **sponsored/delegated liquidity** programs are available—subject to custody, risk and compliance review.
-
-**Suggested trial milestones:** (1) reproducible local validation and adversarial tests; (2) independently reviewed signing, nonce, wallet, and refund boundaries; (3) a separately authorized small live trade with independently verifiable deposit and delivery/refund evidence; (4) measured quote quality, failures and costs; (5) only then discuss capital scale-up or solver admission.
-
-This is an **invitation to evaluate a prototype**, not a claim of endorsement by NEAR, a funding commitment, or an assertion that minimums can be waived. Any test using real assets requires explicit approval and operational safeguards.
-
-**Technical contact:** open a [GitHub issue](https://github.com/Cyptopimpinainteazy/x3lang/issues) referencing “NEAR Intents pilot” or contact the repository maintainer through GitHub.
-
-## Reproduce local checks
-
-From the repository root, use an isolated Python environment and install dependencies:
+[X3Lang's value-fee arithmetic](x3-lang/value_fee.py) provides an inspectable,
+**non-billable** preview: an operator can propose a capped share of measurable
+positive net savings, and the user must remain better off after the proposed
+fee. See [COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md) for the transparent
+revenue options, IP/licensing limitations, and missing on-chain authority,
+and the [NEAR value-first rollout gates](docs/plans/NEAR_X3LANG_VALUE_FIRST_IMPLEMENTATION.md)
+for the planned on-chain enforcement and integration work.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r x3-lang/requirements.txt pytest
+python3 x3-lang/value_fee.py --preview-stdin \
+  < x3-lang/examples/fees/verified_savings_preview.json
+```
 
-PYTHONPATH=x3-lang python -m pytest x3-lang/tests -q
-node --test x3-lang/near/demo/test/*.test.mjs
+**This is an optional Python policy-economics primitive, not yet new `.x3`
+compiler syntax, a paid API, or a wallet fee.** The example uses illustrative
+unsigned quotes; it cannot authorize payments. Public source cannot be made
+fork-proof by embedding a revenue check. A separate user-approved service
+would be needed to collect any future fee.
+
+### Reproducible local checks
+
+```bash
+python3 -m pip install -r x3-lang/requirements.txt pytest
+PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 (cd x3-lang && cargo test -p x3-lang-vm --locked --quiet)
 (cd x3-lang && cargo fmt --all -- --check)
 (cd x3-lang && cargo clippy -p x3-lang-vm --all-targets --locked -- -D warnings)
 (cd x3-lang/near/x3-guard && cargo test --locked --quiet)
-(cd x3-lang/near/x3-guard && cargo check --target wasm32-unknown-unknown --locked)
-bash scripts/check-near-allocator.sh
+node --test x3-lang/near/demo/test/*.test.mjs
 ```
 
-These are **commands to run**, not a claim that the latest commit has passed every check. The Guard build requires the WebAssembly target. Consult [AGENTS.md](AGENTS.md) for safety and exact-head verification rules.
+### Public browser demonstration
 
-### Read-only quote exploration
+[**X3 Guard — signed dry-quote validation**](https://x3-guard.pages.dev/)
+verifies a real 1Click quote and checks risk rules. This is **not** proof of
+an authorized wallet transaction or a completed cross-chain settlement.
+
+### NEAR Intents integration: what works and what remains
+
+**[X3 Guard live dry-quote demo](https://x3-guard.pages.dev/)** · [Example .x3 intent](x3-lang/examples/near_intents_sol_to_near.x3) · [1Click adapter](x3-lang/near_intents.py) · [Guard contract and trust model](x3-lang/near/x3-guard/README.md)
+
+| Component | Demonstrable in source | Not yet established |
+| --- | --- | --- |
+| X3Lang compiler and trading VM | Python intent DSL, Rust compiler/VM, deterministic test receipts and fixture-host trading workflows | Trading-intent VM execution on a live chain |
+| NEAR Intents 1Click adapter | Plans requests; checks signed quotes, minimum received, slippage, fees, freshness and nonces | A production solver or a completed cross-chain fill |
+| NEAR Guard | On-chain contract source for policy registration, signature checks, mandates and revocation; local tests | Production security audit, independent cross-chain causality proof |
+| Browser demo | Real signed *dry* quote with visible policy verdicts | Wallet authorization, funded swap or settlement |
+| Evidence tooling | Guided first-swap script and chain-verification commands | Publicly verified authorized swap and refund evidence |
+
+**NEAR Intents partnership / pilot inquiry.** We invite NEAR Intents engineers and liquidity providers to review the adapter, assess a capped pilot, and discuss whether reduced minimum solver capital, technical mentorship, a liquidity-partner introduction, or grants/delegated liquidity could be available. We propose progressing from reproducible adversarial checks and signing-boundary review to a separately authorized small live swap, independently verified settlement or refund, measured execution costs, and *only then* larger capital or solver admission. This is a proposal, **not** an existing sponsorship, solver accreditation, or a claim that minimum requirements can be waived.
+
+Technical discussion: [open an issue titled NEAR Intents pilot](https://github.com/Cyptopimpinainteazy/x3lang/issues). Review the [full adapter README](x3-lang/README.md#near-intents-adapter-near_intentspy) before executing any live commands; no testnet or wallet-free live operation is implied.
+
+### Hackathon judge package
+
+The offline three-track demonstration needs no wallet, network request or
+funds:
 
 ```bash
-python3 x3-lang/near_intents.py plan x3-lang/examples/near_intents_sol_to_near.x3
-python3 x3-lang/near_intents.py quote x3-lang/examples/near_intents_sol_to_near.x3
+python3 scripts/hackathon/demo.py
+bash scripts/hackathon/verify.sh
 ```
 
-Replace the placeholder wallet receivers with addresses you control before requesting actionable quotes. **Do not use `--live`, deploy contracts, or send deposits merely to try the README.** NEAR Intents 1Click has no testnet in this adapter's documented flow; live execution can involve real funds.
+It shows one owner mandate deciding an allowed payment, an approval-required
+payment and a refused payment through the same X3Lang policy checker. See
+[`docs/hackathon/JUDGE_PACKAGE.md`](docs/hackathon/JUDGE_PACKAGE.md), the
+[three-minute walkthrough](docs/hackathon/VIDEO_WALKTHROUGH.md) and the
+[submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md). Local policy
+acceptance is not wallet authorization, a signed quote or settlement.
 
-## Hackathon history and release boundaries
+## Release boundaries
 
-The original X3Lang language and trading VM **predate the current NEAR hackathon**. Read [PRIOR_WORK.md](PRIOR_WORK.md), the [`baseline...main` history comparison](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...main), and the [pinned original source commit](https://github.com/Cyptopimpinainteazy/xxxstar/commit/95587205d5febc40c1047c845f379946c023228d). The repository preserves historical authorship and chronology; new NEAR-specific work is identified separately.
-
-The experimental LP-pool and agent-firewall modules in `xxxstar` draft PR #727 are **not** included here and have unresolved issues. The Guard does **not custody origin-chain funds** or prevent a wallet keyholder from transferring independently. A signed quote is not a wallet authorization; a recorded outcome is not independently proven settlement. Production use needs independent security review, exact-head CI, permission and key-boundary review, reliable cross-chain causality/refund evidence, licensing review, and explicit release approval.
-
-**Project:** [Cyptopimpinainteazy/x3lang](https://github.com/Cyptopimpinainteazy/x3lang) · **Parent ecosystem:** [X3 / xxxstar](https://github.com/Cyptopimpinainteazy/xxxstar)
+- Historical X3Lang source is not newly invented hackathon work.
+- The NEAR Guard code is under review; do not authorize a wallet or deposit
+  based only on dry-quote validation.
+- This source **does not** include the experimental LP-pool or agent-firewall
+  modules from `xxxstar` draft PR #727; those contain unresolved review issues.
+- Cross-chain causality/settlement attribution and refund proofs remain
+  release gates. There is no on-chain X3Lang trading execution claim here.
+- The implemented controls and unresolved wallet, policy-binding, migration,
+  storage, and settlement risks are tracked in the
+  [X3 Shield threat model](docs/security/X3_SHIELD_THREAT_MODEL.md).
+- Licensing, independent security review and exact-head GitHub Actions
+  verification are required before a production release.

@@ -1,0 +1,38 @@
+{
+  "reference": {
+    "input_chain": "solana",
+    "input_asset": "USDC",
+    "input_units": 25000000,
+    "destination_chain": "near",
+    "destination_asset": "USDC",
+    "recipient": "user.near",
+    "guaranteed_output_units": 24900000,
+    "all_known_costs_output_units": 20000,
+    "quote_id": "ILLUSTRATIVE_REFERENCE_NOT_A_SIGNED_QUOTE",
+    "quoted_at_seconds": 100,
+    "expires_at_seconds": 160,
+    "costs_complete": true
+  },
+  "candidate": {
+    "input_chain": "solana",
+    "input_asset": "USDC",
+    "input_units": 25000000,
+    "destination_chain": "near",
+    "destination_asset": "USDC",
+    "recipient": "user.near",
+    "guaranteed_output_units": 25000000,
+    "all_known_costs_output_units": 30000,
+    "quote_id": "ILLUSTRATIVE_CANDIDATE_NOT_A_SIGNED_QUOTE",
+    "quoted_at_seconds": 101,
+    "expires_at_seconds": 160,
+    "costs_complete": true
+  },
+  "policy": {
+    "opted_in": true,
+    "max_savings_share_bps": 2500,
+    "min_user_gain_units": 1,
+    "max_service_fee_units": 100000,
+    "service_id": "x3-managed-routing-demo"
+  },
+  "now_seconds": 110
+}

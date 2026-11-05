@@ -10,10 +10,10 @@ against the program's guards. This contract makes those decisions public:
 | `register_intent(nonce, policy)` | Stores the program's policy under `(caller, nonce)`: program SHA-256, assets, amount, `min_receive`, slippage bound, fee cap, receivers, deadline. A nonce registers once. |
 | `accept_quote(nonce, signed_payload, signature)` | Verifies 1Click's Ed25519 signature **on chain** against the pinned manager key, reads the quote out of the verified bytes, runs every guard against the stored policy and records the quote with its signed payload. A policy accepts **one** quote, so a nonce opens one deposit address. A forged or failing quote changes nothing. |
 | `record_outcome(nonce, status, …)` | Records how the swap ended, once, and whether a settlement met the guaranteed floor. |
-| `get_intent`, `is_nonce_used`, `check_quote`, `get_manager_public_key` | Views. `check_quote` dry-runs the signature check and the guards. |
+| `get_intent`, `is_nonce_used`, `check_quote`, `get_manager_public_key`, `state_version` | Views. `check_quote` dry-runs the signature check and the guards. |
 
-Events are NEP-297 (`standard: "x3guard"`, version 1.2.0): `intent_registered`, `quote_accepted`,
-`outcome_recorded`, `mandate_created`, `mandate_revoked`, `intent_approved`.
+Events are NEP-297 (`standard: "x3guard"`, version 1.3.0): `intent_registered`, `quote_accepted`,
+`outcome_recorded`, `mandate_created`, `mandate_revoked`, `intent_approved`, `state_migrated`.
 
 ## Agent mandates
 
@@ -102,6 +102,34 @@ cargo near build non-reproducible-wasm      # -> target/near/x3_guard.wasm
 This folder's `rust-toolchain.toml` uses `stable` with the `wasm32-unknown-unknown` target,
 overriding the repository's 1.90 pin. cargo-near checks the rustc version against what NEAR's
 protocol accepts and says so if the toolchain is too new.
+
+## State upgrades
+
+The current schema is `STATE_VERSION = 2`. `migrate` accepts both persisted layouts that
+predate versioning:
+
+- the original Guard state with intents and the manager key, whose records become unbound
+  owner intents;
+- the mandate-era state with intents, the manager key and mandates, preserving agent bindings,
+  mandate versions and approvals.
+
+The migration preserves both `LookupMap` prefixes and the pinned manager key, creates the
+mandate map when absent, records a `state_migrated` event, and refuses an already-current or
+future schema. Unit tests serialize both old layouts, run the migration, reload the new state,
+and check that intents, authorizations and mandates survive.
+
+Upgrading a deployed contract is an operator action and has not been performed by this
+repository. Snapshot state first, then deploy the replacement code and call `migrate` as the
+initializer. Do not call `new()` over existing state:
+
+```bash
+near contract deploy <contract-account> use-file target/near/x3_guard.wasm \
+  without-init-call network-config mainnet sign-with-access-key-file <key-file.json> send
+near contract call-function as-transaction <contract-account> migrate \
+  json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' \
+  sign-as <signer-account> network-config mainnet \
+  sign-with-access-key-file <key-file.json> send
+```
 
 ## Deploy
 

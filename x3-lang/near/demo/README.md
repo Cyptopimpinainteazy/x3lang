@@ -34,9 +34,43 @@ host serves it; there is no build step.
 ## Test it
 
 ```bash
-node --test x3-lang/near/demo/test/*.test.mjs        # 11 tests, incl. real 1Click signatures
+node --test x3-lang/near/demo/test/*.test.mjs        # 35 tests, incl. real 1Click signatures
 python3 -m pytest x3-lang/tests/test_demo_parity.py  # JS and Python agree (needs Node 20+)
 ```
+
+## Judge console
+
+`judge.html` (open http://localhost:8000/judge.html) shows one owner mandate deciding nine agent
+payments: two allowed (one held for approval) and seven forbidden. The forbidden ones exceed the
+cap, pay an unlisted recipient, redirect the refund, raise the fee cap, break the 24-hour cap, run
+after revocation, and reuse a nonce. Five panels: the owner's policy, the agent's request, the
+decision with each check marked on its line, the cross-chain leg, and the evidence.
+
+- **One checker.** The page runs `x3guard.mjs`'s `checkMandate`, as the X3 Guard page does.
+  `judge/scenarios.json` carries Python's `track_control.evaluate` answer for each scenario, and
+  the page shows whether the two agree, check by check.
+- **Every program is in the repository.** Each scenario is a checked-in example or that example
+  with a stated line changed. Two use an assumed Guard state (revoked, already spent), shown as an
+  assumption. Nonce reuse is shown as decided by the contract, citing x3-guard's tests, because
+  the local checker cannot see used nonces.
+- **Each claim is labelled with the evidence behind it.** Only "locally valid policy" holds. The
+  page states that no approval, deployment, quote, transaction or settlement is behind it.
+
+```bash
+python3 scripts/hackathon/demo.py                         # same scenarios, one terminal command
+bash scripts/hackathon/verify.sh                          # tests + demo + readiness report
+python3 x3-lang/near/demo/judge/build_scenarios.py            # after changing an example
+python3 x3-lang/near/demo/judge/collect_evidence.py           # run the tests; panel 5 shows them
+python3 x3-lang/near/demo/judge/collect_evidence.py --with-contract   # also x3-guard's cargo tests
+```
+
+`judge/evidence.json` is a local record and is not committed: it names the commit it ran on, and
+a committed copy would always describe an earlier one.
+
+The [judge package](../../../docs/hackathon/JUDGE_PACKAGE.md),
+[three-minute walkthrough](../../../docs/hackathon/VIDEO_WALKTHROUGH.md) and
+[submission checklist](../../../docs/hackathon/SUBMISSION_CHECKLIST.md) provide the
+judge-facing narrative and evidence boundaries.
 
 ## What it does not do
 
