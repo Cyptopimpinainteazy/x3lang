@@ -49,17 +49,29 @@ When a live X3 swap has actually occurred:
     python3 scripts/judge_evidence.py --skip-tests --receipt /private/receipt.json --refresh-chain --require-live --report-dir /tmp/x3-live
 
 Current safe behavior: the judge gate **does not** promote imported receipts to
-independently verified Solana deposits, NEAR deliveries, or refunds. It returns
+independently verified Solana deposits, NEAR deliveries, or refunds. With
+`--refresh-chain`, it rechecks quote signatures and signed-request/receipt
+bindings but **does not query NEAR or Solana RPC endpoints**. It returns
 `unverified_receipt_chain_binding` for valid live quotes because the receipt's
 leg, token mapping, and historical balance baseline are not cryptographically
 bound to the signed request. A true independent chain proof requires a new,
 reviewed verifier that reconstructs those facts from authenticated data.
-Set SOLANA_RPC_URLS and NEAR_RPC_URLS to comma-separated trusted endpoints;
+`--require-live` currently **always fails with exit 5** even for an authentic
+live quote. It is a mandatory hard stop, not a live-payment success badge.
+
+For a purported refund, the `--refund-tx` option currently **fails with exit
+2** because the judge does not have an independently authenticated
+quote-to-refund chain-binding path. The lower-level adapter's
+`verify-settlement --refund-tx` is a separate diagnostic and must not be
+confused with independently verified hackathon submission evidence.
+
+Once a reviewed independent RPC verifier is implemented, configure
+`SOLANA_RPC_URLS` and `NEAR_RPC_URLS` to comma-separated trusted endpoints;
 one RPC endpoint is not a verification quorum. Missing/error/disagreement
 must produce unverified, never an optimistic guess.
 
-Exit 0 means all tests **that were actually executed** passed and no live-proof requirement failed; `--skip-tests` runs no tests and may still exit 0. Receipt classification alone does not change exit 0 without `--require-live`. Exit 1 = test failure. Exit 2 = invalid invocation; malformed receipts may be classified unverified.
-Exit 5 = required live on-chain facts missing or not independently rechecked.
+Exit 0 means all tests **that were actually executed** passed and no live-proof requirement failed; `--skip-tests` runs no tests and may still exit 0. Receipt classification alone does not change exit 0 without `--require-live`. Exit 1 = test failure. Exit 2 = invalid invocation, unsupported `--refund-tx`, missing/unreadable/oversize receipt, or receipt read/parsing error; parseable but structurally untrusted JSON is classified as unverified.
+Exit 5 = the requested live-evidence gate is not implemented and cannot promote imported local receipts.
 
 **Evidence limit:** A finalized Solana SPL transfer and NEAR NEP-141 balance
 rise DO NOT by themselves prove that one particular solver caused both.
