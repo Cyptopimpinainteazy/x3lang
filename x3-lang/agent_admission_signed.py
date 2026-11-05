@@ -68,7 +68,9 @@ def verify_signed_admission(
     failures = []
     if type(approval.expires_at) is not int or approval.expires_at <= now:
         failures.append("approval_expired")
-    if approval.expires_at > candidate.expires_at:
+    if type(approval.expires_at) is not int or type(candidate.expires_at) is not int:
+        failures.append("approval_invalid_expiry")
+    elif approval.expires_at > candidate.expires_at:
         failures.append("approval_outlives_child")
     try:
         if not isinstance(trusted_public_key, Ed25519PublicKey):
