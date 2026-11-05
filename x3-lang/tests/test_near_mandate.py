@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+import near_agent as na
 from test_near_intents import (  # noqa: F401  (_trust_the_test_key is an autouse fixture)
     NEAR_USDC, NOW, ROOT, SOL_ADDR, SOL_USDC, TOKENS, RecordingTransport, _status, _trust_the_test_key, api, near_rpc,
     ni,
@@ -18,6 +19,7 @@ from test_near_intents import (  # noqa: F401  (_trust_the_test_key is an autous
 
 MANDATE = ROOT / "examples" / "near_mandate_agent.x3"
 AGENT_INTENT = ROOT / "examples" / "near_intents_agent_payment.x3"
+REFUSED_INTENT = ROOT / "tests" / "fixtures" / "near_intents_agent_refused_payment.x3"
 MANDATE_FIXTURE = ROOT / "tests" / "fixtures" / "x3_guard_mandate_args.json"
 NOW_MS = int(NOW.timestamp() * 1000)
 nm = ni.mandates()
@@ -370,6 +372,13 @@ def _fixture(tmp_path):
         "agent": compiled["agent"],
         "create_mandate": {"agent": compiled["agent"], "terms": compiled["terms"]},
         "register": ni.guard_args(receipt, "register"),
+        "refused_register": na.register_args(
+            str(REFUSED_INTENT),
+            str(MANDATE),
+            client=ni.OneClickClient(jwt="", transport=api()),
+            tokens_path=str(TOKENS),
+            now=NOW,
+        )["args"],
         "quote": ni.guard_args(receipt, "quote"),
         "outcome": ni.guard_args(receipt, "outcome"),
         "policy_cases": cases,
