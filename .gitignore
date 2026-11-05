@@ -17,3 +17,6 @@
 id_rsa
 id_ed25519
 .DS_Store
+
+# Judge console test-run record: regenerate with x3-lang/near/demo/judge/collect_evidence.py
+x3-lang/near/demo/judge/evidence.json

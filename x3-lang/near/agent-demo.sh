@@ -166,8 +166,13 @@ cmd_deposit() {
     *) die "1Click outcome is not terminal (exit $status_code); retry after finality." ;;
   esac
 
+  # Helius is optional by default but mandatory when explicitly requested.
+  local helius_args=()
+  if [[ "${X3_REQUIRE_HELIUS:-0}" == "1" ]]; then
+    helius_args=(--helius)
+  fi
   # Never record the on-chain outcome until the source deposit is proven.
-  adapter verify-deposit --receipt "$RECEIPT" || die "Solana deposit is not independently verified."
+  adapter verify-deposit --receipt "$RECEIPT" "${helius_args[@]}" || die "Solana deposit is not independently verified."
 
   local proof_code=0
   if [[ "$status_code" == 2 ]]; then

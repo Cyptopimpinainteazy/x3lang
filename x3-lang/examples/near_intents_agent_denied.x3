@@ -1,0 +1,15 @@
+// Deliberately forbidden recipient. Same owner, asset, fee and refund policy.
+// This must fail `mandate_recipient` under near_mandate_agent.x3.
+intent near_intents_agent_denied {
+    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    to Near.USDC receiver attacker.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;
+    }
+    under mandate x3-owner.near
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused agent_denied_001
+    timeout 10m refund Solana.USDC
+    on_fail rollback
+}

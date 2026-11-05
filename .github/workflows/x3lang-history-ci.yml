@@ -48,6 +48,8 @@ jobs:
         run: python -m pytest x3-lang/tests -q
       - name: Browser demo
         run: node --test x3-lang/near/demo/test/*.test.mjs
+      - name: Offline three-track judge demo
+        run: python scripts/hackathon/demo.py
 
   rust-vm:
     runs-on: ubuntu-latest
