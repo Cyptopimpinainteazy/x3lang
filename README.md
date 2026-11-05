@@ -80,7 +80,7 @@ an authorized wallet transaction or a completed cross-chain settlement.
 
 **NEAR Intents partnership / pilot inquiry.** We invite NEAR Intents engineers and liquidity providers to review the adapter, assess a capped pilot, and discuss whether reduced minimum solver capital, technical mentorship, a liquidity-partner introduction, or grants/delegated liquidity could be available. We propose progressing from reproducible adversarial checks and signing-boundary review to a separately authorized small live swap, independently verified settlement or refund, measured execution costs, and *only then* larger capital or solver admission. This is a proposal, **not** an existing sponsorship, solver accreditation, or a claim that minimum requirements can be waived.
 
-Technical discussion: [open an issue titled NEAR Intents pilot](https://github.com/Cyptopimpinainteazy/x3lang/issues). Review the [full adapter README](x3-lang/README.md#near-intents-adapter-near_intentspy) before executing any live commands; no testnet or wallet-free live operation is implied.
+Technical discussion: [open an issue titled NEAR Intents pilot](https://github.com/Cyptopimpinainteazy/x3lang/issues/new?title=NEAR%20Intents%20pilot). Review the [full adapter README](x3-lang/README.md#near-intents-adapter-near_intentspy) before executing any live commands; no testnet or wallet-free live operation is implied.
 
 ### Hackathon judge package
 
