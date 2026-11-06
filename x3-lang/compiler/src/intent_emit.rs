@@ -314,7 +314,7 @@ fn value_string_from_expr(expr: &Expression) -> String {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => value.to_string(),
         Expression::Literal(LiteralExpr::String(s)) => s.as_str().to_string(),
-        Expression::Literal(LiteralExpr::Percentage { value }) => format!("{value}%"),
+        Expression::Literal(LiteralExpr::Percentage { value }) => value.as_str().to_string(),
         Expression::Literal(LiteralExpr::Duration { value, unit: _ }) => value.to_string(),
         Expression::Ident(s) => s.as_str().to_string(),
         _ => format!("{:?}", expr),
