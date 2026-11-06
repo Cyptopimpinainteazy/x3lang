@@ -3,6 +3,10 @@
 X3Lang is an existing experimental compiler, transaction-policy VM and
 cross-chain verification toolkit developed as part of the X3 blockchain. It aims to constrain trading and agent instructions with explicit authorization, recipient, fee, expiry and refund policies before funds move.
 
+Unlike NEAR's policy-bound wallets or function-call keys, X3 mandates are a
+typed language that also verifies NEAR Intents' signed quote terms before a
+deposit is authorized.
+
 **Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
 The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
 public mainnet transaction links remain pending and are **not** fabricated.
