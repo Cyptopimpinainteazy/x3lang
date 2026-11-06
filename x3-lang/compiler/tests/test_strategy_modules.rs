@@ -350,14 +350,18 @@ mod a_body_can_state_its_own_fee_ceiling {
 
     #[test]
     fn a_guard_with_no_declaration_behind_it_is_refused() {
-        // An intent has no `risk { }` clause, so a fee guard in one claims something nothing backs —
-        // the same rule every other declared kind follows.
-        let source = "intent unbacked {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    \
-                      route {\n        swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    \
-                      require fees <= 8\n    require slippage <= 50\n    on_fail refund ethereum.USDC to sender\n}\n";
-        let found = errors(source);
+        // A module with no `risk { }` profile at all leaves a `require fees`
+        // guard in its body unbacked — the same rule every other declared kind
+        // follows. An intent is not a module and has no risk profile, so its
+        // fee guard is a self-contained quote bound. (The parser itself refuses
+        // a `risk` block that omits `max_total_fee_bps`, so the unbacked-module
+        // case is a module with no risk section, not a partial one.)
+        let sections = "    effects [swap]\n    domains [ethereum]\n    bounds { max_steps 10 max_gas 200_000 }\n";
+        let execute = "        swap uniswap ethereum.USDC -> ethereum.ETH amount 1000 min_output 1\n        require slippage <= 50\n        require fees <= 8\n        on_fail refund ethereum.USDC to sender";
+        let source = module(execute, sections);
+        let found = errors(&source);
         assert!(
-            found.iter().any(|error| error.contains("nothing declares one")),
+            found.iter().any(|error| error.contains("does not declare one")),
             "a fee guard with no ceiling behind it must be refused by name: {found:?}"
         );
     }

@@ -16,6 +16,9 @@ The judge demo shows a prompt-injected request to `attacker.near` refused by
 `mandate_recipient`. Python and the browser evaluate the same checked-in denied
 payload guard by guard. A separate local Guard contract test proves a
 correctly TEST-signed quote is refused after signature verification.
+A real local `qwen3:8b` red-team run held all 8 adversarial requests; seven
+were refused by the model itself, so that run is not presented as guard
+refusal after model compromise.
 
 NEAR testnet evidence: `x3lang-guard-20261106.testnet` deployed with WASM
 SHA-256 `ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab`

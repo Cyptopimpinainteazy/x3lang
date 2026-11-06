@@ -189,6 +189,42 @@ fn formatting_an_example_preserves_its_meaning() {
 }
 
 #[test]
+fn mandate_and_under_mandate_round_trip() {
+    let source = "mandate shopping {\n\
+        owner x3-owner.near\n\
+        agent x3-agent.near\n\
+        spend Solana.USDC\n\
+        per_payment 50000000\n\
+        per_24h 200000000\n\
+        allow recipients x3-demo.near\n\
+        allow assets Near.USDC\n\
+        refund_to 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n\
+        require slippage <= 1%\n\
+        approve above 30000000 by 1 of x3-owner.near\n\
+        expires 30d\n\
+    }\n\
+    intent payment {\n\
+        from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n\
+        to Near.USDC receiver x3-demo.near\n\
+        route { bridge NearIntents Solana.USDC -> Near.USDC }\n\
+        under mandate x3-owner.near\n\
+        on_fail rollback\n\
+    }\n";
+    let program = parse(source).expect("mandate and under-mandate intent must parse");
+    let formatted = X3Formatter::new().format_program(&program);
+    assert!(
+        formatted.contains("mandate shopping"),
+        "formatter must write the mandate back: {formatted}"
+    );
+    assert!(
+        formatted.contains("under mandate x3-owner.near"),
+        "formatter must write the under-mandate clause back: {formatted}"
+    );
+    let reparsed = parse(&formatted).expect("formatted program must parse");
+    assert_eq!(ast_without_spans(&program), ast_without_spans(&reparsed));
+}
+
+#[test]
 fn the_lexers_comment_reader_agrees_with_what_it_drops() {
     use x3_lang_compiler::parser::source_comments;
 

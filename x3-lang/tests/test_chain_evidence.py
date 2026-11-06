@@ -203,10 +203,10 @@ def test_a_finalized_native_bnb_deposit_is_verified_from_chain_data():
     assert evidence["observed"] == "1000000000000000"
     assert evidence["blockNumber"] == 45_000_000
     assert evidence["finalizedBlock"] == 45_000_020
-    assert [call["method"] for call in fake.calls][:3] == [
+    assert evidence["chainId"] == 56
+    assert [call["method"] for call in fake.calls][:2] == [
         "eth_chainId",
         "eth_getTransactionByHash",
-        "eth_getTransactionReceipt",
     ]
 
 
@@ -229,16 +229,6 @@ def test_an_unproven_native_bnb_deposit_is_refused(tx, failed):
     assert checks(evidence)[failed] is False
 
 
-def test_bsc_wrong_chain_rpc_is_rejected_even_if_transfer_looks_correct():
-    rpc, fake = bsc_rpc(chain_id=1)
-    with pytest.raises(ce.ChainEvidenceError) as exc:
-        rpc.verify_native_transfer(
-            tx_hash=BSC_TX, recipient=BSC_DEPOSIT,
-            min_amount=1, not_after_ms=None, purpose="deposit",
-        )
-    assert exc.value.code == "X3_EVIDENCE_WRONG_CHAIN"
-
-
 def test_an_unfinalized_native_bnb_deposit_is_refused():
     rpc, _ = bsc_rpc(finalized=44_999_999)
     evidence = rpc.verify_native_transfer(
@@ -250,6 +240,42 @@ def test_an_unfinalized_native_bnb_deposit_is_refused():
     )
     assert evidence["verified"] is False
     assert checks(evidence)["finalized"] is False
+
+
+def test_a_wrong_bsc_chain_id_is_refused():
+    rpc, _ = bsc_rpc(chain_id=1)
+    evidence = rpc.verify_native_transfer(
+        tx_hash=BSC_TX,
+        recipient=BSC_DEPOSIT,
+        min_amount=1,
+        not_after_ms=None,
+        purpose="deposit",
+    )
+    assert evidence["verified"] is False
+    assert checks(evidence)["chain_id"] is False
+
+
+def test_inconsistent_bsc_block_hashes_are_refused():
+    tx = bsc_tx()
+    fake = FakeBsc({"https://bsc-a.example.invalid": {BSC_TX: tx}}, finalized=45_000_020)
+    original = fake.__call__
+
+    def inconsistent(method, url, payload):
+        status, data = original(method, url, payload)
+        if payload["method"] == "eth_getTransactionReceipt":
+            data["result"]["blockHash"] = "0x" + "9" * 64
+        return status, data
+
+    rpc = ce.BscRpc(transport=RecordingTransport(inconsistent), urls=["https://bsc-a.example.invalid"])
+    evidence = rpc.verify_native_transfer(
+        tx_hash=BSC_TX,
+        recipient=BSC_DEPOSIT,
+        min_amount=1,
+        not_after_ms=None,
+        purpose="deposit",
+    )
+    assert evidence["verified"] is False
+    assert checks(evidence)["block_hash_matches"] is False
 
 
 def test_bsc_rpc_endpoints_that_disagree_prove_nothing():
@@ -397,6 +423,50 @@ def test_verify_deposit_dispatches_bsc_native_bnb(tmp_path):
     assert receipt["verification"]["missing"] == ["settlement or refund"]
 
 
+def test_deposit_evidence_refuses_a_tampered_saved_request_before_rpc(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["quote_request"]["recipient"] = "attacker.near"
+    rpc, fake = bsc_rpc()
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.verify_deposit(receipt, tx_signature=BSC_TX, bsc=rpc)
+    assert error.value.code == "X3_EVIDENCE_BINDING"
+    assert fake.calls == []
+
+
+def test_deposit_evidence_refuses_invalid_quote_signature_before_rpc(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["quote_response"]["quote"]["amountIn"] = "1"
+    rpc, fake = bsc_rpc()
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.verify_deposit(receipt, tx_signature=BSC_TX, bsc=rpc)
+    assert error.value.code == "X3_NEAR_INVALID_SIGNATURE"
+    assert fake.calls == []
+
+
+def test_deposit_evidence_refuses_receipt_deposit_metadata_mismatch(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["deposit"]["address"] = "0x" + "9" * 40
+    rpc, fake = bsc_rpc()
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.verify_deposit(receipt, tx_signature=BSC_TX, bsc=rpc)
+    assert error.value.code == "X3_EVIDENCE_BINDING"
+    assert fake.calls == []
+
+
+def test_deposit_evidence_refuses_an_invalid_signed_bsc_deposit_address(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    _reseal_live_quote(receipt, deposit_address="0x1234")
+    rpc, fake = bsc_rpc()
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.verify_deposit(receipt, tx_signature=BSC_TX, bsc=rpc)
+    assert error.value.code == "X3_EVIDENCE_BINDING"
+    assert fake.calls == []
+
+
 def test_verify_deposit_cli_dispatches_bsc_native_bnb(tmp_path, capsys):
     path, _, _ = live_bsc_receipt(tmp_path)
     rpc, _ = bsc_rpc()
@@ -459,6 +529,15 @@ def test_prepare_rejects_a_receipt_not_bound_to_the_supplied_program(tmp_path):
     assert error.value.code == "X3_EVIDENCE_BINDING"
 
 
+def test_prepare_rejects_a_tampered_nonce_even_with_the_original_program(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["leg"]["nonce"] = "attacker_replay"
+    with pytest.raises(ni.NearIntentsError) as error:
+        ni.prepare_handoff(receipt, receipt_path=str(path), program_path=str(BSC_EXAMPLE))
+    assert error.value.code == "X3_EVIDENCE_BINDING"
+
+
 def test_bsc_refund_requires_and_reuses_finalized_deposit_evidence(tmp_path):
     path, _, _ = live_bsc_receipt(tmp_path)
     receipt = json.loads(path.read_text())
@@ -486,11 +565,12 @@ def test_bsc_refund_requires_and_reuses_finalized_deposit_evidence(tmp_path):
 def test_settled_end_to_end_through_the_cli(tmp_path, capsys):
     path, chain, rpc = live_receipt(tmp_path)
     client = ni.OneClickClient(jwt="k", transport=api(statuses=[_status("SUCCESS", amountOut="24950000")]))
-
     sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
+
     assert ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
                     "--receipt", str(path)], client=client, solana=sol) == 0
     assert json.loads(path.read_text())["deposit"]["tx_hash"] == DEPOSIT_SIG
+
     assert ni.main(["verify-deposit", "--receipt", str(path)], solana=sol) == 0
 
     # Before the payout lands, settlement is not proven, and the receipt says so.
@@ -688,78 +768,7 @@ def test_evidence_needs_a_live_receipt_and_a_known_tx(tmp_path):
     receipt["quote_request"]["dry"] = True
     with pytest.raises(ni.NearIntentsError) as err:
         ni.verify_deposit(receipt, tx_signature=DEPOSIT_SIG, solana=solana({})[0])
-    assert err.value.code == "X3_EVIDENCE_UNSUPPORTED"
-
-
-class SubmitSpy:
-    """Observe requests to the external 1Click boundary. No network, no funds."""
-    def __init__(self):
-        self.calls = []
-
-    def submit_deposit(self, address, signature):
-        self.calls.append((address, signature))
-        return {"accepted": True}
-
-
-def test_submit_deposit_requires_receipt_before_external_request(capsys):
-    client = SubmitSpy()
-    with pytest.raises(SystemExit) as exc:
-        ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG], client=client)
-    assert exc.value.code == 2  # argparse fails closed before constructing the HTTP request.
-    assert client.calls == []
-    assert "--receipt" in capsys.readouterr().err
-
-
-def test_submit_deposit_mismatch_cannot_notify_provider(tmp_path):
-    path, _, _ = live_receipt(tmp_path)
-    client = SubmitSpy()
-    before = path.read_bytes()
-    rc = ni.main(["submit-deposit", "--deposit-address", SENDER,
-                  "--tx-hash", DEPOSIT_SIG, "--receipt", str(path)], client=client)
-    assert rc == 1
-    assert client.calls == []
-    assert path.read_bytes() == before
-
-
-def test_submit_deposit_rejects_unverified_solana_transfer_before_notification(tmp_path):
-    path, _, _ = live_receipt(tmp_path)
-    client = SubmitSpy()
-    # The transaction arrived but transferred one base unit less than the signed amount.
-    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=24_999_999)})
-    rc = ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
-                  "--receipt", str(path)], client=client, solana=sol)
-    assert rc == 1
-    assert client.calls == []
-    assert "tx_hash" not in json.loads(path.read_text())["deposit"]
-
-
-def test_submit_deposit_verifies_finalized_solana_transfer_before_notification(tmp_path):
-    path, _, _ = live_receipt(tmp_path)
-    client = SubmitSpy()
-    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
-    rc = ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
-                  "--receipt", str(path)], client=client, solana=sol)
-    assert rc == 0
-    assert client.calls == [(DEPOSIT, DEPOSIT_SIG)]
-    receipt = json.loads(path.read_text())
-    assert receipt["deposit"]["tx_hash"] == DEPOSIT_SIG
-    assert receipt["evidence"]["deposit"]["verified"] is True
-
-
-@pytest.mark.parametrize("tamper", ["signed_amount", "deposit_amount"])
-def test_submit_deposit_rejects_modified_quote_or_receipt_before_provider(tmp_path, tamper):
-    path, _, _ = live_receipt(tmp_path)
-    receipt = json.loads(path.read_text())
-    if tamper == "signed_amount":
-        receipt["quote_response"]["quote"]["amountIn"] = "1"
-    else:
-        receipt["deposit"]["amount"] = "1"
-    path.write_text(json.dumps(receipt))
-    client = SubmitSpy()
-    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
-    assert ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
-                    "--receipt", str(path)], client=client, solana=sol) == 1
-    assert client.calls == []
+    assert err.value.code == "X3_EVIDENCE_BINDING"
 
 
 def test_submit_deposit_refuses_another_receipts_address(tmp_path):

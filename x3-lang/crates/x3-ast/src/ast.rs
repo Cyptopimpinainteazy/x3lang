@@ -75,6 +75,10 @@ pub enum Item {
     ParallelDecl(ParallelDecl),
     ObjectiveDecl(ObjectiveDecl),
     AtomicTrade(AtomicTradeDecl),
+    /// `mandate <name> { owner … agent … spend … }` — the owner's binding
+    /// policy for an AI agent's NEAR Intents spending, enforced on chain by
+    /// x3-guard.
+    Mandate(MandateDecl),
 }
 
 /// A `use` declaration
@@ -377,6 +381,12 @@ pub enum Statement {
     },
     Pause,
     Resume,
+    /// `under mandate <owner>` — binds this intent to the owner's declared
+    /// mandate; the agent path of x3-guard checks the mandate's terms on chain
+    /// before the intent can be accepted.
+    UnderMandate {
+        owner: Expression,
+    },
 }
 
 /// Pattern is used in `let`, `for`, `match` (keep simple for now)
@@ -463,6 +473,35 @@ pub struct IntentDecl {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mandate: Option<Symbol>,
     pub body: Block,
+}
+
+/// An owner's binding policy for an AI agent's NEAR Intents spending.
+///
+/// Lowered and enforced by the x3-guard NEAR contract; the compiler parses,
+/// types and verifies the declaration so the mandate is a `.x3` program rather
+/// than a JSON config file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MandateDecl {
+    pub name: Symbol,
+    /// The owner account, e.g. `x3-owner.near`.
+    pub owner: Expression,
+    /// The agent account allowed to register intents under the owner.
+    pub agent: Expression,
+    /// The single origin asset the agent may spend.
+    pub spend: AssetRef,
+    /// Per-payment cap, in base units of `spend`.
+    pub per_payment: Expression,
+    /// Rolling 24-hour cap, in base units of `spend`.
+    pub per_24h: Expression,
+    pub allow_recipients: Vec<Expression>,
+    pub allow_assets: Vec<AssetRef>,
+    pub refund_to: Expression,
+    pub requires: Vec<RequireGuard>,
+    /// Payments strictly above this amount need `approval_threshold` approvers.
+    pub approve_above: Option<Expression>,
+    pub approval_threshold: Option<u8>,
+    pub approvers: Vec<Expression>,
+    pub expires: Option<Expression>,
 }
 
 /// Subscription declaration with amount and charging period.

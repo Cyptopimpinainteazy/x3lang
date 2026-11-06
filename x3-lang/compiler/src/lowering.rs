@@ -1291,6 +1291,11 @@ pub fn lower_program_with_mode(
                 // artifact through the plan a route produced. Its settlement guarantee
                 // does not — see the `Item::VenueDecl` arm above.
             }
+            Item::Mandate(_) => {
+                // A mandate is policy metadata, not an executable step: the x3-guard
+                // NEAR contract enforces its terms on chain. The semantic verifier
+                // still type-checks the declaration; it emits no VM operation.
+            }
         }
     }
 
@@ -1608,6 +1613,12 @@ fn lower_statement(stmt: &Statement, ir: &mut X3IR) -> Result<(), x3_lang_common
                     comparison: guard.comparison,
                 });
             }
+        }
+        Statement::UnderMandate { .. } => {
+            // Policy metadata, not an executable step: the x3-guard NEAR
+            // contract enforces the named mandate's terms on chain. It emits no
+            // VM operation; the semantic verifier checks it references a real
+            // mandate.
         }
         Statement::Allow { feature } => {
             // The consent is the point, so it goes in the artifact. An opt-in

@@ -343,6 +343,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "parallel" => self.parse_parallel_decl().map(Item::ParallelDecl),
             Tok::Ident(ref s) if s == "objective" => self.parse_objective_decl().map(Item::ObjectiveDecl),
             Tok::Ident(ref s) if s == "error" => self.parse_error_decl_item(),
+            Tok::Ident(ref s) if s == "mandate" => self.parse_mandate_item(),
             _ => Err(parse_err("expected top-level item".into(), self.peek())),
         }
     }
@@ -2059,6 +2060,147 @@ impl<'a> Parser<'a> {
         }))
     }
 
+    /// `mandate <name> { owner <account> agent <account> spend <asset>
+    /// per_payment <amount> per_24h <amount> allow recipients <account>
+    /// allow assets <asset> refund_to <account> require <guard>
+    /// approve above <amount> by <n> of <account>, … expires <duration> }`
+    ///
+    /// The declaration is policy metadata: the compiler parses and verifies it
+    /// so the mandate is a typed `.x3` program, and the x3-guard NEAR contract
+    /// enforces the same terms on chain.
+    fn parse_mandate_item(&mut self) -> Result<Item, X3Error> {
+        self.advance(); // 'mandate'
+        let name = self.expect_ident("mandate name")?;
+        self.expect(Tok::LBrace, "expected '{' after mandate name")?;
+
+        let mut owner = None;
+        let mut agent = None;
+        let mut spend = None;
+        let mut per_payment = None;
+        let mut per_24h = None;
+        let mut allow_recipients = Vec::new();
+        let mut allow_assets = Vec::new();
+        let mut refund_to = None;
+        let mut requires = Vec::new();
+        let mut approve_above = None;
+        let mut approval_threshold = None;
+        let mut approvers = Vec::new();
+        let mut expires = None;
+
+        while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            match self.peek() {
+                Tok::Ident(ref s) if s == "owner" => {
+                    self.advance();
+                    owner = Some(self.parse_expr()?);
+                    self.opt_semi();
+                }
+                Tok::KwAgent => {
+                    self.advance();
+                    agent = Some(self.parse_expr()?);
+                    self.opt_semi();
+                }
+                Tok::Ident(ref s) if s == "spend" => {
+                    self.advance();
+                    spend = Some(self.parse_asset_ref()?);
+                    self.opt_semi();
+                }
+                Tok::Ident(ref s) if s == "per_payment" => {
+                    self.advance();
+                    per_payment = Some(self.parse_expr()?);
+                    self.opt_semi();
+                }
+                Tok::Ident(ref s) if s == "per_24h" => {
+                    self.advance();
+                    per_24h = Some(self.parse_expr()?);
+                    self.opt_semi();
+                }
+                Tok::Ident(ref s) if s == "allow" => {
+                    self.advance();
+                    let what = self.expect_ident("allow kind")?;
+                    match what.as_str() {
+                        "recipients" => allow_recipients.push(self.parse_expr()?),
+                        "assets" => allow_assets.push(self.parse_asset_ref()?),
+                        other => {
+                            return Err(parse_err(
+                                format!("unknown `allow {other}` in a mandate; expected `recipients` or `assets`"),
+                                self.peek(),
+                            ))
+                        }
+                    }
+                    self.opt_semi();
+                }
+                Tok::Ident(ref s) if s == "refund_to" => {
+                    self.advance();
+                    refund_to = Some(self.parse_expr()?);
+                    self.opt_semi();
+                }
+                Tok::KwRequire => {
+                    requires.push(self.parse_require_guard()?);
+                    self.opt_semi();
+                }
+                Tok::Ident(ref s) if s == "approve" => {
+                    self.advance(); // 'approve'
+                    self.expect_ident("above")?; // 'above'
+                    approve_above = Some(self.parse_expr()?);
+                    self.expect_ident("by")?; // 'by'
+                    approval_threshold = Some(self.parse_u8_literal("approval threshold")?);
+                    self.expect_ident("of")?; // 'of'
+                    loop {
+                        approvers.push(self.parse_expr()?);
+                        if self.peek() == Tok::Comma {
+                            self.advance();
+                            continue;
+                        }
+                        break;
+                    }
+                    self.opt_semi();
+                }
+                Tok::Ident(ref s) if s == "expires" => {
+                    self.advance();
+                    expires = Some(self.parse_duration_expr("mandate expires")?);
+                    self.opt_semi();
+                }
+                other => {
+                    return Err(parse_err(
+                        format!(
+                            "unexpected clause in mandate body: {other:?}; expected `owner`, `agent`, \
+                             `spend`, `per_payment`, `per_24h`, `allow`, `refund_to`, `require`, \
+                             `approve` or `expires`"
+                        ),
+                        other.clone(),
+                    ))
+                }
+            }
+        }
+        self.expect(Tok::RBrace, "expected '}' to close mandate")?;
+
+        let owner = owner.ok_or_else(|| parse_err("mandate missing `owner <account>`".into(), self.peek()))?;
+        let agent = agent.ok_or_else(|| parse_err("mandate missing `agent <account>`".into(), self.peek()))?;
+        let spend = spend.ok_or_else(|| parse_err("mandate missing `spend <asset>`".into(), self.peek()))?;
+        let per_payment =
+            per_payment.ok_or_else(|| parse_err("mandate missing `per_payment <amount>`".into(), self.peek()))?;
+        let per_24h = per_24h.ok_or_else(|| parse_err("mandate missing `per_24h <amount>`".into(), self.peek()))?;
+        let refund_to =
+            refund_to.ok_or_else(|| parse_err("mandate missing `refund_to <account>`".into(), self.peek()))?;
+
+        Ok(Item::Mandate(MandateDecl {
+            name: Symbol::new(&name),
+            owner,
+            agent,
+            spend,
+            per_payment,
+            per_24h,
+            allow_recipients,
+            allow_assets,
+            refund_to,
+            requires,
+            approve_above,
+            approval_threshold,
+            approvers,
+            expires,
+        }))
+    }
+
     /// Parse the body of a production-shape intent: from/to endpoints,
     /// route operations, require guards, and timeout/on_fail policies.
     fn parse_intent_body(&mut self, name: String) -> Result<Item, X3Error> {
@@ -2150,6 +2292,13 @@ impl<'a> Parser<'a> {
             // accepts, and the formatter wrote the clause back out (TICKET-046).
             Tok::KwUse => self.parse_intent_use(),
             Tok::Ident(ref s) if s == "on" => self.parse_intent_on_event(),
+            Tok::Ident(ref s) if s == "under" => {
+                self.advance(); // 'under'
+                self.expect_ident("mandate")?; // 'mandate'
+                let owner = self.parse_expr()?;
+                self.opt_semi();
+                Ok(Statement::UnderMandate { owner })
+            }
             Tok::Ident(ref s) if s == "proofs" => Err(parse_err(
                 "`proofs required { ... }` must be declared at file scope, not inside an intent body: a \
                  nested declaration parsed successfully and was then never applied to the intent"
@@ -5809,6 +5958,19 @@ impl<'a> Parser<'a> {
                 self.advance(); // the '%'
                 return Ok(Expression::Literal(LiteralExpr::Percentage {
                     value: Symbol::new(&format!("{value}%")),
+                }));
+            }
+            if matches!(self.peek_n(1), Tok::Ident(ref s) if s == "bps") {
+                self.advance(); // the integer
+                self.advance(); // the 'bps' unit
+                                // The semantic verifier already reads a bare integer bound as
+                                // basis points (`bound_bps_from_expr`), so `100 bps` and `100`
+                                // are the same bound. Consuming the explicit unit keeps the
+                                // NEAR mandate examples parseable without a second spelling.
+                return Ok(Expression::Literal(LiteralExpr::Int {
+                    value,
+                    base: IntBase::Decimal,
+                    suffix: None,
                 }));
             }
         }
