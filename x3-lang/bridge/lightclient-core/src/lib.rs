@@ -1,6 +1,8 @@
 //! NEAR light-client *approval signature primitive*. No checkpoint, state,
 //! epoch transitions or permission to attest/pay funds.
 
+pub mod epoch;
+
 use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
