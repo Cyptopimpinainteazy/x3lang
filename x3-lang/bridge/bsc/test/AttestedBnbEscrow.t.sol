@@ -176,6 +176,22 @@ contract AttestedBnbEscrowTest {
         );
     }
 
+    function testRejectsASwapWhereTheDepositorIsAlsoTheLp() public {
+        bytes32 id = keccak256("self-dealing");
+        vm.expectRevert();
+        escrow.lock{value: 1 ether}(
+            id,
+            address(this),
+            keccak256("preimage commitment"),
+            keccak256("vault.near"),
+            keccak256("recipient.near"),
+            1e24,
+            uint64(block.timestamp) + NEAR_FUNDED_BEFORE,
+            uint64(block.timestamp) + NEAR_EXPIRY,
+            uint64(block.timestamp) + WAIT
+        );
+    }
+
     function testAttestationBindsVaultAmountDeadlinesAndParties() public {
         AttestedBnbEscrow other = new AttestedBnbEscrow([vm.addr(11), vm.addr(22), vm.addr(33)]);
         other.lock{value: 2 ether}(

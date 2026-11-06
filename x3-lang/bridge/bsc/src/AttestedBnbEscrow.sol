@@ -99,7 +99,7 @@ contract AttestedBnbEscrow {
         uint64 expiresAt
     ) external payable nonReentrant {
         require(swapId != bytes32(0) && swaps[swapId].state == State.Absent, "duplicate swap");
-        require(lp != address(0) && hashlock != bytes32(0), "bad swap binding");
+        require(lp != address(0) && lp != msg.sender && hashlock != bytes32(0), "bad swap binding");
         require(nearVaultHash != bytes32(0) && nearRecipientHash != bytes32(0), "bad NEAR identity");
         require(nearAmountYocto > 0 && msg.value > 0, "zero assets");
         require(

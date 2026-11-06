@@ -31,12 +31,22 @@ class Plan:
     bnb_wei: int
     near_yocto: int
     bsc_expiry_sec: int
+    near_funded_before_sec: int
+    near_expiry_sec: int
     near_funded_before_ns: int
     near_expiry_ns: int
     bsc_chain_id: int = 56
     near_network: str = "mainnet"
     destination_chain: str = "near"
     status: str = "UNFUNDED_PLAN"
+
+    def bsc_deadline_arguments(self) -> dict[str, int]:
+        """Exact Solidity `lock` deadline arguments (BSC seconds, never nanoseconds)."""
+        return {
+            "nearFundedBefore": self.near_funded_before_sec,
+            "nearExpiresAt": self.near_expiry_sec,
+            "expiresAt": self.bsc_expiry_sec,
+        }
 
 
 def create_plan(*, secret: bytes, initiator_bsc: str, lp_bsc: str,
@@ -106,6 +116,8 @@ def create_plan(*, secret: bytes, initiator_bsc: str, lp_bsc: str,
     return Plan(identity, h, initiator_bsc, lp_bsc, recipient_near, lp_near,
                 bsc_escrow, near_vault, nonce_hex, bnb_wei, near_yocto,
                 bsc_expiry_sec,
+                near_funded_before_sec,
+                near_expiry_sec,
                 near_funded_before_sec * 1_000_000_000,
                 near_expiry_sec * 1_000_000_000,
                 bsc_chain_id=bsc_chain_id, near_network=near_network)

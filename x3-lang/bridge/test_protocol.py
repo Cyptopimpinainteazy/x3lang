@@ -38,6 +38,18 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(p.bsc_escrow, BSC_ESCROW)
         self.assertEqual(p.near_vault, NEAR_VAULT)
         self.assertEqual(p.nonce_hex, NONCE)
+        self.assertEqual(p.near_funded_before_sec, 1_700_002_400)
+        self.assertEqual(p.near_funded_before_ns, 1_700_002_400 * 1_000_000_000)
+        self.assertEqual(p.near_expiry_sec, 1_700_003_600)
+        self.assertEqual(p.near_expiry_ns, 1_700_003_600 * 1_000_000_000)
+        self.assertEqual(
+            p.bsc_deadline_arguments(),
+            {
+                "nearFundedBefore": 1_700_002_400,
+                "nearExpiresAt": 1_700_003_600,
+                "expiresAt": 1_700_010_800,
+            },
+        )
         self.assertNotIn(bytes(range(32)).hex(), str(asdict(p)))
         self.assertNotEqual(p.hashlock_hex, bytes(range(32)).hex())
 
