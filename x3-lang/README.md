@@ -247,6 +247,10 @@ python3 x3-lang/cli.py x3-lang/examples/arb_solana_eth.x3
 cargo test --manifest-path x3-lang/Cargo.toml
 ```
 
+For the exact source/runtime boundaries, supported guards, proof obligations,
+NEAR mandate dialect, troubleshooting and reproducibility commands, read the
+[X3Lang programming guide](../docs/x3-lang/PROGRAMMING_GUIDE.md).
+
 ## Rust Production Surface
 
 ```bash
