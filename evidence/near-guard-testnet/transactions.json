@@ -1,0 +1,565 @@
+{
+  "account_id": "x3lang-guard-20261106.testnet",
+  "chain_id": "testnet",
+  "manifest": {
+    "account_id": "x3lang-guard-20261106.testnet",
+    "block_hash": "4wJnqwFfEYGoQx1XbxAv2smUPAd4kB5hjEp81TEwR2CZ",
+    "block_height": 276547874,
+    "chain_id": "testnet",
+    "code_hash": "CbU8SpgfTgG1egbw8ygMTK3deozvDnoFrF8DJ8qifSe6",
+    "observed_at_utc": "2026-11-06T22:40:19Z",
+    "record_hash": "a509aa27f746998979fe0a09e7c92798e6d2f0ec54e2fb709309e2cc95b0864b",
+    "rpc_url": "https://test.rpc.fastnear.com",
+    "schema": "x3.guard.testnet.manifest.v1",
+    "wasm_bytes": 544944,
+    "wasm_sha256": "ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab"
+  },
+  "record_hash": "6ce96b61fc716a17acef5e5ca5c8cd5b91d2654e296b9e61a4b93239fb01eb86",
+  "schema": "x3.guard.testnet.collection.v1",
+  "transactions": [
+    {
+      "args_sha256": "d967ef0a3d94a8c2ab0fb33147348b483a6adf90e49da47361516721003f09e5",
+      "block_hash": "AedwFq82FcDkRV6N7wotXTiUBhV8wHXrMFuCS9Lmfepo",
+      "block_height": 276546688,
+      "chain_id": "testnet",
+      "final_execution_status": "FINAL",
+      "label": "deploy",
+      "method_names": [
+        "DeployContract",
+        "new"
+      ],
+      "observed_at_utc": "2026-11-06T22:40:20Z",
+      "receipt_errors": [],
+      "receipt_statuses": [
+        {
+          "receipt_id": "7G2VTReuQTbgMBkTzEr8JAWpbYkDi6TgP5DLi369GX3C",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "4o6btufhVTQFfj9yFWhG41yihAt5teRjchfeEH6esuVW",
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang-guard-20261106.testnet",
+      "record_hash": "179fb83bb43b86f95e8a6859361412490f070c7792f5fcddf3f7b3dcc0d9c5a1",
+      "rpc_url": "https://test.rpc.fastnear.com",
+      "sanitized_args": [
+        {
+          "args_keys": [],
+          "args_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "method_name": "DeployContract",
+          "sanitized_args": {}
+        },
+        {
+          "args_keys": [],
+          "args_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "method_name": "new",
+          "sanitized_args": {}
+        }
+      ],
+      "schema": "x3.guard.testnet.transaction.v1",
+      "signer_id": "x3lang-guard-20261106.testnet",
+      "status": "{\"SuccessValue\":\"\"}",
+      "transaction_hash": "FJ5voQaArx17QV4TzDLYDq93cuoAVLSRxjcxbswuyE8v",
+      "tx_hash": "FJ5voQaArx17QV4TzDLYDq93cuoAVLSRxjcxbswuyE8v"
+    },
+    {
+      "args_sha256": "94b653fccfc2cb3a03e58b43da01911b81d852f69739a67c632d6d3a399a53cd",
+      "block_hash": "HW89amqqwVa3MPkoq77m31HMCPtdSD8w8GC52EcTRbqa",
+      "block_height": 276547096,
+      "chain_id": "testnet",
+      "final_execution_status": "FINAL",
+      "label": "allowed_register",
+      "method_names": [
+        "register_intent"
+      ],
+      "observed_at_utc": "2026-11-06T22:40:21Z",
+      "receipt_errors": [],
+      "receipt_statuses": [
+        {
+          "receipt_id": "2TQHoXMtHkNo6N1dTRCKDaKwdCWPp7TUoMmzG6DGiz9s",
+          "status": {
+            "SuccessValue": "eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0Iiwibm9uY2UiOiJldmlkZW5jZS1hbGxvd2VkLTAyIiwicG9saWN5Ijp7InByb2dyYW1fc2hhMjU2IjoiNGExMGJiNTA5NjY4MWYyYWI0YjMxYmY4YWQxN2I1YmUyNjkwYmQ1ZjAyM2E2ZDc0NzcwMGE5NTg4M2I0N2FlMiIsIm9yaWdpbl9hc3NldCI6Im5lcDE0MTpzb2wtNWNlM2JmM2EzMWFmMThiZTQwYmEzMGY3MjExMDFiNDM0MTY5MDE4Ni5vbWZ0Lm5lYXIiLCJkZXN0aW5hdGlvbl9hc3NldCI6Im5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExIiwiYW1vdW50IjoiMjUwMDAwMDAiLCJtaW5fcmVjZWl2ZSI6IjI0ODAwMDAwIiwic2xpcHBhZ2VfYnBzIjo1MCwiZmVlX2NhcF9icHMiOjEwMCwicmVjaXBpZW50IjoieDNsYW5nLWd1YXJkLTIwMjYxMTA2LnRlc3RuZXQiLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsImRlYWRsaW5lX21zIjoxNzk0MDExNTcwNzcwfSwicmVnaXN0ZXJlZF9hdF9tcyI6MTc5NDAwNDM3MjQ1NSwicXVvdGUiOm51bGwsIm91dGNvbWUiOm51bGwsImFnZW50IjpudWxsLCJtYW5kYXRlX3ZlcnNpb24iOm51bGwsImFwcHJvdmFscyI6W119"
+          }
+        },
+        {
+          "receipt_id": "7GxCZbLb3inVBsigrYhnNkgT3fpjzkZiFEY2AguBcGt7",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "DtfnPRiGmPupp9zF4GoySeJ3hL7iuboSpzPDfwwJd8oT",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "8mhheBySr1CDva4GyiZ6vo67Cu2eYkfpqM7fyLRbGctU",
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang-guard-20261106.testnet",
+      "record_hash": "7eba1db40acb5209f61443d8e1973d5c820e15ecd90d671c80f477f8c63a3d74",
+      "rpc_url": "https://test.rpc.fastnear.com",
+      "sanitized_args": [
+        {
+          "args_keys": [
+            "nonce",
+            "policy"
+          ],
+          "args_sha256": "2a6092e5a4ffd5585e4dfd6ee6259ad78f21b8230e4fa49a63f71d72254972c8",
+          "method_name": "register_intent",
+          "sanitized_args": {
+            "nonce": "evidence-allowed-02",
+            "policy": {
+              "amount": "25000000",
+              "deadline_ms": 1794011570770,
+              "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+              "fee_cap_bps": 100,
+              "min_receive": "24800000",
+              "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+              "program_sha256": "4a10bb5096681f2ab4b31bf8ad17b5be2690bd5f023a6d747700a95883b47ae2",
+              "recipient": "x3lang-guard-20261106.testnet",
+              "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+              "slippage_bps": 50
+            }
+          }
+        }
+      ],
+      "schema": "x3.guard.testnet.transaction.v1",
+      "signer_id": "x3lang-guard-20261106.testnet",
+      "status": "{\"SuccessValue\":\"eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0Iiwibm9uY2UiOiJldmlkZW5jZS1hbGxvd2VkLTAyIiwicG9saWN5Ijp7InByb2dyYW1fc2hhMjU2IjoiNGExMGJiNTA5NjY4MWYyYWI0YjMxYmY4YWQxN2I1YmUyNjkwYmQ1ZjAyM2E2ZDc0NzcwMGE5NTg4M2I0N2FlMiIsIm9yaWdpbl9hc3NldCI6Im5lcDE0MTpzb2wtNWNlM2JmM2EzMWFmMThiZTQwYmEzMGY3MjExMDFiNDM0MTY5MDE4Ni5vbWZ0Lm5lYXIiLCJkZXN0aW5hdGlvbl9hc3NldCI6Im5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExIiwiYW1vdW50IjoiMjUwMDAwMDAiLCJtaW5fcmVjZWl2ZSI6IjI0ODAwMDAwIiwic2xpcHBhZ2VfYnBzIjo1MCwiZmVlX2NhcF9icHMiOjEwMCwicmVjaXBpZW50IjoieDNsYW5nLWd1YXJkLTIwMjYxMTA2LnRlc3RuZXQiLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsImRlYWRsaW5lX21zIjoxNzk0MDExNTcwNzcwfSwicmVnaXN0ZXJlZF9hdF9tcyI6MTc5NDAwNDM3MjQ1NSwicXVvdGUiOm51bGwsIm91dGNvbWUiOm51bGwsImFnZW50IjpudWxsLCJtYW5kYXRlX3ZlcnNpb24iOm51bGwsImFwcHJvdmFscyI6W119\"}",
+      "transaction_hash": "9odHjwPhqG74rNtNvbPeNsAtNYupYHzpZBDkM8VY9ehx",
+      "tx_hash": "9odHjwPhqG74rNtNvbPeNsAtNYupYHzpZBDkM8VY9ehx"
+    },
+    {
+      "args_sha256": "8cc71c1afb20b2689af88438621aa962aa6c0afa930a2be0830bfb682294ff36",
+      "block_hash": "CKVa4pw84Diu39pWJH1i9P76GMK3Un7qsYJyohYZCpTy",
+      "block_height": 276547116,
+      "chain_id": "testnet",
+      "final_execution_status": "FINAL",
+      "label": "invalid_register",
+      "method_names": [
+        "register_intent"
+      ],
+      "observed_at_utc": "2026-11-06T22:40:22Z",
+      "receipt_errors": [],
+      "receipt_statuses": [
+        {
+          "receipt_id": "EFNH67Cv7pKE5UfwtaeeYHjYYpjQd8KiCznsAfDeM5Kd",
+          "status": {
+            "SuccessValue": "eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0Iiwibm9uY2UiOiJldmlkZW5jZS1pbnZhbGlkLTAxIiwicG9saWN5Ijp7InByb2dyYW1fc2hhMjU2IjoiNGExMGJiNTA5NjY4MWYyYWI0YjMxYmY4YWQxN2I1YmUyNjkwYmQ1ZjAyM2E2ZDc0NzcwMGE5NTg4M2I0N2FlMiIsIm9yaWdpbl9hc3NldCI6Im5lcDE0MTpzb2wtNWNlM2JmM2EzMWFmMThiZTQwYmEzMGY3MjExMDFiNDM0MTY5MDE4Ni5vbWZ0Lm5lYXIiLCJkZXN0aW5hdGlvbl9hc3NldCI6Im5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExIiwiYW1vdW50IjoiMjUwMDAwMDAiLCJtaW5fcmVjZWl2ZSI6IjI0ODAwMDAwIiwic2xpcHBhZ2VfYnBzIjo1MCwiZmVlX2NhcF9icHMiOjEwMCwicmVjaXBpZW50IjoieDNsYW5nLWd1YXJkLTIwMjYxMTA2LnRlc3RuZXQiLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsImRlYWRsaW5lX21zIjoxNzk0MDExNTcwNzcwfSwicmVnaXN0ZXJlZF9hdF9tcyI6MTc5NDAwNDM4MzE2MCwicXVvdGUiOm51bGwsIm91dGNvbWUiOm51bGwsImFnZW50IjpudWxsLCJtYW5kYXRlX3ZlcnNpb24iOm51bGwsImFwcHJvdmFscyI6W119"
+          }
+        },
+        {
+          "receipt_id": "3E72eWGcmSWCfMGgKUYNq2ruTARuku3Zm4ij5rp3Xctx",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "5N6B4bsD2beqMCHSmPhem1eSokvEBD3ijtYc6oN28okd",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "7tSPQh3r1x5sQbCmHV1uYzA5AF7FZEEAKQFLgtAWBdKw",
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang-guard-20261106.testnet",
+      "record_hash": "3d2ef96ac95419daae348c05177432ba99a0f78de39bd53a4a4064cefa1df62f",
+      "rpc_url": "https://test.rpc.fastnear.com",
+      "sanitized_args": [
+        {
+          "args_keys": [
+            "nonce",
+            "policy"
+          ],
+          "args_sha256": "ff06f24b2106d09b6ca61e0e5a0f458df538ec335e93ae3155a848235a8acf69",
+          "method_name": "register_intent",
+          "sanitized_args": {
+            "nonce": "evidence-invalid-01",
+            "policy": {
+              "amount": "25000000",
+              "deadline_ms": 1794011570770,
+              "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+              "fee_cap_bps": 100,
+              "min_receive": "24800000",
+              "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+              "program_sha256": "4a10bb5096681f2ab4b31bf8ad17b5be2690bd5f023a6d747700a95883b47ae2",
+              "recipient": "x3lang-guard-20261106.testnet",
+              "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+              "slippage_bps": 50
+            }
+          }
+        }
+      ],
+      "schema": "x3.guard.testnet.transaction.v1",
+      "signer_id": "x3lang-guard-20261106.testnet",
+      "status": "{\"SuccessValue\":\"eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0Iiwibm9uY2UiOiJldmlkZW5jZS1pbnZhbGlkLTAxIiwicG9saWN5Ijp7InByb2dyYW1fc2hhMjU2IjoiNGExMGJiNTA5NjY4MWYyYWI0YjMxYmY4YWQxN2I1YmUyNjkwYmQ1ZjAyM2E2ZDc0NzcwMGE5NTg4M2I0N2FlMiIsIm9yaWdpbl9hc3NldCI6Im5lcDE0MTpzb2wtNWNlM2JmM2EzMWFmMThiZTQwYmEzMGY3MjExMDFiNDM0MTY5MDE4Ni5vbWZ0Lm5lYXIiLCJkZXN0aW5hdGlvbl9hc3NldCI6Im5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExIiwiYW1vdW50IjoiMjUwMDAwMDAiLCJtaW5fcmVjZWl2ZSI6IjI0ODAwMDAwIiwic2xpcHBhZ2VfYnBzIjo1MCwiZmVlX2NhcF9icHMiOjEwMCwicmVjaXBpZW50IjoieDNsYW5nLWd1YXJkLTIwMjYxMTA2LnRlc3RuZXQiLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsImRlYWRsaW5lX21zIjoxNzk0MDExNTcwNzcwfSwicmVnaXN0ZXJlZF9hdF9tcyI6MTc5NDAwNDM4MzE2MCwicXVvdGUiOm51bGwsIm91dGNvbWUiOm51bGwsImFnZW50IjpudWxsLCJtYW5kYXRlX3ZlcnNpb24iOm51bGwsImFwcHJvdmFscyI6W119\"}",
+      "transaction_hash": "D3ca73CX4ACr9wFhqdhGyrmx4HrrBCgG69So1TncxaKT",
+      "tx_hash": "D3ca73CX4ACr9wFhqdhGyrmx4HrrBCgG69So1TncxaKT"
+    },
+    {
+      "args_sha256": "1a901b0b32c8a71cb29ca9ac0011810bbf810290d6bb67fbd969e84d04f123ca",
+      "block_hash": "6ZKGw3x2NSg7rMbzdBjUZJkran7AnQasep9ojrzTTxuS",
+      "block_height": 276547124,
+      "chain_id": "testnet",
+      "final_execution_status": "FINAL",
+      "label": "prohibited_register",
+      "method_names": [
+        "register_intent"
+      ],
+      "observed_at_utc": "2026-11-06T22:40:23Z",
+      "receipt_errors": [],
+      "receipt_statuses": [
+        {
+          "receipt_id": "9enbxhvcvT3Q3Rud9TsjWrxqHyQcrVKSXaxUJx3RQR7k",
+          "status": {
+            "SuccessValue": "eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0Iiwibm9uY2UiOiJldmlkZW5jZS1wcm9oaWJpdGVkLTAxIiwicG9saWN5Ijp7InByb2dyYW1fc2hhMjU2IjoiNGExMGJiNTA5NjY4MWYyYWI0YjMxYmY4YWQxN2I1YmUyNjkwYmQ1ZjAyM2E2ZDc0NzcwMGE5NTg4M2I0N2FlMiIsIm9yaWdpbl9hc3NldCI6Im5lcDE0MTpzb2wtNWNlM2JmM2EzMWFmMThiZTQwYmEzMGY3MjExMDFiNDM0MTY5MDE4Ni5vbWZ0Lm5lYXIiLCJkZXN0aW5hdGlvbl9hc3NldCI6Im5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExIiwiYW1vdW50IjoiMjUwMDAwMDAiLCJtaW5fcmVjZWl2ZSI6IjI0ODAwMDAwIiwic2xpcHBhZ2VfYnBzIjo1MCwiZmVlX2NhcF9icHMiOjEwMCwicmVjaXBpZW50IjoieDNsYW5nLWd1YXJkLTIwMjYxMTA2LnRlc3RuZXQiLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsImRlYWRsaW5lX21zIjoxNzk0MDExNTcwNzcwfSwicmVnaXN0ZXJlZF9hdF9tcyI6MTc5NDAwNDM4NzM0OCwicXVvdGUiOm51bGwsIm91dGNvbWUiOm51bGwsImFnZW50IjpudWxsLCJtYW5kYXRlX3ZlcnNpb24iOm51bGwsImFwcHJvdmFscyI6W119"
+          }
+        },
+        {
+          "receipt_id": "Dsfm3F3pcE5TK4upAn8u2az3x5tGSKQmHrnBtikYpjam",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "CuggvkTTqBnQaozHvgpG2ev4kBMKZmdtcZUn4zV9d2qX",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "CbeEdeZPVDVcv2qWWkkZDGqnDRHymnHRV3X1mH78HtrZ",
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang-guard-20261106.testnet",
+      "record_hash": "28e1e6814ede7e0786efdb356b2ca80ba80cf0b7fb987b591430282fb71db7de",
+      "rpc_url": "https://test.rpc.fastnear.com",
+      "sanitized_args": [
+        {
+          "args_keys": [
+            "nonce",
+            "policy"
+          ],
+          "args_sha256": "13b0512a12b01375c0502bd99e6210b0bbbd0e46e7475d1cb356c2353c0919b5",
+          "method_name": "register_intent",
+          "sanitized_args": {
+            "nonce": "evidence-prohibited-01",
+            "policy": {
+              "amount": "25000000",
+              "deadline_ms": 1794011570770,
+              "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+              "fee_cap_bps": 100,
+              "min_receive": "24800000",
+              "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+              "program_sha256": "4a10bb5096681f2ab4b31bf8ad17b5be2690bd5f023a6d747700a95883b47ae2",
+              "recipient": "x3lang-guard-20261106.testnet",
+              "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+              "slippage_bps": 50
+            }
+          }
+        }
+      ],
+      "schema": "x3.guard.testnet.transaction.v1",
+      "signer_id": "x3lang-guard-20261106.testnet",
+      "status": "{\"SuccessValue\":\"eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0Iiwibm9uY2UiOiJldmlkZW5jZS1wcm9oaWJpdGVkLTAxIiwicG9saWN5Ijp7InByb2dyYW1fc2hhMjU2IjoiNGExMGJiNTA5NjY4MWYyYWI0YjMxYmY4YWQxN2I1YmUyNjkwYmQ1ZjAyM2E2ZDc0NzcwMGE5NTg4M2I0N2FlMiIsIm9yaWdpbl9hc3NldCI6Im5lcDE0MTpzb2wtNWNlM2JmM2EzMWFmMThiZTQwYmEzMGY3MjExMDFiNDM0MTY5MDE4Ni5vbWZ0Lm5lYXIiLCJkZXN0aW5hdGlvbl9hc3NldCI6Im5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExIiwiYW1vdW50IjoiMjUwMDAwMDAiLCJtaW5fcmVjZWl2ZSI6IjI0ODAwMDAwIiwic2xpcHBhZ2VfYnBzIjo1MCwiZmVlX2NhcF9icHMiOjEwMCwicmVjaXBpZW50IjoieDNsYW5nLWd1YXJkLTIwMjYxMTA2LnRlc3RuZXQiLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsImRlYWRsaW5lX21zIjoxNzk0MDExNTcwNzcwfSwicmVnaXN0ZXJlZF9hdF9tcyI6MTc5NDAwNDM4NzM0OCwicXVvdGUiOm51bGwsIm91dGNvbWUiOm51bGwsImFnZW50IjpudWxsLCJtYW5kYXRlX3ZlcnNpb24iOm51bGwsImFwcHJvdmFscyI6W119\"}",
+      "transaction_hash": "GtRZAo4rRr4QQGVc9s8bGPTq4j4B4EziZkQirqQgQjw",
+      "tx_hash": "GtRZAo4rRr4QQGVc9s8bGPTq4j4B4EziZkQirqQgQjw"
+    },
+    {
+      "args_sha256": "8187a6a52de67017405e3bf3f6cd65a247d9a1bdcd351c8b3c35462b8b481a36",
+      "block_hash": "7g8dHR9G8wRRJ4dcaMgoPC2pm5zKe5GcHfve7BTZht6u",
+      "block_height": 276547148,
+      "chain_id": "testnet",
+      "final_execution_status": "FINAL",
+      "label": "invalid_accept",
+      "method_names": [
+        "accept_quote"
+      ],
+      "observed_at_utc": "2026-11-06T22:40:24Z",
+      "receipt_errors": [
+        "{'ActionError': {'index': 0, 'kind': {'FunctionCallError': {'ExecutionError': 'WebAssembly trap: An `unreachable` opcode was executed.'}}}}"
+      ],
+      "receipt_statuses": [
+        {
+          "receipt_id": "63EW2UQ4wfFTPLcgCfZDVLrZyssmG4PRebUhtikndca3",
+          "status": {
+            "Failure": {
+              "ActionError": {
+                "index": 0,
+                "kind": {
+                  "FunctionCallError": {
+                    "ExecutionError": "WebAssembly trap: An `unreachable` opcode was executed."
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "receipt_id": "6Me7GzgEriMcnsrdkm1XWZQGt6AYKziu7gzWJm4yL5GG",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "AhbsbY2MYThkc45xThku8VzL4PLZbbyE67H8po3prb5N",
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang-guard-20261106.testnet",
+      "record_hash": "e959e90dd0000166cb5f9f93d7c97c7ad5da384406d0f8b4000c4aa78cb8bfa1",
+      "rpc_url": "https://test.rpc.fastnear.com",
+      "sanitized_args": [
+        {
+          "args_keys": [
+            "nonce",
+            "signature",
+            "signed_payload"
+          ],
+          "args_sha256": "0216b1423065f2e4af7ca18296101e621fdf57b0a564cc1e3a1d999d9e3bc84b",
+          "method_name": "accept_quote",
+          "sanitized_args": {
+            "nonce": "evidence-invalid-01",
+            "signature": {
+              "len": 96,
+              "preview": "ed25519:",
+              "sha256": "dc7527001d6d0f0d71c571f5dcbec1ec3e0adc8ab7669c2001bc400148e2f477"
+            },
+            "signed_payload": {
+              "len": 854,
+              "preview": "{\"amount",
+              "sha256": "b700ff930a34e459772e05529bdd6b364e87b2d781fc2dabe6529af635e21c6a"
+            }
+          }
+        }
+      ],
+      "schema": "x3.guard.testnet.transaction.v1",
+      "signer_id": "x3lang-guard-20261106.testnet",
+      "status": "{\"Failure\":{\"ActionError\":{\"index\":0,\"kind\":{\"FunctionCallError\":{\"ExecutionError\":\"WebAssembly trap: An `unreachable` opcode was executed.\"}}}}}",
+      "transaction_hash": "9GthsTiAvMvPDjgGLuB2CopVAPXkW5Lmw7mYBGCtsXXe",
+      "tx_hash": "9GthsTiAvMvPDjgGLuB2CopVAPXkW5Lmw7mYBGCtsXXe"
+    },
+    {
+      "args_sha256": "1d0eaec6f0f9c6936ac6bc978c9a827f0aae8cff84f26c3d602db2421c80b239",
+      "block_hash": "9G1ZDa89dJCWWhNwkgpNvkevEZNU84KfTz7hBsuMuGCY",
+      "block_height": 276547210,
+      "chain_id": "testnet",
+      "final_execution_status": "FINAL",
+      "label": "create_mandate",
+      "method_names": [
+        "create_mandate"
+      ],
+      "observed_at_utc": "2026-11-06T22:40:25Z",
+      "receipt_errors": [],
+      "receipt_statuses": [
+        {
+          "receipt_id": "EbqXCz7qVLFzjxym22rjRZUE7Hmh75D62rZFMNfni9n3",
+          "status": {
+            "SuccessValue": "eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0IiwiYWdlbnQiOiJ4My1hZ2VudC0yMDI2MTEwNi50ZXN0bmV0IiwidGVybXMiOnsicHJvZ3JhbV9zaGEyNTYiOiI0YTEwYmI1MDk2NjgxZjJhYjRiMzFiZjhhZDE3YjViZTI2OTBiZDVmMDIzYTZkNzQ3NzAwYTk1ODgzYjQ3YWUyIiwiYXNzZXQiOiJuZXAxNDE6c29sLTVjZTNiZjNhMzFhZjE4YmU0MGJhMzBmNzIxMTAxYjQzNDE2OTAxODYub21mdC5uZWFyIiwicGVyX3BheW1lbnRfY2FwIjoiNTAwMDAwMDAiLCJkYWlseV9jYXAiOiIyMDAwMDAwMDAiLCJkZXN0aW5hdGlvbl9hc3NldHMiOlsibmVwMTQxOjE3MjA4NjI4Zjg0ZjVkNmFkMzNmMGRhM2JiYmViMjdmZmNiMzk4ZWFjNTAxYTMxYmQ2YWQyMDExZTM2MTMzYTEiXSwicmVjaXBpZW50cyI6WyJ4M2xhbmctZ3VhcmQtMjAyNjExMDYudGVzdG5ldCJdLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsIm1heF9zbGlwcGFnZV9icHMiOjEwMCwibWF4X2ZlZV9icHMiOjEwMCwiYXBwcm92YWxfYWJvdmUiOm51bGwsImFwcHJvdmVycyI6W10sImFwcHJvdmFsX3RocmVzaG9sZCI6MCwiZXhwaXJlc19hdF9tcyI6MTc5NjU5NjQzNDc1MX0sInZlcnNpb24iOjEsInJldm9rZWQiOmZhbHNlLCJjcmVhdGVkX2F0X21zIjoxNzk0MDA0NDM2NjMyLCJzcGVuZHMiOltdfQ=="
+          }
+        },
+        {
+          "receipt_id": "AQEAnQhNCdXM3TbeToj5DLx7VC21ytLL9aag3HAuQnhk",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "ssSKXJZEtzVzTDsSgATrxxKcYJidK47ysY98ZQ7TBc4",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "3c97ruD3pvdECDeMC23WBUhCFGchJn4dzZK2ZjvgxGHg",
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang-guard-20261106.testnet",
+      "record_hash": "3d45e1a10e540910261a6c295ea57a3f978fc55b6c73b5296dc3e5a2ba1a6c9b",
+      "rpc_url": "https://test.rpc.fastnear.com",
+      "sanitized_args": [
+        {
+          "args_keys": [
+            "agent",
+            "terms"
+          ],
+          "args_sha256": "73367a9786a9cdb9b207f51e9958637df47bb1b6de57d440e6d6edd986e8f34f",
+          "method_name": "create_mandate",
+          "sanitized_args": {
+            "agent": "x3-agent-20261106.testnet",
+            "terms": {
+              "approval_above": null,
+              "approval_threshold": 0,
+              "approvers": [],
+              "asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+              "daily_cap": "200000000",
+              "destination_assets": [
+                "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
+              ],
+              "expires_at_ms": 1796596434751,
+              "max_fee_bps": 100,
+              "max_slippage_bps": 100,
+              "per_payment_cap": "50000000",
+              "program_sha256": "4a10bb5096681f2ab4b31bf8ad17b5be2690bd5f023a6d747700a95883b47ae2",
+              "recipients": [
+                "x3lang-guard-20261106.testnet"
+              ],
+              "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD"
+            }
+          }
+        }
+      ],
+      "schema": "x3.guard.testnet.transaction.v1",
+      "signer_id": "x3lang-guard-20261106.testnet",
+      "status": "{\"SuccessValue\":\"eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0IiwiYWdlbnQiOiJ4My1hZ2VudC0yMDI2MTEwNi50ZXN0bmV0IiwidGVybXMiOnsicHJvZ3JhbV9zaGEyNTYiOiI0YTEwYmI1MDk2NjgxZjJhYjRiMzFiZjhhZDE3YjViZTI2OTBiZDVmMDIzYTZkNzQ3NzAwYTk1ODgzYjQ3YWUyIiwiYXNzZXQiOiJuZXAxNDE6c29sLTVjZTNiZjNhMzFhZjE4YmU0MGJhMzBmNzIxMTAxYjQzNDE2OTAxODYub21mdC5uZWFyIiwicGVyX3BheW1lbnRfY2FwIjoiNTAwMDAwMDAiLCJkYWlseV9jYXAiOiIyMDAwMDAwMDAiLCJkZXN0aW5hdGlvbl9hc3NldHMiOlsibmVwMTQxOjE3MjA4NjI4Zjg0ZjVkNmFkMzNmMGRhM2JiYmViMjdmZmNiMzk4ZWFjNTAxYTMxYmQ2YWQyMDExZTM2MTMzYTEiXSwicmVjaXBpZW50cyI6WyJ4M2xhbmctZ3VhcmQtMjAyNjExMDYudGVzdG5ldCJdLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsIm1heF9zbGlwcGFnZV9icHMiOjEwMCwibWF4X2ZlZV9icHMiOjEwMCwiYXBwcm92YWxfYWJvdmUiOm51bGwsImFwcHJvdmVycyI6W10sImFwcHJvdmFsX3RocmVzaG9sZCI6MCwiZXhwaXJlc19hdF9tcyI6MTc5NjU5NjQzNDc1MX0sInZlcnNpb24iOjEsInJldm9rZWQiOmZhbHNlLCJjcmVhdGVkX2F0X21zIjoxNzk0MDA0NDM2NjMyLCJzcGVuZHMiOltdfQ==\"}",
+      "transaction_hash": "J4WrxJTNhL5Z841thsvpmMCgsMWwrmUsrmrwHSMu9tXX",
+      "tx_hash": "J4WrxJTNhL5Z841thsvpmMCgsMWwrmUsrmrwHSMu9tXX"
+    },
+    {
+      "args_sha256": "324b894252bcda6fef9ae6e941d2c3d1b3625f88588436b1070c197759fcf444",
+      "block_hash": "4e4JBBHanQS95LzjMnBVyU69raVLyN7o5trZWRJBT19J",
+      "block_height": 276547226,
+      "chain_id": "testnet",
+      "final_execution_status": "FINAL",
+      "label": "revoke_mandate",
+      "method_names": [
+        "revoke_mandate"
+      ],
+      "observed_at_utc": "2026-11-06T22:40:26Z",
+      "receipt_errors": [],
+      "receipt_statuses": [
+        {
+          "receipt_id": "63L66VYdUbWfVfBjw5dcD8FkhkCNaisJJ5zq3n2rLXpw",
+          "status": {
+            "SuccessValue": "eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0IiwiYWdlbnQiOiJ4My1hZ2VudC0yMDI2MTEwNi50ZXN0bmV0IiwidGVybXMiOnsicHJvZ3JhbV9zaGEyNTYiOiI0YTEwYmI1MDk2NjgxZjJhYjRiMzFiZjhhZDE3YjViZTI2OTBiZDVmMDIzYTZkNzQ3NzAwYTk1ODgzYjQ3YWUyIiwiYXNzZXQiOiJuZXAxNDE6c29sLTVjZTNiZjNhMzFhZjE4YmU0MGJhMzBmNzIxMTAxYjQzNDE2OTAxODYub21mdC5uZWFyIiwicGVyX3BheW1lbnRfY2FwIjoiNTAwMDAwMDAiLCJkYWlseV9jYXAiOiIyMDAwMDAwMDAiLCJkZXN0aW5hdGlvbl9hc3NldHMiOlsibmVwMTQxOjE3MjA4NjI4Zjg0ZjVkNmFkMzNmMGRhM2JiYmViMjdmZmNiMzk4ZWFjNTAxYTMxYmQ2YWQyMDExZTM2MTMzYTEiXSwicmVjaXBpZW50cyI6WyJ4M2xhbmctZ3VhcmQtMjAyNjExMDYudGVzdG5ldCJdLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsIm1heF9zbGlwcGFnZV9icHMiOjEwMCwibWF4X2ZlZV9icHMiOjEwMCwiYXBwcm92YWxfYWJvdmUiOm51bGwsImFwcHJvdmVycyI6W10sImFwcHJvdmFsX3RocmVzaG9sZCI6MCwiZXhwaXJlc19hdF9tcyI6MTc5NjU5NjQzNDc1MX0sInZlcnNpb24iOjEsInJldm9rZWQiOnRydWUsImNyZWF0ZWRfYXRfbXMiOjE3OTQwMDQ0MzY2MzIsInNwZW5kcyI6W119"
+          }
+        },
+        {
+          "receipt_id": "8bACEEN6A8dgTLVdT1JQ98dPcvVNbc3MwQw6Dqs68VGt",
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang-guard-20261106.testnet",
+      "record_hash": "b9dfcf0b7ea4f7fda07d23526354881ccea3530b452e67002429004a5f9f8a4a",
+      "rpc_url": "https://test.rpc.fastnear.com",
+      "sanitized_args": [
+        {
+          "args_keys": [
+            "agent"
+          ],
+          "args_sha256": "3de906a2b2cdfc1f799ad004d0fee9753d08e71279cb016e15cc46f8aec5d83f",
+          "method_name": "revoke_mandate",
+          "sanitized_args": {
+            "agent": "x3-agent-20261106.testnet"
+          }
+        }
+      ],
+      "schema": "x3.guard.testnet.transaction.v1",
+      "signer_id": "x3lang-guard-20261106.testnet",
+      "status": "{\"SuccessValue\":\"eyJvd25lciI6IngzbGFuZy1ndWFyZC0yMDI2MTEwNi50ZXN0bmV0IiwiYWdlbnQiOiJ4My1hZ2VudC0yMDI2MTEwNi50ZXN0bmV0IiwidGVybXMiOnsicHJvZ3JhbV9zaGEyNTYiOiI0YTEwYmI1MDk2NjgxZjJhYjRiMzFiZjhhZDE3YjViZTI2OTBiZDVmMDIzYTZkNzQ3NzAwYTk1ODgzYjQ3YWUyIiwiYXNzZXQiOiJuZXAxNDE6c29sLTVjZTNiZjNhMzFhZjE4YmU0MGJhMzBmNzIxMTAxYjQzNDE2OTAxODYub21mdC5uZWFyIiwicGVyX3BheW1lbnRfY2FwIjoiNTAwMDAwMDAiLCJkYWlseV9jYXAiOiIyMDAwMDAwMDAiLCJkZXN0aW5hdGlvbl9hc3NldHMiOlsibmVwMTQxOjE3MjA4NjI4Zjg0ZjVkNmFkMzNmMGRhM2JiYmViMjdmZmNiMzk4ZWFjNTAxYTMxYmQ2YWQyMDExZTM2MTMzYTEiXSwicmVjaXBpZW50cyI6WyJ4M2xhbmctZ3VhcmQtMjAyNjExMDYudGVzdG5ldCJdLCJyZWZ1bmRfdG8iOiI0TmQxbXppOFkxUVl4SnQ5d1pXQllacEc3UzRwWWtaczZZekQzVnQ5YUJjRCIsIm1heF9zbGlwcGFnZV9icHMiOjEwMCwibWF4X2ZlZV9icHMiOjEwMCwiYXBwcm92YWxfYWJvdmUiOm51bGwsImFwcHJvdmVycyI6W10sImFwcHJvdmFsX3RocmVzaG9sZCI6MCwiZXhwaXJlc19hdF9tcyI6MTc5NjU5NjQzNDc1MX0sInZlcnNpb24iOjEsInJldm9rZWQiOnRydWUsImNyZWF0ZWRfYXRfbXMiOjE3OTQwMDQ0MzY2MzIsInNwZW5kcyI6W119\"}",
+      "transaction_hash": "7aVonMiRCDyetbkpRBK6GKnL2X1XrQTPsf3Pk1gKGzp8",
+      "tx_hash": "7aVonMiRCDyetbkpRBK6GKnL2X1XrQTPsf3Pk1gKGzp8"
+    },
+    {
+      "args_sha256": "b597d67d25757f93bbc7b6f5ac17090706b3f473dc4c69ea938190e59714aeb8",
+      "block_hash": "FRtCixxuptu1mbWaXs4CgjFyFHATPbUyvzPxKsauSVNT",
+      "block_height": 276547296,
+      "chain_id": "testnet",
+      "final_execution_status": "FINAL",
+      "label": "prohibited_accept",
+      "method_names": [
+        "accept_quote"
+      ],
+      "observed_at_utc": "2026-11-06T22:40:27Z",
+      "receipt_errors": [
+        "{'ActionError': {'index': 0, 'kind': {'FunctionCallError': {'ExecutionError': 'WebAssembly trap: An `unreachable` opcode was executed.'}}}}"
+      ],
+      "receipt_statuses": [
+        {
+          "receipt_id": "92WYk2exBftAby2sb13yNczNHeXr6oUVzuRgLpBY1GFy",
+          "status": {
+            "Failure": {
+              "ActionError": {
+                "index": 0,
+                "kind": {
+                  "FunctionCallError": {
+                    "ExecutionError": "WebAssembly trap: An `unreachable` opcode was executed."
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "receipt_id": "2CzYn1fBkXrVbQ8WpA97gsxzF9VxMPqYRQuWkW1hHpHs",
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "receipt_id": "BJvnTSLuevHwHKZdAgZkT1CnUSrk8CkPcAEZPkP9B5xS",
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang-guard-20261106.testnet",
+      "record_hash": "94e7435a25a778362fe24a6f484d93959415a787f6657cb71ecde3226c2b6871",
+      "rpc_url": "https://test.rpc.fastnear.com",
+      "sanitized_args": [
+        {
+          "args_keys": [
+            "nonce",
+            "signature",
+            "signed_payload"
+          ],
+          "args_sha256": "f314e9a6c7d9ecd77591eb678ca1f0fb67a5587ff10752014bf4fd084c121028",
+          "method_name": "accept_quote",
+          "sanitized_args": {
+            "nonce": "evidence-prohibited-01",
+            "signature": {
+              "len": 95,
+              "preview": "ed25519:",
+              "sha256": "5e1ace5d28a86de6516b6e238d30e51d23001f3bf4b579970ae6c80c39fdcf35"
+            },
+            "signed_payload": {
+              "len": 724,
+              "preview": "{\"amount",
+              "sha256": "bdaaa84365e55cd20e126061c66e7ecbfa0432afbb98f4a1a3fe88ce97ecbff3"
+            }
+          }
+        }
+      ],
+      "schema": "x3.guard.testnet.transaction.v1",
+      "signer_id": "x3lang-guard-20261106.testnet",
+      "status": "{\"Failure\":{\"ActionError\":{\"index\":0,\"kind\":{\"FunctionCallError\":{\"ExecutionError\":\"WebAssembly trap: An `unreachable` opcode was executed.\"}}}}}",
+      "transaction_hash": "3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q",
+      "tx_hash": "3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q"
+    }
+  ]
+}

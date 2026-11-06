@@ -5,7 +5,11 @@ on:
     paths:
       - 'README.md'
       - 'docs/hackathon/JUDGE_GUIDE.md'
+      - 'docs/hackathon/GUARD_TESTNET_EVIDENCE.md'
+      - 'evidence/near-guard-testnet/**'
       - 'scripts/judge_evidence.py'
+      - 'scripts/hackathon/testnet_guard_evidence.py'
+      - 'scripts/hackathon/test_testnet_guard_evidence.py'
       - 'scripts/hackathon/judge_one_command.sh'
       - 'x3-lang/near/**'
       - 'x3-lang/tests/**'

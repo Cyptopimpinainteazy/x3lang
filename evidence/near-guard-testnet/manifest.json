@@ -1,0 +1,13 @@
+{
+  "account_id": "x3lang-guard-20261106.testnet",
+  "block_hash": "4wJnqwFfEYGoQx1XbxAv2smUPAd4kB5hjEp81TEwR2CZ",
+  "block_height": 276547874,
+  "chain_id": "testnet",
+  "code_hash": "CbU8SpgfTgG1egbw8ygMTK3deozvDnoFrF8DJ8qifSe6",
+  "observed_at_utc": "2026-11-06T22:40:19Z",
+  "record_hash": "a509aa27f746998979fe0a09e7c92798e6d2f0ec54e2fb709309e2cc95b0864b",
+  "rpc_url": "https://test.rpc.fastnear.com",
+  "schema": "x3.guard.testnet.manifest.v1",
+  "wasm_bytes": 544944,
+  "wasm_sha256": "ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab"
+}

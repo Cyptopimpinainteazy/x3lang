@@ -46,6 +46,7 @@ def plan_tests(mode: str) -> list[dict]:
         "x3-lang/tests/test_judge_evidence.py",
         "x3-lang/tests/test_near_agent.py",
         "x3-lang/tests/test_value_fee.py",
+        "scripts/hackathon/test_testnet_guard_evidence.py",
     ]
     jobs = [
         _step("python_policy_and_chain_evidence_tests",

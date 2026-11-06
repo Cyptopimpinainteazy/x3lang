@@ -15,7 +15,7 @@ checked policy reject it **even though its signature is valid**? That is the
 security problem this submission tackles—not the already-established idea
 of giving agents spending limits.
 
-**Current evidence level: `local_policy_preview_only`.** Below is the honest
+**Current evidence level: `local_policy_preview_only` + `testnet_registration_and_refusal_only`.** Below is the honest
 three-minute screen. Architecture detail, value-fee economics and release
 boundaries follow after it.
 
@@ -40,12 +40,12 @@ boundaries follow after it.
 | Claim | What exists | What is still missing |
 | --- | --- | --- |
 | `.x3` mandate | Python/browser policy-preview parity; Rust `x3c intent` preserves `under mandate` as adapter metadata (draft [#68](https://github.com/Cyptopimpinainteazy/x3lang/pull/68)) | An enforced mandate inside the general Rust VM; parity must be proved across actual production paths |
-| Signed quote checks | `x3-guard` verifies the pinned 1Click manager's signature **before** evaluating stored quote/mandate terms in its contract code and tests | Owner-authorized deployed Guard and on-chain valid-signature / forbidden-terms refusal (tracked in [#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73)) |
+| Signed quote checks | `x3-guard` verifies the pinned 1Click manager's signature **before** evaluating stored quote/mandate terms in its contract code and tests; testnet deployment `x3lang-guard-20261106.testnet` shows allowed registration, invalid-signature refusal, revocation, and official-dry valid-signature refusal ([evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md)) — **test-only mock signer context is excluded; the dry quote is official but not live** | Live valid-quote acceptance; `mandate_recipient` on-chain acceptance refusal ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open) |
 | Cryptographic proof | Real archived receipt/Merkle checks; real validator approvals (12 and 19 signatures) under an **untrusted RPC checkpoint** in draft [#60](https://github.com/Cyptopimpinainteazy/x3lang/pull/60); `.x3` → X3VM *read-only refusal* in draft [#72](https://github.com/Cyptopimpinainteazy/x3lang/pull/72) | Independently authenticated checkpoint, Guard's own receipt, storage proof and cross-chain causality |
 
 ## DELIBERATELY BLOCKED
 
-- No Guard testnet deployment and no on-chain valid-signature refusal claim ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) is pending, not fabricated).
+- No live valid-quote acceptance, no `mandate_recipient` on-chain acceptance refusal, and no mainnet deployment claim ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open; dry valid-signature refusal is not a live acceptance).
 - No mainnet transaction links, no wallet custody, and no universal spending lock:
   an unrestricted wallet key can still bypass Guard.
 - No settlement or cross-chain causality claim. A signed 1Click quote authenticates
@@ -80,13 +80,14 @@ injection resistance, or establish NEAR consensus finality. See the
 
 ## ON-CHAIN EVIDENCE
 
-- **Claimed now:** deterministic local policy verdicts plus local mock-chain contract
-  behavior. That is the ceiling while no authorized testnet deployment exists.
-- **Explicitly not claimed:** on-chain authorization, wallet transfer, observed
-  transaction, finalized settlement, or proven cross-chain causality.
-- A testnet evidence section will be linked here only after Task 4 creates it; until
-  then the pending matrix in [JUDGE_GUIDE.md](docs/hackathon/JUDGE_GUIDE.md) is the
-  source of truth, and public mainnet links remain **PENDING — not fabricated**.
+- **Claimed now:** deterministic local policy verdicts, local mock-chain contract
+  behavior, plus testnet code identity, allowed registration, invalid-signature refusal,
+  revocation, and official-dry valid-signature refusal. See
+  [GUARD_TESTNET_EVIDENCE.md](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) and
+  [`evidence/near-guard-testnet/`](evidence/near-guard-testnet/manifest.json).
+- **Explicitly not claimed:** live quote acceptance, wallet transfer, observed
+  settlement, finalized cross-chain settlement, or proven cross-chain causality.
+- Public mainnet links remain **PENDING — not fabricated**.
 
 ## SECURITY MODEL
 
