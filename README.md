@@ -37,6 +37,14 @@ python3 scripts/hackathon/demo.py
 bash scripts/hackathon/verify.sh
 ```
 
+For a separate **actual Rust compiler/VM execution + archived real NEAR cryptographic proof** demonstration (offline, untrusted checkpoint, no fund movement), see [the cryptographic demo guide](docs/hackathon/REAL_NEAR_CRYPTOGRAPHIC_DEMO.md) and run:
+
+```bash
+bash scripts/hackathon/verify_cryptographic_demo.sh
+```
+
+The VM dry-run and genuine NEAR receipt verifier are separate components; neither is an authenticated financial settlement.
+
 ### What a judge can inspect
 
 | Question | Where to look |
