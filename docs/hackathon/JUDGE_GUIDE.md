@@ -47,6 +47,43 @@ blocked. Signing or deploying to testnet requires explicit owner approval.
 - [NEAR Intents 1Click quote reference](https://github.com/near/agent-skills/blob/main/skills/near-intents/rules/api-quote.md) distinguishes dry quote previews from real deposit-address quotes.
 - [X3 Guard contract](../../x3-lang/near/x3-guard/src/lib.rs) implements pinned-key quote-signature checking followed by policy guards.
 
+## Genuine NEAR validator-signature evidence (separate unmerged draft)
+
+Draft [PR #60](https://github.com/Cyptopimpinainteazy/x3lang/pull/60), commit
+`33d0583c7b7789c5d0c50dcd92e84c4074f87ee3`, has a Rust read-only
+light-client candidate checker. On x3star1 it reproduced two archived genuine
+NEAR testnet epoch transitions: 12 correctly verified Ed25519 approvals in the
+HbM → p27 transition (candidate height 276392452), then 19 approvals in the
+p27 → GbZ transition (candidate height 276420402). The verifier checks the
+signed stake's strict >2/3 threshold against the preceding recorded validator
+set and validates their Borsh commitments. All three archived normalized JSON
+RPC responses are SHA-256 pinned: `acf673ba...`, `dca4ca9c...`, `c47f0c38...`.
+
+**This is real cryptography, not independently authenticated finality.** The
+first HbM candidate and its validator set were obtained through public RPC,
+not an independently reviewed trust-anchor ceremony. Valid signatures under
+an untrusted initial key set do **not** prove the canonical NEAR chain. The
+review packet in draft [PR #61](https://github.com/Cyptopimpinainteazy/x3lang/pull/61)
+and the two-provider consistency report in draft
+[PR #62](https://github.com/Cyptopimpinainteazy/x3lang/pull/62)
+remain explicitly unsigned/unapproved. No signing authorization follows.
+
+To reproduce from PR #60's source checkout (this guide's own branch does not
+contain that unmerged code):
+
+```bash
+cargo run --locked --quiet \
+  --manifest-path x3-lang/bridge/lightclient-core/Cargo.toml \
+  --bin check_candidate_epochs -- \
+  x3-lang/bridge/lightclient-core/tests/fixtures/hbm-announces-p27.json \
+  x3-lang/bridge/lightclient-core/tests/fixtures/p27-announces-gbz.json \
+  evidence/near-proof/testnet/sha256/c4/c47f0c381dbd9a37ac432aa4f77cf9d47ea8ccc452bfe4ff2a67b868953caed7.json
+```
+
+This separate evidence cannot be substituted for the still-missing **Guard's
+own testnet refusal receipt**, which must be authenticated against a trusted
+chain head before claiming independently proven enforcement.
+
 ## Scope and historical disclosure
 
 Read [PRIOR_WORK.md](../../PRIOR_WORK.md) and

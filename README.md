@@ -32,7 +32,7 @@ consensus finality. See the
 | --- | --- | --- |
 | `.x3` mandate | Python/browser policy-preview parity; Rust `x3c intent` preserves `under mandate` as adapter metadata (draft [#68](https://github.com/Cyptopimpinainteazy/x3lang/pull/68)) | An enforced mandate inside the general Rust VM; parity must be proved across actual production paths |
 | Signed quote checks | `x3-guard` verifies the pinned 1Click manager's signature **before** evaluating stored quote/mandate terms in its contract code and tests | Owner-authorized deployed Guard and on-chain valid-signature / forbidden-terms refusal (tracked in [#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73)) |
-| Cryptographic proof | Real archived NEAR testnet receipt/Merkle checks; experimental `.x3` → X3VM *read-only refusal* path in draft [#72](https://github.com/Cyptopimpinainteazy/x3lang/pull/72) | Independently authenticated checkpoint, Guard's own receipt, storage proof and cross-chain causality |
+| Cryptographic proof | Real archived receipt/Merkle checks; real validator approvals (12 and 19 signatures) under an **untrusted RPC checkpoint** in draft [#60](https://github.com/Cyptopimpinainteazy/x3lang/pull/60); `.x3` → X3VM *read-only refusal* in draft [#72](https://github.com/Cyptopimpinainteazy/x3lang/pull/72) | Independently authenticated checkpoint, Guard's own receipt, storage proof and cross-chain causality |
 
 **No wallet custody or universal spending lock.** Guard can only constrain
 Guard-mediated actions; anyone holding an unrestricted wallet key can bypass
