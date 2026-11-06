@@ -28,9 +28,30 @@ class Observation:
     block_hash: str
     block_height: int
     amount_yocto: int
+    initiator: str
     recipient: str
+    near_funded_before_ns: int | None
+    near_expiry_ns: int
     # Multiple RPCs agreeing is insufficient to authorize fund movement.
     authorized_to_sign: bool = False
+
+
+def _strict_json_loads(raw: bytes | str) -> object:
+    def object_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ObservationError("duplicate JSON key")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ObservationError(f"non-finite JSON number: {value}")
+
+    try:
+        return json.loads(raw, object_pairs_hook=object_pairs, parse_constant=reject_constant)
+    except (ValueError, UnicodeError) as exc:
+        raise ObservationError("malformed JSON") from exc
 
 
 def _get(endpoint: str, payload: dict) -> dict:
@@ -46,7 +67,7 @@ def _get(endpoint: str, payload: dict) -> dict:
             raw = response.read(1024 * 1024 + 1)
             if len(raw) > 1024 * 1024:
                 raise ObservationError("oversized NEAR RPC response")
-            return json.loads(raw)
+            return _strict_json_loads(raw)
     except (OSError, ValueError, TimeoutError) as exc:
         raise ObservationError("NEAR RPC unavailable or malformed") from exc
 
@@ -59,7 +80,8 @@ def _strict_bytes(value: object) -> bytes:
 
 
 def _parse(response: object, *, vault: str, swap_id: str, recipient: str,
-           initiator: str, hashlock: bytes, amount: int) -> tuple:
+           initiator: str, hashlock: bytes, amount: int,
+           near_funded_before_ns: int, near_expiry_ns: int) -> tuple:
     if not isinstance(response, dict) or response.get("error") is not None or response.get("id") != "x3-near-observer":
         raise ObservationError("NEAR RPC error or request mismatch")
     result = response.get("result")
@@ -70,7 +92,7 @@ def _parse(response: object, *, vault: str, swap_id: str, recipient: str,
     if not isinstance(block_hash, str) or not block_hash or type(height) is not int or height <= 0:
         raise ObservationError("unidentified finalized block")
     try:
-        swap = json.loads(_strict_bytes(result.get("result")))
+        swap = _strict_json_loads(_strict_bytes(result.get("result")))
     except (ValueError, UnicodeError) as exc:
         raise ObservationError("invalid NEAR swap JSON") from exc
     if not isinstance(swap, dict):
@@ -82,24 +104,34 @@ def _parse(response: object, *, vault: str, swap_id: str, recipient: str,
     amount_raw = swap.get("amount")
     if type(amount_raw) is not str or not re.fullmatch(r"[1-9][0-9]*", amount_raw) or int(amount_raw) != amount:
         raise ObservationError("NEAR amount mismatch")
+    if type(swap.get("funding_deadline_ns")) is not int or swap["funding_deadline_ns"] <= 0:
+        raise ObservationError("invalid or absent NEAR funding deadline")
+    if swap["funding_deadline_ns"] != near_funded_before_ns:
+        raise ObservationError("NEAR funding deadline mismatch")
     if type(swap.get("expires_at_ns")) is not int or swap["expires_at_ns"] <= 0:
         raise ObservationError("invalid NEAR expiry")
+    if swap["expires_at_ns"] != near_expiry_ns:
+        raise ObservationError("NEAR expiry mismatch")
     outcome = swap.get("state")
     if outcome not in ("Locked", "Claimed", "Refunded") or type(outcome) is not str:
         raise ObservationError("unrecognized NEAR outcome")
     return (block_hash, height, swap["initiator"], swap["recipient"], bytes(hashlock), amount,
-            swap["expires_at_ns"], outcome)
+            swap["funding_deadline_ns"], swap["expires_at_ns"], outcome)
 
 
 def observe(endpoints: list[str], *, vault: str, swap_id: str, recipient: str,
             initiator: str, hashlock: bytes, near_amount_yocto: int,
+            near_funded_before_ns: int, near_expiry_ns: int,
             fetch=None, network: str = "testnet") -> Observation:
     """Return an *untrusted observation*, never a signed settlement certificate.
 
     Even unanimous finality-tag RPC answers do not verify NEAR's finality proof,
     receipt causality, vault code integrity, or authenticated deployed identity.
     """
-    if network not in ("testnet", "mainnet") or type(near_amount_yocto) is not int or near_amount_yocto <= 0:
+    if (network not in ("testnet", "mainnet") or type(near_amount_yocto) is not int
+            or near_amount_yocto <= 0 or type(near_expiry_ns) is not int
+            or near_expiry_ns <= 0 or type(near_funded_before_ns) is not int
+            or near_funded_before_ns <= 0 or near_funded_before_ns >= near_expiry_ns):
         raise ObservationError("bad network or amount")
     if not isinstance(swap_id, str) or not re.fullmatch(r"[0-9a-f]{64}", swap_id):
         raise ObservationError("bad swap id")
@@ -127,15 +159,21 @@ def observe(endpoints: list[str], *, vault: str, swap_id: str, recipient: str,
         try:
             replies.append(_parse(rpc(endpoint, payload), vault=vault, swap_id=swap_id,
                                   recipient=recipient, initiator=initiator,
-                                  hashlock=hashlock, amount=near_amount_yocto))
+                                  hashlock=hashlock, amount=near_amount_yocto,
+                                  near_funded_before_ns=near_funded_before_ns,
+                                  near_expiry_ns=near_expiry_ns))
         except ObservationError:
             raise
         except Exception as exc:
             raise ObservationError("NEAR RPC service failed") from exc
     if any(reply != replies[0] for reply in replies[1:]):
         raise ObservationError("finalized RPC observations disagree")
-    block_hash, height, _, _, _, amount, _, outcome = replies[0]
-    return Observation(network, vault, swap_id, outcome, block_hash, height, amount, recipient)
+    (block_hash, height, observed_initiator, observed_recipient, _, amount,
+     funded_before_ns, expiry_ns, outcome) = replies[0]
+    return Observation(
+        network, vault, swap_id, outcome, block_hash, height, amount,
+        observed_initiator, observed_recipient, funded_before_ns, expiry_ns,
+    )
 
 
 def observe_window(endpoints: list[str], *, vault: str, swap_id: str, recipient: str,
@@ -187,7 +225,7 @@ def observe_window(endpoints: list[str], *, vault: str, swap_id: str, recipient:
             height, block_hash = result.get("block_height"), result.get("block_hash")
             if type(height) is not int or height <= 0 or not isinstance(block_hash, str) or not block_hash:
                 raise ObservationError("unidentified block")
-            window = json.loads(_strict_bytes(result.get("result")))
+            window = _strict_json_loads(_strict_bytes(result.get("result")))
             if not isinstance(window, dict):
                 raise ObservationError("missing NEAR funding registration")
             if (window.get("initiator") != initiator or window.get("recipient") != recipient
@@ -197,15 +235,18 @@ def observe_window(endpoints: list[str], *, vault: str, swap_id: str, recipient:
                     or window.get("expiry_ns") != expiry_ns
                     or window.get("state") != "NotFunded"):
                 raise ObservationError("wrong or nonterminal NEAR funding window")
-            observed.append((block_hash, height, json.dumps(window, sort_keys=True)))
+            observed.append((block_hash, height, json.dumps(window, sort_keys=True),
+                             window["deadline_ns"], window["expiry_ns"]))
         except ObservationError:
             raise
         except (ValueError, TypeError, UnicodeError, OSError) as exc:
             raise ObservationError("malformed or unavailable funding RPC") from exc
     if any(item != observed[0] for item in observed[1:]):
         raise ObservationError("RPCs disagree on funding window")
-    return Observation(network, vault, swap_id, "NotFunded", observed[0][0],
-                       observed[0][1], near_amount_yocto, recipient)
+    return Observation(
+        network, vault, swap_id, "NotFunded", observed[0][0], observed[0][1],
+        near_amount_yocto, initiator, recipient, observed[0][3], observed[0][4],
+    )
 
 
 class OutcomeJournal:

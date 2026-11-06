@@ -5,7 +5,7 @@ import sqlite3
 import unittest
 import tempfile
 from pathlib import Path
-from near_observer import observe, ObservationError, OutcomeJournal
+from near_observer import _strict_json_loads, observe, ObservationError, OutcomeJournal
 
 SWAP = "ab" * 32
 VAULT = "escrow.testnet"
@@ -14,12 +14,16 @@ INITIATOR = "lp.testnet"
 HASHLOCK = bytes(range(32))
 AMOUNT = 10**24
 BLOCK = "B" * 44
+FUNDED_BEFORE_NS = 1899996400000000000
+EXPIRY_NS = 1899999999000000000
 
 
-def replies(state="Claimed", amount=AMOUNT, block=BLOCK, vault=VAULT):
+def replies(state="Claimed", amount=AMOUNT, block=BLOCK, vault=VAULT,
+            funded_before=FUNDED_BEFORE_NS):
     swap = {"initiator": INITIATOR, "recipient": RECIPIENT,
             "hashlock": list(HASHLOCK), "amount": str(amount),
-            "expires_at_ns": 1899999999000000000, "state": state}
+            "funding_deadline_ns": funded_before,
+            "expires_at_ns": EXPIRY_NS, "state": state}
     payload = json.dumps(swap).encode()
     return {
         "jsonrpc": "2.0", "id": "x3-near-observer", "result": {
@@ -41,6 +45,7 @@ class NearObserverTests(unittest.TestCase):
         observed = observe(["https://rpc-a.example", "https://rpc-b.example"],
             vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
             initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+            near_funded_before_ns=FUNDED_BEFORE_NS, near_expiry_ns=EXPIRY_NS,
             fetch=fetch)
         assert observed.outcome == "Claimed"
         assert observed.block_hash == BLOCK
@@ -73,7 +78,9 @@ class NearObserverTests(unittest.TestCase):
                 with self.assertRaises(ObservationError):
                     observe(["https://rpc-a.example", "https://rpc-b.example"],
                         vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
-                        initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT, fetch=fetch)
+                        initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                        near_funded_before_ns=FUNDED_BEFORE_NS,
+                        near_expiry_ns=EXPIRY_NS, fetch=fetch)
 
 
 
@@ -82,7 +89,9 @@ class NearObserverTests(unittest.TestCase):
         with self.assertRaises(ObservationError):
             observe(["https://rpc-a.example", "https://rpc-a.example/alternate"],
                 vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
-                initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT, fetch=fetch)
+                initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                near_funded_before_ns=FUNDED_BEFORE_NS,
+                near_expiry_ns=EXPIRY_NS, fetch=fetch)
 
 
 
@@ -91,7 +100,45 @@ class NearObserverTests(unittest.TestCase):
         with self.assertRaises(ObservationError):
             observe(["https://rpc-a.example", "https://rpc-b.example"],
                 vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
-                initiator=INITIATOR, hashlock=b"x" * 32, near_amount_yocto=AMOUNT, fetch=fetch)
+                initiator=INITIATOR, hashlock=b"x" * 32, near_amount_yocto=AMOUNT,
+                near_funded_before_ns=FUNDED_BEFORE_NS,
+                near_expiry_ns=EXPIRY_NS, fetch=fetch)
+
+    def test_cross_chain_expiry_substitution_is_rejected(self):
+        fetch, _ = fake_network({"https://rpc-a.example": replies(),
+                                 "https://rpc-b.example": replies()})
+        with self.assertRaises(ObservationError):
+            observe(["https://rpc-a.example", "https://rpc-b.example"],
+                    vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+                    initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                    near_funded_before_ns=FUNDED_BEFORE_NS,
+                    near_expiry_ns=EXPIRY_NS + 1, fetch=fetch)
+
+    def test_cross_chain_funding_cutoff_substitution_is_rejected(self):
+        fetch, _ = fake_network({"https://rpc-a.example": replies(),
+                                 "https://rpc-b.example": replies()})
+        with self.assertRaises(ObservationError):
+            observe(["https://rpc-a.example", "https://rpc-b.example"],
+                    vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+                    initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                    near_funded_before_ns=FUNDED_BEFORE_NS + 1,
+                    near_expiry_ns=EXPIRY_NS, fetch=fetch)
+
+    def test_legacy_swap_without_registered_funding_cutoff_is_rejected(self):
+        fetch, _ = fake_network({"https://rpc-a.example": replies(funded_before=0),
+                                 "https://rpc-b.example": replies(funded_before=0)})
+        with self.assertRaises(ObservationError):
+            observe(["https://rpc-a.example", "https://rpc-b.example"],
+                    vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
+                    initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                    near_funded_before_ns=FUNDED_BEFORE_NS,
+                    near_expiry_ns=EXPIRY_NS, fetch=fetch)
+
+    def test_duplicate_json_keys_are_rejected_before_interpretation(self):
+        with self.assertRaises(ObservationError):
+            _strict_json_loads(b'{"state":"Claimed","state":"Refunded"}')
+        with self.assertRaises(ObservationError):
+            _strict_json_loads(b'{"amount":NaN}')
 
 
 
@@ -121,7 +168,9 @@ class NearObserverTests(unittest.TestCase):
                                  "https://rpc-b.example": replies(state="Locked")})
         o = observe(["https://rpc-a.example", "https://rpc-b.example"],
                     vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
-                    initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT, fetch=fetch)
+                    initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                    near_funded_before_ns=FUNDED_BEFORE_NS,
+                    near_expiry_ns=EXPIRY_NS, fetch=fetch)
         assert o.outcome == "Locked" and not o.authorized_to_sign
 
 
@@ -133,7 +182,9 @@ class NearObserverTests(unittest.TestCase):
         with self.assertRaises(ObservationError):
             observe(["https://rpc-a.example", "https://rpc-b.example"],
                     vault=VAULT, swap_id=SWAP, recipient=RECIPIENT,
-                    initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT, fetch=fetch)
+                    initiator=INITIATOR, hashlock=HASHLOCK, near_amount_yocto=AMOUNT,
+                    near_funded_before_ns=FUNDED_BEFORE_NS,
+                    near_expiry_ns=EXPIRY_NS, fetch=fetch)
 
 
 
