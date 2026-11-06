@@ -165,3 +165,12 @@ def test_readiness_json_contains_no_completion_percentage():
     report = readiness.build_report(_evidence("d" * 40), head="d" * 40)
     assert "completion" not in json.dumps(report).lower()
     assert "percent" not in json.dumps(report).lower()
+
+
+def test_prompt_injection_is_refused_by_the_recipient_guard():
+    demo = load_script("scripts/hackathon/demo.py")
+    by_id = {scenario["id"]: scenario for scenario in demo.build_report()["scenarios"]}
+    scenario = by_id["prompt-injection-recipient"]
+    assert scenario["decision"] == "denied_by_policy"
+    assert scenario["denied_guards"] == ["mandate_recipient"]
+    assert "prompt" in scenario["story"].lower()

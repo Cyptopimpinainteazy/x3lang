@@ -65,6 +65,16 @@ test("a mandate owned by someone else is refused before any term is checked", as
   assert.deepEqual(result.checks, []);
 });
 
+test("prompt-injection-recipient: the browser refuses the injected recipient and agrees with Python", async () => {
+  const s = DATA.scenarios.find((x) => x.id === "prompt-injection-recipient");
+  assert.ok(s, "prompt-injection-recipient scenario is missing from scenarios.json");
+  assert.match(s.story.toLowerCase(), /prompt/);
+  const result = await judge.evaluate(DATA, s);
+  assert.equal(result.decision, "denied_by_policy");
+  assert.deepEqual(result.denied_guards, ["mandate_recipient"]);
+  assert.ok(judge.agrees(s, result));
+});
+
 test("only the local policy level is claimed as proven", () => {
   assert.deepEqual(judge.EVIDENCE_LADDER.filter((l) => l.proven).map((l) => l.level), ["local_policy"]);
 });

@@ -411,6 +411,73 @@
       }
     },
     {
+      "id": "prompt-injection-recipient",
+      "group": "B",
+      "title": "Prompt-injected payment",
+      "story": "A prompt-injected malicious instruction convinces the AI agent to pay attacker.near, but the owner never authorized that recipient.",
+      "takeaway": "The model can generate any request; the compiled mandate stops recipient substitution.",
+      "evidence_state": "local_python_and_browser",
+      "intent": {
+        "file": "x3-lang/examples/near_intents_agent_denied.x3",
+        "source": "// Deliberately forbidden recipient. Same owner, asset, fee and refund policy.\n// This must fail `mandate_recipient` under near_mandate_agent.x3.\nintent near_intents_agent_denied {\n    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to Near.USDC receiver attacker.near\n    route {\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24800000;\n    }\n    under mandate x3-owner.near\n    require slippage <= 0.5%\n    require fees <= 100 bps\n    require nonce unused agent_denied_001\n    timeout 10m refund Solana.USDC\n    on_fail rollback\n}\n",
+        "sha256": "0d5aede64cde0f9dc282fe294521fa3201905af194c82988ed81c25d9c9d8bc2",
+        "edits": []
+      },
+      "assumed_guard_state": null,
+      "contract_only": false,
+      "contract_note": null,
+      "contract_tests": [],
+      "python": {
+        "decision": "denied_by_policy",
+        "denied_guards": [
+          "mandate_recipient"
+        ],
+        "approvals_needed": 0,
+        "checks": [
+          {
+            "guard": "mandate_active",
+            "ok": true
+          },
+          {
+            "guard": "mandate_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_destination_asset",
+            "ok": true
+          },
+          {
+            "guard": "mandate_recipient",
+            "ok": false
+          },
+          {
+            "guard": "mandate_refund_to",
+            "ok": true
+          },
+          {
+            "guard": "mandate_per_payment",
+            "ok": true
+          },
+          {
+            "guard": "mandate_daily",
+            "ok": true
+          },
+          {
+            "guard": "mandate_slippage",
+            "ok": true
+          },
+          {
+            "guard": "mandate_fees",
+            "ok": true
+          },
+          {
+            "guard": "mandate_deadline",
+            "ok": true
+          }
+        ]
+      }
+    },
+    {
       "id": "refund-redirect",
       "group": "B",
       "title": "Redirected refund",
@@ -874,10 +941,10 @@
     }
   ],
   "summary": {
-    "total": 11,
+    "total": 12,
     "allowed": 1,
     "approval_required": 1,
-    "denied": 8,
+    "denied": 9,
     "contract_only": 1
   }
 }
