@@ -25,25 +25,58 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: workspace
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: gate
           persist-credentials: false
           fetch-depth: 0
       - name: Test exact-head mirror policy
         env:
-          PYTHONPATH: .github/scripts
-        run: python3 .github/scripts/test_exact_head_mirror_policy.py -v
+          PYTHONPATH: workspace/.github/scripts
+        run: python3 workspace/.github/scripts/test_exact_head_mirror_policy.py -v
       - name: Require matching peer branch or an owner-approved narrow fallback
         env:
           PEER_BRANCH: ${{ github.head_ref }}
           PEER_URL: https://github.com/Cyptopimpinainteazy/xxxstar.git
           X3LANG_MIRROR_POLICY_APPROVAL_REFERENCE: ${{ vars.X3LANG_MIRROR_POLICY_APPROVAL_REFERENCE }}
-        run: >-
-          python3 .github/scripts/exact_head_mirror_policy.py
-          --peer-repo "$RUNNER_TEMP/x3lang-peer"
-          --peer-url "$PEER_URL"
-          --branch "$PEER_BRANCH"
-          --base-ref origin/main
-          --peer-base-ref origin/master
-          --policy .github/mirror-policy.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace_root="$GITHUB_WORKSPACE/workspace"
+          policy_only=true
+          while IFS= read -r changed; do
+            case "$changed" in
+              .github/CODEOWNERS|\
+              .github/mirror-policy.json|\
+              .github/scripts/exact_head_mirror_policy.py|\
+              .github/scripts/test_exact_head_mirror_policy.py|\
+              .github/workflows/x3lang-execution-proof.yml|\
+              docs/security/X3LANG_EXACT_HEAD_MIRROR_POLICY.md) ;;
+              *) policy_only=false ;;
+            esac
+          done < <(git -C "$workspace_root" diff --name-only \
+            "${{ github.event.pull_request.base.sha }}...HEAD")
+          if [[ "$policy_only" == true ]]; then
+            runner="$workspace_root/.github/scripts/exact_head_mirror_policy.py"
+          else
+            git -C "$workspace_root" diff --quiet \
+              "${{ github.event.pull_request.base.sha }}" -- \
+              .github/scripts/exact_head_mirror_policy.py \
+              scripts/proof/check_x3lang_mirror.py
+            runner="$GITHUB_WORKSPACE/gate/.github/scripts/exact_head_mirror_policy.py"
+          fi
+          python3 "$runner" \
+            --workspace "$workspace_root" \
+            --peer-repo "$RUNNER_TEMP/x3lang-peer" \
+            --peer-url "$PEER_URL" \
+            --branch "$PEER_BRANCH" \
+            --base-ref "${{ github.event.pull_request.base.sha }}" \
+            --peer-base-ref origin/master \
+            --policy .github/mirror-policy.json
 
   x3lang-proof:
     runs-on: ubuntu-latest

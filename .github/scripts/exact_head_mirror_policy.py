@@ -35,6 +35,7 @@ MIRRORED_PATHS = frozenset(
         "x3-lang/vm/tests/trading_receipts.rs",
     }
 )
+STRICT_PATHS = ("x3-lang/", "scripts/proof/")
 DEFAULT_POLICY_PATH = ".github/mirror-policy.json"
 EXPECTED_PROTECTED_PEER_PATHS = ["scripts/proof/"]
 EXPECTED_X3LANG_ONLY_PREFIXES = ["x3-lang/bridge/"]
@@ -119,7 +120,12 @@ def ref_file_sha256(repo: Path, ref: str, rel: str) -> str | None:
     return hashlib.sha256(content).hexdigest()
 
 
-def changed_paths(repo: Path, base_ref: str, head_ref: str = "HEAD") -> set[str]:
+def changed_paths(
+    repo: Path,
+    base_ref: str,
+    head_ref: str = "HEAD",
+    scoped: tuple[str, ...] | None = None,
+) -> set[str]:
     try:
         merge_base = str(git(repo, "merge-base", base_ref, head_ref))
         output = str(
@@ -130,6 +136,7 @@ def changed_paths(repo: Path, base_ref: str, head_ref: str = "HEAD") -> set[str]
                 "--diff-filter=ACDMR",
                 merge_base,
                 head_ref,
+                *(( "--", *scoped) if scoped else ()),
             )
         )
     except subprocess.CalledProcessError as exc:
@@ -409,29 +416,38 @@ def run_strict_peer_check(
     peer_base_ref: str,
 ) -> int:
     git(peer, "checkout", "--detach", branch_ref)
-    command = [
-        sys.executable,
-        str(workspace / "scripts/proof/check_x3lang_mirror.py"),
-        "--peer-repo",
-        str(peer),
-        "--base-ref",
-        base_ref,
-        "--peer-base-ref",
-        peer_base_ref,
-    ]
-    result = subprocess.run(command, cwd=workspace)
-    if result.returncode == 0:
-        print(
-            json.dumps(
-                {
-                    "mode": "STRICT_SAME_BRANCH_MIRROR",
-                    "policy_status": policy["status"],
-                    "mirrored_files_manifest_ignored_for_branch_check": True,
-                },
-                sort_keys=True,
+    changed = changed_paths(workspace, base_ref, scoped=STRICT_PATHS) | changed_paths(
+        peer, peer_base_ref, scoped=STRICT_PATHS
+    )
+    paths = sorted(MIRRORED_PATHS | changed)
+    failures: list[str] = []
+    for rel in paths:
+        left, right = workspace / rel, peer / rel
+        if not left.exists() and not right.exists():
+            continue
+        if not left.is_file() or not right.is_file():
+            failures.append(f"{rel}: missing on one or both repositories")
+            continue
+        left_hash = hashlib.sha256(left.read_bytes()).hexdigest()
+        right_hash = hashlib.sha256(right.read_bytes()).hexdigest()
+        if left_hash != right_hash:
+            failures.append(
+                f"{rel}: SHA mismatch {left_hash[:12]} != {right_hash[:12]}"
             )
+    if failures:
+        raise MirrorPolicyError("strict mirror drift:\n" + "\n".join(failures))
+    print(
+        json.dumps(
+            {
+                "mode": "STRICT_SAME_BRANCH_MIRROR",
+                "policy_status": policy["status"],
+                "mirrored_files_manifest_ignored_for_branch_check": True,
+                "changed_paths_checked": sorted(changed),
+            },
+            sort_keys=True,
         )
-    return result.returncode
+    )
+    return 0
 
 
 def main() -> int:

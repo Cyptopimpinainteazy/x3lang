@@ -15,6 +15,7 @@ from exact_head_mirror_policy import (
     MirrorPolicyError,
     load_policy_bytes,
     require_policy_matches_base,
+    run_strict_peer_check,
     verify_fallback,
     verify_policy_review,
 )
@@ -327,6 +328,39 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
 
         with self.assertRaisesRegex(MirrorPolicyError, "not reachable"):
             self.verify()
+
+    def test_strict_peer_check_uses_the_pinned_runner_not_the_head_copy(self) -> None:
+        branch = "refs/remotes/origin/feature/matching"
+        run_git(
+            self.peer,
+            "update-ref",
+            branch,
+            run_git(self.peer, "rev-parse", "HEAD"),
+        )
+        result = run_strict_peer_check(
+            self.workspace,
+            self.peer,
+            self.policy,
+            branch_ref=branch,
+            base_ref="origin/main",
+            peer_base_ref="origin/master",
+        )
+        self.assertEqual(result, 0)
+
+    def test_strict_peer_check_rejects_shared_file_drift(self) -> None:
+        rel = "x3-lang/vm/tests/trading_receipts.rs"
+        write(self.peer, rel, "drifted\n")
+        branch = "refs/remotes/origin/feature/drift"
+        run_git(self.peer, "update-ref", branch, commit(self.peer, "drift"))
+        with self.assertRaisesRegex(MirrorPolicyError, "strict mirror drift"):
+            run_strict_peer_check(
+                self.workspace,
+                self.peer,
+                self.policy,
+                branch_ref=branch,
+                base_ref="origin/main",
+                peer_base_ref="origin/master",
+            )
 
 
 if __name__ == "__main__":
