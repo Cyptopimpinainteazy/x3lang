@@ -19,8 +19,8 @@ Official instructions were checked against
 
 ## Repository
 
-- [ ] Final commit is pushed to `feat/x3lang-judge-console-20261104`.
-- [ ] PR is reviewable and remains draft until the owner authorizes merge.
+- [ ] Final commit is pushed to `main` (the NEAR submission is consolidated on
+      the default branch, not the earlier `feat/x3lang-judge-console-20261104`).
 - [ ] `PRIOR_WORK.md` and the baseline comparison remain intact.
 - [ ] No API keys, key files, seed phrases, `.env` files or private receipts are tracked.
 - [ ] No fabricated deployment, quote, transaction or settlement evidence is present.
