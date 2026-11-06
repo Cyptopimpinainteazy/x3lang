@@ -214,8 +214,14 @@ fn mandate_and_under_mandate_round_trip() {
     }\n";
     let program = parse(source).expect("mandate and under-mandate intent must parse");
     let formatted = X3Formatter::new().format_program(&program);
-    assert!(formatted.contains("mandate shopping"), "formatter must write the mandate back: {formatted}");
-    assert!(formatted.contains("under mandate x3-owner.near"), "formatter must write the under-mandate clause back: {formatted}");
+    assert!(
+        formatted.contains("mandate shopping"),
+        "formatter must write the mandate back: {formatted}"
+    );
+    assert!(
+        formatted.contains("under mandate x3-owner.near"),
+        "formatter must write the under-mandate clause back: {formatted}"
+    );
     let reparsed = parse(&formatted).expect("formatted program must parse");
     assert_eq!(ast_without_spans(&program), ast_without_spans(&reparsed));
 }
