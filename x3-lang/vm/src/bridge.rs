@@ -3533,10 +3533,71 @@ pub fn resolve_bridge_backend_with(backend: Box<dyn BridgeAdapter>) -> Option<Bo
 ///
 /// # Failure modes
 /// Returns `BridgeError` with code `X3_BRIDGE_INIT_FAILED` when required
-/// environment variables are missing or when the verifier family is unrecognized.
+/// environment variables are missing, malformed, or outside accepted bounds,
+/// or when the verifier family is unrecognized. Optional numeric thresholds
+/// use documented defaults only when absent, never when explicitly invalid.
 /// Never silently falls back to `DryRunBridge`. Callers that don't set
 /// `X3_BRIDGE_VERIFIER` should explicitly pass `None` and use
 /// `resolve_bridge_backend()` for the dry-run path.
+/// Parse a security-sensitive optional production threshold. Absence can use the
+/// documented default; an explicitly invalid value may never silently do so.
+fn parse_bridge_threshold<T>(
+    name: &str,
+    raw: Result<String, std::env::VarError>,
+    default: T,
+    is_valid: impl Fn(T) -> bool,
+) -> Result<T, BridgeError>
+where
+    T: std::str::FromStr + Copy,
+{
+    let text = match raw {
+        Ok(text) => text,
+        Err(std::env::VarError::NotPresent) => return Ok(default),
+        Err(_) => {
+            return Err(BridgeError {
+                code: "X3_BRIDGE_INIT_FAILED",
+                message: format!("{name} is not valid Unicode"),
+            });
+        }
+    };
+    let value = text.parse::<T>().map_err(|_| BridgeError {
+        code: "X3_BRIDGE_INIT_FAILED",
+        message: format!("{name} must be a valid numeric threshold"),
+    })?;
+    if !is_valid(value) {
+        return Err(BridgeError {
+            code: "X3_BRIDGE_INIT_FAILED",
+            message: format!("{name} is outside the permitted threshold range"),
+        });
+    }
+    Ok(value)
+}
+
+/// Required production RPC endpoints must never fall back to localhost or to
+/// a fabricated provider when their configuration is missing or malformed.
+fn bridge_required_rpc_url(name: &str, raw: Result<String, std::env::VarError>) -> Result<String, BridgeError> {
+    let value = raw.map_err(|_| BridgeError {
+        code: "X3_BRIDGE_INIT_FAILED",
+        message: format!("{name} is required for production verifier initialization"),
+    })?;
+    let url = reqwest::Url::parse(&value).map_err(|_| BridgeError {
+        code: "X3_BRIDGE_INIT_FAILED",
+        message: format!("{name} must be a valid explicit http(s) URL"),
+    })?;
+    if (url.scheme() != "https" && url.scheme() != "http")
+        || url.host_str().is_none()
+        || value.trim() != value
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(BridgeError {
+            code: "X3_BRIDGE_INIT_FAILED",
+            message: format!("{name} must be a valid explicit http(s) URL without embedded credentials"),
+        });
+    }
+    Ok(value)
+}
+
 pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, BridgeError> {
     let verifier: Box<dyn BridgeAdapter> = match std::env::var("X3_BRIDGE_VERIFIER").as_deref() {
         Ok("evm-light-client") => {
@@ -3545,11 +3606,13 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
                 message: "X3_BRIDGE_VERIFIER=evm-light-client requires X3_EVM_TRUSTED_HEADER_HASH".to_string(),
             })?;
             let mut verifier = EthereumLightClientVerifier::new(&trusted_hash);
-            if let Ok(min_block) = std::env::var("X3_EVM_MIN_BLOCK_NUMBER") {
-                if let Ok(n) = min_block.parse::<u64>() {
-                    verifier = verifier.with_min_block_number(n);
-                }
-            }
+            let min_block = parse_bridge_threshold(
+                "X3_EVM_MIN_BLOCK_NUMBER",
+                std::env::var("X3_EVM_MIN_BLOCK_NUMBER"),
+                1_u64,
+                |value| value > 0,
+            )?;
+            verifier = verifier.with_min_block_number(min_block);
             if let Ok(token_addr) = std::env::var("X3_EVM_ERC20_CHECK_ADDRESS") {
                 verifier = verifier.with_erc20_transfer_event(token_addr);
             }
@@ -3569,16 +3632,20 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             if let Ok(pubkeys) = std::env::var("X3_SVM_VALIDATOR_PUBKEYS") {
                 verifier = verifier.with_validator_pubkeys(pubkeys.split(',').map(|s| s.trim().to_string()).collect());
             }
-            if let Ok(min_sigs) = std::env::var("X3_SVM_MIN_SIGNATURES") {
-                if let Ok(n) = min_sigs.parse::<usize>() {
-                    verifier = verifier.with_min_signatures(n);
-                }
-            }
-            if let Ok(stake_bps) = std::env::var("X3_SVM_MIN_STAKE_BPS") {
-                if let Ok(n) = stake_bps.parse::<u64>() {
-                    verifier = verifier.with_min_stake_threshold_bps(n);
-                }
-            }
+            let min_signatures = parse_bridge_threshold(
+                "X3_SVM_MIN_SIGNATURES",
+                std::env::var("X3_SVM_MIN_SIGNATURES"),
+                1_usize,
+                |value| value > 0,
+            )?;
+            verifier = verifier.with_min_signatures(min_signatures);
+            let min_stake_bps = parse_bridge_threshold(
+                "X3_SVM_MIN_STAKE_BPS",
+                std::env::var("X3_SVM_MIN_STAKE_BPS"),
+                6667_u64,
+                |value| (6667..=10_000).contains(&value),
+            )?;
+            verifier = verifier.with_min_stake_threshold_bps(min_stake_bps);
             let store_path = std::env::var("X3_RECEIPT_STORE_PATH")
                 .unwrap_or_else(|_| ".autoclaw/bridge-receipts.jsonl".to_string());
             let store = FileReceiptStore::new(&store_path);
@@ -3587,11 +3654,13 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("evm-rpc") => {
-            let rpc_url = std::env::var("X3_EVM_RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
-            let min_confirmations = std::env::var("X3_EVM_MIN_CONFIRMATIONS")
-                .ok()
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(12);
+            let rpc_url = bridge_required_rpc_url("X3_EVM_RPC_URL", std::env::var("X3_EVM_RPC_URL"))?;
+            let min_confirmations = parse_bridge_threshold(
+                "X3_EVM_MIN_CONFIRMATIONS",
+                std::env::var("X3_EVM_MIN_CONFIRMATIONS"),
+                12_u64,
+                |value| value > 0,
+            )?;
             let verifier = EthereumRpcFinalityVerifier::new(&rpc_url, "").with_min_confirmations(min_confirmations);
             let store_path = std::env::var("X3_RECEIPT_STORE_PATH")
                 .unwrap_or_else(|_| ".autoclaw/bridge-receipts.jsonl".to_string());
@@ -3601,7 +3670,7 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("svm-rpc") => {
-            let rpc_url = std::env::var("X3_SVM_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
+            let rpc_url = bridge_required_rpc_url("X3_SVM_RPC_URL", std::env::var("X3_SVM_RPC_URL"))?;
             let mut verifier = SolanaRpcFinalityVerifier::new(&rpc_url, "");
             if let Ok(program_id) = std::env::var("X3_SVM_EXPECTED_PROGRAM_ID") {
                 verifier = verifier.with_expected_program_id(program_id);
@@ -3907,6 +3976,83 @@ mod tests {
             .verify_evm_transfer_proof(&wrong_root, &finality)
             .expect_err("tampered trie node must fail root binding");
         assert_eq!(err.code, "X3_EVM_RECEIPT_TRIE_NODE_HASH_MISMATCH");
+    }
+
+    #[test]
+    fn malformed_production_thresholds_reject_without_fallback() {
+        for (name, value) in [
+            ("X3_EVM_MIN_BLOCK_NUMBER", "not-a-height"),
+            ("X3_SVM_MIN_SIGNATURES", "0"),
+            ("X3_SVM_MIN_SIGNATURES", "wrong"),
+            ("X3_SVM_MIN_STAKE_BPS", "wrong"),
+            ("X3_SVM_MIN_STAKE_BPS", "0"),
+            ("X3_EVM_MIN_CONFIRMATIONS", "invalid"),
+        ] {
+            assert_eq!(
+                parse_bridge_threshold::<u64>(name, Ok(value.to_string()), 12, |x| x > 0)
+                    .unwrap_err()
+                    .code,
+                "X3_BRIDGE_INIT_FAILED",
+                "misconfigured {name}={value} silently weakened authorization"
+            );
+        }
+        assert_eq!(
+            parse_bridge_threshold::<u64>(
+                "X3_EVM_MIN_BLOCK_NUMBER",
+                Err(std::env::VarError::NotPresent),
+                12,
+                |x| x > 0
+            )
+            .unwrap(),
+            12
+        );
+        assert_eq!(
+            parse_bridge_threshold::<u64>("X3_EVM_MIN_BLOCK_NUMBER", Ok("42".into()), 12, |x| x > 0).unwrap(),
+            42
+        );
+        for (value, rejected) in [
+            ("6666", true),
+            ("6667", false),
+            ("10000", false),
+            ("10001", true),
+            ("-1", true),
+        ] {
+            let parsed = parse_bridge_threshold::<u64>("X3_SVM_MIN_STAKE_BPS", Ok(value.into()), 6667, |value| {
+                (6667..=10_000).contains(&value)
+            });
+            assert_eq!(parsed.is_err(), rejected, "stake threshold {value}");
+        }
+    }
+
+    #[test]
+    fn production_rpc_url_requires_explicit_valid_configuration() {
+        for (name, raw) in [
+            ("X3_EVM_RPC_URL", Err(std::env::VarError::NotPresent)),
+            ("X3_SVM_RPC_URL", Ok("".to_string())),
+            ("X3_SVM_RPC_URL", Ok("not-a-url".to_string())),
+        ] {
+            assert_eq!(
+                bridge_required_rpc_url(name, raw).unwrap_err().code,
+                "X3_BRIDGE_INIT_FAILED"
+            );
+        }
+        assert_eq!(
+            bridge_required_rpc_url("X3_EVM_RPC_URL", Ok("http://127.0.0.1:8545".into())).unwrap(),
+            "http://127.0.0.1:8545"
+        );
+        for invalid in [
+            "ftp://example.com",
+            "https://user:password@example.com",
+            " https://example.com",
+            "http://",
+        ] {
+            assert_eq!(
+                bridge_required_rpc_url("X3_EVM_RPC_URL", Ok(invalid.into()))
+                    .unwrap_err()
+                    .code,
+                "X3_BRIDGE_INIT_FAILED"
+            );
+        }
     }
 
     // Note: env-var-dependent init_production_backend and resolve_bridge_backend_with

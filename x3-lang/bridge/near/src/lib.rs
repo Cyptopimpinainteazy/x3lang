@@ -82,6 +82,13 @@ pub struct NativeNearHtlc {
 impl NativeNearHtlc {
     #[init]
     pub fn new() -> Self {
+        // Restricted pilot deployment identity. NEAR contracts have no cryptographically
+        // authenticated chain-id hostcall: this prevents ordinary `.near` mainnet
+        // accounts from initializing, but a suffix is NOT consensus proof of testnet.
+        assert!(
+            env::current_account_id().as_str().ends_with(".testnet"),
+            "X3_NEAR_TESTNET_ONLY"
+        );
         Self {
             registrar: env::predecessor_account_id(),
             windows: BTreeMap::new(),
@@ -318,6 +325,24 @@ mod tests {
             .build();
         testing_env!(ctx);
     }
+    #[test]
+    #[should_panic(expected = "X3_NEAR_TESTNET_ONLY")]
+    fn initialization_rejects_mainnet_account_before_vault_state_exists() {
+        let ctx = VMContextBuilder::new()
+            .current_account_id("x3-htlc.near".parse().unwrap())
+            .predecessor_account_id("alice.near".parse().unwrap())
+            .build();
+        testing_env!(ctx);
+        let _ = NativeNearHtlc::new();
+    }
+
+    #[test]
+    fn initialization_accepts_testnet_account() {
+        set("registrar.testnet", 0, START);
+        let state = NativeNearHtlc::new();
+        assert_eq!(state.registrar.as_str(), "registrar.testnet");
+    }
+
     const START: u64 = 1_700_000_000_000_000_000;
     fn secret() -> Vec<u8> {
         vec![3u8; 32]
@@ -336,6 +361,9 @@ mod tests {
     }
     #[test]
     fn funding_window_json_view_has_expected_wire_fields() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         set("registrar.testnet", 0, START);
         // Separate deployer from registrar is tested elsewhere; test the wire view.
@@ -385,6 +413,9 @@ mod tests {
 
     #[test]
     fn existing_escrow_json_amount_is_exact_decimal_string() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         let json = near_sdk::serde_json::to_value(c.get(swap_id()).unwrap()).unwrap();
@@ -480,6 +511,9 @@ mod tests {
 
     #[test]
     fn locks_native_near_and_records_payout_owner() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         let swap = c.get(swap_id()).unwrap();
@@ -490,6 +524,9 @@ mod tests {
     }
     #[test]
     fn claim_credits_on_chain_before_secret_becomes_useful() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
@@ -500,6 +537,9 @@ mod tests {
     }
     #[test]
     fn only_recipient_with_correct_secret_can_claim() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         set("attacker.testnet", 0, START + 1);
@@ -517,6 +557,9 @@ mod tests {
     }
     #[test]
     fn duplicate_swap_id_is_rejected_after_claim() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
@@ -532,6 +575,9 @@ mod tests {
     }
     #[test]
     fn refund_credits_only_owner_after_expiry() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         set("lp.testnet", 0, START + 1);
@@ -545,6 +591,9 @@ mod tests {
     }
     #[test]
     fn withdrawal_moves_credit_to_inflight_without_double_spend() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
@@ -571,6 +620,9 @@ mod tests {
 
     #[test]
     fn failed_async_wallet_transfer_restores_claimant_credit() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
@@ -591,6 +643,9 @@ mod tests {
 
     #[test]
     fn confirmed_async_wallet_transfer_reduces_liability_once() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
@@ -610,6 +665,9 @@ mod tests {
     }
     #[test]
     fn rejects_invalid_lock_details_and_zero_amount() {
+        // Existing unit test used the implicit default near-sdk account,
+        // which does not express a testnet deployment identity.
+        set("deployer.testnet", 0, START);
         let mut c = NativeNearHtlc::new();
         set("lp.testnet", 0, START);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
