@@ -63,3 +63,24 @@ jobs:
       - name: NEAR deployable WASM release build (no deployment)
         working-directory: x3-lang/bridge/near
         run: cargo build --locked --release --target wasm32-unknown-unknown
+
+  bridge-lightclient-approvals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/bridge/lightclient-core
+      - name: Verify NEAR Ed25519 approval primitives (NOT consensus finality)
+        working-directory: x3-lang/bridge/lightclient-core
+        run: cargo test --locked
+      - name: Approval core format and clippy
+        working-directory: x3-lang/bridge/lightclient-core
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings

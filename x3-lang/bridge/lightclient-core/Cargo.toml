@@ -1,0 +1,12 @@
+[package]
+name = "x3-near-lightclient-approval-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std"] }
+sha2 = "=0.10.9"
+
+[workspace]
