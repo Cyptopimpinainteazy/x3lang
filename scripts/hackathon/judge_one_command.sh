@@ -2,13 +2,21 @@
 # X3 Shield judge one-command gate: local tests only. NEVER signs, deploys or
 # sends funds. Exits nonzero on stale scenarios, policy disagreement, failed
 # tests, or a missing prompt-injection case.
+#
+# Default behavior always creates or reuses the isolated pinned venv at
+# $X3_JUDGE_VENV (or the XDG cache default) installed from the hash-locked
+# scripts/hackathon/requirements-judge.txt, and verifies exact installed
+# versions (cryptography, pytest and pycryptodome). System pytest/cryptography
+# are never sufficient on their own. A caller-managed interpreter (PYTHON set)
+# requires explicit opt-in via X3_JUDGE_ALLOW_SYSTEM_PYTHON=1 plus exact
+# version validation, otherwise the script provisions or refuses (exit 2).
 set -euo pipefail
 umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPORT_DIR="${1:-/tmp/x3-shield-judge}"
 cd "$ROOT"
 
-PYTHON="${PYTHON:-python3}"
+CALLER_PYTHON="${PYTHON:-}"
 NODE="${NODE:-node}"
 # Respect a caller-supplied NODE override while keeping the canonical call
 # literal: `node --test x3-lang/near/demo/test/*.test.mjs` below.
@@ -21,21 +29,73 @@ for dependency in node cargo; do
   fi
 done
 
-if ! "$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
-  echo 'Python 3.11+ is required by NEAR evidence parsing; install Python 3.11+ (Python 3.10 cannot run this judge gate).' >&2
-  exit 2
-fi
+validate_judge_python() {
+  local candidate="$1"
+  if ! "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+    echo "Judge gate requires Python 3.11+; '$candidate' is not." >&2
+    return 1
+  fi
+  if ! "$candidate" - <<'PY' >/dev/null 2>&1
+from importlib.metadata import PackageNotFoundError, version
+import sys
+expected = {"cryptography": "50.0.2", "pytest": "9.2.0", "pycryptodome": "4.3.0"}
+for dist, want in expected.items():
+    try:
+        got = version(dist)
+    except PackageNotFoundError:
+        sys.exit(1)
+    if got != want:
+        sys.exit(1)
+PY
+  then
+    echo "Judge gate requires exact judge versions (cryptography==50.0.2, pytest==9.2.0, pycryptodome==4.3.0); '$candidate' does not match." >&2
+    return 1
+  fi
+  return 0
+}
 
-if ! "$PYTHON" -c 'import pytest, cryptography' >/dev/null 2>&1; then
-  VENV_DIR="${X3_JUDGE_VENV:-${XDG_CACHE_HOME:-$HOME/.cache}/x3lang/judge-quick-venv}"
-  if [[ -x "$VENV_DIR/bin/python" ]] && ! "$VENV_DIR/bin/python" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
-    echo 'Existing judge environment is too old; set X3_JUDGE_VENV to a different directory.' >&2
+if [[ -n "$CALLER_PYTHON" ]]; then
+  # Caller-managed interpreter: explicit opt-in plus exact validation, else refuse.
+  if [[ "${X3_JUDGE_ALLOW_SYSTEM_PYTHON:-}" != "1" ]]; then
+    echo "PYTHON=$CALLER_PYTHON is caller-managed. To use it, set X3_JUDGE_ALLOW_SYSTEM_PYTHON=1 (it must still have the exact pinned judge versions). Otherwise unset PYTHON so the isolated pinned judge venv is provisioned." >&2
     exit 2
   fi
-  if [[ ! -x "$VENV_DIR/bin/python" ]] || ! "$VENV_DIR/bin/python" -c 'import pytest, cryptography' >/dev/null 2>&1; then
-    echo "Provisioning isolated judge environment at $VENV_DIR from the exact-pinned judge requirements (package downloads may require internet)." >&2
-    "$PYTHON" -m venv "$VENV_DIR"
-    "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check -r scripts/hackathon/requirements-judge.txt
+  if ! validate_judge_python "$CALLER_PYTHON"; then
+    echo "Refusing caller-managed python that does not match the pinned judge versions. Unset PYTHON to provision the isolated venv, or install the pinned versions." >&2
+    exit 2
+  fi
+  PYTHON="$CALLER_PYTHON"
+else
+  # Default: always create or reuse the isolated pinned venv.
+  BASE_PYTHON=""
+  for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+      BASE_PYTHON="$(command -v "$candidate")"
+      break
+    fi
+  done
+  if [[ -z "$BASE_PYTHON" ]]; then
+    echo 'Python 3.11+ is required by NEAR evidence parsing; install Python 3.11+ (Python 3.10 cannot run this judge gate).' >&2
+    exit 2
+  fi
+  VENV_DIR="${X3_JUDGE_VENV:-${XDG_CACHE_HOME:-$HOME/.cache}/x3lang/judge-quick-venv}"
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    if ! validate_judge_python "$VENV_DIR/bin/python"; then
+      echo "Existing judge environment at $VENV_DIR does not match the pinned versions. Set X3_JUDGE_VENV to a different directory; refusing rather than reusing a wrong env." >&2
+      exit 2
+    fi
+  else
+    echo "Provisioning isolated judge environment at $VENV_DIR from the hash-locked judge requirements (first-run dependency installation may use the network)." >&2
+    if [[ -e "$VENV_DIR" ]]; then
+      echo "Partial judge environment exists at $VENV_DIR without a usable python; set X3_JUDGE_VENV to a clean directory." >&2
+      exit 2
+    fi
+    "$BASE_PYTHON" -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check --require-hashes -r scripts/hackathon/requirements-judge.txt
+    if ! validate_judge_python "$VENV_DIR/bin/python"; then
+      echo "Freshly provisioned judge environment at $VENV_DIR failed exact version validation." >&2
+      exit 2
+    fi
   fi
   PYTHON="$VENV_DIR/bin/python"
 fi

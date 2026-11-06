@@ -24,8 +24,9 @@ boundaries follow after it.
 - One command (`60-SECOND JUDGE PATH` below) runs scenario freshness, the four-scenario
   terminal demo (`authorized`, `needs-approval`, `wrong-recipient`,
   `prompt-injection-recipient`), Python/browser guard-by-guard parity, and the judge
-  evidence gate (`quick`), all offline with no wallet, signing or deployment. It exits
-  nonzero on stale scenarios, policy disagreement, failed tests, or a missing
+  evidence gate (`quick`), all local with no wallet, signing or deployment
+  (first-run dependency installation may use the network). It exits nonzero on
+  stale scenarios, policy disagreement, failed tests, or a missing
   prompt-injection case.
 - The **prompt-injection** case shows an injected instruction steering the agent to pay
   `attacker.near`; the owner mandate refuses at `mandate_recipient`. It evaluates the
@@ -57,10 +58,16 @@ boundaries follow after it.
 bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
 ```
 
-Python 3.11+ (for `datetime.UTC` in `bridge/near_evidence.py`), Rust/Cargo and
-Node.js required. On first run, Python packages are installed from the exact-pinned
+Python 3.11+ (for `datetime.UTC` in `x3-lang/bridge/near_evidence.py`), Rust/Cargo and
+Node.js required. By default the gate always creates or reuses the isolated pinned
+venv installed from the hash-locked
 [`scripts/hackathon/requirements-judge.txt`](scripts/hackathon/requirements-judge.txt)
-into an isolated venv (may download). This builds no blockchain transactions, runs
+(`--require-hashes`, full transitive freeze) and verifies exact installed versions
+(cryptography 50.0.2, pytest 9.2.0, pycryptodome 4.3.0); system pytest/cryptography
+are never sufficient on their own. A caller-managed `PYTHON` requires explicit
+opt-in via `X3_JUDGE_ALLOW_SYSTEM_PYTHON=1` plus the same exact validation, or the
+script refuses (exit 2). On first run, dependency installation may use the network.
+This builds no blockchain transactions, runs
 local policy/Guard tests, and writes evidence artifacts under the report directory.
 It **does not** deploy a contract, perform a live payment, prove real-world prompt
 injection resistance, or establish NEAR consensus finality. See the

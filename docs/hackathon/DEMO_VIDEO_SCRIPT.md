@@ -2,7 +2,8 @@
 
 **Length:** 3:00 max. **Say the evidence level on every slide.** If a shot is
 "local mock-chain" or "pending," say that out loud — do not upgrade it in narration.
-All commands are read-only and offline; no wallet signing, deployment or funds move.
+All commands are read-only and local (first-run dependency installation may use the
+network); no wallet signing, deployment or funds move.
 
 ## Shot 1 — Owner mandate (0:00–0:25)
 
@@ -52,6 +53,6 @@ is shown because none exists."
 report, then the gate one-liner to reproduce.
 **Say:** "Proven now: local policy refusal plus local Guard contract behavior. Explicitly
 not proven: on-chain authorization, wallet transfer, observed transaction, finalized
-settlement, proven causality. Reproduce offline with one command; raise this ceiling
+settlement, proven causality. Reproduce locally with one command (first-run dependency installation may use the network); raise this ceiling
 only when the testnet refusal exists and is independently re-queryable."
 **End card:** repo link, `PRIOR_WORK.md` disclosure, submission deadline 2026-11-14 23:59 UTC.
