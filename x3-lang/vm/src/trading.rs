@@ -4,7 +4,7 @@
 //! readiness. Venue and provider behavior is supplied through an explicit
 //! [`TradingHost`] capability implementation.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -2279,7 +2279,7 @@ pub fn verify_receipt_attestation(
         .map_err(|_| ReceiptError::InvalidAttestation)?;
     let signature = Signature::from_bytes(&signature_bytes);
     verifying_key
-        .verify(&receipt.receipt_hash, &signature)
+        .verify_strict(&receipt.receipt_hash, &signature)
         .map_err(|_| ReceiptError::InvalidAttestation)
 }
 
@@ -2478,7 +2478,7 @@ pub fn verify_registry_signature(
     let bytes = bytes_of_hex(&signature.signature)
         .and_then(|bytes| <[u8; 64]>::try_from(bytes.as_slice()).ok())
         .ok_or_else(|| "registry signature: signature is not 64 bytes of hex".to_string())?;
-    key.verify(&registry_signing_digest(registry_bytes), &Signature::from_bytes(&bytes))
+    key.verify_strict(&registry_signing_digest(registry_bytes), &Signature::from_bytes(&bytes))
         .map_err(|_| "the registry signature does not verify under the trusted root".to_string())
 }
 

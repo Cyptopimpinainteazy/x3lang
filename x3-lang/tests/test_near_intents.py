@@ -55,6 +55,13 @@ def sign(response):
     return response
 
 
+def test_ed25519_tokens_are_length_bounded_before_base58_decode():
+    with pytest.raises(ni.QuoteSignatureFormatError, match="base58 characters"):
+        ni._decode_ed25519("ed25519:" + "1" * 100_000, 32)
+    with pytest.raises(ni.QuoteSignatureFormatError, match="base58 characters"):
+        ni._decode_ed25519("ed25519:" + "1" * 100_000, 64)
+
+
 @pytest.fixture(autouse=True)
 def _trust_the_test_key(monkeypatch):
     """Synthetic quotes are signed with TEST_KEY. Tests of real 1Click quotes pass ONE_CLICK_KEY."""

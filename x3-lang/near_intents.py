@@ -104,6 +104,7 @@ and `status` track the swap to a terminal X3 outcome.
 import argparse
 import contextlib
 import hashlib
+import math
 import importlib.util
 import json
 import os
@@ -696,7 +697,16 @@ def oneclick_quote_hash(response: Dict[str, Any]) -> str:
 def _decode_ed25519(value: Any, length: int) -> bytes:
     if not isinstance(value, str) or not value.startswith(ED25519_PREFIX):
         raise QuoteSignatureFormatError(f"expected an {ED25519_PREFIX}<base58> value")
-    raw = ed25519.b58decode(value[len(ED25519_PREFIX):])
+    encoded = value[len(ED25519_PREFIX):]
+    # Base58 is one alphabet character per leading zero byte and at most
+    # ceil(8 * length / log2(58)) characters otherwise. Refuse oversized
+    # network input before converting the whole string to a big integer.
+    maximum = math.ceil(length * 8 / math.log2(58))
+    if not length <= len(encoded) <= maximum:
+        raise QuoteSignatureFormatError(
+            f"expected {length} bytes encoded in {length}..{maximum} base58 characters"
+        )
+    raw = ed25519.b58decode(encoded)
     if len(raw) != length:
         raise QuoteSignatureFormatError(f"expected {length} bytes, decoded {len(raw)}")
     return raw

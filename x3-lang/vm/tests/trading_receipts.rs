@@ -222,6 +222,32 @@ fn signed_receipt_verifies_against_explicit_trust_store() {
     verify_receipt_trusted(&receipt, &trusted_keys(&key)).expect("trusted signed receipt must verify");
 }
 
+fn identity_key_and_universal_forgery() -> ([u8; 32], Vec<u8>) {
+    let mut identity = [0u8; 32];
+    identity[0] = 1;
+    let mut signature = vec![0u8; 64];
+    signature[..32].copy_from_slice(&[0x66; 32]);
+    signature[0] = 0x58;
+    signature[32] = 1;
+    (identity, signature)
+}
+
+#[test]
+fn small_order_receipt_key_cannot_accept_a_universal_forgery() {
+    let key = signing_key();
+    let mut receipt = sign_receipt(sample_receipt(), "executor-1", &key).expect("receipt must sign");
+    let (identity, forgery) = identity_key_and_universal_forgery();
+    let attestation = receipt.attestation.as_mut().expect("signed receipt has an attestation");
+    attestation.public_key = identity;
+    attestation.signature = forgery;
+    let trusted = BTreeMap::from([("executor-1".to_string(), identity)]);
+
+    assert!(matches!(
+        verify_receipt_trusted(&receipt, &trusted),
+        Err(ReceiptError::InvalidAttestation)
+    ));
+}
+
 #[test]
 fn tampering_after_signing_invalidates_attestation() {
     let key = signing_key();
@@ -699,5 +725,18 @@ mod signed_registry {
             .unwrap_err()
             .contains("does not verify"));
         assert!(ReceiptKeyRegistry::from_signed_json(&bytes, &forged, &trusted).is_err());
+    }
+
+    #[test]
+    fn a_small_order_registry_root_cannot_accept_a_universal_forgery() {
+        let bytes = registry_bytes();
+        let mut signature = sign_registry(&bytes, &root());
+        let (identity, forgery) = identity_key_and_universal_forgery();
+        signature.root_public_key = identity.iter().map(|byte| format!("{byte:02x}")).collect();
+        signature.signature = forgery.iter().map(|byte| format!("{byte:02x}")).collect();
+
+        let error = verify_registry_signature(&bytes, &signature, &identity)
+            .expect_err("a weak registry root must not authenticate a universal forgery");
+        assert!(error.contains("does not verify"), "{error}");
     }
 }

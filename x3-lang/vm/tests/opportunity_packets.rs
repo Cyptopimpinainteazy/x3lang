@@ -77,6 +77,25 @@ fn a_packet_verifies_after_the_bytes_it_travels_as() {
 }
 
 #[test]
+fn a_small_order_solver_key_cannot_accept_a_universal_forgery() {
+    let mut packet = packet();
+    let mut identity = [0u8; 32];
+    identity[0] = 1;
+    let mut forgery = vec![0u8; 64];
+    forgery[..32].copy_from_slice(&[0x66; 32]);
+    forgery[0] = 0x58;
+    forgery[32] = 1;
+    packet.signature.as_mut().expect("packet is signed").public_key = identity;
+    packet.signature.as_mut().expect("packet is signed").signature = forgery;
+    let trusted = BTreeMap::from([(SOLVER.to_string(), identity)]);
+
+    assert_eq!(
+        verify_packet(&packet, &trusted, 100),
+        Err(OpportunityPacketError::InvalidSignature)
+    );
+}
+
+#[test]
 fn an_operator_admits_each_packet_once() {
     let mut ledger = OpportunityPacketLedger::new();
     let first = packet();
