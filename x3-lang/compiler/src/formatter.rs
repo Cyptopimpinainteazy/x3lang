@@ -1140,6 +1140,12 @@ impl X3Formatter {
         self.write(i.name.as_str());
         self.write(" {\n");
         self.indent();
+        if let Some(owner) = &i.mandate {
+            self.write_indent();
+            self.write("under mandate ");
+            self.write(owner.as_str());
+            self.write("\n");
+        }
         if !i.constraints.is_empty() {
             self.write_indent();
             self.write("[");

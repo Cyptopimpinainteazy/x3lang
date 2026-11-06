@@ -456,6 +456,12 @@ pub struct ScheduledTask {
 pub struct IntentDecl {
     pub name: Symbol,
     pub constraints: Vec<Expression>,
+    /// `under mandate <owner>`: the owner whose externally enforced mandate
+    /// authorizes this intent. This is adapter metadata, not a VM guard: the
+    /// generic executor has no mandate store, so it must fail closed unless a
+    /// host explicitly resolves and enforces this binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mandate: Option<Symbol>,
     pub body: Block,
 }
 

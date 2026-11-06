@@ -114,6 +114,14 @@ const REFUSED_BY_THE_COMPILER: &[&str] = &[
     // amounts lower to zero. Parsing it is TICKET-045's fix; making it *compile*
     // is a question about the example, not about the formatter.
     "arb_solana_eth.x3",
+    // These are NEAR Intents adapter plans. Their `require fees` ceiling is
+    // enforced against the live signed quote by `near_intents.py`; the generic
+    // VM compiler has no adapter quote and therefore correctly refuses to emit
+    // an artifact with an unbacked fee policy.
+    "bsc_bnb_to_near_wnear_dry.x3",
+    "near_intents_sol_to_near.x3",
+    "near_intents_agent_payment.x3",
+    "near_intents_agent_denied.x3",
 ];
 
 #[test]

@@ -107,13 +107,31 @@ fn minimal_intent_bytecode_runs_on_verified_executor() {
 
 #[test]
 fn full_arb_solana_eth_source_parses() {
-    // The full production example exercises `require finality ... >= ...`
-    // and `require canonical_supply ...`, which the Rust parser does not
-    // yet support. This test asserts only that the source *parses*
-    // (we expect the parser to skip unknown require kinds as
-    // expression fallbacks).
+    // This example exercises the full production grammar, including finality,
+    // canonical-supply and proof guards. A previous version of this test only
+    // discarded the parser result, so it passed even when the example was
+    // unreadable. Keep the assertion coupled to emitted bytecode.
     let src = example_source("arb_solana_eth.x3");
-    let _ = x3_lang_compiler::parser::parse_source(&src);
+    x3_lang_compiler::parser::parse_source(&src).expect("arb_solana_eth.x3 should parse");
+    let bytecode = compile_source(&src).expect("arb_solana_eth.x3 should compile");
+    verify(&InstructionStream::new(bytecode)).expect("the verifier must accept the emitted bytecode");
+}
+
+#[test]
+fn bsc_to_near_reference_parses_bps_and_refuses_an_unbacked_fee_ceiling() {
+    let src = example_source("bsc_bnb_to_near_wnear_dry.x3");
+    let program = x3_lang_compiler::parser::parse_source(&src)
+        .expect("the BSC-to-NEAR reference must parse with its unit-bearing fee ceiling");
+    let failed =
+        compile_source(&src).expect_err("the generic compiler must refuse a fee ceiling that no risk policy backs");
+    assert!(
+        failed.to_string().contains("X3E4027"),
+        "the refusal must name the missing fee policy: {failed}"
+    );
+    assert!(
+        !program.items.is_empty(),
+        "parsing must not discard the reference program after consuming `bps`"
+    );
 }
 
 #[test]

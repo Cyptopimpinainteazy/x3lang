@@ -3713,6 +3713,18 @@ fn check_names_the_failing_stage_rather_than_assuming_one() {
 /// `--deny-warnings` is deliberate: an example that checks but warns shows a reader a
 /// program the compiler complains about, which for documentation is a defect. That is how
 /// `arb_solana_eth.x3` turned out to have two refund operations claiming one lock.
+const ADAPTER_ONLY_INTENTS: &[&str] = &[
+    "bsc_bnb_to_near_wnear_dry.x3",
+    "near_intents_agent_denied.x3",
+    "near_intents_agent_payment.x3",
+    "near_intents_agent_refused_payment.x3",
+    "near_intents_sol_to_near.x3",
+];
+
+/// These files are source-compatible policy inputs, but their fee ceiling is
+/// checked against a live signed quote by the NEAR adapter rather than by the
+/// generic VM's strategy policy. `x3c intent` must still produce the adapter
+/// draft; `x3c build` must continue to fail closed.
 #[test]
 fn every_example_checks_and_builds() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
@@ -3740,12 +3752,29 @@ fn every_example_checks_and_builds() {
     );
 
     let mut failures = Vec::new();
+    let mut adapter_intents = 0usize;
     for example in &found {
         let name = example
             .file_name()
             .expect("an example path has a file name")
             .to_string_lossy()
             .into_owned();
+        if name == "near_mandate_agent.x3" {
+            // A `mandate` declaration is consumed by near_mandate.py and
+            // x3-guard; it is not an intent the generic VM can execute.
+            continue;
+        }
+        if ADAPTER_ONLY_INTENTS.contains(&name.as_str()) {
+            adapter_intents += 1;
+            let intent = x3c().arg("intent").arg(example).output().expect("x3c intent");
+            if !intent.status.success() {
+                failures.push(format!(
+                    "{name}: intent — {}",
+                    String::from_utf8_lossy(&intent.stdout).trim()
+                ));
+            }
+            continue;
+        }
 
         let check = x3c()
             .args(["check", "--deny-warnings"])
@@ -3776,6 +3805,10 @@ fn every_example_checks_and_builds() {
         }
     }
 
+    assert_eq!(
+        adapter_intents, 4,
+        "the example walk must find all four NEAR adapter intents"
+    );
     assert!(
         failures.is_empty(),
         "every example must check and build ({} checked):\n{}",
@@ -3937,7 +3970,26 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
     );
 
     let mut failures = Vec::new();
+    let mut adapter_intents = 0usize;
+    let mut python_only = 0usize;
     for file in &found {
+        let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        if ADAPTER_ONLY_INTENTS.contains(&name.as_str()) {
+            adapter_intents += 1;
+            let intent = x3c().arg("intent").arg(file).output().expect("x3c intent");
+            if !intent.status.success() {
+                let relative = file.strip_prefix(&root).unwrap_or(file).display().to_string();
+                failures.push(format!(
+                    "{relative}: intent — {}",
+                    String::from_utf8_lossy(&intent.stdout).trim()
+                ));
+            }
+            continue;
+        }
+        if name == "near_mandate_agent.x3" {
+            python_only += 1;
+            continue;
+        }
         let check = x3c().arg("check").arg(file).output().expect("x3c check");
         if !check.status.success() {
             let relative = file.strip_prefix(&root).unwrap_or(file).display().to_string();
@@ -3945,6 +3997,15 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         }
     }
 
+    assert_eq!(
+        adapter_intents,
+        ADAPTER_ONLY_INTENTS.len(),
+        "the tree walk must find every adapter intent exactly once"
+    );
+    assert_eq!(
+        python_only, 1,
+        "the tree walk must find the Python-only mandate declaration"
+    );
     assert!(
         failures.is_empty(),
         "every `.x3` file outside the named non-language directories must check ({} walked):\n{}",

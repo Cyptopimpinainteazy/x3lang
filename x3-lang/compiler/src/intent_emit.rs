@@ -68,6 +68,12 @@ pub struct IntentSpecDraft {
     pub constraints: Vec<SourceConstraint>,
     /// Timeout duration in seconds (parsed from `"30m"`, `"1h"`, …).
     pub timeout_secs: u64,
+    /// Owner whose externally enforced mandate authorizes this adapter intent.
+    ///
+    /// This is not interpreted by the generic VM. A resolver that consumes the
+    /// draft must either enforce it or reject the draft.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mandate_owner: Option<String>,
 }
 
 impl IntentSpecDraft {
@@ -96,6 +102,7 @@ impl IntentSpecDraft {
             dest_receiver: dest_receiver.into(),
             constraints: Vec::new(),
             timeout_secs: 30 * 60,
+            mandate_owner: None,
         }
     }
 
@@ -163,6 +170,7 @@ pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
         &name, "x3", // default source chain
         "UNKNOWN", 0, "unknown", "x3", "UNKNOWN", "unknown",
     );
+    draft.mandate_owner = intent.mandate.as_ref().map(|owner| owner.as_str().to_string());
 
     // Walk constraints (from `require` guards) and body statements.
     // Constraints from the `require` annotations are encoded as Expressions
@@ -306,7 +314,7 @@ fn value_string_from_expr(expr: &Expression) -> String {
     match expr {
         Expression::Literal(LiteralExpr::Int { value, .. }) => value.to_string(),
         Expression::Literal(LiteralExpr::String(s)) => s.as_str().to_string(),
-        Expression::Literal(LiteralExpr::Percentage { value }) => format!("{value}%"),
+        Expression::Literal(LiteralExpr::Percentage { value }) => value.as_str().to_string(),
         Expression::Literal(LiteralExpr::Duration { value, unit: _ }) => value.to_string(),
         Expression::Ident(s) => s.as_str().to_string(),
         _ => format!("{:?}", expr),
