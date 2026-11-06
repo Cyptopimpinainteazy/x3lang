@@ -1,0 +1,53 @@
+{
+  "chain": "1click",
+  "dry": false,
+  "label": "live",
+  "manager_public_key": "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc",
+  "quote": {
+    "amountIn": "25000000",
+    "amountInFormatted": "25.0",
+    "amountInUsd": "24.991075000000",
+    "amountOut": "24992601",
+    "amountOutFormatted": "24.992601",
+    "amountOutUsd": "24.983678641443",
+    "deadline": "2026-11-09T23:01:40.753Z",
+    "depositAddress": "Ck96QKCui1NDuoztqEGc7q3RfT3Nnm2FDw4WU4DJHzkk",
+    "minAmountIn": "25000000",
+    "minAmountOut": "24867637",
+    "refundFee": "239017",
+    "timeEstimate": 20,
+    "timeWhenInactive": "2026-11-09T23:01:40.753Z",
+    "withdrawFee": "4627"
+  },
+  "quoteRequest": {
+    "amount": "25000000",
+    "appFees": [
+      {
+        "fee": 1,
+        "limitOrderId": null,
+        "recipient": "5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd"
+      }
+    ],
+    "confidentiality": "public",
+    "deadline": "2026-11-06T23:01:40.753Z",
+    "depositMode": "SIMPLE",
+    "depositType": "ORIGIN_CHAIN",
+    "destinationAsset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+    "dry": false,
+    "insured": false,
+    "originAsset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+    "quoteWaitingTimeMs": 0,
+    "recipient": "defuse.near",
+    "recipientType": "DESTINATION_CHAIN",
+    "refundTo": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+    "refundType": "ORIGIN_CHAIN",
+    "slippageTolerance": 50,
+    "swapType": "EXACT_INPUT"
+  },
+  "quote_hash": "FugpJZdZKY8i69HFcvTuvPaxH2ZZZxdRWBNzK4wa2suB",
+  "schema": "x3.guard.testnet.official-quote.v1",
+  "signature": "ed25519:1foCVUGDZrCT6bJfUPVmBbHbcNahoq4ve2raGy4wuNcqiCUvbFvPBm32cEokJhYX7XXwnEfFVqmUxV4cXQyxJrJ",
+  "signature_reason": "verified",
+  "signature_valid": true,
+  "timestamp": "2026-11-06T22:51:40.892Z"
+}

@@ -1,0 +1,141 @@
+{
+  "chain_id": "testnet",
+  "contract": "x3lang-guard-20261106.testnet",
+  "record_hash": "87a3c269b49501c971ee80a8aa05111216358273ba8ac0f5a22c67c7022d4122",
+  "schema": "x3.guard.testnet.check-quote-views.v1",
+  "views": [
+    {
+      "case": "official-dry-signature-valid-policy-refused",
+      "guards": [
+        {
+          "detail": "DmNz8fwFKg8NXN8SCmqzUuGZ86UhSUA5wDZ7EnfBAsFx",
+          "guard": "quote_signature",
+          "ok": true
+        },
+        {
+          "detail": "dry true, EXACT_INPUT / ORIGIN_CHAIN / ORIGIN_CHAIN / DESTINATION_CHAIN: a deposit needs a live EXACT_INPUT ORIGIN_CHAIN quote",
+          "guard": "quote_kind",
+          "ok": false
+        },
+        {
+          "detail": "issued 1794004466239, now 1794004520157",
+          "guard": "quote_freshness",
+          "ok": true
+        },
+        {
+          "detail": "mismatched: [\"recipient\"]",
+          "guard": "quote_request_echo",
+          "ok": false
+        },
+        {
+          "detail": "expected 25000000, quoted 25000000",
+          "guard": "amount_in",
+          "ok": true
+        },
+        {
+          "detail": "floor 24800000, guaranteed 24872230",
+          "guard": "min_receive",
+          "ok": true
+        },
+        {
+          "detail": "spread 124987 of 24997217, bound 50 bps",
+          "guard": "slippage",
+          "ok": true
+        },
+        {
+          "detail": "cost 2781917413000000 of 24990275000000000000 (1e-18 USD), cap 100 bps",
+          "guard": "fees",
+          "ok": true
+        },
+        {
+          "detail": "quote states no refundFee; refund cost unknown",
+          "guard": "refund_fee",
+          "ok": false
+        },
+        {
+          "detail": "",
+          "guard": "deposit_address",
+          "ok": false
+        },
+        {
+          "detail": "now 1794004520157, quote deadline 1794005066089, policy deadline 1794011570770, needs 0 ms",
+          "guard": "deadline",
+          "ok": true
+        }
+      ],
+      "nonce": "evidence-prohibited-01"
+    },
+    {
+      "case": "invalid-signature-refused",
+      "guards": [
+        {
+          "detail": "signature does not verify under the 1Click manager key",
+          "guard": "quote_signature",
+          "ok": false
+        }
+      ],
+      "nonce": "evidence-invalid-01"
+    },
+    {
+      "case": "official-live-signature-valid-allowed",
+      "guards": [
+        {
+          "detail": "FugpJZdZKY8i69HFcvTuvPaxH2ZZZxdRWBNzK4wa2suB",
+          "guard": "quote_signature",
+          "ok": true
+        },
+        {
+          "detail": "dry false, EXACT_INPUT / ORIGIN_CHAIN / ORIGIN_CHAIN / DESTINATION_CHAIN: a deposit needs a live EXACT_INPUT ORIGIN_CHAIN quote",
+          "guard": "quote_kind",
+          "ok": true
+        },
+        {
+          "detail": "issued 1794005500892, now 1794005521068",
+          "guard": "quote_freshness",
+          "ok": true
+        },
+        {
+          "detail": "mismatched: []",
+          "guard": "quote_request_echo",
+          "ok": true
+        },
+        {
+          "detail": "expected 25000000, quoted 25000000",
+          "guard": "amount_in",
+          "ok": true
+        },
+        {
+          "detail": "floor 24800000, guaranteed 24867637",
+          "guard": "min_receive",
+          "ok": true
+        },
+        {
+          "detail": "spread 124964 of 24992601, bound 50 bps",
+          "guard": "slippage",
+          "ok": true
+        },
+        {
+          "detail": "cost 7396358557000000 of 24991075000000000000 (1e-18 USD), cap 100 bps",
+          "guard": "fees",
+          "ok": true
+        },
+        {
+          "detail": "refund fee 239017 of 25000000, cap 100 bps",
+          "guard": "refund_fee",
+          "ok": true
+        },
+        {
+          "detail": "Ck96QKCui1NDuoztqEGc7q3RfT3Nnm2FDw4WU4DJHzkk",
+          "guard": "deposit_address",
+          "ok": true
+        },
+        {
+          "detail": "now 1794005521068, quote deadline 1794265300753, policy deadline 1794610293363, needs 20000 ms",
+          "guard": "deadline",
+          "ok": true
+        }
+      ],
+      "nonce": "evidence-allowed-live-02"
+    }
+  ]
+}

@@ -17,7 +17,7 @@ import threading
 
 import pytest
 
-from testnet_guard_evidence import EvidenceError, record_manifest, record_transaction, verify_evidence
+from testnet_guard_evidence import EvidenceError, _canonical_hash, record_manifest, record_transaction, verify_evidence
 
 
 # ---------------------------------------------------------------------------
@@ -144,3 +144,38 @@ def test_manifest_records_code_identity(fake_rpc, tmp_path):
     assert rec["block_height"] == 100
     # Canonical hash must verify.
     assert "record_hash" in rec
+
+
+def _valid_tx_record(fake_rpc):
+    return record_transaction("11111111111111111111111111111111", rpc_url=fake_rpc.url, sender_id="x3lang-guard-20261106.testnet")
+
+
+def _rehashed(rec):
+    rec = dict(rec)
+    rec.pop("record_hash", None)
+    rec["record_hash"] = _canonical_hash(rec)
+    return rec
+
+
+def test_verify_rejects_tampered_receiver_with_rehashed_record(fake_rpc, tmp_path):
+    rec = _valid_tx_record(fake_rpc)
+    rec["receiver_id"] = "evil.testnet"
+    with pytest.raises(EvidenceError, match="receiver"):
+        verify_evidence(fixture("tamper-receiver.json", _rehashed(rec), tmp_path), rpc_url=fake_rpc.url)
+
+
+def test_verify_rejects_tampered_receipt_status_with_rehashed_record(fake_rpc, tmp_path):
+    rec = _valid_tx_record(fake_rpc)
+    rec["receipt_statuses"] = [{"receipt_id": "22222222222222222222222222222222", "status": {"Failure": "tampered"}}]
+    with pytest.raises(EvidenceError, match="receipt"):
+        verify_evidence(fixture("tamper-receipt.json", _rehashed(rec), tmp_path), rpc_url=fake_rpc.url)
+
+
+def test_verify_rejects_args_sha256_that_does_not_match_sanitized_args(fake_rpc, tmp_path):
+    rec = _valid_tx_record(fake_rpc)
+    # Tamper sanitized args but keep the original args_sha256 so it no
+    # longer matches the sanitized payload; rehash the record so only the
+    # recomputation firewall can catch it.
+    rec["sanitized_args"] = [{"method_name": "new", "args_keys": ["nonce"], "sanitized_args": {"nonce": "evil"}, "args_sha256": "0" * 64}]
+    with pytest.raises(EvidenceError, match="args_sha256"):
+        verify_evidence(fixture("tamper-args.json", _rehashed(rec), tmp_path), rpc_url=fake_rpc.url)

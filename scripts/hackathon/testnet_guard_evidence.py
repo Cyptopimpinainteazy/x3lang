@@ -392,6 +392,33 @@ def _check_record_hash(record: dict, label: str) -> None:
         raise EvidenceError(f"record_hash mismatch in {label}: evidence has been tampered")
 
 
+def _verify_transaction_record(stored: dict, rpc_url: str) -> str:
+    """Re-query one transaction and compare the full fresh record.
+
+    Excludes observation time, record hash, collection label, and RPC URL
+    (the verifying RPC may differ from the recording RPC). Every other field
+    — chain_id, signer/receiver, receipt statuses/errors, sanitized args —
+    must equal the fresh RPC record, and the stored ``args_sha256`` must
+    equal the recomputed hash of the stored ``sanitized_args``.
+    """
+    tx_hash = stored.get("transaction_hash") or stored.get("tx_hash")
+    if not isinstance(tx_hash, str):
+        raise EvidenceError("transaction hash missing in evidence")
+    signer = stored.get("signer_id")
+    if stored.get("args_sha256") is not None and _canonical_hash(stored.get("sanitized_args")) != stored.get("args_sha256"):
+        raise EvidenceError("args_sha256 mismatch: stored hash does not match sanitized args")
+    fresh = record_transaction(tx_hash, rpc_url, sender_id=signer if isinstance(signer, str) else None)
+    if fresh.get("args_sha256") is not None and _canonical_hash(fresh.get("sanitized_args")) != fresh.get("args_sha256"):
+        raise EvidenceError("args_sha256 mismatch in fresh RPC record")
+    excluded = {"observed_at_utc", "record_hash", "label", "rpc_url"}
+    for key in sorted(set(stored) | set(fresh)):
+        if key in excluded:
+            continue
+        if stored.get(key) != fresh.get(key):
+            raise EvidenceError(f"transaction {key} mismatch versus RPC")
+    return tx_hash
+
+
 def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     """Re-query RPC and fail on any mismatch with the recorded evidence."""
     _validate_url(rpc_url)
@@ -450,14 +477,7 @@ def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
         return {"verified": True, "kind": "manifest", "chain_id": chain_id, "account_id": account_id, "record_hash": data.get("record_hash")}
     if schema == SCHEMA_TRANSACTION:
         _check_record_hash(data, "transaction")
-        tx_hash = data.get("transaction_hash") or data.get("tx_hash")
-        if not isinstance(tx_hash, str):
-            raise EvidenceError("transaction hash missing in evidence")
-        signer = data.get("signer_id")
-        fresh = record_transaction(tx_hash, rpc_url, sender_id=signer if isinstance(signer, str) else None)
-        for key in ("transaction_hash", "block_height", "block_hash", "final_execution_status", "status", "method_names", "args_sha256"):
-            if data.get(key) != fresh.get(key):
-                raise EvidenceError(f"transaction {key} mismatch versus RPC")
+        tx_hash = _verify_transaction_record(data, rpc_url)
         return {"verified": True, "kind": "transaction", "chain_id": chain_id, "transaction_hash": tx_hash, "record_hash": data.get("record_hash")}
     if schema == SCHEMA_COLLECTION and isinstance(data.get("transactions"), list):
         _check_record_hash(data, "collection")
@@ -465,16 +485,8 @@ def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
             if not isinstance(entry, dict):
                 raise EvidenceError("transaction entry not an object in collection")
             _reject_sensitive(entry)
-            verify_evidence.__wrapped__ if hasattr(verify_evidence, "__wrapped__") else None
-            # Inline re-verify each transaction without recursing through files.
             _check_record_hash(entry, "transaction")
-            tx_hash = entry.get("transaction_hash") or entry.get("tx_hash")
-            if not isinstance(tx_hash, str):
-                raise EvidenceError("transaction hash missing in collection entry")
-            fresh = record_transaction(tx_hash, rpc_url, sender_id=entry.get("signer_id") if isinstance(entry.get("signer_id"), str) else None)
-            for key in ("transaction_hash", "block_height", "block_hash", "final_execution_status", "status", "method_names", "args_sha256"):
-                if entry.get(key) != fresh.get(key):
-                    raise EvidenceError(f"transaction {key} mismatch versus RPC")
+            _verify_transaction_record(entry, rpc_url)
         # Also verify embedded manifest if present.
         manifest = data.get("manifest")
         if isinstance(manifest, dict):
@@ -487,13 +499,7 @@ def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     # A bare list file of transaction records (transactions.json without envelope).
     if isinstance(data, list) and data and all(isinstance(x, dict) for x in data):
         for entry in data:
-            tx_hash = entry.get("transaction_hash") or entry.get("tx_hash")
-            if not isinstance(tx_hash, str):
-                raise EvidenceError("transaction hash missing in evidence list")
-            fresh = record_transaction(tx_hash, rpc_url, sender_id=entry.get("signer_id") if isinstance(entry.get("signer_id"), str) else None)
-            for key in ("transaction_hash", "block_height", "block_hash", "method_names", "args_sha256"):
-                if entry.get(key) != fresh.get(key):
-                    raise EvidenceError(f"transaction {key} mismatch versus RPC")
+            _verify_transaction_record(entry, rpc_url)
         return {"verified": True, "kind": "transaction-list", "chain_id": chain_id, "count": len(data)}
     raise EvidenceError(f"unsupported evidence schema: {schema!r}")
 
