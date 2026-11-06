@@ -213,9 +213,13 @@ permission to sign.
 
 - Ed25519 approvals are checked against the validator set for the candidate
   epoch.
-- Validator keys are decoded canonically and checked as on-curve Ed25519 points,
-  including validators that did not sign.
+- Validator and checkpoint-policy keys are decoded canonically, checked as
+  on-curve Ed25519 points, and rejected when they are small-order. In
+  particular, the identity point cannot be used as a universal-signature key.
+  This applies to validators that did not sign as well.
 - The strict `> 2/3` total-stake threshold is enforced.
+- Approval vectors may omit trailing entries but cannot extend past the
+  authenticated validator set.
 - Current and next validator identities cannot be substituted without detection.
 - V1 validator Borsh commitments are recomputed.
 - Checkpoint network, genesis, protocol, checksum, provenance and offline

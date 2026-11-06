@@ -20,6 +20,7 @@ from near_authenticated import (
     AuthenticatedLightClientError,
     _approval_message,
     _b58encode,
+    _valid_ed25519_public_key,
     _verify_approvals,
     _view_block_hash,
     advance_state,
@@ -65,6 +66,17 @@ def key_token(private):
 
 def signature_token(private, message):
     return "ed25519:" + _b58encode(private.sign(message))
+
+
+def identity_key_token():
+    return "ed25519:" + _b58encode(b"\x01" + b"\x00" * 31)
+
+
+def identity_universal_signature_token():
+    # For the identity public key, R = B and S = 1 verifies for every message.
+    point_b = bytes.fromhex("58" + "66" * 31)
+    scalar_one = b"\x01" + b"\x00" * 31
+    return "ed25519:" + _b58encode(point_b + scalar_one)
 
 
 def marker(label):
@@ -384,6 +396,114 @@ class AuthenticatedLightClientTests(unittest.TestCase):
         )
         self.assertEqual(state["sequence"], 0)
 
+    def test_small_order_checkpoint_signer_cannot_forge_approval(self):
+        current = [validator(seed(33), "v.testnet")]
+        view = make_view(
+            height=100,
+            epoch=marker("identity-epoch"),
+            next_epoch=marker("identity-next"),
+            next_validators=[validator(seed(34), "n.testnet")],
+            label="identity-checkpoint",
+        )
+        checkpoint = checkpoint_document(view, current)
+        checkpoint["checksum"] = sha(checkpoint)
+        approval = {
+            "schema": APPROVAL_SCHEMA,
+            "checkpoint_sha256": checkpoint["checksum"],
+            "approved_at": "2026-11-06T00:00:00Z",
+            "signatures": [
+                {
+                    "signer_id": "identity-authority",
+                    "signature": identity_universal_signature_token(),
+                }
+            ],
+        }
+        trust_policy = {
+            "schema": TRUST_POLICY_SCHEMA,
+            "network": "testnet",
+            "genesis_hash": marker("testnet-genesis"),
+            "allowed_protocol_versions": [88],
+            "checkpoint_signers": [
+                {
+                    "signer_id": "identity-authority",
+                    "public_key": identity_key_token(),
+                }
+            ],
+            "threshold": 1,
+        }
+        with self.assertRaisesRegex(
+            AuthenticatedLightClientError, "malformed checkpoint signer key"
+        ):
+            initialize_from_documents(
+                checkpoint,
+                approval,
+                trust_policy,
+                expected_policy_sha256=sha(trust_policy),
+                expected_checkpoint_sha256=checkpoint["checksum"],
+            )
+
+    def test_small_order_validator_cannot_forge_quorum(self):
+        signer = seed(38)
+        current = [
+            {
+                "account_id": "identity-validator.testnet",
+                "public_key": identity_key_token(),
+                "stake": "100",
+                "validator_stake_struct_version": "V1",
+            }
+        ]
+        future = [validator(seed(39), "n.testnet")]
+        checkpoint_view = make_view(
+            height=100,
+            epoch=marker("validator-identity-epoch"),
+            next_epoch=marker("validator-identity-next"),
+            next_validators=future,
+            label="validator-identity-checkpoint",
+        )
+        with self.assertRaisesRegex(
+            AuthenticatedLightClientError, "malformed validator public key"
+        ):
+            state, _, _, _ = approved_state(checkpoint_view, current, signer)
+            candidate = make_view(
+                height=110,
+                epoch=marker("validator-identity-epoch"),
+                next_epoch=marker("validator-identity-next"),
+                next_validators=future,
+                label="validator-identity-candidate",
+            )
+            candidate["approvals_after_next"] = [
+                identity_universal_signature_token()
+            ]
+            advance_state(state, candidate)
+
+    def test_approval_vector_cannot_extend_past_validator_set(self):
+        signer = seed(43)
+        current = [validator(seed(44), "v.testnet")]
+        future = [validator(seed(45), "n.testnet")]
+        epoch = marker("extra-approval-epoch")
+        next_epoch = marker("extra-approval-next")
+        view = make_view(
+            height=100,
+            epoch=epoch,
+            next_epoch=next_epoch,
+            next_validators=future,
+            label="extra-approval-checkpoint",
+        )
+        state, _, _, _ = approved_state(view, current, signer)
+        candidate = make_view(
+            height=110,
+            epoch=epoch,
+            next_epoch=next_epoch,
+            next_validators=future,
+            label="extra-approval-candidate",
+        )
+        candidate = sign_candidate(candidate, current, [seed(44)])
+        candidate["approvals_after_next"].append(None)
+        with self.assertRaisesRegex(
+            AuthenticatedLightClientError, "approval vector exceeds validator set"
+        ):
+            advance_state(state, candidate)
+
     def test_cross_network_and_genesis_mismatch_rejected_before_initialization(self):
         trust = seed(40)
         current = [validator(seed(41), "v.testnet")]
@@ -455,6 +575,21 @@ class AuthenticatedLightClientTests(unittest.TestCase):
         ]
         with self.assertRaises(AuthenticatedLightClientError):
             _verify_approvals(high, [None, None], b"\0" + b"\0" * 40)
+
+    def test_known_ed25519_torsion_points_are_rejected(self):
+        small_order = (
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000080",
+            "0100000000000000000000000000000000000000000000000000000000000000",
+            "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+            "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+            "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccdefb2c3f5d0c3b6e",
+        )
+        for encoded in small_order:
+            with self.subTest(encoded=encoded):
+                self.assertFalse(_valid_ed25519_public_key(bytes.fromhex(encoded)))
+        valid_key = seed(57).public_key().public_bytes_raw()
+        self.assertTrue(_valid_ed25519_public_key(valid_key))
 
     def test_epoch_crossing_requires_announced_validator_set(self):
         current = [validator(seed(i), f"v{i}.testnet") for i in (60, 61, 62)]

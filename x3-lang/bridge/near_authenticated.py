@@ -117,9 +117,31 @@ def _signature_bytes(value: object, label: str) -> bytes:
     return _b58decode(value.removeprefix("ed25519:"), label=label, length=64)
 
 
+def _ed25519_add(
+    first: tuple[int, int], second: tuple[int, int]
+) -> tuple[int, int]:
+    """Add two affine points on the twisted Edwards25519 curve."""
+    x1, y1 = first
+    x2, y2 = second
+    product = x1 * x2 * y1 * y2 % ED25519_FIELD
+    x_denominator = (1 + ED25519_D * product) % ED25519_FIELD
+    y_denominator = (1 - ED25519_D * product) % ED25519_FIELD
+    if x_denominator == 0 or y_denominator == 0:
+        raise AuthenticatedLightClientError("invalid Ed25519 public key")
+    x = (
+        (x1 * y2 + y1 * x2)
+        * pow(x_denominator, ED25519_FIELD - 2, ED25519_FIELD)
+    ) % ED25519_FIELD
+    y = (
+        (y1 * y2 + x1 * x2)
+        * pow(y_denominator, ED25519_FIELD - 2, ED25519_FIELD)
+    ) % ED25519_FIELD
+    return x, y
+
+
 @lru_cache(maxsize=8192)
 def _valid_ed25519_public_key(public: bytes) -> bool:
-    """Reject non-canonical or off-curve Ed25519 compressed points."""
+    """Reject non-canonical, off-curve, and small-order Ed25519 keys."""
     if type(public) is not bytes or len(public) != 32:
         return False
     encoded = int.from_bytes(public, "little")
@@ -134,13 +156,28 @@ def _valid_ed25519_public_key(public: bytes) -> bool:
         denominator, ED25519_FIELD - 2, ED25519_FIELD
     ) % ED25519_FIELD
     if x_squared == 0:
-        return sign_bit == 0
+        # y = +/-1 gives the identity or order-two point. Both are small-order.
+        return False
     x = pow(x_squared, (ED25519_FIELD + 3) // 8, ED25519_FIELD)
     if (x * x - x_squared) % ED25519_FIELD:
         x = x * ED25519_SQRT_M1 % ED25519_FIELD
     if (x * x - x_squared) % ED25519_FIELD:
         return False
-    return not (x == 0 and sign_bit == 1)
+    if x == 0 and sign_bit == 1:
+        return False
+    if (x & 1) != sign_bit:
+        x = ED25519_FIELD - x
+    if (
+        -x * x + y * y - 1 - ED25519_D * x * x * y * y
+    ) % ED25519_FIELD:
+        return False
+    try:
+        point = (x, y)
+        for _ in range(3):
+            point = _ed25519_add(point, point)
+    except AuthenticatedLightClientError:
+        return False
+    return point != (0, 1)
 
 
 def _without_duplicate_keys(pairs):
@@ -291,6 +328,10 @@ def _verify_approvals(
     approvals: list,
     message: bytes,
 ) -> tuple[int, int]:
+    if len(approvals) > len(validators):
+        raise AuthenticatedLightClientError(
+            "approval vector exceeds validator set"
+        )
     total_stake = 0
     approved_stake = 0
     for index, validator in enumerate(validators):
@@ -354,6 +395,10 @@ def _validate_trust_policy(policy: dict) -> dict:
             raise AuthenticatedLightClientError("invalid or duplicate signer ID")
         ids.add(signer_id)
         key = _key_bytes(signer.get("public_key"), "checkpoint signer key")
+        if not _valid_ed25519_public_key(key):
+            raise AuthenticatedLightClientError(
+                "malformed checkpoint signer key"
+            )
         if key in keys:
             raise AuthenticatedLightClientError("duplicate checkpoint signer key")
         keys.add(key)
