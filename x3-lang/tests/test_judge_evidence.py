@@ -147,6 +147,13 @@ def test_quick_and_full_modes_are_explicit_and_disjoint():
     assert any("wasm32-unknown-unknown" in " ".join(x["argv"]) for x in full)
 
 
+def test_node_override_propagates_to_browser_gate(monkeypatch):
+    monkeypatch.setenv("NODE", "/opt/node-24/bin/node")
+    quick = judge_evidence.plan_tests("quick")
+    browser = next(job for job in quick if job["name"] == "browser_signature_and_guard_tests")
+    assert browser["argv"][0] == "/opt/node-24/bin/node"
+
+
 def test_judge_tests_do_not_inherit_unrecorded_rustflags(monkeypatch):
     import subprocess
     monkeypatch.setenv("RUSTFLAGS", "-C target-cpu=native")
