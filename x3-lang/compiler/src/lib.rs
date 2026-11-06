@@ -61,9 +61,10 @@ use semantic::verify_with_config as verify_semantics;
 use semantic::{
     verify_atomic_choice_decls, verify_bridge_liquidity_declared, verify_declarations_have_a_reader,
     verify_fee_guards_declared, verify_finality_guards_declared, verify_guard_kinds_are_checkable,
-    verify_invariant_guards_declared, verify_parallel_decls, verify_privacy_decls, verify_proof_complete_declared,
-    verify_relayer_quorum_declared, verify_risk_policy_bounds_guards, verify_route_fallbacks,
-    verify_route_score_declared, verify_solver_bond_declared, verify_venue_decls, verify_vm_supported_declared,
+    verify_invariant_guards_declared, verify_mandate_bindings, verify_parallel_decls, verify_privacy_decls,
+    verify_proof_complete_declared, verify_relayer_quorum_declared, verify_risk_policy_bounds_guards,
+    verify_route_fallbacks, verify_route_score_declared, verify_solver_bond_declared, verify_venue_decls,
+    verify_vm_supported_declared,
 };
 use x3_lang_ast::ast::Program;
 use x3_lang_common::{ErrorAccumulator, Span, X3Error};
@@ -212,6 +213,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_invariant_guards_declared(program, &mut acc);
     verify_bridge_liquidity_declared(program, &mut acc);
     verify_guard_kinds_are_checkable(program, &mut acc);
+    verify_mandate_bindings(program, &mut acc);
     // A hedge's legs are only a hedge if they net: the exposure is computed here,
     // before anything is lowered (PHASE 9).
     hedge::verify(program, &mut acc);

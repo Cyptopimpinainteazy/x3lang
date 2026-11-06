@@ -1830,6 +1830,7 @@ fn cmd_intent(input: &PathBuf, emit_hash: bool, emit_plan: bool, out: Option<&Pa
         "dest_asset": draft.dest_asset,
         "dest_receiver": draft.dest_receiver,
         "timeout_secs": draft.timeout_secs,
+        "mandate_owner": draft.mandate_owner,
         "constraints": draft.constraints.iter().map(|c| serde_json::json!({
             "kind": c.kind,
             "arg": c.arg,

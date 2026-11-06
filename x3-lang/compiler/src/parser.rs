@@ -2054,6 +2054,7 @@ impl<'a> Parser<'a> {
         Ok(Item::IntentDecl(IntentDecl {
             name: Symbol::new(&name),
             constraints,
+            mandate: None,
             body,
         }))
     }
@@ -2063,7 +2064,28 @@ impl<'a> Parser<'a> {
     fn parse_intent_body(&mut self, name: String) -> Result<Item, X3Error> {
         self.expect(Tok::LBrace, "expected '{' after intent name")?;
         let mut stmts: Vec<Statement> = Vec::new();
+        let mut mandate = None;
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            if matches!(self.peek(), Tok::Ident(ref word) if word == "under") {
+                if mandate.is_some() {
+                    return Err(parse_err(
+                        "an intent declares `under mandate <owner>` more than once".into(),
+                        self.peek(),
+                    ));
+                }
+                self.advance(); // `under`
+                let word = self.expect_ident("the word `mandate` after `under`")?;
+                if word != "mandate" {
+                    return Err(parse_err(
+                        format!("expected `under mandate <owner>`, found `under {word}`"),
+                        self.peek(),
+                    ));
+                }
+                let owner = self.parse_mandate_owner()?;
+                self.opt_semi();
+                mandate = Some(Symbol::new(&owner));
+                continue;
+            }
             stmts.push(self.parse_intent_clause()?);
         }
         self.expect(Tok::RBrace, "expected '}' to close intent body")?;
@@ -2071,8 +2093,32 @@ impl<'a> Parser<'a> {
         Ok(Item::IntentDecl(IntentDecl {
             name: Symbol::new(&name),
             constraints: Vec::new(),
+            mandate,
             body: Block::new(stmts),
         }))
+    }
+
+    /// The owner named by `under mandate`. Account parts may contain `-` or
+    /// `_`; dots separate parts. Validation mirrors the NEAR named-account
+    /// grammar used by the adapter so malformed authority is rejected before
+    /// it can reach a resolver.
+    fn parse_mandate_owner(&mut self) -> Result<String, X3Error> {
+        let mut owner = self.expect_ident("mandate owner account")?;
+        while self.peek() == Tok::Dot {
+            self.advance();
+            owner.push('.');
+            owner.push_str(&self.expect_ident("mandate owner account segment")?);
+        }
+        if !is_valid_near_named_account(&owner) {
+            return Err(parse_err(
+                format!(
+                    "`under mandate` owner {owner:?} is not a valid NEAR named account; use 2-64 \
+                     lowercase characters with alphanumeric `-`/`_` parts separated by `.`"
+                ),
+                self.peek(),
+            ));
+        }
+        Ok(owner)
     }
 
     /// One line of a production intent body.
@@ -2113,7 +2159,7 @@ impl<'a> Parser<'a> {
             other => Err(parse_err(
                 format!(
                     "unexpected clause in intent body: {other:?}; expected one of `from`, `to`, `route`, \
-                     `require`, `timeout`, `on_fail`, `use` or `on`"
+                     `require`, `under mandate`, `timeout`, `on_fail`, `use` or `on`"
                 ),
                 other.clone(),
             )),
@@ -6219,6 +6265,27 @@ fn require_kind_from_str(name: &str) -> Result<RequireKind, X3Error> {
         "price_impact" => RequireKind::PriceImpact,
         "mev_leakage" => RequireKind::MevLeakage,
         other => RequireKind::Custom(Symbol::new(other)),
+    })
+}
+
+/// The named-account subset accepted by `under mandate`: 2-64 lowercase
+/// alphanumerics, with `-`/`_` allowed inside dot-separated parts and never at
+/// an edge or adjacent to one another.
+fn is_valid_near_named_account(account: &str) -> bool {
+    if !(2..=64).contains(&account.len()) {
+        return false;
+    }
+    account.split('.').all(|part| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_')
+            && part.bytes().next().is_some_and(|byte| byte.is_ascii_alphanumeric())
+            && part.bytes().last().is_some_and(|byte| byte.is_ascii_alphanumeric())
+            && !part
+                .as_bytes()
+                .windows(2)
+                .any(|pair| matches!(pair[0], b'-' | b'_') && matches!(pair[1], b'-' | b'_'))
     })
 }
 
