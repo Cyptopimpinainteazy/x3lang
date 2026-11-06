@@ -128,6 +128,24 @@ def _decompress(s: bytes) -> Optional[Point]:
     return (x, y, 1, x * y % _P)
 
 
+def _valid_public_key(public: bytes) -> bool:
+    """A canonical, non-identity point in the prime-order Ed25519 subgroup.
+
+    OpenSSL's Ed25519 verifier accepts the identity point and can then accept
+    the universal forgery R=B, S=1 for any message. The reference verifier has
+    the same mathematical acceptance unless the decoded key is constrained.
+    This check runs before either backend and rejects small-order points and
+    points carrying a torsion component.
+    """
+    if type(public) is not bytes or len(public) != 32:
+        return False
+    point = _decompress(public)
+    if point is None or _compress(point) != public:
+        return False
+    identity: Point = (0, 1, 1, 0)
+    return not _equal(point, identity) and _equal(_mul(_Q, point), identity)
+
+
 def _expand(secret: bytes) -> Tuple[int, bytes]:
     if len(secret) != 32:
         raise ValueError("Ed25519 secret key seed must be 32 bytes")
@@ -155,6 +173,8 @@ def sign(secret: bytes, message: bytes) -> bytes:
 
 def _verify_reference(public: bytes, message: bytes, signature: bytes) -> bool:
     if len(public) != 32 or len(signature) != 64:
+        return False
+    if not _valid_public_key(public):
         return False
     A = _decompress(public)
     if A is None:
@@ -227,4 +247,9 @@ except ImportError as exc:
 
 def verify(public: bytes, message: bytes, signature: bytes) -> bool:
     """True only for a valid Ed25519 signature of `message` under the 32-byte `public` key."""
-    return _verify(bytes(public), bytes(message), bytes(signature))
+    public = bytes(public)
+    message = bytes(message)
+    signature = bytes(signature)
+    if not _valid_public_key(public):
+        return False
+    return _verify(public, message, signature)
