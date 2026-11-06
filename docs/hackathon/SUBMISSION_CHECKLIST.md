@@ -19,8 +19,8 @@ Official instructions were checked against
 
 ## Repository
 
-- [ ] Final commit is pushed to `feat/x3lang-judge-console-20261104`.
-- [ ] PR is reviewable and remains draft until the owner authorizes merge.
+- [ ] Final submission points to the reviewed, approved exact HEAD (normally `main`), not an old demo feature branch.
+- [ ] All submission-critical PRs have independent review and exact-head checks; financial/security changes remain unmerged until the owner approves.
 - [ ] `PRIOR_WORK.md` and the baseline comparison remain intact.
 - [ ] No API keys, key files, seed phrases, `.env` files or private receipts are tracked.
 - [ ] No fabricated deployment, quote, transaction or settlement evidence is present.
@@ -28,6 +28,12 @@ Official instructions were checked against
 - [ ] The repository is public before the organizer deadline.
 
 ## Reproduce
+
+- [ ] The README opens with the X3Lang value proposition, the three observed verdicts and explicit live-proof limitations.
+- [ ] The [judge-first walkthrough](JUDGE_START_HERE.md) matches the final source and commands.
+- [ ] Run `python3 scripts/hackathon/demo.py --json` and check all three decisions and `evidence_level=local_policy_preview_only`.
+- [ ] The cross-repository mirror check is green on the actual submitted head, not suppressed or waived.
+- [ ] Any claim of *on-chain* signed-quote refusal includes a public independently verifiable transaction; local mock-chain tests do not qualify.
 
 - [ ] Create and activate a project-local Python virtual environment.
 - [ ] Install `x3-lang/requirements.txt`, pytest, Node 22+ and the Rust toolchain.
