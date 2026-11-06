@@ -1,0 +1,22 @@
+{
+  "schema": "x3.exact-head-mirror-policy.v1",
+  "status": "UNAPPROVED",
+  "owner_approval_reference": null,
+  "peer_repository": "Cyptopimpinainteazy/xxxstar",
+  "peer_content_anchor_sha": "444762e02211bb02096a94402496615e3dda2902",
+  "mirrored_files": {
+    "scripts/proof/check_x3lang_mirror.py": "3509cffdc14af9571ea520d5e2ce6d0abdcf391c2233426f44b09d912efe71ef",
+    "scripts/proof/x3lang_execution_proof.py": "3265c4d0b06eda8f3eaa43732bea7d3235ad84ecc738beaf00741ad2745d4af5",
+    "scripts/proof/x3lang_runtime_equivalence.py": "398b5832d2d9f733be94b07b26b9c0af0914d7e0f12ee0ea1118a8c9de5ec58f",
+    "x3-lang/compiler/tests/test_bytecode_version_gate.rs": "67cf288cc4865f0de051bfe9533547236bbdb3662e521463df2c31bf9b33e680",
+    "x3-lang/compiler/tests/test_control_flow_e2e.rs": "fdfd791d14de047522c5252c62b24d12e3b1fa262bbbb57f99ee5bbb3bedcb94",
+    "x3-lang/vm/tests/test_nonce_replay.rs": "6aa9d2ef46bcc5a75a3aa1b430731b58d251813603c67b4134bb5199bc5c2ecc",
+    "x3-lang/vm/tests/trading_receipts.rs": "b68b2b58226e39cb8f22fca02793f951ea8c4fd999841a2f369e0dd9b0a31be6"
+  },
+  "protected_peer_paths": [
+    "scripts/proof/"
+  ],
+  "x3lang_only_prefixes": [
+    "x3-lang/bridge/"
+  ]
+}
