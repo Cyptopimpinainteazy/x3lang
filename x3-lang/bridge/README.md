@@ -91,4 +91,32 @@ harness does not authenticate RPC output, validator signatures, Merkle proofs,
 or escrow storage and cannot authorize settlement. See
 [`docs/security/NEAR_PROOF_EVIDENCE_HARNESS.md`](../../docs/security/NEAR_PROOF_EVIDENCE_HARNESS.md).
 
+## Authenticated NEAR head
+
+[`near_authenticated.py`](near_authenticated.py) is the trusted-checkpoint and
+head-advancement boundary above the acquisition layer. It requires an
+externally pinned policy hash and an offline threshold signature over an
+integrity-checked checkpoint, authenticates the next epoch's pre-committed
+validators, verifies strict `> 2/3` Ed25519 approvals, persists authenticated
+state atomically, and checks receipt inclusion against authenticated state.
+
+```bash
+python3 x3-lang/bridge/near_authenticated.py checkpoint-message \
+  --checkpoint checkpoint.json
+python3 x3-lang/bridge/near_authenticated.py initialize \
+  --checkpoint checkpoint.json --approval checkpoint.approval.json \
+  --trust-policy trust-policy.json \
+  --trust-policy-sha256 "$TRUST_POLICY_SHA256" \
+  --checkpoint-sha256 "$CHECKPOINT_SHA256" \
+  --state ~/.x3/near-authenticated-head.json
+python3 x3-lang/bridge/near_authenticated.py advance \
+  --state ~/.x3/near-authenticated-head.json \
+  --candidate next-light-client-response.json
+```
+
+See
+[`docs/security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md`](../../docs/security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md)
+for the trust policy, offline approval ceremony, real testnet transition and
+remaining escrow-storage/code-identity limitations.
+
 **Current release gate:** Issue #42 remains OPEN for permissionless trustlessness. PR #41 is prototype code only. No live swaps, no mainnet funds, no automatic transaction authorization.

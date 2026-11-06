@@ -8,4 +8,11 @@ Passing these checks DOES NOT authenticate NEAR's finalized chain. A malicious s
 
 This crate must remain isolated from any financial signing key. NEAR protocol upgrades and `ValidatorStakeView` variants must be reviewed before accepting external validator sets. Current tests are synthetic cryptographic acceptance tests, **not live-chain proof fixtures**. Mainnet and unattended fund movement are blocked.
 
+The Python state machine in
+[`near_authenticated.py`](../../x3-lang/bridge/near_authenticated.py) now
+supplies authenticated validator provenance from an offline-approved checkpoint
+and committed epoch rotations. The Rust primitive remains intentionally
+untrusting: its `Ok` means only that the supplied approvals meet the threshold
+for the supplied validator list.
+
 References: https://nomicon.io/ChainSpec/LightClient.html and https://github.com/near/near-light-client

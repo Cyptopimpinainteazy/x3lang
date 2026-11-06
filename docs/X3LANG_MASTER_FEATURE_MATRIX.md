@@ -63,10 +63,11 @@ required integration), **P2** (hardening or developer experience), or **P3**
 | ID | Feature | Authoritative component | Status | Evidence | Risk | Missing / completion criterion |
 |---|---|---|---|---|---|---|
 | NEAR-001 | Signed 1Click quotes | `x3-lang/near_intents.py` | A | Real signed fixtures and tamper tests | P0 | Live quote receipt |
-| NEAR-002 | X3 Guard intent enforcement | `x3-lang/near/x3-guard` | A | 42 contract tests and exact-head CI | P0 | Deployed contract and live transaction evidence |
+| NEAR-002 | X3 Guard intent enforcement | `x3-lang/near/x3-guard` | A | 51 contract tests and exact-head CI | P0 | Deployed contract and live transaction evidence |
 | NEAR-003 | Agent mandates | `near_mandate.py`, Guard mandate module | A | Python/Rust mandate tests | P0 | Deployed mandate lifecycle evidence |
 | NEAR-004 | Wallet authorization boundary | Local `feat/wallet-bound-quote-authorization` work; no verified PR yet | C | Active isolated worktree | P0 | Wallet or smart-account enforcement independently proven |
 | NEAR-005 | Authorized live settlement | NEAR adapter and Guard | C | No public live settlement in repo | P0 | Real transaction evidence and independent verification |
+| NEAR-006 | Authenticated light-client head | `near_authenticated.py`, `near_merkle.py`, approval core | B | Real p27→Gb approvals under a test-only checkpoint authority; adversarial tests | P0 | Independently approved checkpoint plus authenticated escrow storage/code evidence |
 | AI-001 | Model-generated X3 | `x3-lang/near_agent.py` | B | Provider wire tests and local run report | P1 | Anthropic evidence with provider/model/response IDs |
 | AI-002 | Adversarial model tests | `near_agent.py redteam` | B | Deterministic tests; concurrent local 8/8 report | P1 | Committed JSON evidence for a real model |
 | AI-003 | Benign accuracy suite | `near_agent.py` prompt pipeline | C | No committed 10-request evidence | P1 | At least 9/10 with full transcripts |
