@@ -25,16 +25,22 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           fetch-depth: 0
-      - name: Checkout matching peer feature branch
-        uses: actions/checkout@v4
-        with:
-          repository: Cyptopimpinainteazy/xxxstar
-          ref: ${{ github.head_ref }}
-          path: peer-checkout
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Reject mirrored-file drift
-        run: python3 scripts/proof/check_x3lang_mirror.py --peer-repo peer-checkout --base-ref origin/main --peer-base-ref origin/master
+      - name: Test exact-head mirror policy
+        env:
+          PYTHONPATH: .github/scripts
+        run: python3 .github/scripts/test_exact_head_mirror_policy.py -v
+      - name: Require matching peer branch or an owner-approved narrow fallback
+        env:
+          PEER_BRANCH: ${{ github.head_ref }}
+          PEER_URL: https://github.com/Cyptopimpinainteazy/xxxstar.git
+        run: >-
+          python3 .github/scripts/exact_head_mirror_policy.py
+          --peer-repo "$RUNNER_TEMP/x3lang-peer"
+          --peer-url "$PEER_URL"
+          --branch "$PEER_BRANCH"
+          --base-ref origin/main
+          --peer-base-ref origin/master
+          --policy .github/mirror-policy.json
 
   x3lang-proof:
     runs-on: ubuntu-latest
