@@ -47,6 +47,10 @@ blocked. Signing or deploying to testnet requires explicit owner approval.
 - [NEAR Intents 1Click quote reference](https://github.com/near/agent-skills/blob/main/skills/near-intents/rules/api-quote.md) distinguishes dry quote previews from real deposit-address quotes.
 - [X3 Guard contract](../../x3-lang/near/x3-guard/src/lib.rs) implements pinned-key quote-signature checking followed by policy guards.
 
+## Deterministic Guard-level signed-quote refusal (local mock chain)
+
+[Reproduce the scoped contract test and see it in the browser](X3_SHIELD_SIGNED_QUOTE_REFUSAL_DEMO.md): a correctly signed quote using the repo's deliberately **test-only** Ed25519 signer tries to pay `attacker.near`. `agent_accept_quote` rejects it after verification, records no accepted quote and no spend, while an allowed signed quote succeeds. The judge console's evidence panel runs and labels this test separately with `--with-contract`. This is **not** a genuine 1Click production-manager-signed live quote or a testnet transaction. Issue #73 still tracks that milestone.
+
 ## Testnet Guard deployment readiness (no keys or transactions)
 
 A [read-only deployment feasibility check](GUARD_TESTNET_DEPLOYMENT_READINESS.md)
