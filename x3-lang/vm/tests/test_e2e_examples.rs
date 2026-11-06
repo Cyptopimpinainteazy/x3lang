@@ -122,8 +122,8 @@ fn bsc_to_near_reference_parses_bps_and_compiles_self_contained_fee_ceiling() {
     let src = example_source("bsc_bnb_to_near_wnear_dry.x3");
     let program = x3_lang_compiler::parser::parse_source(&src)
         .expect("the BSC-to-NEAR reference must parse with its unit-bearing fee ceiling");
-    let bytecode = compile_source(&src)
-        .expect("a non-strategy intent's explicit fee ceiling is self-contained and compilable");
+    let bytecode =
+        compile_source(&src).expect("a non-strategy intent's explicit fee ceiling is self-contained and compilable");
     verify(&InstructionStream::new(bytecode))
         .expect("the self-contained intent fee ceiling must produce verifier-accepted bytecode");
     assert!(
