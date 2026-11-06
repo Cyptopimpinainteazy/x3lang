@@ -1,7 +1,48 @@
-# X3Lang — verifiable financial policies for cross-chain execution
+# X3 Shield (X3Lang) — verify what an AI agent is about to pay
+
+**Not another policy-bound wallet.** NEAR's [AI Security & Defense track](https://near.army/)
+already calls for spending limits, policy engines and sandboxed wallets; the
+Agent API offers policy-bound agent wallets, and NEAR function-call access keys
+restrict which contract methods a key can invoke. **X3 Shield instead explores
+a programmable `.x3` transaction policy that checks the *signed terms* of a
+NEAR Intents / 1Click quote against the owner's mandate before the
+Guard-mediated deposit route is accepted.** It is complementary to wallet/key
+restrictions, not a replacement for them.
+
+**Judge the difference:** Can an AI agent present a *correctly signed* quote
+that pays the wrong recipient or violates a cap, and will an independently
+checked policy reject it **even though its signature is valid**? That is the
+security problem this submission tackles—not the already-established idea
+of giving agents spending limits.
+
+**One-command, read-only judge check** (Python 3.11+, Rust/Cargo and Node.js
+required; first-run Python packages may be downloaded into an isolated cache):
+
+```bash
+bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
+```
+
+This builds no blockchain transactions, runs local policy/Guard tests and
+writes evidence artifacts. It **does not** deploy a contract, perform a live
+payment, prove real-world prompt injection resistance, or establish NEAR
+consensus finality. See the
+[three-minute judge guide](docs/hackathon/JUDGE_GUIDE.md) for the exact claims.
+
+| Claim | What exists | What is still missing |
+| --- | --- | --- |
+| `.x3` mandate | Python/browser policy-preview parity; Rust `x3c intent` preserves `under mandate` as adapter metadata (draft [#68](https://github.com/Cyptopimpinainteazy/x3lang/pull/68)) | An enforced mandate inside the general Rust VM; parity must be proved across actual production paths |
+| Signed quote checks | `x3-guard` verifies the pinned 1Click manager's signature **before** evaluating stored quote/mandate terms in its contract code and tests | Owner-authorized deployed Guard and on-chain valid-signature / forbidden-terms refusal (tracked in [#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73)) |
+| Cryptographic proof | Real archived NEAR testnet receipt/Merkle checks; experimental `.x3` → X3VM *read-only refusal* path in draft [#72](https://github.com/Cyptopimpinainteazy/x3lang/pull/72) | Independently authenticated checkpoint, Guard's own receipt, storage proof and cross-chain causality |
+
+**No wallet custody or universal spending lock.** Guard can only constrain
+Guard-mediated actions; anyone holding an unrestricted wallet key can bypass
+it. A 1Click signature authenticates **quote terms**, not a completed swap. A
+valid Merkle path relative to an untrusted RPC root is **not trusted finality**.
+There is no verified Guard testnet refusal yet, and no mainnet release claim.
 
 X3Lang is an existing experimental compiler, transaction-policy VM and
-cross-chain verification toolkit developed as part of the X3 blockchain. It aims to constrain trading and agent instructions with explicit authorization, recipient, fee, expiry and refund policies before funds move.
+cross-chain verification toolkit developed as part of the X3 blockchain.
+Its pre-hackathon history is [preserved and disclosed](PRIOR_WORK.md).
 
 **Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
 The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;

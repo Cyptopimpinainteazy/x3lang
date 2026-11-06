@@ -1,10 +1,51 @@
 # X3 Shield — Judge Guide
 
-**Status: November 3, 2026.** Distinguish tested code, signed quotes, observed
+**Status: November 6, 2026 (draft; verify exact HEAD before judging).** Distinguish tested code, signed quotes, observed
 chain facts, and proven causal settlement. This repository has no linked
 public mainnet deployment/payment evidence at this point. Do not invent any.
 
 **Track focus:** AI Security & Defense, Agent Economy, Unstoppable DeFi.
+
+## Why X3 Shield is different from the NEAR Agent API
+
+**This is not an entry about inventing spending limits.** NEAR's Agent API
+already offers policy-bound wallets, and NEAR function-call keys scope an
+account key's contract/method permissions. Those are baseline controls, not
+original X3 technology.
+
+X3 Shield's proposed differentiation is a *separate, auditable transaction
+policy*: an owner expresses constraints in `.x3`; the NEAR adapter derives
+candidate intent/quote rules; the `x3-guard` contract verifies the exact signed
+1Click quote against a pinned manager key **before** applying the stored
+mandate. This detects a **validly signed but policy-prohibited quote**, rather
+than merely an invalid signature or a wallet allowance violation.
+
+| Mechanism | Security question | Scope and limitation |
+| --- | --- | --- |
+| Agent API policy-bound wallet | Can this agent use the wallet within its limits? | Provider/wallet authorization; not X3's invention |
+| NEAR function-call access key | Can this key call a scoped method with its allowance? | On-chain account-key capability, not signed quote semantics |
+| X3 intent / mandate policy | Are these recipient, asset, refund, fee, amount, deadline, nonce and approval terms allowed? | Local adapter and Guard checks; Rust compiler currently preserves adapter metadata but does **not** run the mandate guard inside general X3VM |
+| X3 Guard signed-quote gate | Is the exact 1Click manager-signed quote allowed under the stored policy? | Implemented in code/tests; no independently verified on-chain testnet deployment/refusal yet |
+| X3 NEAR proof work | Does real receipt evidence match block and Merkle commitments? | Genuine archived evidence and read-only VM refusal in experimental draft #72; still lacks an independently trusted checkpoint |
+
+**What judges should demand:** a testnet transaction whose manager signature
+checks out but whose signed quote terms violate a mandate, showing an actual
+Guard-level refusal under the deployed code hash. That evidence is **not yet
+available** and is tracked in [issue #73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73).
+Do not replace it with an unsigned dry quote, invalid signature or screenshot.
+
+**The desired eventual flow** is agent request → `.x3` policy → pinned-key
+signed 1Click quote → deployed Guard's permit/refuse decision → authentic NEAR
+consensus proof of that decision. The current repo proves separate local
+components; the complete, independently authenticated end-to-end flow remains
+blocked. Signing or deploying to testnet requires explicit owner approval.
+
+### References to the baseline
+
+- [NEAR Hackathon — AI Security & Defense](https://near.army/) explicitly includes spending limits and policy engines.
+- [Track 06: AI Security & Defense starter](https://github.com/nearai/near-hackathon-prompt-examples/blob/main/tracks/06-security.md) calls out agent security and function-call keys.
+- [NEAR Intents 1Click quote reference](https://github.com/near/agent-skills/blob/main/skills/near-intents/rules/api-quote.md) distinguishes dry quote previews from real deposit-address quotes.
+- [X3 Guard contract](../../x3-lang/near/x3-guard/src/lib.rs) implements pinned-key quote-signature checking followed by policy guards.
 
 ## Scope and historical disclosure
 
@@ -15,6 +56,19 @@ agent mandates and the chain-evidence integration are newly reviewed features.
 Do not attribute historical code to the contest window.
 
 ## Reproduce with one command — do X, see Y
+
+For the best first-run experience on an Ubuntu machine with Rust/Cargo and
+Node.js installed, run from the repo root:
+
+```bash
+bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
+```
+
+The wrapper selects Python 3.11+ because the current NEAR evidence parser uses
+`datetime.UTC`. If the required Python packages are absent, it installs them
+in an isolated user-cache virtual environment (internet needed for this
+one-time dependency installation). It never accesses wallet keys or sends a
+transaction; it invokes the existing `judge_evidence.py --mode quick` gate.
 
 Run from this repository's root, using Python 3.10+ / pytest, Node 22+ and
 Rust/Cargo. Full mode also requires wasm32-unknown-unknown.
