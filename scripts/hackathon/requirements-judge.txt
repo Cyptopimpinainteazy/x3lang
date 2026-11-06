@@ -1,0 +1,14 @@
+# X3 Shield judge one-command dependencies: exact pins for reproducibility.
+#
+# The judge gate (`scripts/hackathon/judge_one_command.sh`) installs ONLY this
+# file into an isolated venv, not the range-based x3-lang/requirements.txt, so
+# a fresh machine resolves the same versions. Versions validated on Python
+# 3.12 with pytest 9.2.0 and cryptography 50.0.2.
+cryptography==50.0.2
+cffi==2.1.1
+pycryptodome==4.3.0
+pytest==9.2.0
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+Pygments==2.21.0

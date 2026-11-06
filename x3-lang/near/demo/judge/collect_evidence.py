@@ -8,6 +8,11 @@ Each entry is a command that really ran: its exit code and the pass/fail/skip co
 own output reported. A check that was not run is recorded as not run, never as passed.
 The file names the commit and whether the worktree was clean, since a dirty worktree's
 results do not belong to that commit. The console (`../judge.html`) shows it in panel 5.
+
+The `demo` run exercises the `prompt-injection-recipient` scenario (which shares the
+checked-in `near_intents_agent_denied.x3` payload with `wrong-recipient`). The separate
+`guard_signed_refusal` run is the valid-signature Guard proof against a local mock chain
+with a test-only key; it is not an on-chain refusal and proves no testnet behavior.
 """
 from __future__ import annotations
 

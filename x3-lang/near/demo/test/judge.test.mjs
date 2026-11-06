@@ -75,6 +75,19 @@ test("prompt-injection-recipient: the browser refuses the injected recipient and
   assert.ok(judge.agrees(s, result));
 });
 
+test("prompt-injection-recipient and wrong-recipient evaluate the same checked-in DENIED payload", () => {
+  const wrong = DATA.scenarios.find((x) => x.id === "wrong-recipient");
+  const injected = DATA.scenarios.find((x) => x.id === "prompt-injection-recipient");
+  assert.ok(wrong, "wrong-recipient scenario is missing from scenarios.json");
+  assert.ok(injected, "prompt-injection-recipient scenario is missing from scenarios.json");
+  assert.equal(wrong.intent.file, "x3-lang/examples/near_intents_agent_denied.x3");
+  assert.equal(injected.intent.file, "x3-lang/examples/near_intents_agent_denied.x3");
+  assert.equal(injected.intent.source, wrong.intent.source);
+  assert.equal(injected.intent.sha256, wrong.intent.sha256);
+  assert.equal(injected.python.decision, wrong.python.decision);
+  assert.deepEqual(injected.python.denied_guards, wrong.python.denied_guards);
+});
+
 test("only the local policy level is claimed as proven", () => {
   assert.deepEqual(judge.EVIDENCE_LADDER.filter((l) => l.proven).map((l) => l.level), ["local_policy"]);
 });

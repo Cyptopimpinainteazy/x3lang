@@ -174,3 +174,10 @@ def test_prompt_injection_is_refused_by_the_recipient_guard():
     assert scenario["decision"] == "denied_by_policy"
     assert scenario["denied_guards"] == ["mandate_recipient"]
     assert "prompt" in scenario["story"].lower()
+
+
+def test_one_command_runs_prompt_injection_and_parity():
+    source = (ROOT / "scripts/hackathon/judge_one_command.sh").read_text()
+    assert "demo.py" in source
+    assert "build_scenarios.py --check" in source
+    assert "node --test x3-lang/near/demo/test/*.test.mjs" in source

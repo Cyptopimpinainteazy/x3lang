@@ -15,19 +15,26 @@ checked policy reject it **even though its signature is valid**? That is the
 security problem this submission tackles—not the already-established idea
 of giving agents spending limits.
 
-**One-command, read-only judge check** (Python 3.11+ for `datetime.UTC` in
-`bridge/near_evidence.py`, Rust/Cargo and Node.js required; first-run Python
-packages may be downloaded into an isolated cache):
+**Current evidence level: `local_policy_preview_only`.** Below is the honest
+three-minute screen. Architecture detail, value-fee economics and release
+boundaries follow after it.
 
-```bash
-bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
-```
+## WORKS TODAY
 
-This builds no blockchain transactions, runs local policy/Guard tests and
-writes evidence artifacts. It **does not** deploy a contract, perform a live
-payment, prove real-world prompt injection resistance, or establish NEAR
-consensus finality. See the
-[three-minute judge guide](docs/hackathon/JUDGE_GUIDE.md) for the exact claims.
+- One command (`60-SECOND JUDGE PATH` below) runs scenario freshness, the four-scenario
+  terminal demo (`authorized`, `needs-approval`, `wrong-recipient`,
+  `prompt-injection-recipient`), Python/browser guard-by-guard parity, and the judge
+  evidence gate (`quick`), all offline with no wallet, signing or deployment. It exits
+  nonzero on stale scenarios, policy disagreement, failed tests, or a missing
+  prompt-injection case.
+- The **prompt-injection** case shows an injected instruction steering the agent to pay
+  `attacker.near`; the owner mandate refuses at `mandate_recipient`. It evaluates the
+  **same checked-in DENIED payload** (`x3-lang/examples/near_intents_agent_denied.x3`)
+  as `wrong-recipient` — only the story differs — so the refusal is the recipient guard
+  deciding, not the model being trusted.
+- Separately, a **mock-chain Guard proof** (`cargo test valid_test_signature_with_forbidden_recipient_never_authorizes_a_deposit`)
+  shows a correctly **TEST-signed** quote paying a forbidden recipient is refused *after*
+  signature validation, while an allowed control is accepted. Test-only key, local only.
 
 | Claim | What exists | What is still missing |
 | --- | --- | --- |
@@ -35,11 +42,50 @@ consensus finality. See the
 | Signed quote checks | `x3-guard` verifies the pinned 1Click manager's signature **before** evaluating stored quote/mandate terms in its contract code and tests | Owner-authorized deployed Guard and on-chain valid-signature / forbidden-terms refusal (tracked in [#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73)) |
 | Cryptographic proof | Real archived receipt/Merkle checks; real validator approvals (12 and 19 signatures) under an **untrusted RPC checkpoint** in draft [#60](https://github.com/Cyptopimpinainteazy/x3lang/pull/60); `.x3` → X3VM *read-only refusal* in draft [#72](https://github.com/Cyptopimpinainteazy/x3lang/pull/72) | Independently authenticated checkpoint, Guard's own receipt, storage proof and cross-chain causality |
 
-**No wallet custody or universal spending lock.** Guard can only constrain
-Guard-mediated actions; anyone holding an unrestricted wallet key can bypass
-it. A 1Click signature authenticates **quote terms**, not a completed swap. A
-valid Merkle path relative to an untrusted RPC root is **not trusted finality**.
-There is no verified Guard testnet refusal yet, and no mainnet release claim.
+## DELIBERATELY BLOCKED
+
+- No Guard testnet deployment and no on-chain valid-signature refusal claim ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) is pending, not fabricated).
+- No mainnet transaction links, no wallet custody, and no universal spending lock:
+  an unrestricted wallet key can still bypass Guard.
+- No settlement or cross-chain causality claim. A signed 1Click quote authenticates
+  **quote terms**, not a completed swap; a valid Merkle path under an untrusted RPC
+  root is **not trusted finality**; a `verified_outcome` flag in local JSON is not proof.
+
+## 60-SECOND JUDGE PATH
+
+```bash
+bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
+```
+
+Python 3.11+ (for `datetime.UTC` in `bridge/near_evidence.py`), Rust/Cargo and
+Node.js required. On first run, Python packages are installed from the exact-pinned
+[`scripts/hackathon/requirements-judge.txt`](scripts/hackathon/requirements-judge.txt)
+into an isolated venv (may download). This builds no blockchain transactions, runs
+local policy/Guard tests, and writes evidence artifacts under the report directory.
+It **does not** deploy a contract, perform a live payment, prove real-world prompt
+injection resistance, or establish NEAR consensus finality. See the
+[three-minute judge guide](docs/hackathon/JUDGE_GUIDE.md) and the
+[demo video script](docs/hackathon/DEMO_VIDEO_SCRIPT.md) for exact claims.
+
+## ON-CHAIN EVIDENCE
+
+- **Claimed now:** deterministic local policy verdicts plus local mock-chain contract
+  behavior. That is the ceiling while no authorized testnet deployment exists.
+- **Explicitly not claimed:** on-chain authorization, wallet transfer, observed
+  transaction, finalized settlement, or proven cross-chain causality.
+- A testnet evidence section will be linked here only after Task 4 creates it; until
+  then the pending matrix in [JUDGE_GUIDE.md](docs/hackathon/JUDGE_GUIDE.md) is the
+  source of truth, and public mainnet links remain **PENDING — not fabricated**.
+
+## SECURITY MODEL
+
+- **AI output is untrusted.** The compiler and the deterministic mandate decide
+  admissibility; retrieval, invoices and model text never authorize a payment.
+- **NEAR Guard does not custody funds.** Guard can only constrain Guard-mediated
+  actions; the mandate binds recipients, assets, caps, refunds, fees, slippage,
+  deadlines, nonces and approvals for Guard methods, not a third-party wallet key.
+- Every sensitive path names its evidence level in the console and in the judge
+  report; unverified is said plainly instead of being upgraded to “proven.”
 
 X3Lang is an existing experimental compiler, transaction-policy VM and
 cross-chain verification toolkit developed as part of the X3 blockchain.
