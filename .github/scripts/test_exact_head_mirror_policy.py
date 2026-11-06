@@ -66,7 +66,9 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
         self.workspace = root / "x3lang"
         self.peer = root / "xxxstar"
         workspace_base = initialize(self.workspace, "main")
-        peer_base = initialize(self.peer, "master")
+        peer_root = initialize(self.peer, "master")
+        write(self.peer, "README.md", "peer baseline\n")
+        peer_base = commit(self.peer, "peer baseline")
         run_git(
             self.workspace,
             "update-ref",
@@ -81,6 +83,7 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
             "owner_approval_reference": "test://review/approved",
             "peer_repository": "Cyptopimpinainteazy/xxxstar",
             "peer_content_anchor_sha": self.anchor,
+            "peer_content_anchor_parent_sha": peer_root,
             "mirrored_files": {
                 rel: hashlib.sha256((self.workspace / rel).read_bytes()).hexdigest()
                 for rel in MIRRORED
@@ -104,6 +107,7 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
             base_ref="origin/main",
             peer_base_ref="origin/master",
             peer_branch="feature/missing",
+            approval_reference=self.policy["owner_approval_reference"],
         )
 
     def test_unapproved_policy_refuses_missing_peer_branch(self) -> None:
@@ -119,6 +123,28 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
         self.assertEqual(result["mode"], "OWNER_APPROVED_X3LANG_ONLY_FALLBACK")
         self.assertEqual(result["changed_paths_checked"], ["x3-lang/bridge/state.py"])
         self.assertEqual(result["mirrored_files_checked"], len(MIRRORED))
+
+    def test_approved_policy_requires_external_matching_approval(self) -> None:
+        self.feature_commit("x3-lang/bridge/state.py", "BASE = 2\n")
+        with self.assertRaisesRegex(MirrorPolicyError, "external approval"):
+            verify_fallback(
+                self.workspace,
+                self.peer,
+                self.policy,
+                base_ref="origin/main",
+                peer_base_ref="origin/master",
+                peer_branch="feature/missing",
+            )
+        with self.assertRaisesRegex(MirrorPolicyError, "does not match"):
+            verify_fallback(
+                self.workspace,
+                self.peer,
+                self.policy,
+                base_ref="origin/main",
+                peer_base_ref="origin/master",
+                peer_branch="feature/missing",
+                approval_reference="test://review/wrong",
+            )
 
     def test_vm_change_requires_matching_peer_branch(self) -> None:
         self.feature_commit("x3-lang/vm/src/lib.rs", "pub const X: u8 = 1;\n")
@@ -140,7 +166,16 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
         for rel in MIRRORED:
             write(self.peer, rel, f"unapproved:{rel}\n")
         bad_anchor = commit(self.peer, "bad anchor")
+        run_git(
+            self.peer,
+            "update-ref",
+            "refs/remotes/origin/master",
+            bad_anchor,
+        )
         self.policy["peer_content_anchor_sha"] = bad_anchor
+        self.policy["peer_content_anchor_parent_sha"] = run_git(
+            self.peer, "rev-parse", "HEAD^"
+        )
         self.feature_commit("x3-lang/bridge/state.py", "BASE = 2\n")
         with self.assertRaisesRegex(MirrorPolicyError, "anchor=.*expected="):
             self.verify()
@@ -224,6 +259,74 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
                 base_ref="origin/main",
                 peer_base_ref="origin/master",
             )
+
+    def test_policy_review_requires_the_policy_manifest(self) -> None:
+        write(
+            self.workspace,
+            ".github/CODEOWNERS",
+            "* @example-owner\n",
+        )
+        commit(self.workspace, "change only CODEOWNERS")
+
+        with self.assertRaisesRegex(MirrorPolicyError, "must include"):
+            verify_policy_review(
+                self.workspace,
+                self.peer,
+                self.policy,
+                base_ref="origin/main",
+                peer_base_ref="origin/master",
+            )
+
+    def test_policy_approval_review_requires_external_approval(self) -> None:
+        proposal = dict(self.policy)
+        proposal["status"] = UNAPPROVED
+        proposal["owner_approval_reference"] = None
+        policy_path = ".github/mirror-policy.json"
+        write(self.workspace, policy_path, json.dumps(proposal, sort_keys=True))
+        base = commit(self.workspace, "proposal baseline")
+        run_git(self.workspace, "update-ref", "refs/remotes/origin/main", base)
+        write(self.workspace, policy_path, json.dumps(self.policy, sort_keys=True))
+        commit(self.workspace, "approve policy")
+
+        with self.assertRaisesRegex(MirrorPolicyError, "external approval"):
+            verify_policy_review(
+                self.workspace,
+                self.peer,
+                self.policy,
+                base_ref="origin/main",
+                peer_base_ref="origin/master",
+            )
+
+        result = verify_policy_review(
+            self.workspace,
+            self.peer,
+            self.policy,
+            base_ref="origin/main",
+            peer_base_ref="origin/master",
+            approval_reference=self.policy["owner_approval_reference"],
+        )
+        self.assertEqual(result["mode"], "POLICY_APPROVAL_REVIEW")
+
+    def test_peer_anchor_parent_must_be_reachable_from_peer_main(self) -> None:
+        tree = run_git(self.peer, "rev-parse", "HEAD^{tree}")
+        orphan_parent = run_git(
+            self.peer, "commit-tree", tree, "-m", "unreachable parent"
+        )
+        orphan_anchor = run_git(
+            self.peer,
+            "commit-tree",
+            tree,
+            "-p",
+            orphan_parent,
+            "-m",
+            "unreachable anchor",
+        )
+        self.policy["peer_content_anchor_sha"] = orphan_anchor
+        self.policy["peer_content_anchor_parent_sha"] = orphan_parent
+        self.feature_commit("x3-lang/bridge/state.py", "BASE = 2\n")
+
+        with self.assertRaisesRegex(MirrorPolicyError, "not reachable"):
+            self.verify()
 
 
 if __name__ == "__main__":

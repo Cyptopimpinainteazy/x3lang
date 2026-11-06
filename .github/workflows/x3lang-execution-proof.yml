@@ -4,16 +4,13 @@ on:
   pull_request:
     paths:
       - 'x3-lang/**'
-      - 'scripts/proof/x3lang_execution_proof.py'
-      - 'scripts/proof/x3lang_runtime_equivalence.py'
-      - 'scripts/proof/check_x3lang_mirror.py'
+      - 'scripts/proof/**'
       - '.github/CODEOWNERS'
       - '.github/mirror-policy.json'
       - '.github/scripts/exact_head_mirror_policy.py'
       - '.github/scripts/test_exact_head_mirror_policy.py'
       - '.github/workflows/x3lang-execution-proof.yml'
       - 'docs/security/X3LANG_EXACT_HEAD_MIRROR_POLICY.md'
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,6 +35,7 @@ jobs:
         env:
           PEER_BRANCH: ${{ github.head_ref }}
           PEER_URL: https://github.com/Cyptopimpinainteazy/xxxstar.git
+          X3LANG_MIRROR_POLICY_APPROVAL_REFERENCE: ${{ vars.X3LANG_MIRROR_POLICY_APPROVAL_REFERENCE }}
         run: >-
           python3 .github/scripts/exact_head_mirror_policy.py
           --peer-repo "$RUNNER_TEMP/x3lang-peer"

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -20,6 +21,7 @@ from typing import Any
 SCHEMA = "x3.exact-head-mirror-policy.v1"
 APPROVED = "OWNER_APPROVED"
 UNAPPROVED = "UNAPPROVED"
+APPROVAL_ENV = "X3LANG_MIRROR_POLICY_APPROVAL_REFERENCE"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 MIRRORED_PATHS = frozenset(
@@ -154,6 +156,11 @@ def load_policy_bytes(content: bytes, source: str) -> dict[str, Any]:
     anchor = policy.get("peer_content_anchor_sha")
     if not isinstance(anchor, str) or SHA1_RE.fullmatch(anchor) is None:
         raise MirrorPolicyError("peer_content_anchor_sha must be a full 40-character commit SHA")
+    anchor_parent = policy.get("peer_content_anchor_parent_sha")
+    if not isinstance(anchor_parent, str) or SHA1_RE.fullmatch(anchor_parent) is None:
+        raise MirrorPolicyError(
+            "peer_content_anchor_parent_sha must be a full 40-character commit SHA"
+        )
     mirrored = policy.get("mirrored_files")
     if not isinstance(mirrored, dict) or set(mirrored) != MIRRORED_PATHS:
         raise MirrorPolicyError(
@@ -235,6 +242,31 @@ def verify_shared_files(
             "mirrored_files must contain exactly the seven reviewed proof paths"
         )
     anchor = resolve_commit(peer, policy["peer_content_anchor_sha"])
+    anchor_parent = resolve_commit(peer, f"{anchor}^")
+    if anchor_parent != policy["peer_content_anchor_parent_sha"]:
+        raise MirrorPolicyError(
+            "peer_content_anchor_parent_sha does not match the anchor's first parent"
+        )
+    peer_main = resolve_commit(peer, "refs/remotes/origin/master")
+    if (
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(peer),
+                "merge-base",
+                "--is-ancestor",
+                anchor_parent,
+                peer_main,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        != 0
+    ):
+        raise MirrorPolicyError(
+            f"peer anchor parent {anchor_parent} is not reachable from origin/master"
+        )
     failures: list[str] = []
     for rel, expected in sorted(mirrored.items()):
         current = ref_file_sha256(workspace, "HEAD", rel)
@@ -248,6 +280,22 @@ def verify_shared_files(
     return anchor
 
 
+def require_external_approval(
+    policy: dict[str, Any], approval_reference: str | None
+) -> None:
+    """Require owner-controlled approval state outside the PR-controlled diff."""
+    if policy["status"] != APPROVED:
+        return
+    if not approval_reference:
+        raise MirrorPolicyError(
+            f"OWNER_APPROVED policy requires external approval via {APPROVAL_ENV}"
+        )
+    if approval_reference != policy["owner_approval_reference"]:
+        raise MirrorPolicyError(
+            f"{APPROVAL_ENV} does not match owner_approval_reference"
+        )
+
+
 def verify_policy_review(
     workspace: Path,
     peer: Path,
@@ -255,6 +303,7 @@ def verify_policy_review(
     *,
     base_ref: str,
     peer_base_ref: str,
+    approval_reference: str | None = None,
 ) -> dict[str, Any]:
     """Validate a policy-only PR without admitting any feature changes."""
     current_changes = changed_paths(workspace, base_ref)
@@ -266,16 +315,45 @@ def verify_policy_review(
             "policy review is limited to policy-review paths; found: "
             + ", ".join(outside_review_scope)
         )
+    if DEFAULT_POLICY_PATH not in current_changes:
+        raise MirrorPolicyError(
+            f"policy review must include {DEFAULT_POLICY_PATH}; "
+            "workflow-only and CODEOWNERS-only changes are not sufficient"
+        )
+    if policy["status"] == APPROVED:
+        if current_changes != {DEFAULT_POLICY_PATH}:
+            raise MirrorPolicyError(
+                "OWNER_APPROVED review may change only the mirror policy manifest"
+            )
+        require_external_approval(policy, approval_reference)
+        base_policy = load_policy_at_ref(workspace, base_ref)
+        if self_configuration(base_policy) != self_configuration(policy):
+            raise MirrorPolicyError(
+                "OWNER_APPROVED review may change only status and owner approval reference"
+            )
     resolve_commit(peer, peer_base_ref)
     anchor = verify_shared_files(workspace, peer, policy)
     return {
-        "mode": "POLICY_REVIEW_ONLY",
+        "mode": (
+            "POLICY_APPROVAL_REVIEW"
+            if policy["status"] == APPROVED
+            else "POLICY_REVIEW_ONLY"
+        ),
         "policy_status": policy["status"],
         "admits_feature_changes": False,
         "peer_anchor_sha": anchor,
         "changed_paths_checked": sorted(current_changes),
         "mirrored_files_checked": len(policy["mirrored_files"]),
         "financial_or_consensus_authority": False,
+    }
+
+
+def self_configuration(policy: dict[str, Any]) -> dict[str, Any]:
+    """Return policy fields that do not represent approval state."""
+    return {
+        key: value
+        for key, value in policy.items()
+        if key not in {"status", "owner_approval_reference"}
     }
 
 
@@ -287,6 +365,7 @@ def verify_fallback(
     base_ref: str,
     peer_base_ref: str,
     peer_branch: str,
+    approval_reference: str | None = None,
 ) -> dict[str, Any]:
     """Verify the x3lang-only fallback without changing either checkout."""
     # Re-validate even when callers construct a policy programmatically.
@@ -295,6 +374,7 @@ def verify_fallback(
             f"peer branch {peer_branch!r} is missing and mirror policy is UNAPPROVED; "
             "create the matching peer branch or obtain owner approval for this policy in a reviewed PR"
         )
+    require_external_approval(policy, approval_reference)
     resolve_commit(peer, peer_base_ref)
     current_changes = changed_paths(workspace, base_ref)
     protected = tuple(policy["protected_peer_paths"])
@@ -365,6 +445,7 @@ def main() -> int:
     parser.add_argument(
         "--policy", type=Path, default=Path(".github/mirror-policy.json")
     )
+    parser.add_argument("--approval-reference", default=os.environ.get(APPROVAL_ENV))
     args = parser.parse_args()
     workspace = args.workspace.resolve()
     peer = args.peer_repo.resolve()
@@ -386,6 +467,7 @@ def main() -> int:
                     policy,
                     base_ref=args.base_ref,
                     peer_base_ref=args.peer_base_ref,
+                    approval_reference=args.approval_reference,
                 )
                 print(json.dumps(result, indent=2, sort_keys=True))
                 return 0
@@ -401,6 +483,7 @@ def main() -> int:
                 base_ref=args.base_ref,
                 peer_base_ref=args.peer_base_ref,
                 peer_branch=args.branch,
+                approval_reference=args.approval_reference,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0

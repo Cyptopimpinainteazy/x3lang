@@ -34,10 +34,11 @@ exists, the existing `check_x3lang_mirror.py` comparison remains authoritative.
 
 A PR that changes only the policy manifest, policy runner, its tests, the CI
 workflow, CODEOWNERS, or this document runs in `POLICY_REVIEW_ONLY` mode when
-the peer branch is absent. That mode verifies the complete shared-file manifest
-against both the exact x3lang head and the pinned peer commit, but it cannot
-admit production changes. Any `x3-lang/**`, `scripts/proof/**`, or other path in
-the same diff keeps the strict gate closed.
+the peer branch is absent. Every such diff must include the policy manifest.
+That mode verifies the complete shared-file manifest against both the exact
+x3lang head and the pinned peer commit, but it cannot admit production changes.
+Any `x3-lang/**`, `scripts/proof/**`, or other path in the same diff keeps the
+strict gate closed.
 
 This lets the initial policy proposal receive exact-head CI before the policy
 exists on `main`. It does not approve the policy, bypass the peer comparison,
@@ -45,8 +46,11 @@ or authorize a feature PR. Feature fallback remains unavailable until the
 policy itself is merged to `main`.
 
 The proposed fallback is unavailable until `.github/mirror-policy.json` changes
-to `OWNER_APPROVED` with a real review reference in a separately reviewed PR.
-Once approved, a missing peer branch may pass only when all of these hold:
+to `OWNER_APPROVED` with a matching owner-controlled repository variable,
+`X3LANG_MIRROR_POLICY_APPROVAL_REFERENCE`. An approval PR can change only the
+policy manifest's status and reference; every other policy field must remain
+byte-equivalent. Once approved, a missing peer branch may pass only when all of
+these hold:
 
 1. Every changed path is under `x3-lang/bridge/`.
 2. No changed path is one of the seven always-shared proof files.
@@ -58,6 +62,10 @@ Once approved, a missing peer branch may pass only when all of these hold:
 6. Every shared file in the x3lang head matches its reviewed SHA-256.
 7. Every shared file at the pinned peer commit matches the same SHA-256.
 8. The policy names the exact 40-character peer commit and the repository.
+9. The peer commit's recorded first parent is reachable from the peer
+   repository's `master` branch.
+10. The external approval reference exactly matches the value controlled
+    outside the PR by the repository owner.
 
 Any failure stops the job. There is no skip, warning-only mode,
 `continue-on-error`, mutable peer-main fallback, or inferred approval.
@@ -90,8 +98,12 @@ Choose one:
    `.github/scripts/exact_head_mirror_policy.py`, and
    `.github/mirror-policy.json`.
 
-No agent may self-approve the policy. Until an owner completes one option, every
-missing-peer-branch check remains red by design.
+Technical enforcement requires branch protection and the owner-controlled
+approval variable; this repository alone cannot prevent an administrator from
+merging policy changes. Until an owner completes one option, feature PRs with
+missing peer branches and no approved fallback remain red. A policy-only PR may
+be green in `POLICY_REVIEW_ONLY` mode, but that result explicitly admits no
+feature changes.
 
 ## Local verification
 
@@ -100,7 +112,8 @@ PYTHONPATH=.github/scripts python3 .github/scripts/test_exact_head_mirror_policy
 python3 -m py_compile .github/scripts/exact_head_mirror_policy.py
 ```
 
-The tests cover bridge-only admission, VM and shared-file refusal, arbitrary new
-proof-script refusal, self-approval in a feature PR, unapproved policy refusal,
-policy-only bootstrap review, mixed policy/feature refusal, peer-anchor drift,
-empty diffs, and manifest completeness.
+The tests cover bridge-only admission, external approval matching, VM and
+shared-file refusal, arbitrary new proof-script refusal, self-approval in a
+feature PR, unapproved policy refusal, policy-only bootstrap review,
+manifest-required bootstrap, mixed policy/feature refusal, peer-anchor
+provenance and drift, empty diffs, and manifest completeness.
