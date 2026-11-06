@@ -66,6 +66,31 @@ test("slippage bounds round toward the stricter side, exactly", () => {
   assert.equal(bps("require slippage <= 0.003"), 30);
 });
 
+test("BNB Chain aliases resolve and refunds require a complete EVM address", () => {
+  assert.equal(x3.normalizeChain("BNB"), "bsc");
+  assert.equal(x3.normalizeChain("binance"), "bsc");
+  assert.equal(x3.isValidReceiver("bsc", "0x" + "a".repeat(40)), true);
+  assert.equal(x3.isValidReceiver("bsc", "0xA1"), false);
+  assert.equal(x3.isValidReceiver("ethereum", "0xA1"), true);
+});
+
+test("BSC BNB lowers with the live provider asset IDs", () => {
+  const source = `intent bsc_demo {
+    from Bsc.BNB amount 2000000000000000000 receiver 0x${"b".repeat(40)}
+    to Near.wNEAR receiver wrap.near
+    route { bridge NearIntents Bsc.BNB -> Near.wNEAR }
+    require slippage <= 1%
+    require fees <= 100 bps
+    require nonce unused bsc_demo_001
+    timeout 10m refund Bsc.BNB
+    on_fail rollback
+  }`;
+  const request = x3.buildQuoteRequest(x3.lower(x3.parse(source), NOW), TOKENS, { dry: true });
+  assert.equal(request.originAsset, "nep245:v2_1.omni.hot.tg:56_11111111111111111111");
+  assert.equal(request.destinationAsset, "nep141:wrap.near");
+  assert.equal(request.amount, "2000000000000000000");
+});
+
 test("refusals carry the adapter's codes and the offending line", () => {
   const refuse = (from, to) => {
     try { x3.lower(x3.parse(EXAMPLE.replace(from, to)), NOW); } catch (e) { return [e.code, e.line]; }

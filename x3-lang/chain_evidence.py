@@ -33,6 +33,7 @@ Transport = Callable[[str, str, Dict[str, str], Optional[bytes], float], Tuple[i
 
 DEFAULT_SOLANA_RPC_URLS = ("https://api.mainnet-beta.solana.com",)
 DEFAULT_BSC_RPC_URLS = ("https://bsc-dataseed.binance.org", "https://bsc-rpc.publicnode.com")
+BSC_CHAIN_ID = 56
 DEFAULT_NEAR_RPC_URLS = ("https://free.rpc.fastnear.com",)
 EVIDENCE_VERSION = 1
 
@@ -217,7 +218,7 @@ def _hex_int(value: Any, field: str) -> int:
 
 def bsc_native_transfer_facts(*, tx: Optional[Dict[str, Any]], receipt: Optional[Dict[str, Any]],
                               block: Optional[Dict[str, Any]], finalized: Optional[Dict[str, Any]],
-                              tx_hash: str) -> Dict[str, Any]:
+                              chain_id: Any, tx_hash: str) -> Dict[str, Any]:
     """Facts from one BSC endpoint for a native-BNB transaction and finality boundary."""
     if tx is None or receipt is None:
         return {"found": False}
@@ -239,6 +240,7 @@ def bsc_native_transfer_facts(*, tx: Optional[Dict[str, Any]], receipt: Optional
     )
     return {
         "found": True,
+        "chainId": _hex_int(chain_id, "eth_chainId"),
         "hash": tx.get("hash"),
         "transaction_hash_matches": tx.get("hash") == tx_hash == receipt.get("transactionHash"),
         "succeeded": receipt.get("status") == "0x1",
@@ -248,6 +250,8 @@ def bsc_native_transfer_facts(*, tx: Optional[Dict[str, Any]], receipt: Optional
         "blockNumber": tx_block,
         "blockHash": tx.get("blockHash"),
         "receiptBlockHash": receipt.get("blockHash"),
+        "blockObjectHash": block.get("hash"),
+        "block_hash_matches": tx.get("blockHash") == receipt.get("blockHash") == block.get("hash"),
         "blockTimestamp": _hex_int(block.get("timestamp"), "block.timestamp"),
         "finalizedBlock": finalized_number,
     }
@@ -267,13 +271,19 @@ def judge_bsc_native_transfer(facts_by_url: List[Tuple[str, Dict[str, Any], Opti
     first = facts_by_url[0][1]
     if found:
         comparable_keys = (
-            "hash", "transaction_hash_matches", "succeeded", "from", "to", "value",
-            "blockNumber", "blockHash", "receiptBlockHash", "blockTimestamp",
+            "chainId", "hash", "transaction_hash_matches", "succeeded", "from", "to", "value",
+            "blockNumber", "blockHash", "receiptBlockHash", "blockObjectHash",
+            "block_hash_matches", "blockTimestamp",
         )
         comparable = [{k: f.get(k) for k in comparable_keys} for _, f, _ in facts_by_url]
         check("endpoints_agree", all(value == comparable[0] for value in comparable[1:]),
               endpoints=len(facts_by_url))
         check("transaction_hash_matches", first["transaction_hash_matches"] is True)
+        check("chain_id", all(f.get("chainId") == BSC_CHAIN_ID for _, f, _ in facts_by_url),
+              expected=BSC_CHAIN_ID, observed=[f.get("chainId") for _, f, _ in facts_by_url])
+        check("block_hash_matches", first["block_hash_matches"] is True,
+              transactionHash=first["blockHash"], receiptHash=first["receiptBlockHash"],
+              blockHash=first["blockObjectHash"])
         check("succeeded", first["succeeded"] is True)
         check("recipient", first["to"] == recipient.lower(), expected=recipient.lower(), observed=first["to"])
         check("amount", first["value"] >= min_amount, observed=str(first["value"]), required=str(min_amount))
@@ -292,6 +302,7 @@ def judge_bsc_native_transfer(facts_by_url: List[Tuple[str, Dict[str, Any], Opti
         "purpose": purpose,
         "verified": all(c["ok"] for c in checks),
         "transaction_hash": tx_hash,
+        "chainId": first.get("chainId"),
         "recipient": recipient.lower(),
         "required": str(min_amount),
         "observed": str(first.get("value")) if first.get("found") else None,
@@ -311,13 +322,7 @@ class BscRpc:
         self.timeout = timeout
 
     def _facts(self, url: str, tx_hash: str) -> Tuple[Dict[str, Any], str]:
-        # A transaction hash alone does not identify an EVM chain.
-        # Never authenticate BSC mainnet evidence against Ethereum or BSC testnet RPC.
-        chain_id = _hex_int(json_rpc(self.transport, url, "eth_chainId", [], self.timeout),
-                            "eth_chainId")
-        if chain_id != 56:
-            raise ChainEvidenceError("X3_EVIDENCE_WRONG_CHAIN",
-                                     f"RPC returned chain ID {chain_id}, expected BSC mainnet 56")
+        chain_id = json_rpc(self.transport, url, "eth_chainId", [], self.timeout)
         tx = json_rpc(self.transport, url, "eth_getTransactionByHash", [tx_hash], self.timeout)
         receipt = json_rpc(self.transport, url, "eth_getTransactionReceipt", [tx_hash], self.timeout)
         block = None
@@ -331,6 +336,7 @@ class BscRpc:
             receipt=receipt,
             block=block,
             finalized=finalized,
+            chain_id=chain_id,
             tx_hash=tx_hash,
         ), sha256_json(raw)
 
