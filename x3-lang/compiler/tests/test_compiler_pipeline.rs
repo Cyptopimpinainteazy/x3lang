@@ -499,3 +499,28 @@ fn compiler_exports_stable_identity() {
     assert!(!x3_lang_compiler::COMPILER_VERSION.is_empty());
     assert_eq!(x3_lang_compiler::BYTECODE_VERSION, 0x01);
 }
+
+#[test]
+fn near_receipt_inspection_compiles_as_a_dedicated_proof_capability() {
+    // These strings are deliberate INVALID proof data: the point of compilation
+    // is the bounded typed capability, not a fraudulent successful proof.
+    let source = r#"
+        fn inspect_real_near_observation() {
+            verify_near_receipt("rpc-proof-must-be-supplied-by-host", "untrusted-root-context", "UNTRUSTED_HEAD_NO_SIGNING");
+        }
+    "#;
+    let program = parse_source(source).expect("NEAR read-only hostcall source parses");
+    let ir = compile_to_ir(&program).expect("NEAR proof hostcall lowers");
+    assert!(
+        ir.operations.iter().any(|op| matches!(
+            op,
+            Operation::ProofVerify {
+                kind: x3_lang_compiler::ir::ProofKind::NearReceipt,
+                ..
+            }
+        )),
+        "NEAR verifier must lower to its dedicated fail-closed proof kind"
+    );
+    let code = compile_source(source).expect("NEAR read-only hostcall emits production X3BC");
+    assert!(!code.is_empty());
+}

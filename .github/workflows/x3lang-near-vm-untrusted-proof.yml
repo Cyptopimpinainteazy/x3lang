@@ -1,0 +1,43 @@
+name: X3Lang NEAR VM Untrusted Proof Refusal
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/vm/**'
+      - 'x3-lang/compiler/**'
+      - 'x3-lang/Cargo.lock'
+      - 'evidence/near-proof/testnet/**'
+      - '.github/workflows/x3lang-near-vm-untrusted-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-near-fixture-fail-closed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Pin Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+      - name: Cache dependency builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang
+      - name: Verify compiler and VM are formatted
+        run: cargo fmt --all --manifest-path x3-lang/Cargo.toml -- --check
+      - name: Reproduce real archived NEAR proof in compiled X3VM and reject settlement
+        run: cargo test --locked --manifest-path x3-lang/Cargo.toml -p x3-lang-vm --test near_evidence_real -- --nocapture
+      - name: Verify dedicated .x3 NEAR proof capability mapping
+        run: cargo test --locked --manifest-path x3-lang/Cargo.toml -p x3-lang-compiler near_receipt_inspection_compiles_as_a_dedicated_proof_capability
+      - name: Strict compiler and VM clippy
+        run: |
+          cargo clippy --all-targets --locked --manifest-path x3-lang/Cargo.toml -p x3-lang-vm -- -D warnings
+          cargo clippy --all-targets --locked --manifest-path x3-lang/Cargo.toml -p x3-lang-compiler -- -D warnings

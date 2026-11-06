@@ -1377,6 +1377,7 @@ fn proof_kind_id(kind: &ProofKind) -> u8 {
     match kind {
         ProofKind::Zk => 0,
         ProofKind::Mpc => 1,
+        ProofKind::NearReceipt => 3,
     }
 }
 
