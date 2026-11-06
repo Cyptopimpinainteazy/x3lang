@@ -1,11 +1,31 @@
-# X3Lang — verifiable financial policies for cross-chain execution
+# X3Lang — programmable authority for autonomous money
 
-X3Lang is an existing experimental compiler, transaction-policy VM and
-cross-chain verification toolkit developed as part of the X3 blockchain. It aims to constrain trading and agent instructions with explicit authorization, recipient, fee, expiry and refund policies before funds move.
+**NEAR HACKATHON 2026** · **Primary track:** AI Security & Defense · **Also:** Agent Economy and Unstoppable DeFi
 
-**Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
-The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
-public mainnet transaction links remain pending and are **not** fabricated.
+**An AI can propose a payment. It must not be able to rewrite the owner's rules.** X3Lang supplies an existing `.x3` financial-intent language, policy checker and experimental compiler/VM; the hackathon contribution brings those controls to NEAR Intents, agent mandates, Guard-contract checks and reproducible evidence.
+
+The differentiator is the *combination*, not a claim that spending limits are new: a human-authored mandate binds the source/destination asset, allowed recipient, maximum spend, rolling limit, approval threshold, fees, slippage, nonce, expiry and refund destination. The agent's requested `.x3` program is judged against those exact rules. An offline pass is **not** an authorized wallet transfer.
+
+### Judge this in under two minutes
+
+Start with the [**AI + human judge walkthrough**](docs/hackathon/JUDGE_START_HERE.md) for fresh-machine prerequisites, expected output and evidence tiers.
+
+```bash
+python3 scripts/hackathon/demo.py
+python3 scripts/hackathon/demo.py --json
+# For broader local Python/browser/Rust evidence, with dependencies installed:
+bash scripts/hackathon/verify.sh
+```
+
+| Try this checked-in agent request | Expected local verdict | Not implied |
+| --- | --- | --- |
+| 25 USDC to an approved recipient | `preflight_passed` | No wallet transaction |
+| 40 USDC above the approval threshold | `approval_required` | No owner approval granted |
+| Payment to `attacker.near` | `denied_by_policy` / `mandate_recipient` | No on-chain rejection |
+
+**What is proven:** reproducible local policy decisions and testable NEAR Guard code. **What is not proven:** owner-controlled testnet deployment, a live on-chain Guard refusal, independent cross-chain settlement or cryptographic causal attribution. The hosted [X3 Guard dry-quote demo](https://x3-guard.pages.dev/) is not a payment executor. The [signed-quote refusal test PR #76](https://github.com/Cyptopimpinainteazy/x3lang/pull/76) is draft/local-test evidence, not a public NEAR transaction.
+
+**For reviewers:** [Judge Guide](docs/hackathon/JUDGE_GUIDE.md) · [Source and adversarial test map](docs/hackathon/JUDGE_PACKAGE.md) · [Submission Checklist](docs/hackathon/SUBMISSION_CHECKLIST.md) · [Prior-work history](PRIOR_WORK.md). Do not infer GitHub CI success from a local command; verify the exact branch HEAD.
 
 **Hackathon disclosure:** the original language and its trading engine were
 created **before** the current NEAR hackathon. This repository preserves their
