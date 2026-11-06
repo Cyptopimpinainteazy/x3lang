@@ -63,6 +63,7 @@ pub struct Swap {
     pub hashlock: Vec<u8>,
     #[serde(with = "u128_decimal")]
     pub amount: u128,
+    pub funding_deadline_ns: u64,
     pub expires_at_ns: u64,
     pub state: SwapState,
 }
@@ -158,6 +159,7 @@ impl NativeNearHtlc {
                 recipient: window.recipient.clone(),
                 hashlock: window.hashlock.clone(),
                 amount,
+                funding_deadline_ns: window.deadline_ns,
                 expires_at_ns: window.expiry_ns,
                 state: SwapState::Locked,
             },
@@ -212,6 +214,7 @@ impl NativeNearHtlc {
                 recipient,
                 hashlock: hashlock.0,
                 amount,
+                funding_deadline_ns: 0,
                 expires_at_ns,
                 state: SwapState::Locked,
             },
@@ -440,6 +443,7 @@ mod tests {
         c.fund_window(swap_id());
         assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::Funded));
         assert_eq!(c.get(swap_id()).unwrap().amount, 10u128.pow(24));
+        assert_eq!(c.get(swap_id()).unwrap().funding_deadline_ns, START + 600_000_000_000);
         set("anyone.testnet", 0, START + 600_000_000_000);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.close_unfunded(swap_id()))).is_err());
     }
@@ -486,6 +490,7 @@ mod tests {
         assert_eq!(swap.amount, 10u128.pow(24));
         assert_eq!(swap.recipient.as_str(), "alice.testnet");
         assert_eq!(swap.state, SwapState::Locked);
+        assert_eq!(swap.funding_deadline_ns, 0);
         assert_eq!(c.liability().0, 10u128.pow(24));
     }
     #[test]

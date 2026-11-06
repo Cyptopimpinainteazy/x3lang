@@ -43,7 +43,7 @@ Avoid placing real assets into any address derived from this local module.
 ## BSC ↔ NEAR HTLC prototype (draft; no deployments)
 
 Experimental native-asset contracts:
-- BSC Solidity escrow: bsc/src/NativeBnbHTLC.sol. Locked native BNB is payable to a designated LP with a 32-byte SHA-256 preimage, or refundable to the depositor after expiry.
+- BSC Solidity escrow: bsc/src/NativeBnbHTLC.sol. Locked native BNB is payable to a designated LP with a 32-byte SHA-256 preimage, or refundable to the depositor after expiry. The separate testnet-only `AttestedBnbEscrow` binds both parties, both asset amounts, contract identities, nonce-derived swap identity, NEAR network tag and all three deadlines in its EIP-712 outcome record.
 - NEAR Rust escrow: near/src/lib.rs. Locked native NEAR becomes an enforceable on-chain recipient credit on preimage claim, with asynchronous withdrawal and failure callback to restore withdrawn credit.
 - protocol.py derives network-domain-separated swap parameters and enforces staggered expiries; no caller-supplied chain flags prove settlement.
 - monte_carlo.py estimates downside distributions, selects minimum fee meeting modeled risk limits, and refuses stale, unverified, or insufficient inventory. All outputs remain non-executable.

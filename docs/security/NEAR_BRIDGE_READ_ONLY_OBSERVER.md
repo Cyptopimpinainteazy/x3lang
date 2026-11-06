@@ -4,10 +4,13 @@ This preliminary module (`x3-lang/bridge/near_observer.py`) reads the experiment
 `NativeNearHtlc.get(id)` view using `finality: final` from at least two distinct
 HTTPS RPC hostnames. It requires identical block hash, height and the complete
 swap fields. It checks the expected NEAR vault account in the RPC request,
-swap ID, initiator, recipient, hashlock, integer amount, expiry and state.
-Malformed and missing state, failed RPCs, endpoint disagreement, or wrong
-assets and accounts all fail closed. A local SQLite journal retains terminal
-observations across process restarts, rejecting conflicting terminal state.
+swap ID, initiator, recipient, hashlock, integer amount, exact reviewed funding
+cutoff, expiry and state. JSON with duplicate object keys or non-finite numbers
+is rejected before interpretation. Malformed and missing state, failed RPCs,
+endpoint disagreement, wrong assets/accounts, legacy swaps without a registered
+funding cutoff, or a substituted cross-chain deadline all fail closed. A local
+SQLite journal retains terminal observations across process restarts, rejecting
+conflicting terminal state.
 
 **This is only observational agreement, not independently authenticated
 NEAR consensus finality or an escrow-payment proof.** Two endpoint hostnames may

@@ -29,15 +29,35 @@ contract AttestedBnbEscrow {
         bytes32 nearVaultHash;
         bytes32 nearRecipientHash;
         uint128 nearAmountYocto;
+        uint64 nearFundedBefore;
+        uint64 nearExpiresAt;
         uint64 expiresAt;
         uint256 bnbAmount;
         State state;
     }
 
+    struct OutcomeRecord {
+        bytes32 swapId;
+        bytes32 nearNetworkHash;
+        address depositor;
+        address lp;
+        bytes32 hashlock;
+        bytes32 nearVaultHash;
+        bytes32 nearRecipientHash;
+        uint128 nearAmountYocto;
+        uint256 bnbAmount;
+        uint64 bscExpiresAt;
+        uint64 nearFundedBefore;
+        uint64 nearExpiresAt;
+        uint8 outcome;
+    }
+
+    uint64 public constant MIN_CROSS_CHAIN_BUFFER = 1 hours;
+    bytes32 public constant NEAR_NETWORK_HASH = keccak256("testnet");
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant OUTCOME_TYPEHASH = keccak256(
-        "NearFinalOutcome(bytes32 swapId,bytes32 hashlock,bytes32 nearVaultHash,bytes32 nearRecipientHash,uint128 nearAmountYocto,uint8 outcome)"
+        "NearFinalOutcome(bytes32 swapId,bytes32 nearNetworkHash,address depositor,address lp,bytes32 hashlock,bytes32 nearVaultHash,bytes32 nearRecipientHash,uint128 nearAmountYocto,uint256 bnbAmount,uint64 bscExpiresAt,uint64 nearFundedBefore,uint64 nearExpiresAt,uint8 outcome)"
     );
     bytes32 private immutable domainSeparator;
     mapping(address => bool) public isVerifier;
@@ -74,13 +94,19 @@ contract AttestedBnbEscrow {
         bytes32 nearVaultHash,
         bytes32 nearRecipientHash,
         uint128 nearAmountYocto,
+        uint64 nearFundedBefore,
+        uint64 nearExpiresAt,
         uint64 expiresAt
     ) external payable nonReentrant {
         require(swapId != bytes32(0) && swaps[swapId].state == State.Absent, "duplicate swap");
         require(lp != address(0) && hashlock != bytes32(0), "bad swap binding");
         require(nearVaultHash != bytes32(0) && nearRecipientHash != bytes32(0), "bad NEAR identity");
         require(nearAmountYocto > 0 && msg.value > 0, "zero assets");
-        require(expiresAt >= block.timestamp + 1 hours && expiresAt <= block.timestamp + 7 days, "bad expiry");
+        require(
+            nearFundedBefore >= block.timestamp + 5 minutes && nearExpiresAt >= nearFundedBefore + 5 minutes
+                && expiresAt >= nearExpiresAt + MIN_CROSS_CHAIN_BUFFER && expiresAt <= block.timestamp + 7 days,
+            "bad cross-chain deadlines"
+        );
         swaps[swapId] = Swap({
             depositor: msg.sender,
             lp: lp,
@@ -88,6 +114,8 @@ contract AttestedBnbEscrow {
             nearVaultHash: nearVaultHash,
             nearRecipientHash: nearRecipientHash,
             nearAmountYocto: nearAmountYocto,
+            nearFundedBefore: nearFundedBefore,
+            nearExpiresAt: nearExpiresAt,
             expiresAt: expiresAt,
             bnbAmount: msg.value,
             state: State.Locked
@@ -99,17 +127,22 @@ contract AttestedBnbEscrow {
     function attestationDigest(bytes32 swapId, NearOutcome outcome) public view returns (bytes32) {
         Swap storage s = swaps[swapId];
         require(s.state != State.Absent, "unknown swap");
-        bytes32 recordHash = keccak256(
-            abi.encode(
-                OUTCOME_TYPEHASH,
-                swapId,
-                s.hashlock,
-                s.nearVaultHash,
-                s.nearRecipientHash,
-                s.nearAmountYocto,
-                uint8(outcome)
-            )
-        );
+        OutcomeRecord memory record = OutcomeRecord({
+            swapId: swapId,
+            nearNetworkHash: NEAR_NETWORK_HASH,
+            depositor: s.depositor,
+            lp: s.lp,
+            hashlock: s.hashlock,
+            nearVaultHash: s.nearVaultHash,
+            nearRecipientHash: s.nearRecipientHash,
+            nearAmountYocto: s.nearAmountYocto,
+            bnbAmount: s.bnbAmount,
+            bscExpiresAt: s.expiresAt,
+            nearFundedBefore: s.nearFundedBefore,
+            nearExpiresAt: s.nearExpiresAt,
+            outcome: uint8(outcome)
+        });
+        bytes32 recordHash = keccak256(abi.encode(OUTCOME_TYPEHASH, record));
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, recordHash));
     }
 
@@ -121,7 +154,13 @@ contract AttestedBnbEscrow {
         // AND an authenticated final NEAR terminal outcome certificate.
         // NotFunded requires irrevocably closed NEAR funding window state;
         // this contract cannot independently authenticate that fact.
-        if (outcome != NearOutcome.Claimed) require(block.timestamp >= s.expiresAt, "refund too soon");
+        if (outcome == NearOutcome.Refunded) {
+            require(block.timestamp >= s.nearExpiresAt, "NEAR refund window still open");
+            require(block.timestamp >= s.expiresAt, "refund too soon");
+        } else if (outcome == NearOutcome.NotFunded) {
+            require(block.timestamp >= s.nearFundedBefore, "NEAR funding window still open");
+            require(block.timestamp >= s.expiresAt, "refund too soon");
+        }
         require(signatures.length == 2, "need two signatures");
         bytes32 digest = attestationDigest(swapId, outcome);
         address firstSigner = _recover(digest, signatures[0]);
