@@ -1,6 +1,8 @@
 //! NEAR light-client *approval signature primitive*. No checkpoint, state,
 //! epoch transitions or permission to attest/pay funds.
 
+pub mod epoch;
+
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -47,8 +49,7 @@ pub fn verify_approvals(
         || validators.len() > 4096
         || message.len() != 41
         || message[0] != 0
-        || approvals.len() < validators.len()
-        || approvals.len() > validators.len().saturating_add(4096)
+        || approvals.len() > validators.len()
     {
         return Err("invalid approval shape");
     }
@@ -169,6 +170,15 @@ mod tests {
             Some(keys[1].sign(&message).to_bytes()),
         ];
         assert!(verify_approvals(&validators, &short, &message).is_err());
+    }
+
+    #[test]
+    fn missing_trailing_none_approvals_can_pass_with_strong_weight() {
+        let (keys, mut validators) = voters();
+        validators[0].stake = 500;
+        let message = approval_message([7u8; 32], 42).unwrap();
+        let approvals = vec![Some(keys[0].sign(&message).to_bytes())];
+        assert!(verify_approvals(&validators, &approvals, &message).is_ok());
     }
 
     #[test]
