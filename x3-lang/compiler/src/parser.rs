@@ -5765,6 +5765,19 @@ impl<'a> Parser<'a> {
                     value: Symbol::new(&format!("{value}%")),
                 }));
             }
+            if matches!(self.peek_n(1), Tok::Ident(ref s) if s == "bps") {
+                self.advance(); // the integer
+                self.advance(); // the 'bps' unit
+                // The semantic verifier already reads a bare integer bound as
+                // basis points (`bound_bps_from_expr`), so `100 bps` and `100`
+                // are the same bound. Consuming the explicit unit keeps the
+                // NEAR mandate examples parseable without a second spelling.
+                return Ok(Expression::Literal(LiteralExpr::Int {
+                    value,
+                    base: IntBase::Decimal,
+                    suffix: None,
+                }));
+            }
         }
         self.parse_expr()
     }

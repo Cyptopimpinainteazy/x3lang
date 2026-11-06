@@ -25,6 +25,11 @@ const MIN_LOCK_NS: u64 = 300_000_000_000;
 const MAX_LOCK_NS: u64 = 7 * 24 * 60 * 60 * 1_000_000_000;
 const MIN_NEAR_DEPOSIT: u128 = 1_000_000_000_000_000_000_000; // 0.001 NEAR.
 const CALLBACK_GAS: Gas = Gas::from_tgas(15);
+/// Bounds on concurrent live (non-terminal) records so a caller cannot grow
+/// contract storage without bound. Terminal records keep their status for the
+/// on-chain terminal-state story and are tracked in the total-storage review.
+const MAX_LIVE_WINDOWS: usize = 256;
+const MAX_LIVE_SWAPS: usize = 256;
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,6 +83,22 @@ pub struct NativeNearHtlc {
     total_liability: u128,
 }
 
+impl NativeNearHtlc {
+    fn live_windows(&self) -> usize {
+        self.windows
+            .values()
+            .filter(|w| matches!(w.state, FundingWindowState::Pending))
+            .count()
+    }
+
+    fn live_swaps(&self) -> usize {
+        self.swaps
+            .values()
+            .filter(|s| matches!(s.state, SwapState::Locked))
+            .count()
+    }
+}
+
 #[near]
 impl NativeNearHtlc {
     #[init]
@@ -120,6 +141,7 @@ impl NativeNearHtlc {
         assert!(amount.0 >= MIN_NEAR_DEPOSIT, "amount too low");
         assert_ne!(recipient, env::current_account_id(), "bad recipient");
         let now = env::block_timestamp();
+        assert!(self.live_windows() < MAX_LIVE_WINDOWS, "live window limit reached");
         assert!(deadline_ns >= now.saturating_add(MIN_LOCK_NS), "deadline too close");
         assert!(expiry_ns > deadline_ns.saturating_add(MIN_LOCK_NS), "unsafe expiry");
         assert!(expiry_ns <= now.saturating_add(MAX_LOCK_NS), "expiry too far");
@@ -140,6 +162,7 @@ impl NativeNearHtlc {
     /// The provider can only fund the exact reserved terms before deadline.
     #[payable]
     pub fn fund_window(&mut self, id: String) {
+        assert!(self.live_swaps() < MAX_LIVE_SWAPS, "live swap limit reached");
         let window = self.windows.get_mut(&id).expect("unknown funding window");
         assert_eq!(window.state, FundingWindowState::Pending, "not pending");
         assert!(env::block_timestamp() < window.deadline_ns, "funding deadline passed");
@@ -201,6 +224,7 @@ impl NativeNearHtlc {
         let current = env::block_timestamp();
         assert!(expires_at_ns > current.saturating_add(MIN_LOCK_NS), "expiry too short");
         assert!(expires_at_ns <= current.saturating_add(MAX_LOCK_NS), "expiry too far");
+        assert!(self.live_swaps() < MAX_LIVE_SWAPS, "live swap limit reached");
         let amount = env::attached_deposit().as_yoctonear();
         assert!(amount >= MIN_NEAR_DEPOSIT, "minimum 0.001 NEAR");
         assert_ne!(recipient, env::current_account_id(), "cannot credit vault itself");
@@ -324,6 +348,9 @@ mod tests {
     }
     fn swap_id() -> String {
         "a".repeat(64)
+    }
+    fn swap_id_at(index: usize) -> String {
+        format!("{index:064x}")
     }
     fn lock(c: &mut NativeNearHtlc) {
         set("lp.testnet", 10u128.pow(24), START);
@@ -627,5 +654,77 @@ mod tests {
             START + 600_000_000_000
         )))
         .is_err());
+    }
+
+    #[test]
+    fn live_swap_limit_is_fail_closed() {
+        let mut c = NativeNearHtlc::new();
+        for i in 0..MAX_LIVE_SWAPS {
+            set("lp.testnet", 10u128.pow(24), START);
+            c.lock(
+                swap_id_at(i),
+                "alice.testnet".parse().unwrap(),
+                Base64VecU8(env::sha256(&secret())),
+                START + 600_000_000_000,
+            );
+        }
+        assert_eq!(c.live_swaps(), MAX_LIVE_SWAPS);
+        set("lp.testnet", 10u128.pow(24), START);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
+            swap_id_at(MAX_LIVE_SWAPS),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(&secret())),
+            START + 600_000_000_000
+        )))
+        .is_err());
+    }
+
+    #[test]
+    fn terminal_swap_does_not_consume_a_live_slot() {
+        let mut c = NativeNearHtlc::new();
+        lock(&mut c);
+        set("alice.testnet", 0, START + 1);
+        c.claim(swap_id(), Base64VecU8(secret()));
+        assert_eq!(c.live_swaps(), 0);
+        // The freed slot can be reused by a fresh lock without hitting the limit.
+        set("lp.testnet", 10u128.pow(24), START);
+        c.lock(
+            swap_id_at(1),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(&secret())),
+            START + 600_000_000_000,
+        );
+        assert_eq!(c.live_swaps(), 1);
+    }
+
+    #[test]
+    fn live_window_limit_is_fail_closed() {
+        set("registrar.testnet", 0, START);
+        let mut c = NativeNearHtlc::new();
+        set("registrar.testnet", 0, START);
+        for i in 0..MAX_LIVE_WINDOWS {
+            c.register_window(
+                swap_id_at(i),
+                "lp.testnet".parse().unwrap(),
+                "alice.testnet".parse().unwrap(),
+                Base64VecU8(env::sha256(&secret())),
+                U128(10u128.pow(24)),
+                START + 600_000_000_000,
+                START + 1200_000_000_000,
+            );
+        }
+        assert_eq!(c.live_windows(), MAX_LIVE_WINDOWS);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.register_window(
+                swap_id_at(MAX_LIVE_WINDOWS),
+                "lp.testnet".parse().unwrap(),
+                "alice.testnet".parse().unwrap(),
+                Base64VecU8(env::sha256(&secret())),
+                U128(10u128.pow(24)),
+                START + 600_000_000_000,
+                START + 1200_000_000_000
+            )))
+            .is_err()
+        );
     }
 }

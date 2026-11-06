@@ -1,0 +1,7 @@
+# The repository root uses a rustc older than near-sdk 5.30's minimum. This
+# contract is built separately with cargo-near; it overrides the root pin for
+# this folder, mirroring x3-lang/near/x3-guard/rust-toolchain.toml.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

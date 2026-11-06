@@ -3,6 +3,20 @@
 X3Lang is an existing experimental compiler, transaction-policy VM and
 cross-chain verification toolkit developed as part of the X3 blockchain. It aims to constrain trading and agent instructions with explicit authorization, recipient, fee, expiry and refund policies before funds move.
 
+Unlike NEAR's policy-bound wallets or function-call keys, X3 mandates are a
+typed language that also verifies NEAR Intents' signed quote terms before a
+deposit is authorized.
+
+**Works today** — a `.x3` mandate compiles and the same verdict is reproduced
+in Python, the browser, and the NEAR guard contract; the guard's on-chain
+Ed25519 check verifies a real 1Click quote's signed terms (locally tested);
+refusal-first tests cover overspend, wrong recipient, replay, refund
+redirection, and revocation.
+
+**Deliberately blocked** — no wallet transfer, live settlement, or on-chain
+authorization is claimed here. Cross-chain causality stays "unproven" until an
+independently verifiable link exists.
+
 **Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
 The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
 public mainnet transaction links remain pending and are **not** fabricated.
@@ -187,3 +201,20 @@ acceptance is not wallet authorization, a signed quote or settlement.
   [X3 Shield threat model](docs/security/X3_SHIELD_THREAT_MODEL.md).
 - Licensing, independent security review and exact-head GitHub Actions
   verification are required before a production release.
+
+## What happens after the hackathon
+
+- Release gates stay fail-closed: wallet-level enforcement, tuple-bound
+  destination assets and recipients, bounded intent storage, versioned
+  migration review, and explicit contract upgrade-authority lock-down.
+- The next technical gate is an independent security review of the guard
+  contract, the model pipeline, and the deployment configuration.
+- The light client's offline checkpoint ceremony runs with real signers, then
+  a funded testnet refusal and an independently verified receipt close the
+  loop the offline demo deliberately leaves open.
+
+## License
+
+Dual-licensed under **MIT OR Apache-2.0**, matching the SPDX expressions in
+the crate manifests. The MIT text is in [LICENSE](LICENSE); the Apache-2.0
+text is the standard Apache License, Version 2.0.
