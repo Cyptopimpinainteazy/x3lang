@@ -58,15 +58,19 @@ boundaries follow after it.
 bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
 ```
 
-Python 3.11+ (for `datetime.UTC` in `x3-lang/bridge/near_evidence.py`), Rust/Cargo and
-Node.js required. By default the gate always creates or reuses the isolated pinned
-venv installed from the hash-locked
+**One-command judge gate: Linux x86_64 + Python 3.12 required.** The hash lock in
 [`scripts/hackathon/requirements-judge.txt`](scripts/hackathon/requirements-judge.txt)
-(`--require-hashes`, full transitive freeze) and verifies exact installed versions
-(cryptography 50.0.2, pytest 9.2.0, pycryptodome 4.3.0); system pytest/cryptography
-are never sufficient on their own. A caller-managed `PYTHON` requires explicit
-opt-in via `X3_JUDGE_ALLOW_SYSTEM_PYTHON=1` plus the same exact validation, or the
-script refuses (exit 2). On first run, dependency installation may use the network.
+was validated only there (`--require-hashes`, full 9-package freeze); on Linux
+x86_64, any other Python version fails clearly (exit 2). The general X3Lang
+bridge/evidence code (`x3-lang/bridge/near_evidence.py`) retains its Python 3.11+
+minimum. Rust/Cargo and Node.js are also required. By default the gate always
+creates or reuses the isolated pinned venv and enforces the full 9-package freeze
+(cryptography 50.0.2, pytest 9.2.0, pycryptodome 4.3.0 and six more); system
+pytest/cryptography are never sufficient on their own. A caller-managed `PYTHON`
+requires explicit opt-in via `X3_JUDGE_ALLOW_SYSTEM_PYTHON=1` plus the same exact
+validation, or the script refuses (exit 2). Provisioning builds in a temporary
+venv and only promotes it after a successful install plus validation, so a failed
+run leaves no partial env behind. On first run, dependency installation may use the network.
 This builds no blockchain transactions, runs
 local policy/Guard tests, and writes evidence artifacts under the report directory.
 It **does not** deploy a contract, perform a live payment, prove real-world prompt

@@ -4,6 +4,8 @@
 "local mock-chain" or "pending," say that out loud — do not upgrade it in narration.
 All commands are read-only and local (first-run dependency installation may use the
 network); no wallet signing, deployment or funds move.
+**One-command requires Linux x86_64 + Python 3.12** (the hash-locked judge env);
+the general X3Lang bridge/evidence code retains its Python 3.11+ minimum.
 
 ## Shot 1 — Owner mandate (0:00–0:25)
 
