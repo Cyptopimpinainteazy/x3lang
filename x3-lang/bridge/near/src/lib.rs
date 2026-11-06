@@ -1,5 +1,7 @@
 //! Experimental native NEAR HTLC. Claims assign enforceable internal credits synchronously.
 //! Native wallet withdrawals are asynchronous and NEVER count as completed at preimage reveal.
+#![allow(clippy::too_many_arguments)]
+
 use near_sdk::json_types::{Base64VecU8, U128};
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise};
 use std::collections::BTreeMap;
@@ -328,7 +330,7 @@ mod tests {
         c.lock(
             swap_id(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             START + 600_000_000_000,
         );
     }
@@ -345,10 +347,10 @@ mod tests {
             swap_id(),
             "lp.testnet".parse().unwrap(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             U128(10u128.pow(24)),
             START + 600_000_000_000,
-            START + 1200_000_000_000,
+            START + 1_200_000_000_000,
         );
         let json = near_sdk::serde_json::to_value(c.get_window(swap_id()).unwrap()).unwrap();
         assert_eq!(json["state"], "Pending");
@@ -366,10 +368,10 @@ mod tests {
             swap_id(),
             "lp.testnet".parse().unwrap(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             U128(10u128.pow(24)),
             deadline,
-            START + 1200_000_000_000,
+            START + 1_200_000_000_000,
         );
         set("anyone.testnet", 0, deadline - 1);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.close_unfunded(swap_id()))).is_err());
@@ -398,10 +400,10 @@ mod tests {
             swap_id(),
             "lp.testnet".parse().unwrap(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             U128(10u128.pow(24)),
             START + 600_000_000_000,
-            START + 1200_000_000_000,
+            START + 1_200_000_000_000,
         );
         assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::Pending));
         set("anyone.testnet", 0, START + 600_000_000_000);
@@ -413,8 +415,8 @@ mod tests {
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
             swap_id(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
-            START + 1200_000_000_000
+            Base64VecU8(env::sha256(secret())),
+            START + 1_200_000_000_000
         )))
         .is_err());
         assert_eq!(c.liability().0, 0);
@@ -429,10 +431,10 @@ mod tests {
             swap_id(),
             "lp.testnet".parse().unwrap(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             U128(10u128.pow(24)),
             START + 600_000_000_000,
-            START + 1200_000_000_000,
+            START + 1_200_000_000_000,
         );
         set("lp.testnet", 10u128.pow(24), START + 1);
         c.fund_window(swap_id());
@@ -452,10 +454,10 @@ mod tests {
                 swap_id(),
                 "lp.testnet".parse().unwrap(),
                 "alice.testnet".parse().unwrap(),
-                Base64VecU8(env::sha256(&secret())),
+                Base64VecU8(env::sha256(secret())),
                 U128(10u128.pow(24)),
                 START + 600_000_000_000,
-                START + 1200_000_000_000
+                START + 1_200_000_000_000
             )))
             .is_err()
         );
@@ -464,10 +466,10 @@ mod tests {
             swap_id(),
             "lp.testnet".parse().unwrap(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             U128(10u128.pow(24)),
             START + 600_000_000_000,
-            START + 1200_000_000_000,
+            START + 1_200_000_000_000,
         );
         set("attacker.testnet", 10u128.pow(24), START + 1);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
@@ -523,7 +525,7 @@ mod tests {
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
             swap_id(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             START + 600_000_000_000
         )))
         .is_err());
@@ -613,7 +615,7 @@ mod tests {
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
             swap_id(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             START + 600_000_000_000
         )))
         .is_err());
@@ -621,7 +623,7 @@ mod tests {
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
             "not-hex".into(),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             START + 600_000_000_000
         )))
         .is_err());

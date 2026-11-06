@@ -62,4 +62,33 @@ Reproduction on x3star1:
 
 No live wallet credentials are required for these builds.
 
+## NEAR light-client proof evidence
+
+[`near_evidence.py`](near_evidence.py) is a read-only, multi-provider NEAR
+testnet evidence collector with content-addressed JSON artifacts, an
+append-only manifest index, explicit candidate-checkpoint labeling, and offline
+integrity verification:
+
+```bash
+python3 x3-lang/bridge/near_evidence.py collect-checkpoint \
+  --rpc https://test.rpc.fastnear.com \
+  --rpc https://rpc.testnet.near.org \
+  --head-hash <FINALIZED_BLOCK_HASH> --out evidence/near-proof
+
+python3 x3-lang/bridge/near_evidence.py collect-receipt \
+  --rpc https://test.rpc.fastnear.com \
+  --rpc https://rpc.testnet.near.org \
+  --receipt-id <RECEIPT_ID> --receiver-id <RECEIVER_ACCOUNT> \
+  --head-hash <LIGHT_CLIENT_HEAD> --out evidence/near-proof
+
+python3 x3-lang/bridge/near_evidence.py verify \
+  --root evidence/near-proof --require-negative-corpus
+```
+
+The committed real testnet capture and the 12-case mutated negative corpus are
+under [`evidence/near-proof/testnet`](../../evidence/near-proof/testnet). The
+harness does not authenticate RPC output, validator signatures, Merkle proofs,
+or escrow storage and cannot authorize settlement. See
+[`docs/security/NEAR_PROOF_EVIDENCE_HARNESS.md`](../../docs/security/NEAR_PROOF_EVIDENCE_HARNESS.md).
+
 **Current release gate:** Issue #42 remains OPEN for permissionless trustlessness. PR #41 is prototype code only. No live swaps, no mainnet funds, no automatic transaction authorization.
