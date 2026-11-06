@@ -114,13 +114,16 @@ const REFUSED_BY_THE_COMPILER: &[&str] = &[
     // amounts lower to zero. Parsing it is TICKET-045's fix; making it *compile*
     // is a question about the example, not about the formatter.
     "arb_solana_eth.x3",
-    // These two now parse (the `bps` unit is accepted), but the compiler still
-    // refuses them: an intent's `require fees` guard has no declared ceiling,
-    // and the NEAR Intents adapter plus the `near` chain are not yet in the
-    // production allow-list. Wiring NEAR in is a separate adapter task, not a
-    // formatter concern.
+    // The NEAR Intents examples parse (the `bps` unit and `under mandate` are
+    // accepted), but the compiler still refuses the intents: an intent's
+    // `require fees` guard has no declared ceiling, and the NearIntents adapter
+    // plus the `near` chain are not yet in the production allow-list. The
+    // top-level `mandate` declaration compiles; wiring the intent side in is a
+    // separate adapter/fee-ceiling task, not a formatter concern.
     "near_intents_sol_to_near.x3",
     "bsc_bnb_to_near_wnear_dry.x3",
+    "near_intents_agent_payment.x3",
+    "near_intents_agent_denied.x3",
 ];
 
 #[test]
@@ -185,6 +188,36 @@ fn formatting_an_example_preserves_its_meaning() {
         "only {checked} examples were checked; the corpus or the dialect floor changed (not \
          compiled: {refused:?})"
     );
+}
+
+#[test]
+fn mandate_and_under_mandate_round_trip() {
+    let source = "mandate shopping {\n\
+        owner x3-owner.near\n\
+        agent x3-agent.near\n\
+        spend Solana.USDC\n\
+        per_payment 50000000\n\
+        per_24h 200000000\n\
+        allow recipients x3-demo.near\n\
+        allow assets Near.USDC\n\
+        refund_to 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n\
+        require slippage <= 1%\n\
+        approve above 30000000 by 1 of x3-owner.near\n\
+        expires 30d\n\
+    }\n\
+    intent payment {\n\
+        from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n\
+        to Near.USDC receiver x3-demo.near\n\
+        route { bridge NearIntents Solana.USDC -> Near.USDC }\n\
+        under mandate x3-owner.near\n\
+        on_fail rollback\n\
+    }\n";
+    let program = parse(source).expect("mandate and under-mandate intent must parse");
+    let formatted = X3Formatter::new().format_program(&program);
+    assert!(formatted.contains("mandate shopping"), "formatter must write the mandate back: {formatted}");
+    assert!(formatted.contains("under mandate x3-owner.near"), "formatter must write the under-mandate clause back: {formatted}");
+    let reparsed = parse(&formatted).expect("formatted program must parse");
+    assert_eq!(ast_without_spans(&program), ast_without_spans(&reparsed));
 }
 
 #[test]

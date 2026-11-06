@@ -205,6 +205,7 @@ impl X3Formatter {
             Item::AssetDecl(decl) => self.format_asset_decl(decl),
             Item::TradeRiskPolicy(policy) => self.format_trade_risk_policy(policy),
             Item::AtomicTrade(decl) => self.format_atomic_trade(decl),
+            Item::Mandate(decl) => self.format_mandate(decl),
         }
     }
 
@@ -1257,6 +1258,12 @@ impl X3Formatter {
                 self.format_failure_action(action);
                 self.write("\n");
             }
+            Statement::UnderMandate { owner } => {
+                self.write_indent();
+                self.write("under mandate ");
+                self.format_expression(owner);
+                self.write("\n");
+            }
             Statement::Allow { feature } => {
                 self.write_indent();
                 self.write("allow ");
@@ -1771,6 +1778,72 @@ impl X3Formatter {
         for proof in &p.proofs {
             self.write_indent();
             self.write(proof.as_str());
+            self.write("\n");
+        }
+        self.dedent();
+        self.write("}\n");
+    }
+
+    fn format_mandate(&mut self, m: &MandateDecl) {
+        self.write("mandate ");
+        self.write(m.name.as_str());
+        self.write(" {\n");
+        self.indent();
+        for (label, expr) in [
+            ("owner", Some(&m.owner)),
+            ("agent", Some(&m.agent)),
+            ("refund_to", Some(&m.refund_to)),
+            ("per_payment", Some(&m.per_payment)),
+            ("per_24h", Some(&m.per_24h)),
+        ] {
+            let Some(expr) = expr else { continue };
+            self.write_indent();
+            self.write(label);
+            self.write(" ");
+            self.format_expression(expr);
+            self.write("\n");
+        }
+        self.write_indent();
+        self.write("spend ");
+        self.format_asset_ref(&m.spend);
+        self.write("\n");
+        for recipient in &m.allow_recipients {
+            self.write_indent();
+            self.write("allow recipients ");
+            self.format_expression(recipient);
+            self.write("\n");
+        }
+        for asset in &m.allow_assets {
+            self.write_indent();
+            self.write("allow assets ");
+            self.format_asset_ref(asset);
+            self.write("\n");
+        }
+        for guard in &m.requires {
+            self.write_indent();
+            self.write("require ");
+            self.format_require_guard(guard);
+            self.write("\n");
+        }
+        if let Some(above) = &m.approve_above {
+            self.write_indent();
+            self.write("approve above ");
+            self.format_expression(above);
+            self.write(" by ");
+            self.write(&m.approval_threshold.unwrap_or(0).to_string());
+            self.write(" of ");
+            for (i, approver) in m.approvers.iter().enumerate() {
+                if i > 0 {
+                    self.write(", ");
+                }
+                self.format_expression(approver);
+            }
+            self.write("\n");
+        }
+        if let Some(expires) = &m.expires {
+            self.write_indent();
+            self.write("expires ");
+            self.format_expression(expires);
             self.write("\n");
         }
         self.dedent();
