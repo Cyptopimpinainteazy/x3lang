@@ -12,6 +12,7 @@ from exact_head_mirror_policy import (
     APPROVED,
     SCHEMA,
     MirrorPolicyError,
+    require_policy_matches_base,
     verify_fallback,
 )
 
@@ -150,6 +151,26 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
         self.policy["mirrored_files"].pop(MIRRORED[0])
         with self.assertRaisesRegex(MirrorPolicyError, "exactly the seven"):
             self.verify()
+
+    def test_policy_cannot_approve_itself_in_the_pr_head(self) -> None:
+        base_policy = dict(self.policy)
+        base_policy["status"] = "UNAPPROVED"
+        base_policy["owner_approval_reference"] = None
+        base_path = self.workspace / ".github" / "mirror-policy.json"
+        base_path.parent.mkdir(parents=True, exist_ok=True)
+        base_path.write_text(json.dumps(base_policy, sort_keys=True))
+        base = commit(self.workspace, "unapproved base policy")
+        run_git(self.workspace, "update-ref", "refs/remotes/origin/main", base)
+
+        head_policy = dict(self.policy)
+        head_policy["status"] = APPROVED
+        head_policy["owner_approval_reference"] = "self-approved://not-a-review"
+        base_path.write_text(json.dumps(head_policy, sort_keys=True))
+        commit(self.workspace, "self-approve policy in feature PR")
+        self.feature_commit("x3-lang/bridge/state.py", "BASE = 2\n")
+
+        with self.assertRaisesRegex(MirrorPolicyError, "cannot approve itself"):
+            require_policy_matches_base(self.workspace, "origin/main")
 
 
 if __name__ == "__main__":

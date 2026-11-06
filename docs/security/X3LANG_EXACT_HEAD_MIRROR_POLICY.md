@@ -37,12 +37,19 @@ Once approved, a missing peer branch may pass only when all of these hold:
 1. Every changed path is under `x3-lang/bridge/`.
 2. No changed path is one of the seven always-shared proof files.
 3. No changed path is anywhere under `scripts/proof/`.
-4. Every shared file in the x3lang head matches its reviewed SHA-256.
-5. Every shared file at the pinned peer commit matches the same SHA-256.
-6. The policy names the exact 40-character peer commit and the repository.
+4. The PR does not modify the workflow, policy runner, or policy manifest.
+5. The policy at the PR head is byte-identical to `origin/main`; approval is
+   read only from the base branch and cannot approve itself inside the PR being
+   checked.
+6. Every shared file in the x3lang head matches its reviewed SHA-256.
+7. Every shared file at the pinned peer commit matches the same SHA-256.
+8. The policy names the exact 40-character peer commit and the repository.
 
 Any failure stops the job. There is no skip, warning-only mode,
 `continue-on-error`, mutable peer-main fallback, or inferred approval.
+`main` must also have a branch protection rule requiring the security workflow
+and code-owner approval before a policy change can land. `CODEOWNERS` by itself
+is not enforcement on an unprotected branch.
 
 ## Reviewed shared-file manifest
 
@@ -80,5 +87,5 @@ python3 -m py_compile .github/scripts/exact_head_mirror_policy.py
 ```
 
 The tests cover bridge-only admission, VM and shared-file refusal, arbitrary new
-proof-script refusal, unapproved policy refusal, peer-anchor drift, empty diffs,
-and manifest completeness.
+proof-script refusal, self-approval in a feature PR, unapproved policy refusal,
+peer-anchor drift, empty diffs, and manifest completeness.

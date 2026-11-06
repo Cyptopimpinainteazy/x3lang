@@ -33,6 +33,7 @@ MIRRORED_PATHS = frozenset(
         "x3-lang/vm/tests/trading_receipts.rs",
     }
 )
+DEFAULT_POLICY_PATH = ".github/mirror-policy.json"
 
 
 class MirrorPolicyError(RuntimeError):
@@ -115,9 +116,6 @@ def changed_paths(repo: Path, base_ref: str, head_ref: str = "HEAD") -> set[str]
                 "--diff-filter=ACDMR",
                 merge_base,
                 head_ref,
-                "--",
-                "x3-lang/",
-                "scripts/proof/",
             )
         )
     except subprocess.CalledProcessError as exc:
@@ -127,11 +125,11 @@ def changed_paths(repo: Path, base_ref: str, head_ref: str = "HEAD") -> set[str]
     return set(output.splitlines()) if output else set()
 
 
-def load_policy(path: Path) -> dict[str, Any]:
+def load_policy_bytes(content: bytes, source: str) -> dict[str, Any]:
     try:
-        policy = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise MirrorPolicyError(f"cannot read mirror policy {path}: {exc}") from exc
+        policy = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MirrorPolicyError(f"cannot read mirror policy {source}: {exc}") from exc
     if not isinstance(policy, dict):
         raise MirrorPolicyError("mirror policy must be a JSON object")
     if policy.get("schema") != SCHEMA:
@@ -163,6 +161,48 @@ def load_policy(path: Path) -> dict[str, Any]:
         if not isinstance(approval, str) or not approval.strip():
             raise MirrorPolicyError("OWNER_APPROVED policy requires owner_approval_reference")
     return policy
+
+
+def load_policy(path: Path) -> dict[str, Any]:
+    try:
+        content = path.read_bytes()
+    except OSError as exc:
+        raise MirrorPolicyError(f"cannot read mirror policy {path}: {exc}") from exc
+    return load_policy_bytes(content, str(path))
+
+
+def load_policy_at_ref(
+    repo: Path, ref: str, rel: str = DEFAULT_POLICY_PATH
+) -> dict[str, Any]:
+    try:
+        content = git(repo, "show", f"{ref}:{rel}", text=False)
+    except subprocess.CalledProcessError as exc:
+        raise MirrorPolicyError(
+            f"cannot read mirror policy {rel} from base revision {ref}"
+        ) from exc
+    assert isinstance(content, bytes)
+    return load_policy_bytes(content, f"{ref}:{rel}")
+
+
+def require_policy_matches_base(
+    repo: Path, base_ref: str, rel: str = DEFAULT_POLICY_PATH
+) -> dict[str, Any]:
+    """Approval comes from the base branch, never from the PR being admitted."""
+    try:
+        base = git(repo, "show", f"{base_ref}:{rel}", text=False)
+        head = git(repo, "show", f"HEAD:{rel}", text=False)
+    except subprocess.CalledProcessError as exc:
+        raise MirrorPolicyError(
+            f"the mirror policy {rel} must exist at both {base_ref} and HEAD"
+        ) from exc
+    assert isinstance(base, bytes)
+    assert isinstance(head, bytes)
+    if base != head:
+        raise MirrorPolicyError(
+            f"{rel} differs from {base_ref}; an admission policy cannot approve itself "
+            "inside the PR it is checking"
+        )
+    return load_policy_bytes(base, f"{base_ref}:{rel}")
 
 
 def verify_fallback(
@@ -279,6 +319,11 @@ def main() -> int:
         try:
             resolved_branch = resolve_commit(peer, branch_ref)
         except MirrorPolicyError:
+            policy = require_policy_matches_base(
+                workspace,
+                args.base_ref,
+                str(args.policy),
+            )
             result = verify_fallback(
                 workspace,
                 peer,
