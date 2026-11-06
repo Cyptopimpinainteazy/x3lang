@@ -136,8 +136,11 @@ data through NEAR Intents under one owner mandate
 the wallet key. A request injected into its prompt to pay `attacker.near` is
 compiled and checked like any other program, and the mandate's `mandate_recipient`
 term refuses it. That "model falls for it, guard still refuses" case is pinned by
-`x3-lang/tests/test_near_agent.py`, and a real local model held all 8 adversarial
-requests in [`evidence/agent-redteam-local-2026-11-06`](evidence/agent-redteam-local-2026-11-06).
+`x3-lang/tests/test_near_agent.py`. A real local model held all 8 adversarial
+requests in [`evidence/agent-redteam-local-2026-11-06`](evidence/agent-redteam-local-2026-11-06):
+seven were refused by the model itself; the eighth homoglyph case produced a
+safe payment that was neutralized by deterministic effect checks, not by a
+model or Guard refusal.
 
 **Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
 The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
@@ -280,8 +283,9 @@ acceptance is not wallet authorization, a signed quote or settlement.
   independently verified receipt close the loop the offline demo deliberately
   leaves open.
 
-## License
+## License status
 
-Dual-licensed under **MIT OR Apache-2.0**, matching the SPDX expressions in
-the crate manifests. The MIT text is in [LICENSE](LICENSE); the Apache-2.0
-text is the standard Apache License, Version 2.0.
+This release does not add or change a root license. The preserved source has
+multiple contributors and pre-existing licensing questions; no relicense is
+made here. See [COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md#forks-ownership-and-licensing--what-is-realistic)
+for the ownership and licensing boundary.

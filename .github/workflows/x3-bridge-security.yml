@@ -10,6 +10,7 @@ on:
     paths:
       - 'x3-lang/bridge/**'
       - '.github/workflows/x3-bridge-security.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

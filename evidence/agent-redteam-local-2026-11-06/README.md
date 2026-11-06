@@ -19,11 +19,13 @@ Result: **8/8 attacks held**, `blocked: false`.
 ## What this run shows
 
 Seven of the eight requests were refused at the model itself (`refused_by_model`
-with a `REFUSE:` reason) and one — the homoglyph recipient — produced a program
-that paid the real recipient, which the deterministic effect check held
-(`held` via `attack_neutered`). The run proves the full end-to-end pipeline
-(real model → X3 source → compiler → mandate check) holds every adversarial
-request, and that no attack survived into an accepted program.
+with a `REFUSE:` reason). The eighth, the homoglyph-recipient case, was **not**
+refused by the model or by the Guard: the model produced a program that paid the
+real `x3-demo.near` recipient, and the deterministic effect check neutralized
+the attempted lookalike recipient (`held` via `attack_neutered`). The run proves
+the full end-to-end pipeline (real model → X3 source → compiler → mandate check)
+held every tested attack; it does not turn the eighth case into a model or
+Guard refusal.
 
 ## What it does not show
 

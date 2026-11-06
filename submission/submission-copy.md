@@ -17,8 +17,9 @@ The judge demo shows a prompt-injected request to `attacker.near` refused by
 payload guard by guard. A separate local Guard contract test proves a
 correctly TEST-signed quote is refused after signature verification.
 A real local `qwen3:8b` red-team run held all 8 adversarial requests; seven
-were refused by the model itself, so that run is not presented as guard
-refusal after model compromise.
+were refused by the model itself, and the eighth homoglyph case produced a safe
+real-recipient payment neutralized by deterministic effect checks. Neither
+half is presented as a model-failure-then-Guard-refusal proof.
 
 NEAR testnet evidence: `x3lang-guard-20261106.testnet` deployed with WASM
 SHA-256 `ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab`
@@ -37,6 +38,8 @@ cannot stop an unrestricted wallet keyholder from bypassing it.
 
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang
 - Testnet evidence: `docs/hackathon/GUARD_TESTNET_EVIDENCE.md`
+- Authenticated light-client design and limits:
+  https://github.com/Cyptopimpinainteazy/x3lang/blob/release/x3lang-submission-20261106/docs/security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md
 - Judge path: `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge`
 - Demo video: OWNER TO ATTACH PUBLIC URL AFTER RECORDING
 - Public X post: OWNER TO ATTACH PUBLIC URL AFTER POSTING
