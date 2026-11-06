@@ -25,7 +25,7 @@ run is not a NEAR transaction.
 
 Requirements:
 
-- Python 3.10 or newer
+- Python 3.11 or newer (required for `datetime.UTC` in `bridge/near_evidence.py`; the Rust compiler alone does not require Python)
 - Rust 1.90 or newer with Cargo
 - Node.js 22 or newer for the browser tests
 - a project-local Python virtual environment

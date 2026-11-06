@@ -15,8 +15,9 @@ checked policy reject it **even though its signature is valid**? That is the
 security problem this submission tackles—not the already-established idea
 of giving agents spending limits.
 
-**One-command, read-only judge check** (Python 3.11+, Rust/Cargo and Node.js
-required; first-run Python packages may be downloaded into an isolated cache):
+**One-command, read-only judge check** (Python 3.11+ for `datetime.UTC` in
+`bridge/near_evidence.py`, Rust/Cargo and Node.js required; first-run Python
+packages may be downloaded into an isolated cache):
 
 ```bash
 bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge

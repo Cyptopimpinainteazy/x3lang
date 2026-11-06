@@ -122,7 +122,7 @@ in an isolated user-cache virtual environment (internet needed for this
 one-time dependency installation). It never accesses wallet keys or sends a
 transaction; it invokes the existing `judge_evidence.py --mode quick` gate.
 
-Run from this repository's root, using Python 3.10+ / pytest, Node 22+ and
+Run from this repository's root, using Python 3.11+ / pytest, Node 22+ and
 Rust/Cargo. Full mode also requires wasm32-unknown-unknown.
 
 | Do X | Expected Y | What it proves |
