@@ -83,6 +83,21 @@ pub const KNOWN_CHAINS: &[&str] = &[
 /// contract).
 pub const KNOWN_BRIDGE_ADAPTERS: &[&str] = &["x3", "wormhole", "layerzero", "axelar", "native", "btc-relay"];
 
+/// NEAR Intents (1Click) is a solver-network adapter, not a generic bridging
+/// adapter. The solver network owns source-chain finality and the 1Click API
+/// exposes no confirmation-count control, so `require finality.*` is
+/// unenforceable for it — the `near_intents.py` adapter refuses the guard
+/// rather than pretend to honour it. Kept as a named, auditable extension to
+/// the production allow-lists because the NEAR rollout surface is documented
+/// separately in `docs/EXTENDED_SURFACES.md`; it does not widen what
+/// `KNOWN_BRIDGE_ADAPTERS` admits.
+pub const NEAR_INTENTS_ADAPTERS: &[&str] = &["nearintents"];
+
+/// The `near` side of a 1Click bridge and its payouts. NEAR is a real chain,
+/// but it is only a valid X3 route surface through the NEAR Intents adapter,
+/// so it lives here rather than in the general production chain allow-list.
+pub const NEAR_INTENTS_CHAINS: &[&str] = &["near"];
+
 /// Compilation mode that gates which safety checks are enforced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompilationMode {
@@ -679,6 +694,16 @@ pub fn verify_fee_guards_declared(program: &Program, acc: &mut ErrorAccumulator)
             _ => None,
         })
     };
+    // The `risk { max_total_fee_bps }` ceiling is a *module* concept. An intent
+    // (or a bridge, an atomic swap, a function) has no module profile, so its
+    // `require fees <= N` is a self-contained bound on the quote it will accept,
+    // not a claim that must be backed by a separately declared module ceiling.
+    let is_strategy_owner = |owner: &str| -> bool {
+        program
+            .items
+            .iter()
+            .any(|item| matches!(&item.node, Item::Strategy(module) if module.name.as_str() == owner))
+    };
 
     for (owner, guard) in require_guards(program) {
         if guard.kind != x3_lang_ast::ast::RequireKind::Fees {
@@ -710,14 +735,14 @@ pub fn verify_fee_guards_declared(program: &Program, acc: &mut ErrorAccumulator)
             continue;
         };
         match declared(owner) {
-            None => acc.add_error(err(
+            None if is_strategy_owner(owner) => acc.add_error(err(
                 DiagnosticCode::GuardClaimUnbacked,
                 format!(
-                    "declaration '{owner}' requires a fee ceiling of {required}bps, but nothing declares \
-                     one: a module states it with `risk {{ max_total_fee_bps <bps> }}`, and a program \
-                     that is not a module has no clause that could"
+                    "module '{owner}' requires a fee ceiling of {required}bps, but its risk profile does \
+                     not declare one: write `risk {{ max_total_fee_bps <bps> }}` in the module"
                 ),
             )),
+            None => {}
             Some(ceiling) if required > ceiling => acc.add_error(err(
                 DiagnosticCode::GuardClaimUnbacked,
                 format!(
@@ -1375,9 +1400,11 @@ fn verify_replay_and_expiry(ir: &X3IR, acc: &mut ErrorAccumulator) {
 
 fn verify_bridge_adapter_allowlist(ir: &X3IR, acc: &mut ErrorAccumulator) {
     let allow: HashSet<&str> = KNOWN_BRIDGE_ADAPTERS.iter().copied().collect();
+    let near_allow: HashSet<&str> = NEAR_INTENTS_ADAPTERS.iter().copied().collect();
     for op in &ir.operations {
         if let Operation::Bridge { via, .. } = op {
-            if !allow.contains(via.to_ascii_lowercase().as_str()) {
+            let norm = via.to_ascii_lowercase();
+            if !allow.contains(norm.as_str()) && !near_allow.contains(norm.as_str()) {
                 acc.add_error(err(
                     DiagnosticCode::UnsafeIr,
                     format!(
@@ -1393,13 +1420,14 @@ fn verify_bridge_adapter_allowlist(ir: &X3IR, acc: &mut ErrorAccumulator) {
 
 fn verify_adapter_compatibility(ir: &X3IR, acc: &mut ErrorAccumulator) {
     let known: HashSet<&str> = KNOWN_CHAINS.iter().copied().collect();
+    let near_known: HashSet<&str> = NEAR_INTENTS_CHAINS.iter().copied().collect();
     for op in &ir.operations {
         match op {
             Operation::Bridge {
                 from_chain, to_chain, ..
             } => {
                 let from_norm = from_chain.to_ascii_lowercase();
-                if !known.contains(from_norm.as_str()) {
+                if !known.contains(from_norm.as_str()) && !near_known.contains(from_norm.as_str()) {
                     acc.add_error(err(
                         DiagnosticCode::UnsafeIr,
                         format!(
@@ -1420,7 +1448,7 @@ fn verify_adapter_compatibility(ir: &X3IR, acc: &mut ErrorAccumulator) {
             }
             Operation::Swap { from_chain, .. } => {
                 let from_norm = from_chain.to_ascii_lowercase();
-                if !known.contains(from_norm.as_str()) {
+                if !known.contains(from_norm.as_str()) && !near_known.contains(from_norm.as_str()) {
                     acc.add_error(err(
                         DiagnosticCode::UnsafeIr,
                         format!(
@@ -1434,7 +1462,8 @@ fn verify_adapter_compatibility(ir: &X3IR, acc: &mut ErrorAccumulator) {
             | Operation::Mint { chain, .. }
             | Operation::Burn { chain, .. }
             | Operation::Release { chain, .. }
-                if !known.contains(chain.to_ascii_lowercase().as_str()) =>
+                if !known.contains(chain.to_ascii_lowercase().as_str())
+                    && !near_known.contains(chain.to_ascii_lowercase().as_str()) =>
             {
                 acc.add_error(err(
                     DiagnosticCode::UnsafeIr,
@@ -2572,11 +2601,19 @@ pub fn verify_refund_path_exists(ir: &X3IR, acc: &mut ErrorAccumulator) {
 /// cross-chain loss — minting against a source-chain lock that a reorg can
 /// still erase — so the requirement is enforced at compile time instead.
 pub fn verify_finality_explicit(ir: &X3IR, acc: &mut ErrorAccumulator) {
+    let near_adapters: HashSet<&str> = NEAR_INTENTS_ADAPTERS.iter().copied().collect();
     let bridge_chains: HashSet<String> = ir
         .operations
         .iter()
         .filter_map(|op| match op {
-            Operation::Bridge { from_chain, .. } => Some(from_chain.to_ascii_lowercase()),
+            // A solver-network adapter owns its source-chain finality: the
+            // program cannot declare a confirmation count, and the adapter
+            // refuses the guard. Requiring `require finality.*` here would
+            // demand a bound the route cannot honour, so this bridge does not
+            // contribute to the set that must declare finality.
+            Operation::Bridge { via, from_chain, .. } if !near_adapters.contains(via.to_ascii_lowercase().as_str()) => {
+                Some(from_chain.to_ascii_lowercase())
+            }
             _ => None,
         })
         .collect();
