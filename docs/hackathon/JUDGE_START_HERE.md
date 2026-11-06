@@ -1,7 +1,9 @@
 # Judge start here: X3Lang / X3 Shield
 
-**NEAR HACKATHON 2026 | Track IDs:** `security` (primary), `agents`, `defi`  
-**Repository:** https://github.com/Cyptopimpinainteazy/x3lang  
+**NEAR HACKATHON 2026 | Track IDs:** `security` (primary), `agents`, `defi`
+
+**Repository:** https://github.com/Cyptopimpinainteazy/x3lang
+
 **Submission deadline:** 2026-11-14 23:59 UTC (verify against the [organizer's current rules](https://nearhackathon.com/HACKATHON.md)).
 
 ## The 20-second pitch
