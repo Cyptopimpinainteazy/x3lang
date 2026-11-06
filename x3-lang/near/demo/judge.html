@@ -352,7 +352,11 @@ async function renderEvidence() {
     ${ev.runs.map((x) => `<tr><td>${esc(x.name)}</td><td><code>${esc(x.command)}</code></td>
       <td class="tone-${x.exit_code === 0 ? "pass" : "fail"}">${x.exit_code === null ? "not run" : esc(x.exit_code)}</td>
       <td>${esc(x.passed ?? "–")}</td><td>${esc(x.failed ?? "–")}</td><td>${esc(x.skipped ?? "–")}</td></tr>${x.note ? `<tr><td></td><td colspan="5" class="sub">${esc(x.note)}</td></tr>` : ""}`).join("")}
-    </tbody></table></div>`;
+    </tbody></table></div>
+    <p class="none"><strong>Signed-quote policy refusal:</strong>
+      ${(() => { const test = ev.runs.find((r) => r.id === "guard_signed_refusal");
+      return test?.status === "passed" ? "PASS — correctly signed with the repository's TEST-ONLY key, forbidden recipient rejected by local Guard after signature validation. An allowed control quote was accepted locally. This is not a live 1Click signature or on-chain receipt."
+        : "NOT PROVEN BY THIS RECORD — rerun collect_evidence.py --with-contract to execute the dedicated local signature-then-policy refusal test. No testnet refusal is claimed."; })()}</p>`;
 }
 
 $("open-guard").addEventListener("click", () => {

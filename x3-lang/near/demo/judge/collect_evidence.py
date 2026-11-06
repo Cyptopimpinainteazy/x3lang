@@ -150,13 +150,25 @@ def main(argv: list[str] | None = None) -> int:
         run("Offline five-panel judge demo", [sys.executable, "scripts/hackathon/demo.py"],
             counts_none, test_id="demo", kind="demo"),
     ]
+    signed_refusal_command = ("cd x3-lang/near/x3-guard && cargo test --locked "
+                              "valid_test_signature_with_forbidden_recipient_never_authorizes_a_deposit")
     if args.with_contract and shutil.which("cargo"):
         runs.append(run("x3-guard contract (Rust)", ["cargo", "test", "--locked", "--quiet"], counts_cargo,
                         test_id="contract", kind="test", cwd=REPO / "x3-lang/near/x3-guard"))
+        # A scoped contract test is easier for judges to reproduce than
+        # inferring a specific security invariant from 50+ unrelated tests.
+        runs.append(run("Signed-test-quote forbidden recipient: Guard refuses after valid signature",
+                        ["cargo", "test", "--locked",
+                         "valid_test_signature_with_forbidden_recipient_never_authorizes_a_deposit"],
+                        counts_cargo, test_id="guard_signed_refusal", kind="test",
+                        cwd=REPO / "x3-lang/near/x3-guard"))
     else:
         runs.append(not_run("x3-guard contract (Rust)", contract_cmd,
                             "Not run in this recording. Rerun with --with-contract." if shutil.which("cargo")
                             else "Not run: cargo is not installed.", test_id="contract", kind="test"))
+        runs.append(not_run("Signed-test-quote forbidden recipient (mock chain)",
+                            signed_refusal_command, "Not run; use --with-contract. This is not live 1Click or on-chain evidence.",
+                            test_id="guard_signed_refusal", kind="test"))
 
     required = [r for r in runs if r["required"]]
     passed = [r for r in required if r["status"] == "passed"]
@@ -185,6 +197,8 @@ def main(argv: list[str] | None = None) -> int:
         "claim_boundaries": [
             {"claim": "Deterministic local policy verdicts", "proved_by": ["python", "browser", "scenarios"]},
             {"claim": "x3-guard contract behavior", "proved_by": ["contract"]},
+            {"claim": "Signed quote with TEST-ONLY key is refused after signature validation in mock-chain Guard; allowed control also passes", "proved_by": ["guard_signed_refusal"]},
+            {"claim": "Genuine official 1Click-signed forbidden quote refused on testnet", "proved_by": []},
             {"claim": "Wallet authorization or on-chain transaction", "proved_by": []},
             {"claim": "Signed live quote, deposit or settlement", "proved_by": []},
             {"claim": "Cross-chain causal attribution", "proved_by": []},
