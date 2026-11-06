@@ -25,4 +25,9 @@ Real positive fixtures and 20+ adversarial mutation subtests verify the above. A
 
 **NO MAINNET FUNDS; NO EIP-712 ATTESTATION SIGNING; NO DEPLOYMENT; NO PAYMENT.**
 
+The authenticated state machine in
+[`near_authenticated.py`](../../x3-lang/bridge/near_authenticated.py) now binds
+these outcome checks to a cryptographically advanced light-client head. It
+still does not authenticate escrow storage or deployed code identity.
+
 References: [nearcore source: PartialExecutionOutcome / ExecutionOutcomeWithId::to_hashes](https://github.com/near/nearcore/blob/master/core/primitives/src/transaction.rs), [nearcore light client specification](https://github.com/near/nearcore/blob/master/docs/ChainSpec/LightClient.md), and [real evidence PR #57](https://github.com/Cyptopimpinainteazy/x3lang/pull/57).

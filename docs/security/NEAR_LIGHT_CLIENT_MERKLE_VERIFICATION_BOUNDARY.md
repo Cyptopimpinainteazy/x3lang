@@ -18,4 +18,9 @@ These are **real hash calculations**, but the source of the expected Merkle root
 
 Tests use synthetic Borsh and hash vectors as **algorithmic unit tests**, not transactions, live chain proofs, trusted validator sets, or production evidence. Even a successful `check_receipt_block_merkle` only proves membership relative to the input root, not consensus finality. Never connect it to a financial signer.
 
+The authenticated state layer in
+[`near_authenticated.py`](../../x3-lang/bridge/near_authenticated.py) can supply
+the head Merkle root only after the checkpoint/epoch/signature state machine
+has produced authenticated state. The primitive itself remains root-agnostic.
+
 **RELEASE BLOCKED / NO_MAINNET_FUNDS.**

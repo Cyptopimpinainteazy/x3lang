@@ -47,7 +47,6 @@ pub fn verify_approvals(
         || validators.len() > 4096
         || message.len() != 41
         || message[0] != 0
-        || approvals.len() < validators.len()
         || approvals.len() > validators.len().saturating_add(4096)
     {
         return Err("invalid approval shape");
@@ -59,9 +58,9 @@ pub fn verify_approvals(
         if validator.stake == 0 || !keys.insert(validator.public_key) {
             return Err("zero stake or repeated validator public key");
         }
+        let public = VerifyingKey::from_bytes(&validator.public_key).map_err(|_| "bad validator key")?;
         total_stake = total_stake.checked_add(validator.stake).ok_or("stake overflow")?;
         if let Some(bytes) = approvals.get(i).and_then(Option::as_ref) {
-            let public = VerifyingKey::from_bytes(&validator.public_key).map_err(|_| "bad validator key")?;
             let sig = Signature::from_bytes(bytes);
             public.verify(message, &sig).map_err(|_| "bad approval signature")?;
             approved_stake = approved_stake
@@ -172,6 +171,15 @@ mod tests {
     }
 
     #[test]
+    fn a_short_approval_vector_can_pass_with_sufficient_signed_stake() {
+        let (keys, mut validators) = voters();
+        validators[0].stake = 500;
+        let message = approval_message([7u8; 32], 42).unwrap();
+        let short = vec![Some(keys[0].sign(&message).to_bytes())];
+        assert!(verify_approvals(&validators, &short, &message).is_ok());
+    }
+
+    #[test]
     fn next_block_hash_uses_sha256_of_two_32_byte_inputs() {
         let first = [1u8; 32];
         let second = [2u8; 32];
@@ -189,6 +197,25 @@ mod tests {
         let message = approval_message([7u8; 32], 42).unwrap();
         let mut approvals = vec![Some(keys[0].sign(&message).to_bytes()), None, None];
         approvals.push(Some(keys[0].sign(&message).to_bytes()));
+        assert!(verify_approvals(&validators, &approvals, &message).is_err());
+    }
+
+    #[test]
+    fn malformed_inactive_validator_key_is_still_rejected() {
+        let (keys, mut validators) = voters();
+        validators[0].public_key = [
+            0x5f, 0xec, 0xeb, 0x66, 0xff, 0xc8, 0x6f, 0x38, 0xd9, 0x52, 0x78, 0x6c, 0x6d, 0x69, 0x6c, 0x79, 0xc2, 0xdb,
+            0xc2, 0x39, 0xdd, 0x4e, 0x91, 0xb4, 0x67, 0x29, 0xd7, 0x3a, 0x27, 0xfb, 0x57, 0xe9,
+        ];
+        validators[0].stake = 1;
+        validators[1].stake = 500;
+        validators[2].stake = 500;
+        let message = approval_message([7u8; 32], 42).unwrap();
+        let approvals = vec![
+            None,
+            Some(keys[1].sign(&message).to_bytes()),
+            Some(keys[2].sign(&message).to_bytes()),
+        ];
         assert!(verify_approvals(&validators, &approvals, &message).is_err());
     }
 }

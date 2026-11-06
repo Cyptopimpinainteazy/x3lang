@@ -23,7 +23,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Fail-closed liquidity, protocol, and Monte Carlo tests
+      - name: Install bridge Python dependencies
+        run: python -m pip install -r x3-lang/requirements.txt
+      - name: Fail-closed bridge and authenticated light-client tests
         run: python -W error::ResourceWarning -m unittest discover -s x3-lang/bridge -p 'test_*.py' -v
 
   bridge-bsc:
