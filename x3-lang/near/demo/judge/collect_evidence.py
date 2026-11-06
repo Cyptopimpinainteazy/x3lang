@@ -42,7 +42,9 @@ def counts_pytest(text: str) -> dict[str, int]:
 
 def counts_node(text: str) -> dict[str, int]:
     def one(key: str) -> int:
-        m = re.search(rf"^ℹ {key} (\d+)$", text, flags=re.M)
+        # Node 20+ test runners may print either `ℹ pass 42` or TAP
+        # `# pass 42`, depending on version and reporter settings.
+        m = re.search(rf"^(?:ℹ|#)\s+{key}\s+(\d+)\s*$", text, flags=re.M)
         return int(m.group(1)) if m else 0
     return {"passed": one("pass"), "failed": one("fail") + one("cancelled"), "skipped": one("skipped") + one("todo")}
 
