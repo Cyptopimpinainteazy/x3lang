@@ -5812,7 +5812,18 @@ impl<'a> Parser<'a> {
                 }));
             }
         }
-        self.parse_expr()
+        let bound = self.parse_expr()?;
+        // `100 bps` and `100bps` are the unit-bearing spelling of a
+        // basis-point bound. The lexer exposes `bps` as an identifier to this
+        // parser, and an integer followed by it used to leave the unit behind as
+        // the next intent clause. That made canonical cross-chain examples pass
+        // the Python surface but fail in the Rust compiler.
+        if matches!(bound, Expression::Literal(LiteralExpr::Int { .. }))
+            && matches!(self.peek(), Tok::Ident(ref unit) if unit == "bps")
+        {
+            self.advance();
+        }
+        Ok(bound)
     }
 
     fn parse_require_guard(&mut self) -> Result<RequireGuard, X3Error> {
