@@ -118,16 +118,14 @@ fn full_arb_solana_eth_source_parses() {
 }
 
 #[test]
-fn bsc_to_near_reference_parses_bps_and_refuses_an_unbacked_fee_ceiling() {
+fn bsc_to_near_reference_parses_bps_and_compiles_self_contained_fee_ceiling() {
     let src = example_source("bsc_bnb_to_near_wnear_dry.x3");
     let program = x3_lang_compiler::parser::parse_source(&src)
         .expect("the BSC-to-NEAR reference must parse with its unit-bearing fee ceiling");
-    let failed =
-        compile_source(&src).expect_err("the generic compiler must refuse a fee ceiling that no risk policy backs");
-    assert!(
-        failed.to_string().contains("X3E4027"),
-        "the refusal must name the missing fee policy: {failed}"
-    );
+    let bytecode = compile_source(&src)
+        .expect("a non-strategy intent's explicit fee ceiling is self-contained and compilable");
+    verify(&InstructionStream::new(bytecode))
+        .expect("the self-contained intent fee ceiling must produce verifier-accepted bytecode");
     assert!(
         !program.items.is_empty(),
         "parsing must not discard the reference program after consuming `bps`"
