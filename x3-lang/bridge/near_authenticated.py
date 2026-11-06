@@ -108,13 +108,19 @@ def _b58encode(raw: bytes) -> str:
 def _key_bytes(value: object, label: str) -> bytes:
     if type(value) is not str or not value.startswith("ed25519:"):
         raise AuthenticatedLightClientError(f"{label} must be Ed25519")
-    return _b58decode(value.removeprefix("ed25519:"), label=label, length=32)
+    encoded = value.removeprefix("ed25519:")
+    if not 32 <= len(encoded) <= 44:
+        raise AuthenticatedLightClientError(f"invalid {label} encoding length")
+    return _b58decode(encoded, label=label, length=32)
 
 
 def _signature_bytes(value: object, label: str) -> bytes:
     if type(value) is not str or not value.startswith("ed25519:"):
         raise AuthenticatedLightClientError(f"{label} must be Ed25519")
-    return _b58decode(value.removeprefix("ed25519:"), label=label, length=64)
+    encoded = value.removeprefix("ed25519:")
+    if not 64 <= len(encoded) <= 88:
+        raise AuthenticatedLightClientError(f"invalid {label} encoding length")
+    return _b58decode(encoded, label=label, length=64)
 
 
 def _ed25519_add(

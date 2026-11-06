@@ -20,6 +20,8 @@ from near_authenticated import (
     AuthenticatedLightClientError,
     _approval_message,
     _b58encode,
+    _key_bytes,
+    _signature_bytes,
     _valid_ed25519_public_key,
     _verify_approvals,
     _view_block_hash,
@@ -590,6 +592,16 @@ class AuthenticatedLightClientTests(unittest.TestCase):
                 self.assertFalse(_valid_ed25519_public_key(bytes.fromhex(encoded)))
         valid_key = seed(57).public_key().public_bytes_raw()
         self.assertTrue(_valid_ed25519_public_key(valid_key))
+
+    def test_oversized_ed25519_text_is_rejected_before_decode(self):
+        with self.assertRaisesRegex(
+            AuthenticatedLightClientError, "invalid key encoding length"
+        ):
+            _key_bytes("ed25519:" + "1" * 100_000, "key")
+        with self.assertRaisesRegex(
+            AuthenticatedLightClientError, "invalid signature encoding length"
+        ):
+            _signature_bytes("ed25519:" + "1" * 100_000, "signature")
 
     def test_epoch_crossing_requires_announced_validator_set(self):
         current = [validator(seed(i), f"v{i}.testnet") for i in (60, 61, 62)]
