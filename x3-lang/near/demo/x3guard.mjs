@@ -36,6 +36,7 @@ const CHAIN_DOMAINS = {
   arbitrum: { aliases: ["arb"], address: "evm" },
   polygon: { aliases: ["matic"], address: "evm" },
   bitcoin: { aliases: ["btc"], address: "btc" },
+  bsc: { aliases: ["bnb", "binance", "bnbchain"], address: "evm" },
   x3: { aliases: [], address: "x3" },
   near: { aliases: [], address: "near" },
 };
@@ -50,6 +51,7 @@ const ASSETS_BY_CHAIN = {
   arbitrum: ["USDC", "USDT", "WETH", "ETH", "ARB"],
   polygon: ["USDC", "USDT", "WETH", "MATIC", "DAI"],
   bitcoin: ["BTC", "WBTC"],
+  bsc: ["BNB", "USDC", "USDT"],
   x3: ["SOL", "USDC", "WSOL", "WETH", "BTC", "X3"],
   near: ["NEAR", "wNEAR", "USDC", "USDT"],
 };
@@ -80,6 +82,7 @@ export function isValidReceiver(chain, receiver) {
   if (receiver == null || receiver === "" || receiver === "sender") return true;
   const kind = CHAIN_DOMAINS[normalizeChain(chain)]?.address;
   const r = String(receiver);
+  if (kind === "evm" && normalizeChain(chain) === "bsc") return /^0x[a-fA-F0-9]{40}$/.test(r);
   if (kind === "evm") return /^0x[a-fA-F0-9]+$/.test(r);
   if (kind === "base58") return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(r);
   if (kind === "btc") return /^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,90}$/.test(r);
@@ -324,7 +327,7 @@ function upperBoundBps(req, field) {
 // Lowering (near_intents.lower)
 // ---------------------------------------------------------------------------------------
 
-export const CHAIN_TO_BLOCKCHAIN = { near: "near", ethereum: "eth", solana: "sol", arbitrum: "arb", polygon: "pol", bitcoin: "btc" };
+export const CHAIN_TO_BLOCKCHAIN = { near: "near", ethereum: "eth", solana: "sol", arbitrum: "arb", polygon: "pol", bitcoin: "btc", bsc: "bsc" };
 const SYMBOL_ALIASES = { "near/NEAR": "wNEAR" };
 const ENFORCED_GUARDS = ["slippage", "fees", "nonce"];
 

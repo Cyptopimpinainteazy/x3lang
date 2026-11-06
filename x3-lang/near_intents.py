@@ -1464,6 +1464,20 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
             f"the live quote receipt is not authenticated and request-bound: {reason or ', '.join(mismatched)}",
             "quote_response",
         )
+    # The nonce and other non-1Click program fields are not signed by the provider. Recompile
+    # the owner-supplied source and require every such field to match the receipt.
+    _, compiled_leg = compile_program(program_path, now=parse_timestamp(response["timestamp"]))
+    stable_fields = (
+        "intent", "origin", "destination", "amount", "recipient", "refund_to",
+        "min_receive", "slippage_bps", "fee_cap_bps", "nonce",
+    )
+    changed = [field for field in stable_fields if receipt.get("leg", {}).get(field) != compiled_leg.get(field)]
+    if changed:
+        raise NearIntentsError(
+            "X3_EVIDENCE_BINDING",
+            f"receipt leg differs from the compiled program: {', '.join(changed)}",
+            "leg",
+        )
     steps = []
     for step in ("register", "quote"):
         call_args = guard_args(receipt, step)
@@ -1535,8 +1549,59 @@ def bsc_rpc_default():
 
 
 def _signed_quote(receipt: Dict[str, Any]) -> Dict[str, Any]:
-    quote_obj = (receipt.get("quote_response") or {}).get("quote") or {}
-    if (receipt.get("quote_request") or {}).get("dry", True):
+    """Return an authenticated live quote after binding every editable receipt field."""
+    response = receipt.get("quote_response")
+    if not isinstance(response, dict):
+        raise NearIntentsError("X3_EVIDENCE_BINDING", "receipt has no quote response")
+    valid, reason = check_oneclick_quote_signature(response)
+    if not valid:
+        raise NearIntentsError("X3_NEAR_INVALID_SIGNATURE", f"receipt quote signature failed: {reason}")
+    signed_request = response.get("quoteRequest") or {}
+    saved_request = receipt.get("quote_request") or {}
+    mismatched = [
+        field for field in _ECHO_FIELDS
+        if not _same(field, saved_request.get(field), signed_request.get(field))
+    ]
+    if (signed_request.get("dry") is not False
+            or saved_request.get("dry") is not False
+            or mismatched
+            or receipt.get("signed_payload") != signed_quote_payload(response)
+            or receipt.get("quote_hash") != oneclick_quote_hash(response)
+            or receipt.get("quote_response_sha256") != _sha256_json(response)):
+        raise NearIntentsError(
+            "X3_EVIDENCE_BINDING",
+            f"receipt quote is not authenticated and request-bound: {', '.join(mismatched) or 'digest mismatch'}",
+            "quote_response",
+        )
+    quote_obj = response.get("quote") or {}
+    if not isinstance(quote_obj, dict):
+        raise NearIntentsError("X3_EVIDENCE_BINDING", "receipt quote response has no quote object")
+    deposit = receipt.get("deposit") or {}
+    if (deposit.get("address") != quote_obj.get("depositAddress")
+            or str(deposit.get("amount")) != str(quote_obj.get("amountIn"))
+            or not deposit.get("deadline")
+            or not quote_obj.get("deadline")
+            or parse_timestamp(deposit["deadline"]) != parse_timestamp(quote_obj["deadline"])):
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "receipt deposit metadata differs from the signed live quote")
+    leg = receipt.get("leg") or {}
+    if (str(leg.get("amount")) != str(saved_request.get("amount"))
+            or leg.get("recipient") != saved_request.get("recipient")
+            or leg.get("refund_to") != saved_request.get("refundTo")
+            or not leg.get("deadline")
+            or parse_timestamp(leg["deadline"]) != parse_timestamp(saved_request["deadline"])):
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "receipt leg differs from the request signed by 1Click")
+    tokens = receipt.get("tokens") or {}
+    if ((tokens.get("origin") or {}).get("assetId") != saved_request.get("originAsset")
+            or (tokens.get("destination") or {}).get("assetId") != saved_request.get("destinationAsset")):
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "receipt token metadata differs from the request signed by 1Click")
+    origin_chain = (leg.get("origin") or {}).get("chain")
+    if not origin_chain or not registry.is_valid_receiver(origin_chain, quote_obj.get("depositAddress")):
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "signed quote deposit address is not valid for the origin chain")
+    if saved_request.get("dry", True):
         raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", "this receipt is for a dry quote; nothing was deposited")
     return quote_obj
 
