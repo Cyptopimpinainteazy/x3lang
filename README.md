@@ -17,6 +17,15 @@ redirection, and revocation.
 authorization is claimed here. Cross-chain causality stays "unproven" until an
 independently verifiable link exists.
 
+**Who this protects.** A team runs an AI agent that pays for API inference and
+data through NEAR Intents under one owner mandate
+(`x3-lang/examples/near_mandate_agent.x3`); the agent holds a NEAR account, never
+the wallet key. A request injected into its prompt to pay `attacker.near` is
+compiled and checked like any other program, and the mandate's `mandate_recipient`
+term refuses it. That "model falls for it, guard still refuses" case is pinned by
+`x3-lang/tests/test_near_agent.py`, and a real local model held all 8 adversarial
+requests in [`evidence/agent-redteam-local-2026-11-06`](evidence/agent-redteam-local-2026-11-06).
+
 **Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
 The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
 public mainnet transaction links remain pending and are **not** fabricated.
