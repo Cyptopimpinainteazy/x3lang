@@ -47,6 +47,17 @@ blocked. Signing or deploying to testnet requires explicit owner approval.
 - [NEAR Intents 1Click quote reference](https://github.com/near/agent-skills/blob/main/skills/near-intents/rules/api-quote.md) distinguishes dry quote previews from real deposit-address quotes.
 - [X3 Guard contract](../../x3-lang/near/x3-guard/src/lib.rs) implements pinned-key quote-signature checking followed by policy guards.
 
+## Testnet Guard deployment readiness (no keys or transactions)
+
+A [read-only deployment feasibility check](GUARD_TESTNET_DEPLOYMENT_READINESS.md)
+queries the real `x3lang.testnet` account and current NEAR Testnet protocol
+storage-staking price from two RPC endpoints. The initial 545,640-byte local
+WASM alone needs about 5.46 NEAR storage stake, more than the public
+account's observed 2 NEAR balance. **The contract has not been deployed.**
+The official 1Click manager signature also must not be confused with a
+community-run testnet quote signature. See Issue #73 for the live Guard
+refusal evidence still needed; no owner deployment approval has been given.
+
 ## Genuine NEAR validator-signature evidence (separate unmerged draft)
 
 Draft [PR #60](https://github.com/Cyptopimpinainteazy/x3lang/pull/60), commit
