@@ -128,6 +128,16 @@ fn duplicate_mandate_is_rejected() {
 }
 
 #[test]
+fn mandate_outside_an_intent_is_rejected() {
+    let misplaced = format!("under mandate x3-owner.near\n{SOURCE}");
+    let error = parse_source(&misplaced).expect_err("authority cannot be declared outside an intent");
+    assert!(
+        error.to_string().contains("expected top-level item"),
+        "the refusal must name the invalid placement: {error}"
+    );
+}
+
+#[test]
 fn mandate_without_a_nonce_is_refused_before_admission() {
     let without_nonce = SOURCE.replace("    require nonce unused agent_payment_001\n", "");
     let (_, _, outcome) =
