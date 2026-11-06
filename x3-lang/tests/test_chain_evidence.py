@@ -565,11 +565,12 @@ def test_bsc_refund_requires_and_reuses_finalized_deposit_evidence(tmp_path):
 def test_settled_end_to_end_through_the_cli(tmp_path, capsys):
     path, chain, rpc = live_receipt(tmp_path)
     client = ni.OneClickClient(jwt="k", transport=api(statuses=[_status("SUCCESS", amountOut="24950000")]))
+    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
 
-    assert ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG, "--receipt", str(path)], client=client) == 0
+    assert ni.main(["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
+                    "--receipt", str(path)], client=client, solana=sol) == 0
     assert json.loads(path.read_text())["deposit"]["tx_hash"] == DEPOSIT_SIG
 
-    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
     assert ni.main(["verify-deposit", "--receipt", str(path)], solana=sol) == 0
 
     # Before the payout lands, settlement is not proven, and the receipt says so.

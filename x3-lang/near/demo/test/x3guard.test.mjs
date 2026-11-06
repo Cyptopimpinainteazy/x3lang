@@ -78,7 +78,9 @@ test("BSC BNB lowers with the live provider asset IDs", () => {
   const source = `intent bsc_demo {
     from Bsc.BNB amount 2000000000000000000 receiver 0x${"b".repeat(40)}
     to Near.wNEAR receiver wrap.near
-    route { bridge NearIntents Bsc.BNB -> Near.wNEAR }
+    route {
+        bridge NearIntents Bsc.BNB -> Near.wNEAR;
+    }
     require slippage <= 1%
     require fees <= 100 bps
     require nonce unused bsc_demo_001

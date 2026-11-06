@@ -114,6 +114,13 @@ const REFUSED_BY_THE_COMPILER: &[&str] = &[
     // amounts lower to zero. Parsing it is TICKET-045's fix; making it *compile*
     // is a question about the example, not about the formatter.
     "arb_solana_eth.x3",
+    // These two now parse (the `bps` unit is accepted), but the compiler still
+    // refuses them: an intent's `require fees` guard has no declared ceiling,
+    // and the NEAR Intents adapter plus the `near` chain are not yet in the
+    // production allow-list. Wiring NEAR in is a separate adapter task, not a
+    // formatter concern.
+    "near_intents_sol_to_near.x3",
+    "bsc_bnb_to_near_wnear_dry.x3",
 ];
 
 #[test]
