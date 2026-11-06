@@ -1,7 +1,7 @@
 //! Bridge adapter abstraction for cross-chain calls.
 //! Production adapters must verify finality/proofs; dry-run is explicit.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -2454,10 +2454,12 @@ fn verify_ed25519_signature(signature: &Value, message: &[u8]) -> Result<(), Bri
         message: err.to_string(),
     })?;
     let signature = Signature::from_bytes(&signature);
-    verifying_key.verify(message, &signature).map_err(|err| BridgeError {
-        code: "X3_ED25519_SIGNATURE_INVALID",
-        message: err.to_string(),
-    })
+    verifying_key
+        .verify_strict(message, &signature)
+        .map_err(|err| BridgeError {
+            code: "X3_ED25519_SIGNATURE_INVALID",
+            message: err.to_string(),
+        })
 }
 
 fn evm_receipt_has_erc20_transfer(
@@ -3647,6 +3649,24 @@ fn dry_run(method: &str, data: &[u8]) -> BridgeResult {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+
+    #[test]
+    fn ed25519_rejects_identity_key_and_universal_signature() {
+        let mut identity = [0u8; 32];
+        identity[0] = 1;
+        let mut forgery = [0u8; 64];
+        forgery[..32].fill(0x66);
+        forgery[0] = 0x58;
+        forgery[32] = 1;
+        let signature = json!({
+            "public_key": hex_prefixed(&identity),
+            "signature": hex_prefixed(&forgery),
+        });
+
+        let error = verify_ed25519_signature(&signature, b"any message")
+            .expect_err("a weak key must not authenticate the universal forgery");
+        assert_eq!(error.code, "X3_ED25519_SIGNATURE_INVALID");
+    }
 
     #[derive(Clone)]
     struct TestEvmVerifier;

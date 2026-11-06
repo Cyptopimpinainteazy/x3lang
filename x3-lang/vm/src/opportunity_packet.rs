@@ -32,7 +32,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use x3_lang_compiler::opportunity::Opportunity;
@@ -668,7 +668,7 @@ fn check_strategy_commitment(
     let verifying_key = VerifyingKey::from_bytes(trusted).map_err(|_| unproven())?;
     let signature_bytes: [u8; 64] = attested.signature.as_slice().try_into().map_err(|_| unproven())?;
     verifying_key
-        .verify(&attested.commitment, &Signature::from_bytes(&signature_bytes))
+        .verify_strict(&attested.commitment, &Signature::from_bytes(&signature_bytes))
         .map_err(|_| unproven())
 }
 
@@ -978,7 +978,7 @@ pub fn verify_packet_signature(
         .map_err(|_| OpportunityPacketError::InvalidSignature)?;
     let signature = Signature::from_bytes(&signature_bytes);
     verifying_key
-        .verify(&packet.packet_hash, &signature)
+        .verify_strict(&packet.packet_hash, &signature)
         .map_err(|_| OpportunityPacketError::InvalidSignature)
 }
 
