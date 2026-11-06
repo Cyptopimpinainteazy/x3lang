@@ -171,13 +171,38 @@ def test_prompt_injection_is_refused_by_the_recipient_guard():
     demo = load_script("scripts/hackathon/demo.py")
     by_id = {scenario["id"]: scenario for scenario in demo.build_report()["scenarios"]}
     scenario = by_id["prompt-injection-recipient"]
+    assert scenario["title"] == "Prompt-injected payment"
+    assert scenario["story"] == (
+        "A prompt-injected instruction steers the AI agent to pay attacker.near, "
+        "but the owner never authorized that recipient."
+    )
     assert scenario["decision"] == "denied_by_policy"
     assert scenario["denied_guards"] == ["mandate_recipient"]
-    assert "prompt" in scenario["story"].lower()
+    assert scenario["intent_sha256"] == by_id["wrong-recipient"]["intent_sha256"]
+
+
+def test_prompt_injection_is_rendered_and_gated_by_demo_main(capsys):
+    demo = load_script("scripts/hackathon/demo.py")
+    assert demo.main([]) == 0
+    text = capsys.readouterr().out
+    assert "Prompt-injected payment (prompt-injection-recipient)" in text
+    assert (
+        "prompt-injection-recipient: decision=denied_by_policy, "
+        "failed_guards=['mandate_recipient'], approvals=0"
+    ) in text
 
 
 def test_one_command_runs_prompt_injection_and_parity():
     source = (ROOT / "scripts/hackathon/judge_one_command.sh").read_text()
-    assert "demo.py" in source
-    assert "build_scenarios.py --check" in source
-    assert "node --test x3-lang/near/demo/test/*.test.mjs" in source
+    execution = source[source.index("# 1. Scenario freshness"):]
+    ordered = [
+        "build_scenarios.py --check",
+        "scripts/hackathon/demo.py",
+        "node --test x3-lang/near/demo/test/*.test.mjs",
+        "scripts/judge_evidence.py --mode quick",
+    ]
+    positions = [execution.index(command) for command in ordered]
+    assert positions == sorted(positions)
+    assert "set -euo pipefail" in source
+    assert 'case.get("denied_guards") == ["mandate_recipient"]' in source
+    assert 'command -v "$NODE"' in source

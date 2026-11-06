@@ -39,22 +39,34 @@ and Panel 5 of `judge.html` (rail → Panel 5, `guard_signed_refusal`).
 local mock chain — *not* a live 1Click signature or an on-chain refusal."
 **Do not claim:** testnet or production-manager signature.
 
-## Shot 5 — Testnet transaction (1:45–2:20) — PENDING, do not fabricate
+## Shot 5 — NEAR testnet evidence (1:45–2:20)
 
-**Show:** the one command's report (`/tmp/x3-shield-judge/evidence.md`) and the PENDING
-matrix in `docs/hackathon/JUDGE_GUIDE.md`; if testnet evidence exists by demo time,
-show *only* a real, linked transaction with its exact evidence level.
-**Say (current state):** "No Guard testnet deployment and no on-chain valid-signature refusal exist
-yet (#73 pending). Here is the readiness preflight and shopping list — no transaction link
-is shown because none exists."
-**Do not claim:** deployed, deployed-testnet, or settled. Never invent a hash or link.
+**Show:** [`GUARD_TESTNET_EVIDENCE.md`](GUARD_TESTNET_EVIDENCE.md), the deployed
+account and code identity, and these exact final transactions:
+
+- deploy `FJ5voQaArx17QV4TzDLYDq93cuoAVLSRxjcxbswuyE8v`;
+- official dry quote with `quote_signature ok:true`, recipient mismatch, then
+  failed `accept_quote` `3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q`;
+- official live allowed acceptance
+  `6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ`.
+
+**Say:** "The Guard is deployed as testnet account
+`x3lang-guard-20261106.testnet`, with WASM SHA-256 `ac44fa…`. The production
+1Click manager signature verifies on the official dry quote, but the recipient
+term violates policy, so the call fails. A separate official live quote for an
+allowed destination is accepted as the positive control. No deposit was sent."
+**Do not claim:** live forbidden-quote refusal, wallet authorization, deposit,
+settlement, causality, mainnet deployment, or independently authenticated
+finality. Public-RPC evidence agreement is not a light-client proof.
 
 ## Shot 6 — Evidence-limit slide (2:20–3:00)
 
 **Show:** five-panel console Panel 4/5 + `bash scripts/hackathon/judge_one_command.sh`
 report, then the gate one-liner to reproduce.
-**Say:** "Proven now: local policy refusal plus local Guard contract behavior. Explicitly
-not proven: on-chain authorization, wallet transfer, observed transaction, finalized
-settlement, proven causality. Reproduce locally with one command (first-run dependency installation may use the network); raise this ceiling
-only when the testnet refusal exists and is independently re-queryable."
+**Say:** "Proven now: local policy refusal, local Guard contract behavior,
+testnet deployment and finalized registration/refusal/acceptance transactions.
+Not proven: a live forbidden quote refused by the agent mandate, wallet
+transfer, deposit, settlement, independent finality, or causality. Reproduce
+the local screen with one command (first-run dependency installation may use
+the network); re-query the committed testnet evidence independently."
 **End card:** repo link, `PRIOR_WORK.md` disclosure, submission deadline 2026-11-14 23:59 UTC.

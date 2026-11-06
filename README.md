@@ -86,8 +86,20 @@ injection resistance, or establish NEAR consensus finality. See the
   (stopped before deposit). See
   [GUARD_TESTNET_EVIDENCE.md](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) and
   [`evidence/near-guard-testnet/`](evidence/near-guard-testnet/manifest.json).
+- **Exact testnet anchors:** contract
+  `x3lang-guard-20261106.testnet`; WASM SHA-256
+  `ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab`;
+  deployment
+  [`FJ5vo…`](https://explorer.testnet.near.org/transactions/FJ5voQaArx17QV4TzDLYDq93cuoAVLSRxjcxbswuyE8v);
+  official-dry signature-valid recipient-mismatch failure
+  [`3Q7q…`](https://explorer.testnet.near.org/transactions/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q);
+  official-live allowed positive control
+  [`6B6k…`](https://explorer.testnet.near.org/transactions/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ).
+  Every committed observation is re-queried by the evidence verifier; RPC
+  agreement is not independent light-client finality.
 - **Explicitly not claimed:** wallet transfer, deposit to the accepted address, observed
-  settlement, finalized cross-chain settlement, or proven cross-chain causality.
+  settlement, finalized cross-chain settlement, a live forbidden-quote refusal,
+  or proven cross-chain causality.
 - Public mainnet links remain **PENDING — not fabricated**.
 
 ## SECURITY MODEL

@@ -1,6 +1,15 @@
 # X3 Shield — Signed quote passes cryptography, fails owner policy (LOCAL TEST)
 
-**Security truth:** This is an actual Rust NEAR Guard contract method executed against near-sdk's **mock blockchain** using a deliberately generated **test-only Ed25519 signing key**. It is **not a deployed NEAR testnet transaction**, not the official 1Click manager's live signature, not an approved wallet deposit and not trusted consensus finality. The separate genuine 1Click captured quotes in `x3-lang/near/x3-guard/src/tests.rs` are signed **dry** quotes: they authenticate provider quote data, but are not live deposit authorizations.
+**Security truth:** This section is an actual Rust NEAR Guard contract method
+executed against near-sdk's **mock blockchain** using a deliberately generated
+**test-only Ed25519 signing key**. It is not the NEAR testnet evidence and not
+the official 1Click manager's prohibited-live-quote refusal. Separately, the
+owner-authorized testnet run in
+[`GUARD_TESTNET_EVIDENCE.md`](GUARD_TESTNET_EVIDENCE.md) deployed the reviewed
+Guard, refused an official manager-signed **dry** quote after signature
+verification due to its recipient mismatch, and accepted an official
+manager-signed allowed **live** quote without depositing funds. No wallet
+transfer, deposit, settlement, causality, or independent finality is claimed.
 
 ## The judge-critical demonstration
 
@@ -32,10 +41,22 @@ python3 x3-lang/near/demo/judge/collect_evidence.py --with-contract
 
 ## Exactly what is still missing
 
-- Owner-authorized testnet deployment of the reviewed code under an independently checked account/code hash and adequate storage funds. Read-only preflight on `x3lang.testnet` found the **545,640-byte** WASM's code alone needs **5.4564 NEAR**, against the observed **2 NEAR** balance; see [Guard deployment readiness](GUARD_TESTNET_DEPLOYMENT_READINESS.md).
-- A fresh, authentic, official 1Click **manager-signed** quote whose exact signed terms violate a registered mandate. A test-only signature does not satisfy this, and an unaffiliated testnet sandbox cannot be presumed to use the official pinned key.
-- A real Guard NEAR testnet transaction with a failure receipt and unchanged contract state. A reverted transaction may **not** emit a persistent rejection event; do not invent a `quote_denied` event.
+- A **live** official 1Click manager-signed quote whose exact signed terms
+  violate a registered mandate and is refused by the deployed Guard's agent
+  mandate path. The current official forbidden quote is dry and fails at
+  recipient echo; the live allowed control is only a positive control.
+- A wallet path that obeys Guard decisions and a source-chain deposit. The
+  current live testnet acceptance stopped before deposit.
 - An independently authenticated NEAR light-client trust anchor and verified Guard receipt, rather than public-RPC agreement alone.
-- A wallet path that obeys Guard decisions; an unrestricted owner wallet can bypass this read-only/authorization contract. Do not claim universal prevention of wallet transfers.
+- An observed destination receipt, settlement, and cross-chain causality. A
+  signed quote and acceptance authorize terms; they do not execute or settle a
+  swap. An unrestricted owner wallet can still bypass this authorization
+  contract.
 
-For now the strongest supported statement is: **"Our local NEAR Guard contract refuses a correctly TEST-signed 1Click-format quote after validating its signature because the recipient violates the owner's policy, while allowing an otherwise matching quote. No funds are moved."**
+The strongest supported statement is: **"The local Guard refuses a correctly
+TEST-signed 1Click-format quote after validating its signature when the
+recipient violates policy. On NEAR testnet, the deployed Guard refuses an
+official manager-signed dry quote after signature verification because its
+recipient does not match the registered request, and accepts a separate
+official live allowed quote without any deposit. No funds are moved, and a
+live forbidden-quote refusal remains missing."**

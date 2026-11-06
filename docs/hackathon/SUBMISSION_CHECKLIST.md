@@ -19,7 +19,7 @@ Official instructions were checked against
 
 ## Repository
 
-- [ ] Final commit is pushed to `feat/x3lang-judge-console-20261104`.
+- [ ] Final commit is pushed to `release/x3lang-submission-20261106`.
 - [ ] PR is reviewable and remains draft until the owner authorizes merge.
 - [ ] `PRIOR_WORK.md` and the baseline comparison remain intact.
 - [ ] No API keys, key files, seed phrases, `.env` files or private receipts are tracked.
@@ -30,11 +30,18 @@ Official instructions were checked against
 ## Reproduce
 
 - [ ] Create and activate a project-local Python virtual environment.
-- [ ] Install `x3-lang/requirements.txt`, pytest, Node 22+ and the Rust toolchain.
-- [ ] Run `bash scripts/hackathon/verify.sh`.
+- [ ] Use Linux x86_64, Python 3.12, Node 22+ and the Rust toolchain; the judge
+      wrapper provisions its isolated nine-package lock.
+- [ ] Run `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge`.
+- [ ] Run `python3 scripts/judge_evidence.py --mode full`.
 - [ ] Confirm the readiness report names the current clean commit.
-- [ ] Confirm the demo prints allowed, approval-required and refused decisions.
-- [ ] Confirm `evidence_level` is `local_policy_preview_only`.
+- [ ] Confirm the demo prints authorized, approval-required, wrong-recipient and
+      prompt-injection refusal decisions.
+- [ ] Confirm the local demo reports `local_policy_preview_only`; keep the
+      separately labeled NEAR testnet evidence at its own limited level.
+- [ ] Re-verify both commands in `GUARD_TESTNET_EVIDENCE.md`; distinguish
+      official dry-quote refusal and live allowed acceptance from a live
+      forbidden-quote refusal, deposit, settlement and causality.
 - [ ] Run GitHub CI on the exact pushed SHA.
 - [ ] Record every check result without treating a neutral or skipped check as a pass.
 
@@ -42,7 +49,7 @@ Official instructions were checked against
 
 - [ ] Run `python3 -m http.server 8000 --directory x3-lang/near/demo`.
 - [ ] Open `http://localhost:8000/judge.html` on localhost so WebCrypto is available.
-- [ ] Confirm all nine scenarios render and Python/browser decisions agree.
+- [ ] Confirm all twelve scenarios render and Python/browser decisions agree.
 - [ ] Confirm the page says no quote, wallet authorization, transaction or settlement occurred.
 - [ ] If a hosted page is used, verify it serves this exact commit and keep it available through
       judging.
@@ -52,6 +59,8 @@ Official instructions were checked against
 - [ ] Use [`VIDEO_WALKTHROUGH.md`](VIDEO_WALKTHROUGH.md) and keep the recording under three
       minutes.
 - [ ] Show the one-command offline demo and exact decision labels.
+- [ ] Show only the real testnet transactions and code hashes in
+      `GUARD_TESTNET_EVIDENCE.md`; state that no deposit or settlement occurred.
 - [ ] State the evidence boundary plainly.
 - [ ] The human publishes the X post from the project/team account.
 - [ ] The post names NEAR HACKATHON, `@NEARProtocol` and `#NEARHackathon`.

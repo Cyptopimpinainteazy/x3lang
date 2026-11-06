@@ -28,12 +28,14 @@ NODE="${NODE:-node}"
 # literal: `node --test x3-lang/near/demo/test/*.test.mjs` below.
 node() { command "$NODE" "$@"; }
 
-for dependency in node cargo; do
-  if ! command -v "$dependency" >/dev/null 2>&1; then
-    echo "Missing $dependency: install the development prerequisite, then rerun." >&2
-    exit 2
-  fi
-done
+if ! command -v "$NODE" >/dev/null 2>&1; then
+  echo "Missing Node executable '$NODE': install Node 22+ or set NODE to the executable path." >&2
+  exit 2
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "Missing cargo: install the Rust development prerequisite, then rerun." >&2
+  exit 2
+fi
 
 # The hash lock is only valid on Linux x86_64. Fail clearly elsewhere.
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"

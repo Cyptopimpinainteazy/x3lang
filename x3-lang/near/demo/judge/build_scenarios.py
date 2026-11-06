@@ -88,7 +88,7 @@ SCENARIOS: list[dict[str, Any]] = [
      "source": DENIED, "edits": []},
     {"id": "prompt-injection-recipient", "group": "B",
      "title": "Prompt-injected payment",
-     "story": "A prompt-injected malicious instruction convinces the AI agent to pay attacker.near, but the owner never authorized that recipient.",
+     "story": "A prompt-injected instruction steers the AI agent to pay attacker.near, but the owner never authorized that recipient.",
      "takeaway": "The model can generate any request; the compiled mandate stops recipient substitution.",
      "source": DENIED, "edits": []},
     {"id": "refund-redirect", "group": "B", "title": "Redirected refund",

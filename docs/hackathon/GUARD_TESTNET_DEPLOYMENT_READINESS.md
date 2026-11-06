@@ -1,5 +1,12 @@
 # X3 Guard: NEAR Testnet deployment-readiness ceremony (not approved)
 
+> **Historical pre-deployment record.** This page captured a read-only
+> feasibility check before the owner-authorized Task 4 deployment. Its
+> conclusions about `x3lang.testnet` and the then-current build are superseded
+> by [`GUARD_TESTNET_EVIDENCE.md`](GUARD_TESTNET_EVIDENCE.md), which records the
+> deployed `x3lang-guard-20261106.testnet` code identity and finalized
+> transactions. It remains here as provenance for the fail-closed preflight.
+
 **Status: STOP — no deployment, signer, keys, testnet payments or mainnet actions authorized.** This document accompanies Issue #73. It is NOT a funded-deployment runbook, and no private-key commands are provided. Do not copy the legacy `network-config mainnet` commands from `x3-lang/near/x3-guard/README.md` for this testnet milestone.
 
 ## 1. Reproduce read-only account and storage checks

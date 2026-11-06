@@ -1,8 +1,9 @@
 # X3 Shield — Judge Guide
 
-**Status: November 6, 2026 (draft; verify exact HEAD before judging).** Distinguish tested code, signed quotes, observed
-chain facts, and proven causal settlement. This repository has no linked
-public mainnet deployment/payment evidence at this point. Do not invent any.
+**Status: November 6, 2026 release candidate.** Distinguish tested code, signed
+quotes, observed testnet transactions, and proven causal settlement. This
+repository has NEAR testnet evidence, but no public mainnet deployment or
+payment evidence. Do not invent any.
 
 **Track focus:** AI Security & Defense, Agent Economy, Unstoppable DeFi.
 
@@ -25,20 +26,35 @@ than merely an invalid signature or a wallet allowance violation.
 | Agent API policy-bound wallet | Can this agent use the wallet within its limits? | Provider/wallet authorization; not X3's invention |
 | NEAR function-call access key | Can this key call a scoped method with its allowance? | On-chain account-key capability, not signed quote semantics |
 | X3 intent / mandate policy | Are these recipient, asset, refund, fee, amount, deadline, nonce and approval terms allowed? | Local adapter and Guard checks; Rust compiler currently preserves adapter metadata but does **not** run the mandate guard inside general X3VM |
-| X3 Guard signed-quote gate | Is the exact 1Click manager-signed quote allowed under the stored policy? | Implemented in code/tests; no independently verified on-chain testnet deployment/refusal yet |
+| X3 Guard signed-quote gate | Is the exact 1Click manager-signed quote allowed under the stored policy? | Deployed to NEAR testnet; official manager-signed dry quote with a recipient mismatch is refused after signature verification. No live forbidden-quote refusal or deposit is claimed |
 | X3 NEAR proof work | Does real receipt evidence match block and Merkle commitments? | Genuine archived evidence and read-only VM refusal in experimental draft #72; still lacks an independently trusted checkpoint |
 
-**What judges should demand:** a testnet transaction whose manager signature
-checks out but whose signed quote terms violate a mandate, showing an actual
-Guard-level refusal under the deployed code hash. That evidence is **not yet
-available** and is tracked in [issue #73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73).
-Do not replace it with an unsigned dry quote, invalid signature or screenshot.
+**What now exists:** contract account `x3lang-guard-20261106.testnet`,
+deployed WASM SHA-256
+`ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab`
+(544944 bytes), on-chain code hash
+`CbU8SpgfTgG1egbw8ygMTK3deozvDnoFrF8DJ8qifSe6`. An official production-manager-signed
+**dry** quote with recipient `wrap.near` returned `quote_signature ok:true` and
+`quote_request_echo ok:false`; `accept_quote` then failed in finalized testnet
+transaction
+[`3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q`](https://explorer.testnet.near.org/transactions/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q).
+An official manager-signed **live** quote for an allowed destination was
+accepted by finalized transaction
+[`6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ`](https://explorer.testnet.near.org/transactions/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ)
+as a positive control. It stopped before deposit; no funds moved.
 
-**The desired eventual flow** is agent request → `.x3` policy → pinned-key
-signed 1Click quote → deployed Guard's permit/refuse decision → authentic NEAR
-consensus proof of that decision. The current repo proves separate local
-components; the complete, independently authenticated end-to-end flow remains
-blocked. Signing or deploying to testnet requires explicit owner approval.
+**Still missing:** a live manager-signed quote with forbidden terms refused
+by `agent_accept_quote`/`mandate_recipient`, independent light-client
+authentication, a deposit, settlement, and cross-chain causality. Invalid
+signatures, dry-only terms, and the test-only mock-chain signer are not
+substitutes for those claims.
+
+**The eventual flow** is agent request → `.x3` policy → pinned-key signed
+1Click quote → deployed Guard's permit/refuse decision → authentic NEAR
+consensus proof of that decision. This release proves local policy refusal,
+real testnet deployment and contract behavior, and the signed-quote checks
+listed above. It does not prove the complete independently authenticated
+end-to-end flow or any transfer/settlement.
 
 ### References to the baseline
 
@@ -51,16 +67,21 @@ blocked. Signing or deploying to testnet requires explicit owner approval.
 
 [Reproduce the scoped contract test and see it in the browser](X3_SHIELD_SIGNED_QUOTE_REFUSAL_DEMO.md): a correctly signed quote using the repo's deliberately **test-only** Ed25519 signer tries to pay `attacker.near`. `agent_accept_quote` rejects it after verification, records no accepted quote and no spend, while an allowed signed quote succeeds. The judge console's evidence panel runs and labels this test separately with `--with-contract`. This is **not** a genuine 1Click production-manager-signed live quote or a testnet transaction. Issue #73 still tracks that milestone.
 
-## Testnet Guard deployment readiness (no keys or transactions)
+## NEAR testnet Guard evidence
 
-A [read-only deployment feasibility check](GUARD_TESTNET_DEPLOYMENT_READINESS.md)
-queries the real `x3lang.testnet` account and current NEAR Testnet protocol
-storage-staking price from two RPC endpoints. The initial 545,640-byte local
-WASM alone needs about 5.46 NEAR storage stake, more than the public
-account's observed 2 NEAR balance. **The contract has not been deployed.**
-The official 1Click manager signature also must not be confused with a
-community-run testnet quote signature. See Issue #73 for the live Guard
-refusal evidence still needed; no owner deployment approval has been given.
+The owner-authorized testnet deployment and sanitized, hash-chained RPC
+observations are documented in
+[GUARD_TESTNET_EVIDENCE.md](GUARD_TESTNET_EVIDENCE.md) and
+[`evidence/near-guard-testnet/`](../../evidence/near-guard-testnet/manifest.json).
+The collection contains 13 finalized transactions: account creation,
+deployment, allowed and refused registrations, revocation, invalid-signature
+refusal, official-dry recipient-mismatch refusal, a storage-failure retry,
+and an official-live allowed acceptance. Both manifest and transaction
+evidence re-query the public testnet RPC with `--verify`; this is agreement
+with a public RPC, not independent light-client finality.
+
+The deployment account is `x3lang-guard-20261106.testnet`. It is a testnet
+demonstration account, not mainnet infrastructure and not a wallet custodian.
 
 ## Genuine NEAR validator-signature evidence (separate unmerged draft)
 
@@ -116,14 +137,18 @@ Node.js installed, run from the repo root:
 bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
 ```
 
-The wrapper selects Python 3.11+ because the current NEAR evidence parser uses
-`datetime.UTC`. If the required Python packages are absent, it installs them
-in an isolated user-cache virtual environment (internet needed for this
-one-time dependency installation). It never accesses wallet keys or sends a
-transaction; it invokes the existing `judge_evidence.py --mode quick` gate.
+The one-command gate requires **Linux x86_64 + Python 3.12**. It creates or
+reuses an isolated virtual environment installed from the complete
+hash-locked nine-package judge requirement set (internet is needed for the
+one-time dependency installation). The general X3Lang bridge/evidence code
+retains its Python 3.11+ minimum; the one-command lock is narrower because its
+wheel hashes were validated on Python 3.12.
 
-Run from this repository's root, using Python 3.11+ / pytest, Node 22+ and
-Rust/Cargo. Full mode also requires wasm32-unknown-unknown.
+Run from this repository's root with Node 22+ and Rust/Cargo. The command
+never accesses wallet keys or sends a transaction; it checks scenario
+freshness, the four-scenario terminal demo, browser parity, and
+`judge_evidence.py --mode quick`. Full mode also requires
+`wasm32-unknown-unknown`.
 
 | Do X | Expected Y | What it proves |
 | --- | --- | --- |
@@ -136,8 +161,8 @@ Rust/Cargo. Full mode also requires wasm32-unknown-unknown.
 
 Set up a Python virtual environment rather than using global/root pip:
 
-    python3 -m venv /tmp/x3-judge-venv
-    /tmp/x3-judge-venv/bin/python -m pip install -r x3-lang/requirements.txt pytest
+    python3.12 -m venv /tmp/x3-judge-venv
+    /tmp/x3-judge-venv/bin/python -m pip install --require-hashes -r scripts/hackathon/requirements-judge.txt
     /tmp/x3-judge-venv/bin/python scripts/judge_evidence.py --mode quick --report-dir /tmp/x3-judge
 
 The evidence gate does NOT sign, deploy, send funds or read wallet keys.
@@ -189,14 +214,16 @@ a third party who has direct access to an originating wallet's private key.
 Do not claim that it can stop all wallet overspending unless wallet/contract
 enforcement is independently proven.
 
-## Public evidence matrix — pending actual chain events
+## Public evidence matrix
 
 | Claim | Required real artifact | Current status |
 | --- | --- | --- |
 | Mainnet Guard deployment | Contract address and deployment transaction | PENDING |
-| Owner mandate and revocation | NEAR contract transaction hashes | PENDING |
-| Allowed agent acceptance | NEAR tx + nonce + quote guard result | PENDING |
-| Forbidden payee/overspend refused | NEAR failure tx + error | PENDING |
+| Testnet Guard deployment | Contract account, WASM/code hashes, finalized deploy tx | VERIFIED: `x3lang-guard-20261106.testnet`, `ac44fa…`, `FJ5vo…` |
+| Owner mandate and revocation | NEAR contract transaction hashes | VERIFIED TESTNET: `J4Wrx…`, `7aVon…` |
+| Allowed official-live quote acceptance | NEAR tx + nonce + quote guard result | VERIFIED TESTNET OWNER PATH: `6B6k…`; no deposit |
+| Official dry quote with forbidden recipient refused | Manager signature check + failure tx | VERIFIED TESTNET: `check_quote` signature ok, recipient mismatch, `3Q7q…` failure |
+| Live forbidden quote refused by agent mandate | Live manager-signed failure tx and `mandate_recipient` result | PENDING |
 | Solana USDC deposit | Finalized source transfer tx + mint and amount | PENDING |
 | NEAR USDC receipt | Destination tx / balance observation, with attribution caveat | PENDING |
 | Real model generates .x3 policy | Model/provider, actual output, compiled artifact | PENDING |
@@ -211,11 +238,12 @@ Never treat mock signatures or bundled test fixtures as mainnet evidence.
 **00:25–01:05** A real AI model proposes an X3Lang intent. Show model
 call, compiler and output. If it is only a handwritten example, say so.
 
-**01:05–01:45** Verify a real signed quote, accept one authorized action,
-then try a malicious recipient / over-limit amount and show the Guard refusal.
+**01:05–01:45** Show the local test-only signed-quote refusal, then the
+deployed testnet dry-quote recipient-mismatch failure and live allowed
+acceptance. Say that the live testnet acceptance stopped before deposit.
 
-**01:45–02:35** Show real NEAR transaction URLs and Solana deposit evidence
-if authorized transfers exist; label every observed proof level accurately.
+**01:45–02:35** Open the exact testnet transaction URLs and evidence hashes.
+Do not show Solana deposit evidence because none exists.
 
 **02:35–03:00** Show the judge gate's test results, baseline comparison,
 source code and what has **not** yet been proven.
