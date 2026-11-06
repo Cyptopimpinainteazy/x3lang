@@ -29,6 +29,8 @@ jobs:
         run: python -W error::ResourceWarning -m unittest discover -s x3-lang/bridge -p 'test_*.py' -v
       - name: Check unsigned, unreviewed checkpoint package (not consensus authorization)
         run: python x3-lang/bridge/checkpoint_review_bundle.py verify --directory evidence/near-checkpoint-review/p27
+      - name: Verify read-only two-provider checkpoint metadata consistency (NOT trust)
+        run: python x3-lang/bridge/checkpoint_provider_crosscheck.py verify --root evidence/near-checkpoint-review/p27 --report evidence/near-checkpoint-review/p27/two-provider-crosscheck.json
 
   bridge-bsc:
     runs-on: ubuntu-latest
