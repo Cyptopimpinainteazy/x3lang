@@ -457,7 +457,11 @@ fn test_check_mode_mainnet_rejects_unsafe_intent() {
 fn test_check_mode_dev_passes_simple() {
     use x3_lang_compiler::check_source;
     let src = include_str!("../../examples/simple_swap.x3");
-    let _ = check_source(src).unwrap();
+    let (_, _, errors) = check_source(src).expect("the checker itself must complete");
+    assert!(
+        errors.is_empty(),
+        "development mode must accept simple_swap without semantic errors: {errors:?}"
+    );
 }
 
 // ============================================================================
