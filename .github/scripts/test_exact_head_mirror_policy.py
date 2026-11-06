@@ -10,10 +10,13 @@ import unittest
 
 from exact_head_mirror_policy import (
     APPROVED,
+    UNAPPROVED,
     SCHEMA,
     MirrorPolicyError,
+    load_policy_bytes,
     require_policy_matches_base,
     verify_fallback,
+    verify_policy_review,
 )
 
 MIRRORED = (
@@ -152,6 +155,14 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(MirrorPolicyError, "exactly the seven"):
             self.verify()
 
+    def test_policy_manifest_cannot_broaden_the_bridge_allowlist(self) -> None:
+        self.policy["x3lang_only_prefixes"] = ["x3-lang/"]
+        with self.assertRaisesRegex(MirrorPolicyError, "exactly"):
+            load_policy_bytes(
+                json.dumps(self.policy).encode(),
+                "test-policy",
+            )
+
     def test_policy_cannot_approve_itself_in_the_pr_head(self) -> None:
         base_policy = dict(self.policy)
         base_policy["status"] = "UNAPPROVED"
@@ -171,6 +182,48 @@ class ExactHeadMirrorPolicyTests(unittest.TestCase):
 
         with self.assertRaisesRegex(MirrorPolicyError, "cannot approve itself"):
             require_policy_matches_base(self.workspace, "origin/main")
+
+    def test_policy_only_change_can_be_reviewed_without_admitting_code(self) -> None:
+        proposal = dict(self.policy)
+        proposal["status"] = UNAPPROVED
+        proposal["owner_approval_reference"] = None
+        write(
+            self.workspace,
+            ".github/mirror-policy.json",
+            json.dumps(proposal, sort_keys=True),
+        )
+        commit(self.workspace, "propose mirror policy")
+
+        result = verify_policy_review(
+            self.workspace,
+            self.peer,
+            proposal,
+            base_ref="origin/main",
+            peer_base_ref="origin/master",
+        )
+
+        self.assertEqual(result["mode"], "POLICY_REVIEW_ONLY")
+        self.assertEqual(result["policy_status"], UNAPPROVED)
+        self.assertFalse(result["admits_feature_changes"])
+        self.assertEqual(result["changed_paths_checked"], [".github/mirror-policy.json"])
+
+    def test_policy_review_refuses_mixed_feature_changes(self) -> None:
+        write(
+            self.workspace,
+            ".github/mirror-policy.json",
+            json.dumps(self.policy, sort_keys=True),
+        )
+        commit(self.workspace, "propose mirror policy")
+        self.feature_commit("x3-lang/bridge/state.py", "BASE = 2\n")
+
+        with self.assertRaisesRegex(MirrorPolicyError, "policy-review paths"):
+            verify_policy_review(
+                self.workspace,
+                self.peer,
+                self.policy,
+                base_ref="origin/main",
+                peer_base_ref="origin/master",
+            )
 
 
 if __name__ == "__main__":

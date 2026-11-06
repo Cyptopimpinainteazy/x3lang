@@ -30,6 +30,20 @@ but it does not replace matching peer branches for changed proof paths.
 The strict same-branch gate remains the default. When the matching peer branch
 exists, the existing `check_x3lang_mirror.py` comparison remains authoritative.
 
+### Policy-review bootstrap
+
+A PR that changes only the policy manifest, policy runner, its tests, the CI
+workflow, CODEOWNERS, or this document runs in `POLICY_REVIEW_ONLY` mode when
+the peer branch is absent. That mode verifies the complete shared-file manifest
+against both the exact x3lang head and the pinned peer commit, but it cannot
+admit production changes. Any `x3-lang/**`, `scripts/proof/**`, or other path in
+the same diff keeps the strict gate closed.
+
+This lets the initial policy proposal receive exact-head CI before the policy
+exists on `main`. It does not approve the policy, bypass the peer comparison,
+or authorize a feature PR. Feature fallback remains unavailable until the
+policy itself is merged to `main`.
+
 The proposed fallback is unavailable until `.github/mirror-policy.json` changes
 to `OWNER_APPROVED` with a real review reference in a separately reviewed PR.
 Once approved, a missing peer branch may pass only when all of these hold:
@@ -88,4 +102,5 @@ python3 -m py_compile .github/scripts/exact_head_mirror_policy.py
 
 The tests cover bridge-only admission, VM and shared-file refusal, arbitrary new
 proof-script refusal, self-approval in a feature PR, unapproved policy refusal,
-peer-anchor drift, empty diffs, and manifest completeness.
+policy-only bootstrap review, mixed policy/feature refusal, peer-anchor drift,
+empty diffs, and manifest completeness.

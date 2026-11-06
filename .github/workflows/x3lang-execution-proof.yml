@@ -7,7 +7,12 @@ on:
       - 'scripts/proof/x3lang_execution_proof.py'
       - 'scripts/proof/x3lang_runtime_equivalence.py'
       - 'scripts/proof/check_x3lang_mirror.py'
+      - '.github/CODEOWNERS'
+      - '.github/mirror-policy.json'
+      - '.github/scripts/exact_head_mirror_policy.py'
+      - '.github/scripts/test_exact_head_mirror_policy.py'
       - '.github/workflows/x3lang-execution-proof.yml'
+      - 'docs/security/X3LANG_EXACT_HEAD_MIRROR_POLICY.md'
   workflow_dispatch:
 
 permissions:

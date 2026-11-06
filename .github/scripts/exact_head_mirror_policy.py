@@ -34,6 +34,18 @@ MIRRORED_PATHS = frozenset(
     }
 )
 DEFAULT_POLICY_PATH = ".github/mirror-policy.json"
+EXPECTED_PROTECTED_PEER_PATHS = ["scripts/proof/"]
+EXPECTED_X3LANG_ONLY_PREFIXES = ["x3-lang/bridge/"]
+POLICY_REVIEW_PATHS = frozenset(
+    {
+        ".github/CODEOWNERS",
+        ".github/mirror-policy.json",
+        ".github/scripts/exact_head_mirror_policy.py",
+        ".github/scripts/test_exact_head_mirror_policy.py",
+        ".github/workflows/x3lang-execution-proof.yml",
+        "docs/security/X3LANG_EXACT_HEAD_MIRROR_POLICY.md",
+    }
+)
 
 
 class MirrorPolicyError(RuntimeError):
@@ -156,6 +168,14 @@ def load_policy_bytes(content: bytes, source: str) -> dict[str, Any]:
         values = policy.get(key)
         if not isinstance(values, list) or not all(isinstance(v, str) and v for v in values):
             raise MirrorPolicyError(f"{key} must be a non-empty string list or empty list")
+    if policy["protected_peer_paths"] != EXPECTED_PROTECTED_PEER_PATHS:
+        raise MirrorPolicyError(
+            "protected_peer_paths must be exactly ['scripts/proof/']"
+        )
+    if policy["x3lang_only_prefixes"] != EXPECTED_X3LANG_ONLY_PREFIXES:
+        raise MirrorPolicyError(
+            "x3lang_only_prefixes must be exactly ['x3-lang/bridge/']"
+        )
     if status == APPROVED:
         approval = policy.get("owner_approval_reference")
         if not isinstance(approval, str) or not approval.strip():
@@ -205,6 +225,60 @@ def require_policy_matches_base(
     return load_policy_bytes(base, f"{base_ref}:{rel}")
 
 
+def verify_shared_files(
+    workspace: Path, peer: Path, policy: dict[str, Any]
+) -> str:
+    """Verify the reviewed shared-file manifest in both repositories."""
+    mirrored = policy.get("mirrored_files")
+    if not isinstance(mirrored, dict) or set(mirrored) != MIRRORED_PATHS:
+        raise MirrorPolicyError(
+            "mirrored_files must contain exactly the seven reviewed proof paths"
+        )
+    anchor = resolve_commit(peer, policy["peer_content_anchor_sha"])
+    failures: list[str] = []
+    for rel, expected in sorted(mirrored.items()):
+        current = ref_file_sha256(workspace, "HEAD", rel)
+        anchored = ref_file_sha256(peer, anchor, rel)
+        if current != expected:
+            failures.append(f"{rel}: current={current or 'missing'} expected={expected}")
+        if anchored != expected:
+            failures.append(f"{rel}: anchor={anchored or 'missing'} expected={expected}")
+    if failures:
+        raise MirrorPolicyError("mirrored proof file drift:\n" + "\n".join(failures))
+    return anchor
+
+
+def verify_policy_review(
+    workspace: Path,
+    peer: Path,
+    policy: dict[str, Any],
+    *,
+    base_ref: str,
+    peer_base_ref: str,
+) -> dict[str, Any]:
+    """Validate a policy-only PR without admitting any feature changes."""
+    current_changes = changed_paths(workspace, base_ref)
+    outside_review_scope = sorted(current_changes - POLICY_REVIEW_PATHS)
+    if not current_changes:
+        raise MirrorPolicyError("policy review requires a policy-only diff")
+    if outside_review_scope:
+        raise MirrorPolicyError(
+            "policy review is limited to policy-review paths; found: "
+            + ", ".join(outside_review_scope)
+        )
+    resolve_commit(peer, peer_base_ref)
+    anchor = verify_shared_files(workspace, peer, policy)
+    return {
+        "mode": "POLICY_REVIEW_ONLY",
+        "policy_status": policy["status"],
+        "admits_feature_changes": False,
+        "peer_anchor_sha": anchor,
+        "changed_paths_checked": sorted(current_changes),
+        "mirrored_files_checked": len(policy["mirrored_files"]),
+        "financial_or_consensus_authority": False,
+    }
+
+
 def verify_fallback(
     workspace: Path,
     peer: Path,
@@ -216,17 +290,11 @@ def verify_fallback(
 ) -> dict[str, Any]:
     """Verify the x3lang-only fallback without changing either checkout."""
     # Re-validate even when callers construct a policy programmatically.
-    mirrored = policy.get("mirrored_files")
-    if not isinstance(mirrored, dict) or set(mirrored) != MIRRORED_PATHS:
-        raise MirrorPolicyError(
-            "mirrored_files must contain exactly the seven reviewed proof paths"
-        )
     if policy["status"] != APPROVED:
         raise MirrorPolicyError(
             f"peer branch {peer_branch!r} is missing and mirror policy is UNAPPROVED; "
             "create the matching peer branch or obtain owner approval for this policy in a reviewed PR"
         )
-    anchor = resolve_commit(peer, policy["peer_content_anchor_sha"])
     resolve_commit(peer, peer_base_ref)
     current_changes = changed_paths(workspace, base_ref)
     protected = tuple(policy["protected_peer_paths"])
@@ -240,16 +308,7 @@ def verify_fallback(
             raise MirrorPolicyError(
                 f"x3lang-only fallback does not cover changed path: {rel}"
             )
-    failures: list[str] = []
-    for rel, expected in sorted(policy["mirrored_files"].items()):
-        current = ref_file_sha256(workspace, "HEAD", rel)
-        anchored = ref_file_sha256(peer, anchor, rel)
-        if current != expected:
-            failures.append(f"{rel}: current={current or 'missing'} expected={expected}")
-        if anchored != expected:
-            failures.append(f"{rel}: anchor={anchored or 'missing'} expected={expected}")
-    if failures:
-        raise MirrorPolicyError("mirrored proof file drift:\n" + "\n".join(failures))
+    anchor = verify_shared_files(workspace, peer, policy)
     return {
         "mode": "OWNER_APPROVED_X3LANG_ONLY_FALLBACK",
         "peer_branch": peer_branch,
@@ -319,6 +378,17 @@ def main() -> int:
         try:
             resolved_branch = resolve_commit(peer, branch_ref)
         except MirrorPolicyError:
+            current_changes = changed_paths(workspace, args.base_ref)
+            if current_changes and current_changes <= POLICY_REVIEW_PATHS:
+                result = verify_policy_review(
+                    workspace,
+                    peer,
+                    policy,
+                    base_ref=args.base_ref,
+                    peer_base_ref=args.peer_base_ref,
+                )
+                print(json.dumps(result, indent=2, sort_keys=True))
+                return 0
             policy = require_policy_matches_base(
                 workspace,
                 args.base_ref,
