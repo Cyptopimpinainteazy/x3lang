@@ -1,5 +1,12 @@
 # x3-guard
 
+> **Testnet hackathon safety:** The historical deploy and migration examples below use
+> `network-config mainnet`; they are **NOT instructions for the current testnet
+> milestone** and must not be run. No deployment/signing/funding is approved.
+> Use [the read-only testnet preflight](../../../docs/hackathon/GUARD_TESTNET_DEPLOYMENT_READINESS.md)
+> to check source, account and code storage feasibility first. Production
+> 1Click signed quotes are not the same as community testnet sandbox quotes.
+
 The X3 policy of a NEAR Intents swap, enforced on NEAR.
 
 `x3-lang/near_intents.py` lowers an X3 intent to a 1Click quote request and checks the quote
