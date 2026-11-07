@@ -19,7 +19,7 @@ from typing import Any
 from base_sepolia_guarded_admission import (
     NEAR_RPC, NEAR_GENESIS, BASE_RPCS, CHAIN_ID, SOURCE, TOKEN, TOKEN_CODE_SHA256,
     RECEIVER, AMOUNT, DEST_ASSET, AdmissionError, reject, rpc, check_quote,
-    get_near_policy, check_guard_policy,
+    get_near_policy, check_guard_policy, enforce_compiled_x3_policy,
 )
 
 USDC_NEAR_CONTRACT = 'usdc.tidepool-sandbox.testnet'
@@ -177,6 +177,7 @@ def collect(quote_data: dict, *, guard_account: str, guard_sha: str, nonce: str,
     q=check_quote(maker_quote,issued)
     policy=get_near_policy(guard_account,RECEIVER,nonce,guard_sha)
     check_guard_policy(q,policy,owner=RECEIVER,nonce=nonce,now=issued,program_sha=program_sha)
+    enforce_compiled_x3_policy(source,q,policy,nonce)
     base=verify_base_quorum(base_tx_hash,q['deposit_address'])
     near=verify_near_delivery(near_tx_hash,near_tx_signer,min_units=q['minimum_out'])
     delta=verify_delivery_balance(before_hash,after_hash,q['minimum_out'])
