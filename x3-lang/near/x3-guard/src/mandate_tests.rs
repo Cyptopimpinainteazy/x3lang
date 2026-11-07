@@ -675,3 +675,77 @@ fn agent_quote_view_refuses_unregistered_and_owner_only_intents() {
     let owner_view = c.check_quote(owner(), "owner_only".into(), text, sig);
     assert!(failed(&owner_view).is_empty(), "{owner_view:?}");
 }
+
+/// Judge demonstration: passing cryptography is only step one. Even a correctly
+/// signed *new* quote from the test-only signer must fail if its recipient
+/// violates the owner's registered mandate/intent terms. This test uses
+/// near-sdk's mock blockchain, NOT a deployed contract or 1Click's real key.
+#[test]
+fn valid_test_signature_with_forbidden_recipient_never_authorizes_a_deposit() {
+    let mut c = with_mandate(terms());
+    let (policy, allowed_text, allowed_sig) = quote_at(NOW_MS, 25 * USDC);
+    let nonce = "signed_forbidden_recipient";
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), nonce.into(), policy.clone());
+
+    // Derive an independently signed request, not a post-signature byte edit:
+    // signature MUST validate, otherwise this only tests invalid signatures.
+    let mut forbidden: serde_json::Value = serde_json::from_str(&allowed_text).unwrap();
+    forbidden["recipient"] = json!("attacker.near");
+    let (signed_text, signature) = signed(&forbidden);
+    assert!(
+        verify_signed_quote(&c.manager_public_key, &signed_text, &signature).is_ok(),
+        "the prohibited quote must have a valid test-only signature"
+    );
+
+    ctx(agent(), NOW_MS, NearToken::from_yoctonear(0));
+    let checks = c.check_agent_quote(owner(), nonce.into(), signed_text.clone(), signature.clone());
+    assert!(
+        checks.iter().any(|g| g.guard == "quote_signature" && g.ok),
+        "test signature must verify before checking policy: {checks:?}"
+    );
+    assert!(
+        failed(&checks).contains(&"quote_request_echo".to_string()),
+        "signed recipient mismatch must be rejected as a policy issue: {checks:?}"
+    );
+
+    ctx(agent(), NOW_MS, one_near());
+    let err = panics(|| c.agent_accept_quote(owner(), nonce.into(), signed_text, signature));
+    assert!(
+        err.contains("quote rejected by") && err.contains("quote_request_echo"),
+        "valid but prohibited quote was not rejected at the policy boundary: {err}"
+    );
+    assert!(
+        c.get_intent(owner(), nonce.into()).unwrap().quote.is_none(),
+        "denied quote must not write an accepted deposit address"
+    );
+    assert_eq!(
+        c.get_mandate(owner(), agent()).unwrap().spent_in_window(NOW_MS),
+        (0, 0),
+        "rejected quote must not consume mandate spend allowance"
+    );
+    assert!(
+        !get_logs().iter().any(|log| log.contains("\"quote_accepted\"")),
+        "no quote_accepted event may be emitted for the forbidden quote"
+    );
+
+    // Positive control: precisely the same registered policy with a separately
+    // signed authorized quote DOES pass; the negative outcome was not a bad key.
+    let good_nonce = "signed_permitted_recipient";
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), good_nonce.into(), policy);
+    ctx(agent(), NOW_MS, one_near());
+    let accepted = c.agent_accept_quote(owner(), good_nonce.into(), allowed_text, allowed_sig);
+    assert!(
+        accepted.iter().all(|g| g.ok),
+        "valid permitted quote should pass: {accepted:?}"
+    );
+    // `accept_quote` returns evaluated guard decisions; signature verification
+    // is proven independently above and by check_agent_quote, not by a
+    // fabricated `quote_signature` entry in the acceptance result.
+    assert!(c.get_intent(owner(), good_nonce.into()).unwrap().quote.is_some());
+    assert_eq!(
+        c.get_mandate(owner(), agent()).unwrap().spent_in_window(NOW_MS),
+        (25 * USDC, 1)
+    );
+}

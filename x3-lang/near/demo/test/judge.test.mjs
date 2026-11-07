@@ -68,3 +68,11 @@ test("a mandate owned by someone else is refused before any term is checked", as
 test("only the local policy level is claimed as proven", () => {
   assert.deepEqual(judge.EVIDENCE_LADDER.filter((l) => l.proven).map((l) => l.level), ["local_policy"]);
 });
+
+test("judge evidence panel labels valid test-key signed-quote refusal as local, not on-chain", () => {
+  const html = read("x3-lang/near/demo/judge.html");
+  assert.match(html, /id === "guard_signed_refusal"/);
+  assert.match(html, /TEST-ONLY key/);
+  assert.match(html, /not a live 1Click signature or on-chain receipt/);
+  assert.match(html, /NOT PROVEN BY THIS RECORD/);
+});
