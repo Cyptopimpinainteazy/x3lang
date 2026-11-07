@@ -1,0 +1,67 @@
+name: X3 Shield Python Mandate Source Mutation Gate
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near_mandate.py'
+      - 'x3-lang/tests/test_near_mandate.py'
+      - 'x3-lang/tests/test_near_mandate_boundaries.py'
+      - 'scripts/security/**'
+      - 'docs/security/MUTATION_TESTING.md'
+      - 'scripts/hackathon/requirements-judge.txt'
+      - '.github/workflows/x3shield-python-mutation-gate.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/near_mandate.py'
+      - 'x3-lang/tests/test_near_mandate.py'
+      - 'x3-lang/tests/test_near_mandate_boundaries.py'
+      - 'scripts/security/**'
+      - 'scripts/hackathon/requirements-judge.txt'
+      - '.github/workflows/x3shield-python-mutation-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact proposed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Provision isolated hash-locked test runtime
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/x3-mutation-venv"
+          "$RUNNER_TEMP/x3-mutation-venv/bin/python" -m pip install --require-hashes -r scripts/hackathon/requirements-judge.txt
+      - name: Verify runner failure classification with real subprocess tests
+        shell: bash
+        run: |
+          PYTHONPATH=scripts/security PYTHONDONTWRITEBYTECODE=1 "$RUNNER_TEMP/x3-mutation-venv/bin/python" \
+            -m unittest discover -s scripts/security -p 'test_*.py' -v
+      - name: Kill curated security mutants (baseline must pass)
+        shell: bash
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 "$RUNNER_TEMP/x3-mutation-venv/bin/python" scripts/security/mutation_runner.py \
+            --output-dir "$RUNNER_TEMP/x3-mutation-results"
+      - name: Check actual report and explicit denominator
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/x3-mutation-venv/bin/python" - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"x3-mutation-results/mutation_results.json"
+          s=json.loads(p.read_text())["summary"]
+          assert s["baseline_status"]=="PASS", s
+          assert s["total_mutations"]==12 and s["killed"]==12, s
+          assert s["survived"]==s["invalid"]==s["timeouts"]==0, s
+          print(f"PASS: {s['killed']}/{s['total_mutations']} verified source mutants killed at {s['git_head']}")
+          PY
