@@ -1,0 +1,45 @@
+name: X3 Guard Read-Only Deployment Preflight Tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/hackathon/guard_readonly_deployment_preflight.py'
+      - 'scripts/hackathon/test_guard_readonly_deployment_preflight.py'
+      - 'docs/hackathon/GUARD_TESTNET_DEPLOYMENT_READINESS.md'
+      - 'x3-lang/near/x3-guard/**'
+      - '.github/workflows/x3-guard-deployment-readonly-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-safety-and-wasm-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact proposed HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install stable Rust and WASM target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - name: Set up Guard build dependency cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/x3-guard
+      - name: Verify read-only preflight unit/negative cases (no RPC network calls)
+        run: python3 -m unittest discover -s scripts/hackathon -p 'test_guard_readonly_deployment_preflight.py' -v
+      - name: Verify native Guard tests and WASM target
+        run: |
+          cargo test --locked --manifest-path x3-lang/near/x3-guard/Cargo.toml --quiet
+          cargo check --locked --manifest-path x3-lang/near/x3-guard/Cargo.toml --target wasm32-unknown-unknown --quiet
+      - name: Reproduce locally verifiable unsigned WASM artifact
+        run: |
+          cargo build --locked --release --manifest-path x3-lang/near/x3-guard/Cargo.toml --target wasm32-unknown-unknown --quiet
+          sha256sum x3-lang/near/x3-guard/target/wasm32-unknown-unknown/release/x3_guard.wasm
+          echo 'This workflow NEVER reads keys, broadcasts, deposits, or deploys.'
