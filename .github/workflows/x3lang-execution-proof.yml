@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   mirrored-proof-files:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     name: Verify identical proof code in both GitHub repos
     runs-on: ubuntu-latest
     timeout-minutes: 10
