@@ -84,6 +84,15 @@ with a public RPC, not independent light-client finality.
 The deployment account is `x3lang-guard-20261106.testnet`. It is a testnet
 demonstration account, not mainnet infrastructure and not a wallet custodian.
 
+The separate `x3lang.testnet` deployment has the same on-chain code hash and a
+finalized mandate lifecycle. `agent_register_intent` to `attacker.near` failed
+at `mandate_recipient`
+([`AhVBD…`](https://explorer.testnet.near.org/transactions/AhVBD7oXfwsixBipupjCzuhNdqunjdXJnLz3LXnmfnN8));
+the allowed control emitted `intent_registered`
+([`DPJfc…`](https://explorer.testnet.near.org/transactions/DPJfcRUGk56h8sSsFsDFFgUMQAiyBCtpMuvquF9FvTct)).
+Current read-only state confirms the mandate is revoked. Creation and revocation
+are state observations, not independently tx-anchored in that evidence file.
+
 ## NEAR authenticated light-client work in this branch
 
 The branch contains the Python fail-closed state machine in
@@ -217,6 +226,7 @@ enforcement is independently proven.
 | Owner mandate and revocation | NEAR contract transaction hashes | VERIFIED TESTNET: `J4Wrx…`, `7aVon…` |
 | Allowed official-live quote acceptance | NEAR tx + nonce + quote guard result | VERIFIED TESTNET OWNER PATH: `6B6k…`; no deposit |
 | Official dry quote with forbidden recipient refused | Manager signature check + failure tx | VERIFIED TESTNET: `check_quote` signature ok, recipient mismatch, `3Q7q…` failure |
+| Prompt-injected agent intent refused by recipient mandate | Finalized failure tx + `check_agent_intent` | VERIFIED TESTNET: `mandate_recipient`, `AhVBD…`; allowed control `DPJfc…` |
 | Live forbidden quote refused by agent mandate | Live manager-signed failure tx and `mandate_recipient` result | PENDING |
 | Solana USDC deposit | Finalized source transfer tx + mint and amount | PENDING |
 | NEAR USDC receipt | Destination tx / balance observation, with attribution caveat | PENDING |
