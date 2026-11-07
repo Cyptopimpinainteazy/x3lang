@@ -33,6 +33,9 @@ MUTANTS = [
     ("payment_cap_bypass", "src/mandate.rs",
      "amount <= t.per_payment_cap.0", "true",
      "every_term_refuses_an_intent_that_breaks_it"),
+    ("quote_hash_replay_bypass", "src/lib.rs",
+     "consumed.get(&facts.quote_hash).is_none()", "true",
+     "one_signed_quote_cannot_authorize_two_distinct_intents"),
 ]
 
 def sha(data):

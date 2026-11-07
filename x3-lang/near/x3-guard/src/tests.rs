@@ -448,6 +448,108 @@ fn an_underdelivered_settlement_is_recorded_as_missing_its_floor() {
 }
 
 #[test]
+fn quote_hash_registry_prefix_does_not_reassign_existing_storage_keys() {
+    // Existing Borsh map prefixes must remain byte-for-byte stable when
+    // the new consumed-quote map is appended for a future migration.
+    assert_eq!(near_sdk::borsh::to_vec(&StorageKey::Intents).unwrap(), vec![0]);
+    assert_eq!(near_sdk::borsh::to_vec(&StorageKey::Mandates).unwrap(), vec![1]);
+    assert_eq!(
+        near_sdk::borsh::to_vec(&StorageKey::ConsumedQuoteHashes).unwrap(),
+        vec![2]
+    );
+}
+
+#[test]
+fn one_signed_quote_cannot_authorize_two_distinct_intents() {
+    // A manager's live quote authenticates exact swap terms, not the user's
+    // arbitrary local intent nonce. Reusing its bytes under a second nonce
+    // should never create two authorization records for one deposit address.
+    let mut c = registered();
+    ctx(accounts(0), NOW_MS, one_near());
+    c.register_intent("n_002".into(), policy());
+    let (text, sig) = signed(&live_payload());
+    ctx(accounts(0), NOW_MS, one_near());
+    let accepted = c.accept_quote("n_001".into(), text.clone(), sig.clone());
+    assert!(accepted.iter().all(|g| g.ok));
+    assert_eq!(
+        c.get_quote_consumer(quote_hash(&text)),
+        Some(format!("{}/{}", accounts(0), "n_001"))
+    );
+    let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ctx(accounts(0), NOW_MS, one_near());
+        c.accept_quote("n_002".into(), text, sig)
+    }));
+    assert!(
+        attempted.is_err(),
+        "one signed quote was accepted for two distinct nonces"
+    );
+    let second = c.get_intent(accounts(0), "n_002".into()).unwrap();
+    assert!(second.quote.is_none(), "duplicate authorization persisted");
+    let first = c.get_intent(accounts(0), "n_001".into()).unwrap();
+    assert!(first.quote.is_some(), "first legitimate acceptance was rolled back");
+}
+
+#[test]
+fn one_signed_quote_cannot_be_replayed_across_owners() {
+    let mut c = registered();
+    ctx(accounts(1), NOW_MS, one_near());
+    c.register_intent("other_owner_nonce".into(), policy());
+
+    let (payload, signature) = signed(&live_payload());
+    ctx(accounts(0), NOW_MS, one_near());
+    assert!(c
+        .accept_quote("n_001".into(), payload.clone(), signature.clone())
+        .iter()
+        .all(|r| r.ok));
+    ctx(accounts(1), NOW_MS, one_near());
+    let replay = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.accept_quote("other_owner_nonce".into(), payload, signature)
+    }));
+    assert!(
+        replay.is_err(),
+        "a second owner reused one manager-signed deposit quote"
+    );
+    assert!(c
+        .get_intent(accounts(1), "other_owner_nonce".into())
+        .unwrap()
+        .quote
+        .is_none());
+}
+
+#[test]
+fn refused_policy_does_not_consume_a_quote_hash() {
+    let mut c = registered();
+    let mut bad = policy();
+    bad.recipient = "attacker.near".into();
+    ctx(accounts(0), NOW_MS, one_near());
+    c.register_intent("refused_policy".into(), bad);
+    let (payload, signature) = signed(&live_payload());
+    let signed_hash = quote_hash(&payload);
+    ctx(accounts(0), NOW_MS, one_near());
+    let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.accept_quote("refused_policy".into(), payload.clone(), signature.clone())
+    }));
+    assert!(rejected.is_err());
+    assert!(c
+        .get_intent(accounts(0), "refused_policy".into())
+        .unwrap()
+        .quote
+        .is_none());
+    assert_eq!(c.get_quote_consumer(signed_hash.clone()), None);
+    ctx(accounts(0), NOW_MS, one_near());
+    assert!(
+        c.accept_quote("n_001".into(), payload, signature)
+            .iter()
+            .all(|guard| guard.ok),
+        "a refused policy must not consume the otherwise valid signed quote"
+    );
+    assert_eq!(
+        c.get_quote_consumer(signed_hash),
+        Some(format!("{}/{}", accounts(0), "n_001"))
+    );
+}
+
+#[test]
 #[should_panic(expected = "already registered")]
 fn a_nonce_registers_once() {
     let mut c = registered();
