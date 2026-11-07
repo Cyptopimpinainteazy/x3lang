@@ -457,3 +457,72 @@ mod authentic_signature_tests {
         contract.authorize("demo_0001".into(), body, sig);
     }
 }
+
+#[cfg(test)]
+mod authentic_live_tests {
+    use super::*;
+    use near_sdk::test_utils::VMContextBuilder;
+    use near_sdk::testing_env;
+
+    fn setup(refund: &str) -> (Contract, String, String, String) {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("signed_live_fixture.json")).unwrap();
+        assert_eq!(
+            fixture["classification"],
+            "REAL_SIGNED_LIVE_QUOTE_NO_DEPOSIT_NO_GUARD_AUTHORIZATION"
+        );
+        let body = fixture["signed_payload"].as_str().unwrap().to_string();
+        let sig = fixture["signature"].as_str().unwrap().to_string();
+        let quote: SignedResponse = serde_json::from_str(&body).unwrap();
+        let issued = parse_utc_ms(&quote.timestamp);
+        let mut ctx = VMContextBuilder::new();
+        ctx.current_account_id("x3-tidepool-guard.testnet".parse().unwrap())
+            .predecessor_account_id("x3lang.testnet".parse().unwrap())
+            .block_timestamp(issued * 1_000_000)
+            .attached_deposit(NearToken::from_near(1));
+        testing_env!(ctx.build());
+        let mut contract = Contract::new();
+        let nonce = "realquote0001".to_string();
+        contract.register(
+            nonce.clone(),
+            IntentPolicy {
+                program_sha256: "b".repeat(64),
+                amount_in: U128(1_000_000),
+                minimum_out: U128(980_000),
+                refund_to: refund.to_string(),
+                expiry_ms: issued + 45 * 60 * 1000,
+                max_slippage_bps: 100,
+            },
+        );
+        (contract, nonce, body, sig)
+    }
+
+    #[test]
+    fn authentic_live_quote_authorizes_exact_owner_policy() {
+        let (mut contract, nonce, body, sig) = setup("0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721");
+        let hash = contract.authorize(nonce.clone(), body, sig);
+        assert_eq!(hash.len(), 64);
+        let record = contract.get_policy("x3lang.testnet".parse().unwrap(), nonce).unwrap();
+        assert_eq!(record.quote_sha256, Some(hash));
+    }
+    #[test]
+    #[should_panic(expected = "nonce was already authorized")]
+    fn authentic_live_quote_cannot_reuse_nonce() {
+        let (mut contract, nonce, body, sig) = setup("0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721");
+        contract.authorize(nonce.clone(), body.clone(), sig.clone());
+        contract.authorize(nonce, body, sig);
+    }
+    #[test]
+    #[should_panic(expected = "unauthenticated testnet maker quote")]
+    fn authentic_live_quote_recipient_tamper_rejected_by_crypto() {
+        let (mut contract, nonce, body, sig) = setup("0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721");
+        let mut changed = body.replace("x3lang.testnet", "attacker.testnet");
+        assert_ne!(changed, body);
+        contract.authorize(nonce, std::mem::take(&mut changed), sig);
+    }
+    #[test]
+    #[should_panic(expected = "refund mismatch")]
+    fn authentic_live_quote_cannot_override_owner_refund_address() {
+        let (mut contract, nonce, body, sig) = setup("0x1234567890123456789012345678901234567890");
+        contract.authorize(nonce, body, sig);
+    }
+}
