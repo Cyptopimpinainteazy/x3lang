@@ -11,7 +11,11 @@ deposit is authorized.
 in Python, the browser, and the NEAR guard contract; the guard's on-chain
 Ed25519 check verifies a real 1Click quote's signed terms (locally tested);
 refusal-first tests cover overspend, wrong recipient, replay, refund
-redirection, and revocation.
+redirection, and revocation. On NEAR testnet the contract is deployed and the
+mandate lifecycle ran for real: a mandate was created, an agent intent to
+`attacker.near` was refused by `mandate_recipient`, a valid intent was accepted,
+and the mandate was revoked — see
+[`evidence/near-guard-testnet-live-2026-11-06.md`](evidence/near-guard-testnet-live-2026-11-06.md).
 
 **Deliberately blocked** — no wallet transfer, live settlement, or on-chain
 authorization is claimed here. Cross-chain causality stays "unproven" until an
