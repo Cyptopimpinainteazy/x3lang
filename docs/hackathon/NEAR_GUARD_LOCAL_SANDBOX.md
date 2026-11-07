@@ -10,7 +10,7 @@ From the project root on Linux x86_64 with Rust >=1.85, `wasm32-unknown-unknown`
 bash scripts/hackathon/guard_sandbox_smoke.sh
 ```
 
-On Ubuntu 22.04 (GLIBC 2.35), the downloaded NEAR Sandbox binary requires a newer libc. The wrapper *does not modify the OS*: when glibc is too old it uses **an already cached Ubuntu 24.04 Docker image** with `--network none`, a read-only repository bind mount and temporary in-memory `/tmp`. External networking is disabled for the entire sandbox run. When the cached image is absent, it refuses with a clear instruction instead of pulling a new image silently. Other sufficiently modern Linux systems run the harness natively.
+On Ubuntu 22.04 (GLIBC 2.35), the downloaded NEAR Sandbox binary requires a newer libc. The wrapper *does not modify the OS*: when glibc is too old it uses **an already cached Ubuntu 24.04 Docker image** with `--network none`, a read-only repository bind mount and temporary in-memory `/tmp`. External networking is disabled for the entire sandbox run. The container also mounts a SHA-256-pinned, cached NEAR Sandbox 2.14.0 executable **read-only** via `NEAR_SANDBOX_BIN_PATH` rather than attempting downloads into the read-only Cargo build directory. The expected binary SHA-256 is `797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13`; the default cache path is `~/.cache/x3lang/near-sandbox-2.14.0/near-sandbox` (override with `X3_SANDBOX_BIN_CACHE`). Missing/mismatched cache or Docker image fails closed, with no silent downloads inside the isolated container. Other sufficiently modern Linux systems run the harness natively.
 
 What the program does:
 
@@ -25,4 +25,4 @@ What the program does:
 
 The [dedicated exact-head CI workflow](../../.github/workflows/x3guard-real-wasm-sandbox.yml) runs this same local-node integration on an Ubuntu 24.04 runner; it has no wallet secrets and uses only ephemeral sandbox funding.
 
-The public Testnet requirement in Issue #73 remains blocked: this local node cannot create a public explorer link or validate the independent trust anchor, and the separate `x3lang.testnet` public balance deficit is not resolved by synthetic sandbox funding.
+The public Testnet requirement in Issue #73 remains blocked: this local node cannot create a public explorer link or validate the independent trust anchor, and synthetic sandbox funding does not prove control of either deployed Testnet account. Both `x3lang.testnet` and `x3lang-guard-20261106.testnet` now have deployed Guard-compatible code; the original 2-NEAR/no-code read-only preflight is historical and superseded.

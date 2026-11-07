@@ -25,10 +25,24 @@ if [[ "${LIBC_MAJOR_MINOR%.*}" == '2' && "${LIBC_MAJOR_MINOR#*.}" =~ ^[0-9]+$ &&
     echo 'Host GLIBC is too old for recent NEAR Sandbox. Install/copy a trusted Ubuntu 24.04 Docker image or run on a newer Linux machine.' >&2
     exit 2
   fi
-  echo 'Starting OFFLINE Ubuntu 24.04 container for local NEAR Sandbox (no host GLIBC upgrade)' >&2
+  # `near-sandbox` puts its default download directory in Cargo OUT_DIR,
+  # which lives under the read-only source mount. Feed it a reviewed cached
+  # local binary through the library's supported override instead.
+  CACHED_BIN="${X3_SANDBOX_BIN_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/x3lang/near-sandbox-2.14.0/near-sandbox}"
+  PINNED_SHA256='797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13'
+  if [[ ! -f "$CACHED_BIN" || ! -x "$CACHED_BIN" ]]; then
+    echo "Pinned NEAR Sandbox 2.14.0 binary absent: $CACHED_BIN; provision it from a trusted release before running the offline container." >&2
+    exit 2
+  fi
+  if [[ "$(sha256sum "$CACHED_BIN" | awk '{print $1}')" != "$PINNED_SHA256" ]]; then
+    echo 'Refusing NEAR Sandbox cache whose SHA256 differs from the audited x3star1 binary' >&2
+    exit 2
+  fi
+  echo 'Starting OFFLINE Ubuntu 24.04 container with pinned cached NEAR Sandbox binary (no host GLIBC upgrade)' >&2
   docker run --rm --network none --user "$(id -u):$(id -g)" \
     --tmpfs /tmp:rw,nosuid,size=512m \
-    -e HOME=/tmp -v "$ROOT:$ROOT:ro" -w "$ROOT" \
+    -e HOME=/tmp -e NEAR_SANDBOX_BIN_PATH=/opt/x3-near-sandbox \
+    -v "$ROOT:$ROOT:ro" -v "$CACHED_BIN:/opt/x3-near-sandbox:ro" -w "$ROOT" \
     ubuntu:24.04 "$HARNESS" "$WASM" "$FIXTURE"
 else
   "$HARNESS" "$WASM" "$FIXTURE"

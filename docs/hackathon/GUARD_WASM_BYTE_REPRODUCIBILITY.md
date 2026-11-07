@@ -24,7 +24,7 @@ From the release branch or a descendant that has **not** changed the Guard's run
 bash scripts/hackathon/verify_guard_wasm_repro.sh
 ```
 
-Requirements: Rust 1.99.1 with `wasm32-unknown-unknown`, Python 3, locked Cargo dependencies (first-run downloading dependencies may use the internet). No blockchain RPC requests or wallet interactions occur during verification. Existing `RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS` or `RUSTC_WRAPPER` cause a hard failure rather than an unreviewed compiler configuration. The script builds into a separate user-cache target directory and verifies both the manifest's record hash and `base58(SHA256(WASM))` against the pinned deployed identity. Missing dependencies/toolchain or changed code fail nonzero.
+Requirements: Rust 1.99.1 with the `rust-src` component and `wasm32-unknown-unknown`, Python 3, locked Cargo dependencies (first-run downloading dependencies may use the internet). No blockchain RPC requests or wallet interactions occur during verification. Existing `RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS` or `RUSTC_WRAPPER` cause a hard failure rather than an unreviewed compiler configuration. The script builds into a separate user-cache target directory and verifies both the manifest's record hash and `base58(SHA256(WASM))` against the pinned deployed identity. Missing dependencies/toolchain or changed code fail nonzero.
 
 ### Why a plain rebuild originally produced 696 additional bytes
 

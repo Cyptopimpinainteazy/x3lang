@@ -17,6 +17,10 @@ if [[ "$version" != '1.99.1' || "$commit" != '58cf8f9c35b355199727627d07ae34a4e2
 fi
 
 sysroot="$(rustc --print sysroot)"
+if [[ ! -f "$sysroot/lib/rustlib/src/rust/library/core/src/lib.rs" ]]; then
+  echo 'Pinned Rust toolchain must include the rust-src component for exact deployed byte reproduction' >&2
+  exit 2
+fi
 export RUSTFLAGS="--remap-path-prefix=$sysroot/lib/rustlib/src/rust=/rustc/$commit"
 export CARGO_TARGET_DIR="${X3_GUARD_REPRO_TARGET:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/x3lang/guard-wasm-repro-1.99.1}"
 

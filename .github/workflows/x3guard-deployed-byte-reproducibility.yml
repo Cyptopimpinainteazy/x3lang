@@ -28,6 +28,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.99.1'
+          components: rust-src
           targets: wasm32-unknown-unknown
       - name: Cache pinned Cargo crate dependencies
         uses: Swatinem/rust-cache@v2
