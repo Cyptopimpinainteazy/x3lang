@@ -1157,6 +1157,13 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     # so a payment the contract would refuse never gets a deposit address.
     mandate_check = None
     if leg.get("mandate_owner") or mandate_path:
+        if live and not guard_contract:
+            raise NearIntentsError(
+                "X3_MANDATE_REQUIRED",
+                "a live quote for a mandate-controlled intent requires --guard-contract "
+                "so revocation and rolling spend are read from chain state",
+                "mandate",
+            )
         if not mandate_path:
             if live:
                 raise NearIntentsError(

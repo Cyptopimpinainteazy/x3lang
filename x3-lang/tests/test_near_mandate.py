@@ -300,6 +300,16 @@ def test_a_live_agent_quote_needs_its_mandate(tmp_path):
     assert agent_quote(tmp_path, live=False, mandate_path=None)["status"] == "quoted"
 
 
+def test_a_live_agent_quote_requires_on_chain_mandate_state(tmp_path):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        agent_quote(tmp_path, live=True, guard_contract=None, transport=transport)
+    assert err.value.code == "X3_MANDATE_REQUIRED"
+    assert "--guard-contract" in err.value.message
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
+    assert not (tmp_path / "n.json").exists() and not (tmp_path / "r.json").exists()
+
+
 def test_a_mandate_for_another_owner_is_refused(tmp_path):
     other = mandate_file(tmp_path, *replaced("owner", "owner someone-else.near"))
     with pytest.raises(ni.NearIntentsError) as err:
