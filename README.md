@@ -8,8 +8,9 @@ Built for the NEAR HACKATHON 2026: AI Security & Defense (primary), Agent Econom
 
 | What you can check yourself | How |
 |---|---|
-| A prompt-injected payment to `attacker.near` is refused by the owner's rules | `python3 scripts/hackathon/demo.py` (no setup, under a second) |
-| On NEAR testnet, a quote with a **valid 1Click signature** but the wrong recipient was refused by the deployed contract | [`3Q7q…` on nearblocks](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q), [evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) |
+| A prompt-injected payment to `attacker.near` is refused by the owner's rules | `python3 scripts/hackathon/demo.py` (needs Python dependencies; demo is offline) |
+| A **real 1 test USDC Base Sepolia → NEAR testnet trade** settled with independently verified finality | [immutable certificate + receipts](docs/hackathon/FIRST_FINALIZED_SWAP_EVIDENCE.md) (trusted Tidepool testnet relay, not native bridge) |
+| On NEAR testnet, an official **dry** quote with a **valid 1Click signature** but the wrong recipient was refused by the deployed contract | [`3Q7q…` on nearblocks](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q), [evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) |
 | Real NEAR validator signatures verified offline: **99.32% of stake** signed block 276420402 | [two commands below](#verify-near-validator-signatures-offline) |
 | The deployed contract is the code in this repo, byte for byte | [`GUARD_WASM_BYTE_REPRODUCIBILITY.md`](docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md) |
 
@@ -79,6 +80,8 @@ the injection; the rule still refused it.
 
 ## Try it
 
+**Private interactive judge preview:** [X3 Shield Attack Lab](docs/hackathon/attack-lab.html) lets you attempt wrong recipient, payment cap, nonce replay and revoked policy. This is **browser-only policy evaluation**. It is not the on-chain attack engine; local NEAR Sandbox custody tests are in draft [#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125). No website or source code will be publicly released until authorized.
+
 | What | Command | Needs |
 |---|---|---|
 | Terminal demo (runs in under a second) | `python3 scripts/hackathon/demo.py` | Python 3 with [`x3-lang/requirements.txt`](x3-lang/requirements.txt) |
@@ -114,10 +117,7 @@ account `x3lang-guard-20261106.testnet`), [evidence](evidence/near-guard-testnet
 | Official 1Click **dry** quote, signature valid, recipient differs from the policy: refused (recipient mismatch plus the dry-quote checks) | [`3Q7q…`](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q) |
 | Official 1Click **live** quote that matches the policy: accepted, stopped before any deposit | [`6B6k…`](https://testnet.nearblocks.io/txns/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ) |
 
-**Two-chain trade**: 1 test USDC from Base Sepolia to NEAR testnet through the Tidepool
-community testnet, authorized on-chain by a separate Guard (`x3guardlaunch2026.testnet`)
-before the source transfer: [walkthrough](docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md),
-[Base tx](https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9).
+**Real finalized two-chain testnet transfer**: 1.000000 test USDC from Base Sepolia to NEAR testnet through the trusted Tidepool community testnet, authorized by a separately deployed, byte-reproducible on-chain Guard (`x3guardlaunch2026.testnet`) **before** the source transfer. The NEAR recipient `x3lang.testnet` received exactly **0.997400 test USDC**, above the signed minimum; two independent Base RPCs verified source finality and NEAR RPCs verified the finalized destination receipt plus historical balance increase. Original immutable evidence: [frozen signed quote + final certificate](docs/hackathon/FIRST_FINALIZED_SWAP_EVIDENCE.md), [full judge walkthrough](docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md), [source Base transaction](https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9), [finalized NEAR payout](https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d) and [strict proof JSON](evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json). This is **trusted relayer testnet settlement**, not independent cryptographic cross-chain atomicity, and it did **not** use the newer draft EVM/NEAR scoped-agent vaults.
 
 On the explorer, a refused call on these deployments shows a generic
 `WebAssembly trap: unreachable`, not the reason. The contract was built without near-sdk's
@@ -149,13 +149,7 @@ authenticates block headers; it does not prove a wallet transfer or settlement.
 
 ## Hard questions
 
-**Can a compromised agent with a full wallet key just skip the Guard?** On the deployed
-contract, yes. x3-guard checks Guard-mediated actions; it does not hold the funds. A
-contract-custodied vault, where the agent's key can only call `request_payment` and the
-vault enforces recipient, per-payment cap, budget, expiry and revocation, is in review
-([#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125)). It has passed a local NEAR
-Sandbox attack run, including a direct transfer refused for lack of key permission, and is
-not deployed to testnet.
+**Can a compromised agent with a full wallet key just skip the Guard?** **Yes**, if that unrestricted key still controls funds. The deployed x3-guard checks Guard-mediated actions; it does not custody tokens and cannot stop transfers made outside X3. We are testing **separate, enforceable custody** in a NEAR FunctionCall-only agent vault ([#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125), real *local* Sandbox) and an EIP-712 Base ERC-20 contract vault ([#138](https://github.com/Cyptopimpinainteazy/x3lang/pull/138), Foundry and real-token *local fork*), with a read-only signed-quote/Guard-to-Base binding in [#140](https://github.com/Cyptopimpinainteazy/x3lang/pull/140). The newer vaults are not publicly deployed, independently audited or part of the historical Tidepool transfer; neither constrains an unrelated funded EOA. Owner keys remain trusted custody roots.
 
 **Isn't this what policy-bound wallets and function-call keys already do?** Those limit
 *which methods* and *how much*. X3 Shield checks the *signed terms of the quote* (recipient,
@@ -176,9 +170,7 @@ against the hackathon start, with a [SHA map](docs/provenance/) to the original 
 
 ## Not claimed
 
-No mainnet deployment, no wallet custody on testnet, no deposit to an accepted address, no
-trustless cross-chain causality, and no native X3VM execution on-chain. The full list of
-controls and open risks is in the [threat model](docs/security/X3_SHIELD_THREAT_MODEL.md).
+No mainnet deployment, no public Base/NEAR **vault** deployment or audited smart-account custody, no funded deposit for the **official 1Click manager** dry/live quote demonstration, no permissionless **native X3 BSC↔NEAR bridge**, no cryptographic atomic cross-chain causality and no native Rust X3VM bytecode execution on-chain. **Separately**, a real Tidepool community-testnet Base→NEAR transfer is finalized and evidenced above. The full list of controls and open risks is in the [threat model](docs/security/X3_SHIELD_THREAT_MODEL.md).
 
 ## Repository layout
 
