@@ -51,6 +51,19 @@ blocked. Signing or deploying to testnet requires explicit owner approval.
 
 [Reproduce the scoped contract test and see it in the browser](X3_SHIELD_SIGNED_QUOTE_REFUSAL_DEMO.md): a correctly signed quote using the repo's deliberately **test-only** Ed25519 signer tries to pay `attacker.near`. `agent_accept_quote` rejects it after verification, records no accepted quote and no spend, while an allowed signed quote succeeds. The judge console's evidence panel runs and labels this test separately with `--with-contract`. This is **not** a genuine 1Click production-manager-signed live quote or a testnet transaction. Issue #73 still tracks that milestone.
 
+## Actual production Guard WASM in a local NEAR Sandbox (no public deployment)
+
+[The NEAR Sandbox integration smoke](NEAR_GUARD_LOCAL_SANDBOX.md) deploys the
+**unchanged production `x3_guard.wasm`** into a local disposable node using
+`near-sandbox` and `near-api`, reads the exact pinned 1Click manager key, then
+presents a **genuine archived production-manager-signed dry quote**. The WASM
+verifies its signature, refuses it as a live deposit authorization, and leaves
+`get_intent.quote = null` after the rejected state-changing transaction.
+This is stronger execution evidence than the existing near-sdk mock tests,
+but it is **not** a public NEAR Testnet refusal of a signed live malicious
+recipient. The wrapper uses an offline Ubuntu 24.04 container on x3star1 to
+avoid modifying Ubuntu 22.04's system GLIBC; CI runs on Ubuntu 24.04.
+
 ## Testnet Guard deployment readiness (no keys or transactions)
 
 A [read-only deployment feasibility check](GUARD_TESTNET_DEPLOYMENT_READINESS.md)
