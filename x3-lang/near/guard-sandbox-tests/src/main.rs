@@ -618,5 +618,126 @@ async fn main() -> Result<()> {
         "duplicate or unauthorized approval modified stored state: {after_replay}"
     );
     println!("X3_SANDBOX_APPROVAL_REPLAY_REFUSED local_only=true first_accepted=true duplicate_refused=true stranger_refused=true stored_count=1");
+
+    // Repeat independent contention rounds with fresh owner-scoped nonces.
+    // All calls use genuine local account signers and node transaction receipts.
+    for round in 0..4u8 {
+        let repeated_nonce = format!("stress-race-{round}");
+        let a = contract
+            .call_function(
+                "agent_register_intent",
+                json!({"owner": race_owner.clone(), "nonce": repeated_nonce,
+                    "policy": mandate_policy("x3-demo.near")}),
+            )
+            .transaction()
+            .gas(NearGas::from_tgas(120))
+            .deposit(NearToken::from_near(1))
+            .with_signer(race_agent_a.clone(), signer.clone())
+            .send_to(&network);
+        let b = contract
+            .call_function(
+                "agent_register_intent",
+                json!({"owner": race_owner.clone(), "nonce": repeated_nonce,
+                    "policy": mandate_policy("x3-demo.near")}),
+            )
+            .transaction()
+            .gas(NearGas::from_tgas(120))
+            .deposit(NearToken::from_near(1))
+            .with_signer(race_agent_b.clone(), signer.clone())
+            .send_to(&network);
+        let (left, right) = if round % 2 == 0 {
+            let (a, b) = tokio::join!(a, b);
+            (a?, b?)
+        } else {
+            let (b, a) = tokio::join!(b, a);
+            (a?, b?)
+        };
+        let success_count = u8::from(left.is_success()) + u8::from(right.is_success());
+        anyhow::ensure!(
+            success_count == 1,
+            "round {round} accepted {success_count} competing submissions: left={left:?}, right={right:?}"
+        );
+        let expected_agent = if left.is_success() {
+            &race_agent_a
+        } else {
+            &race_agent_b
+        };
+        let stored: Value = contract
+            .call_function(
+                "get_intent",
+                json!({"owner": race_owner.clone(), "nonce": repeated_nonce}),
+            )
+            .read_only()
+            .fetch_from(&network)
+            .await?
+            .data;
+        anyhow::ensure!(
+            stored["owner"] == json!(race_owner)
+                && stored["agent"] == json!(expected_agent)
+                && stored["quote"].is_null()
+                && stored["approvals"] == json!([]),
+            "round {round} owner/nonce isolation or state invariant failed: {stored}"
+        );
+    }
+    println!("X3_SANDBOX_REPEAT_NONCE_RACES local_only=true rounds=4 pairs=4 exactly_one_winner_each=true");
+
+    // The same nonce must be valid for a DIFFERENT owner; owner/nonce
+    // namespacing must neither overwrite nor read the first owner's record.
+    let second_owner = create_funded_account(&sandbox, &network, "race-owner-two.sandbox").await?;
+    let distinct_mandate = contract
+        .call_function(
+            "create_mandate",
+            json!({"agent": race_agent_a.clone(), "terms": mandate_terms()}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(120))
+        .deposit(NearToken::from_near(1))
+        .with_signer(second_owner.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(
+        distinct_mandate.is_success(),
+        "second owner mandate failed: {distinct_mandate:?}"
+    );
+    let different_owner_same_nonce = contract
+        .call_function(
+            "agent_register_intent",
+            json!({"owner": second_owner.clone(), "nonce": race_nonce,
+                "policy": mandate_policy("x3-demo.near")}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(120))
+        .deposit(NearToken::from_near(1))
+        .with_signer(race_agent_a.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(
+        different_owner_same_nonce.is_success(),
+        "identical nonce for distinct owner was incorrectly refused: {different_owner_same_nonce:?}"
+    );
+    let second_record: Value = contract
+        .call_function(
+            "get_intent",
+            json!({"owner": second_owner.clone(), "nonce": race_nonce}),
+        )
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    let first_record: Value = contract
+        .call_function("get_intent", json!({"owner": race_owner.clone(), "nonce": race_nonce}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    anyhow::ensure!(
+        second_record["owner"] == json!(second_owner)
+            && second_record["agent"] == json!(race_agent_a)
+            && second_record["approvals"] == json!([])
+            && first_record["owner"] == json!(race_owner)
+            && first_record["approvals"] == json!([race_owner.clone()]),
+        "cross-owner same-nonce records collided or approvals changed: A={first_record} B={second_record}"
+    );
+    println!("X3_SANDBOX_CROSS_OWNER_NONCE_ISOLATION local_only=true distinct_owners=2 shared_nonce=true independent_state=true");
     Ok(())
 }
