@@ -44,9 +44,9 @@ cannot stop an unrestricted wallet keyholder from bypassing it.
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang
 - Testnet evidence: `docs/hackathon/GUARD_TESTNET_EVIDENCE.md`
 - Testnet mandate lifecycle:
-  https://github.com/Cyptopimpinainteazy/x3lang/blob/release/x3lang-submission-20261106/evidence/near-guard-testnet-live-2026-11-06.md
+  https://github.com/Cyptopimpinainteazy/x3lang/blob/master/evidence/near-guard-testnet-live-2026-11-06.md
 - Authenticated light-client design and limits:
-  https://github.com/Cyptopimpinainteazy/x3lang/blob/release/x3lang-submission-20261106/docs/security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md
+  https://github.com/Cyptopimpinainteazy/x3lang/blob/master/docs/security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md
 - Judge path: `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge`
 - Demo video: OWNER TO ATTACH PUBLIC URL AFTER RECORDING
 - Public X post: OWNER TO ATTACH PUBLIC URL AFTER POSTING
