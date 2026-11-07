@@ -12,6 +12,7 @@ This document records only sanitized, hash-chained RPC observations of the Guard
 Evidence files:
 
 - [`evidence/near-guard-testnet/manifest.json`](../../evidence/near-guard-testnet/manifest.json) — deployed account + code identity
+- [Reproduce deployed WASM exact bytes](GUARD_WASM_BYTE_REPRODUCIBILITY.md) — toolchain-pinned, offline build against committed manifest
 - [`evidence/near-guard-testnet/transactions.json`](../../evidence/near-guard-testnet/transactions.json) — collection of 13 finalized transactions with `record_hash` per entry
 - [`evidence/near-guard-testnet/check-quote-views.json`](../../evidence/near-guard-testnet/check-quote-views.json) — sanitized `check_quote` views (dry-refused vs invalid vs live-allowed)
 - [`evidence/near-guard-testnet/quote-dry-official.json`](../../evidence/near-guard-testnet/quote-dry-official.json) — sanitized official dry quote + signature verification

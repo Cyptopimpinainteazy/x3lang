@@ -1,0 +1,45 @@
+name: X3 Guard Exact Deployed WASM Reproducibility
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near/x3-guard/**'
+      - 'evidence/near-guard-testnet/manifest.json'
+      - 'scripts/hackathon/verify_guard_wasm_bytes.py'
+      - 'scripts/hackathon/verify_guard_wasm_repro.sh'
+      - 'scripts/hackathon/test_guard_wasm_repro.py'
+      - '.github/workflows/x3guard-deployed-byte-reproducibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-deployed-wasm-exact-byte-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact proposed HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Pin Rust compiler and WebAssembly target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: wasm32-unknown-unknown
+      - name: Cache pinned Cargo crate dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/x3-guard
+      - name: Test the manifest and binary digest rejection paths
+        run: python3 -m unittest discover -s scripts/hackathon -p 'test_guard_wasm_repro.py' -v
+      - name: Verify shell syntax and exact on-chain source reproducibility
+        run: |
+          bash -n scripts/hackathon/verify_guard_wasm_repro.sh
+          bash scripts/hackathon/verify_guard_wasm_repro.sh
+      - name: Explicit release safety classification
+        run: |
+          echo 'PASS: exact byte-for-byte reproduction of pinned public-testnet WASM hash.'
+          echo 'NOT PROVEN: independent NEAR finality, escrow settlement, keys or signing authority.'
