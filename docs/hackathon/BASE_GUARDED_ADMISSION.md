@@ -45,3 +45,17 @@ Even integrated signing cannot prevent the wallet owner from using another
 program outside X3; claims are limited to the **verified X3 execution path**.
 The first trade still requires a separate explicit owner review of the exact
 quote/hash, contract deployment, fee budget and expiry before `--execute`.
+
+## Actual `.x3` source commitment
+
+`x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3` is parsed and
+typechecked through the real X3Lang Python frontend and lowered to a STRICT
+Base Sepolia testnet policy by `base_sepolia_x3_intent.py`. The signed owner
+mandate must pin the SHA-256 of those **exact source bytes**; the read-only and
+execution admission tool refuse another SHA even if manually supplied.
+
+This is a typed Python frontend/policy projection, **not** evidence that the
+canonical Rust X3VM compiler emitted bytecode or that NEAR Guard actually
+executes X3VM bytecode. Base Sepolia is deliberately absent from the production
+1Click chain mapping: a Base Sepolia quote is testnet-only, and mainnet route
+resolution fails closed rather than silently translating it as Ethereum.

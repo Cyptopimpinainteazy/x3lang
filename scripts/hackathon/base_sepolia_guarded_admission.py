@@ -20,6 +20,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'x3-lang'))
 from near_intents import _decode_ed25519, ed25519  # pinned reference implementation
+from base_sepolia_x3_intent import compile_testnet_intent
 
 NEAR_RPC = 'https://test.rpc.fastnear.com'
 NEAR_GENESIS = 'FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b'
@@ -165,6 +166,8 @@ def main() -> int:
     a=parser.parse_args()
     try:
         reject(len(a.guard_wasm_sha256)==64 and len(a.program_sha256)==64,'EXPECTED_HASH_REQUIRED')
+        source=compile_testnet_intent()
+        reject(a.program_sha256==source['program_sha256'],'X3_SOURCE_HASH_MISMATCH')
         raw=json.loads(a.quote_file.read_text())
         reject(raw.get('classification')=='LIVE_QUOTE_UNFUNDED_UNAUTHORIZED_NOT_SETTLED','QUOTE_FILE_CLASSIFICATION_UNTRUSTED')
         now=datetime.now(timezone.utc)

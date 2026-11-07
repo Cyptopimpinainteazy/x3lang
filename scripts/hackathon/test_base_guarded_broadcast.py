@@ -26,6 +26,14 @@ class TestSender(unittest.TestCase):
                    'owner_nonce':'testnonce1','program_sha':'b'*64,
                    'approved_quote_sha':'c'*64,'execute':True}
 
+    def test_wrong_source_hash_prevents_any_quote_or_chain_lookup(self):
+        with patch.object(m,'compile_testnet_intent',return_value={'program_sha256':'a'*64}), \
+             patch.object(m.admission,'check_quote') as quote, \
+             patch.object(m.admission,'get_near_policy') as near:
+            with self.assertRaisesRegex(m.admission.AdmissionError,'X3_SOURCE_HASH_MISMATCH'):
+                m.checked_admission(self.args['quote_file'],self.args['guard_account'],self.args['guard_sha'],self.args['owner_nonce'],'b'*64)
+            quote.assert_not_called();near.assert_not_called()
+
     def test_invalid_guard_fails_without_cast_or_key(self):
         with patch.object(m,'checked_admission',side_effect=m.admission.AdmissionError('GUARD_DENIED')) as gate,\
              patch.object(m.subprocess,'run') as cast,\

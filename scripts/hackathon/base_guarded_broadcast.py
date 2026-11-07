@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import base_sepolia_guarded_admission as admission
+from base_sepolia_x3_intent import compile_testnet_intent
 
 # No mainnet addresses, token IDs, RPCs, or credentials.
 KEYSTORE_DIR=Path.home()/'.config/x3lang/base-sepolia-test-wallet'
@@ -54,6 +55,8 @@ def check_broadcast_gas(data: str) -> tuple[int,int,int]:
 
 
 def checked_admission(quote_file: Path, guard_account: str, guard_sha: str, owner_nonce: str, program_sha: str) -> dict:
+    source=compile_testnet_intent()
+    admission.reject(program_sha==source['program_sha256'],'X3_SOURCE_HASH_MISMATCH')
     raw=json.loads(quote_file.read_text())
     admission.reject(raw.get('classification')=='LIVE_QUOTE_UNFUNDED_UNAUTHORIZED_NOT_SETTLED','QUOTE_FILE_CLASSIFICATION_UNTRUSTED')
     now=datetime.now(timezone.utc)

@@ -5,6 +5,8 @@ CHAIN_DOMAINS = {
     'solana': {'aliases': {'sol', 'svm'}, 'address': 'base58'},
     'ethereum': {'aliases': {'eth', 'evm'}, 'address': 'evm'},
     'arbitrum': {'aliases': {'arb'}, 'address': 'evm'},
+    # Explicit *testnet-only* domain; deliberately not mapped in the production 1Click adapter.
+    'basesepolia': {'aliases': {'base_sepolia'}, 'address': 'evm'},
     'polygon': {'aliases': {'matic'}, 'address': 'evm'},
     'bitcoin': {'aliases': {'btc'}, 'address': 'btc'},
     'bsc': {'aliases': {'bnb', 'binance', 'bnbchain'}, 'address': 'evm'},
@@ -21,6 +23,7 @@ ASSETS_BY_CHAIN = {
     'solana': {'USDC', 'SOL', 'WSOL', 'USDT', 'BONK'},
     'ethereum': {'USDC', 'USDT', 'WETH', 'ETH', 'WSOL', 'DAI'},
     'arbitrum': {'USDC', 'USDT', 'WETH', 'ETH', 'ARB'},
+    'basesepolia': {'USDC', 'USDT'},
     'polygon': {'USDC', 'USDT', 'WETH', 'MATIC', 'DAI'},
     'bitcoin': {'BTC', 'WBTC'},
     'bsc': {'BNB', 'USDC', 'USDT'},

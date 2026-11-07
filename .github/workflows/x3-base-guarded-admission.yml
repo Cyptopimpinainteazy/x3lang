@@ -2,6 +2,10 @@ name: X3 Guarded Base Sepolia Admission Proof
 on:
   pull_request:
     paths:
+      - 'x3-lang/registry.py'
+      - 'x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3'
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/test_base_sepolia_x3_intent.py'
       - 'scripts/hackathon/base_guarded_broadcast.py'
       - 'scripts/hackathon/test_base_guarded_broadcast.py'
       - 'scripts/hackathon/base_sepolia_guarded_admission.py'
@@ -11,6 +15,10 @@ on:
   push:
     branches: [master]
     paths:
+      - 'x3-lang/registry.py'
+      - 'x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3'
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/test_base_sepolia_x3_intent.py'
       - 'scripts/hackathon/base_guarded_broadcast.py'
       - 'scripts/hackathon/test_base_guarded_broadcast.py'
       - 'scripts/hackathon/base_sepolia_guarded_admission.py'
@@ -34,8 +42,8 @@ jobs:
           PYTHONPATH: x3-lang
         run: |
           set -euo pipefail
-          python -m unittest scripts/hackathon/test_base_sepolia_guarded_admission.py scripts/hackathon/test_base_guarded_broadcast.py -v
-          python -m py_compile scripts/hackathon/base_sepolia_guarded_admission.py scripts/hackathon/base_guarded_broadcast.py
+          python -m unittest scripts/hackathon/test_base_sepolia_guarded_admission.py scripts/hackathon/test_base_guarded_broadcast.py scripts/hackathon/test_base_sepolia_x3_intent.py -v
+          python -m py_compile scripts/hackathon/base_sepolia_guarded_admission.py scripts/hackathon/base_guarded_broadcast.py scripts/hackathon/base_sepolia_x3_intent.py
           git diff --check
       - name: Preserve no-signing read-only preflight
         run: |
