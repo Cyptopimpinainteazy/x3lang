@@ -6,6 +6,36 @@
 
 **Verified real offline evidence:** [read-only Sandbox result](../../evidence/agent-vault-local/verified-sandbox-20261107.json), with exact Rust 1.99.1 local WASM SHA-256 `971d9cc43982b5ca9cdb30deab87e39ac09e752850b20773cace20cae2886128`. The direct transfer was rejected by the RPC with `ServerError(InvalidTransaction)`; it did **not** create an on-chain receipt, so the demo distinguishes protocol rejection from executed failed receipts.
 
+## Review hardening (stacked on #125)
+
+> The Sandbox evidence and WASM SHA-256 above were recorded for the **pre-hardening**
+> source `a9f0e41`. The source below builds a different WASM. Re-run
+> `scripts/hackathon/vault_sandbox_smoke.sh` on x3star1 and record a new evidence file
+> before citing results for it.
+
+- **Dust payments could lock escrow beyond the budget.** Each payment adds a record to
+  contract state, and NEAR locks storage stake from the vault's balance for it. The
+  original ledger never charged that, so a compromised agent sending 1-yocto payments
+  stayed far inside its budget while converting the owner's escrow into locked storage.
+  Each payment now debits `amount + record storage` from escrow and counts both against
+  the budget. A unit test spams dust until refusal and checks the agent never commits
+  more than the budget; with the charge removed, the same test drains all escrow.
+- **The owner had no way to recover escrow.** After revocation the funds were stranded
+  unless the vault account kept a full-access key, which defeats contract custody.
+  `withdraw(amount)` is owner-only, bounded by `available`, works after revocation or
+  expiry, and a failed transfer restores the ledger. Pending payouts stay reserved.
+- **Ledger invariant:** `available + reserved + spent + storage_charged + withdrawn == funded`,
+  asserted after every scenario in the unit tests.
+- **Readable refusals:** every refusal is `X3_VAULT_DENIED: <reason>` (or `X3_VAULT_INIT`,
+  `X3_VAULT_LEDGER`), and the crate builds with `--cfg near` and refuses to compile for
+  wasm32 without it. Otherwise near-sdk drops every message and the explorer shows a bare
+  `unreachable`.
+
+Still open: the callback guards (`#[private]`) are enforced only by the generated WASM entry
+points, so native unit tests cannot cover them; add a Sandbox case that calls `on_payout`
+and `on_withdraw` from the agent account. Before public testnet, deploy so the vault account
+keeps **no** full-access key once initialized and funded.
+
 ## Local real-chain attack matrix
 
 The local test used NEAR Sandbox 2.14.0 with an offline pinned binary, an isolated local blockchain and disposable generated accounts. The test **did not import any user's wallet credentials, contact public RPC or move real funds**.
