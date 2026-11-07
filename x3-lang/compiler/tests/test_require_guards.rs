@@ -337,6 +337,44 @@ fn a_whole_number_percent_guard_does_not_eat_the_clause_after_it() {
     );
 }
 
+#[test]
+fn a_basis_point_unit_is_accepted_before_the_next_clause() {
+    let unit = guard("    require fees <= 100 bps\n    timeout 30s refund ethereum.USDC to sender");
+    assert!(matches!(unit.kind, RequireKind::Fees));
+    assert_eq!(unit.comparison, Some(ComparisonOp::LessOrEqual));
+    assert!(
+        matches!(
+            unit.value,
+            Some(Expression::Literal(x3_lang_ast::ast::LiteralExpr::Int {
+                value: 100,
+                ..
+            }))
+        ),
+        "`bps` names the unit; the bound remains the integer: {:?}",
+        unit.value
+    );
+
+    let percent = "intent probe {\n    from ethereum.USDC amount 1\n    to solana.SOL\n    route {\n        \
+                   swap uniswap ethereum.USDC -> solana.SOL amount 1 min_output 1\n    }\n    \
+                   require fees <= 1%\n    timeout 30s refund ethereum.USDC to sender\n    \
+                   on_fail rollback\n}\n";
+    let basis_points = percent.replace("require fees <= 1%", "require fees <= 100 bps");
+    let from_percent = x3_lang_compiler::compile_to_ir(
+        &x3_lang_compiler::parser::parse_source(percent).expect("a percent fee guard must parse"),
+    )
+    .expect("and lower");
+    let from_points = x3_lang_compiler::compile_to_ir(
+        &x3_lang_compiler::parser::parse_source(&basis_points)
+            .expect("the unit-bearing basis-point spelling must parse"),
+    )
+    .expect("and lower");
+    assert_eq!(
+        from_percent.operations.len(),
+        from_points.operations.len(),
+        "1% and 100 bps are one bound, so the two programs compile to the same shape"
+    );
+}
+
 /// Where `%` is a percent and where it is still a modulo.
 ///
 /// The percent fix is at the guard's bound, not in the literal reader, and this is the

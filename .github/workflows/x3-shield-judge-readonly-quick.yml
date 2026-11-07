@@ -1,0 +1,59 @@
+name: X3 Shield Judge Read-Only Quick Gate
+
+on:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'docs/hackathon/JUDGE_GUIDE.md'
+      - 'docs/hackathon/GUARD_TESTNET_EVIDENCE.md'
+      - 'evidence/near-guard-testnet/**'
+      - 'scripts/judge_evidence.py'
+      - 'scripts/hackathon/testnet_guard_evidence.py'
+      - 'scripts/hackathon/test_testnet_guard_evidence.py'
+      - 'scripts/hackathon/judge_one_command.sh'
+      - 'x3-lang/near/**'
+      - 'x3-lang/tests/**'
+      - 'x3-lang/requirements.txt'
+      - '.github/workflows/x3-shield-judge-readonly-quick.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fresh-ubuntu-quick-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact proposed HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Rust 1.99.1
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+      - name: Cache pinned Rust crates
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            x3-lang
+            x3-lang/near/x3-guard
+      - name: Check wrapper syntax and run fresh-clone, read-only judge gate
+        run: |
+          bash -n scripts/hackathon/judge_one_command.sh
+          env -u PYTHON bash scripts/hackathon/judge_one_command.sh "$RUNNER_TEMP/x3-shield-judge"
+      - name: Verify report exists but do not auto-publish private evidence
+        run: |
+          test -s "$RUNNER_TEMP/x3-shield-judge/evidence.json"
+          test -s "$RUNNER_TEMP/x3-shield-judge/evidence.md"
+          echo 'Judge gate passed on exact proposed HEAD; report retained only on runner.'

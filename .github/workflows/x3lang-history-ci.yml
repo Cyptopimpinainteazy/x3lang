@@ -5,6 +5,7 @@ on:
     branches: [main, 'feat/**', 'fix/**', 'sec/**']
   pull_request:
     branches: [main, 'integration/**']
+  workflow_dispatch:
 
 permissions:
   contents: read

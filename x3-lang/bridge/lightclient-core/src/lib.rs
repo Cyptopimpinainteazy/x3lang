@@ -1,7 +1,7 @@
 //! NEAR light-client *approval signature primitive*. No checkpoint, state,
 //! epoch transitions or permission to attest/pay funds.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
@@ -35,6 +35,14 @@ pub fn approval_message(next_block_hash: [u8; 32], current_height: u64) -> Resul
     Ok(out)
 }
 
+fn strict_validator_key(public_key: &[u8; 32]) -> Result<VerifyingKey, &'static str> {
+    let key = VerifyingKey::from_bytes(public_key).map_err(|_| "bad validator key")?;
+    if key.is_weak() || !key.to_edwards().is_torsion_free() {
+        return Err("weak validator key");
+    }
+    Ok(key)
+}
+
 /// Verify authentic Ed25519 approvals and strict >2/3 stake threshold
 /// against a CALLER-SUPPLIED (potentially fake) validator set.
 /// Do not infer validator provenance, epoch safety, or NEAR finality from Ok.
@@ -58,11 +66,13 @@ pub fn verify_approvals(
         if validator.stake == 0 || !keys.insert(validator.public_key) {
             return Err("zero stake or repeated validator public key");
         }
-        let public = VerifyingKey::from_bytes(&validator.public_key).map_err(|_| "bad validator key")?;
+        let public = strict_validator_key(&validator.public_key)?;
         total_stake = total_stake.checked_add(validator.stake).ok_or("stake overflow")?;
         if let Some(bytes) = approvals.get(i).and_then(Option::as_ref) {
             let sig = Signature::from_bytes(bytes);
-            public.verify(message, &sig).map_err(|_| "bad approval signature")?;
+            public
+                .verify_strict(message, &sig)
+                .map_err(|_| "bad approval signature")?;
             approved_stake = approved_stake
                 .checked_add(validator.stake)
                 .ok_or("signed stake overflow")?;
@@ -81,6 +91,21 @@ pub fn verify_approvals(
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+
+    fn hex_key(value: &str) -> [u8; 32] {
+        assert_eq!(value.len(), 64);
+        let mut output = [0u8; 32];
+        for (index, byte) in output.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).unwrap();
+        }
+        output
+    }
+
+    fn identity_key() -> [u8; 32] {
+        let mut key = [0u8; 32];
+        key[0] = 1;
+        key
+    }
 
     fn voters() -> ([SigningKey; 3], Vec<Validator>) {
         let keys = [
@@ -217,5 +242,43 @@ mod tests {
             Some(keys[2].sign(&message).to_bytes()),
         ];
         assert!(verify_approvals(&validators, &approvals, &message).is_err());
+    }
+
+    #[test]
+    fn weak_and_torsion_keys_are_rejected_even_when_not_signing() {
+        let message = approval_message([7u8; 32], 42).unwrap();
+        let weak_keys = [
+            identity_key(),
+            [0u8; 32],
+            hex_key("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+            hex_key("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
+            hex_key("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"),
+            hex_key("e13c37ce5dce819535f932cbc63fc224d60d129d8e0e4d90cad59438d2d7042a"),
+            [0xffu8; 32],
+        ];
+        for public_key in weak_keys {
+            let validators = [Validator { public_key, stake: 100 }];
+            let error = verify_approvals(&validators, &[None], &message).unwrap_err();
+            assert!(error.contains("key"), "weak key reached stake evaluation: {error}");
+        }
+    }
+
+    #[test]
+    fn identity_key_cannot_forge_a_universal_approval() {
+        let identity = identity_key();
+        let message = approval_message([7u8; 32], 42).unwrap();
+        let mut forged = [0u8; 64];
+        forged[..32].copy_from_slice(&identity);
+        assert_eq!(
+            verify_approvals(
+                &[Validator {
+                    public_key: identity,
+                    stake: 100,
+                }],
+                &[Some(forged)],
+                &message,
+            ),
+            Err("weak validator key")
+        );
     }
 }

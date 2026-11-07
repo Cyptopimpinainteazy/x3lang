@@ -61,7 +61,7 @@ python3 scripts/hackathon/demo.py                         # same scenarios, one 
 bash scripts/hackathon/verify.sh                          # tests + demo + readiness report
 python3 x3-lang/near/demo/judge/build_scenarios.py            # after changing an example
 python3 x3-lang/near/demo/judge/collect_evidence.py           # run the tests; panel 5 shows them
-python3 x3-lang/near/demo/judge/collect_evidence.py --with-contract   # also x3-guard's cargo tests
+python3 x3-lang/near/demo/judge/collect_evidence.py --with-contract   # also includes the scoped signed-quote refusal test
 ```
 
 `judge/evidence.json` is a local record and is not committed: it names the commit it ran on, and

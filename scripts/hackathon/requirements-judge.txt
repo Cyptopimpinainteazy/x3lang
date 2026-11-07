@@ -1,0 +1,27 @@
+# X3 Shield judge one-command dependencies: hash-locked for reproducibility.
+#
+# Full transitive freeze (including pycparser, required by cffi) with SHA256
+# hashes. The judge gate (`scripts/hackathon/judge_one_command.sh`) installs
+# ONLY this file with `--require-hashes` into an isolated venv, not the
+# range-based x3-lang/requirements.txt. Validated on Linux x86_64 with
+# Python 3.12 (cryptography wheel is cp311-abi3, cffi wheel is cp312). On a
+# different Python/platform pip refuses rather than silently floating — that
+# failure is the intended deterministic behavior.
+cffi==2.1.1 \
+    --hash=sha256:c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf
+cryptography==50.0.2 \
+    --hash=sha256:9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079
+iniconfig==2.3.1 \
+    --hash=sha256:9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+pluggy==1.7.0 \
+    --hash=sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec
+pycparser==3.12 \
+    --hash=sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e
+pycryptodome==4.3.0 \
+    --hash=sha256:96bf142ef25544a221a2b4a8f5d449cb07c1736be71b4ea057749318a2cd402c
+Pygments==2.21.0 \
+    --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
+pytest==9.2.0 \
+    --hash=sha256:07acdcf88ec174f907dc01af70bf52d49b014bbab03faeeade31c96b18c2e588

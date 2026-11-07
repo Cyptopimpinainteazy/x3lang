@@ -39,6 +39,7 @@ def plan_tests(mode: str) -> list[dict]:
     if mode not in ("quick", "full"):
         raise ValueError("unsupported judge test mode")
     python = sys.executable
+    node = os.environ.get("NODE") or "node"
     python_files = ["x3-lang/tests"] if mode == "full" else [
         "x3-lang/tests/test_near_mandate.py",
         "x3-lang/tests/test_chain_evidence.py",
@@ -46,12 +47,13 @@ def plan_tests(mode: str) -> list[dict]:
         "x3-lang/tests/test_judge_evidence.py",
         "x3-lang/tests/test_near_agent.py",
         "x3-lang/tests/test_value_fee.py",
+        "scripts/hackathon/test_testnet_guard_evidence.py",
     ]
     jobs = [
         _step("python_policy_and_chain_evidence_tests",
               [python, "-m", "pytest", "-q", *python_files], ROOT),
         _step("browser_signature_and_guard_tests",
-              ["node", "--test", "x3-lang/near/demo/test/x3guard.test.mjs"], ROOT),
+              [node, "--test", "x3-lang/near/demo/test/x3guard.test.mjs"], ROOT),
         _step("allocator_supply_chain_gate",
               ["bash", "scripts/check-near-allocator.sh"], ROOT),
         _step("near_guard_mandate_and_quote_tests",
@@ -77,7 +79,7 @@ def run_tests(mode: str) -> list[dict]:
     # Subprocess test runners must never inherit operational wallet or API credentials.
     env = {k: v for k, v in os.environ.items()
            if k in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR',
-                    'RUSTUP_HOME', 'CARGO_HOME', 'PYTHONHOME')}
+                    'RUSTUP_HOME', 'CARGO_HOME', 'PYTHONHOME', 'NODE')}
     env['PYTHONPATH'] = str(LANG)
     results = []
     for step in plan_tests(mode):

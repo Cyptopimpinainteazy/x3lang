@@ -46,8 +46,12 @@ untrusted input. The model may write a `.x3` program, but the pipeline subsequen
 - deterministic mandate checks;
 - owner approval bound to the exact program SHA-256 before a live quote.
 
-The local `qwen2.5-coder:7b` red-team run held all eight repository attacks, but a different model,
-prompt, or sampling configuration is not covered by that result.
+The recorded local `qwen3:8b` red-team run held all eight repository attacks,
+but a different model, prompt, or sampling configuration is not covered by that
+result. Seven cases were refused by the model itself. The eighth,
+homoglyph-recipient case was **not** a model or Guard refusal: the model emitted
+a program paying the real recipient, and deterministic effect checks neutralized
+the attempted lookalike address.
 
 ### 2. Guard is not a wallet
 

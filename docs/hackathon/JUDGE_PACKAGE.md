@@ -2,7 +2,7 @@
 
 **Project:** X3Lang — the programmable trust layer for AI agents and cross-chain finance.
 
-**Track ids:** `security`, `agents`, `defi`.
+**Track ids:** `security`, `agents`.
 
 This package reproduces the current offline policy demonstration. It deliberately separates what
 the repository proves locally from wallet authorization, on-chain enforcement, signed quotes,
@@ -13,21 +13,24 @@ transactions and settlement.
 From the repository root:
 
 ```bash
-python3 scripts/hackathon/demo.py
+bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
 ```
 
-The command is deterministic and offline. It uses one owner mandate, one policy checker and
-three checked-in agent payments. It prints:
+The command is deterministic and local after its first documented dependency
+install; that provisioning may fetch packages. It
+requires Linux x86_64 and Python 3.12 for the hash-locked judge environment.
+It uses one owner mandate, one policy checker and four checked-in demonstration
+requests. It prints:
 
 | Panel | What a judge sees |
 |---|---|
 | 1. Owner policy | The actual mandate source, owner, agent, spending caps, recipient allowlist, assets, fees, slippage, approval threshold, refund pin and expiry |
-| 2. Agent requests | Three actual X3 programs with hashes: an allowed 25 USDC payment, a 40 USDC payment requiring approval, and a payment to an unlisted recipient |
+| 2. Agent requests | Four actual X3 programs with hashes: an allowed payment, one requiring approval, a wrong-recipient request, and the same denied payload framed as prompt injection |
 | 3. Security decision | Local policy verdicts and the exact failed guard (`mandate_recipient` for the attack) |
 | 4. Cross-chain path | The lowered Solana USDC to NEAR USDC leg, minimum receipt, recipient and pinned refund address |
 | 5. Verification limits | What is proven, what was not contacted, and why no wallet, chain or settlement proof is claimed |
 
-The three programs are checked-in examples. This offline path does not call an AI provider and does
+The three checked-in programs are examples. This local path does not call an AI provider and does
 not label a template as model output. The separate AI Money Agent PR is the path that records real
 provider/model/response evidence when credentials are available.
 
@@ -38,7 +41,7 @@ python3 -m http.server 8000 --directory x3-lang/near/demo
 # Open http://localhost:8000/judge.html
 ```
 
-The browser console shows nine scenarios. Python and the browser evaluate the same mandate through
+The browser console shows twelve scenarios. Python and the browser evaluate the same mandate through
 the same guard order and the tests require identical decisions.
 
 ## Shared architecture
@@ -69,8 +72,10 @@ English/task request or handwritten agent intent
                 wallet transfer, then evidence
 ```
 
-The boxes below the local checker are existing release-gate components. This branch does not claim
-that the offline demonstration activated them.
+The terminal/browser policy comparison remains local after dependency
+provisioning. The NEAR Guard has a
+separate owner-authorized testnet deployment and finite evidence set; the
+local demonstration does not activate a wallet or deposit.
 
 ## Adversarial coverage
 
@@ -133,9 +138,11 @@ The readiness report never calculates a completion percentage. It reports:
 | The shared policy checker requires approval above threshold | verified locally |
 | An unlisted recipient is refused with `mandate_recipient` | verified locally |
 | Browser and Python policy decisions agree | verified locally |
-| x3-guard implements the same mandate checks | verified by Rust tests; no deployment asserted |
-| An owner approved a request on NEAR | not verified |
-| x3-guard accepted or refused a real transaction | not verified |
+| x3-guard implements the same mandate checks | verified by Rust tests |
+| x3-guard deployment, registration and revocation | verified on NEAR testnet with exact hashes |
+| An official dry manager-signed quote with a forbidden recipient was refused | verified on NEAR testnet after `quote_signature ok:true` |
+| An official live manager-signed allowed quote was accepted | verified on NEAR testnet; stopped before deposit |
+| A live manager-signed forbidden quote was refused by the agent mandate | not verified |
 | A real wallet signed a quote or sent funds | not verified |
 | A source-chain deposit and destination delivery settled | not verified |
 | One transaction caused the other | not proven |

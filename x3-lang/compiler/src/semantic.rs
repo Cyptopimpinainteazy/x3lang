@@ -1052,6 +1052,47 @@ pub fn verify_guard_kinds_are_checkable(program: &Program, acc: &mut ErrorAccumu
     }
 }
 
+/// A mandate-bound intent needs exactly one replay-protection nonce.
+///
+/// The NEAR adapter records accepted agent intents in x3-guard under the
+/// owner's mandate. Without a nonce, the same program could be accepted more
+/// than once, so the adapter already refuses it. Keep the AST-level compiler
+/// check in lockstep rather than allowing tooling to format or hash an
+/// adapter draft the adapter will reject later.
+pub fn verify_mandate_bindings(program: &Program, acc: &mut ErrorAccumulator) {
+    for item in &program.items {
+        let Item::IntentDecl(intent) = &item.node else {
+            continue;
+        };
+        let Some(owner) = &intent.mandate else {
+            continue;
+        };
+        let nonce_count = intent
+            .body
+            .stmts
+            .iter()
+            .filter(|statement| {
+                matches!(
+                    statement,
+                    x3_lang_ast::ast::Statement::Require(guard)
+                        if guard.kind == x3_lang_ast::ast::RequireKind::Nonce
+                )
+            })
+            .count();
+        if nonce_count != 1 {
+            acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "intent '{}' is `under mandate {}` but declares {nonce_count} `require nonce unused` \
+                     guards; mandate-bound intents require exactly one replay-protection nonce",
+                    intent.name.as_str(),
+                    owner.as_str()
+                ),
+            ));
+        }
+    }
+}
+
 /// A `require proof_complete <name>` guard needs that proof to be declared.
 ///
 /// The guard asserts a proof of the named type was completed;

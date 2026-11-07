@@ -17,7 +17,7 @@ def evaluate(path):
     return tc.evaluate(str(MANDATE), str(path), json.loads(TOKENS.read_text()), now=NOW)
 
 
-def test_one_x3_policy_passes_three_track_preflight_without_authorization():
+def test_one_x3_policy_passes_two_track_preflight_without_authorization():
     result = evaluate(ALLOWED)
     assert result["decision"] == "preflight_passed"
     assert result["denied_guards"] == []

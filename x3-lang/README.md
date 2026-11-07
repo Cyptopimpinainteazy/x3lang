@@ -190,6 +190,12 @@ the nonce and refuses a program that does not use it, and refuses one that is no
 refunds go. A live quote needs the owner to approve this exact program by its SHA-256 (`--approve`,
 or typed at a prompt). Nothing here signs or sends the deposit.
 
+The canonical Rust tooling preserves `under mandate <owner>` in the AST and
+`x3c intent` output, and passes it to the host intent resolver. It is adapter
+metadata, not a VM guard: the generic VM has no mandate store and does not
+claim local enforcement. The NEAR adapter rechecks the owner's mandate in
+Python before quoting and x3-guard enforces it again on chain.
+
 `redteam` sends eight attacks through the configured model: recipient substitution, overspend,
 splitting a payment to get around the cap, refund redirection, prompt injection in the request and
 in an attached invoice, a homoglyph recipient, and another asset. For each, it records the model's
@@ -246,6 +252,10 @@ commercial API/on-chain design and safeguards.
 python3 x3-lang/cli.py x3-lang/examples/arb_solana_eth.x3
 cargo test --manifest-path x3-lang/Cargo.toml
 ```
+
+For the exact source/runtime boundaries, supported guards, proof obligations,
+NEAR mandate dialect, troubleshooting and reproducibility commands, read the
+[X3Lang programming guide](../docs/x3-lang/PROGRAMMING_GUIDE.md).
 
 ## Rust Production Surface
 
