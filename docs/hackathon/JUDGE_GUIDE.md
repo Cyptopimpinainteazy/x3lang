@@ -9,7 +9,7 @@ public mainnet deployment/payment evidence at this point. Do not invent any.
 ## Scope and historical disclosure
 
 Read [PRIOR_WORK.md](../../PRIOR_WORK.md) and
-[baseline...main](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...main).
+[baseline...master](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...master).
 The X3Lang compiler/trading VM predate the hackathon. NEAR Intents, X3 Guard,
 agent mandates and the chain-evidence integration are newly reviewed features.
 Do not attribute historical code to the contest window.

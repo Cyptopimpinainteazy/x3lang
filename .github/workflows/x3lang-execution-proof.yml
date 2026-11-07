@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Reject mirrored-file drift
-        run: python3 scripts/proof/check_x3lang_mirror.py --peer-repo peer-checkout --base-ref origin/main --peer-base-ref origin/master
+        run: python3 scripts/proof/check_x3lang_mirror.py --peer-repo peer-checkout --base-ref origin/master --peer-base-ref origin/master
 
   x3lang-proof:
     runs-on: ubuntu-latest

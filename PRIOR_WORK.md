@@ -24,7 +24,7 @@ represent the date the underlying code was written.
   they are not unrelated product features. See
   [`docs/provenance/xxxstar-to-x3lang-commit-map.tsv`](docs/provenance/xxxstar-to-x3lang-commit-map.tsv)
   for the old-to-filtered SHA mapping.
-- **Filtered source tip:** [`cb3e48a78bcdd5101048d5e57bcb7010196169ed`](https://github.com/Cyptopimpinainteazy/x3lang/commit/cb3e48a78bcdd5101048d5e57bcb7010196169ed). The existing `x3lang/main` initialization commit `7feb7eca5b1d65ff34ccb06efec2b90afcba0647` is retained by a merge commit with **two parents**, rather than flattened into a new root snapshot.
+- **Filtered source tip:** [`cb3e48a78bcdd5101048d5e57bcb7010196169ed`](https://github.com/Cyptopimpinainteazy/x3lang/commit/cb3e48a78bcdd5101048d5e57bcb7010196169ed). The existing `x3lang/master` initialization commit `7feb7eca5b1d65ff34ccb06efec2b90afcba0647` is retained by a merge commit with **two parents**, rather than flattened into a new root snapshot.
 
 ## Auditable historical cutoff
 
@@ -35,9 +35,9 @@ committed **October 18, 2026, 09:49:23 MDT**, the latest commit by committer
 timestamp before the cutoff in the filtered ancestry. It maps to **original
 xxxstar** commit [`d3783944c52883b16e86760f1fe410ad5e834a2c`](https://github.com/Cyptopimpinainteazy/xxxstar/commit/d3783944c52883b16e86760f1fe410ad5e834a2c).
 
-**Canonical comparison:** [**`baseline...main`**](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...main).
+**Canonical comparison:** [**`baseline...master`**](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...master).
 Until this draft import is merged, use the [**review-branch comparison**](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...feat/x3lang-preserved-history-20261103).
-The canonical `baseline...main` comparison becomes meaningful once `main`
+The canonical `baseline...master` comparison becomes meaningful once `master`
 contains the filtered ancestry; it does not before then.
 
 **Crucial ancestry caveat:** six other commits with committer timestamps

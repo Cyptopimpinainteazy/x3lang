@@ -25,7 +25,7 @@ not equivalent to a funded transaction on three chains.
 
 Both repositories should carry identical copies of the two proof scripts,
 their four test sources, and this documentation. PRs for the same feature should
-be opened separately against `x3lang/main` and `xxxstar/master` using the
+be opened separately against `x3lang/master` and `xxxstar/master` using the
 same source bytes. Run the comparison against both clean feature checkouts
 before merging. Never blindly synchronize the entire repositories: they have
 independent roots, dependency graphs, and outstanding branches.

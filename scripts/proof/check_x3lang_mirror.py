@@ -40,7 +40,7 @@ def changes(repo: Path, base: str | None) -> set[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--peer-repo", required=True, type=Path)
-    parser.add_argument("--base-ref", help="Local base ref, e.g. origin/main")
+    parser.add_argument("--base-ref", help="Local base ref, e.g. origin/master")
     parser.add_argument("--peer-base-ref", help="Peer base ref, e.g. origin/master")
     args = parser.parse_args()
     peer = args.peer_repo.resolve()

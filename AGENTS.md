@@ -71,7 +71,7 @@ NEAR Guard requires the WebAssembly contract target; an unsupported native
 specific blocker instead of calling the gate green.
 
 When the judge evidence tool is integrated, run its full mode on the exact
-proposed commit. Do not assume unmerged PR tools exist on `main`.
+proposed commit. Do not assume unmerged PR tools exist on `master`.
 
 ## Definition of done
 

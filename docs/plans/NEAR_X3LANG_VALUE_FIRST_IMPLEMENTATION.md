@@ -47,7 +47,7 @@ slippage. If available quote infrastructure only provides one route, return
 `reference_unavailable`, don't invent savings. Persist evidence/hashes.
 
 **Phase 3 (fee linkage not implemented):** The independent NEAR agent mandates
-work was merged on `x3lang/main` in **PR #3** (`78f72a9`) after this branch
+work was merged on `x3lang/master` in **PR #3** (`78f72a9`) after this branch
 started. Its `mandate.rs` and `near_mandate.py` implement Guard-side agent
 registration/acceptance restrictions, rolling limits, owner revocation and
 approval checks. **Do not claim mandates themselves authorize a wallet spend**:

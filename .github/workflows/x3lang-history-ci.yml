@@ -2,9 +2,9 @@ name: X3Lang History and Reproducibility
 
 on:
   push:
-    branches: [main, 'feat/**', 'fix/**', 'sec/**']
+    branches: [master, 'feat/**', 'fix/**', 'sec/**']
   pull_request:
-    branches: [main, 'integration/**']
+    branches: [master, 'integration/**']
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
           test ! -e x3-lang/vm/src/liquidity.rs
           test ! -e x3-lang/vm/src/agent_firewall.rs
           test -f PRIOR_WORK.md
-          grep -q 'baseline...main' PRIOR_WORK.md
+          grep -q 'baseline...master' PRIOR_WORK.md
           git diff --check baseline...HEAD -- PRIOR_WORK.md README.md .github/workflows/
 
   python-and-browser:

@@ -37,7 +37,7 @@ public mainnet transaction links remain pending and are **not** fabricated.
 **Hackathon disclosure:** the original language and its trading engine were
 created **before** the current NEAR hackathon. This repository preserves their
 real Git history. Start with [PRIOR_WORK.md](PRIOR_WORK.md), including its
-[`baseline...main` historical comparison](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...main).
+[`baseline...master` historical comparison](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...master).
 
 The exact historical source is
 [`xxxstar` / `feat/near-intents-adapter` @ `95587205`](https://github.com/Cyptopimpinainteazy/xxxstar/commit/95587205d5febc40c1047c845f379946c023228d).
