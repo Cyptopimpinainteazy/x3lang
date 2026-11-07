@@ -1,0 +1,34 @@
+{
+  "artifact_sha256": {
+    "checkpoint.unsigned.json": "d3a0011c17f48412efc7cc9fb9e557636288d69196a6e53468fdb4b892b24299",
+    "current-validators.json": "5c0f3e5b536116902e490a02f2cebf4bfeba3ebf66d7f440a3b7638fab478b45"
+  },
+  "authenticated": false,
+  "authorized_to_sign": false,
+  "checkpoint_approved": false,
+  "checkpoint_block_hash": "GCa27vYKmwgQLvRTbLYvWitZe3L54J48LbR2Zx62XvWv",
+  "checkpoint_checksum": "5559de02f0320a55562207d1e003e50106f33f5e5ba18cf35332ae4fbf5c7063",
+  "checkpoint_height": 276392452,
+  "genesis_claim": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+  "message_hex_for_external_review_ONLY": "58335f4e4541525f4c494748545f434c49454e545f434845434b504f494e545f5631005559de02f0320a55562207d1e003e50106f33f5e5ba18cf35332ae4fbf5c7063",
+  "network_claim": "testnet",
+  "protocol_version_claim": 88,
+  "required_external_review": [
+    "Establish true NEAR testnet identity and canonical genesis through independently trusted channel.",
+    "Independently validate originating checkpoint against trusted nearcore state or reviewed genesis trust root.",
+    "Verify current epoch validator set and their chain of authorization, not only the predecessor RPC claim.",
+    "Review protocol-88 and V1 Borsh serialization support against pinned nearcore.",
+    "Approve exact checkpoint digest through externally pinned policy and threshold offline signatures.",
+    "Record reviewer identities, independent evidence and signed approval outside this package."
+  ],
+  "schema": "x3.near-checkpoint-unsigned-review-bundle.v1",
+  "source_provenance": {
+    "candidate-rpc.json": "PR #59 p27 candidate; RPC capture compared across two providers in PR, independently unverified",
+    "previous-epoch-rpc.json": "PR #60 HbM→p27 candidate; RPC result archived with normalization, one RPC source"
+  },
+  "source_sha256": {
+    "candidate-rpc.json": "466f916b65037b2f3d51e0958d3cb8ae1e989c4e18f8d64e07b9961939f1ffb6",
+    "previous-epoch-rpc.json": "acf673ba657bc0b90f75e17bf5fd1f407ae81103f8cbfa6f6c1fd74713f8a5e0"
+  },
+  "status": "UNSIGNED_UNREVIEWED_RPC_CANDIDATE"
+}
