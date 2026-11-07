@@ -22,3 +22,26 @@ python3 scripts/hackathon/base_sepolia_guarded_admission.py \
 The historical stored live quote will fail freshness checks by design. Never reuse its deposit address. The testnet-only Tidepool operator controls the maker/relayer and is not an official NEAR 1Click testnet. Mainnet 1Click uses separate authority, tokens and infrastructure. Never send real assets to a testnet quote.
 
 **Deployment blocker:** the proposed guard contract account is not on NEAR testnet yet; source audit, source-to-WASM reproduction, exact-head CI, and a deliberately authorized deployment with an independently controlled signing account are required. No usable `x3lang.testnet` signing credentials have been established on x3star1. Private GitHub `xxxstar` mirror access is also a separate CI gate. These are not to be silently bypassed.
+
+## Separate testnet-only signer implementation (disabled until owner approval)
+
+`base_guarded_broadcast.py` uses the same exact Guard+chain checks in **the same
+process** as the Foundry encrypted-keystore signing operation, checks the
+keystore address, caps gas/fees, takes an exclusive process lock, and stores a
+quote-hash attempt record **before** attempting network broadcast. It has no
+Guard-bypass argument and requires `--approve-exact-quote-sha256` matching the
+**fresh, cryptographically verified** live quote exactly. Default behavior is
+preview only. A transaction can only be broadcast with explicit `--execute`
+after all conditions pass.
+
+The wallet keystore and password file remain owner-readable only on x3star1.
+No private key is passed to a subprocess argument or entered in chat. This
+review candidate is **not** production approved, has not signed or broadcast a
+trade, and cannot operate until a reviewed on-chain testnet Guard exists and
+an owner has registered/authorized an exact policy. A prior quote fixture or a
+fake Guard must fail closed. We deliberately do not create any new quote here.
+
+Even integrated signing cannot prevent the wallet owner from using another
+program outside X3; claims are limited to the **verified X3 execution path**.
+The first trade still requires a separate explicit owner review of the exact
+quote/hash, contract deployment, fee budget and expiry before `--execute`.

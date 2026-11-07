@@ -2,6 +2,8 @@ name: X3 Guarded Base Sepolia Admission Proof
 on:
   pull_request:
     paths:
+      - 'scripts/hackathon/base_guarded_broadcast.py'
+      - 'scripts/hackathon/test_base_guarded_broadcast.py'
       - 'scripts/hackathon/base_sepolia_guarded_admission.py'
       - 'scripts/hackathon/test_base_sepolia_guarded_admission.py'
       - 'x3-lang/near/x3-tidepool-guard/src/signed_live_fixture.json'
@@ -9,6 +11,8 @@ on:
   push:
     branches: [master]
     paths:
+      - 'scripts/hackathon/base_guarded_broadcast.py'
+      - 'scripts/hackathon/test_base_guarded_broadcast.py'
       - 'scripts/hackathon/base_sepolia_guarded_admission.py'
       - 'scripts/hackathon/test_base_sepolia_guarded_admission.py'
       - '.github/workflows/x3-base-guarded-admission.yml'
@@ -30,10 +34,10 @@ jobs:
           PYTHONPATH: x3-lang
         run: |
           set -euo pipefail
-          python -m unittest scripts/hackathon/test_base_sepolia_guarded_admission.py -v
-          python -m py_compile scripts/hackathon/base_sepolia_guarded_admission.py
+          python -m unittest scripts/hackathon/test_base_sepolia_guarded_admission.py scripts/hackathon/test_base_guarded_broadcast.py -v
+          python -m py_compile scripts/hackathon/base_sepolia_guarded_admission.py scripts/hackathon/base_guarded_broadcast.py
           git diff --check
-      - name: Fail if signer, keystore, or broadcast code is introduced
+      - name: Preserve no-signing read-only preflight
         run: |
           set -euo pipefail
           ! grep -E 'cast send|eth_sendRawTransaction|--private-key|wallet sign|eth_sendTransaction' scripts/hackathon/base_sepolia_guarded_admission.py
