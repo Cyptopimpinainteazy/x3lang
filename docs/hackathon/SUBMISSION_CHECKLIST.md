@@ -20,9 +20,9 @@ Official instructions were checked against
 
 ## Repository
 
-- [ ] Final commit is pushed to `release/x3lang-submission-20261106`.
-- [ ] PR is reviewable and remains draft until the owner authorizes merge.
-- [ ] After owner-authorised merge, confirm the submitted commit is on `main`.
+- [x] Release consolidation PR #83 was merged to the canonical `master` branch.
+- [ ] Confirm the **exact submission commit SHA** is still reachable from `master` (do not submit a stale release branch).
+- [ ] Confirm no unreviewed changes are required for the submitted demo; keep non-production settlement gates closed.
 - [ ] `PRIOR_WORK.md` and the baseline comparison remain intact.
 - [ ] No API keys, key files, seed phrases, `.env` files or private receipts are tracked.
 - [ ] No fabricated deployment, quote, transaction or settlement evidence is present.
