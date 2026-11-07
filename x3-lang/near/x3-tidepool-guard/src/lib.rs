@@ -129,7 +129,13 @@ fn parse_utc_ms(s: &str) -> u64 {
     {
         fail()
     }
-    let digits = |a: usize, z: usize| -> u64 { main[a..z].parse::<u64>().unwrap_or_else(|_| fail()) };
+    let digits = |a: usize, z: usize| -> u64 {
+        let field = main.get(a..z).unwrap_or_else(|| fail());
+        if !field.bytes().all(|byte| byte.is_ascii_digit()) {
+            fail()
+        }
+        field.parse::<u64>().unwrap_or_else(|_| fail())
+    };
     let (y, mo, d, h, mi, sec) = (
         digits(0, 4),
         digits(5, 7),
@@ -228,7 +234,16 @@ impl Contract {
         self.policies.flush();
     }
     #[payable]
-    pub fn authorize(&mut self, nonce: String, signed_payload: String, signature: String) -> String {
+    /// The owner-signed call must supply the exact previously registered .x3 hash.
+    /// The maker signature authenticates the quote terms, NOT the user's source program.
+    /// A sender must independently validate this hash before any EVM signing.
+    pub fn authorize(
+        &mut self,
+        nonce: String,
+        program_sha256: String,
+        signed_payload: String,
+        signature: String,
+    ) -> String {
         require!(
             !signed_payload.is_empty() && signed_payload.len() <= MAX_PAYLOAD,
             "bad quote size"
@@ -246,6 +261,10 @@ impl Contract {
             .cloned()
             .unwrap_or_else(|| env::panic_str("no owner policy for nonce"));
         require!(!record.revoked, "owner revoked nonce");
+        require!(
+            hex64(&program_sha256) && record.policy.program_sha256 == program_sha256,
+            "signed owner program hash mismatch"
+        );
         require!(record.quote_sha256.is_none(), "nonce was already authorized");
         let now = env::block_timestamp_ms();
         require!(now < record.policy.expiry_ms, "policy expired");
@@ -387,6 +406,23 @@ mod tests {
         contract.register("demo_0001".into(), sample_policy());
     }
     #[test]
+    #[should_panic(expected = "signed owner program hash mismatch")]
+    fn wrong_program_cannot_authorize() {
+        context("x3lang.testnet", NearToken::from_near(1));
+        let mut contract = Contract::new();
+        contract.register("demo_0001".into(), sample_policy());
+        contract.authorize("demo_0001".into(), "b".repeat(64), "{}".into(), "ed25519:bad".into());
+    }
+    #[test]
+    #[should_panic(expected = "testnet deployment only")]
+    fn mainnet_named_contract_rejected() {
+        let mut ctx = VMContextBuilder::new();
+        ctx.current_account_id("x3tidepool.near".parse().unwrap())
+            .predecessor_account_id("x3lang.testnet".parse().unwrap());
+        testing_env!(ctx.build());
+        let _ = Contract::new();
+    }
+    #[test]
     #[should_panic(expected = "nonce already registered")]
     fn cannot_reuse_nonce() {
         context("x3lang.testnet", NearToken::from_near(1));
@@ -401,7 +437,7 @@ mod tests {
         let mut contract = Contract::new();
         contract.register("demo_0001".into(), sample_policy());
         context("attacker.testnet", NearToken::from_near(1));
-        contract.authorize("demo_0001".into(), "{}".into(), "ed25519:bad".into());
+        contract.authorize("demo_0001".into(), "a".repeat(64), "{}".into(), "ed25519:bad".into());
     }
     #[test]
     #[should_panic(expected = "invalid signature bytes")]
@@ -409,7 +445,7 @@ mod tests {
         context("x3lang.testnet", NearToken::from_near(1));
         let mut contract = Contract::new();
         contract.register("demo_0001".into(), sample_policy());
-        contract.authorize("demo_0001".into(), "{}".into(), "ed25519:bad".into());
+        contract.authorize("demo_0001".into(), "a".repeat(64), "{}".into(), "ed25519:bad".into());
     }
     #[test]
     #[should_panic(expected = "owner revoked nonce")]
@@ -418,7 +454,7 @@ mod tests {
         let mut contract = Contract::new();
         contract.register("demo_0001".into(), sample_policy());
         contract.revoke("demo_0001".into());
-        contract.authorize("demo_0001".into(), "{}".into(), "ed25519:bad".into());
+        contract.authorize("demo_0001".into(), "a".repeat(64), "{}".into(), "ed25519:bad".into());
     }
 }
 
@@ -454,7 +490,7 @@ mod authentic_signature_tests {
             },
         );
         // Must verify authentic provider signature BEFORE rejecting the dry quote.
-        contract.authorize("demo_0001".into(), body, sig);
+        contract.authorize("demo_0001".into(), "a".repeat(64), body, sig);
     }
 }
 
@@ -499,7 +535,7 @@ mod authentic_live_tests {
     #[test]
     fn authentic_live_quote_authorizes_exact_owner_policy() {
         let (mut contract, nonce, body, sig) = setup("0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721");
-        let hash = contract.authorize(nonce.clone(), body, sig);
+        let hash = contract.authorize(nonce.clone(), "b".repeat(64), body, sig);
         assert_eq!(hash.len(), 64);
         let record = contract.get_policy("x3lang.testnet".parse().unwrap(), nonce).unwrap();
         assert_eq!(record.quote_sha256, Some(hash));
@@ -508,8 +544,8 @@ mod authentic_live_tests {
     #[should_panic(expected = "nonce was already authorized")]
     fn authentic_live_quote_cannot_reuse_nonce() {
         let (mut contract, nonce, body, sig) = setup("0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721");
-        contract.authorize(nonce.clone(), body.clone(), sig.clone());
-        contract.authorize(nonce, body, sig);
+        contract.authorize(nonce.clone(), "b".repeat(64), body.clone(), sig.clone());
+        contract.authorize(nonce, "b".repeat(64), body, sig);
     }
     #[test]
     #[should_panic(expected = "unauthenticated testnet maker quote")]
@@ -517,12 +553,12 @@ mod authentic_live_tests {
         let (mut contract, nonce, body, sig) = setup("0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721");
         let mut changed = body.replace("x3lang.testnet", "attacker.testnet");
         assert_ne!(changed, body);
-        contract.authorize(nonce, std::mem::take(&mut changed), sig);
+        contract.authorize(nonce, "b".repeat(64), std::mem::take(&mut changed), sig);
     }
     #[test]
     #[should_panic(expected = "refund mismatch")]
     fn authentic_live_quote_cannot_override_owner_refund_address() {
         let (mut contract, nonce, body, sig) = setup("0x1234567890123456789012345678901234567890");
-        contract.authorize(nonce, body, sig);
+        contract.authorize(nonce, "b".repeat(64), body, sig);
     }
 }

@@ -8,6 +8,7 @@ on:
       - 'scripts/proof/x3lang_runtime_equivalence.py'
       - 'scripts/proof/check_x3lang_mirror.py'
       - '.github/workflows/x3lang-execution-proof.yml'
+      - 'tests/ci/test_private_peer_checkout.py'
   workflow_dispatch:
 
 permissions:
@@ -25,10 +26,20 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Require private peer read credential
+        shell: bash
+        env:
+          X3LANG_PEER_READ_SSH_KEY: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}
+        run: |
+          if [[ -z "${X3LANG_PEER_READ_SSH_KEY:-}" ]]; then
+            echo "::error::Missing X3LANG_PEER_READ_SSH_KEY (read-only SSH deploy key on private xxxstar repository)"
+            exit 2
+          fi
       - name: Checkout matching peer feature branch
         uses: actions/checkout@v4
         with:
           repository: Cyptopimpinainteazy/xxxstar
+          ssh-key: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}
           ref: ${{ github.head_ref || github.ref_name }}
           path: peer-checkout
           persist-credentials: false
@@ -50,6 +61,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: x3-lang
+      - name: Test private peer authentication fail-closed policy
+        run: python3 -m unittest discover -s tests/ci -p test_private_peer_checkout.py -v
       - name: Syntax-check both mirrored proof runners
         run: python3 -m py_compile scripts/proof/x3lang_execution_proof.py scripts/proof/x3lang_runtime_equivalence.py scripts/proof/check_x3lang_mirror.py
       - name: Execute exact-head compiler and VM proof

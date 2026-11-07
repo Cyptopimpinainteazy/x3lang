@@ -1,0 +1,35 @@
+name: X3 Tidepool Quote Auth Strict Gate
+on:
+  pull_request:
+    paths:
+      - 'scripts/hackathon/tidepool_quote_signature.py'
+      - 'scripts/hackathon/test_tidepool_quote_signature.py'
+      - 'scripts/hackathon/fixtures/tidepool_signed_dry_20261107.json'
+      - 'scripts/hackathon/tidepool_testnet_preflight.py'
+      - 'scripts/hackathon/test_tidepool_testnet_preflight.py'
+      - '.github/workflows/x3-tidepool-quote-auth.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'scripts/hackathon/tidepool_quote_signature.py'
+      - 'scripts/hackathon/test_tidepool_quote_signature.py'
+      - '.github/workflows/x3-tidepool-quote-auth.yml'
+permissions:
+  contents: read
+jobs:
+  verify-pinned-testnet-signer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline authentic-signature and tampering gate
+        env:
+          PYTHONPATH: x3-lang
+        run: |
+          set -euo pipefail
+          python -m unittest scripts/hackathon/test_tidepool_quote_signature.py scripts/hackathon/test_tidepool_testnet_preflight.py -v
+          python -m py_compile scripts/hackathon/tidepool_quote_signature.py scripts/hackathon/tidepool_testnet_preflight.py
+          git diff --check
