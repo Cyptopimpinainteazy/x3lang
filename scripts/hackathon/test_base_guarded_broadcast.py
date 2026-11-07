@@ -35,6 +35,16 @@ class TestSender(unittest.TestCase):
                 m.checked_admission(self.args['quote_file'],self.args['guard_account'],self.args['guard_sha'],self.args['owner_nonce'],'b'*64)
             quote.assert_not_called();near.assert_not_called()
 
+    def test_compiled_nonce_mismatch_stops_before_signed_quote_or_wallet(self):
+        source={'program_sha256':'b'*64,'nonce':'only_allowed_nonce'}
+        with patch.object(m,'compile_testnet_intent',return_value=source), \
+             patch.object(m.admission,'check_quote') as quote, \
+             patch.object(m.admission,'get_near_policy') as near, \
+             patch.object(m.subprocess,'run') as cast:
+            with self.assertRaisesRegex(m.admission.AdmissionError,'X3_COMPILED_NONCE_MISMATCH'):
+                m.checked_admission(self.args['quote_file'],self.args['guard_account'],self.args['guard_sha'],self.args['owner_nonce'],'b'*64)
+            quote.assert_not_called();near.assert_not_called();cast.assert_not_called()
+
     def test_invalid_guard_fails_without_cast_or_key(self):
         with patch.object(m,'checked_admission',side_effect=m.admission.AdmissionError('GUARD_DENIED')) as gate,\
              patch.object(m.subprocess,'run') as cast,\

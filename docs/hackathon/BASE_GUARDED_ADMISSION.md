@@ -61,3 +61,10 @@ canonical Rust X3VM compiler emitted bytecode or that NEAR Guard actually
 executes X3VM bytecode. Base Sepolia is deliberately absent from the production
 1Click chain mapping: a Base Sepolia quote is testnet-only, and mainnet route
 resolution fails closed rather than silently translating it as Ethereum.
+
+**Compiling a source hash alone is not authorization:** the guarded sender also
+requires the registered NEAR Guard nonce to match the exact `.x3` `require
+nonce unused` value, and enforces the compiled absolute `min_receive` floor
+both on the signed quote and the registered Guard minimum. A signed quote
+deadline beyond the compiled `timeout 30m` (measured from the quote issuance
+time) is rejected, even if the Guard policy independently permits it.
