@@ -35,10 +35,16 @@ MUTANTS = [
      "every_term_refuses_an_intent_that_breaks_it"),
     ("quote_hash_replay_bypass", "src/lib.rs",
      "consumed.get(&facts.quote_hash).is_none()", "true",
-     "one_signed_quote_cannot_authorize_two_distinct_intents"),
+     "quote_hash_registry_still_blocks_replay_when_deposit_registry_is_corrupted"),
     ("legacy_upgrade_replay_bypass", "src/lib.rs",
      "self.is_fresh_quote_ledger_initialized()", "true",
      "existing_state_without_a_fresh_quote_ledger_marker_refuses_new_quotes"),
+    ("deposit_address_replay_bypass", "src/lib.rs",
+     "consumed_deposits.get(&facts.deposit_address).is_none()", "true",
+     "differently_signed_quotes_cannot_reuse_a_deposit_address_across_owners"),
+    ("legacy_deposit_marker_bypass", "src/lib.rs",
+     "self.is_fresh_deposit_ledger_initialized()", "true",
+     "missing_deposit_history_marker_fails_closed_before_quote_authorization"),
 ]
 
 def sha(data):
