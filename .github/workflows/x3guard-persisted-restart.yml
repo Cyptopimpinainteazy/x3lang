@@ -39,6 +39,9 @@ jobs:
         run: |
           bash -n scripts/hackathon/guard_persisted_restart_smoke.sh
           cargo fmt --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml -- --check
+      - name: Fetch pinned Sandbox integration dependencies before offline execution
+        shell: bash
+        run: cargo fetch --locked --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml
       - name: Compile exact-head Guard WASM
         working-directory: x3-lang/near/x3-guard
         run: cargo build --locked --release --target wasm32-unknown-unknown
