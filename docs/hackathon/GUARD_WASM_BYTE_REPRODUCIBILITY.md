@@ -36,7 +36,21 @@ The reproducible gate pins the same Rust version and normalizes the standard-lib
 RUSTFLAGS="--remap-path-prefix=$(rustc --print sysroot)/lib/rustlib/src/rust=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67"
 ```
 
-With that mapping, the **real release-source rebuild on x3star1 reproduced the on-chain SHA-256 exactly**, `ac44fa53...f8ab`, at **544944 bytes**. No source code, contract state, code hash, deployed contract, or wallet was changed to obtain this result. The script makes this check mandatory rather than silently declaring all builds equivalent.
+The build also embeds absolute Cargo registry source paths. The deployed WASM
+used `/home/lojak/.cargo/registry/src/` and a fresh GitHub-hosted runner uses
+`/home/runner/.cargo/registry/src/`. The difference adds **24 bytes** to the
+compiled data and changes internal code offsets unless normalized. The gate
+therefore applies a second path-only normalization:
+
+```bash
+--remap-path-prefix="${CARGO_HOME:-$HOME/.cargo}/registry/src=/home/lojak/.cargo/registry/src"
+```
+
+Both remappings refer only to compiler source-location strings. **No
+byte mismatch is tolerated** after the build. The unchanged hard-pinned
+manifest, SHA-256 and base58 code-hash gate must still pass. With canonical
+paths, the real release-source rebuild on x3star1 reproduced the on-chain
+SHA-256 exactly, `ac44fa53...f8ab`, at **544944 bytes**. No source code, contract state, code hash, deployed contract, or wallet was changed to obtain this result. The script makes this check mandatory rather than silently declaring all builds equivalent.
 
 ### Two distinct verification gates
 

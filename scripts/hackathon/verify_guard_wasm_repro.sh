@@ -21,7 +21,17 @@ if [[ ! -f "$sysroot/lib/rustlib/src/rust/library/core/src/lib.rs" ]]; then
   echo 'Pinned Rust toolchain must include the rust-src component for exact deployed byte reproduction' >&2
   exit 2
 fi
-export RUSTFLAGS="--remap-path-prefix=$sysroot/lib/rustlib/src/rust=/rustc/$commit"
+# The deployed binary also records absolute Cargo registry source paths.
+# Its canonical registry path came from the reviewed x3star1 build. A fresh
+# CI runner lives under /home/runner, so omitting this mapping changes 24
+# bytes of data strings and offsets in the code section. Keep the exact SHA
+# check mandatory: this remaps only build-time source locations.
+cargo_home="${CARGO_HOME:-${HOME:-/tmp}/.cargo}"
+if [[ "$cargo_home" != /* ]]; then
+  echo 'CARGO_HOME must be an absolute path for the pinned source remapping' >&2
+  exit 2
+fi
+export RUSTFLAGS="--remap-path-prefix=$sysroot/lib/rustlib/src/rust=/rustc/$commit --remap-path-prefix=$cargo_home/registry/src=/home/lojak/.cargo/registry/src"
 export CARGO_TARGET_DIR="${X3_GUARD_REPRO_TARGET:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/x3lang/guard-wasm-repro-1.99.1}"
 
 cargo build --locked --release --target wasm32-unknown-unknown \
