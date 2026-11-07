@@ -30,6 +30,8 @@ fn test_key() -> SigningKey {
 }
 
 fn test_contract() -> Contract {
+    // Synthetic test-key contract models a NEW fresh Guard deployment.
+    env::storage_write(FRESH_QUOTE_LEDGER_MARKER_KEY, FRESH_QUOTE_LEDGER_MARKER_VALUE);
     Contract {
         intents: LookupMap::new(StorageKey::Intents),
         manager_public_key: test_key().verifying_key().to_bytes(),
@@ -208,7 +210,12 @@ fn a_test_key_signature_does_not_verify_under_the_production_key() {
 #[test]
 fn a_new_contract_trusts_the_sdks_manager_key() {
     ctx(accounts(0), NOW_MS, one_near());
-    assert_eq!(Contract::new().get_manager_public_key(), ONE_CLICK_MANAGER_PUBLIC_KEY);
+    let contract = Contract::new();
+    assert_eq!(contract.get_manager_public_key(), ONE_CLICK_MANAGER_PUBLIC_KEY);
+    assert!(
+        contract.is_fresh_quote_ledger_initialized(),
+        "a fresh Guard must initialize its empty quote-consumption ledger"
+    );
 }
 
 #[test]
@@ -445,6 +452,40 @@ fn an_underdelivered_settlement_is_recorded_as_missing_its_floor() {
     ctx(accounts(0), NOW_MS, one_near());
     let outcome = c.record_outcome("n_001".into(), Status::Settled, Some(U128(24_000_000)), None, vec![]);
     assert_eq!(outcome.floor_met, Some(false));
+}
+
+#[test]
+fn existing_state_without_a_fresh_quote_ledger_marker_refuses_new_quotes() {
+    // Simulate an old deployed contract whose intents were created before
+    // the consumed-hash ledger existed: no historical claim index is present.
+    ctx(accounts(0), NOW_MS, one_near());
+    let mut c = test_contract();
+    c.register_intent("legacy_pending".into(), policy());
+    // Remove the marker even if a newer test helper initializes it; this
+    // must model state upgraded in-place without a verified backfill.
+    near_sdk::env::storage_remove(b"x3.quote-ledger.fresh.v1");
+    let (payload, signature) = signed(&live_payload());
+    ctx(accounts(0), NOW_MS, one_near());
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.accept_quote("legacy_pending".into(), payload, signature)
+    }));
+    let error = refused.expect_err("in-place upgrade silently accepted a quote without historical replay index");
+    let reason = error
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| error.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    assert!(
+        reason.contains("X3_NEAR_QUOTE_LEDGER_UNINITIALIZED"),
+        "legacy state refusal was not specifically the replay-ledger gate: {reason}"
+    );
+    assert!(
+        c.get_intent(accounts(0), "legacy_pending".into())
+            .unwrap()
+            .quote
+            .is_none(),
+        "legacy quote admission mutated authorization state"
+    );
 }
 
 #[test]

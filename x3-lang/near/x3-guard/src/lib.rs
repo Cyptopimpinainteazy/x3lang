@@ -51,6 +51,12 @@ pub const EVENT_VERSION: &str = "1.3.0";
 /// Current persisted contract state layout.
 pub const STATE_VERSION: u16 = 2;
 
+// Separate storage marker: fresh deployments initialize an empty quote-consumption
+// ledger; legacy contracts upgraded in place MUST NOT assume historical quote
+// hashes were backfilled. No unaudited migration function may set this marker.
+const FRESH_QUOTE_LEDGER_MARKER_KEY: &[u8] = b"x3.quote-ledger.fresh.v1";
+const FRESH_QUOTE_LEDGER_MARKER_VALUE: &[u8] = b"fresh-state-only";
+
 /// The 1Click manager's Ed25519 key, from `@defuse-protocol/one-click-sdk-typescript` 0.1.26.
 pub const ONE_CLICK_MANAGER_PUBLIC_KEY: &str = "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc";
 const ED25519_PREFIX: &str = "ed25519:";
@@ -685,6 +691,11 @@ impl Contract {
     /// Initialize with the 1Click manager key the official SDK pins. There is no setter.
     #[init]
     pub fn new() -> Self {
+        require!(
+            !env::storage_has_key(FRESH_QUOTE_LEDGER_MARKER_KEY),
+            "X3_NEAR_QUOTE_LEDGER_UNINITIALIZED: unexpected pre-existing replay marker"
+        );
+        env::storage_write(FRESH_QUOTE_LEDGER_MARKER_KEY, FRESH_QUOTE_LEDGER_MARKER_VALUE);
         Self {
             intents: LookupMap::new(StorageKey::Intents),
             manager_public_key: decode_ed25519::<32>(ONE_CLICK_MANAGER_PUBLIC_KEY)
@@ -816,6 +827,13 @@ impl Contract {
             "{ED25519_PREFIX}{}",
             bs58::encode(self.manager_public_key).into_string()
         )
+    }
+
+    /// True only for a fresh initialization with an empty, auditable
+    /// quote-consumption ledger. Upgrades of legacy state remain fail-closed
+    /// until a separately audited migration/backfill mechanism exists.
+    pub fn is_fresh_quote_ledger_initialized(&self) -> bool {
+        env::storage_read(FRESH_QUOTE_LEDGER_MARKER_KEY).as_deref() == Some(FRESH_QUOTE_LEDGER_MARKER_VALUE)
     }
 
     /// Read the on-chain owner/nonce that first consumed a signed quote hash.
@@ -970,6 +988,10 @@ impl Contract {
         // namespace is therefore required to prevent duplicate authorizations.
         // This is intentionally NOT a Contract struct field, preserving the
         // existing Borsh state layout and original map prefixes.
+        require!(
+            self.is_fresh_quote_ledger_initialized(),
+            "X3_NEAR_QUOTE_LEDGER_UNINITIALIZED: legacy quote history not backfilled; deposit authorization refused"
+        );
         let mut consumed: LookupMap<String, String> = LookupMap::new(StorageKey::ConsumedQuoteHashes);
         require!(
             consumed.get(&facts.quote_hash).is_none(),

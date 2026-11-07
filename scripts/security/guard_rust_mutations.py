@@ -36,6 +36,9 @@ MUTANTS = [
     ("quote_hash_replay_bypass", "src/lib.rs",
      "consumed.get(&facts.quote_hash).is_none()", "true",
      "one_signed_quote_cannot_authorize_two_distinct_intents"),
+    ("legacy_upgrade_replay_bypass", "src/lib.rs",
+     "self.is_fresh_quote_ledger_initialized()", "true",
+     "existing_state_without_a_fresh_quote_ledger_marker_refuses_new_quotes"),
 ]
 
 def sha(data):
