@@ -14,7 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-from base_sepolia_guarded_admission import (rpc, BASE_RPCS, CHAIN_ID, TOKEN, SOURCE,
+from base_sepolia_guarded_admission import (rpc, BASE_RPCS, NEAR_RPC, CHAIN_ID, TOKEN, SOURCE,
     TOKEN_CODE_SHA256, AMOUNT, RECEIVER, check_quote, check_guard_policy,
     enforce_compiled_x3_policy, AdmissionError, reject)
 from base_sepolia_x3_intent import compile_testnet_intent
@@ -117,6 +117,12 @@ def audit_live(cert: dict) -> None:
     near=cert['near_receipt_evidence'];hist=cert['historical_guard_approval_evidence'];bal=cert['near_balance_evidence']
     actual_near=verify_near_delivery(near['transaction_hash'],near['signer'],min_units=near['delivered_units'])
     reject(actual_near==near,'NEAR_LIVE_RECEIPT_CHANGED')
+    transfer = actual_near['transfer_receipt']
+    canonical = rpc(NEAR_RPC, 'block', {'block_id': transfer['block_height']})
+    header = canonical.get('header') if isinstance(canonical, dict) else None
+    reject(isinstance(header, dict) and header.get('height') == transfer['block_height']
+           and header.get('hash') == transfer['block_hash'],
+           'NEAR_TRANSFER_RECEIPT_NONCANONICAL')
     actual_delta=verify_delivery_balance(bal['before']['block_hash'],bal['after']['block_hash'],near['delivered_units'])
     reject(actual_delta==bal,'NEAR_LIVE_BALANCE_CHANGED')
     approval=verify_historical_guard_approval(cert['guard_account'],hist['owner'],hist['nonce'],

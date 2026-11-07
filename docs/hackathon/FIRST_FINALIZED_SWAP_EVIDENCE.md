@@ -15,7 +15,7 @@
 |---|---|---|
 | `evidence/tidepool-testnet/pretrade-finalized-baseline-20261107.json` | `69a835814805876acd2eafb1ca0390081e6bf4d4fca6bcc4c5347dbb609c4120` | Onchain read-only baseline (previously merged) |
 | `evidence/tidepool-testnet/first-finalized-two-chain-certificate-20261107.json` | `8e1baca995f4aa534821432c5e177f406eab6923f998473a36b4d5d9d5540a39` | Successful full original two-chain verifier output recorded 2026-11-07T08:08:34Z |
-| `evidence/tidepool-testnet/first-signed-live-quote-20261107.json` | SHA-256 computed on exact file bytes at checkout | Historical maker-signed quote **includes no signing keys** and must never be reused for a new deposit |
+| `evidence/tidepool-testnet/first-signed-live-quote-20261107.json` | `7718da27680bbb35cbf199caaae06ee77987dd5daf60f2dfd1ca175a08da7535` | Historical maker-signed quote **includes no signing keys** and must never be reused for a new deposit |
 
 Run from repository root (offline, no accounts, network, or keys required):
 
