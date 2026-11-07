@@ -55,7 +55,7 @@ Say clearly: *"We demonstrated a genuine, independently verified two-chain testn
 | File | Description | SHA-256 |
 |---|---|---|
 | [Historical signed quote](../../evidence/tidepool-testnet/first-swap-signed-live-quote-20261107.json) | Authentic expired Tidepool maker-signed live response, captured before funding. The original classification is historical, not the current trade status. | `7718da27680bbb35cbf199caaae06ee77987dd5daf60f2dfd1ca175a08da7535` |
-| [Finalized pretrade baseline](../../evidence/tidepool-testnet/pretrade-finalized-baseline-20261107.json) | Two-chain independent baseline before this swap. | `69a835814805876acd1e6bf4d4fca6bcc4c5347dbb609c4120` |
+| [Finalized pretrade baseline](../../evidence/tidepool-testnet/pretrade-finalized-baseline-20261107.json) | Two-chain independent baseline before this swap. | `69a835814805876acd2eafb1ca0390081e6bf4d4fca6bcc4c5347dbb609c4120` |
 | [Strict successful two-chain proof](../../evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json) | Actual read-only chain verification output with source RPC quorum, historical Guard approval, finalized NEAR receipt and canonical balance change. | `9aa6d251b7e3c8f8cb6fee57e466034d3f747a84b3792233fe36cd97570bbbcc` |
 
 The maker-signed quote payload SHA-256 (`131f314c…1034c`) and archived JSON file SHA-256 (`7718da2…7535`) are **different digests of different bytes**. Do not mix them.
