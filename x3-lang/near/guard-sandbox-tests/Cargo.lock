@@ -2841,6 +2841,7 @@ name = "x3-guard-near-sandbox-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "near-account-id 3.0.0",
  "near-api",
  "near-sandbox",
  "serde_json",

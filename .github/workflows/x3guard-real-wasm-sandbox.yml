@@ -39,7 +39,7 @@ jobs:
         run: |
           bash -n scripts/hackathon/guard_sandbox_smoke.sh
           cargo fmt --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml -- --check
-      - name: Deploy actual production WASM only on ephemeral NEAR Sandbox and verify genuine dry-quote denial
+      - name: Deploy actual production WASM only on ephemeral NEAR Sandbox; verify dry-quote denial and mandate lifecycle
         env:
           NEAR_NETWORK_ID: sandbox
           NEAR_RPC_TIMEOUT_SECS: '60'

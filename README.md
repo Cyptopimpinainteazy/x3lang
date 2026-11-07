@@ -1,5 +1,7 @@
 # X3 Shield (X3Lang) — verify what an AI agent is about to pay
 
+**Built for NEAR HACKATHON 2026** — AI Security & Defense, Agent Economy, Unstoppable DeFi.
+
 **Not another policy-bound wallet.** NEAR's [AI Security & Defense track](https://near.army/)
 already calls for spending limits, policy engines and sandboxed wallets; the
 Agent API offers policy-bound agent wallets, and NEAR function-call access keys
@@ -247,6 +249,7 @@ PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 (cd x3-lang && cargo clippy -p x3-lang-vm --all-targets --locked -- -D warnings)
 (cd x3-lang/near/x3-guard && cargo test --locked --quiet)
 node --test x3-lang/near/demo/test/*.test.mjs
+bash scripts/hackathon/guard_sandbox_smoke.sh  # local real-WASM sandbox only; not public evidence
 ```
 
 ### Public browser demonstration
@@ -304,7 +307,9 @@ acceptance is not wallet authorization, a signed quote or settlement.
 
 ## License status
 
-This release does not add or change a root license. The preserved source has
-multiple contributors and pre-existing licensing questions; no relicense is
-made here. See [COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md#forks-ownership-and-licensing--what-is-realistic)
+Repository contents are offered under the MIT root [LICENSE](LICENSE)
+(2026 X3 Language Team). The preserved source predates the hackathon and has
+multiple contributors; the root license does not by itself resolve
+pre-existing ownership or third-party licensing questions. See
+[COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md#forks-ownership-and-licensing--what-is-realistic)
 for the ownership and licensing boundary.

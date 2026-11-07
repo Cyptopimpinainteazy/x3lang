@@ -19,7 +19,10 @@ What the program does:
 3. Deploys the **production** Guard WASM to that local account, invokes `new()`, then reads `get_manager_public_key` and `state_version` through sandbox RPC.
 4. Requires the immutable official manager public key and schema version 2 to match the source; any mismatch fails the test.
 5. Registers a policy on the local node, then checks **genuine archived 1Click manager-signed dry quote** bytes from `x3-lang/tests/fixtures/x3_guard_args.json` through the actual WASM. Asserts `quote_signature=true`, `quote_kind=false`; the state-changing `accept_quote` transaction fails, and a subsequent state read confirms `quote=null`.
-6. Drops the local node when done. The temporary sandbox bootstrap signer is public test tooling, **never** a user's wallet or externally funded key.
+6. Creates synthetic local `owner.sandbox` and `agent.sandbox` accounts, writes a mandate with `create_mandate`, and registers an allowed `agent_register_intent`.
+7. Requires the `check_agent_intent` view to report `mandate_recipient=false` for `attacker.near`, and requires the matching state-changing registration to fail on the local node.
+8. Calls `revoke_mandate`, verifies `get_mandate.revoked=true`, requires `mandate_active=false` in the view, and requires a post-revocation agent registration to fail.
+9. Drops the local node when done. The temporary sandbox bootstrap signer is public test tooling, **never** a user's wallet or externally funded key.
 
 **Important:** The quoted refusal is because a signed **dry** quote has no executable deposit authorization (and may also be expired), **not** a successful rejection of a genuine live manager-signed forbidden recipient. This integration smoke does not submit a validly signed prohibited 1Click **live** quote. The genuine archived official 1Click signed fixtures in the repository are *dry* quotes (not live deposit instructions); synthetic test signatures cannot be accepted under the actual production-pinned key on this production WASM. This distinction is exactly why the sandbox deployment smoke is separate from the existing [local mock-chain quote policy refusal test](X3_SHIELD_SIGNED_QUOTE_REFUSAL_DEMO.md).
 

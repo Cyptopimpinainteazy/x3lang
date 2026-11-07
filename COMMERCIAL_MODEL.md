@@ -89,9 +89,11 @@ adding it would make the user worse off, use **zero fee** or a different route.
 - **No local or embedded license key can make a public repository
   un-forkable.** In source code, forks can remove a royalty branch; this
   language library must not disguise it as an unbreakable payment system.
-- The public repository currently has **no root LICENSE**. GitHub's Terms of
-  Service allow viewing and forking through GitHub, but a public repository
-  does not automatically grant unrestricted commercial redistribution.
+- The public repository ships an MIT root [LICENSE](LICENSE) (2026 X3 Language
+  Team). MIT permits use, modification and redistribution of the licensed
+  material subject to its copyright notice. It does not by itself resolve
+  ownership of historical or third-party contributions; audit those before
+  changing or relying on the licensing terms.
 - Do **not** silently relicense existing historical source: the preserved
   Git history has multiple contributors. Audit ownership, pre-existing
   third-party code/licenses, and contributor permissions with counsel

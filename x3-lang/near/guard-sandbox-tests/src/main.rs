@@ -1,9 +1,86 @@
 //! Exact production x3-guard WASM, deployed to a LOCAL NEAR sandbox node only.
 //! Never contacts testnet, imports production wallet keys or moves real funds.
 use anyhow::{Context, Result};
+use near_account_id::AccountId as SandboxAccountId;
 use near_api::{Account, AccountId, Contract, NearGas, NearToken, NetworkConfig, Signer};
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const MANDATE_EXPIRES_MS: u64 = 4_000_000_000_000;
+const MANDATE_DEADLINE_MS: u64 = 3_900_000_000_000;
+
+async fn create_funded_account(sandbox: &near_sandbox::Sandbox, name: &str) -> Result<AccountId> {
+    let sandbox_id: SandboxAccountId = name.parse()?;
+    sandbox
+        .create_account(sandbox_id)
+        .initial_balance(NearToken::from_near(10))
+        .send()
+        .await?;
+    Ok(name.parse()?)
+}
+
+fn mandate_terms() -> Value {
+    json!({
+        "program_sha256": "a".repeat(64),
+        "asset": "nep141:usdc.near",
+        "per_payment_cap": "50000000",
+        "daily_cap": "200000000",
+        "destination_assets": ["nep141:usdc.near"],
+        "recipients": ["x3-demo.near"],
+        "refund_to": "refund.sandbox",
+        "max_slippage_bps": 100,
+        "max_fee_bps": 100,
+        "approval_above": null,
+        "approvers": [],
+        "approval_threshold": 0,
+        "expires_at_ms": MANDATE_EXPIRES_MS,
+    })
+}
+
+fn mandate_policy(recipient: &str) -> Value {
+    json!({
+        "program_sha256": "a".repeat(64),
+        "origin_asset": "nep141:usdc.near",
+        "destination_asset": "nep141:usdc.near",
+        "amount": "25000000",
+        "min_receive": "24800000",
+        "slippage_bps": 50,
+        "fee_cap_bps": 100,
+        "recipient": recipient,
+        "refund_to": "refund.sandbox",
+        "deadline_ms": MANDATE_DEADLINE_MS,
+    })
+}
+
+async fn check_agent_intent(
+    contract: &Contract,
+    network: &NetworkConfig,
+    owner: &AccountId,
+    agent: &AccountId,
+    policy: Value,
+) -> Result<Vec<Value>> {
+    let checks: Value = contract
+        .call_function(
+            "check_agent_intent",
+            json!({"owner": owner, "agent": agent, "policy": policy}),
+        )
+        .read_only()
+        .fetch_from(network)
+        .await?
+        .data;
+    checks
+        .as_array()
+        .cloned()
+        .context("check_agent_intent did not return a guard array")
+}
+
+fn guard_ok(checks: &[Value], guard: &str) -> bool {
+    checks
+        .iter()
+        .find(|check| check["guard"] == guard)
+        .and_then(|check| check["ok"].as_bool())
+        .unwrap_or_else(|| panic!("missing guard {guard} in {checks:?}"))
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -137,5 +214,120 @@ async fn main() -> Result<()> {
         "rejected dry quote persisted deposit authorization"
     );
     println!("X3_SANDBOX_REAL_MANAGER_SIGNATURE_VALID_DRY_QUOTE_REFUSED local_only=true no_deposit_address=true persisted_quote=false");
+
+    // Mandate lifecycle against the same deployed WASM: an owner writes a
+    // mandate, the agent registers an allowed intent, a forbidden recipient is
+    // refused, and revocation stops the agent. Sandbox-local only.
+    let owner = create_funded_account(&sandbox, "owner.sandbox").await?;
+    let agent = create_funded_account(&sandbox, "agent.sandbox").await?;
+
+    let created = contract
+        .call_function(
+            "create_mandate",
+            json!({"agent": agent.clone(), "terms": mandate_terms()}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(owner.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(created.is_success(), "sandbox create_mandate failed: {created:?}");
+
+    let allowed = contract
+        .call_function(
+            "agent_register_intent",
+            json!({
+                "owner": owner.clone(),
+                "nonce": "sandbox_mandate_allow",
+                "policy": mandate_policy("x3-demo.near"),
+            }),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(agent.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(
+        allowed.is_success(),
+        "sandbox allowed agent registration failed: {allowed:?}"
+    );
+
+    let forbidden_checks =
+        check_agent_intent(&contract, &network, &owner, &agent, mandate_policy("attacker.near")).await?;
+    anyhow::ensure!(
+        !guard_ok(&forbidden_checks, "mandate_recipient"),
+        "sandbox view accepted attacker.near: {forbidden_checks:?}"
+    );
+
+    let refused = contract
+        .call_function(
+            "agent_register_intent",
+            json!({
+                "owner": owner.clone(),
+                "nonce": "sandbox_mandate_refuse",
+                "policy": mandate_policy("attacker.near"),
+            }),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(agent.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(
+        !refused.is_success(),
+        "sandbox accepted a forbidden recipient: {refused:?}"
+    );
+
+    let revoked = contract
+        .call_function("revoke_mandate", json!({"agent": agent.clone()}))
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(owner.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(revoked.is_success(), "sandbox revoke_mandate failed: {revoked:?}");
+
+    let mandate_record: Value = contract
+        .call_function("get_mandate", json!({"owner": owner.clone(), "agent": agent.clone()}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    anyhow::ensure!(
+        mandate_record["revoked"] == Value::Bool(true),
+        "sandbox mandate was not marked revoked: {mandate_record}"
+    );
+
+    let revoked_checks =
+        check_agent_intent(&contract, &network, &owner, &agent, mandate_policy("x3-demo.near")).await?;
+    anyhow::ensure!(
+        !guard_ok(&revoked_checks, "mandate_active"),
+        "sandbox view still treats the revoked mandate as active: {revoked_checks:?}"
+    );
+
+    let after_revoke = contract
+        .call_function(
+            "agent_register_intent",
+            json!({
+                "owner": owner.clone(),
+                "nonce": "sandbox_mandate_post_revoke",
+                "policy": mandate_policy("x3-demo.near"),
+            }),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(agent.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(
+        !after_revoke.is_success(),
+        "sandbox accepted a registration after revocation: {after_revoke:?}"
+    );
+
+    println!("X3_SANDBOX_MANDATE_ACCEPT_REFUSE_REVOKE local_only=true allowed_registration=true forbidden_recipient_refused=true revoked_registration_refused=true");
     Ok(())
 }
