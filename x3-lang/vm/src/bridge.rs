@@ -3539,18 +3539,40 @@ pub fn resolve_bridge_backend_with(backend: Box<dyn BridgeAdapter>) -> Option<Bo
 /// Never silently falls back to `DryRunBridge`. Callers that don't set
 /// `X3_BRIDGE_VERIFIER` should explicitly pass `None` and use
 /// `resolve_bridge_backend()` for the dry-run path.
+fn bridge_config_error(name: &str, reason: &str) -> BridgeError {
+    BridgeError {
+        code: "X3_BRIDGE_INIT_FAILED",
+        message: format!("{name}: {reason}"),
+    }
+}
+
+fn bridge_required_config(name: &str) -> Result<String, BridgeError> {
+    let value = std::env::var(name).map_err(|_| bridge_config_error(name, "must be explicitly configured"))?;
+    if value.trim().is_empty() {
+        return Err(bridge_config_error(name, "must not be empty"));
+    }
+    Ok(value)
+}
+
+fn bridge_optional_number<T: std::str::FromStr>(name: &str) -> Result<Option<T>, BridgeError> {
+    match std::env::var(name) {
+        Ok(raw) => raw
+            .trim()
+            .parse::<T>()
+            .map(Some)
+            .map_err(|_| bridge_config_error(name, "invalid numeric threshold")),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(_) => Err(bridge_config_error(name, "invalid non-Unicode threshold")),
+    }
+}
+
 pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, BridgeError> {
     let verifier: Box<dyn BridgeAdapter> = match std::env::var("X3_BRIDGE_VERIFIER").as_deref() {
         Ok("evm-light-client") => {
-            let trusted_hash = std::env::var("X3_EVM_TRUSTED_HEADER_HASH").map_err(|_| BridgeError {
-                code: "X3_BRIDGE_INIT_FAILED",
-                message: "X3_BRIDGE_VERIFIER=evm-light-client requires X3_EVM_TRUSTED_HEADER_HASH".to_string(),
-            })?;
+            let trusted_hash = bridge_required_config("X3_EVM_TRUSTED_HEADER_HASH")?;
             let mut verifier = EthereumLightClientVerifier::new(&trusted_hash);
-            if let Ok(min_block) = std::env::var("X3_EVM_MIN_BLOCK_NUMBER") {
-                if let Ok(n) = min_block.parse::<u64>() {
-                    verifier = verifier.with_min_block_number(n);
-                }
+            if let Some(n) = bridge_optional_number::<u64>("X3_EVM_MIN_BLOCK_NUMBER")? {
+                verifier = verifier.with_min_block_number(n);
             }
             if let Ok(token_addr) = std::env::var("X3_EVM_ERC20_CHECK_ADDRESS") {
                 verifier = verifier.with_erc20_transfer_event(token_addr);
@@ -3563,23 +3585,25 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("svm-light-client") => {
-            let trusted_hash = std::env::var("X3_SVM_TRUSTED_BANK_HASH").map_err(|_| BridgeError {
-                code: "X3_BRIDGE_INIT_FAILED",
-                message: "X3_BRIDGE_VERIFIER=svm-light-client requires X3_SVM_TRUSTED_BANK_HASH".to_string(),
-            })?;
+            let trusted_hash = bridge_required_config("X3_SVM_TRUSTED_BANK_HASH")?;
             let mut verifier = SolanaLightClientVerifier::new(&trusted_hash);
             if let Ok(pubkeys) = std::env::var("X3_SVM_VALIDATOR_PUBKEYS") {
                 verifier = verifier.with_validator_pubkeys(pubkeys.split(',').map(|s| s.trim().to_string()).collect());
             }
-            if let Ok(min_sigs) = std::env::var("X3_SVM_MIN_SIGNATURES") {
-                if let Ok(n) = min_sigs.parse::<usize>() {
-                    verifier = verifier.with_min_signatures(n);
+            if let Some(n) = bridge_optional_number::<usize>("X3_SVM_MIN_SIGNATURES")? {
+                if n == 0 {
+                    return Err(bridge_config_error("X3_SVM_MIN_SIGNATURES", "must be positive"));
                 }
+                verifier = verifier.with_min_signatures(n);
             }
-            if let Ok(stake_bps) = std::env::var("X3_SVM_MIN_STAKE_BPS") {
-                if let Ok(n) = stake_bps.parse::<u64>() {
-                    verifier = verifier.with_min_stake_threshold_bps(n);
+            if let Some(n) = bridge_optional_number::<u64>("X3_SVM_MIN_STAKE_BPS")? {
+                if !(1..=10_000).contains(&n) {
+                    return Err(bridge_config_error(
+                        "X3_SVM_MIN_STAKE_BPS",
+                        "must be between 1 and 10000",
+                    ));
                 }
+                verifier = verifier.with_min_stake_threshold_bps(n);
             }
             let store_path = std::env::var("X3_RECEIPT_STORE_PATH")
                 .unwrap_or_else(|_| ".autoclaw/bridge-receipts.jsonl".to_string());
@@ -3589,11 +3613,11 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("evm-rpc") => {
-            let rpc_url = std::env::var("X3_EVM_RPC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
-            let min_confirmations = std::env::var("X3_EVM_MIN_CONFIRMATIONS")
-                .ok()
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(12);
+            let rpc_url = bridge_required_config("X3_EVM_RPC_URL")?;
+            let min_confirmations = bridge_optional_number::<u64>("X3_EVM_MIN_CONFIRMATIONS")?.unwrap_or(12);
+            if min_confirmations == 0 {
+                return Err(bridge_config_error("X3_EVM_MIN_CONFIRMATIONS", "must be positive"));
+            }
             let verifier = EthereumRpcFinalityVerifier::new(&rpc_url, "").with_min_confirmations(min_confirmations);
             let store_path = std::env::var("X3_RECEIPT_STORE_PATH")
                 .unwrap_or_else(|_| ".autoclaw/bridge-receipts.jsonl".to_string());
@@ -3603,7 +3627,7 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("svm-rpc") => {
-            let rpc_url = std::env::var("X3_SVM_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
+            let rpc_url = bridge_required_config("X3_SVM_RPC_URL")?;
             let mut verifier = SolanaRpcFinalityVerifier::new(&rpc_url, "");
             if let Ok(program_id) = std::env::var("X3_SVM_EXPECTED_PROGRAM_ID") {
                 verifier = verifier.with_expected_program_id(program_id);
@@ -3625,10 +3649,16 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
                 ),
             });
         }
-        Err(_) => {
-            // X3_BRIDGE_VERIFIER not set — caller should decide whether to
-            // use dry-run or fail. Return None to signal "no verifier configured".
+        Err(std::env::VarError::NotPresent) => {
+            // No verifier configured: caller must explicitly choose a dry run
+            // or refuse production operation.
             return Ok(None);
+        }
+        Err(_) => {
+            return Err(bridge_config_error(
+                "X3_BRIDGE_VERIFIER",
+                "non-Unicode verifier selection is invalid",
+            ));
         }
     };
     Ok(Some(verifier))
