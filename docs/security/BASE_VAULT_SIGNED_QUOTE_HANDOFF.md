@@ -21,12 +21,15 @@ The binding compares these five distinct authorities:
 2. The real repository .x3 frontend parses/typechecks the fixed testnet program,
    verifying exact SHA-256, source, minimum out, refund address, nonce, and
    time limit. This is Python-frontend policy, NOT native X3VM bytecode.
-3. The existing Guard code-identity and policy query checks testnet genesis,
-   current finalized on-chain code SHA-256, and reads policy at exactly the
-   hashed code block. It checks guard approval quote hash, owner, nonce,
-   program, cap, minimum out, expiry and revocation. Unit tests accept a
-   synthetic policy object only to exercise local pure comparisons, not as
-   on-chain proof.
+3. **Two independent NEAR testnet RPCs** must agree on the SAME
+   canonical finalized checkpoint, the reviewed on-chain Guard account
+   `x3guardlaunch2026.testnet`, its SHA-256-pinned WASM code, and the
+   owner/nonce/policy on the same block. Each provider also checks its
+   **latest finalized code and policy**. Any finality-head lag >60 NEAR
+   blocks, divergence, missing historical block, unexpected revocation
+   or substituted Guard account/code fails closed.
+   Two public RPCs are **NOT an authenticated validator-light-client proof**.
+   Synthetic policy rows in tests verify comparison logic only, not chain facts.
 4. Owner-provided review terms explicitly pin proposed Base Sepolia constructor
    agent, owner, asset code hash, one allowed recipient equal to the maker's
    signed deposit address, program and quote hashes, one 1,000,000-unit payment,
@@ -62,8 +65,8 @@ EOA, NOT the vault. Treat this as an explicit return-to-owner trust boundary.
     python3 scripts/hackathon/base_vault_quote_binding.py \
       --quote-file /private/path/to/fresh-signed-quote.json \
       --reviewer-terms-file /private/path/to/owner-reviewed-terms.json \
-      --guard-account REVIEWED_TESTNET_GUARD_ACCOUNT \
-      --guard-wasm-sha256 REVIEWED_GUARD_CODE_SHA256
+      --guard-account x3guardlaunch2026.testnet \
+      --guard-wasm-sha256 1d7a8b1ee97b7cdc500db1c19b8f3a2bef06e986576ec428f62f8c3ea1b5a145
 
 The script cannot sign, deploy, approve, or transfer anything. It does not
 emit executable Solidity payment calldata or a completed EIP-712 digest.
@@ -72,7 +75,11 @@ reviewed two-provider token attestor from base_vault_token_preflight.py:
 real token bytecode SHA-256, historical/finalized canonical checkpoints,
 and standard EIP-1967 implementation/beacon slots must all pass. A zero
 standard proxy slot cannot rule out custom token upgrade mechanisms.
-It rechecks quote freshness and the Guard policy after slow Base RPC reads.
+It rechecks maker-signature quote freshness and the two-RPC Guard policy quorum
+after slow Base RPC calls. The final time check runs AFTER the final
+network read; a quote expiring during RPC access must be denied.
+Any Guard account or WASM hash other than the exact reviewed deployment
+fails closed, even if both RPC servers agree on alternate attacker-owned code.
 Failure exits 2 and prints HARD_DENIED_NO_SIGNING_OR_DEPLOYMENT.
 
 The authentic historical fixture
@@ -83,6 +90,21 @@ that old quote fails as stale BEFORE any RPC access. This is intentional.
 The old Guard nonce x3_base_testnet_trade_001 also requires a fresh new
 compiled intent/nonce and a new owner-approved on-chain Guard state before
 a new actual payment. Do not reuse the old paid swap proof.
+
+### Recorded independent Guard read-only observation
+
+One **real**, historical two-provider read-only observation of the existing
+Guard is preserved in
+`evidence/base-vault-local/guard-finalized-quorum-20261107.json`
+(SHA-256 `7efa87b89402622d79c1eac2848e10136989c2654404bb052ac54b2f63978512`).
+This is **not** a fresh authorized quote or a cryptographically authenticated
+validator signature proof. The previously executed maker quote is EXPIRED.
+
+Re-run the read-only observation when needed with:
+
+    PYTHONPATH=x3-lang:scripts/hackathon python3 scripts/hackathon/near_guard_quorum.py       --guard-account x3guardlaunch2026.testnet       --owner x3lang.testnet       --nonce x3_base_testnet_trade_001       --wasm-sha256 1d7a8b1ee97b7cdc500db1c19b8f3a2bef06e986576ec428f62f8c3ea1b5a145       --output /tmp/x3-guard-new-readonly-observation.json
+
+Use a NEW output path on each rerun. No signing or transfer action exists here.
 
 ## Release-critical work NOT completed
 
@@ -114,7 +136,7 @@ a new actual payment. Do not reuse the old paid swap proof.
 ## Offline reproducibility
 
     PYTHONPATH=x3-lang:scripts/hackathon python3 -m unittest \
-      scripts.hackathon.test_base_vault_quote_binding -v
+      scripts.hackathon.test_base_vault_quote_binding       scripts.hackathon.test_near_guard_quorum -v
 
 The existing Base guarded admission and maker signature regression suites
 are also required. Source path:

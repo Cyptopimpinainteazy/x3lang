@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import base_sepolia_guarded_admission as admission
 import base_vault_token_preflight as token_preflight
+import near_guard_quorum
 from base_sepolia_x3_intent import compile_testnet_intent
 
 AdmissionError = admission.AdmissionError
@@ -233,12 +234,19 @@ def main() -> int:
         # a signature check only and is not exported as an authorization.
         admission.check_quote(raw["response"], now)
         _hex_hash(args.guard_wasm_sha256, "GUARD_WASM")
-        row = admission.get_near_policy(
+        guard_observation = near_guard_quorum.observe_guard_policy(
             args.guard_account, admission.RECEIVER,
             compile_testnet_intent()["nonce"], args.guard_wasm_sha256,
         )
-        admission.reject(isinstance(row, dict), "ONCHAIN_GUARD_POLICY_MISSING")
-        report = make_unsigned_binding(raw["response"], row, terms, now=datetime.now(timezone.utc))
+        admission.reject(
+            guard_observation.get("provider_count") == 2
+            and guard_observation.get("trustless_validator_finality_proven") is False,
+            "GUARD_TWO_RPC_QUORUM_MISSING",
+        )
+        report = make_unsigned_binding(
+            raw["response"], guard_observation["policy"], terms,
+            now=datetime.now(timezone.utc),
+        )
         # Two-provider read-only Base wallet/token-chain observations. This
         # is NOT an on-chain vault code or EIP712 verifier observation.
         base = admission.check_base_state()
@@ -256,16 +264,28 @@ def main() -> int:
             "BASE_TOKEN_TWO_RPC_ATTESTATION_MISMATCH",
         )
         # Deadline and final Guard policy might change during slow RPC calls.
-        final_now = datetime.now(timezone.utc)
-        row = admission.get_near_policy(
+        guard_observation = near_guard_quorum.observe_guard_policy(
             args.guard_account, admission.RECEIVER,
             compile_testnet_intent()["nonce"], args.guard_wasm_sha256,
         )
-        report = make_unsigned_binding(raw["response"], row, terms, now=final_now)
+        # Observe the wall clock AFTER potentially slow RPC reads. Checking
+        # before them can accidentally issue a preview for a now-expired quote.
+        final_now = datetime.now(timezone.utc)
+        report = make_unsigned_binding(
+            raw["response"], guard_observation["policy"], terms, now=final_now,
+        )
         report["onchain_guard_observation_verified"] = True
         report["onchain_guard_observation_scope"] = (
-            "read_only_near_genesis_and_final_code_hash_policy_query_not_transaction_authorization"
+            "two_read_only_near_rpc_finalized_code_policy_snapshots_NOT_authenticated_validator_proof"
         )
+        report["near_guard_quorum"] = {
+            "classification": guard_observation["classification"],
+            "checkpoint": guard_observation["checkpoint"],
+            "finalized_head_heights": guard_observation["finalized_head_heights"],
+            "provider_count": guard_observation["provider_count"],
+            "trustless_validator_finality_proven": False,
+            "deployment_approved": False,
+        }
         report["guard_account"] = args.guard_account
         report["guard_wasm_sha256"] = args.guard_wasm_sha256
         report["base_rpc_coverage"] = len(base.get("rpc_observations", []))
