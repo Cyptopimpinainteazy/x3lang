@@ -49,6 +49,33 @@ These tests include negative wrong-recipient/over-cap/replay/revoke/expired/forg
 5. Contract reserved/available accounting fails closed on missing callbacks and does not imply successful payout until its asynchronous receipt arrives. Any on-chain deploy or funding requires separately approved exact transactions.
 6. This vault currently pays **native NEAR only**. It does not yet integrate the Tidepool quote Guard, NEP-141 tokens or the native BSC↔NEAR bridge; expansion requires separate proofs and review.
 
+## Storage exhaustion and owner recovery blockers — do not deploy
+
+A compromised scoped agent can spend **one yoctoNEAR** per distinct nonce,
+incurring payment-history and replay-tombstone storage far out of proportion
+to the spending budget. The provisional vault now hard-stops after **64
+lifetime accepted payment requests** (including pending, paid and failed payments)
+before adding a 65th nonce/record. The new regression confirms the capacity
+denial does not debit escrow or reserve funds. This is a bounded-storage
+safety stop, **not** a measured or audited storage-deposit accounting policy:
+the account's actual storage stake, code size, reserve, gas costs and
+callback liquidity still require independent testing. A compromised agent
+could deliberately exhaust all 64 slots and deny subsequent legitimate
+payments; the prototype has no safe on-chain pruning/migration workflow.
+
+**Critical release blocker:** the contract also lacks an owner-only
+escrow recovery/withdrawal method. After owner funding, any `available`
+escrow left after revocation/expiration, exhausted payment slots or normal
+use **cannot currently be reclaimed through this contract's API**.
+An administrator holding the vault account's FullAccess key might be
+able to replace code, but an unreviewed upgrade is not a safe recovery
+procedure. Require an independently audited recovery state machine with
+reserve/pending-payout protection, a rollback-safe migration plan and a
+real local-node failure matrix before **any public-testnet funding**.
+
+This safeguard is **not** evidence of mainnet readiness or a finished P0
+custody system, and it does not alter the pre-existing Tidepool Guard.
+
 ## 90-second judge narration (recording plan, NOT a completed video)
 
 **0–15s:** "X3 Shield doesn't just ask an AI agent to obey rules. This vault makes the spending boundary enforceable, with only a FunctionCall key available to the agent." Show local on-chain access-key permission.
