@@ -2,7 +2,7 @@ name: X3Lang Security Audit (candidate gates)
 
 on:
   pull_request:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 permissions:

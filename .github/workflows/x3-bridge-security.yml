@@ -2,7 +2,7 @@ name: X3 Native Bridge Prototype Security
 
 on:
   push:
-    branches: [main, 'feat/**', 'integration/**']
+    branches: [master, 'feat/**', 'integration/**']
     paths:
       - 'x3-lang/bridge/**'
       - '.github/workflows/x3-bridge-security.yml'

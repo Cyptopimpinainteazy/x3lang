@@ -150,7 +150,7 @@ The readiness report never calculates a completion percentage. It reports:
 ## Historical disclosure
 
 The compiler, trading VM and much of X3Lang predate the NEAR hackathon. Read
-[`PRIOR_WORK.md`](../../PRIOR_WORK.md) and the `baseline...main` comparison. The NEAR Intents
+[`PRIOR_WORK.md`](../../PRIOR_WORK.md) and the `baseline...master` comparison. The NEAR Intents
 adapter, mandates, Guard and judge-control work are separate features with their own commits.
 
 ## Security boundary
