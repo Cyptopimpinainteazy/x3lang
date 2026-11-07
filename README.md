@@ -17,7 +17,9 @@ checked policy reject it **even though its signature is valid**? That is the
 security problem this submission tackles—not the already-established idea
 of giving agents spending limits.
 
-**Current evidence level: `local_policy_preview_only` + `testnet_mandate_lifecycle_and_quote_evidence_only`.** Below is the honest
+**First real two-chain testnet execution:** [verified finalized Base Sepolia + NEAR proof](docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md), including an owner-authorized Tidepool maker-signed quote, historical on-chain Guard authorization, source ERC-20 transfer and finalized NEAR payout. **Trustless atomicity, native X3VM bytecode execution, and mainnet readiness remain unproven.**
+
+**Historical offline/official-1Click evidence class: `local_policy_preview_only` + `testnet_mandate_lifecycle_and_quote_evidence_only`.** Below is the honest
 three-minute screen. Architecture detail, value-fee economics and release
 boundaries follow after it.
 
