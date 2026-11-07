@@ -17,6 +17,7 @@ on:
       - 'scripts/hackathon/capture_two_chain_baseline.py'
       - 'scripts/hackathon/test_two_chain_baseline.py'
       - 'evidence/tidepool-testnet/**'
+      - 'docs/hackathon/TWO_CHAIN_PROOF_LIBRARY.md'
       - '.github/workflows/x3-two-chain-settlement-proof.yml'
 permissions:
   contents: read
