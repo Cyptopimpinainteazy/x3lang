@@ -23,6 +23,8 @@ of giving agents spending limits.
 three-minute screen. Architecture detail, value-fee economics and release
 boundaries follow after it.
 
+**Private judge preview:** [X3 Shield Attack Lab](docs/hackathon/attack-lab.html) is a browser-only editable policy exercise. It separately links a real finalized Base→NEAR Tidepool testnet trade and draft scoped-agent vault local Sandbox evidence; neither is a claim that the preview itself controls a wallet. The page is prepared but deliberately not publicly hosted until the owner-approved hackathon reveal.
+
 ## WORKS TODAY
 
 - One command (`60-SECOND JUDGE PATH` below) runs scenario freshness, the four-scenario
@@ -52,9 +54,7 @@ boundaries follow after it.
 - The testnet `agent_register_intent` recipient refusal exists, but no fresh live manager-signed forbidden quote has been refused at `agent_accept_quote`, and no mainnet deployment is claimed ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open; live acceptance authorizes a deposit address only, with no deposit/settlement attempted).
 - No mainnet transaction links, no wallet custody, and no universal spending lock:
   an unrestricted wallet key can still bypass Guard.
-- The archived Tidepool testnet trade records finalized inclusion and delivery on separate chains. Trustless cross-chain causality remains unproven. A signed 1Click quote authenticates
-  **quote terms**, not a completed swap; a valid Merkle path under an untrusted RPC
-  root is **not trusted finality**; a `verified_outcome` flag in local JSON is not proof.
+- The separate **Tidepool community testnet** trade has independently finalized Base Sepolia source and NEAR destination receipts and a matching recipient balance increase. This demonstrates successful trusted-relayer testnet delivery, **not** cryptographic origin-to-destination causality, permissionless native-bridge atomicity, or official 1Click mainnet settlement. The earlier manager-signed 1Click quote exercise established signed terms and acceptance without funding. A Merkle path under an untrusted RPC root alone is not authenticated finality, and a local `verified_outcome` flag is not independent receipt evidence.
 
 ## 60-SECOND JUDGE PATH
 
