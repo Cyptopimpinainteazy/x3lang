@@ -74,8 +74,11 @@ end-to-end flow or any transfer/settlement.
 the production `x3_guard.wasm` runs on a disposable node and checks a genuine
 archived official-manager-signed **dry** quote. The Guard verifies the
 signature but refuses dry-quote deposit authorization and leaves the stored
-quote empty. This is a local Sandbox transaction, not a public Testnet
-refusal of a freshly signed forbidden **live** quote.
+quote empty. The same run creates an owner mandate, accepts an allowed
+`agent_register_intent`, refuses `attacker.near` at `mandate_recipient`,
+revokes, and refuses a post-revocation registration. This is a local Sandbox
+transaction, not a public Testnet refusal of a freshly signed forbidden
+**live** quote.
 
 ## NEAR testnet Guard evidence
 

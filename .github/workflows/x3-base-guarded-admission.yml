@@ -1,0 +1,57 @@
+name: X3 Guarded Base Sepolia Admission Proof
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/registry.py'
+      - 'x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3'
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/test_base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/base_guarded_broadcast.py'
+      - 'scripts/hackathon/test_base_guarded_broadcast.py'
+      - 'scripts/hackathon/base_sepolia_guarded_admission.py'
+      - 'scripts/hackathon/test_base_sepolia_guarded_admission.py'
+      - 'x3-lang/near/x3-tidepool-guard/src/signed_live_fixture.json'
+      - '.github/workflows/x3-base-guarded-admission.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/near/x3-tidepool-guard/src/signed_live_fixture.json'
+      - 'x3-lang/registry.py'
+      - 'x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3'
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/test_base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/base_guarded_broadcast.py'
+      - 'scripts/hackathon/test_base_guarded_broadcast.py'
+      - 'scripts/hackathon/base_sepolia_guarded_admission.py'
+      - 'scripts/hackathon/test_base_sepolia_guarded_admission.py'
+      - '.github/workflows/x3-base-guarded-admission.yml'
+permissions:
+  contents: read
+jobs:
+  test-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run real signed quote offline and hard-denial matrix
+        env:
+          PYTHONPATH: x3-lang
+        run: |
+          set -euo pipefail
+          python -m unittest scripts/hackathon/test_base_sepolia_guarded_admission.py scripts/hackathon/test_base_guarded_broadcast.py scripts/hackathon/test_base_sepolia_x3_intent.py -v
+          python -m py_compile scripts/hackathon/base_sepolia_guarded_admission.py scripts/hackathon/base_guarded_broadcast.py scripts/hackathon/base_sepolia_x3_intent.py
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+          else
+            git diff --check "${{ github.event.before }}" HEAD
+          fi
+      - name: Preserve no-signing read-only preflight
+        run: |
+          set -euo pipefail
+          ! grep -E 'cast send|eth_sendRawTransaction|--private-key|wallet sign|eth_sendTransaction|sign_transaction|send_raw_transaction' scripts/hackathon/base_sepolia_guarded_admission.py

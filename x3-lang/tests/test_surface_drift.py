@@ -131,6 +131,7 @@ def _mandate_parser():
 READS = {
     "arb_scope.x3",
     "arb_solana_eth.x3",
+    "base_sepolia_to_near_testnet_1usdc.x3",
     "bsc_bnb_to_near_wnear_dry.x3",
     "intent_fusion.x3",
     "multi_leg_route.x3",
