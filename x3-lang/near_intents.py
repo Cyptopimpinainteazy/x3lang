@@ -104,6 +104,7 @@ and `status` track the swap to a terminal X3 outcome.
 import argparse
 import contextlib
 import hashlib
+import math
 import importlib.util
 import json
 import os
@@ -696,7 +697,16 @@ def oneclick_quote_hash(response: Dict[str, Any]) -> str:
 def _decode_ed25519(value: Any, length: int) -> bytes:
     if not isinstance(value, str) or not value.startswith(ED25519_PREFIX):
         raise QuoteSignatureFormatError(f"expected an {ED25519_PREFIX}<base58> value")
-    raw = ed25519.b58decode(value[len(ED25519_PREFIX):])
+    encoded = value[len(ED25519_PREFIX):]
+    # Base58 is one alphabet character per leading zero byte and at most
+    # ceil(8 * length / log2(58)) characters otherwise. Refuse oversized
+    # network input before converting the whole string to a big integer.
+    maximum = math.ceil(length * 8 / math.log2(58))
+    if not length <= len(encoded) <= maximum:
+        raise QuoteSignatureFormatError(
+            f"expected {length} bytes encoded in {length}..{maximum} base58 characters"
+        )
+    raw = ed25519.b58decode(encoded)
     if len(raw) != length:
         raise QuoteSignatureFormatError(f"expected {length} bytes, decoded {len(raw)}")
     return raw
@@ -1147,6 +1157,13 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     # so a payment the contract would refuse never gets a deposit address.
     mandate_check = None
     if leg.get("mandate_owner") or mandate_path:
+        if live and not guard_contract:
+            raise NearIntentsError(
+                "X3_MANDATE_REQUIRED",
+                "a live quote for a mandate-controlled intent requires --guard-contract "
+                "so revocation and rolling spend are read from chain state",
+                "mandate",
+            )
         if not mandate_path:
             if live:
                 raise NearIntentsError(

@@ -57,8 +57,6 @@ TRACK_GUIDE = [
      "role": "Deny substitutions, overspend, fee evasion, replay and revoked authority."},
     {"track": "Agent Economy",
      "role": "Allow bounded payments and distinguish approval-required from authorized."},
-    {"track": "Unstoppable DeFi",
-     "role": "Lower authorized intent into one inspectable NEAR Intents route without claiming settlement."},
 ]
 
 # (id, group, title, story, source file, [(old, new)], assumed Guard state, contract tests)
@@ -85,6 +83,11 @@ SCENARIOS: list[dict[str, Any]] = [
     {"id": "wrong-recipient", "group": "B", "title": "Unauthorized recipient",
      "story": "The agent tries to pay attacker.near, who is not on the owner's list.",
      "takeaway": "Recipient substitution stops at mandate_recipient, before any quote.",
+     "source": DENIED, "edits": []},
+    {"id": "prompt-injection-recipient", "group": "B",
+     "title": "Prompt-injected payment",
+     "story": "A prompt-injected instruction steers the AI agent to pay attacker.near, but the owner never authorized that recipient.",
+     "takeaway": "The model can generate any request; the compiled mandate stops recipient substitution.",
      "source": DENIED, "edits": []},
     {"id": "refund-redirect", "group": "B", "title": "Redirected refund",
      "story": "The agent points a failed swap's refund at an address the owner did not pin.",

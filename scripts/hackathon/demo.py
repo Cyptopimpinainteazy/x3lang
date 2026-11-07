@@ -35,7 +35,7 @@ def _scenario_builder():
 
 
 BUILDER = _scenario_builder()
-DEMO_SCENARIOS = ("authorized", "needs-approval", "wrong-recipient")
+DEMO_SCENARIOS = ("authorized", "needs-approval", "wrong-recipient", "prompt-injection-recipient")
 
 
 def _cross_chain(source: str, tokens: list[dict[str, Any]]) -> dict[str, Any]:
@@ -115,8 +115,8 @@ def _label(decision: str) -> str:
 
 def render(report: dict[str, Any]) -> str:
     lines: list[str] = [
-        "X3LANG THREE-TRACK JUDGE DEMONSTRATION",
-        "One owner mandate; one policy authority; three hackathon tracks.",
+        "X3LANG TWO-TRACK JUDGE DEMONSTRATION",
+        "One owner mandate; one policy authority; two submitted hackathon tracks.",
         "Evidence level: local policy preview only. No network request was made.",
         "",
         "PANEL 1 - THE OWNER'S X3LANG POLICY",
@@ -138,10 +138,9 @@ def render(report: dict[str, Any]) -> str:
         ])
     lines.extend([
         "PANEL 3 - SECURITY DECISION",
-        "  Authorized         -> " + _label(report["scenarios"][0]["decision"]),
-        "  Above threshold    -> " + _label(report["scenarios"][1]["decision"]),
-        "  Wrong recipient    -> " + _label(report["scenarios"][2]["decision"]),
     ])
+    for scenario in report["scenarios"]:
+        lines.append(f"  {scenario['title']} -> {_label(scenario['decision'])}")
     for scenario in report["scenarios"]:
         failed = [check["guard"] for check in scenario["checks"] if not check["ok"]]
         lines.append(
@@ -170,7 +169,8 @@ def render(report: dict[str, Any]) -> str:
         "  Browser console: python3 -m http.server 8000 --directory x3-lang/near/demo",
         "                   then open http://localhost:8000/judge.html",
         "  Full local evidence: bash scripts/hackathon/verify.sh",
-        "  No wallet signature, on-chain authorization, signed quote or settlement is claimed.",
+        "  No wallet signature, wallet transfer, deposit, signed quote or settlement is claimed by this local demo.",
+        "  Separately recorded testnet accept_quote authorizes a deposit address only.",
         "",
         "Tracks: " + ", ".join(report["tracks"]),
     ])
@@ -186,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         "authorized": ("preflight_passed", []),
         "needs-approval": ("approval_required", []),
         "wrong-recipient": ("denied_by_policy", ["mandate_recipient"]),
+        "prompt-injection-recipient": ("denied_by_policy", ["mandate_recipient"]),
     }
     ok = all(
         (scenario["decision"], scenario["denied_guards"]) == expected[scenario["id"]]

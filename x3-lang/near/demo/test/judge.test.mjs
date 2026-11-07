@@ -65,6 +65,37 @@ test("a mandate owned by someone else is refused before any term is checked", as
   assert.deepEqual(result.checks, []);
 });
 
+test("prompt-injection-recipient: the browser refuses the injected recipient and agrees with Python", async () => {
+  const s = DATA.scenarios.find((x) => x.id === "prompt-injection-recipient");
+  assert.ok(s, "prompt-injection-recipient scenario is missing from scenarios.json");
+  assert.match(s.story.toLowerCase(), /prompt/);
+  const result = await judge.evaluate(DATA, s);
+  assert.equal(result.decision, "denied_by_policy");
+  assert.deepEqual(result.denied_guards, ["mandate_recipient"]);
+  assert.ok(judge.agrees(s, result));
+});
+
+test("prompt-injection-recipient and wrong-recipient evaluate the same checked-in DENIED payload", () => {
+  const wrong = DATA.scenarios.find((x) => x.id === "wrong-recipient");
+  const injected = DATA.scenarios.find((x) => x.id === "prompt-injection-recipient");
+  assert.ok(wrong, "wrong-recipient scenario is missing from scenarios.json");
+  assert.ok(injected, "prompt-injection-recipient scenario is missing from scenarios.json");
+  assert.equal(wrong.intent.file, "x3-lang/examples/near_intents_agent_denied.x3");
+  assert.equal(injected.intent.file, "x3-lang/examples/near_intents_agent_denied.x3");
+  assert.equal(injected.intent.source, wrong.intent.source);
+  assert.equal(injected.intent.sha256, wrong.intent.sha256);
+  assert.equal(injected.python.decision, wrong.python.decision);
+  assert.deepEqual(injected.python.denied_guards, wrong.python.denied_guards);
+});
+
 test("only the local policy level is claimed as proven", () => {
   assert.deepEqual(judge.EVIDENCE_LADDER.filter((l) => l.proven).map((l) => l.level), ["local_policy"]);
+});
+
+test("judge evidence panel labels valid test-key signed-quote refusal as local, not on-chain", () => {
+  const html = read("x3-lang/near/demo/judge.html");
+  assert.match(html, /id === "guard_signed_refusal"/);
+  assert.match(html, /TEST-ONLY key/);
+  assert.match(html, /not a live 1Click signature or on-chain receipt/);
+  assert.match(html, /NOT PROVEN BY THIS RECORD/);
 });

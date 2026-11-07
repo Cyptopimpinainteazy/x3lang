@@ -10,6 +10,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPORT="${1:-/tmp/x3lang-hackathon-readiness.json}"
 
 cd "$ROOT"
+# Same screener preconditions as judge_one_command.sh, run first so staleness
+# or parity drift fails here without waiting for the full evidence collector.
+python3 x3-lang/near/demo/judge/build_scenarios.py --check
+node --test x3-lang/near/demo/test/*.test.mjs
 python3 x3-lang/near/demo/judge/collect_evidence.py --with-contract
 python3 scripts/hackathon/demo.py
 python3 scripts/hackathon/readiness.py --out "$REPORT"

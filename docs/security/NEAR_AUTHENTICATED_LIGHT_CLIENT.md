@@ -213,8 +213,9 @@ permission to sign.
 
 - Ed25519 approvals are checked against the validator set for the candidate
   epoch.
-- Validator keys are decoded canonically and checked as on-curve Ed25519 points,
-  including validators that did not sign.
+- Validator and checkpoint keys are decoded canonically and must be non-identity
+  points in the Ed25519 prime-order subgroup. Small-order and torsion-component
+  keys are rejected, including keys belonging to validators that did not sign.
 - The strict `> 2/3` total-stake threshold is enforced.
 - Current and next validator identities cannot be substituted without detection.
 - V1 validator Borsh commitments are recomputed.
