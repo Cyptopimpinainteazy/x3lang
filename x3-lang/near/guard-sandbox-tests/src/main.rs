@@ -623,11 +623,17 @@ async fn main() -> Result<()> {
     // All calls use genuine local account signers and node transaction receipts.
     for round in 0..4u8 {
         let repeated_nonce = format!("stress-race-{round}");
+        let amount_a = 25_000_000u64 + u64::from(round) * 100_000;
+        let amount_b = 30_000_000u64 + u64::from(round) * 100_000;
+        let mut policy_a = mandate_policy("x3-demo.near");
+        policy_a["amount"] = json!(amount_a.to_string());
+        let mut policy_b = mandate_policy("x3-demo.near");
+        policy_b["amount"] = json!(amount_b.to_string());
         let a = contract
             .call_function(
                 "agent_register_intent",
                 json!({"owner": race_owner.clone(), "nonce": repeated_nonce,
-                    "policy": mandate_policy("x3-demo.near")}),
+                    "policy": policy_a}),
             )
             .transaction()
             .gas(NearGas::from_tgas(120))
@@ -638,7 +644,7 @@ async fn main() -> Result<()> {
             .call_function(
                 "agent_register_intent",
                 json!({"owner": race_owner.clone(), "nonce": repeated_nonce,
-                    "policy": mandate_policy("x3-demo.near")}),
+                    "policy": policy_b}),
             )
             .transaction()
             .gas(NearGas::from_tgas(120))
@@ -662,6 +668,7 @@ async fn main() -> Result<()> {
         } else {
             &race_agent_b
         };
+        let expected_amount = if left.is_success() { amount_a } else { amount_b };
         let stored: Value = contract
             .call_function(
                 "get_intent",
@@ -674,6 +681,7 @@ async fn main() -> Result<()> {
         anyhow::ensure!(
             stored["owner"] == json!(race_owner)
                 && stored["agent"] == json!(expected_agent)
+                && stored["policy"]["amount"] == json!(expected_amount.to_string())
                 && stored["quote"].is_null()
                 && stored["approvals"] == json!([]),
             "round {round} owner/nonce isolation or state invariant failed: {stored}"

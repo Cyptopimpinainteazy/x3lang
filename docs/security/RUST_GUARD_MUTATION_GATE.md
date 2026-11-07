@@ -57,7 +57,7 @@ On source base commit `6bf0cb80580e44b1f9eb2b763d038a40d1b89631`, the first loca
 
 ## Extended nonce-race stress cases (stacked test-only follow-up)
 
-Four additional real-node contention rounds use fresh nonces and alternate which future is polled first. For each round, two separately authorized agent accounts simultaneously invoke the production `agent_register_intent` ABI for the same owner and nonce; exactly one receipt must succeed, and the persisted intent must belong to that winner, contain no quote, and have no approvals. The original single-pair race is still included, for **five two-agent contention rounds per full Sandbox smoke**.
+Four additional real-node contention rounds use fresh nonces and alternate which future is polled first. For each round, two separately authorized agent accounts simultaneously invoke the production `agent_register_intent` ABI for the same owner and nonce, **with different payment amounts**; exactly one receipt must succeed, and the persisted intent must belong to that winner, contain its exact amount, contain no quote, and have no approvals. The original single-pair race is still included, for **five two-agent contention rounds per full Sandbox smoke**.
 
 A cross-owner namespace test then creates a second owner, registers its own mandate, and reuses a nonce already registered by the first owner. This must succeed independently. Read-only checks prove both records retain their respective owner and agent and do not share approval state. These are the actual contract's storage semantics, not simulated transactions or a synthetic lock.
 
