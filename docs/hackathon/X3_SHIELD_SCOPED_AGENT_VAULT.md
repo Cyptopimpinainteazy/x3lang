@@ -4,7 +4,9 @@
 
 **Not claimed:** mainnet security, independent custody audit, a trustless bridge, a secured Base Sepolia EOA signing path, or proof that the owner's *full-access* key cannot move funds. An owner can still update/recover its vault using an unrestricted key, which must stay out of the agent runtime. This pilot is separate from the real Tidepool trade already proven in PR #109.
 
-**Verified real offline evidence:** [read-only Sandbox result](../../evidence/agent-vault-local/verified-sandbox-20261107.json), with exact Rust 1.99.1 local WASM SHA-256 `971d9cc43982b5ca9cdb30deab87e39ac09e752850b20773cace20cae2886128`. The direct transfer was rejected by the RPC with `ServerError(InvalidTransaction)`; it did **not** create an on-chain receipt, so the demo distinguishes protocol rejection from executed failed receipts.
+**Original scoped-agent pilot evidence:** [read-only Sandbox result](../../evidence/agent-vault-local/verified-sandbox-20261107.json), Rust 1.99.1 WASM SHA-256 `971d9cc43982b5ca9cdb30deab87e39ac09e752850b20773cace20cae2886128`. The direct transfer was rejected by the RPC with `ServerError(InvalidTransaction)`; it did **not** create an on-chain receipt. The recovered-escrow prototype uses a **different** locally compiled WASM SHA-256 `fe5bad16b3242eba09f17042f87f55ec4174b5fd2c866c0b7f79bd42a4dadfc3` and its own ephemeral node run; the original artifact must not be relabeled as proof of this new code.
+
+**Recovery-pilot local evidence:** [`owner-recovery-sandbox-20261107.json`](../../evidence/agent-vault-local/owner-recovery-sandbox-20261107.json), exact SHA-256 `6fee7b31d7fe1b36c627dc539f936a38643a97872fe45557b56bbe2063f45e01`, records runner assertions from the isolated NEAR Sandbox. The local node reported a **0.5 NEAR owner recovery** and **0.4996041409828937 NEAR net owner balance increase after gas**. This is *not* independent public-chain proof. Reproduce with `scripts/hackathon/vault_sandbox_smoke.sh` using the pinned Sandbox binary.
 
 ## Local real-chain attack matrix
 
@@ -19,6 +21,9 @@ The local test used NEAR Sandbox 2.14.0 with an offline pinned binary, an isolat
 | Agent requests permitted 0.1 NEAR | Paid from vault (not agent account) | Successful local Sandbox transaction, receipt state `Paid` |
 | Agent reuses same nonce | Rejected | Transaction failed in local Sandbox |
 | Owner revokes, agent tries new nonce | Rejected | Transaction failed in local Sandbox |
+| Owner recovery before revocation | Rejected | Transaction failed in recovery-pilot local Sandbox |
+| Compromised scoped key calls `recover_available` | Node/contract rejects | Forbidden FunctionCall permission; refusal observed in recovery-pilot local Sandbox (SDK/RPC class not assumed to be a receipt) |
+| Owner recovers 0.5 test NEAR after revocation | Actual async transfer succeeds and reduces available escrow | Recovery-pilot local Sandbox verified `available` 0.9 → 0.4 test NEAR; not a public network transfer |
 
 **Local Sandbox CLI:**
 
@@ -49,32 +54,38 @@ These tests include negative wrong-recipient/over-cap/replay/revoke/expired/forg
 5. Contract reserved/available accounting fails closed on missing callbacks and does not imply successful payout until its asynchronous receipt arrives. Any on-chain deploy or funding requires separately approved exact transactions.
 6. This vault currently pays **native NEAR only**. It does not yet integrate the Tidepool quote Guard, NEP-141 tokens or the native BSC↔NEAR bridge; expansion requires separate proofs and review.
 
-## Storage exhaustion and owner recovery blockers — do not deploy
+## Storage exhaustion and owner recovery pilot — do not deploy
 
 A compromised scoped agent can spend **one yoctoNEAR** per distinct nonce,
 incurring payment-history and replay-tombstone storage far out of proportion
-to the spending budget. The provisional vault now hard-stops after **64
-lifetime accepted payment requests** (including pending, paid and failed payments)
-before adding a 65th nonce/record. The new regression confirms the capacity
-denial does not debit escrow or reserve funds. This is a bounded-storage
-safety stop, **not** a measured or audited storage-deposit accounting policy:
-the account's actual storage stake, code size, reserve, gas costs and
-callback liquidity still require independent testing. A compromised agent
-could deliberately exhaust all 64 slots and deny subsequent legitimate
-payments; the prototype has no safe on-chain pruning/migration workflow.
+to the spending budget. The provisional vault hard-stops after **64 lifetime
+accepted payments** (pending, paid or failed) before adding a 65th nonce.
+The capacity denial does not debit escrow or reserve funds, but it allows
+a compromised agent to exhaust all slots and deny future legitimate requests.
+There is no audited pruning or migration design.
 
-**Critical release blocker:** the contract also lacks an owner-only
-escrow recovery/withdrawal method. After owner funding, any `available`
-escrow left after revocation/expiration, exhausted payment slots or normal
-use **cannot currently be reclaimed through this contract's API**.
-An administrator holding the vault account's FullAccess key might be
-able to replace code, but an unreviewed upgrade is not a safe recovery
-procedure. Require an independently audited recovery state machine with
-reserve/pending-payout protection, a rollback-safe migration plan and a
-real local-node failure matrix before **any public-testnet funding**.
+**Proposed testnet-only recovery state machine:** `recover_available(amount)`
+is owner-only, and rejects calls until the mandate is revoked or expired.
+It only withdraws the unreserved `available` escrow, keeps pending payouts
+in `reserved`, and additionally protects NEAR account storage stake based
+on current usage and byte cost plus a **provisional 0.5 NEAR gas/callback
+buffer**. A single `pending_recovery` records an in-flight transfer;
+the asynchronous callback clears it on success or restores the exact
+debit on failure. Without a finalized callback the amount remains pending
+and cannot be re-withdrawn. The scoped agent key has no owner-recovery
+permission. This is an incremental safety boundary, not audited economics.
 
-This safeguard is **not** evidence of mainnet readiness or a finished P0
-custody system, and it does not alter the pre-existing Tidepool Guard.
+**Still release-blocked:** the new Borsh state field has **no compatible
+migration path for an existing deployed vault**, and there is no recovery
+if an asynchronous callback is permanently missing. The fixed buffer,
+actual storage deposits, gas costs, byte growth, callback safety under
+adversarial node conditions and 64-slot denial of service still require
+independent testing/review. The sandbox-only prototype must **not**
+be upgraded onto an existing funded contract or funded/deployed on any
+public testnet until these gates and explicit owner authorization are met.
+
+This work does not demonstrate mainnet readiness, cross-VM custody
+enforcement, or trustless settlement, and it does not modify Tidepool Guard.
 
 ## 90-second judge narration (recording plan, NOT a completed video)
 
