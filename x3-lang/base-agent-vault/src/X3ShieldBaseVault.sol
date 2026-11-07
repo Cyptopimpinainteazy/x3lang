@@ -20,6 +20,12 @@ contract X3ShieldBaseVault {
     bytes32 private constant VERSION_HASH = keccak256("1");
     // EIP-2 low-S restriction, to reject malleated ECDSA signatures.
     uint256 private constant MAX_LOW_S = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+    // Only the independently reviewed test-USDC ERC-20 at this exact address
+    // and exact runtime bytecode may be selected on public Base Sepolia.
+    // Foundry local chain 31337 may use disposable adversarial test tokens.
+    address private constant BASE_SEPOLIA_USDC = 0x38d81431B9f76d9699AF7517040D5221D9dEA252;
+    bytes32 private constant BASE_SEPOLIA_USDC_SHA256 =
+        hex"db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83";
 
     address public immutable owner;
     address public immutable asset;
@@ -68,6 +74,10 @@ contract X3ShieldBaseVault {
     ) {
         require(block.chainid == 84532 || block.chainid == 31337, "TESTNET_ONLY");
         require(asset_ != address(0) && asset_.code.length > 0, "INVALID_TOKEN");
+        if (block.chainid == 84532) {
+            require(asset_ == BASE_SEPOLIA_USDC, "UNAPPROVED_BASE_TEST_TOKEN");
+            require(sha256(asset_.code) == BASE_SEPOLIA_USDC_SHA256, "BASE_TOKEN_BYTECODE_MISMATCH");
+        }
         require(agent_ != address(0) && recipient_ != address(0), "ZERO_PRINCIPAL");
         require(agent_ != msg.sender && recipient_ != agent_ && recipient_ != address(this), "ROLE_COLLISION");
         require(quoteHash_ != bytes32(0) && programHash_ != bytes32(0), "UNBOUND_POLICY");

@@ -4,11 +4,19 @@ on:
     paths:
       - 'x3-lang/base-agent-vault/**'
       - '.github/workflows/x3-base-agent-vault.yml'
+      - 'scripts/hackathon/base_vault_token_preflight.py'
+      - 'scripts/hackathon/test_base_vault_token_preflight.py'
+      - 'evidence/base-vault-local/**'
+      - 'docs/security/BASE_VAULT_INTERNAL_AUDIT_20261107.md'
   push:
     branches: [master]
     paths:
       - 'x3-lang/base-agent-vault/**'
       - '.github/workflows/x3-base-agent-vault.yml'
+      - 'scripts/hackathon/base_vault_token_preflight.py'
+      - 'scripts/hackathon/test_base_vault_token_preflight.py'
+      - 'evidence/base-vault-local/**'
+      - 'docs/security/BASE_VAULT_INTERNAL_AUDIT_20261107.md'
 permissions:
   contents: read
 jobs:
@@ -17,6 +25,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Fail-closed independent-RPC token attestation unit cases (NO RPC)
+        run: python3 -m unittest scripts.hackathon.test_base_vault_token_preflight -v
+      - name: Integrity-check immutable historical public-chain observations
+        run: |
+          set -euo pipefail
+          cd evidence/base-vault-local
+          sha256sum -c BASE_VAULT_SHA256SUMS.txt
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
