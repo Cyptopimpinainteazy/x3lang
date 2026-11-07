@@ -77,20 +77,17 @@ async fn main() -> Result<()> {
                 receiver_id: vault.to_string(),
                 method_names: vec!["request_payment".into()],
             }),
-            pubkey.clone(),
+            pubkey,
         )
         .with_signer(full.clone())
         .send_to(&network)
         .await?
         .assert_success();
-    let recorded = Account(agent.clone())
-        .access_key(pubkey.clone())
-        .fetch_from(&network)
-        .await?;
+    let recorded = Account(agent.clone()).access_key(pubkey).fetch_from(&network).await?;
     match &recorded.data.permission {
         AccessKeyPermission::FunctionCall(permission) => {
             ensure!(
-                permission.receiver_id == vault.to_string()
+                permission.receiver_id == vault.as_str()
                     && permission.method_names == vec!["request_payment".to_string()],
                 "agent key grants broader methods or receiver than approved"
             );
@@ -174,6 +171,28 @@ async fn main() -> Result<()> {
         .send_to(&network)
         .await?;
     ensure!(!replay.is_success(), "replayed nonce permitted");
+    // The owner cannot recover funds while the agent mandate is still active.
+    // The admin key exists only in this isolated test harness.
+    let early_recovery = contract
+        .call_function("recover_unused", json!({"amount":"500000000000000000000000"}))
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(owner.clone(), full.clone())
+        .send_to(&network)
+        .await?;
+    ensure!(!early_recovery.is_success(), "owner withdrew before revoke or expiry");
+
+    // Even an account with an unrestricted test-only key cannot impersonate
+    // the configured owner on this contract method.
+    let forged_recovery = contract
+        .call_function("recover_unused", json!({"amount":"500000000000000000000000"}))
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(attacker.clone(), full.clone())
+        .send_to(&network)
+        .await?;
+    ensure!(!forged_recovery.is_success(), "non-owner recovered vault escrow");
+
     contract
         .call_function("revoke", json!({}))
         .transaction()
@@ -204,6 +223,59 @@ async fn main() -> Result<()> {
         "successful payment reverted due to later denial"
     );
     println!("X3_VAULT_SANDBOX_NONCE_REPLAY_AND_REVOCATION_REFUSED local_only=true");
+
+    // Funds remaining after the one successful 0.1 NEAR payment: 0.9 NEAR
+    // tracked owner escrow, independent of the contract's gas/storage reserve.
+    // An owner-only 0.5 NEAR recovery is an actual local NEAR Promise payout.
+    let owner_before = Account(owner.clone())
+        .view()
+        .fetch_from(&network)
+        .await?
+        .data
+        .amount
+        .as_yoctonear();
+    let recovered = contract
+        .call_function("recover_unused", json!({"amount":"500000000000000000000000"}))
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(owner.clone(), full.clone())
+        .send_to(&network)
+        .await?;
+    ensure!(recovered.is_success(), "owner recovery failed: {recovered:?}");
+    let owner_after = Account(owner.clone())
+        .view()
+        .fetch_from(&network)
+        .await?
+        .data
+        .amount
+        .as_yoctonear();
+    // The owner paid normal local transaction gas, so require a meaningful
+    // delivered balance increase rather than pretending every gas unit is free.
+    ensure!(
+        owner_after > owner_before.saturating_add(4 * 10u128.pow(23)),
+        "owner account did not receive native NEAR recovery: before={owner_before} after={owner_after}"
+    );
+    let last: Value = contract
+        .call_function("latest_recovery", json!({}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(
+        last["sequence"] == 1 && last["state"] == "Paid" && last["amount"] == "500000000000000000000000",
+        "owner recovery callback not finalized: {last:?}"
+    );
+    let remaining: Value = contract
+        .call_function("available", json!({}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(
+        remaining == "400000000000000000000000",
+        "recovery debited incorrect escrow amount: {remaining:?}"
+    );
+    println!("X3_VAULT_SANDBOX_OWNER_RECOVERY_PAID local_only=true amount_yocto=500000000000000000000000 last_sequence=1 remaining_escrow_yocto=400000000000000000000000 owner_balance_increased=true owner_only=true");
     println!("X3_VAULT_SANDBOX_COMPLETE agent_key_restricted=true funds_vault_custodied=true public_chain=false");
     Ok(())
 }

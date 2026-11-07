@@ -63,15 +63,20 @@ callback liquidity still require independent testing. A compromised agent
 could deliberately exhaust all 64 slots and deny subsequent legitimate
 payments; the prototype has no safe on-chain pruning/migration workflow.
 
-**Critical release blocker:** the contract also lacks an owner-only
-escrow recovery/withdrawal method. After owner funding, any `available`
-escrow left after revocation/expiration, exhausted payment slots or normal
-use **cannot currently be reclaimed through this contract's API**.
-An administrator holding the vault account's FullAccess key might be
-able to replace code, but an unreviewed upgrade is not a safe recovery
-procedure. Require an independently audited recovery state machine with
-reserve/pending-payout protection, a rollback-safe migration plan and a
-real local-node failure matrix before **any public-testnet funding**.
+A **separate stacked recovery candidate** adds an owner-only `recover_unused`
+method after revocation, expiration or exhaustion, a single pending recovery
+receipt, monotonically increasing recovery sequences, and failed-transfer
+restoration. A local real-node run verified the owner's native NEAR balance
+increased after receiving a 0.5 test NEAR withdrawal while vault escrow
+fell to 0.4 test NEAR; the callback record is `Paid`. See
+[`AGENT_VAULT_OWNER_RECOVERY.md`](../security/AGENT_VAULT_OWNER_RECOVERY.md).
+
+**Critical release blockers remain:** recovery is unmerged, unaudited, and
+tested only in local Sandbox; NEAR byte-cost accounting, the one-NEAR gas
+reserve, callback/restart behavior, atomic deploy+init, and migration from
+any older vault binary require independent proof. No public-testnet funds
+may be deposited, and a 64-record capacity limit still permits intentional
+denial of service.
 
 This safeguard is **not** evidence of mainnet readiness or a finished P0
 custody system, and it does not alter the pre-existing Tidepool Guard.
