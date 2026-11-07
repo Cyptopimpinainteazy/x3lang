@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'x3-lang'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from near_intents import _decode_ed25519, ed25519  # pinned reference implementation
 from base_sepolia_x3_intent import compile_testnet_intent
 
