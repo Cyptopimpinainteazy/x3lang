@@ -4,6 +4,7 @@ from pathlib import Path
 import importlib.util
 import sys
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -72,6 +73,27 @@ class TestSender(unittest.TestCase):
             x=m.run_broadcast(**{**self.args,'execute':False})
             self.assertFalse(x['broadcast']);self.assertEqual(x['classification'],'GUARD_ADMITTED_TESTNET_ONLY')
             secrets.assert_not_called();cast.assert_not_called()
+
+    def test_presign_reverification_denial_prevents_cast(self):
+        q={'quote_sha256':'c'*64,'deposit_address':'0x'+'1'*40}
+        with patch.object(m,'checked_admission',side_effect=[q,m.admission.AdmissionError('GUARD_REVOKED')]) as gate, \
+             patch.object(m,'check_broadcast_gas',return_value=(1000000,2,65000)), \
+             patch.object(m,'assert_credentials'),patch.object(m.subprocess,'run') as cast:
+            with self.assertRaisesRegex(m.admission.AdmissionError,'GUARD_REVOKED'):
+                m.run_broadcast(**self.args)
+            self.assertEqual(gate.call_count,2);cast.assert_not_called()
+
+    def test_timeout_marked_indeterminate_and_replay_protected(self):
+        q={'quote_sha256':'c'*64,'deposit_address':'0x'+'1'*40}
+        with patch.object(m,'checked_admission',return_value=q), \
+             patch.object(m,'check_broadcast_gas',return_value=(1000000,2,65000)), \
+             patch.object(m,'assert_credentials'), \
+             patch.object(m.subprocess,'run',side_effect=subprocess.TimeoutExpired(cmd='cast send',timeout=140)) as cast:
+            result=m.run_broadcast(**self.args)
+            self.assertEqual(result['classification'],'BROADCAST_INDETERMINATE_CHECK_CHAIN_BEFORE_RETRY')
+            self.assertEqual(result['broadcast'],'unknown')
+            self.assertTrue((m.KEYSTORE_DIR/('submitted-'+'c'*64+'.json')).exists())
+            self.assertEqual(cast.call_count,1)
 
     def test_replay_flag_prevents_cast(self):
         q={'quote_sha256':'c'*64,'deposit_address':'0x'+'1'*40}

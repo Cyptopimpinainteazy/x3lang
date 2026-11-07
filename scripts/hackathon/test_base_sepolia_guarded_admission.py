@@ -5,6 +5,8 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
+import base64
+import hashlib
 from pathlib import Path
 import sys
 import unittest
@@ -77,6 +79,36 @@ class TestReadOnlyAdmission(unittest.TestCase):
             with self.assertRaisesRegex(m.AdmissionError,'GENESIS'):
                 m.get_near_policy('x3-tidepool-guard.testnet',m.RECEIVER,'demo00001','f'*64)
             self.assertEqual(rpc.call_count,1)
+
+    def test_guard_code_and_policy_read_same_exact_final_block(self):
+        code=b'unit-test-wasm'
+        sha=hashlib.sha256(code).hexdigest()
+        block='ABC'+'1'*40
+        row={'owner':m.RECEIVER,'nonce':'demo00001'}
+        observations=[]
+        def fake(url,method,params):
+            observations.append((method,params))
+            if method=='status': return {'chain_id':'testnet','genesis_hash':m.NEAR_GENESIS}
+            if params.get('request_type')=='view_code':
+                return {'code_base64':base64.b64encode(code).decode(),'block_hash':block,'block_height':123}
+            self.assertEqual(params['request_type'],'call_function')
+            self.assertEqual(params.get('block_id'),block)
+            self.assertNotIn('finality',params)
+            return {'block_hash':block,'result':list(json.dumps(row).encode())}
+        with patch.object(m,'rpc',side_effect=fake):
+            self.assertEqual(m.get_near_policy('guard.x3lang.testnet',m.RECEIVER,'demo00001',sha),row)
+        self.assertEqual(len(observations),3)
+
+    def test_guard_code_policy_block_mismatch_refused(self):
+        code=b'unit-test-wasm'
+        sha=hashlib.sha256(code).hexdigest()
+        def fake(url,method,params):
+            if method=='status':return {'chain_id':'testnet','genesis_hash':m.NEAR_GENESIS}
+            if params.get('request_type')=='view_code':
+                return {'code_base64':base64.b64encode(code).decode(),'block_hash':'A'*43}
+            return {'block_hash':'B'*43,'result':list(b'{}')}
+        with patch.object(m,'rpc',side_effect=fake),self.assertRaisesRegex(m.AdmissionError,'GUARD_CODE_POLICY_BLOCK_MISMATCH'):
+            m.get_near_policy('guard.x3lang.testnet',m.RECEIVER,'demo00001',sha)
 
     def test_calldata_has_only_expected_transfer_selector(self):
         x=m.unsigned_calldata('0x00000000000000000000000000000000000000a1',1000000)

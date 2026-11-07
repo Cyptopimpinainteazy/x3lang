@@ -129,10 +129,15 @@ def get_near_policy(account: str,owner: str,nonce: str,expected_code_sha: str) -
     status=rpc(NEAR_RPC,'status',[])
     reject(status.get('chain_id')=='testnet' and status.get('genesis_hash')==NEAR_GENESIS,'NEAR_NETWORK_GENESIS_MISMATCH')
     code=rpc(NEAR_RPC,'query',{'request_type':'view_code','finality':'final','account_id':account})
+    block_hash=code.get('block_hash')
+    reject(isinstance(block_hash,str) and len(block_hash)>30,'UNPINNED_GUARD_CODE_BLOCK')
     h=hashlib.sha256(base64.b64decode(code['code_base64'],validate=True)).hexdigest()
     reject(h==expected_code_sha,'UNAPPROVED_ONCHAIN_GUARD_CODE_HASH')
     args=base64.b64encode(json.dumps({'owner':owner,'nonce':nonce},separators=(',',':')).encode()).decode()
-    view=rpc(NEAR_RPC,'query',{'request_type':'call_function','finality':'final','account_id':account,'method_name':'get_policy','args_base64':args})
+    # Critical: read policy at the EXACT block whose on-chain code was hashed.
+    # A separate "finality: final" query could cross a contract upgrade boundary.
+    view=rpc(NEAR_RPC,'query',{'request_type':'call_function','block_id':block_hash,'account_id':account,'method_name':'get_policy','args_base64':args})
+    reject(view.get('block_hash')==block_hash,'GUARD_CODE_POLICY_BLOCK_MISMATCH')
     raw=bytes(view['result']).decode()
     return json.loads(raw)
 
@@ -176,6 +181,12 @@ def main() -> int:
         policy=get_near_policy(a.guard_account,RECEIVER,a.nonce,a.guard_wasm_sha256)
         check_guard_policy(quote,policy,owner=RECEIVER,nonce=a.nonce,now=now,program_sha=a.program_sha256)
         state=check_base_state()
+        # Repeat quote freshness and on-chain policy observation AFTER slow RPCs.
+        # A formerly valid signed quote may have expired or the mandate been revoked.
+        fresh_now=datetime.now(timezone.utc)
+        quote=check_quote(raw['response'],fresh_now)
+        policy=get_near_policy(a.guard_account,RECEIVER,a.nonce,a.guard_wasm_sha256)
+        check_guard_policy(quote,policy,owner=RECEIVER,nonce=a.nonce,now=fresh_now,program_sha=a.program_sha256)
         print(json.dumps({'classification':'UNSIGNED_ADMITTED_TESTNET_TRANSFER_NOT_BROADCAST','source':SOURCE,'destination_near':RECEIVER,
           'origin_chain_id':CHAIN_ID,'token_contract':TOKEN,'deposit_address':quote['deposit_address'],
           'amount_base_units':AMOUNT,'guard_account':a.guard_account,'quote_sha256':quote['quote_sha256'],

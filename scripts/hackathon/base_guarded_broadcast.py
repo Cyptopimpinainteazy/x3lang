@@ -91,6 +91,14 @@ def run_broadcast(*, quote_file: Path, guard_account: str, guard_sha: str, owner
         assert_credentials()
         flag=KEYSTORE_DIR/('submitted-'+q['quote_sha256']+'.json')
         admission.reject(not flag.exists(),'REPLAY_TRANSACTION_ALREADY_SUBMITTED_OR_ATTEMPTED')
+        # Re-verify the *current* finalized Guard policy, signer quote and fees
+        # directly before signing, not only before a potentially slow RPC series.
+        fresh=checked_admission(quote_file,guard_account,guard_sha,owner_nonce,program_sha)
+        admission.reject(fresh['quote_sha256']==approved_quote_sha and fresh['deposit_address']==q['deposit_address'],
+                         'PRESIGN_QUOTE_OR_GUARD_CHANGED')
+        price,nonce,estimate=check_broadcast_gas(data)
+        report.update({'tx_nonce':nonce,'estimated_gas':estimate,'gas_price_wei':price,
+                       'max_fee_wei':MAX_GAS_LIMIT*price})
         # Never log keystore password. No private key on CLI, stdout or in repo.
         # Mark as attempted first: a timeout must be investigated on-chain, not blindly retried.
         with flag.open('x') as out:
@@ -101,7 +109,13 @@ def run_broadcast(*, quote_file: Path, guard_account: str, guard_sha: str, owner
               '--keystore',str(KEYSTORE),'--password-file',str(PASSWORD_FILE),
               '--gas-limit',str(MAX_GAS_LIMIT),'--gas-price',str(price)+'wei',
               '--nonce',str(nonce),'--confirmations','2','--json']
-        result=subprocess.run(args,capture_output=True,text=True,timeout=140,check=False)
+        try:
+            result=subprocess.run(args,capture_output=True,text=True,timeout=140,check=False)
+        except subprocess.TimeoutExpired:
+            # The node may have accepted a signed transaction before CLI timeout.
+            # The attempt marker prevents a second send until on-chain reconciliation.
+            return {**report,'classification':'BROADCAST_INDETERMINATE_CHECK_CHAIN_BEFORE_RETRY',
+                    'broadcast':'unknown','reason':'CLI_TIMEOUT_AFTER_ATTEMPT'}
         if result.returncode:
             return {**report,'classification':'BROADCAST_INDETERMINATE_CHECK_CHAIN_BEFORE_RETRY',
                     'broadcast':'unknown','cast_returncode':result.returncode}
