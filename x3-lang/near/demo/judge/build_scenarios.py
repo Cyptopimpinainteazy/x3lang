@@ -57,8 +57,6 @@ TRACK_GUIDE = [
      "role": "Deny substitutions, overspend, fee evasion, replay and revoked authority."},
     {"track": "Agent Economy",
      "role": "Allow bounded payments and distinguish approval-required from authorized."},
-    {"track": "Unstoppable DeFi",
-     "role": "Lower authorized intent into one inspectable NEAR Intents route without claiming settlement."},
 ]
 
 # (id, group, title, story, source file, [(old, new)], assumed Guard state, contract tests)

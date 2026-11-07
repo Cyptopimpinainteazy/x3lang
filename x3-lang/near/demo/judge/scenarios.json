@@ -5,8 +5,7 @@
   "evidence_level": "local_policy_preview_only",
   "tracks": [
     "AI Security & Defense",
-    "Agent Economy",
-    "Unstoppable DeFi"
+    "Agent Economy"
   ],
   "track_guide": [
     {
@@ -16,10 +15,6 @@
     {
       "track": "Agent Economy",
       "role": "Allow bounded payments and distinguish approval-required from authorized."
-    },
-    {
-      "track": "Unstoppable DeFi",
-      "role": "Lower authorized intent into one inspectable NEAR Intents route without claiming settlement."
     }
   ],
   "demo_steps": [

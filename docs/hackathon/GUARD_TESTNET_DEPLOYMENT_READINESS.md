@@ -7,7 +7,11 @@
 > deployed `x3lang-guard-20261106.testnet` code identity and finalized
 > transactions. It remains here as provenance for the fail-closed preflight.
 
-**Status: STOP — no deployment, signer, keys, testnet payments or mainnet actions authorized.** This document accompanies Issue #73. It is NOT a funded-deployment runbook, and no private-key commands are provided. Do not copy the legacy `network-config mainnet` commands from `x3-lang/near/x3-guard/README.md` for this testnet milestone.
+**Historical status at preflight: STOP — no deploy was authorized yet.** A later,
+separately approved Task 4 performed the documented testnet-only deployment.
+This page is not a funded-deployment runbook and provides no private-key
+commands. Do not copy the legacy `network-config mainnet` commands from
+`x3-lang/near/x3-guard/README.md` for any testnet work.
 
 ## 1. Reproduce read-only account and storage checks
 

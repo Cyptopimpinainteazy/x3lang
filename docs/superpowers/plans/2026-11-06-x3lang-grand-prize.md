@@ -24,7 +24,8 @@
 
 ## Review Focus
 
-- A fresh clone with no private environment must run the offline judge command without contacting a network.
+- A fresh clone with no private environment must run the judge command without
+  application network access after one documented dependency-provisioning step.
 - A cryptographically valid quote to an unauthorized recipient must fail on `mandate_recipient`, not on signature parsing.
 - Testnet evidence must fail when a transaction hash, receipt status, block height, chain identity, or deployed code hash cannot be independently re-queried.
 - The evidence collector and demo must fail before reading or printing a key file, `.env` file, token, or private receipt.
@@ -292,7 +293,7 @@ State the prompt-injection scenario, exact one-command path, current evidence le
 
 `docs/hackathon/DEMO_VIDEO_SCRIPT.md` must define these shots in order: owner mandate, malicious injected request, local refusal, Guard signed-quote refusal, testnet transaction, evidence-limit slide.
 
-- [ ] **Step 6: Run the complete offline judge path**
+- [ ] **Step 6: Run the complete local judge path**
 
 Run:
 

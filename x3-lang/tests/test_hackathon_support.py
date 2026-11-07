@@ -50,7 +50,8 @@ def test_offline_demo_has_five_panels_and_three_expected_decisions(capsys):
     assert "Passes the local policy check" in text
     assert "Needs approval" in text
     assert "Refused" in text
-    assert "No wallet signature, on-chain authorization, signed quote or settlement is claimed" in text
+    assert "No wallet signature, wallet transfer, deposit, signed quote or settlement is claimed by this local demo" in text
+    assert "accept_quote authorizes a deposit address only" in text
 
 
 def test_offline_demo_json_is_deterministic_and_embeds_the_actual_legs():

@@ -1,8 +1,9 @@
 # x3-guard
 
-> **Testnet hackathon safety:** The historical deploy and migration examples below use
+> **Deployment boundary:** the owner-authorized hackathon deployment is testnet-only at
+> `x3lang-guard-20261106.testnet`. The historical deploy and migration examples below use
 > `network-config mainnet`; they are **NOT instructions for the current testnet
-> milestone** and must not be run. No deployment/signing/funding is approved.
+> milestone** and must not be run. No mainnet deployment, custody or value transfer is approved.
 > Use [the read-only testnet preflight](../../../docs/hackathon/GUARD_TESTNET_DEPLOYMENT_READINESS.md)
 > to check source, account and code storage feasibility first. Production
 > 1Click signed quotes are not the same as community testnet sandbox quotes.
@@ -86,7 +87,7 @@ key from sending funds directly, so give the agent a NEAR account and never the 
 
 ```bash
 cd x3-lang/near/x3-guard
-cargo test          # 42 unit tests on near-sdk's mocked chain
+cargo test          # 52 unit tests on near-sdk's mocked chain
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -125,9 +126,9 @@ mandate map when absent, records a `state_migrated` event, and refuses an alread
 future schema. Unit tests serialize both old layouts, run the migration, reload the new state,
 and check that intents, authorizations and mandates survive.
 
-Upgrading a deployed contract is an operator action and has not been performed by this
-repository. Snapshot state first, then deploy the replacement code and call `migrate` as the
-initializer. Do not call `new()` over existing state:
+Upgrading the deployed testnet contract is an operator action and has not been performed.
+Snapshot state first, then deploy the replacement code and call `migrate` as the initializer.
+Do not call `new()` over existing state:
 
 ```bash
 near contract deploy <contract-account> use-file target/near/x3_guard.wasm \

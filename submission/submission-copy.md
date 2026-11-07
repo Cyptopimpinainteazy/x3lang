@@ -2,8 +2,7 @@
 
 **Project:** X3 Shield (X3Lang)
 
-**Tracks:** AI Security & Defense (`security`), Agent Economy (`agents`),
-Unstoppable DeFi (`defi`)
+**Tracks:** AI Security & Defense (`security`), Agent Economy (`agents`)
 
 ## 20–2,000 character description
 
@@ -27,7 +26,8 @@ SHA-256 `ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab`
 deployed Guard refused an official production-manager-signed dry quote after
 `quote_signature ok:true` because its recipient did not match the registered
 request. A separate official-live allowed quote was accepted as a positive
-control. Both transactions are finalized testnet observations.
+control; that acceptance authorizes a deposit address only. Both transactions
+are finalized testnet observations.
 
 Limits: the live acceptance stopped before deposit. The repository does not
 claim a live forbidden-quote refusal, wallet transfer, settlement, independent

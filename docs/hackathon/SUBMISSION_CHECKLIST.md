@@ -15,7 +15,8 @@ Official instructions were checked against
 - Errors are changed through
   [`/request-changes`](https://nearhackathon.com/request-changes), not by creating a second
   submission.
-- Track ids for this project are `security`, `agents` and `defi`.
+- Track ids for this project are `security` and `agents`. DeFi routing remains
+  roadmap work until a separately evidenced deposit and settlement exist.
 
 ## Repository
 
@@ -59,7 +60,8 @@ Official instructions were checked against
 
 - [ ] Use [`VIDEO_WALKTHROUGH.md`](VIDEO_WALKTHROUGH.md) and keep the recording under three
       minutes.
-- [ ] Show the one-command offline demo and exact decision labels.
+- [ ] Show the local one-command judge path after its documented dependency
+      provisioning and show the exact decision labels.
 - [ ] Show only the real testnet transactions and code hashes in
       `GUARD_TESTNET_EVIDENCE.md`; state that no deposit or settlement occurred.
 - [ ] State the evidence boundary plainly.

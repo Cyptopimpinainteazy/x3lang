@@ -1,7 +1,8 @@
-# X3Lang three-track control: first vertical slice
+# X3Lang track control: first vertical slice
 
-**Scope:** AI Security & Defense, Agent Economy, Unstoppable DeFi. One `.x3` owner mandate and
-one `.x3` payment policy supply all three demonstrations; there is no new language syntax,
+**Scope:** submitted tracks are AI Security & Defense and Agent Economy. DeFi lowering is
+roadmap context, not submitted evidence. One `.x3` owner mandate and one `.x3` payment policy
+supply both track demonstrations; there is no new language syntax,
 second policy authority, or separate track-specific transaction engine.
 
 ## Reproduce the local policy preview
@@ -36,16 +37,18 @@ sends money, or consumes a nonce.
    forbidden recipient, amount, fee, slippage and expired mandate in the existing test suite.
 2. **Agent Economy:** the agent's `.x3` payment references the owner's `.x3` spending mandate;
    amounts above the approval threshold are reported as `approval_required`, never authorized.
-3. **Unstoppable DeFi:** the intent lowers to one NEAR Intents leg with source/destination
+3. **DeFi roadmap, not a submitted track:** the intent lowers to one NEAR Intents leg with source/destination
    assets, minimum receipt, slippage, refund address and timeout preserved.
 
-This is the *first* vertical slice. The hackathon demonstration still requires an independently
-verified on-chain authorization boundary, transaction/refusal evidence and real cross-chain
-settlement. Do not promote local preflight evidence into such claims. Existing `near_intents.py`
-`quote --live`, x3-guard and the PR #14 judge-evidence work remain separate release gates.
+This document describes the local policy slice only. Separately, the committed
+testnet evidence contains finalized deployment, registration, refusal,
+revocation and an allowed `accept_quote`; that acceptance authorizes a deposit
+address only. A live `mandate_recipient` refusal, deposit, settlement and
+cross-chain causality remain unproven. Do not promote local preflight evidence
+into those claims.
 
 ## Change isolation
 
 The language grammar, compiler, VM and Guard state are unchanged. This adds a read-only
-control-surface entrypoint and tests so one policy can be exercised across three applicable
-hackathon categories without implementing three products.
+control-surface entrypoint and tests so one policy can be exercised across the
+two evidence-backed hackathon categories without implementing separate products.

@@ -212,8 +212,9 @@ The demo fails closed when:
 
 ## Success criteria
 
-- A fresh clone runs the offline judge path successfully with no secrets or
-  network dependency.
+- A fresh clone runs the judge path successfully with no secrets. Dependency
+  provisioning may use the network once; the judge path itself makes no
+  application network request after that documented prerequisite step.
 - The prompt-injection request is clearly refused by policy.
 - A real finalized NEAR testnet transaction demonstrates the signed-quote
   refusal on the deployed Guard.

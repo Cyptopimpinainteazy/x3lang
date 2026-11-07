@@ -2,7 +2,7 @@
 
 **Project:** X3Lang — the programmable trust layer for AI agents and cross-chain finance.
 
-**Track ids:** `security`, `agents`, `defi`.
+**Track ids:** `security`, `agents`.
 
 This package reproduces the current offline policy demonstration. It deliberately separates what
 the repository proves locally from wallet authorization, on-chain enforcement, signed quotes,
@@ -16,7 +16,8 @@ From the repository root:
 bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge
 ```
 
-The command is deterministic and local after its first dependency install. It
+The command is deterministic and local after its first documented dependency
+install; that provisioning may fetch packages. It
 requires Linux x86_64 and Python 3.12 for the hash-locked judge environment.
 It uses one owner mandate, one policy checker and four checked-in demonstration
 requests. It prints:
@@ -29,7 +30,7 @@ requests. It prints:
 | 4. Cross-chain path | The lowered Solana USDC to NEAR USDC leg, minimum receipt, recipient and pinned refund address |
 | 5. Verification limits | What is proven, what was not contacted, and why no wallet, chain or settlement proof is claimed |
 
-The three programs are checked-in examples. This offline path does not call an AI provider and does
+The three checked-in programs are examples. This local path does not call an AI provider and does
 not label a template as model output. The separate AI Money Agent PR is the path that records real
 provider/model/response evidence when credentials are available.
 
@@ -71,9 +72,10 @@ English/task request or handwritten agent intent
                 wallet transfer, then evidence
 ```
 
-The terminal/browser policy comparison remains local. The NEAR Guard has a
+The terminal/browser policy comparison remains local after dependency
+provisioning. The NEAR Guard has a
 separate owner-authorized testnet deployment and finite evidence set; the
-offline demonstration does not activate a wallet or deposit.
+local demonstration does not activate a wallet or deposit.
 
 ## Adversarial coverage
 

@@ -41,7 +41,7 @@ boundaries follow after it.
 | --- | --- | --- |
 | `.x3` mandate | Python/browser policy-preview parity; Rust `x3c intent` preserves `under mandate` as adapter metadata (draft [#68](https://github.com/Cyptopimpinainteazy/x3lang/pull/68)) | An enforced mandate inside the general Rust VM; parity must be proved across actual production paths |
 | Signed quote checks | `x3-guard` verifies the pinned 1Click manager's signature **before** evaluating stored quote/mandate terms in its contract code and tests; testnet deployment `x3lang-guard-20261106.testnet` shows allowed registration, invalid-signature refusal, revocation, official-dry valid-signature refusal, and official-live valid acceptance ([evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md)) — **mixed: test-key invalid-signature path + official dry/live manager-signed quotes; live acceptance stopped before any deposit** | `mandate_recipient` on-chain acceptance refusal ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open) |
-| Cryptographic proof | Real archived receipt/Merkle checks; real validator approvals (12 and 19 signatures) under an **untrusted RPC checkpoint** in draft [#60](https://github.com/Cyptopimpinainteazy/x3lang/pull/60); `.x3` → X3VM *read-only refusal* in draft [#72](https://github.com/Cyptopimpinainteazy/x3lang/pull/72) | Independently authenticated checkpoint, Guard's own receipt, storage proof and cross-chain causality |
+| Cryptographic proof | Real archived receipt/Merkle checks; a fail-closed authenticated light-client state machine in this branch verifies real validator approvals and admits only canonical, non-identity, prime-order Ed25519 keys; `.x3` → X3VM *read-only refusal* in draft [#72](https://github.com/Cyptopimpinainteazy/x3lang/pull/72) | A production trust-anchor ceremony, Guard's own receipt, storage proof and cross-chain causality |
 
 ## DELIBERATELY BLOCKED
 
@@ -83,7 +83,7 @@ injection resistance, or establish NEAR consensus finality. See the
 - **Claimed now:** deterministic local policy verdicts, local mock-chain contract
   behavior, plus testnet code identity, allowed registration, invalid-signature refusal,
   revocation, official-dry valid-signature refusal, and official-live valid acceptance
-  (stopped before deposit). See
+  (the acceptance authorizes a deposit address only and stopped before deposit). See
   [GUARD_TESTNET_EVIDENCE.md](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) and
   [`evidence/near-guard-testnet/`](evidence/near-guard-testnet/manifest.json).
 - **Exact testnet anchors:** contract
@@ -121,14 +121,14 @@ typed language that also verifies NEAR Intents' signed quote terms before a
 deposit is authorized.
 
 **Works today** — a `.x3` mandate compiles and the same verdict is reproduced
-in Python, the browser, and the NEAR guard contract; the guard's on-chain
-Ed25519 check verifies a real 1Click quote's signed terms (locally tested);
-refusal-first tests cover overspend, wrong recipient, replay, refund
-redirection, and revocation.
+in Python, the browser, and the NEAR guard contract tests; official dry/live
+manager-signed observations are recorded on testnet; refusal-first tests cover
+overspend, wrong recipient, replay, refund redirection, and revocation.
 
-**Deliberately blocked** — no wallet transfer, live settlement, or on-chain
-authorization is claimed here. Cross-chain causality stays "unproven" until an
-independently verifiable link exists.
+**Deliberately blocked** — no wallet transfer, wallet-level enforcement, deposit,
+settlement, or cross-chain causality is claimed. The recorded testnet
+`accept_quote` authorizes a deposit address only. Cross-chain causality stays
+"unproven" until an independently verifiable link exists.
 
 **Who this protects.** A team runs an AI agent that pays for API inference and
 data through NEAR Intents under one owner mandate
@@ -136,11 +136,12 @@ data through NEAR Intents under one owner mandate
 the wallet key. A request injected into its prompt to pay `attacker.near` is
 compiled and checked like any other program, and the mandate's `mandate_recipient`
 term refuses it. That "model falls for it, guard still refuses" case is pinned by
-`x3-lang/tests/test_near_agent.py`. A real local model held all 8 adversarial
-requests in [`evidence/agent-redteam-local-2026-11-06`](evidence/agent-redteam-local-2026-11-06):
-seven were refused by the model itself; the eighth homoglyph case produced a
-safe payment that was neutralized by deterministic effect checks, not by a
-model or Guard refusal.
+`x3-lang/tests/test_near_agent.py`. A real local `qwen3:8b` run in
+[`evidence/agent-redteam-local-2026-11-06`](evidence/agent-redteam-local-2026-11-06)
+recorded seven model refusals; in the eighth homoglyph case the model produced
+a payment to the real intended recipient, which deterministic effect checks
+confirmed was neutralized. That case is not presented as a model or Guard
+refusal.
 
 **Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
 The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
@@ -241,8 +242,9 @@ does not contact 1Click or NEAR and can be run entirely from the repository.
 
 ### Hackathon judge package
 
-The offline three-track demonstration needs no wallet, network request or
-funds:
+The two-track local demonstration needs no wallet or funds. After the
+documented one-time dependency provisioning, the terminal and browser path
+make no application network request:
 
 ```bash
 python3 scripts/hackathon/demo.py

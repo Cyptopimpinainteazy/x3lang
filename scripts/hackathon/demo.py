@@ -115,8 +115,8 @@ def _label(decision: str) -> str:
 
 def render(report: dict[str, Any]) -> str:
     lines: list[str] = [
-        "X3LANG THREE-TRACK JUDGE DEMONSTRATION",
-        "One owner mandate; one policy authority; three hackathon tracks.",
+        "X3LANG TWO-TRACK JUDGE DEMONSTRATION",
+        "One owner mandate; one policy authority; two submitted hackathon tracks.",
         "Evidence level: local policy preview only. No network request was made.",
         "",
         "PANEL 1 - THE OWNER'S X3LANG POLICY",
@@ -169,7 +169,8 @@ def render(report: dict[str, Any]) -> str:
         "  Browser console: python3 -m http.server 8000 --directory x3-lang/near/demo",
         "                   then open http://localhost:8000/judge.html",
         "  Full local evidence: bash scripts/hackathon/verify.sh",
-        "  No wallet signature, on-chain authorization, signed quote or settlement is claimed.",
+        "  No wallet signature, wallet transfer, deposit, signed quote or settlement is claimed by this local demo.",
+        "  Separately recorded testnet accept_quote authorizes a deposit address only.",
         "",
         "Tracks: " + ", ".join(report["tracks"]),
     ])

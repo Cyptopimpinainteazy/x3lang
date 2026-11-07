@@ -5,7 +5,8 @@ quotes, observed testnet transactions, and proven causal settlement. This
 repository has NEAR testnet evidence, but no public mainnet deployment or
 payment evidence. Do not invent any.
 
-**Track focus:** AI Security & Defense, Agent Economy, Unstoppable DeFi.
+**Track focus:** AI Security & Defense and Agent Economy. DeFi routing is roadmap
+work until a separately evidenced deposit and settlement exist.
 
 ## Why X3 Shield is different from the NEAR Agent API
 
@@ -26,7 +27,7 @@ than merely an invalid signature or a wallet allowance violation.
 | Agent API policy-bound wallet | Can this agent use the wallet within its limits? | Provider/wallet authorization; not X3's invention |
 | NEAR function-call access key | Can this key call a scoped method with its allowance? | On-chain account-key capability, not signed quote semantics |
 | X3 intent / mandate policy | Are these recipient, asset, refund, fee, amount, deadline, nonce and approval terms allowed? | Local adapter and Guard checks; Rust compiler currently preserves adapter metadata but does **not** run the mandate guard inside general X3VM |
-| X3 Guard signed-quote gate | Is the exact 1Click manager-signed quote allowed under the stored policy? | Deployed to NEAR testnet; official manager-signed dry quote with a recipient mismatch is refused after signature verification. No live forbidden-quote refusal or deposit is claimed |
+| X3 Guard signed-quote gate | Is the exact 1Click manager-signed quote allowed under the stored policy? | Deployed to NEAR testnet; official manager-signed dry quote with a recipient mismatch is refused after signature verification. An allowed live quote authorizes a deposit address only. No live forbidden-quote refusal or deposit is claimed |
 | X3 NEAR proof work | Does real receipt evidence match block and Merkle commitments? | Genuine archived evidence and read-only VM refusal in experimental draft #72; still lacks an independently trusted checkpoint |
 
 **What now exists:** contract account `x3lang-guard-20261106.testnet`,
@@ -83,42 +84,35 @@ with a public RPC, not independent light-client finality.
 The deployment account is `x3lang-guard-20261106.testnet`. It is a testnet
 demonstration account, not mainnet infrastructure and not a wallet custodian.
 
-## Genuine NEAR validator-signature evidence (separate unmerged draft)
+## NEAR authenticated light-client work in this branch
 
-Draft [PR #60](https://github.com/Cyptopimpinainteazy/x3lang/pull/60), commit
-`33d0583c7b7789c5d0c50dcd92e84c4074f87ee3`, has a Rust read-only
-light-client candidate checker. On x3star1 it reproduced two archived genuine
-NEAR testnet epoch transitions: 12 correctly verified Ed25519 approvals in the
-HbM → p27 transition (candidate height 276392452), then 19 approvals in the
-p27 → GbZ transition (candidate height 276420402). The verifier checks the
-signed stake's strict >2/3 threshold against the preceding recorded validator
-set and validates their Borsh commitments. All three archived normalized JSON
-RPC responses are SHA-256 pinned: `acf673ba...`, `dca4ca9c...`, `c47f0c38...`.
+The branch contains the Python fail-closed state machine in
+`x3-lang/bridge/near_authenticated.py` and the Rust approval core in
+`x3-lang/bridge/lightclient-core`. Together they verify real archived NEAR
+validator approvals, strict greater-than-two-thirds stake, validator
+commitments, replay/rollback resistance, and receipt inclusion against an
+authenticated head.
 
-**This is real cryptography, not independently authenticated finality.** The
-first HbM candidate and its validator set were obtained through public RPC,
-not an independently reviewed trust-anchor ceremony. Valid signatures under
-an untrusted initial key set do **not** prove the canonical NEAR chain. The
-review packet in draft [PR #61](https://github.com/Cyptopimpinainteazy/x3lang/pull/61)
-and the two-provider consistency report in draft
-[PR #62](https://github.com/Cyptopimpinainteazy/x3lang/pull/62)
-remain explicitly unsigned/unapproved. No signing authorization follows.
+The trust root in the committed tests is a **synthetic checkpoint authority**.
+The validator signatures are real testnet data, but no production signer
+ceremony, independent trust-anchor approval, anti-equivocation service, or
+independent audit exists. Public RPC agreement is not trusted finality.
 
-To reproduce from PR #60's source checkout (this guide's own branch does not
-contain that unmerged code):
+Both implementations now reject identity, small-order, non-canonical and
+torsion-component Ed25519 keys before accepting approvals. The adversarial
+tests include the identity-key universal-forgery case.
 
 ```bash
-cargo run --locked --quiet \
-  --manifest-path x3-lang/bridge/lightclient-core/Cargo.toml \
-  --bin check_candidate_epochs -- \
-  x3-lang/bridge/lightclient-core/tests/fixtures/hbm-announces-p27.json \
-  x3-lang/bridge/lightclient-core/tests/fixtures/p27-announces-gbz.json \
-  evidence/near-proof/testnet/sha256/c4/c47f0c381dbd9a37ac432aa4f77cf9d47ea8ccc452bfe4ff2a67b868953caed7.json
+cd x3-lang/bridge
+python3 -W error::ResourceWarning -m unittest test_near_authenticated -v
+cd lightclient-core
+cargo test --locked
 ```
 
-This separate evidence cannot be substituted for the still-missing **Guard's
-own testnet refusal receipt**, which must be authenticated against a trusted
-chain head before claiming independently proven enforcement.
+This work cannot be substituted for the still-missing **Guard's own testnet
+refusal receipt**, which must be authenticated against a trusted chain head
+before claiming independently proven enforcement. See
+[`NEAR_AUTHENTICATED_LIGHT_CLIENT.md`](../security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md).
 
 ## Scope and historical disclosure
 
@@ -226,7 +220,7 @@ enforcement is independently proven.
 | Live forbidden quote refused by agent mandate | Live manager-signed failure tx and `mandate_recipient` result | PENDING |
 | Solana USDC deposit | Finalized source transfer tx + mint and amount | PENDING |
 | NEAR USDC receipt | Destination tx / balance observation, with attribution caveat | PENDING |
-| Real model generates .x3 policy | Model/provider, actual output, compiled artifact | PENDING |
+| Real local model red team | Model/provider, actual output, compiled artifact | VERIFIED LOCAL: `qwen3:8b`, 8 cases; 7 model refusals and one safe real-recipient program neutralized by effect checks |
 | Cryptographic solver causality | Independent cross-chain attribution proof | NOT PROVEN |
 
 Never treat mock signatures or bundled test fixtures as mainnet evidence.
