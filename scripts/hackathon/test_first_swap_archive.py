@@ -5,6 +5,8 @@ Synthetic mutations in temporary local copies are not represented as chain evide
 from __future__ import annotations
 import hashlib
 import json
+import io
+import contextlib
 from pathlib import Path
 import shutil
 import sys
@@ -92,6 +94,12 @@ class FirstSwapArchiveTests(unittest.TestCase):
             elif mutation=='event_hash':receipt['logs'][0]['transactionHash']='0x'+'f'*64
             elif mutation=='tx_block_hash':tx['blockHash']='0x'+'e'*64
             elif mutation=='tx_block_number':tx['blockNumber']=hex(observation['block_number']+1)
+            elif mutation=='tx_hash_null':tx['hash']=None
+            elif mutation=='receipt_hash_null':receipt['transactionHash']=None
+            elif mutation=='event_hash_null':receipt['logs'][0]['transactionHash']=None
+            elif mutation=='tx_hash_numeric':tx['hash']=123
+            elif mutation=='receipt_hash_numeric':receipt['transactionHash']=123
+            elif mutation=='event_hash_numeric':receipt['logs'][0]['transactionHash']=123
             def fake_rpc(url,method,params):
                 if method=='eth_chainId':return hex(audit.CHAIN_ID)
                 if method=='eth_getBlockByNumber':
@@ -114,8 +122,15 @@ class FirstSwapArchiveTests(unittest.TestCase):
                 else:
                     with self.assertRaises(AdmissionError):
                         audit.audit_live(cert)
+                    if mutation.endswith(('_null','_numeric')):
+                        error=io.StringIO()
+                        with patch.object(sys,'argv',['replay','--live']),contextlib.redirect_stderr(error):
+                            self.assertEqual(audit.main(),2)
+                        self.assertEqual(json.loads(error.getvalue())['result'],'HARD_DENIED')
         check_case(None)
-        for mutation in ('tx_hash','receipt_hash','event_hash','tx_block_hash','tx_block_number'):
+        for mutation in ('tx_hash','receipt_hash','event_hash','tx_block_hash','tx_block_number',
+                         'tx_hash_null','receipt_hash_null','event_hash_null',
+                         'tx_hash_numeric','receipt_hash_numeric','event_hash_numeric'):
             for provider in audit.BASE_RPCS:
                 with self.subTest(mutation=mutation,provider=provider):
                     check_case(mutation,provider)
