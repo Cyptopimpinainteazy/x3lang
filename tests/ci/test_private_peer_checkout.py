@@ -19,7 +19,7 @@ class PrivatePeerCheckoutTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text()
 
-    def token_gate(self) -> str:
+    def key_gate(self) -> str:
         result = re.search(
             r"(?ms)^      - name: Require private peer read credential\n"
             r"(?P<block>.*?)(?=^      - name: |^  x3lang-proof:|\Z)",
@@ -29,16 +29,16 @@ class PrivatePeerCheckoutTests(unittest.TestCase):
         return result.group("block")
 
     def run_preflight(self, token: str | None) -> subprocess.CompletedProcess[str]:
-        step = self.token_gate()
+        step = self.key_gate()
         match = re.search(
             r"(?m)^        run: \|\n(?P<script>(?:          .*\n|\s*\n)+)",
             step,
         )
         self.assertIsNotNone(match, "Expected inline preflight shell script")
         env = os.environ.copy()
-        env.pop("X3LANG_PEER_READ_TOKEN", None)
+        env.pop("X3LANG_PEER_READ_SSH_KEY", None)
         if token is not None:
-            env["X3LANG_PEER_READ_TOKEN"] = token
+            env["X3LANG_PEER_READ_SSH_KEY"] = token
         return subprocess.run(
             ["bash", "-e", "-u", "-o", "pipefail", "-c", textwrap.dedent(match.group("script"))],
             check=False,
@@ -51,17 +51,17 @@ class PrivatePeerCheckoutTests(unittest.TestCase):
     def test_missing_credential_fails_closed(self) -> None:
         result = self.run_preflight(None)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("X3LANG_PEER_READ_TOKEN", result.stdout + result.stderr)
+        self.assertIn("X3LANG_PEER_READ_SSH_KEY", result.stdout + result.stderr)
 
     def test_placeholder_credential_passes_presence_only(self) -> None:
-        fake = "TEST_ONLY_NOT_A_REAL_GITHUB_TOKEN"
+        fake = "TEST_ONLY_NOT_A_REAL_SSH_KEY"
         result = self.run_preflight(fake)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn(fake, result.stdout + result.stderr)
 
     def test_scoped_secret_only_on_preflight_and_peer_checkout(self) -> None:
-        gate = self.token_gate()
-        self.assertIn("X3LANG_PEER_READ_TOKEN: ${{ secrets.X3LANG_PEER_READ_TOKEN }}", gate)
+        gate = self.key_gate()
+        self.assertIn("X3LANG_PEER_READ_SSH_KEY: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}", gate)
         checkout = re.search(
             r"(?ms)^      - name: Checkout matching peer feature branch\n"
             r"(?P<block>.*?)(?=^      - name: |^  x3lang-proof:|\Z)",
@@ -70,7 +70,7 @@ class PrivatePeerCheckoutTests(unittest.TestCase):
         self.assertIsNotNone(checkout)
         block = checkout.group("block")
         self.assertIn("repository: Cyptopimpinainteazy/xxxstar", block)
-        self.assertIn("token: ${{ secrets.X3LANG_PEER_READ_TOKEN }}", block)
+        self.assertIn("ssh-key: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}", block)
         self.assertIn("persist-credentials: false", block)
         self.assertIn("ref: ${{ github.head_ref || github.ref_name }}", block)
         self.assertLess(self.workflow.index("Require private peer read credential"), self.workflow.index("Checkout matching peer feature branch"))

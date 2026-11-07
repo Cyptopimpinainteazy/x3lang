@@ -29,17 +29,17 @@ jobs:
       - name: Require private peer read credential
         shell: bash
         env:
-          X3LANG_PEER_READ_TOKEN: ${{ secrets.X3LANG_PEER_READ_TOKEN }}
+          X3LANG_PEER_READ_SSH_KEY: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}
         run: |
-          if [[ -z "${X3LANG_PEER_READ_TOKEN:-}" ]]; then
-            echo "::error::Missing X3LANG_PEER_READ_TOKEN (read-only Contents on private xxxstar repository)"
+          if [[ -z "${X3LANG_PEER_READ_SSH_KEY:-}" ]]; then
+            echo "::error::Missing X3LANG_PEER_READ_SSH_KEY (read-only SSH deploy key on private xxxstar repository)"
             exit 2
           fi
       - name: Checkout matching peer feature branch
         uses: actions/checkout@v4
         with:
           repository: Cyptopimpinainteazy/xxxstar
-          token: ${{ secrets.X3LANG_PEER_READ_TOKEN }}
+          ssh-key: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}
           ref: ${{ github.head_ref || github.ref_name }}
           path: peer-checkout
           persist-credentials: false
