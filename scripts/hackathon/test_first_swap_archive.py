@@ -65,4 +65,60 @@ class FirstSwapArchiveTests(unittest.TestCase):
         self.assertIn('No cryptographic atomic HTLC proof',data['claim_limits'])
         self.assertIn('No mainnet readiness',data['claim_limits'])
 
+    def test_live_replay_rejects_unbound_transaction_receipt_or_event(self):
+        cert,_,_,_=audit.audited_files()
+        observation=cert['base_evidence']['observations'][0]
+        txid=observation['tx_hash']
+        inclusion=hex(observation['block_number'])
+        checkpoint=hex(observation['finalized_block_height'])
+        calldata=('0xa9059cbb'+observation['deposit_address'][2:].lower().zfill(64)
+                  +format(audit.AMOUNT,'064x'))
+        token_code='0x60016002'
+        valid_tx={'hash':txid,'from':audit.SOURCE,'to':audit.TOKEN,'value':'0x0',
+                  'input':calldata,'blockHash':observation['block_hash'],'blockNumber':inclusion}
+        valid_event={'address':audit.TOKEN,
+                     'topics':[audit.ERC20_TRANSFER_TOPIC,
+                               '0x'+audit.SOURCE[2:].lower().zfill(64),
+                               '0x'+observation['deposit_address'][2:].lower().zfill(64)],
+                     'data':hex(audit.AMOUNT),'logIndex':observation['event_log_index'],
+                     'transactionHash':txid}
+        valid_receipt={'transactionHash':txid,'status':'0x1','blockHash':observation['block_hash'],
+                       'blockNumber':inclusion,'logs':[valid_event]}
+        def check_case(mutation, bad_provider=None):
+            tx=json.loads(json.dumps(valid_tx))
+            receipt=json.loads(json.dumps(valid_receipt))
+            if mutation=='tx_hash':tx['hash']='0x'+'f'*64
+            elif mutation=='receipt_hash':receipt['transactionHash']='0x'+'f'*64
+            elif mutation=='event_hash':receipt['logs'][0]['transactionHash']='0x'+'f'*64
+            elif mutation=='tx_block_hash':tx['blockHash']='0x'+'e'*64
+            elif mutation=='tx_block_number':tx['blockNumber']=hex(observation['block_number']+1)
+            def fake_rpc(url,method,params):
+                if method=='eth_chainId':return hex(audit.CHAIN_ID)
+                if method=='eth_getBlockByNumber':
+                    if params[0]=='finalized':return {'number':hex(observation['finalized_block_height']+3)}
+                    if params[0]==checkpoint:return {'hash':observation['finalized_block_hash']}
+                    if params[0]==inclusion:
+                        return {'hash':observation['block_hash'],'timestamp':hex(observation['inclusion_timestamp_unix_s'])}
+                if method=='eth_getTransactionByHash':return tx if url==bad_provider else valid_tx
+                if method=='eth_getTransactionReceipt':return receipt if url==bad_provider else valid_receipt
+                if method=='eth_getCode':return token_code
+                raise AssertionError((method,params))
+            with patch.object(audit,'rpc',side_effect=fake_rpc), \
+                 patch.object(audit,'TOKEN_CODE_SHA256',hashlib.sha256(bytes.fromhex(token_code[2:])).hexdigest()), \
+                 patch.object(audit,'verify_near_delivery',return_value=cert['near_receipt_evidence']), \
+                 patch.object(audit,'verify_delivery_balance',return_value=cert['near_balance_evidence']), \
+                 patch.object(audit,'verify_historical_guard_approval',
+                              return_value=cert['historical_guard_approval_evidence']):
+                if mutation is None:
+                    audit.audit_live(cert)  # Valid synthetic RPC control reaches PASS.
+                else:
+                    with self.assertRaises(AdmissionError):
+                        audit.audit_live(cert)
+        check_case(None)
+        for mutation in ('tx_hash','receipt_hash','event_hash','tx_block_hash','tx_block_number'):
+            for provider in audit.BASE_RPCS:
+                with self.subTest(mutation=mutation,provider=provider):
+                    check_case(mutation,provider)
+
+
 if __name__=='__main__':unittest.main()

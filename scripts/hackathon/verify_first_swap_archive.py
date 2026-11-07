@@ -90,6 +90,10 @@ def audit_live(cert: dict) -> None:
         reject(checkpoint.get('hash')==checkpoint_hash,'HISTORICAL_FINALITY_CHECKPOINT_REORGED')
         tx=rpc(url,'eth_getTransactionByHash',[tx_hash]);receipt=rpc(url,'eth_getTransactionReceipt',[tx_hash])
         reject(isinstance(tx,dict) and isinstance(receipt,dict),'ARCHIVED_TX_MISSING')
+        reject(tx.get('hash','').lower()==tx_hash and receipt.get('transactionHash','').lower()==tx_hash,
+               'ARCHIVED_TX_RECEIPT_HASH_MISMATCH')
+        reject(tx.get('blockHash')==receipt.get('blockHash') and tx.get('blockNumber')==receipt.get('blockNumber'),
+               'ARCHIVED_TX_RECEIPT_BLOCK_MISMATCH')
         reject(tx.get('from','').lower()==SOURCE.lower() and tx.get('to','').lower()==TOKEN.lower(),'ARCHIVED_TX_SOURCE_OR_CONTRACT_CHANGED')
         reject(int(tx.get('value','0x0'),16)==0,'ARCHIVED_UNEXPECTED_NATIVE_VALUE')
         calldata='0xa9059cbb'+base[0]['deposit_address'][2:].lower().zfill(64)+format(AMOUNT,'064x')
@@ -100,6 +104,7 @@ def audit_live(cert: dict) -> None:
         reject(inc.get('hash')==receipt['blockHash'] and int(inc['timestamp'],16)==base[0]['inclusion_timestamp_unix_s'],'ARCHIVED_INCLUSION_NOT_CANONICAL')
         logs=[x for x in receipt.get('logs',[]) if x.get('address','').lower()==TOKEN.lower()
               and [y.lower() for y in x.get('topics',[]) ]==[ERC20_TRANSFER_TOPIC,transfer_topic,receiver_topic]
+              and x.get('transactionHash','').lower()==tx_hash
               and int(x['data'],16)==AMOUNT]
         reject(len(logs)==1 and logs[0].get('logIndex')==base[0]['event_log_index'],'ARCHIVED_ERC20_TRANSFER_EVENT_CHANGED')
         code=rpc(url,'eth_getCode',[TOKEN,hex(agreed_block)])
