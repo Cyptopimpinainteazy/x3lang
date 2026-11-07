@@ -67,7 +67,7 @@ jobs:
           PY
           test "$(sha256sum "$RUNNER_TEMP/near-sandbox-2.14.0" | awk '{print $1}')" = \
             '797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13'
-          docker pull ubuntu:24.04
+          docker pull ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
       - name: Kill and restart only the disposable local node on the exact persisted database
         env:
           NEAR_NETWORK_ID: sandbox

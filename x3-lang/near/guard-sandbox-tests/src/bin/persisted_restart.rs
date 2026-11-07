@@ -220,10 +220,17 @@ async fn main() -> Result<()> {
         .await
     });
     sleep(Duration::from_millis(100)).await;
-    let in_flight = !handle.is_finished();
+    let task_pending_before_kill = !handle.is_finished();
     node.kill().await?;
     node.wait().await?;
     handle.abort();
+    // The old task must be fully dropped before a new node binds the same
+    // loopback RPC port. An abort request alone does not establish this.
+    match handle.await {
+        Ok(_completed) => {}
+        Err(join_error) if join_error.is_cancelled() => {}
+        Err(join_error) => bail!("interrupted submission task panicked: {join_error}"),
+    }
 
     let mut node = start_node(&bin, &home, "restart2")?;
     ensure!(
@@ -255,7 +262,7 @@ async fn main() -> Result<()> {
         !register(&contract, &network, &owner, signer.clone(), "interrupted_b").await?,
         "reconciled nonce replay was accepted"
     );
-    println!("X3_RESTART_UNKNOWN_TX_RECONCILED in_flight={in_flight} committed_before_retry={committed} exactly_one_record=true");
+    println!("X3_RESTART_UNKNOWN_TX_RECONCILED task_pending_before_kill={task_pending_before_kill} committed_before_retry={committed} single_owner_nonce_record_observed=true duplicate_retry_refused=true");
     println!("X3_RESTART_LOCAL_NODE_PASS restarts=2 public_chain=false test_only_signer=true");
     node.kill().await?;
     node.wait().await?;

@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 [[ "${NEAR_NETWORK_ID:-sandbox}" == "sandbox" ]] || { echo 'Non-sandbox network refused' >&2; exit 2; }
 [[ "$(id -u)" -ne 0 ]] || { echo 'Run unprivileged' >&2; exit 2; }
 command -v docker >/dev/null
-docker image inspect ubuntu:24.04 >/dev/null
+PINNED_IMAGE="ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852"
+docker image inspect "$PINNED_IMAGE" >/dev/null
 free_kib="$(df -Pk "$ROOT" | awk 'NR==2{print $4}')"
 min_gib="${X3_RESTART_MIN_FREE_GIB:-25}"
 [[ "$min_gib" =~ ^[0-9]+$ ]] && (( min_gib >= 8 && min_gib <= 100 )) || {
@@ -56,4 +57,4 @@ docker run --rm --network none --read-only --user "$(id -u):$(id -g)" \
   -v "$HARNESS:/opt/x3-restart-harness:ro" \
   -v "$WASM:/opt/x3-guard.wasm:ro" \
   -v "$RUN_ROOT:/x3-persist:rw" \
-  ubuntu:24.04 /opt/x3-restart-harness /opt/x3-guard.wasm /x3-persist/guard-node-home
+  "$PINNED_IMAGE" /opt/x3-restart-harness /opt/x3-guard.wasm /x3-persist/guard-node-home

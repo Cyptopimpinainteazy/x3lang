@@ -4,7 +4,7 @@ This is an **isolated, real NEAR Sandbox node restart** regression, using the ex
 
 ## Exact boundaries and evidence
 
-The Rust executable `x3-lang/near/guard-sandbox-tests/src/bin/persisted_restart.rs` launches only its own sandbox child under the **fixed container-private** `/x3-persist/guard-node-home`. Its wrapper executes in a Docker `--network none` namespace, with the pinned NEAR Sandbox 2.14.0 binary SHA-256 `797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13`. The host mount exposes one dedicated disposable node database; existing validator homes and ports are never mounted. The harness refuses any other home or binary path and refuses existing node databases. A separate first-time genesis key is the **public sample/test-only NEAR Sandbox key**, never a funded user credential.
+The Rust executable `x3-lang/near/guard-sandbox-tests/src/bin/persisted_restart.rs` launches only its own sandbox child under the **fixed container-private** `/x3-persist/guard-node-home`. Its wrapper executes in a Docker `--network none` namespace with pinned Ubuntu 24.04 image digest `fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852`, and the pinned NEAR Sandbox 2.14.0 binary SHA-256 `797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13`. The host mount exposes one dedicated disposable node database; existing validator homes and ports are never mounted. The harness refuses any other home or binary path and refuses existing node databases. A separate first-time genesis key is the **public sample/test-only NEAR Sandbox key**, never a funded user credential.
 
 The real initial node processes signed **local on-chain** transactions to deploy and initialize the production Guard WASM, then registers a genuine Guard intent. It records the real account code identity and reads the owner/nonce record from the node, with quote and approvals still empty.
 
@@ -15,9 +15,9 @@ The real initial node processes signed **local on-chain** transactions to deploy
 - Submit the already-consumed owner/nonce and require the actual chain transaction to fail.
 
 ### Restart #2 — outcome unknown during interruption
-- Start an asynchronous owner-signed local registration, then terminate the owned neard process before awaiting the result. The test records whether the future was still pending.
+- Start an asynchronous owner-signed local registration, then terminate the owned neard process before awaiting the result. The test records whether the Rust task was still pending (not whether the RPC reached the mempool). It **aborts and joins** that task before rebinding the same RPC port.
 - Restart exactly the same persisted chain home and **query** `is_nonce_used` for the previously uncertain nonce.
-- If it is committed, never resubmit. If it is absent, submit it once through the real local chain. Assert a valid unique on-chain record and refuse any later replay.
+- If it is committed, never resubmit. If it is absent, submit it once through the real local chain. Assert one visible owner/nonce-bound on-chain record and refuse any later replay. This does not independently count historical emitted events.
 - This tests **state-first reconciliation** after an interrupted local attempt. It cannot guarantee that the aborted future had reached the node's mempool or that an RPC receipt was lost after actual broadcast.
 
 This is a **real node, real database persistence** test; it is not a simulator or fabricated state result. It still does **not** verify public NEAR consensus finality, arbitrary DB crash points, distributed quorum, multi-validator reorgs, cross-VM settlement or transaction delivery guarantees.
