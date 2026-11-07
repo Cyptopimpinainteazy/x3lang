@@ -67,6 +67,11 @@ EOA, NOT the vault. Treat this as an explicit return-to-owner trust boundary.
 
 The script cannot sign, deploy, approve, or transfer anything. It does not
 emit executable Solidity payment calldata or a completed EIP-712 digest.
+In addition to the original Base funding/chain quorum, it now invokes the
+reviewed two-provider token attestor from base_vault_token_preflight.py:
+real token bytecode SHA-256, historical/finalized canonical checkpoints,
+and standard EIP-1967 implementation/beacon slots must all pass. A zero
+standard proxy slot cannot rule out custom token upgrade mechanisms.
 It rechecks quote freshness and the Guard policy after slow Base RPC reads.
 Failure exits 2 and prints HARD_DENIED_NO_SIGNING_OR_DEPLOYMENT.
 

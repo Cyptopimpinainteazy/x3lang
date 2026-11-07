@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "x3-lang"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import base_sepolia_guarded_admission as admission
+import base_vault_token_preflight as token_preflight
 from base_sepolia_x3_intent import compile_testnet_intent
 
 AdmissionError = admission.AdmissionError
@@ -242,6 +243,18 @@ def main() -> int:
         # is NOT an on-chain vault code or EIP712 verifier observation.
         base = admission.check_base_state()
         admission.reject(base.get("chain_id") == admission.CHAIN_ID, "BASE_STATE_CHAIN_MISMATCH")
+        # The review-only two-provider attestor independently pins Base token
+        # code and standard EIP-1967 slots at a finalized historical and
+        # common current finalized checkpoint. It cannot rule out all proxy
+        # patterns or token-blacklist behavior.
+        token_state = token_preflight.capture(token_preflight.DEFAULT_RPCS)
+        admission.reject(
+            token_state.get("testnet_chain_id") == admission.CHAIN_ID
+            and token_state.get("token_code_sha256") == admission.TOKEN_CODE_SHA256
+            and token_state.get("quorum", {}).get("standard_eip1967_slots_zero") is True
+            and token_state.get("quorum", {}).get("token_bytecode_matches_pinned_sha256") is True,
+            "BASE_TOKEN_TWO_RPC_ATTESTATION_MISMATCH",
+        )
         # Deadline and final Guard policy might change during slow RPC calls.
         final_now = datetime.now(timezone.utc)
         row = admission.get_near_policy(
@@ -256,6 +269,13 @@ def main() -> int:
         report["guard_account"] = args.guard_account
         report["guard_wasm_sha256"] = args.guard_wasm_sha256
         report["base_rpc_coverage"] = len(base.get("rpc_observations", []))
+        report["base_token_two_rpc_attestation"] = {
+            "classification": token_state["classification"],
+            "common_finalized_height": token_state["quorum"]["common_finalized_height"],
+            "bytecode_sha256": token_state["token_code_sha256"],
+            "standard_eip1967_slots_zero": True,
+            "deployment_approved": False,
+        }
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
     except (AdmissionError, OSError, TypeError, KeyError, ValueError, json.JSONDecodeError) as exc:
