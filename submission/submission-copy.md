@@ -29,6 +29,11 @@ request. A separate official-live allowed quote was accepted as a positive
 control; that acceptance authorizes a deposit address only. Both transactions
 are finalized testnet observations.
 
+The deployed `x3lang.testnet` Guard also ran the mandate lifecycle: a finalized
+`agent_register_intent` to `attacker.near` failed at `mandate_recipient`, an
+allowed control registered, and read-only state shows the mandate subsequently
+revoked.
+
 Limits: the live acceptance stopped before deposit. The repository does not
 claim a live forbidden-quote refusal, wallet transfer, settlement, independent
 NEAR finality, or cross-chain causality. Guard does not custody funds and
@@ -38,6 +43,8 @@ cannot stop an unrestricted wallet keyholder from bypassing it.
 
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang
 - Testnet evidence: `docs/hackathon/GUARD_TESTNET_EVIDENCE.md`
+- Testnet mandate lifecycle:
+  https://github.com/Cyptopimpinainteazy/x3lang/blob/release/x3lang-submission-20261106/evidence/near-guard-testnet-live-2026-11-06.md
 - Authenticated light-client design and limits:
   https://github.com/Cyptopimpinainteazy/x3lang/blob/release/x3lang-submission-20261106/docs/security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md
 - Judge path: `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge`
@@ -51,6 +58,10 @@ cannot stop an unrestricted wallet keyholder from bypassing it.
   `3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q`
 - Official-live allowed acceptance:
   `6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ`
+- Live mandate-recipient refusal:
+  `AhVBD7oXfwsixBipupjCzuhNdqunjdXJnLz3LXnmfnN8`
+- Live allowed mandate control:
+  `DPJfcRUGk56h8sSsFsDFFgUMQAiyBCtpMuvquF9FvTct`
 - Owner mandate creation: `J4WrxJTNhL5Z841thsvpmMCgsMWwrmUsrmrwHSMu9tXX`
 - Revocation: `7aVonMiRCDyetbkpRBK6GKnL2X1XrQTPsf3Pk1gKGzp8`
 

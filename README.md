@@ -15,7 +15,7 @@ checked policy reject it **even though its signature is valid**? That is the
 security problem this submission tackles—not the already-established idea
 of giving agents spending limits.
 
-**Current evidence level: `local_policy_preview_only` + `testnet_registration_refusal_and_live_acceptance_only`.** Below is the honest
+**Current evidence level: `local_policy_preview_only` + `testnet_mandate_lifecycle_and_quote_evidence_only`.** Below is the honest
 three-minute screen. Architecture detail, value-fee economics and release
 boundaries follow after it.
 
@@ -39,13 +39,13 @@ boundaries follow after it.
 
 | Claim | What exists | What is still missing |
 | --- | --- | --- |
-| `.x3` mandate | Python/browser policy-preview parity; Rust `x3c intent` preserves `under mandate` as adapter metadata (draft [#68](https://github.com/Cyptopimpinainteazy/x3lang/pull/68)) | An enforced mandate inside the general Rust VM; parity must be proved across actual production paths |
-| Signed quote checks | `x3-guard` verifies the pinned 1Click manager's signature **before** evaluating stored quote/mandate terms in its contract code and tests; testnet deployment `x3lang-guard-20261106.testnet` shows allowed registration, invalid-signature refusal, revocation, official-dry valid-signature refusal, and official-live valid acceptance ([evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md)) — **mixed: test-key invalid-signature path + official dry/live manager-signed quotes; live acceptance stopped before any deposit** | `mandate_recipient` on-chain acceptance refusal ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open) |
+| `.x3` mandate | Python/browser policy-preview parity; Rust `x3c intent` preserves `under mandate` as adapter metadata (draft [#68](https://github.com/Cyptopimpinainteazy/x3lang/pull/68)); a finalized NEAR testnet `agent_register_intent` to `attacker.near` failed at `mandate_recipient`, while the allowed control registered ([evidence](evidence/near-guard-testnet-live-2026-11-06.md)) | An enforced mandate inside the general Rust VM; a fresh live manager-signed forbidden quote refused at final acceptance |
+| Signed quote checks | `x3-guard` verifies the pinned 1Click manager's signature **before** evaluating stored quote/mandate terms in its contract code and tests; testnet account `x3lang-guard-20261106.testnet` records allowed registration, invalid-signature refusal, revocation, official-dry valid-signature refusal, and official-live valid acceptance ([evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md)) — **mixed: test-key invalid-signature path + official dry/live manager-signed quotes; live acceptance stopped before any deposit** | A fresh live manager-signed forbidden quote refused at `agent_accept_quote` ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open) |
 | Cryptographic proof | Real archived receipt/Merkle checks; a fail-closed authenticated light-client state machine in this branch verifies real validator approvals and admits only canonical, non-identity, prime-order Ed25519 keys; `.x3` → X3VM *read-only refusal* in draft [#72](https://github.com/Cyptopimpinainteazy/x3lang/pull/72) | A production trust-anchor ceremony, Guard's own receipt, storage proof and cross-chain causality |
 
 ## DELIBERATELY BLOCKED
 
-- No `mandate_recipient` on-chain acceptance refusal and no mainnet deployment claim ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open; live acceptance authorizes a deposit address only, with no deposit/settlement attempted).
+- The testnet `agent_register_intent` recipient refusal exists, but no fresh live manager-signed forbidden quote has been refused at `agent_accept_quote`, and no mainnet deployment is claimed ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open; live acceptance authorizes a deposit address only, with no deposit/settlement attempted).
 - No mainnet transaction links, no wallet custody, and no universal spending lock:
   an unrestricted wallet key can still bypass Guard.
 - No settlement or cross-chain causality claim. A signed 1Click quote authenticates
@@ -81,7 +81,8 @@ injection resistance, or establish NEAR consensus finality. See the
 ## ON-CHAIN EVIDENCE
 
 - **Claimed now:** deterministic local policy verdicts, local mock-chain contract
-  behavior, plus testnet code identity, allowed registration, invalid-signature refusal,
+  behavior, plus testnet code identity, a real mandate lifecycle with
+  `mandate_recipient` refusal and allowed control, invalid-signature refusal,
   revocation, official-dry valid-signature refusal, and official-live valid acceptance
   (the acceptance authorizes a deposit address only and stopped before deposit). See
   [GUARD_TESTNET_EVIDENCE.md](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) and
@@ -91,6 +92,10 @@ injection resistance, or establish NEAR consensus finality. See the
   `ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab`;
   deployment
   [`FJ5vo…`](https://explorer.testnet.near.org/transactions/FJ5voQaArx17QV4TzDLYDq93cuoAVLSRxjcxbswuyE8v);
+  live mandate refusal
+  [`AhVBD…`](https://explorer.testnet.near.org/transactions/AhVBD7oXfwsixBipupjCzuhNdqunjdXJnLz3LXnmfnN8);
+  allowed lifecycle control
+  [`DPJfc…`](https://explorer.testnet.near.org/transactions/DPJfcRUGk56h8sSsFsDFFgUMQAiyBCtpMuvquF9FvTct);
   official-dry signature-valid recipient-mismatch failure
   [`3Q7q…`](https://explorer.testnet.near.org/transactions/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q);
   official-live allowed positive control
@@ -121,16 +126,20 @@ typed language that also verifies NEAR Intents' signed quote terms before a
 deposit is authorized.
 
 **Works today** — a `.x3` mandate compiles and the same verdict is reproduced
-in Python and the browser, with independently recorded NEAR Guard contract
-checks. The Guard uses the pinned Ed25519 manager key to verify authentic
-1Click quotes before policy evaluation. Two distinct real testnet evidence
-paths exist: on `x3lang.testnet`, an agent intent to `attacker.near` was
-refused by `mandate_recipient` before registration and the mandate was later
-revoked ([agent mandate lifecycle](evidence/near-guard-testnet-live-2026-11-06.md));
-on `x3lang-guard-20261106.testnet`, a genuine manager-signed **dry** quote
-was refused for violating request terms, while a separate authentic **live**
-quote was accepted **without any deposit** ([quote authorization evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md)).
-Neither path proves live forbidden-quote settlement or wallet-level enforcement.
+in Python and the browser, plus NEAR Guard contract tests. Refusal-first
+tests cover spending caps, wrong recipients, replay, refund redirection, and
+revocation. Two distinct public **testnet** evidence paths are recorded:
+
+- On `x3lang.testnet`, an agent intent aimed at `attacker.near` was refused by
+  `mandate_recipient`; an allowed intent was accepted and the mandate revoked.
+  See the [real mandate lifecycle](evidence/near-guard-testnet-live-2026-11-06.md).
+- On `x3lang-guard-20261106.testnet`, the production-manager signature of a
+  **dry** quote verified but policy checks refused it, while a separate signed
+  **live** quote was accepted **without any deposit**. See the
+  [quote authorization evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md).
+
+These are not claims of a live forbidden-recipient quote refusal, wallet-level
+enforcement, a funded swap, or independently proven cross-chain settlement.
 
 **Deliberately blocked** — no wallet transfer, wallet-level enforcement, deposit,
 settlement, or cross-chain causality is claimed. The recorded testnet

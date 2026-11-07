@@ -48,13 +48,17 @@ account and code identity, and these exact final transactions:
 - official dry quote with `quote_signature ok:true`, recipient mismatch, then
   failed `accept_quote` `3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q`;
 - official live allowed acceptance
-  `6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ`.
+  `6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ`;
+- live mandate refusal `AhVBD7oXfwsixBipupjCzuhNdqunjdXJnLz3LXnmfnN8`
+  and allowed control `DPJfcRUGk56h8sSsFsDFFgUMQAiyBCtpMuvquF9FvTct`.
 
 **Say:** "The Guard is deployed as testnet account
 `x3lang-guard-20261106.testnet`, with WASM SHA-256 `ac44fa…`. The production
 1Click manager signature verifies on the official dry quote, but the recipient
 term violates policy, so the call fails. A separate official live quote for an
 allowed destination is accepted as the positive control. No deposit was sent."
+Also show that a finalized agent intent to `attacker.near` failed at
+`mandate_recipient`, while the allowed control registered.
 **Do not claim:** live forbidden-quote refusal, wallet authorization, deposit,
 settlement, causality, mainnet deployment, or independently authenticated
 finality. Public-RPC evidence agreement is not a light-client proof.
