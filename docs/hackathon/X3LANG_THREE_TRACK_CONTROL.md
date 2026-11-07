@@ -43,7 +43,9 @@ sends money, or consumes a nonce.
 This document describes the local policy slice only. Separately, the committed
 testnet evidence contains finalized deployment, registration, refusal,
 revocation and an allowed `accept_quote`; that acceptance authorizes a deposit
-address only. A live `mandate_recipient` refusal, deposit, settlement and
+address only. The live `agent_register_intent` request to a forbidden recipient
+is now recorded as a `mandate_recipient` refusal. A fresh live manager-signed
+quote refused at final `agent_accept_quote`, a deposit, settlement and
 cross-chain causality remain unproven. Do not promote local preflight evidence
 into those claims.
 

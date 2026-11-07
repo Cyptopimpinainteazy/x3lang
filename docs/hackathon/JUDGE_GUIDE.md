@@ -118,9 +118,9 @@ cd lightclient-core
 cargo test --locked
 ```
 
-This work cannot be substituted for the still-missing **Guard's own testnet
-refusal receipt**, which must be authenticated against a trusted chain head
-before claiming independently proven enforcement. See
+The public-RPC-observed finalized refusal transaction now exists. What remains
+missing is a receipt authenticated against an independently trusted light-client
+head before claiming independently proven enforcement. See
 [`NEAR_AUTHENTICATED_LIGHT_CLIENT.md`](../security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md).
 
 ## Scope and historical disclosure
