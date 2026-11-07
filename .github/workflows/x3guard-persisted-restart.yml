@@ -68,6 +68,7 @@ jobs:
       - name: Kill and restart only the disposable local node on the exact persisted database
         env:
           NEAR_NETWORK_ID: sandbox
+          X3_RESTART_MIN_FREE_GIB: '10'
           X3_RESTART_CARGO_TARGET: ${{ runner.temp }}/x3-restart-target
           X3_SANDBOX_BIN_CACHE: ${{ runner.temp }}/near-sandbox-2.14.0
         shell: bash

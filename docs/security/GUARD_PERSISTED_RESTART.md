@@ -40,7 +40,7 @@ X3_SANDBOX_BIN_CACHE="$HOME/.cache/x3lang/near-sandbox-2.14.0/near-sandbox" \
 NEAR_NETWORK_ID=sandbox bash scripts/hackathon/guard_persisted_restart_smoke.sh
 ```
 
-The wrapper requires at least **25 GiB of free disk space**, verifies the pinned sandbox SHA, runs under Docker network isolation with CPU/memory/process limits, and only cleans up its own `/tmp/x3-guard-node-restart.XXXXXXXX` disposable directory. On failure it outputs the last sandbox log lines before cleaning its own temp files; no existing assets are deleted. It creates a new, never-before-used chain home for each run.
+The wrapper requires at least **25 GiB of free disk space by default** (or an explicit bounded 8–100 GiB test floor, with 10 GiB on disposable hosted CI runners), verifies the pinned sandbox SHA, runs under Docker network isolation with CPU/memory/process limits, and only cleans up its own `/tmp/x3-guard-node-restart.XXXXXXXX` disposable directory. On failure it outputs the last sandbox log lines before cleaning its own temp files; no existing assets are deleted. It creates a new, never-before-used chain home for each run.
 
 For a local x3star1 reproducibility run, an explicitly audited built artifact from the PR #108 base may be supplied through `X3_RESTART_GUARD_WASM` and `X3_RESTART_GUARD_SHA256` while the source branch matches that base; this is **not** a substitute for fresh-machine exact-head WASM builds. The GitHub CI workflow `x3guard-persisted-restart.yml` rebuilds the actual Guard on the exact proposed commit and verifies the sandbox binary SHA before launching the isolated test.
 

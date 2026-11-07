@@ -7,9 +7,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 command -v docker >/dev/null
 docker image inspect ubuntu:24.04 >/dev/null
 free_kib="$(df -Pk "$ROOT" | awk 'NR==2{print $4}')"
-min_kib="$((25 * 1024 * 1024))"
+min_gib="${X3_RESTART_MIN_FREE_GIB:-25}"
+[[ "$min_gib" =~ ^[0-9]+$ ]] && (( min_gib >= 8 && min_gib <= 100 )) || {
+  echo 'Invalid test disk floor: must be 8..100 GiB' >&2
+  exit 2
+}
+min_kib="$((min_gib * 1024 * 1024))"
 if (( free_kib < min_kib )); then
-  echo "FAIL CLOSED: free space under 25GiB: ${free_kib} KiB" >&2
+  echo "FAIL CLOSED: free space under ${min_gib}GiB: ${free_kib} KiB" >&2
   exit 2
 fi
 CACHED_BIN="${X3_SANDBOX_BIN_CACHE:-${HOME}/.cache/x3lang/near-sandbox-2.14.0/near-sandbox}"
