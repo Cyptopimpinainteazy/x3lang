@@ -476,7 +476,7 @@ fn only_the_owner_can_accept_a_quote() {
 }
 
 #[test]
-#[should_panic(expected = "quote rejected by quote_freshness, deadline")]
+#[should_panic(expected = "X3_QUOTE_REJECTED: quote rejected by quote_freshness, deadline")]
 fn a_quote_after_the_deadline_is_rejected() {
     let mut c = registered();
     let (text, sig) = signed(&live_payload());
