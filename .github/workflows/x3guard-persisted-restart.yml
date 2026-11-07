@@ -1,0 +1,78 @@
+name: X3 Guard Real Local NEAR Node Persisted-Restart Gate
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near/guard-sandbox-tests/**'
+      - 'x3-lang/near/x3-guard/**'
+      - 'scripts/hackathon/guard_persisted_restart_smoke.sh'
+      - 'docs/security/GUARD_PERSISTED_RESTART.md'
+      - '.github/workflows/x3guard-persisted-restart.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  persisted-near-node-restart:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact proposed head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install pinned Rust and WASM target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          components: rustfmt
+          targets: wasm32-unknown-unknown
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            x3-lang/near/x3-guard
+            x3-lang/near/guard-sandbox-tests
+      - name: Validate formatting and isolated wrapper
+        run: |
+          bash -n scripts/hackathon/guard_persisted_restart_smoke.sh
+          cargo fmt --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml -- --check
+      - name: Compile exact-head Guard WASM
+        working-directory: x3-lang/near/x3-guard
+        run: cargo build --locked --release --target wasm32-unknown-unknown
+      - name: Provision pinned NEAR Sandbox 2.14.0 binary with verified SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$RUNNER_TEMP/near-sandbox-2.14.0.tar.gz"
+          curl --fail --location --retry 2 --proto '=https' --tlsv1.2 \
+            'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/2.14.0/near-sandbox.tar.gz' \
+            -o "$ARCHIVE"
+          python3 - "$ARCHIVE" "$RUNNER_TEMP/near-sandbox-2.14.0" <<'PY'
+          import pathlib, sys, tarfile
+          archive, dest = sys.argv[1:]
+          with tarfile.open(archive, 'r:gz') as tf:
+              entries = [m for m in tf.getmembers() if m.isfile() and pathlib.PurePosixPath(m.name).name == 'near-sandbox']
+              if len(entries) != 1:
+                  raise SystemExit('expected exactly one sandbox binary')
+              with tf.extractfile(entries[0]) as source, open(dest, 'wb') as out:
+                  while chunk := source.read(1024 * 1024):
+                      out.write(chunk)
+          pathlib.Path(dest).chmod(0o755)
+          PY
+          test "$(sha256sum "$RUNNER_TEMP/near-sandbox-2.14.0" | awk '{print $1}')" = \
+            '797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13'
+          docker pull ubuntu:24.04
+      - name: Kill and restart only the disposable local node on the exact persisted database
+        env:
+          NEAR_NETWORK_ID: sandbox
+          X3_RESTART_CARGO_TARGET: ${{ runner.temp }}/x3-restart-target
+          X3_SANDBOX_BIN_CACHE: ${{ runner.temp }}/near-sandbox-2.14.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          export X3_RESTART_GUARD_WASM="$GITHUB_WORKSPACE/x3-lang/near/x3-guard/target/wasm32-unknown-unknown/release/x3_guard.wasm"
+          export X3_RESTART_GUARD_SHA256="$(sha256sum "$X3_RESTART_GUARD_WASM" | awk '{print $1}')"
+          bash scripts/hackathon/guard_persisted_restart_smoke.sh
