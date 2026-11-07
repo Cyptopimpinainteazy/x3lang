@@ -18,6 +18,17 @@ test('spending cap fails',()=>assert.equal(check({amount:'0.3'}).code,'PER_PAYME
 test('replay fails',()=>assert.equal(check({used:['fresh']}).code,'NONCE_REPLAY'));
 test('revocation fails',()=>assert.equal(check({revoked:true}).code,'MANDATE_REVOKED'));
 test('deadline fails',()=>assert.equal(check({expired:true}).code,'MANDATE_EXPIRED'));
+test('missing or malformed lifecycle flags fail closed',()=>{
+  for (const field of ['revoked','expired']) {
+    for (const value of [undefined,null,'false','true',0,1,[],{}]) {
+      assert.deepEqual(check({[field]:value}),{
+        allowed:false,code:'INVALID_CONTEXT',level:'offline_preview'
+      },`${field}=${JSON.stringify(value)}`);
+    }
+    const missing={...base};delete missing[field];
+    assert.equal(previewRequest(missing).code,'INVALID_CONTEXT');
+  }
+});
 test('pending commitments count towards cumulative budget',()=>assert.equal(check({spent:'0.2',pending:'0.15'}).code,'TOTAL_BUDGET_EXCEEDED'));
 test('invalid numeric amounts refuse, never float round',()=>{
   for (const amount of ['NaN','-0.1','0','0.1000000000000000000000001','1e9']) {

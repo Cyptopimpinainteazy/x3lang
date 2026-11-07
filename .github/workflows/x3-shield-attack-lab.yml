@@ -31,6 +31,7 @@ jobs:
           from html.parser import HTMLParser
           from collections import Counter
           html=Path('docs/hackathon/attack-lab.html').read_text()
+          policy=Path('docs/hackathon/attack-lab-policy.mjs').read_text()
           class IDs(HTMLParser):
               def __init__(self):
                   super().__init__();self.ids=[]
@@ -41,6 +42,7 @@ jobs:
           assert len(ids.ids)==len(set(ids.ids)),'duplicate element ids'
           assert "import {previewRequest} from './attack-lab-policy.mjs'" in html
           for forbidden in ['eth_sendTransaction','eth_sendRawTransaction','window.ethereum.request','privateKey','wallet_connect','cast send']:
-              assert forbidden not in html, forbidden
+              for source in (html,policy):
+                  assert forbidden not in source, forbidden
           print('ATTACK_LAB_STATIC_CHECK_OK', len(ids.ids),'unique_ids')
           PY
