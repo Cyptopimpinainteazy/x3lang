@@ -878,6 +878,8 @@ pub enum CrdtKind {
 pub enum ProofKind {
     Zk,
     Mpc,
+    /// Read-only NEAR receipt inspection. NEVER a consensus/settlement authorization.
+    NearReceipt,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

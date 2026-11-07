@@ -2230,6 +2230,12 @@ fn lower_builtin_call(callee: &Expression, args: &[Expression], ir: &mut X3IR) -
             input: arg_string(args, 1),
             key_or_threshold: arg_string(args, 2),
         }),
+        "verify_near_receipt" => ir.push(Operation::ProofVerify {
+            kind: ProofKind::NearReceipt,
+            proof: arg_string(args, 0),
+            input: arg_string(args, 1),
+            key_or_threshold: arg_string(args, 2),
+        }),
         "calculate_portfolio_value" => ir.push(Operation::VectorMath {
             op: VectorOp::DotProduct,
             a: arg_string(args, 0),

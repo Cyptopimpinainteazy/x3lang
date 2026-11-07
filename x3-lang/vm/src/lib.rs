@@ -4,6 +4,7 @@ pub mod economic;
 pub mod executor;
 pub mod gpu;
 pub mod jit;
+pub mod near_evidence;
 pub mod opportunity_packet;
 pub mod profit;
 pub mod trading;

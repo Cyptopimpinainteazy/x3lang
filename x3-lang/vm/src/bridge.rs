@@ -2670,6 +2670,34 @@ impl<B: ProductionBridgeBackend> BridgeAdapter for ProductionBridgeAdapter<B> {
         }
     }
     fn proof_verify(&self, kind: u8, proof: &[u8], input: &[u8], key: &[u8]) -> BridgeResult {
+        if kind == 3 {
+            // Read-only NEAR outcome inspection. Even fully matching Merkle
+            // paths against RPC-supplied root do NOT establish canonical
+            // consensus finality. No valid input may authorize the VM to
+            // proceed as though this was a settlement proof.
+            if !key.is_empty() && key != b"UNTRUSTED_HEAD_NO_SIGNING" {
+                return Err(Box::new(BridgeError {
+                    code: "X3_NEAR_PROOF_INVALID",
+                    message: "NEAR proof hostcall does not accept authority keys or signing claims".into(),
+                }));
+            }
+            let context: crate::near_evidence::NearReceiptContext = serde_json::from_slice(input).map_err(|_| {
+                Box::new(BridgeError {
+                    code: "X3_NEAR_PROOF_INVALID",
+                    message: "invalid NEAR read-only proof context".into(),
+                })
+            })?;
+            return match crate::near_evidence::inspect_receipt_untrusted(proof, &context) {
+                Ok(_) => Err(Box::new(BridgeError {
+                    code: "X3_NEAR_HEAD_UNTRUSTED",
+                    message: "NEAR outcome and block Merkle paths match RPC root, but no independent trust anchor; VM authorization and signing denied".into(),
+                })),
+                Err(_) => Err(Box::new(BridgeError {
+                    code: "X3_NEAR_PROOF_INVALID",
+                    message: "NEAR outcome or block Merkle proof invalid".into(),
+                })),
+            };
+        }
         let computed: Vec<u8> = match kind {
             0 => {
                 let mut hasher = Sha256::new();
@@ -3315,6 +3343,12 @@ impl BridgeAdapter for DryRunBridge {
         Ok([format!("dry-run-crdt_op:{kind}:").as_bytes(), key, b":", value].concat())
     }
     fn proof_verify(&self, kind: u8, proof: &[u8], input: &[u8], key: &[u8]) -> BridgeResult {
+        if kind == 3 {
+            return Err(Box::new(BridgeError {
+                code: "X3_NEAR_PROOF_UNAVAILABLE",
+                message: "dry-run bridge cannot verify NEAR consensus, even for archived proofs".into(),
+            }));
+        }
         Ok([
             format!("dry-run-proof_verify:{kind}:").as_bytes(),
             proof,

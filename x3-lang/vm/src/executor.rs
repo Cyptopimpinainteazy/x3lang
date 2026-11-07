@@ -678,10 +678,19 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                         return Err(e);
                     }
                 };
+                // An RPC-rooted NEAR proof has no independent finality authority.
+                // Unlike ordinary recoverable host failures, a financial proof
+                // denial may NOT be swallowed by a language-level failure
+                // handler and turned into a successful VM result.
+                let fatal_untrusted_near = opcode == PROOF_VERIFY
+                    && matches!(
+                        decode_capability_payload(opcode, &payload),
+                        Ok(CapabilityPayload::ProofVerify { kind: 3, .. })
+                    );
                 let result = match dispatch_host_opcode(vm, opcode, &payload) {
                     Ok(v) => v,
                     Err(e) => {
-                        if try_dispatch_handler(vm) {
+                        if !fatal_untrusted_near && try_dispatch_handler(vm) {
                             continue;
                         }
                         return Err(e);
@@ -1353,10 +1362,36 @@ fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<V
             input,
             key_or_threshold,
         } => {
-            bridge_result(
-                vm.bridge
-                    .proof_verify(kind, proof.as_bytes(), input.as_bytes(), key_or_threshold.as_bytes()),
-            )
+            if kind == 3 {
+                // SECURITY CRITICAL: handle NEAR proof observations in the VM
+                // itself, not in an arbitrary BridgeAdapter that could reply
+                // with untrusted bytes pretending consensus verification.
+                // A successful Merkle check against an RPC-supplied root is
+                // NEVER a successful proof of finality or fund release.
+                if key_or_threshold != "UNTRUSTED_HEAD_NO_SIGNING" {
+                    return Err(ExecError::Panic(
+                        "X3_NEAR_PROOF_INVALID: signing or trust keys cannot be supplied by bytecode".into(),
+                    ));
+                }
+                let context = serde_json::from_str::<crate::near_evidence::NearReceiptContext>(&input)
+                    .map_err(|_| ExecError::Panic("X3_NEAR_PROOF_INVALID: invalid proof context".into()))?;
+                match crate::near_evidence::inspect_receipt_untrusted(proof.as_bytes(), &context) {
+                    Ok(observation) => {
+                        debug_assert!(!observation.authenticated && !observation.authorized_to_sign);
+                        Err(ExecError::Panic("X3_NEAR_HEAD_UNTRUSTED: matching Merkle proof is not independently authenticated consensus finality".into()))
+                    }
+                    Err(_) => Err(ExecError::Panic(
+                        "X3_NEAR_PROOF_INVALID: receipt or Merkle path failed".into(),
+                    )),
+                }
+            } else {
+                bridge_result(vm.bridge.proof_verify(
+                    kind,
+                    proof.as_bytes(),
+                    input.as_bytes(),
+                    key_or_threshold.as_bytes(),
+                ))
+            }
         }
         CapabilityPayload::StorageOp { kind, data } => bridge_result(vm.bridge.storage_op(kind, data.as_bytes())),
         CapabilityPayload::Pathfind { from, to, max_depth } => {
