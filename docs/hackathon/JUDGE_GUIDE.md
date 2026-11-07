@@ -68,6 +68,15 @@ end-to-end flow or any transfer/settlement.
 
 [Reproduce the scoped contract test and see it in the browser](X3_SHIELD_SIGNED_QUOTE_REFUSAL_DEMO.md): a correctly signed quote using the repo's deliberately **test-only** Ed25519 signer tries to pay `attacker.near`. `agent_accept_quote` rejects it after verification, records no accepted quote and no spend, while an allowed signed quote succeeds. The judge console's evidence panel runs and labels this test separately with `--with-contract`. This is **not** a genuine 1Click production-manager-signed live quote or a testnet transaction. Issue #73 still tracks that milestone.
 
+## Actual Guard WASM in a local NEAR Sandbox (separate from Testnet)
+
+[Reproduce the offline NEAR Sandbox integration](NEAR_GUARD_LOCAL_SANDBOX.md):
+the production `x3_guard.wasm` runs on a disposable node and checks a genuine
+archived official-manager-signed **dry** quote. The Guard verifies the
+signature but refuses dry-quote deposit authorization and leaves the stored
+quote empty. This is a local Sandbox transaction, not a public Testnet
+refusal of a freshly signed forbidden **live** quote.
+
 ## NEAR testnet Guard evidence
 
 The owner-authorized testnet deployment and sanitized, hash-chained RPC
