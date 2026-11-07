@@ -100,8 +100,9 @@ injection resistance, or establish NEAR consensus finality. See the
   [`3Q7q…`](https://explorer.testnet.near.org/transactions/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q);
   official-live allowed positive control
   [`6B6k…`](https://explorer.testnet.near.org/transactions/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ).
-  Every committed observation is re-queried by the evidence verifier; RPC
-  agreement is not independent light-client finality.
+  The JSON manifest and transaction collection are re-queried by the committed
+  evidence verifier. The separate live mandate-lifecycle file was manually
+  re-queried read-only. RPC agreement is not independent light-client finality.
 - **Explicitly not claimed:** wallet transfer, deposit to the accepted address, observed
   settlement, finalized cross-chain settlement, a live forbidden-quote refusal,
   or proven cross-chain causality.
