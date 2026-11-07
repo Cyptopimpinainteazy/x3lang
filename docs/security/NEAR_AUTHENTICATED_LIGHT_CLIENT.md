@@ -227,9 +227,13 @@ permission to sign.
 
 ## Unverified properties
 
-- No independently trusted NEAR testnet checkpoint approval has been provided.
-  Therefore the committed real transition is a cryptographic test under a
-  synthetic checkpoint authority, not a completed live trust-anchor ceremony.
+- A real offline checkpoint ceremony has now been executed against live testnet
+  data with a freshly generated (non-deterministic) signer key, and the real
+  p27 → Gb validator-approval transition (99.32% stake) was verified through it —
+  see `evidence/near-light-client-ceremony-2026-11-06/`. The checkpoint signer
+  key is operator-generated rather than an external HSM or a distinct human
+  reviewer's key, so independent human approval of the pinned policy digest
+  remains a governance step this repository records but cannot perform.
 - State authority is only as strong as the offline checkpoint signer policy.
   Compromise or operator error in that ceremony compromises every later head.
 - The selected protocol-88 V1 encoding is supported. V2/future validator

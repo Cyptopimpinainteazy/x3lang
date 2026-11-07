@@ -1,0 +1,25 @@
+{
+  "advanced_head": {
+    "block_hash": "4gugmCPdbFQPhfo6YS9PVQaQAfkxpgeaAMwCNPa1akj2",
+    "epoch_id": "GbZqwYHuVsdzj91APrve7tykRtgZbrp8MrfEJYq9DFLU",
+    "height": 276420402,
+    "sequence": 1
+  },
+  "approval_ratio_pct": 99.3247,
+  "approved_stake": "588424816164625374350075972122329",
+  "checkpoint_height": 276392452,
+  "checkpoint_sha256": "7fc0d2e2c6ae2bd0c62c5759058be705e1f22aa3a43ac59c7b13764d0f9aa311",
+  "current_validators_count": 20,
+  "current_validators_hash": "3WBMedXon9pBZ65kyPcgXpef1Bo43mth4SjKijxrKR1g",
+  "generated_at": "2026-11-07T00:45:16Z",
+  "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+  "network": "testnet",
+  "note": "Real NEAR testnet validator approvals verified through an offline-approved checkpoint with a freshly generated (non-deterministic) signer key.",
+  "protocol_version": 88,
+  "signer": {
+    "public_key": "ed25519:7kfGRoRmj9BK3RrDC88TWexyFEeHdtf3grwB7fExXisW",
+    "signer_id": "x3-offline-review-1"
+  },
+  "total_stake": "592425651545485319272531395151441",
+  "trust_policy_sha256": "e8d683faf497da091adc8602b117906c43bc21db2ba70bc6a0309e9cda4ab964"
+}
