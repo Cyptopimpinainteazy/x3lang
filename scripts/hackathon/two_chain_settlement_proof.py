@@ -74,6 +74,8 @@ def require_base_tx(rpc_url: str, txid: str, destination: str) -> dict:
     reject(finalized_height>=inclusion,'BASE_TX_NOT_L2_FINALIZED')
     block=rpc(rpc_url,'eth_getBlockByNumber',[receipt['blockNumber'],False])
     reject(isinstance(block,dict) and block.get('hash')==receipt['blockHash'],'BASE_REORG_OR_INVALID_BLOCK_HASH')
+    inclusion_timestamp=int(block.get('timestamp','0x0'),16)
+    reject(inclusion_timestamp>0,'BASE_INCLUSION_TIMESTAMP_MISSING')
     sender_topic='0x'+SOURCE[2:].lower().zfill(64)
     receiver_topic='0x'+destination[2:].lower().zfill(64)
     transfer=[]
@@ -91,7 +93,8 @@ def require_base_tx(rpc_url: str, txid: str, destination: str) -> dict:
     reject(hashlib.sha256(bytes.fromhex(code[2:])).hexdigest()==TOKEN_CODE_SHA256,'BASE_TOKEN_CODE_MISMATCH')
     return {'tx_hash':txid.lower(),'chain_id':CHAIN_ID,'from':SOURCE.lower(),'token':TOKEN.lower(),
             'deposit_address':destination.lower(),'units':AMOUNT,'block_hash':receipt['blockHash'],
-            'block_number':inclusion,'confirmations':current-inclusion+1,
+            'block_number':inclusion,'inclusion_timestamp_unix_s':inclusion_timestamp,
+            'confirmations':current-inclusion+1,
             'finalized_block_height':finalized_height,'finalized_block_hash':finalized['hash'],
             'event_log_index':transfer[0].get('logIndex'),
             'token_code_sha256':TOKEN_CODE_SHA256,'rpc':rpc_url}
@@ -116,6 +119,9 @@ def verify_near_delivery(tx_hash: str, signer_id: str, *, min_units: int) -> dic
     reject(status.get('chain_id')=='testnet' and status.get('genesis_hash')==NEAR_GENESIS,'NEAR_WRONG_NETWORK')
     result=rpc(NEAR_RPC,'EXPERIMENTAL_tx_status',[tx_hash,signer_id])
     reject(isinstance(result,dict) and isinstance(result.get('transaction'),dict),'NEAR_TX_STATUS_MISSING')
+    # FINAL is stronger than EXECUTED_OPTIMISTIC, EXECUTED, or INCLUDED_FINAL:
+    # this receipt must be on the irreversible canonical NEAR chain.
+    reject(result.get('final_execution_status')=='FINAL','NEAR_TRANSACTION_NOT_FINALIZED')
     reject(result['transaction'].get('hash')==tx_hash and result['transaction'].get('signer_id')==signer_id,'NEAR_TX_SENDER_OR_HASH_MISMATCH')
     outcomes=result.get('receipts_outcome') or []
     reject(outcomes,'NEAR_RECEIPTS_MISSING')
@@ -158,6 +164,14 @@ def verify_delivery_balance(before_hash: str,after_hash: str, min_units: int) ->
     after=near_ft_balance(RECEIVER,after_hash)
     reject(prior['block_hash']==before_hash and after['block_hash']==after_hash,'NEAR_SNAPSHOT_BLOCK_MISMATCH')
     reject(after['block_height']>prior['block_height'],'NEAR_BALANCE_BLOCK_ORDER_MISMATCH')
+    # Supplied block IDs may exist on an optimistic/orphan branch. Validate
+    # their canonical hashes BY HEIGHT, and the chain's finalized head.
+    head=rpc(NEAR_RPC,'block',{'finality':'final'})
+    final_height=(head.get('header') or {}).get('height')
+    reject(isinstance(final_height,int) and final_height>=after['block_height'],'NEAR_SNAPSHOT_NOT_FINALIZED')
+    for item in (prior,after):
+        canonical=rpc(NEAR_RPC,'block',{'block_id':item['block_height']})
+        reject((canonical.get('header') or {}).get('hash')==item['block_hash'],'NEAR_SNAPSHOT_NONCANONICAL_BLOCK')
     delta=after['units']-prior['units']
     reject(delta>=min_units,'NEAR_DESTINATION_BALANCE_INCREASE_BELOW_QUOTE_MINIMUM')
     return {'before':prior,'after':after,'net_increase_units':delta,
@@ -179,11 +193,20 @@ def collect(quote_data: dict, *, guard_account: str, guard_sha: str, nonce: str,
     check_guard_policy(q,policy,owner=RECEIVER,nonce=nonce,now=issued,program_sha=program_sha)
     enforce_compiled_x3_policy(source,q,policy,nonce)
     base=verify_base_quorum(base_tx_hash,q['deposit_address'])
+    # The EVM inclusion must be within the provider-signed settlement window
+    # and the owner-signed Guard expiry. Never certify an expired deposit.
+    source_inclusion=base['observations'][0]['inclusion_timestamp_unix_s']
+    reject(source_inclusion>=int(q['issued_at'].timestamp())-120,'BASE_TRANSFER_PREDATES_SIGNED_QUOTE')
+    reject(source_inclusion<=int(q['deadline'].timestamp()),'BASE_TRANSFER_AFTER_SIGNED_DEADLINE')
+    reject(source_inclusion*1000<=int(policy['policy']['expiry_ms']),'BASE_TRANSFER_AFTER_OWNER_POLICY_EXPIRY')
     near=verify_near_delivery(near_tx_hash,near_tx_signer,min_units=q['minimum_out'])
     delta=verify_delivery_balance(before_hash,after_hash,q['minimum_out'])
     transfer_height=near['transfer_receipt']['block_height']
     reject(delta['before']['block_height']<transfer_height<=delta['after']['block_height'],
            'NEAR_TRANSFER_RECEIPT_OUTSIDE_SNAPSHOT_WINDOW')
+    canonical=rpc(NEAR_RPC,'block',{'block_id':transfer_height})
+    reject((canonical.get('header') or {}).get('hash')==near['transfer_receipt']['block_hash'],
+           'NEAR_TRANSFER_RECEIPT_NONCANONICAL')
     return {'classification':'independent_testnet_two_chain_transfer_evidence_NOT_atomicity_or_native_x3vm_proof',
             'claim_limits':['Provider is custodial testnet relay','No cryptographic atomic HTLC proof','No mainnet readiness'],
             'quote_sha256':q['quote_sha256'],'program_sha256':program_sha,'guard_account':guard_account,
@@ -203,10 +226,13 @@ def main() -> int:
             guard_sha=args.guard_wasm_sha256,nonce=args.nonce,program_sha=args.program_sha256,
             base_tx_hash=args.base_tx_hash,near_tx_hash=args.near_tx_hash,near_tx_signer=args.near_tx_signer,
             before_hash=args.near_balance_before_block,after_hash=args.near_balance_after_block)
-        reject(not args.output.exists(),'PROOF_OUTPUT_EXISTS_REFUSE_OVERWRITE')
         args.output.parent.mkdir(parents=True,exist_ok=True)
-        args.output.write_text(json.dumps(evidence,sort_keys=True,indent=2)+'\n')
-        print(json.dumps({'classification':evidence['classification'],'proof_file':str(args.output),'proof_sha256':hashlib.sha256(args.output.read_bytes()).hexdigest()},indent=2))
+        data=(json.dumps(evidence,sort_keys=True,indent=2)+'\n').encode()
+        # Exclusive creation atomically refuses racing evidence writers.
+        with args.output.open('xb') as proof_file:
+            proof_file.write(data)
+            proof_file.flush()
+        print(json.dumps({'classification':evidence['classification'],'proof_file':str(args.output),'proof_sha256':hashlib.sha256(data).hexdigest()},indent=2))
         return 0
     except (AdmissionError,ValueError,TypeError,KeyError,FileNotFoundError,UnicodeError) as e:
         print(json.dumps({'classification':'HARD_DENIED_NO_SETTLEMENT_CLAIM','reason':str(e)}),file=sys.stderr)

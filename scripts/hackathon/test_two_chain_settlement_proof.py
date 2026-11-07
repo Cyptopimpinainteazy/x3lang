@@ -4,6 +4,10 @@ from copy import deepcopy
 from datetime import datetime,timezone,timedelta
 import importlib.util
 import json
+import tempfile
+import contextlib
+import io
+from pathlib import Path
 from pathlib import Path
 import sys
 import unittest
@@ -41,7 +45,7 @@ class ProofSecurityTests(unittest.TestCase):
             if method=='eth_getTransactionReceipt':return receipt
             if method=='eth_blockNumber':return hex(1030)
             if method=='eth_getBlockByNumber':
-                return {'number':hex(1020),'hash':'0x'+'f'*64} if params[0]=='finalized' else {'hash':BLOCK}
+                return {'number':hex(1020),'hash':'0x'+'f'*64} if params[0]=='finalized' else {'hash':BLOCK,'timestamp':hex(1_762_500_000)}
             if method=='eth_getCode':return code
             raise AssertionError('Unexpected '+method)
         with patch.object(p,'rpc',side_effect=fake),patch.object(p,'TOKEN_CODE_SHA256',__import__('hashlib').sha256(bytes.fromhex(code[2:])).hexdigest()):
@@ -110,7 +114,7 @@ class ProofSecurityTests(unittest.TestCase):
     def test_near_must_have_successful_actual_ft_transfer_receipt(self):
         def fake(url,method,params):
             if method=='status':return {'chain_id':'testnet','genesis_hash':p.NEAR_GENESIS}
-            return {'transaction':{'hash':'H'*43,'signer_id':'relayer.testnet'},'status':{'SuccessValue':''},
+            return {'final_execution_status':'FINAL','transaction':{'hash':'H'*43,'signer_id':'relayer.testnet'},'status':{'SuccessValue':''},
                     'receipts_outcome':[{'outcome':{'status':{'SuccessValue':''}}}], 'receipts':[]}
         with patch.object(p,'rpc',side_effect=fake),self.assertRaisesRegex(p.AdmissionError,'NEAR_SIGNED_RECEIPT_DOES_NOT_PROVE_MINIMUM_DELIVERY'):
             p.verify_near_delivery('H'*43,'relayer.testnet',min_units=980000)
@@ -119,7 +123,7 @@ class ProofSecurityTests(unittest.TestCase):
         args=__import__('base64').b64encode(json.dumps({'receiver_id':p.RECEIVER,'amount':'990000'}).encode()).decode()
         receipt_id='R'*43
         block_hash='B'*43
-        near={'transaction':{'hash':'H'*43,'signer_id':'relayer.testnet'},'status':{'SuccessValue':''},
+        near={'final_execution_status':'FINAL','transaction':{'hash':'H'*43,'signer_id':'relayer.testnet'},'status':{'SuccessValue':''},
               'receipts_outcome':[{'id':receipt_id,'block_hash':block_hash,'outcome':{'status':{'SuccessValue':''}}}],
               'receipts':[{'receipt_id':receipt_id,'receiver_id':p.USDC_NEAR_CONTRACT,'receipt':{'Action':{'actions':[{'FunctionCall':{'method_name':'ft_transfer','args':args}}]}}}]}
         def fake(url,method,params):
@@ -133,7 +137,7 @@ class ProofSecurityTests(unittest.TestCase):
 
     def test_near_receipt_without_outcome_cannot_claim_transfer(self):
         args=__import__('base64').b64encode(json.dumps({'receiver_id':p.RECEIVER,'amount':'990000'}).encode()).decode()
-        near={'transaction':{'hash':'H'*43,'signer_id':'relayer.testnet'},'status':{'SuccessValue':''},
+        near={'final_execution_status':'FINAL','transaction':{'hash':'H'*43,'signer_id':'relayer.testnet'},'status':{'SuccessValue':''},
               'receipts_outcome':[{'id':'other','outcome':{'status':{'SuccessValue':''}}}],
               'receipts':[{'receipt_id':'unproven','receiver_id':p.USDC_NEAR_CONTRACT,
                            'receipt':{'Action':{'actions':[{'FunctionCall':{'method_name':'ft_transfer','args':args}}]}}}]}
@@ -141,21 +145,85 @@ class ProofSecurityTests(unittest.TestCase):
         with patch.object(p,'rpc',side_effect=fake),self.assertRaisesRegex(p.AdmissionError,'NEAR_TOKEN_TRANSFER_RECEIPT_OUTCOME_MISSING'):
             p.verify_near_delivery('H'*43,'relayer.testnet',min_units=980000)
 
+    @staticmethod
+    def canonical_chain(url,method,params):
+        if method!='block':raise AssertionError(method)
+        if params.get('finality')=='final':return {'header':{'height':300,'hash':'z'*43}}
+        if params.get('block_id')==200:return {'header':{'height':200,'hash':'a'*43}}
+        if params.get('block_id')==220:return {'header':{'height':220,'hash':'b'*43}}
+        raise AssertionError('Unexpected block '+str(params))
+
+    def test_unfinalized_near_tx_refused(self):
+        result={'final_execution_status':'EXECUTED_OPTIMISTIC',
+                'transaction':{'hash':'H'*43,'signer_id':'relayer.testnet'},
+                'status':{'SuccessValue':''},'receipts_outcome':[{'outcome':{'status':{'SuccessValue':''}}}],
+                'receipts':[]}
+        def fake(url,method,params):return {'chain_id':'testnet','genesis_hash':p.NEAR_GENESIS} if method=='status' else result
+        with patch.object(p,'rpc',side_effect=fake),self.assertRaisesRegex(p.AdmissionError,'NEAR_TRANSACTION_NOT_FINALIZED'):
+            p.verify_near_delivery('H'*43,'relayer.testnet',min_units=980000)
+
+    def test_noncanonical_near_snapshot_refused(self):
+        def near_balance(acct,block_hash):
+            return {'units':100000000 if block_hash=='a'*43 else 101000000,
+                    'block_hash':block_hash,'block_height':200 if block_hash=='a'*43 else 220}
+        def chain(url,method,params):
+            if params.get('finality')=='final':return {'header':{'height':300}}
+            return {'header':{'hash':'wrong-canonical-hash'}}
+        with patch.object(p,'near_ft_balance',side_effect=near_balance), patch.object(p,'rpc',side_effect=chain), \
+             self.assertRaisesRegex(p.AdmissionError,'NEAR_SNAPSHOT_NONCANONICAL_BLOCK'):
+            p.verify_delivery_balance('a'*43,'b'*43,980000)
+
     def test_insufficient_balance_delta_rejected(self):
         def fake(acct,hash):
             return {'units':100000000 if hash=='a'*43 else 100400000,
                     'block_hash':hash,'block_height':200 if hash=='a'*43 else 220}
-        with patch.object(p,'near_ft_balance',side_effect=fake),self.assertRaisesRegex(p.AdmissionError,'NEAR_DESTINATION_BALANCE_INCREASE_BELOW_QUOTE_MINIMUM'):
+        with patch.object(p,'near_ft_balance',side_effect=fake),patch.object(p,'rpc',side_effect=self.canonical_chain),self.assertRaisesRegex(p.AdmissionError,'NEAR_DESTINATION_BALANCE_INCREASE_BELOW_QUOTE_MINIMUM'):
             p.verify_delivery_balance('a'*43,'b'*43,980000)
 
     def test_balance_delta_positive_synthetic(self):
         def fake(acct,hash):
             return {'units':100000000 if hash=='a'*43 else 101000000,
                     'block_hash':hash,'block_height':200 if hash=='a'*43 else 220}
-        with patch.object(p,'near_ft_balance',side_effect=fake):
+        with patch.object(p,'near_ft_balance',side_effect=fake),patch.object(p,'rpc',side_effect=self.canonical_chain):
             r=p.verify_delivery_balance('a'*43,'b'*43,980000)
             self.assertEqual(r['net_increase_units'],1_000_000)
             self.assertIn('not_sufficient',r['classification'])
+
+    def test_source_transfer_after_signed_deadline_cannot_be_reported(self):
+        fixture=ROOT/'x3-lang/near/x3-tidepool-guard/src/signed_live_fixture.json'
+        f=json.loads(fixture.read_text())
+        signed=json.loads(f['signed_payload']);signed['signature']=f['signature']
+        quote={'classification':'LIVE_QUOTE_UNFUNDED_UNAUTHORIZED_NOT_SETTLED','response':signed}
+        from base_sepolia_x3_intent import compile_testnet_intent
+        source=compile_testnet_intent()
+        deadline=p.check_quote(signed,p.datetime.fromisoformat(signed['timestamp'].replace('Z','+00:00')))['deadline']
+        fake={'observations':[{'inclusion_timestamp_unix_s':int(deadline.timestamp())+120}],
+              'classification':'fake_synthetic_test_only'}
+        policy={'policy':{'expiry_ms':int(deadline.timestamp()*1000)+60000}}
+        with patch.object(p,'get_near_policy',return_value=policy), \
+             patch.object(p,'check_guard_policy'),patch.object(p,'enforce_compiled_x3_policy'), \
+             patch.object(p,'verify_base_quorum',return_value=fake), \
+             patch.object(p,'verify_near_delivery') as near, \
+             self.assertRaisesRegex(p.AdmissionError,'BASE_TRANSFER_AFTER_SIGNED_DEADLINE'):
+            p.collect(quote,guard_account='guard.testnet',guard_sha='a'*64,
+                      nonce=source['nonce'],program_sha=source['program_sha256'],
+                      base_tx_hash=TXID,near_tx_hash='H'*43,near_tx_signer='relayer.testnet',
+                      before_hash='a'*43,after_hash='b'*43)
+        near.assert_not_called()
+
+    def test_existing_proof_file_refused_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'existing-evidence.json'
+            path.write_text('ORIGINAL_PROOF_BYTES')
+            args=['proof','--quote-file','/synthetic/fake.json', '--guard-account','guard.testnet',
+                  '--guard-wasm-sha256','a'*64,'--nonce','demo','--program-sha256','b'*64,
+                  '--base-tx-hash',TXID,'--near-tx-hash','H'*43,'--near-tx-signer','relayer.testnet',
+                  '--near-balance-before-block','a'*43,'--near-balance-after-block','b'*43,
+                  '--output',str(path)]
+            with patch.object(sys,'argv',args), patch.object(p,'collect',return_value={'classification':'SYNTHETIC_NOT_REAL'}), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(p.main(),2)
+            self.assertEqual(path.read_text(),'ORIGINAL_PROOF_BYTES')
 
     def test_no_network_funding_trade_claim_without_real_tx_inputs(self):
         self.assertFalse(p.is_tx_hash('fake'))
