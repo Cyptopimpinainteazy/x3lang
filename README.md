@@ -54,7 +54,7 @@ boundaries follow after it.
 - The testnet `agent_register_intent` recipient refusal exists, but no fresh live manager-signed forbidden quote has been refused at `agent_accept_quote`, and no mainnet deployment is claimed ([#73](https://github.com/Cyptopimpinainteazy/x3lang/issues/73) partially open; live acceptance authorizes a deposit address only, with no deposit/settlement attempted).
 - No mainnet transaction links, no wallet custody, and no universal spending lock:
   an unrestricted wallet key can still bypass Guard.
-- The separate **Tidepool community testnet** trade has actual independently finalized source and destination receipts and a matching recipient balance increase. That does NOT establish trustless cryptographic origin-to-destination causality, permissionless native-bridge atomicity or official 1Click mainnet settlement. A valid Merkle path under an untrusted RPC root is not trusted finality.
+- The separate **Tidepool community testnet** trade has independently finalized Base Sepolia source and NEAR destination receipts and a matching recipient balance increase. This demonstrates successful trusted-relayer testnet delivery, **not** cryptographic origin-to-destination causality, permissionless native-bridge atomicity, or official 1Click mainnet settlement. The earlier manager-signed 1Click quote exercise established signed terms and acceptance without funding. A Merkle path under an untrusted RPC root alone is not authenticated finality, and a local `verified_outcome` flag is not independent receipt evidence.
 
 ## 60-SECOND JUDGE PATH
 
@@ -107,9 +107,7 @@ injection resistance, or establish NEAR consensus finality. See the
   The JSON manifest and transaction collection are re-queried by the committed
   evidence verifier. The separate live mandate-lifecycle file was manually
   re-queried read-only. RPC agreement is not independent light-client finality.
-- **Explicitly not claimed:** wallet transfer, deposit to the accepted address, observed
-  settlement, finalized cross-chain settlement, a live forbidden-quote refusal,
-  or proven cross-chain causality.
+- **Scope of these 1Click experiments:** the live allowed quote was accepted through deposit-address authorization. The 1Click exercise ended before a wallet transfer. The separately archived Tidepool route is the funded testnet example.
 - Public mainnet links remain **PENDING — not fabricated**.
 
 ## SECURITY MODEL
@@ -143,13 +141,7 @@ revocation. Two distinct public **testnet** evidence paths are recorded:
   **live** quote was accepted **without any deposit**. See the
   [quote authorization evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md).
 
-These are not claims of a live forbidden-recipient quote refusal, wallet-level
-enforcement, a funded swap, or independently proven cross-chain settlement.
-
-**Deliberately blocked** — no wallet transfer, wallet-level enforcement, deposit,
-settlement, or cross-chain causality is claimed. The recorded testnet
-`accept_quote` authorizes a deposit address only. Cross-chain causality stays
-"unproven" until an independently verifiable link exists.
+These two paths show contract authorization and refusal before any wallet transfer. The separate [Tidepool trade archive](docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md) records an actual Base Sepolia transfer and finalized NEAR delivery. Wallet-wide enforcement and cryptographic cross-chain causality remain open.
 
 **Who this protects.** A team runs an AI agent that pays for API inference and
 data through NEAR Intents under one owner mandate
@@ -221,8 +213,8 @@ takeaway and whether its decisive evidence is local or contract-level.
 | Local policy | The mandate and intent compile, and Python/browser checks agree | Proven |
 | Signed quote | An official 1Click response verifies against the pinned manager key | Not contacted by the offline console; official dry/live artifacts verified separately |
 | On-chain authorization | A deployed x3-guard registers and accepts the policy | Testnet dry-refusal and live-allowed paths recorded; no wallet transfer |
-| Wallet transfer | The owner or authorized signer sends funds | Not claimed |
-| Settlement | Source and destination chains are independently observed | Not claimed |
+| Wallet transfer | The owner or authorized signer sends funds | The browser performs no transfer. The separate Tidepool testnet archive records the Base Sepolia deposit. |
+| Settlement | Source and destination chains are independently observed | The Tidepool archive records Base Sepolia finality and NEAR delivery. Tidepool operates the testnet relay. |
 | Causality | One transaction is cryptographically proven to cause the other | Not proven |
 
 The browser console is therefore a **policy-preview and refusal demo**, not a
