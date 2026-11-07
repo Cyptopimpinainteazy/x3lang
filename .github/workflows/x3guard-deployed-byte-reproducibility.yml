@@ -39,7 +39,19 @@ jobs:
       - name: Verify shell syntax and exact on-chain source reproducibility
         run: |
           bash -n scripts/hackathon/verify_guard_wasm_repro.sh
-          bash scripts/hackathon/verify_guard_wasm_repro.sh
+          # On failure, print only non-secret build-identity diagnostics.
+          if ! bash scripts/hackathon/verify_guard_wasm_repro.sh; then
+            wasm="$HOME/.cache/x3lang/guard-wasm-repro-1.99.1/wasm32-unknown-unknown/release/x3_guard.wasm"
+            if test -s "$wasm"; then
+              echo "BUILT_BYTES=$(wc -c < "$wasm")"
+              sha256sum "$wasm"
+              echo 'BUILD_STDLIB_PATHS (first 8):'
+              strings "$wasm" | grep -m 8 -E '/library/(alloc|core|std)/src/' || true
+            fi
+            echo "RUSTC_SYSROOT=$(rustc --print sysroot)"
+            echo 'PINNED_SHA256=ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab'
+            exit 1
+          fi
       - name: Explicit release safety classification
         run: |
           echo 'PASS: exact byte-for-byte reproduction of pinned public-testnet WASM hash.'
