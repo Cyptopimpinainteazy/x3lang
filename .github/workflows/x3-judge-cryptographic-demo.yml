@@ -1,0 +1,57 @@
+name: X3Lang Judge Cryptographic Demo (No Settlement)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/hackathon/cryptographic_demo.py'
+      - 'scripts/hackathon/test_cryptographic_demo.py'
+      - 'scripts/hackathon/verify_cryptographic_demo.sh'
+      - 'x3-lang/bridge/**'
+      - 'evidence/near-checkpoint-review/**'
+      - 'docs/hackathon/REAL_NEAR_CRYPTOGRAPHIC_DEMO.md'
+      - '.github/workflows/x3-judge-cryptographic-demo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-real-proofs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+      - name: Rust dependency cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned repository dependencies
+        run: |
+          python -m pip install -r x3-lang/requirements.txt
+          cargo fetch --locked --manifest-path x3-lang/Cargo.toml
+      - name: Verify genuine local compiler/VM and archived NEAR evidence (read-only)
+        run: bash scripts/hackathon/verify_cryptographic_demo.sh "$RUNNER_TEMP/x3lang-crypto-demo"
+      - name: Judge demo regression tests
+        run: PYTHONPATH=scripts/hackathon python -m unittest discover -s scripts/hackathon -p 'test_cryptographic_demo.py' -v
+      - name: Upload machine-readable demo report and bytecode
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x3lang-judge-crypto-demo-no-settlement
+          path: |
+            ${{ runner.temp }}/x3lang-crypto-demo/report.json
+            ${{ runner.temp }}/x3lang-crypto-demo/timeout_refund_minimal.x3b
+          if-no-files-found: warn
+          retention-days: 14
