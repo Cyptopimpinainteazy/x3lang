@@ -1,0 +1,11 @@
+{
+  "approved_at": "2026-11-07T00:45:16Z",
+  "checkpoint_sha256": "7fc0d2e2c6ae2bd0c62c5759058be705e1f22aa3a43ac59c7b13764d0f9aa311",
+  "schema": "x3.near-light-client-checkpoint-approval.v1",
+  "signatures": [
+    {
+      "signature": "ed25519:3SDsZ5hiLJFQrEuTyauWaELyX3n85vP5ZxzQFyY4zy2b7yDjCmVmeQFEC6rjk99qKVqJXDaXFZexNCu1rnfxTMQ3",
+      "signer_id": "x3-offline-review-1"
+    }
+  ]
+}
