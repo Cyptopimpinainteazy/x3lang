@@ -15,7 +15,7 @@ fi
 # Build from the Guard directory so its rust-toolchain.toml selects stable.
 # Running cargo from the repository root would use the host default toolchain
 # (1.90 here), which is too old for near-sdk 5.30.
-(cd "$ROOT/x3-lang/near/x3-guard" && cargo build --locked --release --target wasm32-unknown-unknown)
+(cd "$ROOT/x3-lang/near/x3-guard" && cargo build --locked --release --target wasm32-unknown-unknown --manifest-path "$MANIFEST")
 cargo build --locked --manifest-path "$TEST_MANIFEST"
 sha256sum "$WASM"
 # Ubuntu 22.04's glibc 2.35 cannot execute recent prebuilt NEAR Sandbox, which
