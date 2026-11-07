@@ -13,6 +13,7 @@
 | Failed transfer cannot consume nonce or funds | EVM state rollback, exact pre/post token accounting | Taxed-token deposit and payment rollback |
 | Malicious token reentry cannot induce another valid payment | Entered-state reentrancy lock and nonce/budget mutation before token interaction | Reentry fixture attempts a second correctly signed nonce during first ERC-20 transfer; refused without undoing first payment |
 | Owner can terminate session | Only owner revoke; recovery after revoke/expiry | Unauthorized revoke/recovery, expiry, owner recover |
+| Underlying token code changes fail closed | Constructor pins exact Base Sepolia test-USDC address/bytes and runtime codehash is rechecked before transfers | Mutated contract bytecode test asserts exact `TOKEN_CODE_CHANGED` denial |
 | Mainnet deployment is prohibited | Chain ID 84532/31337 constructor guard | Tests reject Ethereum/BSC mainnet |
 | Arbitrary contract execution is absent | No arbitrary call or delegatecall method | Minimal public execution surface |
 
@@ -21,5 +22,7 @@
 **Excluded assurances:** No third-party audit or formal verification, no deployed Base Sepolia vault, no custody key lifecycle management, no verified maker signature on Base inside the vault, no ERC-4337 compliance, no multicall/upgrade support, no public chain adversarial receipts and no permissionless cryptographic BSC-NEAR atomicity. Existing Tidepool testnet trade proves a different authorized execution path.
 
 The local token fixture exists **only in Foundry tests**. The reviewed vault source contains no alternate/unsafe production backend and no token minting or storage bypass.
+
+**Internal, not independent, audit:** see `docs/security/BASE_VAULT_INTERNAL_AUDIT_20261107.md` for the resolved wrong-token vulnerability and still-open quote authenticity, token upgrade, custody key, and token DoS risks. Public Base Sepolia deployments require both pinned address and exact runtime SHA-256.
 
 **Owner key is the trusted administrative root.** Do not expose it to an AI agent. Never move public funds or change repository visibility without explicit owner consent. Confirm session key isolation, owner revoke behavior, storage/gas overhead, token proxy upgrade privileges, and exact deployed runtime bytecode before any live public-testnet transaction.

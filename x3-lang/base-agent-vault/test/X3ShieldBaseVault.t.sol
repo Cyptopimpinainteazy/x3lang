@@ -8,7 +8,9 @@ interface Vm {
     function chainId(uint256) external;
     function assume(bool) external;
     function prank(address) external;
+    function etch(address, bytes calldata) external;
     function expectRevert() external;
+    function expectRevert(bytes calldata expectedRevertData) external;
     function addr(uint256) external returns (address);
     function sign(uint256, bytes32) external returns (uint8, bytes32, bytes32);
 }
@@ -298,6 +300,18 @@ contract X3ShieldBaseVaultTest {
         new X3ShieldBaseVault(address(token), agent, BENEFICIARY, QUOTE, PROGRAM, 0, 3 * USDC, expiry);
     }
 
+    function testRuntimeTokenCodeMutationIsRefusedBeforeCustodyMove() public {
+        bytes memory signed = goodSignature(NONCE, USDC);
+        // Local-only malicious upgrade: substitute contract runtime after
+        // owner has approved and funded the original test token.
+        vm.etch(address(token), hex"60006000fd");
+        vm.expectRevert(bytes("TOKEN_CODE_CHANGED"));
+        vault.executePayment(NONCE, BENEFICIARY, USDC, block.timestamp + 120, signed);
+        require(!vault.usedNonces(NONCE) && vault.spent() == 0, "mutated token consumed authorization");
+        vm.expectRevert(bytes("TOKEN_CODE_CHANGED"));
+        vault.deposit(USDC);
+    }
+
     function testMainnetAndBscMainnetCannotDeployPilot() public {
         vm.chainId(1);
         vm.expectRevert();
@@ -307,11 +321,27 @@ contract X3ShieldBaseVaultTest {
         new X3ShieldBaseVault(address(token), agent, BENEFICIARY, QUOTE, PROGRAM, USDC, 3 * USDC, expiry);
     }
 
-    function testBaseSepoliaChainIdAllowsPilotDeployment() public {
+    /// A public Base Sepolia vault must not accept a random token even if the
+    /// deployer hands it a valid ABI and funds it in the same transaction.
+    function testBaseSepoliaRejectsUnapprovedERC20TokenAddress() public {
         vm.chainId(84532);
+        vm.expectRevert();
+        new X3ShieldBaseVault(address(token), agent, BENEFICIARY, QUOTE, PROGRAM, USDC, 3 * USDC, expiry);
+    }
+
+    function testBaseSepoliaRejectsUnapprovedCodeAtCanonicalTokenAddress() public {
+        vm.chainId(84532);
+        address canonicalToken = 0x38d81431B9f76d9699AF7517040D5221D9dEA252;
+        vm.etch(canonicalToken, address(token).code);
+        vm.expectRevert();
+        new X3ShieldBaseVault(canonicalToken, agent, BENEFICIARY, QUOTE, PROGRAM, USDC, 3 * USDC, expiry);
+    }
+
+    function testLocalFoundryChainAllowsAdversarialFixtureToken() public {
+        vm.chainId(31337);
         X3ShieldBaseVault pilot =
             new X3ShieldBaseVault(address(token), agent, BENEFICIARY, QUOTE, PROGRAM, USDC, 3 * USDC, expiry);
-        require(address(pilot) != address(0), "testnet constructor refused");
+        require(address(pilot) != address(0), "local test contract refused");
     }
 
     function testSameNonceCannotBeSubmittedByTwoCompetingRelayers() public {

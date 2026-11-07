@@ -1,0 +1,55 @@
+{
+  "claims_excluded": [
+    "does not authorize a testnet deployment or funds movement",
+    "standard EIP-1967 zero slots do not rule out custom proxy/upgrade patterns",
+    "token blacklist and privileged issuer policy remain unverified",
+    "does not establish owner key custody, quote authenticity or atomic settlement",
+    "not an EVM deployed-vault receipt or a human security audit"
+  ],
+  "classification": "PUBLIC_CHAIN_READ_ONLY_TWO_RPC_TOKEN_BYTECODE_AND_STANDARD_PROXY_SLOT_EVIDENCE",
+  "contract_address": "0x38d81431B9f76d9699AF7517040D5221D9dEA252",
+  "deployment_approved": false,
+  "historical_checkpoint_hash": "0x1a95c4b60f2bc909969f52d24fd73727b237427a1ba60763214eebd03ea86157",
+  "historical_checkpoint_height": 55557819,
+  "observed_at_utc": "2026-11-07T12:50:40.288605+00:00",
+  "providers": [
+    {
+      "beacon_slot_finalized": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "beacon_slot_historical": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "chain_id": 84532,
+      "finalized_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83",
+      "finalized_head_hash": "0x969723668ebc60411f24ebfa268819d7277814e0b2d5c55dedd1d5ecd2e05d6f",
+      "finalized_height": 55662493,
+      "historical_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83",
+      "historical_hash": "0x1a95c4b60f2bc909969f52d24fd73727b237427a1ba60763214eebd03ea86157",
+      "historical_height": 55557819,
+      "impl_slot_finalized": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "impl_slot_historical": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "rpc": "https://base-sepolia.gateway.tenderly.co"
+    },
+    {
+      "beacon_slot_finalized": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "beacon_slot_historical": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "chain_id": 84532,
+      "finalized_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83",
+      "finalized_head_hash": "0x969723668ebc60411f24ebfa268819d7277814e0b2d5c55dedd1d5ecd2e05d6f",
+      "finalized_height": 55662493,
+      "historical_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83",
+      "historical_hash": "0x1a95c4b60f2bc909969f52d24fd73727b237427a1ba60763214eebd03ea86157",
+      "historical_height": 55557819,
+      "impl_slot_finalized": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "impl_slot_historical": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "rpc": "https://base-sepolia-rpc.publicnode.com"
+    }
+  ],
+  "quorum": {
+    "common_finalized_hash": "0x969723668ebc60411f24ebfa268819d7277814e0b2d5c55dedd1d5ecd2e05d6f",
+    "common_finalized_height": 55662493,
+    "provider_chains_confirmed": 84532,
+    "standard_eip1967_slots_zero": true,
+    "token_bytecode_matches_pinned_sha256": true
+  },
+  "schema": "x3.base_sepolia_token_readonly_attestation.v1",
+  "testnet_chain_id": 84532,
+  "token_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83"
+}

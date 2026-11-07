@@ -36,6 +36,18 @@ If X3_BASE_SEPOLIA_FORK_RPC is absent, the fork test is **SKIPPED** (not counted
 
 See evidence/base-vault-local/finalized-base-sepolia-fork-20261107.json for the captured opt-in result and its local log hash.
 
+## Read-only, two-provider token attestation (does not authorize deployment)
+
+Before any public Base Sepolia pilot, rerun:
+
+    python3 scripts/hackathon/base_vault_token_preflight.py --output /tmp/x3-token-audit-new-unique.json
+
+Run from repository root. This checks two independent public RPCs, chain 84532, the canonical finalized block at height 55,557,819, unchanged test-USDC runtime code at that block and each provider's latest finalized head, and consistent canonical block hash at their shared finalized height. Standard EIP-1967 implementation/beacon slots must be zero at both checked states. Any RPC/archive failure hard-denies the observation. This provides *token bytecode integrity evidence*, not quote authenticity, owner key management, a smart-contract audit, or permission to transact.
+
+Updated stricter parser live replay: `evidence/base-vault-local/base-sepolia-token-two-rpc-attestation-v2-20261107.json` (SHA-256 `ad9ba58aaea0fb4ee3de31ef76951c286e54cba31d64a6b3bab2e298b1b56fa5`). This reread additionally rejects malformed canonical hash values and RPC responses whose block number does not match the specifically requested checkpoint. The original snapshot remains unchanged.
+
+Historical read-only evidence: `evidence/base-vault-local/base-sepolia-token-two-rpc-preflight-20261107.json` (SHA-256 `1d18dd3df98a743eacb505710c750e2c3902c3233b6e2dd6aed9223a456a218a`). Internal audit limitations: `docs/security/BASE_VAULT_INTERNAL_AUDIT_20261107.md`.
+
 ## Important security limitations
 
 The quoteHash is an owner-pinned commitment, not **cryptographic verification of the Tidepool maker signature inside the vault**. Do not reuse the expired historical Tidepool quote from the November 7 real swap. The next pilot requires a fresh maker-signed quote, real deployment verification, policy registration and a separate owner-approved funding transaction.
