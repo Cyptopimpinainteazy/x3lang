@@ -1,0 +1,6 @@
+{
+  "classification": "REAL_SIGNED_LIVE_QUOTE_NO_DEPOSIT_NO_GUARD_AUTHORIZATION",
+  "warning": "Provider live quote expired quickly, never use the deposit address for funding. Fixture is for cryptographic tests only.",
+  "signed_payload": "{\"correlationId\":\"24fb86d1-c4b7-4586-8dda-6619a8ce920c\",\"timestamp\":\"2026-11-07T05:10:32.002Z\",\"quoteRequest\":{\"dry\":false,\"swapType\":\"EXACT_INPUT\",\"slippageTolerance\":100,\"originAsset\":\"nep141:base-0x38d81431b9f76d9699af7517040d5221d9dea252.tp-omft.testnet\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:usdc.tidepool-sandbox.testnet\",\"amount\":\"1000000\",\"refundTo\":\"0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721\",\"refundType\":\"ORIGIN_CHAIN\",\"recipient\":\"x3lang.testnet\",\"recipientType\":\"DESTINATION_CHAIN\",\"deadline\":\"2026-11-07T05:40:31.508Z\"},\"quote\":{\"amountIn\":\"1000000\",\"amountInFormatted\":\"1\",\"amountInUsd\":\"0.9997\",\"minAmountIn\":\"1000000\",\"amountOut\":\"997400\",\"amountOutFormatted\":\"0.9974\",\"amountOutUsd\":\"0.9971\",\"minAmountOut\":\"987426\",\"timeEstimate\":60,\"depositAddress\":\"0x3e82c0843a6aE1D3837e1E17b6248c95799323a1\",\"deadline\":\"2026-11-07T05:40:31.508Z\",\"timeWhenInactive\":\"2026-11-07T05:40:31.508Z\"}}",
+  "signature": "ed25519:DND92Vy2bNTwwPJehvJ6WnSVuFg3HetfCaZc94uzZcPRvpVaPyW6EHxEbuhd6m6aQSpmq7hWjvqT2xtR7CNqfee"
+}
