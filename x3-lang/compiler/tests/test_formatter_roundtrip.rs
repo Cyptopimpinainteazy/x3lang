@@ -122,6 +122,11 @@ const REFUSED_BY_THE_COMPILER: &[&str] = &[
     "near_intents_sol_to_near.x3",
     "near_intents_agent_payment.x3",
     "near_intents_agent_denied.x3",
+    // This historical testnet demonstration uses Base Sepolia, which the
+    // production X3VM chain allow-list deliberately does not admit. Keep the
+    // refusal visible here until testnet-only chain admission is independently
+    // implemented and verified; never label it an executable production route.
+    "base_sepolia_to_near_testnet_1usdc.x3",
 ];
 
 #[test]
@@ -141,6 +146,14 @@ fn formatting_an_example_preserves_its_meaning() {
                     "{name} parses but does not compile, and is not on the known-refused list \
                      (add it there with the reason, or fix it): {error}"
                 );
+                if name == "base_sepolia_to_near_testnet_1usdc.x3" {
+                    let diagnostic = error.to_string();
+                    assert!(
+                        diagnostic.contains("X3E0501") && diagnostic.contains("basesepolia"),
+                        "{name} must be refused specifically for its unsupported \
+                         testnet chain, not hidden because of some other regression: {diagnostic}"
+                    );
+                }
                 refused.push(name);
                 continue;
             }
