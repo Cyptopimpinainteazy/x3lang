@@ -1,7 +1,7 @@
 //! NEAR light-client *approval signature primitive*. No checkpoint, state,
 //! epoch transitions or permission to attest/pay funds.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
@@ -47,7 +47,7 @@ pub fn verify_approvals(
         || validators.len() > 4096
         || message.len() != 41
         || message[0] != 0
-        || approvals.len() > validators.len().saturating_add(4096)
+        || approvals.len() > validators.len()
     {
         return Err("invalid approval shape");
     }
@@ -62,7 +62,9 @@ pub fn verify_approvals(
         total_stake = total_stake.checked_add(validator.stake).ok_or("stake overflow")?;
         if let Some(bytes) = approvals.get(i).and_then(Option::as_ref) {
             let sig = Signature::from_bytes(bytes);
-            public.verify(message, &sig).map_err(|_| "bad approval signature")?;
+            public
+                .verify_strict(message, &sig)
+                .map_err(|_| "bad approval signature")?;
             approved_stake = approved_stake
                 .checked_add(validator.stake)
                 .ok_or("signed stake overflow")?;
@@ -201,6 +203,17 @@ mod tests {
     }
 
     #[test]
+    fn approval_vector_cannot_extend_past_validators() {
+        let (keys, mut validators) = voters();
+        validators[0].stake = 500;
+        validators[1].stake = 1;
+        validators[2].stake = 1;
+        let message = approval_message([7u8; 32], 42).unwrap();
+        let approvals = vec![Some(keys[0].sign(&message).to_bytes()), None, None, None];
+        assert!(verify_approvals(&validators, &approvals, &message).is_err());
+    }
+
+    #[test]
     fn malformed_inactive_validator_key_is_still_rejected() {
         let (keys, mut validators) = voters();
         validators[0].public_key = [
@@ -216,6 +229,24 @@ mod tests {
             Some(keys[1].sign(&message).to_bytes()),
             Some(keys[2].sign(&message).to_bytes()),
         ];
+        assert!(verify_approvals(&validators, &approvals, &message).is_err());
+    }
+
+    #[test]
+    fn small_order_validator_cannot_forge_quorum() {
+        let mut identity = [0u8; 32];
+        identity[0] = 1;
+        let mut point_b = [0x66u8; 32];
+        point_b[0] = 0x58;
+        let mut signature = [0u8; 64];
+        signature[..32].copy_from_slice(&point_b);
+        signature[32] = 1;
+        let message = approval_message([7u8; 32], 42).unwrap();
+        let validators = [Validator {
+            public_key: identity,
+            stake: 500,
+        }];
+        let approvals = [Some(signature)];
         assert!(verify_approvals(&validators, &approvals, &message).is_err());
     }
 }
