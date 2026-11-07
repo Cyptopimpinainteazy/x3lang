@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="X3 Shield: interactive offline policy preview and independent testnet proof.">
+<title>X3 Shield // Agent Break-In Lab</title>
+<style>
+:root{color-scheme:dark;--bg:#071017;--panel:#10222c;--line:#33505b;--text:#f2fcfe;--mute:#b4cbd2;--lime:#bbff71;--cyan:#74e8ff;--amber:#ffbd7a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% -15%,#23535b,transparent 52%),var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
+main,header,footer{max-width:1160px;margin:auto;padding-left:22px;padding-right:22px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:22px;padding-bottom:22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-weight:850;letter-spacing:.2em;color:var(--lime)}.pill{font-size:12px;border:1px solid #7a6c4c;color:var(--amber);padding:6px 11px;border-radius:30px;font-weight:700}
+h1{font-size:clamp(42px,7vw,82px);line-height:.98;letter-spacing:-.06em;margin:52px 0 23px}h1 em{font-style:normal;color:var(--lime)}
+h2{font-size:clamp(24px,3vw,35px);letter-spacing:-.03em}h3{font-size:20px}p{margin-top:0}.lede{font-size:clamp(18px,2vw,22px);color:#cfdee6;max-width:760px}
+.alert{border-left:3px solid var(--amber);background:#34281b;color:#ffe2c9;padding:13px 18px;margin:26px 0;border-radius:0 9px 9px 0;font-size:14px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:26px 0 46px}.box{background:linear-gradient(140deg,#0f2530,#0b1921);border:1px solid var(--line);border-radius:15px;padding:22px}
+.stat{font-weight:800;font-size:clamp(24px,3vw,39px);color:var(--lime)}.caption{font-size:13px;letter-spacing:.07em;text-transform:uppercase;color:var(--mute)}
+.lab{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(310px,.8fr);gap:16px}.scenarios{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:20px 0}
+button{background:#183542;color:var(--text);border:1px solid #4a6974;border-radius:8px;padding:10px;font:700 13px system-ui;cursor:pointer;min-height:43px}button:hover,button:focus-visible{border-color:var(--lime)}button.active{color:var(--lime);border-color:var(--lime);background:#1e3c33}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px}label{display:block;font-size:13px;font-weight:700;color:#d5e6ed;margin-bottom:6px}
+input,select{width:100%;padding:10px;min-height:43px;background:#071820;border:1px solid #47646f;border-radius:8px;color:white;font:14px system-ui}
+input:focus,select:focus{outline:2px solid var(--cyan);outline-offset:2px}
+.toggles{display:flex;gap:15px;flex-wrap:wrap;margin:20px 0}.toggles label{display:flex;align-items:center;gap:7px}.toggles input{min-height:auto;width:17px;accent-color:var(--lime)}
+#evaluate{width:100%;background:var(--lime);border-color:var(--lime);color:#142718;font-size:15px}.decision{background:#071820;border:1px solid var(--line);padding:18px;border-radius:10px;margin:16px 0 24px;min-height:145px}
+.decision strong{display:block;font-size:23px;margin:7px 0}.decision small,.muted{color:var(--mute);font-size:13px}.ok{color:var(--lime)}.denied{color:var(--amber)}
+.check{border-bottom:1px solid var(--line);padding:10px 0;display:flex;justify-content:space-between;gap:10px;font-size:14px}.check span:last-child{color:var(--lime);text-align:right}
+.section{margin-top:40px}.proofgrid{display:grid;grid-template-columns:1fr 1fr;gap:15px}a{color:var(--cyan);text-underline-offset:3px}a:hover{color:var(--lime)}.step{border-bottom:1px solid var(--line);padding:12px 0}
+.step strong{display:block}.step p{font-size:14px;color:var(--mute);margin:3px 0}.mono{font:12px ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
+footer{color:var(--mute);border-top:1px solid var(--line);padding-top:22px;padding-bottom:40px;margin-top:54px;font-size:13px}
+@media(max-width:850px){.lab,.proofgrid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
+@media(max-width:500px){.stats,.fields{grid-template-columns:1fr}.scenarios{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header><div class="brand">✳ X3 SHIELD / ATTACK LAB</div><div class="pill">PRIVATE PRE-RELEASE · OFFLINE PREVIEW</div></header>
+<main>
+<h1>MAKE THE AGENT<br><em>MISBEHAVE.</em></h1>
+<p class="lede">The owner controls the funds. The agent holds a scoped key. Try breaking the policy, then inspect the separately recorded NEAR Sandbox and cross-chain testnet proofs.</p>
+<div class="alert"><strong>Evidence boundary:</strong> The interactive controls are a browser-only policy preview. They do not connect to a chain, sign transactions, or prove security. The linked Sandbox evidence uses real local-chain transactions. The public Base→NEAR trade uses a trusted Tidepool relay and is a separate system.</div>
+<div class="stats">
+<div class="box"><div class="stat">8 / 8</div><div class="caption">Vault Rust unit tests</div></div>
+<div class="box"><div class="stat">0.1 NEAR</div><div class="caption">Real Sandbox approved payout</div></div>
+<div class="box"><div class="stat">0.9974 USDC</div><div class="caption">Real finalized NEAR testnet payout</div></div>
+</div>
+<section class="section" id="play"><h2>01 / Attack the owner policy</h2>
+<div class="lab">
+<div class="box"><h3>Select an attack</h3><p class="muted">Only the local vault contract can authorize real payouts. This browser predicts policy decisions without submitting them.</p>
+<div class="scenarios" id="scenarios">
+<button data-case="allowed">Allowed payment</button><button data-case="redirect">Attacker recipient</button><button data-case="oversize">Oversized amount</button>
+<button data-case="replay">Nonce replay</button><button data-case="revoked">Revoked mandate</button><button data-case="direct">Direct transfer</button>
+</div>
+<form id="form">
+<div class="fields">
+<div><label for="agent">Agent account</label><select id="agent"><option>agent.testnet</option><option>attacker.testnet</option></select></div>
+<div><label for="recipient">Recipient</label><select id="recipient"><option>allowed.testnet</option><option>attacker.testnet</option></select></div>
+<div><label for="amount">Amount (native test NEAR)</label><input id="amount" value="0.1" inputmode="decimal" autocomplete="off"></div>
+<div><label for="nonce">One-use nonce</label><input id="nonce" value="demo1" autocomplete="off"></div>
+</div>
+<div class="toggles"><label><input id="used" type="checkbox"> Used nonce</label><label><input id="revoked" type="checkbox"> Revoked</label><label><input id="expired" type="checkbox"> Expired</label></div>
+<button type="submit" id="evaluate">Evaluate offline policy</button>
+</form></div>
+<aside class="box"><h3>Expected decision</h3><div id="decision" class="decision" role="status" aria-live="polite"><small>OFFLINE PREVIEW · NOT A SIGNED TRANSACTION</small><strong>Choose an attack</strong><p>Inspect the rule that would block an unauthorized action.</p></div>
+<h3>Recorded Sandbox results</h3>
+<div class="check"><span>Scoped FunctionCall key</span><span>Confirmed on local chain</span></div>
+<div class="check"><span>Direct native transfer</span><span>RPC InvalidTransaction</span></div>
+<div class="check"><span>Recipient / cap bypass</span><span>Refused</span></div>
+<div class="check"><span>Authorized 0.1 NEAR payout</span><span>Paid</span></div>
+<div class="check"><span>Replay and revocation</span><span>Refused</span></div>
+<p class="muted">A direct transfer was rejected by the RPC, without an included failure receipt. Other denied calls were actual local Sandbox contract transactions. See <a href="https://github.com/Cyptopimpinainteazy/x3lang/pull/125">private draft PR #125</a> for the real harness and evidence.</p>
+</aside></div></section>
+<section class="section" id="receipts"><h2>02 / The real two-chain testnet trade</h2>
+<div class="proofgrid">
+<div class="box">
+<div class="step"><strong>1. Owner authorizes a signed quote</strong><p>A typed X3Lang strategy and one-use Guard mandate were committed to NEAR before funding.</p></div>
+<div class="step"><strong>2. Source transfer finalizes</strong><p>1.000000 test USDC transferred on Base Sepolia in block 55,557,170, independently verified.</p></div>
+<div class="step"><strong>3. NEAR receives the payout</strong><p>0.997400 test USDC delivered to x3lang.testnet, confirmed by NEAR receipt and historical balance delta.</p></div>
+</div>
+<div class="box"><h3>Inspect independent evidence</h3>
+<p><a target="_blank" rel="noopener noreferrer" href="https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9">View Base Sepolia source receipt</a></p>
+<p><a target="_blank" rel="noopener noreferrer" href="https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d">View finalized NEAR payout</a></p>
+<p><a href="../../evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json">Read immutable strict proof JSON</a></p>
+<p><a href="FIRST_SWAP_JUDGE_WALKTHROUGH.md">Follow the exact judge walkthrough</a></p>
+<p class="muted">No trustless atomicity or native BSC↔NEAR bridge completion is claimed from this Tidepool trade.</p></div></div>
+</section>
+<section class="section"><h2>03 / What is still unproven?</h2>
+<div class="box">
+<p><strong>The NEAR vault:</strong> local Sandbox proof only. No public deployment, independent audit or mainnet funding approval. The owner's unrestricted key remains an administrative trust boundary.</p>
+<p><strong>The Base EOA:</strong> a compromised unrestricted EVM key can still bypass an advisory Guard. An audited smart-account or vault is required before claiming EVM non-bypassability.</p>
+<p><strong>Preview locally:</strong> serve the private repository root with <span class="mono">python3 -m http.server 8000</span> and open <span class="mono">http://localhost:8000/docs/hackathon/attack-lab.html</span>.</p>
+</div></section>
+</main>
+<footer>X3 Shield · Real local custody tests + independently verified testnet settlement · No wallet connection from this page · Do not publish before release approval.</footer>
+<script type="module">
+import {previewRequest} from './attack-lab-policy.mjs';
+const byId=id=>document.getElementById(id);
+const explanations={
+  POLICY_PREVIEW_ALLOWED:'This request fits the offline policy preview. Real payment still requires the scoped agent key and on-chain contract execution.',
+  RECIPIENT_DENIED:'The destination is not the owner-approved recipient.',
+  AGENT_DENIED:'Only the designated agent account is authorized to request payments.',
+  PER_PAYMENT_CAP:'The amount exceeds the 0.2 test NEAR payment cap.',
+  TOTAL_BUDGET_EXCEEDED:'Pending and completed transfers exhaust the 0.4 test NEAR aggregate budget.',
+  NONCE_REPLAY:'The nonce was already consumed and cannot be reused.',
+  NONCE_INVALID:'The nonce must contain 1–64 ASCII letters, numbers, underscores or hyphens.',
+  MANDATE_REVOKED:'Owner revocation blocks future requests.',
+  MANDATE_EXPIRED:'The owner mandate is no longer active.',
+  ACCESS_KEY_SCOPE:'The disposable FunctionCall key has no native Transfer permission. Local Sandbox RPC rejected the direct attempt.',
+  INVALID_AMOUNT:'Amount must be a positive plain decimal with at most 24 places.',
+  INVALID_CONTEXT:'Invalid accounting context; fail closed.'
+};
+const scenarios={allowed:{},redirect:{recipient:'attacker.testnet'},oversize:{amount:'0.3'},replay:{used:true},revoked:{revoked:true},direct:{action:'native_transfer'}};
+let action='request_payment';
+function reset(){
+  byId('agent').value='agent.testnet';byId('recipient').value='allowed.testnet';
+  byId('amount').value='0.1';byId('nonce').value='demo1';byId('used').checked=false;
+  byId('revoked').checked=false;byId('expired').checked=false;action='request_payment';
+}
+function evaluate(){
+  const nonce=byId('nonce').value.trim();
+  const result=previewRequest({action,agent:byId('agent').value,recipient:byId('recipient').value,amount:byId('amount').value.trim(),nonce,used:byId('used').checked?[nonce]:[],revoked:byId('revoked').checked,expired:byId('expired').checked,spent:'0',pending:'0'});
+  const view=byId('decision');view.replaceChildren();
+  const small=document.createElement('small');small.textContent='OFFLINE POLICY PREVIEW · NO CHAIN TRANSACTION';
+  const strong=document.createElement('strong');strong.className=result.allowed?'ok':'denied';
+  strong.textContent=(result.allowed?'ALLOW':'DENY')+' / '+result.code;
+  const p=document.createElement('p');p.textContent=explanations[result.code]||'Refused.';
+  view.append(small,strong,p);
+}
+byId('scenarios').addEventListener('click',event=>{
+ const b=event.target.closest('button[data-case]');if(!b)return;
+ const x=scenarios[b.dataset.case];if(!x)return;reset();
+ if(x.recipient)byId('recipient').value=x.recipient;if(x.amount)byId('amount').value=x.amount;
+ if(x.used)byId('used').checked=true;if(x.revoked)byId('revoked').checked=true;
+ if(x.action)action=x.action;
+ document.querySelectorAll('#scenarios button').forEach(y=>y.classList.toggle('active',y===b));evaluate();
+});
+byId('form').addEventListener('submit',event=>{event.preventDefault();evaluate();});
+byId('form').addEventListener('input',()=>{action='request_payment';document.querySelectorAll('#scenarios button').forEach(b=>b.classList.remove('active'));});
+document.querySelector('#scenarios button').click();
+</script>
+</body>
+</html>
