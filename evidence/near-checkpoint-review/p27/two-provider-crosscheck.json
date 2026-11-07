@@ -1,0 +1,157 @@
+{
+  "authenticated": false,
+  "authorized_to_sign": false,
+  "checkpoint_approved": false,
+  "integrity_sha256": "b9e488cf9f79dfd693aeec0c9c0c53e3f481c3a6109f8e8afb9976bb21c32efd",
+  "providers": [
+    {
+      "calls": {
+        "candidate_block": {
+          "method": "block",
+          "params": {
+            "block_id": 276392452
+          },
+          "raw_response_sha256": "c35cfbcbbe00905a2a2db680d33d05b8cb056cf27ab66c543a7aea01c4583053",
+          "request_sha256": "9c4d1e1eec7130f7a4072cfb289dfc33fea5135593c2d1d04e65dd1e7f303687",
+          "summary": {
+            "epoch_id": "p27PbpijmKi38kLzQdnbc6b3koijbkGsbCQGWzjen46",
+            "hash": "GCa27vYKmwgQLvRTbLYvWitZe3L54J48LbR2Zx62XvWv",
+            "height": 276392452,
+            "latest_protocol_version": 88,
+            "next_epoch_id": "GbZqwYHuVsdzj91APrve7tykRtgZbrp8MrfEJYq9DFLU"
+          }
+        },
+        "genesis_config": {
+          "method": "EXPERIMENTAL_genesis_config",
+          "params": [],
+          "raw_response_sha256": "7fe4fed49ba568f8f8741a03db6313d061dd9f60f949a5ca1ee7d6fe8ede7ca1",
+          "request_sha256": "ce51534a983a42e0a4d90d0b6fcfb98bd05a8abce25b29178e5685b3405b6c61",
+          "summary": {
+            "chain_id": "testnet",
+            "epoch_length": 43200,
+            "genesis_height": 42376888,
+            "genesis_time": "2020-07-31T03:39:42.911378Z",
+            "protocol_version": 29
+          }
+        },
+        "historical_protocol": {
+          "method": "EXPERIMENTAL_protocol_config",
+          "params": {
+            "block_id": 276392452
+          },
+          "raw_response_sha256": "9c21db6ee469424f00766ebe2b21b222e484db8fc85cb75ec62f40deeadf30d7",
+          "request_sha256": "38303baa20864c5d8205d541b153e7deaf390a99679ff0fdb488af778a1c2509",
+          "summary": {
+            "chain_id": "testnet",
+            "epoch_length": 43200,
+            "genesis_height": 42376888,
+            "genesis_time": "2020-07-31T03:39:42.911378Z",
+            "protocol_version": 88
+          }
+        },
+        "previous_block": {
+          "method": "block",
+          "params": {
+            "block_id": 276349252
+          },
+          "raw_response_sha256": "5b504ea5ec1506d84a22836bc841f40a1c7bbddb08e62a867bc9129d3b573cd4",
+          "request_sha256": "88478199c99352def4f6c3f802b800bc3d4e28949fe1dd41e7f8ede7e512d5db",
+          "summary": {
+            "epoch_id": "HbM6N16QDpBgam1mxFQNjDX7HdWhcTz5HxewWgYgjcHk",
+            "hash": "FXA5BRLmqPP1uPfFx6Ndd5cyLZnHTvjpZ2oBEgoxxYpP",
+            "height": 276349252,
+            "latest_protocol_version": 88,
+            "next_epoch_id": "p27PbpijmKi38kLzQdnbc6b3koijbkGsbCQGWzjen46"
+          }
+        },
+        "status": {
+          "method": "status",
+          "params": [],
+          "raw_response_sha256": "c44eaba5aee97f67f27b31fe27066200e28ea1cc9fb3ea794d09d869d267031f",
+          "request_sha256": "466b4ce80e27742da28e7d4cc17947b809ecb61fc8669d00c04ed93525677c87",
+          "summary": {
+            "chain_id": "testnet",
+            "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b"
+          }
+        }
+      },
+      "url": "https://rpc.testnet.near.org"
+    },
+    {
+      "calls": {
+        "candidate_block": {
+          "method": "block",
+          "params": {
+            "block_id": 276392452
+          },
+          "raw_response_sha256": "c35cfbcbbe00905a2a2db680d33d05b8cb056cf27ab66c543a7aea01c4583053",
+          "request_sha256": "9c4d1e1eec7130f7a4072cfb289dfc33fea5135593c2d1d04e65dd1e7f303687",
+          "summary": {
+            "epoch_id": "p27PbpijmKi38kLzQdnbc6b3koijbkGsbCQGWzjen46",
+            "hash": "GCa27vYKmwgQLvRTbLYvWitZe3L54J48LbR2Zx62XvWv",
+            "height": 276392452,
+            "latest_protocol_version": 88,
+            "next_epoch_id": "GbZqwYHuVsdzj91APrve7tykRtgZbrp8MrfEJYq9DFLU"
+          }
+        },
+        "genesis_config": {
+          "method": "EXPERIMENTAL_genesis_config",
+          "params": [],
+          "raw_response_sha256": "7fe4fed49ba568f8f8741a03db6313d061dd9f60f949a5ca1ee7d6fe8ede7ca1",
+          "request_sha256": "ce51534a983a42e0a4d90d0b6fcfb98bd05a8abce25b29178e5685b3405b6c61",
+          "summary": {
+            "chain_id": "testnet",
+            "epoch_length": 43200,
+            "genesis_height": 42376888,
+            "genesis_time": "2020-07-31T03:39:42.911378Z",
+            "protocol_version": 29
+          }
+        },
+        "historical_protocol": {
+          "method": "EXPERIMENTAL_protocol_config",
+          "params": {
+            "block_id": 276392452
+          },
+          "raw_response_sha256": "9c21db6ee469424f00766ebe2b21b222e484db8fc85cb75ec62f40deeadf30d7",
+          "request_sha256": "38303baa20864c5d8205d541b153e7deaf390a99679ff0fdb488af778a1c2509",
+          "summary": {
+            "chain_id": "testnet",
+            "epoch_length": 43200,
+            "genesis_height": 42376888,
+            "genesis_time": "2020-07-31T03:39:42.911378Z",
+            "protocol_version": 88
+          }
+        },
+        "previous_block": {
+          "method": "block",
+          "params": {
+            "block_id": 276349252
+          },
+          "raw_response_sha256": "5b504ea5ec1506d84a22836bc841f40a1c7bbddb08e62a867bc9129d3b573cd4",
+          "request_sha256": "88478199c99352def4f6c3f802b800bc3d4e28949fe1dd41e7f8ede7e512d5db",
+          "summary": {
+            "epoch_id": "HbM6N16QDpBgam1mxFQNjDX7HdWhcTz5HxewWgYgjcHk",
+            "hash": "FXA5BRLmqPP1uPfFx6Ndd5cyLZnHTvjpZ2oBEgoxxYpP",
+            "height": 276349252,
+            "latest_protocol_version": 88,
+            "next_epoch_id": "p27PbpijmKi38kLzQdnbc6b3koijbkGsbCQGWzjen46"
+          }
+        },
+        "status": {
+          "method": "status",
+          "params": [],
+          "raw_response_sha256": "2786b9cab7886e2b920c3852e9f3bf1ca7eb7773da27037c95d178c76536cb35",
+          "request_sha256": "466b4ce80e27742da28e7d4cc17947b809ecb61fc8669d00c04ed93525677c87",
+          "summary": {
+            "chain_id": "testnet",
+            "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b"
+          }
+        }
+      },
+      "url": "https://test.rpc.fastnear.com"
+    }
+  ],
+  "recorded_at_utc": "2026-11-06T03:26:17+00:00",
+  "schema": "x3.near-checkpoint-rpc-consistency.v1",
+  "status": "READ_ONLY_RPC_AGREEMENT_NOT_AUTHENTICATED"
+}
