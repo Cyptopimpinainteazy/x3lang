@@ -102,8 +102,18 @@ else
       break
     fi
   done
+  # uv-managed interpreters may not expose python3.12 on PATH. Probe
+  # existing local installations only; never download Python implicitly or
+  # relax the hash-locked Linux x86_64 / Python 3.12 package requirements.
+  if [[ -z "$BASE_PYTHON" ]] && command -v uv >/dev/null 2>&1; then
+    uv_python="$(uv python find --offline --no-python-downloads 3.12 2>/dev/null || true)"
+    if [[ -n "$uv_python" && -x "$uv_python" ]] &&
+       "$uv_python" -c 'import platform,sys; sys.exit(0 if sys.platform == "linux" and platform.machine() == "x86_64" and sys.version_info[:2] == (3, 12) else 1)' >/dev/null 2>&1; then
+      BASE_PYTHON="$uv_python"
+    fi
+  fi
   if [[ -z "$BASE_PYTHON" ]]; then
-    echo "Judge gate requires Linux x86_64 and Python 3.12 exactly (the one-command hash lock was validated only there). Python 3.11+ may run the general code, but the one-command lock needs 3.12; install Python 3.12." >&2
+    echo "Judge gate requires Linux x86_64 and Python 3.12 exactly (hash-locked). Install Python 3.12 on PATH or install a local uv-managed interpreter with: uv python install 3.12. Nonmatching platforms/interpreters remain blocked." >&2
     exit 2
   fi
   VENV_DIR="${X3_JUDGE_VENV:-${XDG_CACHE_HOME:-$HOME/.cache}/x3lang/judge-quick-venv}"
