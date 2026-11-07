@@ -1,0 +1,43 @@
+{
+  "base": {
+    "chain_id": 84532,
+    "quorum": [
+      {
+        "finalized_block_hash": "0x3ec79c5d4f79884ca25e79443833eb12d0bf98128cfeb84ee2205001b523db8a",
+        "finalized_block_height": 55543788,
+        "gas_balance_wei": 1000000000000000,
+        "rpc": "https://sepolia.base.org",
+        "token_balance_units": 100000000,
+        "token_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83"
+      },
+      {
+        "finalized_block_hash": "0x3ec79c5d4f79884ca25e79443833eb12d0bf98128cfeb84ee2205001b523db8a",
+        "finalized_block_height": 55543788,
+        "gas_balance_wei": 1000000000000000,
+        "rpc": "https://base-sepolia-rpc.publicnode.com",
+        "token_balance_units": 100000000,
+        "token_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83"
+      }
+    ],
+    "sender": "0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721",
+    "token": "0x38d81431B9f76d9699AF7517040D5221D9dEA252"
+  },
+  "captured_at_utc": "2026-11-07T06:11:46.837412+00:00",
+  "claims_excluded": [
+    "no trade executed",
+    "no Guard deployed",
+    "no bridge/atomicity evidence",
+    "no mainnet readiness"
+  ],
+  "classification": "PRETRADE_TWO_CHAIN_FINALIZED_SAME_BLOCK_BALANCE_BASELINE_NOT_SWAP_EVIDENCE",
+  "near": {
+    "finalized_balance": {
+      "block_hash": "A5dpq1mU5qPY5Mo71aUzkG97atz8yQ4V7grHAkxydCvU",
+      "block_height": 276593025,
+      "units": 100000000
+    },
+    "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+    "recipient": "x3lang.testnet",
+    "token": "usdc.tidepool-sandbox.testnet"
+  }
+}

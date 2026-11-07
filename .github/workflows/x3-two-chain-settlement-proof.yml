@@ -1,0 +1,51 @@
+name: X3 Independent Two-Chain Settlement Evidence Gate
+on:
+  pull_request:
+    paths:
+      - 'scripts/hackathon/two_chain_settlement_proof.py'
+      - 'scripts/hackathon/test_two_chain_settlement_proof.py'
+      - 'scripts/hackathon/capture_two_chain_baseline.py'
+      - 'scripts/hackathon/test_two_chain_baseline.py'
+      - 'evidence/tidepool-testnet/**'
+      - 'docs/hackathon/TWO_CHAIN_PROOF_LIBRARY.md'
+      - '.github/workflows/x3-two-chain-settlement-proof.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'scripts/hackathon/two_chain_settlement_proof.py'
+      - 'scripts/hackathon/test_two_chain_settlement_proof.py'
+      - 'scripts/hackathon/capture_two_chain_baseline.py'
+      - 'scripts/hackathon/test_two_chain_baseline.py'
+      - 'evidence/tidepool-testnet/**'
+      - 'docs/hackathon/TWO_CHAIN_PROOF_LIBRARY.md'
+      - '.github/workflows/x3-two-chain-settlement-proof.yml'
+permissions:
+  contents: read
+jobs:
+  verify-proof-library:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify authentic finalized baseline and synthetic adversarial denial matrix
+        env:
+          PYTHONPATH: x3-lang
+        run: |
+          set -euo pipefail
+          python -m unittest scripts/hackathon/test_two_chain_baseline.py scripts/hackathon/test_two_chain_settlement_proof.py -v
+          python -m py_compile scripts/hackathon/capture_two_chain_baseline.py scripts/hackathon/two_chain_settlement_proof.py
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+          else
+            git diff --check "${{ github.event.before }}" HEAD
+          fi
+      - name: Deny key custody or transfer submission in proof tooling
+        run: |
+          set -euo pipefail
+          ! grep -Ei 'eth_sendRawTransaction|eth_sendTransaction|cast send|--private-key|sign_transaction|send_raw_transaction' scripts/hackathon/{capture_two_chain_baseline,two_chain_settlement_proof}.py
