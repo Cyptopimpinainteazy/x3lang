@@ -57,12 +57,14 @@ def check_broadcast_gas(data: str) -> tuple[int,int,int]:
 def checked_admission(quote_file: Path, guard_account: str, guard_sha: str, owner_nonce: str, program_sha: str) -> dict:
     source=compile_testnet_intent()
     admission.reject(program_sha==source['program_sha256'],'X3_SOURCE_HASH_MISMATCH')
+    admission.reject(owner_nonce==source['nonce'],'X3_COMPILED_NONCE_MISMATCH')
     raw=json.loads(quote_file.read_text())
     admission.reject(raw.get('classification')=='LIVE_QUOTE_UNFUNDED_UNAUTHORIZED_NOT_SETTLED','QUOTE_FILE_CLASSIFICATION_UNTRUSTED')
     now=datetime.now(timezone.utc)
     q=admission.check_quote(raw['response'],now)
     policy=admission.get_near_policy(guard_account,admission.RECEIVER,owner_nonce,guard_sha)
     admission.check_guard_policy(q,policy,owner=admission.RECEIVER,nonce=owner_nonce,now=now,program_sha=program_sha)
+    admission.enforce_compiled_x3_policy(source,q,policy,owner_nonce)
     state=admission.check_base_state()
     admission.reject(state['chain_id']==admission.CHAIN_ID,'WRONG_CHAIN')
     return q

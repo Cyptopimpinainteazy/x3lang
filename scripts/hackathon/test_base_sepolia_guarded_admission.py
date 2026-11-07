@@ -122,6 +122,23 @@ class TestReadOnlyAdmission(unittest.TestCase):
         with patch.object(m,'rpc',side_effect=fake),self.assertRaisesRegex(m.AdmissionError,'GUARD_CODE_POLICY_BLOCK_MISMATCH'):
             m.get_near_policy('guard.x3lang.testnet',m.RECEIVER,'demo00001',sha)
 
+    def test_compiled_x3_exact_nonce_floor_and_timeout_bound(self):
+        source={'nonce':'x3_base_testnet_trade_001','minimum_out':980000,'timeout_minutes':30}
+        q=m.check_quote(self.response,self.at)
+        row=self.policy(q)
+        m.enforce_compiled_x3_policy(source,q,row,source['nonce'])
+        with self.assertRaisesRegex(m.AdmissionError,'X3_COMPILED_NONCE_MISMATCH'):
+            m.enforce_compiled_x3_policy(source,q,row,'reused_different_nonce')
+        weak=deepcopy(q);weak['minimum_out']=979999
+        with self.assertRaisesRegex(m.AdmissionError,'X3_COMPILED_MIN_RECEIVE_VIOLATED'):
+            m.enforce_compiled_x3_policy(source,weak,row,source['nonce'])
+        weakpolicy=deepcopy(row);weakpolicy['policy']['minimum_out']='900000'
+        with self.assertRaisesRegex(m.AdmissionError,'X3_GUARD_MINIMUM_BELOW_COMPILED_FLOOR'):
+            m.enforce_compiled_x3_policy(source,q,weakpolicy,source['nonce'])
+        late=deepcopy(q);late['deadline']=late['issued_at']+timedelta(minutes=45)
+        with self.assertRaisesRegex(m.AdmissionError,'X3_COMPILED_TIMEOUT_EXCEEDED'):
+            m.enforce_compiled_x3_policy(source,late,row,source['nonce'])
+
     def test_calldata_has_only_expected_transfer_selector(self):
         x=m.unsigned_calldata('0x00000000000000000000000000000000000000a1',1000000)
         self.assertEqual(x, '0xa9059cbb'+'00000000000000000000000000000000000000000000000000000000000000a1'+format(1000000,'064x'))

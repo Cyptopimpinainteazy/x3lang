@@ -105,7 +105,7 @@ def check_quote(response: dict, now: datetime) -> dict:
     reject(60 <= (deadline-now).total_seconds() <= 3600,'QUOTE_DEADLINE_UNSAFE')
     reject(req_deadline>=deadline,'SIGNED_DEADLINE_MISMATCH')
     return {'quote_sha256':hashlib.sha256(payload.encode()).hexdigest(),'deposit_address':dest,'deadline':deadline,
-            'amount_out':output,'minimum_out':minimum,'payload':payload}
+            'amount_out':output,'minimum_out':minimum,'issued_at':issued,'payload':payload}
 
 
 def check_guard_policy(quote: dict, row: dict, *, owner: str, nonce: str, now: datetime, program_sha: str) -> None:
@@ -122,6 +122,18 @@ def check_guard_policy(quote: dict, row: dict, *, owner: str, nonce: str, now: d
     reject(int(p.get('minimum_out','0'))>0 and int(p['minimum_out'])<=quote['minimum_out'],'GUARD_PAYOUT_MISMATCH')
     reject(int(p.get('expiry_ms',0))>int(now.timestamp()*1000),'GUARD_POLICY_EXPIRED')
     reject(int(p['expiry_ms'])>=int(quote['deadline'].timestamp()*1000),'GUARD_EXPIRES_BEFORE_QUOTE')
+
+
+def enforce_compiled_x3_policy(source: dict, quote: dict, guard_row: dict, nonce: str) -> None:
+    """Bind exact compiled .x3 financial/nonce/timeout constraints before any signing."""
+    reject(nonce==source['nonce'],'X3_COMPILED_NONCE_MISMATCH')
+    reject(quote['minimum_out']>=int(source['minimum_out']),'X3_COMPILED_MIN_RECEIVE_VIOLATED')
+    guard_policy=(guard_row or {}).get('policy') or {}
+    reject(int(guard_policy.get('minimum_out','0'))>=int(source['minimum_out']),
+           'X3_GUARD_MINIMUM_BELOW_COMPILED_FLOOR')
+    # The user-program timeout starts at provider quote issuance, not when our RPCs finish.
+    lifetime=(quote['deadline']-quote['issued_at']).total_seconds()
+    reject(60<=lifetime<=int(source['timeout_minutes'])*60,'X3_COMPILED_TIMEOUT_EXCEEDED')
 
 
 def get_near_policy(account: str,owner: str,nonce: str,expected_code_sha: str) -> dict:
@@ -178,8 +190,10 @@ def main() -> int:
         reject(raw.get('classification')=='LIVE_QUOTE_UNFUNDED_UNAUTHORIZED_NOT_SETTLED','QUOTE_FILE_CLASSIFICATION_UNTRUSTED')
         now=datetime.now(timezone.utc)
         quote=check_quote(raw['response'],now)
+        reject(a.nonce==source['nonce'],'X3_COMPILED_NONCE_MISMATCH')
         policy=get_near_policy(a.guard_account,RECEIVER,a.nonce,a.guard_wasm_sha256)
         check_guard_policy(quote,policy,owner=RECEIVER,nonce=a.nonce,now=now,program_sha=a.program_sha256)
+        enforce_compiled_x3_policy(source,quote,policy,a.nonce)
         state=check_base_state()
         # Repeat quote freshness and on-chain policy observation AFTER slow RPCs.
         # A formerly valid signed quote may have expired or the mandate been revoked.
@@ -187,6 +201,7 @@ def main() -> int:
         quote=check_quote(raw['response'],fresh_now)
         policy=get_near_policy(a.guard_account,RECEIVER,a.nonce,a.guard_wasm_sha256)
         check_guard_policy(quote,policy,owner=RECEIVER,nonce=a.nonce,now=fresh_now,program_sha=a.program_sha256)
+        enforce_compiled_x3_policy(source,quote,policy,a.nonce)
         print(json.dumps({'classification':'UNSIGNED_ADMITTED_TESTNET_TRANSFER_NOT_BROADCAST','source':SOURCE,'destination_near':RECEIVER,
           'origin_chain_id':CHAIN_ID,'token_contract':TOKEN,'deposit_address':quote['deposit_address'],
           'amount_base_units':AMOUNT,'guard_account':a.guard_account,'quote_sha256':quote['quote_sha256'],
