@@ -24,7 +24,18 @@ PYTHONPATH=x3-lang .venv/bin/python scripts/hackathon/testnet_guard_evidence.py 
 PYTHONPATH=x3-lang .venv/bin/python scripts/hackathon/testnet_guard_evidence.py --verify evidence/near-guard-testnet/transactions.json
 ```
 
-Both exit `0` on 2026-11-06. Any tampered hash, chain-id, account, block height, or status fails verification. Collector default RPC is `https://test.rpc.fastnear.com` (HTTPS required; localhost HTTP only for tests). `EXPERIMENTAL_chain` is tried first per the brief; public RPCs answer `METHOD_NOT_FOUND` for it, so the collector falls back to `status.chain_id` and still requires `testnet`. Genesis recorded by RPC: `FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b`.
+Both exit `0` on the 2026-11-07 UTC recapture. Any tampered hash, chain id, genesis, account,
+block height/hash, code view, or status fails verification. The manifest records
+the exact block returned by the final account view, not a moving RPC status
+head. Verification requires that historical block and fails instead of falling
+back to current final state. Collector default RPC is
+`https://test.rpc.fastnear.com` (HTTPS required; localhost HTTP only for tests).
+The chain id is `testnet` and the pinned genesis is
+`FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b`.
+After building the Guard Wasm, append
+`--wasm x3-lang/near/x3-guard/target/wasm32-unknown-unknown/release/x3_guard.wasm`
+to either command so the verifier also recomputes the local byte length and
+SHA-256.
 
 ## Account and code
 
@@ -35,6 +46,12 @@ Both exit `0` on 2026-11-06. Any tampered hash, chain-id, account, block height,
   - `ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab`, 544944 bytes
   - On-chain `code_hash` `CbU8SpgfTgG1egbw8ygMTK3deozvDnoFrF8DJ8qifSe6` = base58(sha256(wasm)) per NEAR code-hash semantics
   - After deploy: 9.995876 NEAR, 545.2 KB storage, local SHA-256 shown by CLI matches above
+- Pinned account-view block: height `276558043`, hash
+  `8DJx3nHMAbznUfTqFNswobCdcLqudkHS6BaTMjxjezst`
+- Manifest record hash:
+  `7e470b4a2567ed1ad18bccc8d5743148972cafbabd4b17691a794191f7c7115a`
+- Transaction-collection record hash:
+  `080bfd59b9644eb029694e85dafe8013a58348be07ed92b8e8700ba539fb159b`
 
 ## Transactions (all `FINAL`, signer `x3lang-guard-20261106.testnet`)
 
@@ -69,4 +86,4 @@ Each entry stores its own block hash/height, receipt IDs/statuses, `method_names
 - **No settlement/causality:** no deposit was sent to the live `Ck96…` address, no `record_outcome` was called, no solver fill or refund is claimed. `accept_quote` only authorizes a deposit address.
 - **RPC trust:** evidence is recorded from public RPC responses with canonical hashing and independent re-query; it is not a light-client finality proof.
 
-Reproduce collector tests: `PYTHONPATH=x3-lang .venv/bin/python -m pytest scripts/hackathon/test_testnet_guard_evidence.py -q` (8 passed: 5 original + 3 tamper).
+Reproduce collector tests: `PYTHONPATH=x3-lang .venv/bin/python -m pytest scripts/hackathon/test_testnet_guard_evidence.py -q` (16 tests, including genesis and exact-block negative cases).

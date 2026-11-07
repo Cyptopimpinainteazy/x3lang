@@ -17,7 +17,14 @@ import threading
 
 import pytest
 
-from testnet_guard_evidence import EvidenceError, _canonical_hash, record_manifest, record_transaction, verify_evidence
+from testnet_guard_evidence import (
+    EXPECTED_TESTNET_GENESIS,
+    EvidenceError,
+    _canonical_hash,
+    record_manifest,
+    record_transaction,
+    verify_evidence,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +92,7 @@ def fake_rpc():
     # Default: correct testnet chain, plenty of helpers set per-test via factory.
     responses = {
         "EXPERIMENTAL_chain": {"chain_id": "testnet"},
-        "status": {"chain_id": "testnet", "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+        "status": {"chain_id": "testnet", "genesis_hash": EXPECTED_TESTNET_GENESIS,
                    "sync_info": {"latest_block_height": 100, "latest_block_hash": "11111111111111111111111111111111"}},
         "query": {"amount": "10000000000000000000000000", "storage_usage": 182, "code_hash": "11111111111111111111111111111111", "block_height": 100, "block_hash": "11111111111111111111111111111111"},
         "block": {"header": {"height": 100, "hash": "11111111111111111111111111111111", "prev_hash": "22222222222222222222222222222222"}},
@@ -142,8 +149,75 @@ def test_manifest_records_code_identity(fake_rpc, tmp_path):
     assert len(rec["wasm_sha256"]) == 64
     assert rec["code_hash"] == "11111111111111111111111111111111"
     assert rec["block_height"] == 100
+    assert rec["block_hash"] == "11111111111111111111111111111111"
+    assert rec["genesis_hash"] == EXPECTED_TESTNET_GENESIS
     # Canonical hash must verify.
     assert "record_hash" in rec
+
+
+def test_manifest_records_the_exact_final_account_view_block(fake_rpc, tmp_path):
+    fake_rpc.responses["status"] = {
+        "chain_id": "testnet",
+        "genesis_hash": EXPECTED_TESTNET_GENESIS,
+        "sync_info": {
+            "latest_block_height": 999,
+            "latest_block_hash": "33333333333333333333333333333333",
+        },
+    }
+
+    def query(params):
+        if "block_id" in params:
+            return {
+                "amount": "10000000000000000000000000",
+                "storage_usage": 182,
+                "code_hash": "11111111111111111111111111111111",
+                "block_height": 100,
+                "block_hash": "11111111111111111111111111111111",
+            }
+        return {
+            "amount": "10000000000000000000000000",
+            "storage_usage": 182,
+            "code_hash": "11111111111111111111111111111111",
+            "block_height": 100,
+            "block_hash": "11111111111111111111111111111111",
+        }
+
+    fake_rpc.responses["query"] = query
+    wasm = tmp_path / "x.wasm"
+    wasm.write_bytes(b"\x00asm" + b"\x00" * 32)
+    rec = record_manifest("x3lang-guard-20261106.testnet", wasm, rpc_url=fake_rpc.url)
+    assert (rec["block_height"], rec["block_hash"]) == (
+        100,
+        "11111111111111111111111111111111",
+    )
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        {
+            "chain_id": "testnet",
+            "sync_info": {
+                "latest_block_height": 100,
+                "latest_block_hash": "11111111111111111111111111111111",
+            },
+        },
+        {
+            "chain_id": "testnet",
+            "genesis_hash": "11111111111111111111111111111111",
+            "sync_info": {
+                "latest_block_height": 100,
+                "latest_block_hash": "11111111111111111111111111111111",
+            },
+        },
+    ],
+)
+def test_manifest_requires_the_pinned_testnet_genesis(fake_rpc, tmp_path, status):
+    fake_rpc.responses["status"] = status
+    wasm = tmp_path / "x.wasm"
+    wasm.write_bytes(b"\x00asm" + b"\x00" * 32)
+    with pytest.raises(EvidenceError, match="genesis"):
+        record_manifest("x3lang-guard-20261106.testnet", wasm, rpc_url=fake_rpc.url)
 
 
 def _valid_tx_record(fake_rpc):
@@ -179,3 +253,36 @@ def test_verify_rejects_args_sha256_that_does_not_match_sanitized_args(fake_rpc,
     rec["sanitized_args"] = [{"method_name": "new", "args_keys": ["nonce"], "sanitized_args": {"nonce": "evil"}, "args_sha256": "0" * 64}]
     with pytest.raises(EvidenceError, match="args_sha256"):
         verify_evidence(fixture("tamper-args.json", _rehashed(rec), tmp_path), rpc_url=fake_rpc.url)
+
+
+@pytest.mark.parametrize("field", ["chain_id", "genesis_hash", "block_hash", "block_height"])
+def test_verify_rejects_missing_manifest_binding_even_after_rehash(fake_rpc, tmp_path, field):
+    wasm = tmp_path / "x.wasm"
+    wasm.write_bytes(b"\x00asm" + b"\x00" * 32)
+    rec = record_manifest("x3lang-guard-20261106.testnet", wasm, rpc_url=fake_rpc.url)
+    rec.pop(field)
+    path = fixture(f"missing-{field}.json", _rehashed(rec), tmp_path)
+    with pytest.raises(EvidenceError, match=field.replace("_", " ")):
+        verify_evidence(path, rpc_url=fake_rpc.url, wasm=wasm)
+
+
+def test_verify_fails_when_the_exact_historical_block_is_unavailable(fake_rpc, tmp_path):
+    wasm = tmp_path / "x.wasm"
+    wasm.write_bytes(b"\x00asm" + b"\x00" * 32)
+    rec = record_manifest("x3lang-guard-20261106.testnet", wasm, rpc_url=fake_rpc.url)
+    path = fixture("valid-manifest.json", rec, tmp_path)
+
+    def query(params):
+        if "block_id" in params:
+            return {"error": {"code": -32000, "message": "block unavailable"}}
+        return {
+            "amount": "10000000000000000000000000",
+            "storage_usage": 182,
+            "code_hash": "11111111111111111111111111111111",
+            "block_height": 100,
+            "block_hash": "11111111111111111111111111111111",
+        }
+
+    fake_rpc.responses["query"] = query
+    with pytest.raises(EvidenceError, match="historical|block unavailable"):
+        verify_evidence(path, rpc_url=fake_rpc.url, wasm=wasm)

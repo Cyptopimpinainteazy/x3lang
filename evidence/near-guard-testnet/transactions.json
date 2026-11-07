@@ -1,20 +1,22 @@
 {
   "account_id": "x3lang-guard-20261106.testnet",
   "chain_id": "testnet",
+  "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
   "manifest": {
     "account_id": "x3lang-guard-20261106.testnet",
-    "block_hash": "4SMZxejcZakWeB28qWsAtcPbfPbPULvHKEtr2C8BELky",
-    "block_height": 276549208,
+    "block_hash": "8DJx3nHMAbznUfTqFNswobCdcLqudkHS6BaTMjxjezst",
+    "block_height": 276558043,
     "chain_id": "testnet",
     "code_hash": "CbU8SpgfTgG1egbw8ygMTK3deozvDnoFrF8DJ8qifSe6",
-    "observed_at_utc": "2026-11-06T22:53:01Z",
-    "record_hash": "709fa2f147d1f501c3865c479712c32260ff248ed269dfcbf5935e9d3f370432",
+    "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+    "observed_at_utc": "2026-11-07T00:19:55Z",
+    "record_hash": "7e470b4a2567ed1ad18bccc8d5743148972cafbabd4b17691a794191f7c7115a",
     "rpc_url": "https://test.rpc.fastnear.com",
     "schema": "x3.guard.testnet.manifest.v1",
     "wasm_bytes": 544944,
     "wasm_sha256": "ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab"
   },
-  "record_hash": "9d6123d13e61012c2bd21e340eee097693d5a93ab16e02c2ee73bbd0de63ac62",
+  "record_hash": "080bfd59b9644eb029694e85dafe8013a58348be07ed92b8e8700ba539fb159b",
   "schema": "x3.guard.testnet.collection.v1",
   "transactions": [
     {
@@ -23,13 +25,14 @@
       "block_height": 276545403,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "account_create",
       "method_names": [
         "CreateAccount",
         "Transfer",
         "AddKey"
       ],
-      "observed_at_utc": "2026-11-06T22:53:02Z",
+      "observed_at_utc": "2026-11-07T00:20:03Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -46,7 +49,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "8250c2b34f834041ca356f40d252761950ce3ec1cb5522b48e5db6d896536926",
+      "record_hash": "f5572a79aaf900ae7224be2230b0fe5c5977a3adaedd546724128d1a9e0d6bd9",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -80,12 +83,13 @@
       "block_height": 276546688,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "deploy",
       "method_names": [
         "DeployContract",
         "new"
       ],
-      "observed_at_utc": "2026-11-06T22:53:03Z",
+      "observed_at_utc": "2026-11-07T00:20:04Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -102,7 +106,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "0faea5ae56221a21091e0e9bd3497ea89fb7b9ba0fba263a5d80f902ba105615",
+      "record_hash": "3edf298946172dac34983fbe9cdfe5069ab4a8c8583f06a7e703cc42d5948bed",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -130,11 +134,12 @@
       "block_height": 276547096,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "allowed_register",
       "method_names": [
         "register_intent"
       ],
-      "observed_at_utc": "2026-11-06T22:53:03Z",
+      "observed_at_utc": "2026-11-07T00:20:05Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -163,7 +168,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "51cc6faa1344796df6c389c3d696a63ec5d009ef3056dfbe5383417d618437ae",
+      "record_hash": "8b71564d636d81b06e7947198df7e319bd52dcf10a8518bd4dbeeb07096b8a34",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -202,11 +207,12 @@
       "block_height": 276547116,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "invalid_register",
       "method_names": [
         "register_intent"
       ],
-      "observed_at_utc": "2026-11-06T22:53:04Z",
+      "observed_at_utc": "2026-11-07T00:20:06Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -235,7 +241,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "d7518ffb75495eb8b116acdaf691bfa3b6e2566980d888440d26a5dcf2fa786c",
+      "record_hash": "f6b96f3edad485ff044a0e017dd50e2cc8010f4c24181449fcdf9cf2ff429e9e",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -274,11 +280,12 @@
       "block_height": 276547124,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "prohibited_register",
       "method_names": [
         "register_intent"
       ],
-      "observed_at_utc": "2026-11-06T22:53:05Z",
+      "observed_at_utc": "2026-11-07T00:20:07Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -307,7 +314,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "b43364e433321784141b0736801aae9730afcc5f3286e11a293366fe8a63af9d",
+      "record_hash": "3beec2ee3305418858a0625b156666a6c5e08249fa71cf07baf2f805adc84f24",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -346,11 +353,12 @@
       "block_height": 276547148,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "invalid_accept",
       "method_names": [
         "accept_quote"
       ],
-      "observed_at_utc": "2026-11-06T22:53:06Z",
+      "observed_at_utc": "2026-11-07T00:20:08Z",
       "receipt_errors": [
         "{'ActionError': {'index': 0, 'kind': {'FunctionCallError': {'ExecutionError': 'WebAssembly trap: An `unreachable` opcode was executed.'}}}}"
       ],
@@ -384,7 +392,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "b667a2fed914e9ac24a13e943061cc0a8ed82a573ca984b2b641e3f4d8611579",
+      "record_hash": "6c7cc3b271b5a5dc8749bcb99ca59c18c90a0f01ee038010f90ae3f2e6c9a4bc",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -422,11 +430,12 @@
       "block_height": 276547210,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "create_mandate",
       "method_names": [
         "create_mandate"
       ],
-      "observed_at_utc": "2026-11-06T22:53:07Z",
+      "observed_at_utc": "2026-11-07T00:20:08Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -455,7 +464,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "5c058f0cb7ec651f6d03ac93513b7d15d1e3fc69e77c4709831bfd25c1bb9980",
+      "record_hash": "cb8600da5016ae70249b3201e1cb40969d6278e88e37840e8c822aef738305d5",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -501,11 +510,12 @@
       "block_height": 276547226,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "revoke_mandate",
       "method_names": [
         "revoke_mandate"
       ],
-      "observed_at_utc": "2026-11-06T22:53:07Z",
+      "observed_at_utc": "2026-11-07T00:20:09Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -522,7 +532,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "794d6e94f8c1c14ce37aab81cf6decb4851b4dca658b2023dc63dbde14dc7af3",
+      "record_hash": "d6eaf89aa0237679f1a57a699ffbb7b18c1b37600044ae3422c166356018566b",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -548,11 +558,12 @@
       "block_height": 276547296,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "prohibited_accept",
       "method_names": [
         "accept_quote"
       ],
-      "observed_at_utc": "2026-11-06T22:53:08Z",
+      "observed_at_utc": "2026-11-07T00:20:10Z",
       "receipt_errors": [
         "{'ActionError': {'index': 0, 'kind': {'FunctionCallError': {'ExecutionError': 'WebAssembly trap: An `unreachable` opcode was executed.'}}}}"
       ],
@@ -586,7 +597,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "6a56f47efb35cd53b7a78e6d11f39fa2bfd0a0bd2cd0ffeea6e04e16901a43e2",
+      "record_hash": "74997f2a5c96e0cd64b459d5a59137d76f57a9282610896c1293243738804c33",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -624,11 +635,12 @@
       "block_height": 276549021,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "live_register_short",
       "method_names": [
         "register_intent"
       ],
-      "observed_at_utc": "2026-11-06T22:53:09Z",
+      "observed_at_utc": "2026-11-07T00:20:11Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -657,7 +669,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "eee7ec4ee223e7f84926e7f270bbd855770532e523f5760af3208a56545cca28",
+      "record_hash": "438d06d00b24e4ad6eb77282760bed7d7b49bc5cd1b8de79818459db425f1a19",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -696,11 +708,12 @@
       "block_height": 276549052,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "live_register",
       "method_names": [
         "register_intent"
       ],
-      "observed_at_utc": "2026-11-06T22:53:10Z",
+      "observed_at_utc": "2026-11-07T00:20:12Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -729,7 +742,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "b06cedeecc6a3b226e185a2b265b4296896e818860b89e8d6602bfa0e7d0c161",
+      "record_hash": "326cd4e686fb035dd1ba1cf29135bf69f7df9d22e7e9d1f65b5dd709f0727238",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -768,11 +781,12 @@
       "block_height": 276549115,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "live_accept_storage_fail",
       "method_names": [
         "accept_quote"
       ],
-      "observed_at_utc": "2026-11-06T22:53:11Z",
+      "observed_at_utc": "2026-11-07T00:20:13Z",
       "receipt_errors": [
         "{'ActionError': {'index': 0, 'kind': {'FunctionCallError': {'ExecutionError': 'WebAssembly trap: An `unreachable` opcode was executed.'}}}}"
       ],
@@ -806,7 +820,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "31fa332d552032657710b796610d60ffcd68d7e45f07d2930862adbf993df3a4",
+      "record_hash": "8ab42f7176bd9dfc2071765ec2cd2d4f71220eadc565f0c32696c41169d10100",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {
@@ -844,11 +858,12 @@
       "block_height": 276549145,
       "chain_id": "testnet",
       "final_execution_status": "FINAL",
+      "genesis_hash": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
       "label": "live_accept",
       "method_names": [
         "accept_quote"
       ],
-      "observed_at_utc": "2026-11-06T22:53:12Z",
+      "observed_at_utc": "2026-11-07T00:20:13Z",
       "receipt_errors": [],
       "receipt_statuses": [
         {
@@ -877,7 +892,7 @@
         }
       ],
       "receiver_id": "x3lang-guard-20261106.testnet",
-      "record_hash": "71292092230b1fdc32528e9647053d36b32212046e814183df7b5c9a9b1dc44c",
+      "record_hash": "b2b7c98bbe6138621747c09f386e719631fa20140609d60401df6e6bf30be3a8",
       "rpc_url": "https://test.rpc.fastnear.com",
       "sanitized_args": [
         {

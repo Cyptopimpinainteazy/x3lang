@@ -29,6 +29,7 @@ SCHEMA_MANIFEST = "x3.guard.testnet.manifest.v1"
 SCHEMA_TRANSACTION = "x3.guard.testnet.transaction.v1"
 SCHEMA_COLLECTION = "x3.guard.testnet.collection.v1"
 DEFAULT_RPC_URL = "https://test.rpc.fastnear.com"
+EXPECTED_TESTNET_GENESIS = "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b"
 MAX_RPC_BYTES = 8 * 1024 * 1024
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 FORBIDDEN_KEYS = {
@@ -149,8 +150,8 @@ def _extract_chain_id(result: dict) -> str | None:
     return None
 
 
-def _require_testnet(rpc_url: str) -> str:
-    """Query EXPERIMENTAL_chain, require testnet; fall back to status on METHOD_NOT_FOUND."""
+def _require_testnet_identity(rpc_url: str) -> tuple[str, str, dict]:
+    """Require both the public status chain id and the pinned testnet genesis."""
     # Try EXPERIMENTAL_chain first per brief.
     try:
         result = _rpc(rpc_url, "EXPERIMENTAL_chain", [])
@@ -159,19 +160,33 @@ def _require_testnet(rpc_url: str) -> str:
             raise EvidenceError("chain identity missing from EXPERIMENTAL_chain response")
         if chain_id != "testnet":
             raise EvidenceError(f"chain id mismatch: expected testnet, got {chain_id!r}")
-        return chain_id
     except EvidenceError as exc:
         msg = str(exc)
         # Real public RPCs answer METHOD_NOT_FOUND; fall back to status.
-        if "METHOD_NOT_FOUND" in msg or "Method not found" in msg or "method not found" in msg.lower():
-            status = _rpc(rpc_url, "status", [])
-            chain_id = _extract_chain_id(status)
-            if chain_id is None:
-                raise EvidenceError("chain identity missing from status response")
-            if chain_id != "testnet":
-                raise EvidenceError(f"chain id mismatch: expected testnet, got {chain_id!r}")
-            return chain_id
-        raise
+        if not (
+            "METHOD_NOT_FOUND" in msg
+            or "Method not found" in msg
+            or "method not found" in msg.lower()
+        ):
+            raise
+    status = _rpc(rpc_url, "status", [])
+    chain_id = _extract_chain_id(status)
+    if chain_id is None:
+        raise EvidenceError("chain identity missing from status response")
+    if chain_id != "testnet":
+        raise EvidenceError(f"chain id mismatch: expected testnet, got {chain_id!r}")
+    genesis_hash = status.get("genesis_hash")
+    if not isinstance(genesis_hash, str) or not genesis_hash:
+        raise EvidenceError("testnet genesis hash missing from status response")
+    if genesis_hash != EXPECTED_TESTNET_GENESIS:
+        raise EvidenceError(
+            f"testnet genesis mismatch: expected {EXPECTED_TESTNET_GENESIS}, got {genesis_hash}"
+        )
+    return chain_id, genesis_hash, status
+
+
+def _require_testnet(rpc_url: str) -> str:
+    return _require_testnet_identity(rpc_url)[0]
 
 
 def _base58_decode(text: str) -> bytes:
@@ -268,16 +283,39 @@ def record_manifest(account_id: str, wasm: Path, rpc_url: str) -> dict:
         raise EvidenceError("wasm file is not a WebAssembly binary")
     wasm_sha = hashlib.sha256(raw).hexdigest()
     wasm_bytes = len(raw)
-    chain_id = _require_testnet(rpc_url)
-    # Status for height/hash, view_account for code_hash at final.
-    status = _rpc(rpc_url, "status", [])
-    sync = status.get("sync_info") if isinstance(status.get("sync_info"), dict) else {}
-    block_height = sync.get("latest_block_height") if isinstance(sync, dict) else status.get("latest_block_height")
-    block_hash = sync.get("latest_block_hash") if isinstance(sync, dict) else status.get("latest_block_hash")
-    if not isinstance(block_height, int) or block_height <= 0:
-        # Fall back to EXPERIMENTAL_chain-style status height field.
-        raise EvidenceError("missing block height from RPC status")
-    view = _rpc(rpc_url, "query", {"request_type": "view_account", "account_id": str(account_id), "finality": "final"})
+    chain_id, genesis_hash, _status = _require_testnet_identity(rpc_url)
+    final_view = _rpc(
+        rpc_url,
+        "query",
+        {
+            "request_type": "view_account",
+            "account_id": str(account_id),
+            "finality": "final",
+        },
+    )
+    block_height = final_view.get("block_height")
+    block_hash = final_view.get("block_hash")
+    if type(block_height) is not int or block_height <= 0:
+        raise EvidenceError("missing block height from final account view")
+    if not isinstance(block_hash, str) or not block_hash:
+        raise EvidenceError("missing block hash from final account view")
+    # Re-read the exact final view block so a moving final head cannot mix code
+    # identity from one block with metadata from another.
+    view = _rpc(
+        rpc_url,
+        "query",
+        {
+            "request_type": "view_account",
+            "account_id": str(account_id),
+            "block_id": block_hash,
+        },
+    )
+    if (
+        view.get("block_height") != block_height
+        or view.get("block_hash") != block_hash
+        or view.get("code_hash") != final_view.get("code_hash")
+    ):
+        raise EvidenceError("final account view changed while pinning its exact block")
     code_hash = view.get("code_hash")
     if not isinstance(code_hash, str):
         raise EvidenceError("missing code_hash from view_account")
@@ -291,6 +329,7 @@ def record_manifest(account_id: str, wasm: Path, rpc_url: str) -> dict:
     record: dict = {
         "schema": SCHEMA_MANIFEST,
         "chain_id": chain_id,
+        "genesis_hash": genesis_hash,
         "account_id": str(account_id),
         "code_hash": code_hash,
         "wasm_sha256": wasm_sha,
@@ -315,7 +354,7 @@ def record_transaction(tx_hash: str, rpc_url: str, sender_id: str | None = None)
     signer = sender_id or "x3lang-guard-20261106.testnet"
     if not _ACCOUNT_RE.fullmatch(str(signer)):
         raise EvidenceError(f"invalid signer_id: {signer!r}")
-    chain_id = _require_testnet(rpc_url)
+    chain_id, genesis_hash, _status = _require_testnet_identity(rpc_url)
     result = _rpc(rpc_url, "tx", [tx_hash, signer])
     final_status = result.get("final_execution_status")
     if final_status != "FINAL":
@@ -362,6 +401,7 @@ def record_transaction(tx_hash: str, rpc_url: str, sender_id: str | None = None)
     record: dict = {
         "schema": SCHEMA_TRANSACTION,
         "chain_id": chain_id,
+        "genesis_hash": genesis_hash,
         "transaction_hash": tx_hash,
         "tx_hash": tx_hash,
         "signer_id": signer,
@@ -419,6 +459,73 @@ def _verify_transaction_record(stored: dict, rpc_url: str) -> str:
     return tx_hash
 
 
+def _verify_manifest_record(data: dict, rpc_url: str, wasm: Path | None = None) -> dict:
+    _check_record_hash(data, "manifest")
+    if data.get("chain_id") != "testnet":
+        raise EvidenceError("manifest chain id missing or not testnet")
+    if data.get("genesis_hash") != EXPECTED_TESTNET_GENESIS:
+        raise EvidenceError("manifest genesis hash missing or not the pinned testnet genesis")
+    block_hash = data.get("block_hash")
+    block_height = data.get("block_height")
+    if not isinstance(block_hash, str) or not block_hash:
+        raise EvidenceError("manifest block hash missing")
+    if type(block_height) is not int or block_height <= 0:
+        raise EvidenceError("manifest block height missing")
+    block_result = _rpc(rpc_url, "block", {"block_id": block_hash})
+    header = block_result.get("header") if isinstance(block_result.get("header"), dict) else {}
+    if header.get("height") != block_height or header.get("hash") != block_hash:
+        raise EvidenceError("block height/hash mismatch in manifest versus RPC")
+    account_id = data.get("account_id")
+    if not isinstance(account_id, str):
+        raise EvidenceError("manifest account_id missing")
+    try:
+        view = _rpc(
+            rpc_url,
+            "query",
+            {
+                "request_type": "view_account",
+                "account_id": account_id,
+                "block_id": block_hash,
+            },
+        )
+    except EvidenceError as exc:
+        raise EvidenceError(
+            "historical code view unavailable for the manifest's exact block"
+        ) from exc
+    if (
+        view.get("block_height") != block_height
+        or view.get("block_hash") != block_hash
+    ):
+        raise EvidenceError("historical code-view block does not match the manifest")
+    if view.get("code_hash") != data.get("code_hash"):
+        raise EvidenceError("code_hash mismatch in manifest versus RPC")
+    wasm_sha = data.get("wasm_sha256")
+    code_hash = data.get("code_hash")
+    if not isinstance(wasm_sha, str) or len(wasm_sha) != 64:
+        raise EvidenceError("manifest wasm sha256 missing")
+    if code_hash != "11111111111111111111111111111111":
+        decoded = _base58_decode(code_hash)
+        if len(decoded) != 32 or decoded.hex() != wasm_sha:
+            raise EvidenceError("code_hash does not match wasm sha256 in manifest")
+    if wasm is not None:
+        wasm_path = Path(wasm)
+        if not wasm_path.is_file():
+            raise EvidenceError("wasm file missing for manifest verification")
+        raw = wasm_path.read_bytes()
+        actual = hashlib.sha256(raw).hexdigest()
+        if actual != wasm_sha:
+            raise EvidenceError("wasm sha256 mismatch in manifest versus local file")
+        if data.get("wasm_bytes") != len(raw):
+            raise EvidenceError("wasm byte length mismatch in manifest versus local file")
+    return {
+        "verified": True,
+        "kind": "manifest",
+        "chain_id": "testnet",
+        "account_id": account_id,
+        "record_hash": data.get("record_hash"),
+    }
+
+
 def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     """Re-query RPC and fail on any mismatch with the recorded evidence."""
     _validate_url(rpc_url)
@@ -434,53 +541,15 @@ def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     chain_id = _require_testnet(rpc_url)
     schema = data.get("schema") if isinstance(data, dict) else None
     if schema == SCHEMA_MANIFEST:
-        _check_record_hash(data, "manifest")
-        if data.get("chain_id") not in (None, "testnet"):
-            raise EvidenceError(f"chain mismatch in manifest: {data.get('chain_id')!r}")
-        # Historic block + code identity.
-        block_hash = data.get("block_hash")
-        block_height = data.get("block_height")
-        if isinstance(block_hash, str) and isinstance(block_height, int):
-            block_result = _rpc(rpc_url, "block", {"block_id": block_hash})
-            header = block_result.get("header") if isinstance(block_result.get("header"), dict) else {}
-            if header.get("height") != block_height or header.get("hash") != block_hash:
-                raise EvidenceError("block height/hash mismatch in manifest versus RPC")
-        # Code identity at the recorded height if available, else final.
-        account_id = data.get("account_id")
-        if not isinstance(account_id, str):
-            raise EvidenceError("manifest account_id missing")
-        params: dict = {"request_type": "view_account", "account_id": account_id, "finality": "final"}
-        if isinstance(block_height, int):
-            # Prefer historic query so a later redeploy cannot hide tampering.
-            try:
-                historic = _rpc(rpc_url, "query", {"request_type": "view_account", "account_id": account_id, "block_id": block_height})
-                if isinstance(historic.get("code_hash"), str):
-                    params = {"request_type": "view_account", "account_id": account_id, "block_id": block_height}
-            except EvidenceError:
-                pass  # fall back to final below
-        view = _rpc(rpc_url, "query", params)
-        if view.get("code_hash") != data.get("code_hash"):
-            raise EvidenceError("code_hash mismatch in manifest versus RPC")
-        wasm_sha = data.get("wasm_sha256")
-        code_hash = data.get("code_hash")
-        if isinstance(code_hash, str) and code_hash != "11111111111111111111111111111111" and isinstance(wasm_sha, str):
-            decoded = _base58_decode(code_hash)
-            if len(decoded) != 32 or decoded.hex() != wasm_sha:
-                raise EvidenceError("code_hash does not match wasm sha256 in manifest")
-        if wasm is not None:
-            wasm_path = Path(wasm)
-            if not wasm_path.is_file():
-                raise EvidenceError("wasm file missing for manifest verification")
-            actual = hashlib.sha256(wasm_path.read_bytes()).hexdigest()
-            if actual != wasm_sha:
-                raise EvidenceError("wasm sha256 mismatch in manifest versus local file")
-        return {"verified": True, "kind": "manifest", "chain_id": chain_id, "account_id": account_id, "record_hash": data.get("record_hash")}
+        return _verify_manifest_record(data, rpc_url, wasm)
     if schema == SCHEMA_TRANSACTION:
         _check_record_hash(data, "transaction")
         tx_hash = _verify_transaction_record(data, rpc_url)
         return {"verified": True, "kind": "transaction", "chain_id": chain_id, "transaction_hash": tx_hash, "record_hash": data.get("record_hash")}
     if schema == SCHEMA_COLLECTION and isinstance(data.get("transactions"), list):
         _check_record_hash(data, "collection")
+        if data.get("chain_id") != "testnet" or data.get("genesis_hash") != EXPECTED_TESTNET_GENESIS:
+            raise EvidenceError("collection chain id or genesis hash missing or mismatched")
         for entry in data["transactions"]:
             if not isinstance(entry, dict):
                 raise EvidenceError("transaction entry not an object in collection")
@@ -489,12 +558,9 @@ def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
             _verify_transaction_record(entry, rpc_url)
         # Also verify embedded manifest if present.
         manifest = data.get("manifest")
-        if isinstance(manifest, dict):
-            _check_record_hash(manifest, "manifest")
-            if manifest.get("code_hash") is not None:
-                view = _rpc(rpc_url, "query", {"request_type": "view_account", "account_id": manifest.get("account_id"), "finality": "final"})
-                if view.get("code_hash") != manifest.get("code_hash"):
-                    raise EvidenceError("code_hash mismatch in collection manifest versus RPC")
+        if not isinstance(manifest, dict):
+            raise EvidenceError("collection manifest missing")
+        _verify_manifest_record(manifest, rpc_url, wasm)
         return {"verified": True, "kind": "collection", "chain_id": chain_id, "count": len(data["transactions"]), "record_hash": data.get("record_hash")}
     # A bare list file of transaction records (transactions.json without envelope).
     if isinstance(data, list) and data and all(isinstance(x, dict) for x in data):
