@@ -1,0 +1,45 @@
+name: X3 Guard Real WASM Local Sandbox Integration
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near/guard-sandbox-tests/**'
+      - 'x3-lang/near/x3-guard/**'
+      - 'x3-lang/tests/fixtures/x3_guard_args.json'
+      - 'scripts/hackathon/guard_sandbox_smoke.sh'
+      - '.github/workflows/x3guard-real-wasm-sandbox.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-node-wasm-receipt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact pull-request HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Rust 1.99.1 and WASM target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: wasm32-unknown-unknown
+      - name: Cache separate sandbox test and Guard compilation
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            x3-lang/near/x3-guard
+            x3-lang/near/guard-sandbox-tests
+      - name: Validate wrapper and Rust format
+        run: |
+          bash -n scripts/hackathon/guard_sandbox_smoke.sh
+          cargo fmt --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml -- --check
+      - name: Deploy actual production WASM only on ephemeral NEAR Sandbox and verify genuine dry-quote denial
+        env:
+          NEAR_NETWORK_ID: sandbox
+          NEAR_RPC_TIMEOUT_SECS: '60'
+        run: bash scripts/hackathon/guard_sandbox_smoke.sh
