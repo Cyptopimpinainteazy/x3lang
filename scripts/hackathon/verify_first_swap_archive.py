@@ -90,6 +90,12 @@ def audit_live(cert: dict) -> None:
         reject(checkpoint.get('hash')==checkpoint_hash,'HISTORICAL_FINALITY_CHECKPOINT_REORGED')
         tx=rpc(url,'eth_getTransactionByHash',[tx_hash]);receipt=rpc(url,'eth_getTransactionReceipt',[tx_hash])
         reject(isinstance(tx,dict) and isinstance(receipt,dict),'ARCHIVED_TX_MISSING')
+        returned_hash=tx.get('hash');receipt_hash=receipt.get('transactionHash')
+        reject(isinstance(returned_hash,str) and returned_hash.lower()==tx_hash
+               and isinstance(receipt_hash,str) and receipt_hash.lower()==tx_hash,
+               'ARCHIVED_TX_RECEIPT_HASH_MISMATCH')
+        reject(tx.get('blockHash')==receipt.get('blockHash') and tx.get('blockNumber')==receipt.get('blockNumber'),
+               'ARCHIVED_TX_RECEIPT_BLOCK_MISMATCH')
         reject(tx.get('from','').lower()==SOURCE.lower() and tx.get('to','').lower()==TOKEN.lower(),'ARCHIVED_TX_SOURCE_OR_CONTRACT_CHANGED')
         reject(int(tx.get('value','0x0'),16)==0,'ARCHIVED_UNEXPECTED_NATIVE_VALUE')
         calldata='0xa9059cbb'+base[0]['deposit_address'][2:].lower().zfill(64)+format(AMOUNT,'064x')
@@ -98,9 +104,13 @@ def audit_live(cert: dict) -> None:
         reject(int(receipt['blockNumber'],16)==agreed_block and receipt['blockHash']==base[0]['block_hash'],'ARCHIVED_SOURCE_BLOCK_CHANGED')
         inc=rpc(url,'eth_getBlockByNumber',[hex(agreed_block),False])
         reject(inc.get('hash')==receipt['blockHash'] and int(inc['timestamp'],16)==base[0]['inclusion_timestamp_unix_s'],'ARCHIVED_INCLUSION_NOT_CANONICAL')
-        logs=[x for x in receipt.get('logs',[]) if x.get('address','').lower()==TOKEN.lower()
-              and [y.lower() for y in x.get('topics',[]) ]==[ERC20_TRANSFER_TOPIC,transfer_topic,receiver_topic]
-              and int(x['data'],16)==AMOUNT]
+        logs=[x for x in receipt.get('logs',[]) if isinstance(x,dict)
+              and isinstance(x.get('address'),str) and x['address'].lower()==TOKEN.lower()
+              and isinstance(x.get('topics'),list) and len(x['topics'])==3
+              and all(isinstance(y,str) for y in x['topics'])
+              and [y.lower() for y in x['topics']]==[ERC20_TRANSFER_TOPIC,transfer_topic,receiver_topic]
+              and isinstance(x.get('transactionHash'),str) and x['transactionHash'].lower()==tx_hash
+              and isinstance(x.get('data'),str) and int(x['data'],16)==AMOUNT]
         reject(len(logs)==1 and logs[0].get('logIndex')==base[0]['event_log_index'],'ARCHIVED_ERC20_TRANSFER_EVENT_CHANGED')
         code=rpc(url,'eth_getCode',[TOKEN,hex(agreed_block)])
         reject(hashlib.sha256(bytes.fromhex(code[2:])).hexdigest()==TOKEN_CODE_SHA256,'ARCHIVED_TOKEN_CODE_CHANGED')
