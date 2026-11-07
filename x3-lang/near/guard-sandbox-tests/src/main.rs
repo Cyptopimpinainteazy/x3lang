@@ -329,5 +329,95 @@ async fn main() -> Result<()> {
     );
 
     println!("X3_SANDBOX_MANDATE_ACCEPT_REFUSE_REVOKE local_only=true allowed_registration=true forbidden_recipient_refused=true revoked_registration_refused=true");
+
+    // Before the patch, an approval after mandate expiry was recorded.
+    // Verify the patched deployed WASM refuses and preserves state in real Sandbox.
+    let short_now_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+    let short_expiry_ms = short_now_ms + 90_000;
+    let mut expiring_terms = mandate_terms();
+    expiring_terms["expires_at_ms"] = json!(short_expiry_ms);
+    expiring_terms["approval_above"] = json!("20000000");
+    expiring_terms["approvers"] = json!([owner.clone()]);
+    expiring_terms["approval_threshold"] = json!(1);
+
+    let renewed = contract
+        .call_function(
+            "create_mandate",
+            json!({"agent": agent.clone(), "terms": expiring_terms}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(owner.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(renewed.is_success(), "sandbox renewed mandate failed: {renewed:?}");
+    let mut expiring_policy = mandate_policy("x3-demo.near");
+    expiring_policy["deadline_ms"] = json!(short_expiry_ms);
+    let registered_for_approval = contract
+        .call_function(
+            "agent_register_intent",
+            json!({
+                "owner": owner.clone(),
+                "nonce": "sandbox_expired_approval",
+                "policy": expiring_policy,
+            }),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(agent.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(
+        registered_for_approval.is_success(),
+        "sandbox registration before mandate expiry failed: {registered_for_approval:?}"
+    );
+    // Sandbox block time is not guaranteed to be one wall-clock second.
+    // Observe the actual contract guard after each bounded time advancement;
+    // a still-active mandate is a test failure, never proof of expiry.
+    let mut observed_expired = false;
+    for _ in 0..8 {
+        sandbox.fast_forward(180).await?;
+        let expired_checks =
+            check_agent_intent(&contract, &network, &owner, &agent, mandate_policy("x3-demo.near")).await?;
+        if !guard_ok(&expired_checks, "mandate_active") {
+            observed_expired = true;
+            break;
+        }
+    }
+    anyhow::ensure!(
+        observed_expired,
+        "sandbox clock never expired mandate in bounded rounds"
+    );
+    let late_approval = contract
+        .call_function(
+            "approve_intent",
+            json!({"owner": owner.clone(), "nonce": "sandbox_expired_approval"}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(owner.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(
+        !late_approval.is_success(),
+        "EXPIRED MANDATE VULNERABILITY: sandbox accepted approval: {late_approval:?}"
+    );
+    let after_late: Value = contract
+        .call_function(
+            "get_intent",
+            json!({"owner": owner.clone(), "nonce": "sandbox_expired_approval"}),
+        )
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    anyhow::ensure!(
+        after_late["approvals"] == json!([]),
+        "expired Sandbox mandate mutated approvals: {after_late}"
+    );
+    println!("X3_SANDBOX_EXPIRED_APPROVAL_REFUSED local_only=true block_timestamp_expired=true stored_approvals_unchanged=true");
     Ok(())
 }
