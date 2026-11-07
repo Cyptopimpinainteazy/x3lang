@@ -19,6 +19,8 @@ python3 scripts/hackathon/base_sepolia_guarded_admission.py \
  --program-sha256 <sha256-of-approved-x3-source>
 ```
 
+The read-only Base Sepolia observation requires **two independent, agreeing RPCs**: the official `https://sepolia.base.org` and `https://base-sepolia-rpc.publicnode.com`. The previously configured dRPC endpoint returned HTTP 403 from x3star1, so it was replaced without removing the second-provider hard gate. Both replacement RPCs independently confirmed chain 84532, the exact test-USDC contract code hash, 100 test USDC, and 0.001 test ETH on November 7, 2026 UTC. Provider disagreements or outages continue to block admission.
+
 The historical stored live quote will fail freshness checks by design. Never reuse its deposit address. The testnet-only Tidepool operator controls the maker/relayer and is not an official NEAR 1Click testnet. Mainnet 1Click uses separate authority, tokens and infrastructure. Never send real assets to a testnet quote.
 
 **Deployment blocker:** the proposed guard contract account is not on NEAR testnet yet; source audit, source-to-WASM reproduction, exact-head CI, and a deliberately authorized deployment with an independently controlled signing account are required. No usable `x3lang.testnet` signing credentials have been established on x3star1. Private GitHub `xxxstar` mirror access is also a separate CI gate. These are not to be silently bypassed.

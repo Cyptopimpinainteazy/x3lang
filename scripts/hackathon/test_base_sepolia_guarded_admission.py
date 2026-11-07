@@ -26,6 +26,18 @@ class TestReadOnlyAdmission(unittest.TestCase):
         cls.at=m.parse_time(cls.response['timestamp'])
         cls.deadline=m.parse_time(cls.response['quote']['deadline'])
 
+    def test_base_sepolia_rpc_quorum_uses_two_independent_verified_providers(self):
+        self.assertEqual(m.BASE_RPCS, (
+            'https://sepolia.base.org',
+            'https://base-sepolia-rpc.publicnode.com',
+        ))
+        self.assertNotEqual(m.BASE_RPCS[0].split('/')[2], m.BASE_RPCS[1].split('/')[2])
+
+    def test_rpc_provider_failure_never_degrades_to_single_provider(self):
+        with patch.object(m,'rpc',side_effect=m.AdmissionError('RPC_FORBIDDEN')):
+            with self.assertRaisesRegex(m.AdmissionError,'RPC_FORBIDDEN'):
+                m.check_base_state()
+
     def test_real_signature_quote_admits_without_network_and_no_signature(self):
         info=m.check_quote(deepcopy(self.response),self.at)
         self.assertEqual(info['minimum_out'],987426)
