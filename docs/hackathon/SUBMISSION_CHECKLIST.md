@@ -33,7 +33,10 @@ Official instructions were checked against
 
 - [ ] Create and activate a project-local Python virtual environment.
 - [ ] Use Linux x86_64, Python 3.12, Node 22+ and the Rust toolchain; the judge
-      wrapper provisions its isolated nine-package lock.
+      wrapper provisions its isolated nine-package lock. If a local Python 3.12
+      was installed using uv but is not on PATH, the launcher discovers it
+      offline; use uv python install 3.12 before running on an unprepared host.
+      Native macOS execution has not been validated; do not claim it works.
 - [ ] Run `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge`.
 - [ ] Run `python3 scripts/judge_evidence.py --mode full`.
 - [ ] Confirm the readiness report names the current clean commit.
