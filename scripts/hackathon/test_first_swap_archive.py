@@ -102,6 +102,11 @@ class FirstSwapArchiveTests(unittest.TestCase):
             elif mutation=='event_hash_numeric':receipt['logs'][0]['transactionHash']=123
             def fake_rpc(url,method,params):
                 if method=='eth_chainId':return hex(audit.CHAIN_ID)
+                if url==audit.NEAR_RPC and method=='block':
+                    transfer=cert['near_receipt_evidence']['transfer_receipt']
+                    self.assertEqual(params, {'block_id':transfer['block_height']})
+                    return {'header':{'height':transfer['block_height'],
+                                      'hash':'wrong' if mutation=='near_block' else transfer['block_hash']}}
                 if method=='eth_getBlockByNumber':
                     if params[0]=='finalized':return {'number':hex(observation['finalized_block_height']+3)}
                     if params[0]==checkpoint:return {'hash':observation['finalized_block_hash']}
@@ -119,6 +124,9 @@ class FirstSwapArchiveTests(unittest.TestCase):
                               return_value=cert['historical_guard_approval_evidence']):
                 if mutation is None:
                     audit.audit_live(cert)  # Valid synthetic RPC control reaches PASS.
+                elif mutation=='near_block':
+                    with self.assertRaisesRegex(AdmissionError,'NEAR_TRANSFER_RECEIPT_NONCANONICAL'):
+                        audit.audit_live(cert)
                 else:
                     with self.assertRaises(AdmissionError):
                         audit.audit_live(cert)
@@ -128,6 +136,7 @@ class FirstSwapArchiveTests(unittest.TestCase):
                             self.assertEqual(audit.main(),2)
                         self.assertEqual(json.loads(error.getvalue())['result'],'HARD_DENIED')
         check_case(None)
+        check_case('near_block')
         for mutation in ('tx_hash','receipt_hash','event_hash','tx_block_hash','tx_block_number',
                          'tx_hash_null','receipt_hash_null','event_hash_null',
                          'tx_hash_numeric','receipt_hash_numeric','event_hash_numeric'):
