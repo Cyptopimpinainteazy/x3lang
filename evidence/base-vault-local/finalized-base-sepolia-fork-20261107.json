@@ -1,0 +1,31 @@
+{
+  "chain_id": 84532,
+  "classification": "LOCAL_FOUNDRY_FORK_REAL_BASE_SEPOLIA_TOKEN_CODE_NOT_A_PUBLIC_TRANSACTION",
+  "limitations": [
+    "no user signing key imported",
+    "no public Base Sepolia transaction broadcast",
+    "Foundry impersonation exists only within local fork",
+    "no on-chain deployed vault",
+    "no maker signed quote or NEAR destination receipt validated by this test",
+    "RPC archival availability affects optional reruns"
+  ],
+  "local_fork_simulated_erc20_units": 100000,
+  "local_only_test_cases": [
+    "real on-chain token bytecode SHA-256 pinned",
+    "exact ERC20 approve and transferFrom into local simulated vault",
+    "agent EIP712 vault-signed payout over local fork",
+    "source and recipient local-fork balance deltas exact",
+    "nonce replay refused",
+    "recipient redirect refused"
+  ],
+  "observed_utc": "2026-11-07T12:07:42.795162+00:00",
+  "pinned_real_token_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83",
+  "reference_finalized_block_number": 55557819,
+  "result": "PASS_1_TEST",
+  "schema": "x3.shield.base_vault.real_token_local_fork.v1",
+  "source_rpc": "https://sepolia.base.org",
+  "source_wallet_public_address": "0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721",
+  "test_command": "X3_BASE_SEPOLIA_FORK_RPC=https://sepolia.base.org forge test --match-path test/X3ShieldBaseFork.t.sol -vv",
+  "test_log_sha256": "9f527a1bee61f975ab7fca38d59e38173f1d1eb1f719cfc1a3ffac5e066ace33",
+  "token": "0x38d81431B9f76d9699AF7517040D5221D9dEA252"
+}

@@ -16,6 +16,8 @@
 | Mainnet deployment is prohibited | Chain ID 84532/31337 constructor guard | Tests reject Ethereum/BSC mainnet |
 | Arbitrary contract execution is absent | No arbitrary call or delegatecall method | Minimal public execution surface |
 
+**Real-token compatibility extension:** A separately opt-in Foundry fork at Base Sepolia block 55,557,819 verified the **real** token contract and immutable bytecode pin, then executed an exact local-fork deposit and agent-authorized transfer including replay/redirect refusals. Because fork transactions are local, this is NOT a live Base custody testnet deployment or public transaction proof.
+
 **Excluded assurances:** No third-party audit or formal verification, no deployed Base Sepolia vault, no custody key lifecycle management, no verified maker signature on Base inside the vault, no ERC-4337 compliance, no multicall/upgrade support, no public chain adversarial receipts and no permissionless cryptographic BSC-NEAR atomicity. Existing Tidepool testnet trade proves a different authorized execution path.
 
 The local token fixture exists **only in Foundry tests**. The reviewed vault source contains no alternate/unsafe production backend and no token minting or storage bypass.

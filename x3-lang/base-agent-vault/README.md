@@ -24,6 +24,18 @@ From x3-lang/base-agent-vault run:
 
 The Foundry tests use an explicitly disposable local PilotToken fixture. This mock token is NOT part of the production vault contract and is not represented as a live Base Sepolia USDC transaction.
 
+## Optional real Base Sepolia ERC-20 fork compatibility (read-only network)
+
+The optional Foundry integration test obtains genuine public state from a **pinned finalized Base Sepolia block 55,557,819**, authenticates the deployed test-USDC token bytecode SHA-256 **db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83** at address **0x38d81431B9f76d9699AF7517040D5221D9dEA252**, and uses Foundry's **LOCAL fork-only account impersonation** for the public testnet owner 0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721. The fork tests the actual ERC-20 approve, deposit, exact EIP-712 agent-signed transfer, receipt ledger, nonce replay refusal, and attacker-recipient refusal, against genuine archived token code/storage.
+
+Opt in explicitly using this read-only Base Sepolia RPC and the separate test path:
+
+    X3_BASE_SEPOLIA_FORK_RPC=https://sepolia.base.org forge test --match-path test/X3ShieldBaseFork.t.sol -vv
+
+If X3_BASE_SEPOLIA_FORK_RPC is absent, the fork test is **SKIPPED** (not counted as proof). The standard offline suite needs no network. This is a **local EVM fork simulation on actual token bytecode**, not a signed public transaction, verified public-vault code, user wallet authorization or live Base Sepolia custody release.
+
+See evidence/base-vault-local/finalized-base-sepolia-fork-20261107.json for the captured opt-in result and its local log hash.
+
 ## Important security limitations
 
 The quoteHash is an owner-pinned commitment, not **cryptographic verification of the Tidepool maker signature inside the vault**. Do not reuse the expired historical Tidepool quote from the November 7 real swap. The next pilot requires a fresh maker-signed quote, real deployment verification, policy registration and a separate owner-approved funding transaction.
