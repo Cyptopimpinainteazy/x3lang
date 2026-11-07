@@ -25,7 +25,7 @@ from base_sepolia_x3_intent import compile_testnet_intent
 
 NEAR_RPC = 'https://test.rpc.fastnear.com'
 NEAR_GENESIS = 'FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b'
-BASE_RPCS = ('https://base-sepolia.gateway.tenderly.co', 'https://base-sepolia.drpc.org')
+BASE_RPCS = ('https://sepolia.base.org', 'https://base-sepolia-rpc.publicnode.com')
 CHAIN_ID = 84532
 SOURCE = '0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721'
 TOKEN = '0x38d81431B9f76d9699AF7517040D5221D9dEA252'
