@@ -178,8 +178,52 @@ def verify_delivery_balance(before_hash: str,after_hash: str, min_units: int) ->
             'classification':'independent_near_state_balance_delta_not_sufficient_by_itself'}
 
 
+def verify_historical_guard_approval(account: str, owner: str, nonce: str,
+                                    expected_code_sha: str, approval_block_hash: str,
+                                    source_inclusion_unix_s: int) -> dict:
+    """Require exact approved Guard state in canonical FINAL NEAR block BEFORE Base deposit."""
+    reject(isinstance(approval_block_hash,str) and len(approval_block_hash)>30,
+           'GUARD_APPROVAL_HISTORICAL_BLOCK_REQUIRED')
+    reject(account.endswith('.testnet') and account!=RECEIVER,'GUARD_APPROVAL_ACCOUNT_INVALID')
+    status=rpc(NEAR_RPC,'status',[])
+    reject(status.get('chain_id')=='testnet' and status.get('genesis_hash')==NEAR_GENESIS,
+           'GUARD_APPROVAL_NEAR_WRONG_NETWORK')
+    selected=rpc(NEAR_RPC,'block',{'block_id':approval_block_hash})
+    header=selected.get('header') or {}
+    height=header.get('height')
+    reject(header.get('hash')==approval_block_hash and isinstance(height,int) and height>0,
+           'GUARD_APPROVAL_BLOCK_INVALID')
+    final=rpc(NEAR_RPC,'block',{'finality':'final'})
+    reject(isinstance((final.get('header') or {}).get('height'),int)
+           and final['header']['height']>=height,'GUARD_APPROVAL_BLOCK_NOT_FINALIZED')
+    canonical=rpc(NEAR_RPC,'block',{'block_id':height})
+    reject((canonical.get('header') or {}).get('hash')==approval_block_hash,
+           'GUARD_APPROVAL_BLOCK_NONCANONICAL')
+    try:
+        timestamp_ns=int(header.get('timestamp_nanosec') or header.get('timestamp'))
+    except (TypeError,ValueError) as exc:
+        raise AdmissionError('GUARD_APPROVAL_BLOCK_TIMESTAMP_MISSING') from exc
+    reject(timestamp_ns>0 and timestamp_ns<=source_inclusion_unix_s*1_000_000_000,
+           'GUARD_APPROVAL_OCCURRED_AFTER_BASE_TRANSFER')
+    code=rpc(NEAR_RPC,'query',{'request_type':'view_code','block_id':approval_block_hash,
+                                'account_id':account})
+    reject(code.get('block_hash')==approval_block_hash,'GUARD_APPROVAL_CODE_BLOCK_MISMATCH')
+    code_sha=hashlib.sha256(base64.b64decode(code['code_base64'],validate=True)).hexdigest()
+    reject(code_sha==expected_code_sha,'GUARD_APPROVAL_HISTORICAL_CODE_HASH_MISMATCH')
+    args=base64.b64encode(json.dumps({'owner':owner,'nonce':nonce},separators=(',',':')).encode()).decode()
+    view=rpc(NEAR_RPC,'query',{'request_type':'call_function','block_id':approval_block_hash,
+                                'account_id':account,'method_name':'get_policy','args_base64':args})
+    reject(view.get('block_hash')==approval_block_hash,'GUARD_APPROVAL_POLICY_BLOCK_MISMATCH')
+    row=json.loads(bytes(view['result']).decode())
+    reject(isinstance(row,dict),'GUARD_APPROVAL_POLICY_ABSENT_BEFORE_BASE_TRANSFER')
+    return {'approval_near_block_hash':approval_block_hash,'approval_near_block_height':height,
+            'approval_timestamp_nanoseconds':timestamp_ns,'historical_code_sha256':code_sha,
+            'owner':owner,'nonce':nonce,'historical_policy':row}
+
+
 def collect(quote_data: dict, *, guard_account: str, guard_sha: str, nonce: str,program_sha: str,
-            base_tx_hash: str,near_tx_hash: str,near_tx_signer: str, before_hash: str,after_hash: str) -> dict:
+            base_tx_hash: str,near_tx_hash: str,near_tx_signer: str, before_hash: str,after_hash: str,
+            guard_approval_near_block: str) -> dict:
     from base_sepolia_x3_intent import compile_testnet_intent
     source=compile_testnet_intent()
     reject(program_sha==source['program_sha256'],'X3_SOURCE_HASH_MISMATCH')
@@ -199,6 +243,13 @@ def collect(quote_data: dict, *, guard_account: str, guard_sha: str, nonce: str,
     reject(source_inclusion>=int(q['issued_at'].timestamp())-120,'BASE_TRANSFER_PREDATES_SIGNED_QUOTE')
     reject(source_inclusion<=int(q['deadline'].timestamp()),'BASE_TRANSFER_AFTER_SIGNED_DEADLINE')
     reject(source_inclusion*1000<=int(policy['policy']['expiry_ms']),'BASE_TRANSFER_AFTER_OWNER_POLICY_EXPIRY')
+    historical=verify_historical_guard_approval(guard_account,RECEIVER,nonce,guard_sha,
+                                                guard_approval_near_block,source_inclusion)
+    # The policy and signed quote MUST already have been committed by the owner
+    # at that specific canonical finalized NEAR block, before EVM source transfer.
+    check_guard_policy(q,historical['historical_policy'],owner=RECEIVER,nonce=nonce,
+                       now=issued,program_sha=program_sha)
+    enforce_compiled_x3_policy(source,q,historical['historical_policy'],nonce)
     near=verify_near_delivery(near_tx_hash,near_tx_signer,min_units=q['minimum_out'])
     delta=verify_delivery_balance(before_hash,after_hash,q['minimum_out'])
     transfer_height=near['transfer_receipt']['block_height']
@@ -210,14 +261,15 @@ def collect(quote_data: dict, *, guard_account: str, guard_sha: str, nonce: str,
     return {'classification':'independent_testnet_two_chain_transfer_evidence_NOT_atomicity_or_native_x3vm_proof',
             'claim_limits':['Provider is custodial testnet relay','No cryptographic atomic HTLC proof','No mainnet readiness'],
             'quote_sha256':q['quote_sha256'],'program_sha256':program_sha,'guard_account':guard_account,
-            'guard_wasm_sha256':guard_sha,'base_evidence':base,'near_receipt_evidence':near,
+            'guard_wasm_sha256':guard_sha,'historical_guard_approval_evidence':historical,
+            'base_evidence':base,'near_receipt_evidence':near,
             'near_balance_evidence':delta,'refundable_source':SOURCE,
             'received_at_utc':datetime.now(timezone.utc).isoformat()}
 
 
 def main() -> int:
     p=argparse.ArgumentParser(description=__doc__)
-    for name in ['quote_file','guard_account','guard_wasm_sha256','nonce','program_sha256','base_tx_hash','near_tx_hash','near_tx_signer','near_balance_before_block','near_balance_after_block']:
+    for name in ['quote_file','guard_account','guard_wasm_sha256','nonce','program_sha256','base_tx_hash','near_tx_hash','near_tx_signer','near_balance_before_block','near_balance_after_block','guard_approval_near_block']:
         p.add_argument('--'+name.replace('_','-'),required=True,type=Path if name=='quote_file' else str)
     p.add_argument('--output',type=Path,required=True)
     args=p.parse_args()
@@ -225,7 +277,8 @@ def main() -> int:
         evidence=collect(json.loads(args.quote_file.read_text()),guard_account=args.guard_account,
             guard_sha=args.guard_wasm_sha256,nonce=args.nonce,program_sha=args.program_sha256,
             base_tx_hash=args.base_tx_hash,near_tx_hash=args.near_tx_hash,near_tx_signer=args.near_tx_signer,
-            before_hash=args.near_balance_before_block,after_hash=args.near_balance_after_block)
+            before_hash=args.near_balance_before_block,after_hash=args.near_balance_after_block,
+            guard_approval_near_block=args.guard_approval_near_block)
         args.output.parent.mkdir(parents=True,exist_ok=True)
         data=(json.dumps(evidence,sort_keys=True,indent=2)+'\n').encode()
         # Exclusive creation atomically refuses racing evidence writers.

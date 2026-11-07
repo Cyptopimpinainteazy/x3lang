@@ -189,6 +189,50 @@ class ProofSecurityTests(unittest.TestCase):
             self.assertEqual(r['net_increase_units'],1_000_000)
             self.assertIn('not_sufficient',r['classification'])
 
+    def test_historical_guard_approval_on_final_canonical_block_positive_synthetic(self):
+        code=b'validated-testnet-guard-wasm'
+        digest=__import__('hashlib').sha256(code).hexdigest()
+        blockhash='G'*43
+        row={'owner':p.RECEIVER,'nonce':'approved_nonce','quote_sha256':'f'*64,'revoked':False}
+        calls=[]
+        def fake(url,method,params):
+            calls.append((method,params))
+            if method=='status':return {'chain_id':'testnet','genesis_hash':p.NEAR_GENESIS}
+            if method=='block':
+                if params.get('finality')=='final':return {'header':{'height':100,'hash':'Z'*43}}
+                return {'header':{'height':42,'hash':blockhash,'timestamp_nanosec':str(1_762_500_000_000_000_000)}}
+            if method=='query':
+                if params['request_type']=='view_code':
+                    return {'block_hash':blockhash,'code_base64':__import__('base64').b64encode(code).decode()}
+                if params['request_type']=='call_function':
+                    self.assertEqual(params['block_id'],blockhash)
+                    return {'block_hash':blockhash,'result':list(json.dumps(row).encode())}
+            raise AssertionError((method,params))
+        with patch.object(p,'rpc',side_effect=fake):
+            result=p.verify_historical_guard_approval('guard.testnet',p.RECEIVER,'approved_nonce',digest,blockhash,1_762_500_100)
+        self.assertEqual(result['historical_policy']['quote_sha256'],'f'*64)
+        self.assertEqual(result['approval_near_block_hash'],blockhash)
+        self.assertTrue(any(method=='query' and params.get('request_type')=='call_function' and params.get('block_id')==blockhash for method,params in calls))
+
+    def test_approval_after_base_transfer_is_denied(self):
+        blockhash='G'*43
+        def fake(url,method,params):
+            if method=='status':return {'chain_id':'testnet','genesis_hash':p.NEAR_GENESIS}
+            if params.get('finality')=='final':return {'header':{'height':100}}
+            return {'header':{'hash':blockhash,'height':42,'timestamp_nanosec':str(1_762_500_100_000_000_000)}}
+        with patch.object(p,'rpc',side_effect=fake),self.assertRaisesRegex(p.AdmissionError,'GUARD_APPROVAL_OCCURRED_AFTER_BASE_TRANSFER'):
+            p.verify_historical_guard_approval('guard.testnet',p.RECEIVER,'approved_nonce','f'*64,blockhash,1_762_500_000)
+
+    def test_noncanonical_approval_block_is_denied(self):
+        blockhash='G'*43
+        def fake(url,method,params):
+            if method=='status':return {'chain_id':'testnet','genesis_hash':p.NEAR_GENESIS}
+            if params.get('finality')=='final':return {'header':{'height':100}}
+            if params.get('block_id')==42:return {'header':{'hash':'WRONG_FORK','height':42}}
+            return {'header':{'hash':blockhash,'height':42,'timestamp_nanosec':'1762500000000000000'}}
+        with patch.object(p,'rpc',side_effect=fake),self.assertRaisesRegex(p.AdmissionError,'GUARD_APPROVAL_BLOCK_NONCANONICAL'):
+            p.verify_historical_guard_approval('guard.testnet',p.RECEIVER,'approved_nonce','f'*64,blockhash,1_762_500_100)
+
     def test_source_transfer_after_signed_deadline_cannot_be_reported(self):
         fixture=ROOT/'x3-lang/near/x3-tidepool-guard/src/signed_live_fixture.json'
         f=json.loads(fixture.read_text())
@@ -208,7 +252,7 @@ class ProofSecurityTests(unittest.TestCase):
             p.collect(quote,guard_account='guard.testnet',guard_sha='a'*64,
                       nonce=source['nonce'],program_sha=source['program_sha256'],
                       base_tx_hash=TXID,near_tx_hash='H'*43,near_tx_signer='relayer.testnet',
-                      before_hash='a'*43,after_hash='b'*43)
+                      before_hash='a'*43,after_hash='b'*43,guard_approval_near_block='g'*43)
         near.assert_not_called()
 
     def test_existing_proof_file_refused_without_overwrite(self):
@@ -219,7 +263,7 @@ class ProofSecurityTests(unittest.TestCase):
                   '--guard-wasm-sha256','a'*64,'--nonce','demo','--program-sha256','b'*64,
                   '--base-tx-hash',TXID,'--near-tx-hash','H'*43,'--near-tx-signer','relayer.testnet',
                   '--near-balance-before-block','a'*43,'--near-balance-after-block','b'*43,
-                  '--output',str(path)]
+                  '--guard-approval-near-block','G'*43,'--output',str(path)]
             with patch.object(sys,'argv',args), patch.object(p,'collect',return_value={'classification':'SYNTHETIC_NOT_REAL'}), \
                  contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(p.main(),2)
