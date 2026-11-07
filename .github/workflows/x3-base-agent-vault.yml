@@ -1,0 +1,31 @@
+name: X3 Shield Base Sepolia Custody Vault Pilot
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/base-agent-vault/**'
+      - '.github/workflows/x3-base-agent-vault.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/base-agent-vault/**'
+      - '.github/workflows/x3-base-agent-vault.yml'
+permissions:
+  contents: read
+jobs:
+  foundry-vault:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Verify source formatting
+        working-directory: x3-lang/base-agent-vault
+        run: forge fmt --check
+      - name: Adversarial vault tests with 256 fuzz runs each
+        working-directory: x3-lang/base-agent-vault
+        run: forge test --fuzz-runs 256 -vv
+      - name: Build exact artifact (no signing or deployment)
+        working-directory: x3-lang/base-agent-vault
+        run: forge build --sizes
