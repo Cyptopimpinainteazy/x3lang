@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from near_intents import _decode_ed25519, ed25519
@@ -52,7 +53,8 @@ def verify_signature(response: dict[str, Any], *, public_key: str = PINNED_TESTN
         return False
 
 
-def verify_dry_quote(response: dict[str, Any], *, amount: str = "1000000") -> dict[str, str | bool]:
+def verify_dry_quote(response: dict[str, Any], *, amount: str = "1000000",
+                     refund_to: str | None = None, now: datetime | None = None) -> dict[str, str | bool]:
     """Read-only valid *dry* quote for a fixed destination; no spending permission."""
     if not verify_signature(response):
         raise TidepoolQuoteRejected("UNTRUSTED_TESTNET_MAKER_SIGNATURE")
@@ -66,6 +68,32 @@ def verify_dry_quote(response: dict[str, Any], *, amount: str = "1000000") -> di
                 "recipient": ALLOWED_RECIPIENT, "refundType": "ORIGIN_CHAIN", "amount": amount}
     if any(req.get(k) != v for k, v in expected.items()):
         raise TidepoolQuoteRejected("TESTNET_ROUTE_OR_RECIPIENT_POLICY_MISMATCH")
+    # Only the explicit caller's refund address is acceptable; no fallbacks.
+    if refund_to is None or not (isinstance(refund_to, str) and len(refund_to) == 42
+                                 and refund_to.startswith("0x")
+                                 and all(c in "0123456789abcdefABCDEF" for c in refund_to[2:])):
+        raise TidepoolQuoteRejected("EXPLICIT_OWNER_REFUND_ADDRESS_REQUIRED")
+    if req.get("refundTo", "").lower() != refund_to.lower():
+        raise TidepoolQuoteRejected("REFUND_ADDRESS_MISMATCH")
+    now = now or datetime.now(timezone.utc)
+    if now.utcoffset() is None:
+        raise TidepoolQuoteRejected("NOW_MUST_HAVE_TIMEZONE")
+    def parse_ts(value: Any) -> datetime:
+        if not isinstance(value, str):
+            raise TidepoolQuoteRejected("INVALID_TIMESTAMP")
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise TidepoolQuoteRejected("INVALID_TIMESTAMP") from exc
+        if dt.utcoffset() is None:
+            raise TidepoolQuoteRejected("TIMESTAMP_TIMEZONE_REQUIRED")
+        return dt
+    issued = parse_ts(response.get("timestamp"))
+    deadline = parse_ts(req.get("deadline"))
+    if not timedelta(seconds=-30) <= now - issued <= timedelta(minutes=5):
+        raise TidepoolQuoteRejected("STALE_OR_FUTURE_QUOTE")
+    if not timedelta(seconds=60) <= deadline - now <= timedelta(minutes=60):
+        raise TidepoolQuoteRejected("UNSAFE_DEADLINE")
     if q.get("depositAddress") is not None:
         raise TidepoolQuoteRejected("DRY_QUOTE_MUST_NOT_HAVE_DEPOSIT_ADDRESS")
     try:
@@ -76,6 +104,8 @@ def verify_dry_quote(response: dict[str, Any], *, amount: str = "1000000") -> di
         raise TidepoolQuoteRejected("INVALID_AMOUNT") from exc
     if str(amount_in) != amount or minimum <= 0 or minimum > amount_out:
         raise TidepoolQuoteRejected("QUOTE_AMOUNT_CONSTRAINT_FAILED")
+    if minimum * 100 < amount_out * 99:
+        raise TidepoolQuoteRejected("SLIPPAGE_MINIMUM_EXCEEDS_ONE_PERCENT")
     return {"classification": "signed_testnet_dry_quote_only", "signature_valid": True,
             "maker": MAKER_ACCOUNT, "maker_key": PINNED_TESTNET_MAKER_KEY,
             "amount_in": str(amount_in), "amount_out": str(amount_out),

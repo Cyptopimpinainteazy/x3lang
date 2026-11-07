@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from datetime import datetime, timezone, timedelta
 from copy import deepcopy
 from unittest.mock import patch
 
@@ -21,7 +22,8 @@ class TestVerification(unittest.TestCase):
         self.assertEqual(f['fixture_classification'], 'HISTORICAL_SIGNED_DRY_QUOTE_NO_DEPOSIT_NO_SETTLEMENT')
         response = f['response']
         self.assertTrue(mod.verify_signature(response))
-        self.assertTrue(mod.verify_dry_quote(response)['signature_valid'])
+        observed_at=datetime.fromisoformat(response['timestamp'].replace('Z','+00:00'))
+        self.assertTrue(mod.verify_dry_quote(response,refund_to=response['quoteRequest']['refundTo'],now=observed_at)['signature_valid'])
         for path, replacement in [(('quoteRequest','recipient'), 'attacker.testnet'),
                                   (('quoteRequest','originAsset'), 'mainnet:usdc'),
                                   (('quote','amountIn'), '1000001'),
@@ -30,6 +32,15 @@ class TestVerification(unittest.TestCase):
             tampered[path[0]][path[1]] = replacement
             with self.subTest(path=path):
                 self.assertFalse(mod.verify_signature(tampered))
+
+    def test_refund_and_freshness_are_binding(self):
+        f=json.loads(Path(__file__).with_name('fixtures').joinpath('tidepool_signed_dry_20261107.json').read_text())
+        q=f['response']
+        observed=datetime.fromisoformat(q['timestamp'].replace('Z','+00:00'))
+        with self.assertRaisesRegex(mod.TidepoolQuoteRejected,'REFUND'):
+            mod.verify_dry_quote(q,refund_to='0x0000000000000000000000000000000000000002',now=observed)
+        with self.assertRaisesRegex(mod.TidepoolQuoteRejected,'STALE'):
+            mod.verify_dry_quote(q,refund_to=q['quoteRequest']['refundTo'],now=observed+timedelta(minutes=6))
 
     def test_wrong_signer_refused(self):
         self.assertFalse(mod.verify_signature({'signature':'ed25519:bad'}, public_key='ed25519:bad'))
@@ -55,16 +66,18 @@ class TestVerification(unittest.TestCase):
 
     def test_tampered_signed_field_refused(self):
         # A mock verifies the policy boundary; the live test below tests cryptography.
-        valid={'quoteRequest':{'dry':True,'swapType':'EXACT_INPUT','slippageTolerance':100,
+        observed=datetime.now(timezone.utc)
+        refund='0x0000000000000000000000000000000000000001'
+        valid={'timestamp':observed.isoformat(), 'quoteRequest':{'dry':True,'swapType':'EXACT_INPUT','slippageTolerance':100,
              'originAsset':mod.TESTNET_ORIGIN_ASSET,'destinationAsset':mod.TESTNET_DEST_ASSET,
              'depositType':'ORIGIN_CHAIN','recipientType':'DESTINATION_CHAIN','recipient':mod.ALLOWED_RECIPIENT,
-             'refundType':'ORIGIN_CHAIN','amount':'1000000'},
+             'refundType':'ORIGIN_CHAIN','refundTo':refund,'deadline':(observed+timedelta(minutes=30)).isoformat(), 'amount':'1000000'},
              'quote':{'amountIn':'1000000','amountOut':'997400','minAmountOut':'987426'}}
         with patch.object(mod,'verify_signature',return_value=True):
-            self.assertTrue(mod.verify_dry_quote(valid)['signature_valid'])
+            self.assertTrue(mod.verify_dry_quote(valid,refund_to=refund,now=observed)['signature_valid'])
             for field,bad in [('recipient','wrong.testnet'),('originAsset','mainnet:usdc'),('amount','2000000')]:
                 changed=deepcopy(valid);changed['quoteRequest'][field]=bad
                 with self.subTest(field=field),self.assertRaises(mod.TidepoolQuoteRejected):
-                    mod.verify_dry_quote(changed)
+                    mod.verify_dry_quote(changed,refund_to=refund,now=observed)
 
 if __name__ == '__main__':unittest.main()
