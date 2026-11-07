@@ -43,6 +43,23 @@ RECEIPT_PROOF = ROOT / "fixtures" / "near_live_receipt_proof_20261105.json"
 RECEIPT = "3f9FCzqC8k75AGob2UrCxbKVqADRyv5M5vGfoLEXbZyu"
 RECEIVER = "league-v7.near-post.testnet"
 REAL_HEAD_ROOT = "6F2mBDUkzB8tRpETPpRTtH5zo1E5yGGpftfyNYbRVDVw"
+IDENTITY_KEY = b"\x01" + b"\x00" * 31
+SMALL_ORDER_KEYS = (
+    b"\x00" * 32,
+    b"\xec" + b"\xff" * 30 + b"\x7f",
+    bytes.fromhex(
+        "c7176a703d4dd84fba3c0b760d10670f"
+        "2a2053fa2c39ccc64ec7fd7792ac037a"
+    ),
+    bytes.fromhex(
+        "26e8958fc2b227b045c3f489f2ef98f0"
+        "d5dfac05d3c63339b13802886d53fc05"
+    ),
+)
+TORSION_COMPONENT_KEY = bytes.fromhex(
+    "e13c37ce5dce819535f932cbc63fc224"
+    "d60d129d8e0e4d90cad59438d2d7042a"
+)
 
 
 def canonical(value):
@@ -65,6 +82,14 @@ def key_token(private):
 
 def signature_token(private, message):
     return "ed25519:" + _b58encode(private.sign(message))
+
+
+def public_key_token(public):
+    return "ed25519:" + _b58encode(public)
+
+
+def identity_forgery():
+    return "ed25519:" + _b58encode(IDENTITY_KEY + b"\x00" * 32)
 
 
 def marker(label):
@@ -334,6 +359,81 @@ class AuthenticatedLightClientTests(unittest.TestCase):
                 expected_policy_sha256=sha(policy(trust, versions=[87])),
                 expected_checkpoint_sha256=good["expected_checkpoint_sha256"],
             )
+
+    def test_identity_key_cannot_forge_checkpoint_approval(self):
+        current = [validator(seed(33), "v.testnet")]
+        view = make_view(
+            height=100,
+            epoch=marker("identity-epoch"),
+            next_epoch=marker("identity-next"),
+            next_validators=[validator(seed(34), "n.testnet")],
+            label="identity-checkpoint",
+        )
+        checkpoint = checkpoint_document(view, current)
+        checkpoint["checksum"] = sha(checkpoint)
+        trust_policy = policy(seed(35))
+        trust_policy["checkpoint_signers"][0]["public_key"] = public_key_token(
+            IDENTITY_KEY
+        )
+        approval = {
+            "schema": APPROVAL_SCHEMA,
+            "checkpoint_sha256": checkpoint["checksum"],
+            "approved_at": "2026-11-06T00:00:00Z",
+            "signatures": [
+                {
+                    "signer_id": "offline-test-authority",
+                    "signature": identity_forgery(),
+                }
+            ],
+        }
+        with self.assertRaisesRegex(
+            AuthenticatedLightClientError, "checkpoint signer public key"
+        ):
+            initialize_from_documents(
+                checkpoint,
+                approval,
+                trust_policy,
+                expected_policy_sha256=sha(trust_policy),
+                expected_checkpoint_sha256=checkpoint["checksum"],
+            )
+
+    def test_identity_small_order_noncanonical_and_torsion_keys_are_rejected(self):
+        weak_keys = (IDENTITY_KEY, *SMALL_ORDER_KEYS, b"\xff" * 32, TORSION_COMPONENT_KEY)
+        for index, public in enumerate(weak_keys):
+            with self.subTest(public=public.hex()):
+                validators = [
+                    {
+                        "account_id": f"weak-{index}.testnet",
+                        "public_key": public_key_token(public),
+                        "stake": "100",
+                        "validator_stake_struct_version": "V1",
+                    }
+                ]
+                message = b"\x00" + b"\x11" * 32 + (123).to_bytes(8, "little")
+                forged = [identity_forgery() if public == IDENTITY_KEY else None]
+                with self.assertRaises(AuthenticatedLightClientError):
+                    _verify_approvals(validators, forged, message)
+
+                view = make_view(
+                    height=100,
+                    epoch=marker(f"weak-epoch-{index}"),
+                    next_epoch=marker(f"weak-next-{index}"),
+                    next_validators=None,
+                    label=f"weak-checkpoint-{index}",
+                )
+                trust = seed(36)
+                checkpoint, approval = seal_checkpoint(
+                    checkpoint_document(view, validators), trust
+                )
+                trust_policy = policy(trust)
+                with self.assertRaises(AuthenticatedLightClientError):
+                    initialize_from_documents(
+                        checkpoint,
+                        approval,
+                        trust_policy,
+                        expected_policy_sha256=sha(trust_policy),
+                        expected_checkpoint_sha256=checkpoint_checksum(checkpoint),
+                    )
 
     def test_checkpoint_policy_threshold_is_enforced(self):
         first, second = seed(34), seed(35)
