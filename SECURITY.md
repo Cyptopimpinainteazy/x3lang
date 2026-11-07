@@ -20,6 +20,15 @@ A useful report includes: affected commit SHA, impacted files, the trust boundar
 
 Do not fund any address from example files; placeholder addresses and test keys are not treasury destinations.
 
+## Dependency advisories
+
+GitHub dependabot advisories that are unfixable within the supported dependency
+line are documented at the source of the constraint rather than silently
+suppressed. See
+[x3-lang/solana/x3-mandate-vault/SECURITY.md](x3-lang/solana/x3-mandate-vault/SECURITY.md)
+for the Solana vault's transitive `rustls`, `rustls-webpki`, `ed25519-dalek`,
+`curve25519-dalek`, `rand`, and `atty` findings.
+
 ## Minimum bar for changes
 
 For security-relevant changes, provide targeted negative-case tests, the exact commands and commit SHA tested, and a clear distinction between local, CI, signed-quote and on-chain evidence. Never relax a release gate, skip a failing test, or present a mock response as live transaction proof.
