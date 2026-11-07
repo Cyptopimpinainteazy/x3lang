@@ -1,0 +1,46 @@
+name: X3 Shield Private Attack Lab Preview
+on:
+  pull_request:
+    paths:
+      - 'docs/hackathon/attack-lab*'
+      - '.github/workflows/x3-shield-attack-lab.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'docs/hackathon/attack-lab*'
+      - '.github/workflows/x3-shield-attack-lab.yml'
+permissions:
+  contents: read
+jobs:
+  offline-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test offline policy preview (NOT an on-chain proof)
+        run: node --test docs/hackathon/attack-lab-policy.test.mjs
+      - name: Static sanity and no wallet-signer code in preview
+        run: |
+          set -euo pipefail
+          node --check docs/hackathon/attack-lab-policy.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          from html.parser import HTMLParser
+          from collections import Counter
+          html=Path('docs/hackathon/attack-lab.html').read_text()
+          class IDs(HTMLParser):
+              def __init__(self):
+                  super().__init__();self.ids=[]
+              def handle_starttag(self,tag,attrs):
+                  row=dict(attrs)
+                  if 'id' in row:self.ids.append(row['id'])
+          ids=IDs();ids.feed(html)
+          assert len(ids.ids)==len(set(ids.ids)),'duplicate element ids'
+          assert "import {previewRequest} from './attack-lab-policy.mjs'" in html
+          for forbidden in ['eth_sendTransaction','eth_sendRawTransaction','window.ethereum.request','privateKey','wallet_connect','cast send']:
+              assert forbidden not in html, forbidden
+          print('ATTACK_LAB_STATIC_CHECK_OK', len(ids.ids),'unique_ids')
+          PY
