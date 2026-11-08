@@ -9,8 +9,8 @@
 ## Overview
 
 The proposals cover cross-VM execution, financial operations, GPU jobs, agent
-controls and off-chain computation. Each entry describes intended behavior;
-implementation status belongs in the language README and its linked tests.
+controls and off-chain computation. Each entry describes intended behavior.
+For implementation status, see the language README.
 
 ---
 
