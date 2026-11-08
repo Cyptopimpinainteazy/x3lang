@@ -25,6 +25,7 @@ export function previewRequest(data) {
   if (!data || typeof data !== 'object') return DENY('INVALID_CONTEXT');
   if (data.action !== 'request_payment') return DENY('ACCESS_KEY_SCOPE');
   if (data.agent !== PREVIEW.agent) return DENY('AGENT_DENIED');
+  if (typeof data.revoked !== 'boolean' || typeof data.expired !== 'boolean') return DENY('INVALID_CONTEXT');
   if (data.revoked === true) return DENY('MANDATE_REVOKED');
   if (data.expired === true) return DENY('MANDATE_EXPIRED');
   if (typeof data.nonce !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(data.nonce)) return DENY('NONCE_INVALID');

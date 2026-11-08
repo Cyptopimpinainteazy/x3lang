@@ -1,14 +1,13 @@
 # X3-lang Product & Technical Specification
 
-**Status: 🚧 ACTIVE DEVELOPMENT — Per-feature readiness derived from `FEATURE_REGISTRY.toml`**
-
-> Readiness scores are the canonical source. Run `scripts/check-readiness-consistency.sh` to validate.
-> See `CURRENT_MAINNET_STATUS.md` for the full system scoreboard.
+Status: active development. Use the [language README](../README.md) for supported
+execution paths and limitations. Test results apply to the commit and command
+that produced them.
 
 ## Quick Navigation
 
-- **Unique Capabilities**: [x3-unique-capabilities.md](x3-unique-capabilities.md)
-- **Profitable Primitives**: [x3-profit-primitives.md](x3-profit-primitives.md)
+- [Capability proposals](x3-unique-capabilities.md)
+- [Trading primitive proposals](x3-profit-primitives.md)
 
 ## What is X3-lang?
 
@@ -16,14 +15,14 @@ X3-lang is a deterministic finance language for the X3 ecosystem. Today it compi
 
 ## Instruction sets — what exists
 
-This section used to list opcodes (`CONST_U128`, `HOST_CALL_EVM`, `GPU_BATCH_SIM`, ...) as "ALL
-EXECUTING". None of those names exist in either instruction set in this repository.
+Opcode definitions and executor dispatch determine which instructions are supported.
 
 - **x3-lang intent bytecode:** [`opcodes.yaml`](opcodes.yaml) is the source of truth (84 entries).
   It executes in `x3-lang/vm`, which is not on chain.
-- **X3BC, the chain's bytecode:** `crates/x3-backend/src/opcode.rs` (114 opcodes). Which of them the
-  chain's engine runs is `x3_vm::vm::engine_executes`, an exhaustive table checked against the
-  interpreter by a test; the on-chain verifier refuses the rest at intake.
+- **Canonical X3BC core:** [`crates/x3bc-core`](../../crates/x3bc-core/) defines
+  bytecode headers, opcodes, verification and receipts shared with the parent chain.
+  Chain runtime integration is maintained in `xxxstar`; these shared definitions
+  alone do not establish on-chain execution.
 
 ## Compiler Pipeline
 
@@ -62,14 +61,15 @@ language decision rather than silently dropping a price floor (TICKET-122).
 
 ## Production Readiness
 
-> **Note**: All 26 opcodes execute in the VM. ON_FAIL now wires real failure-handler dispatch — a trapped opcode (REQUIRE, OOG, timeout, etc.) transfers control to the most recent handler target instead of immediately returning `Err`. The atomic_router feature is at **85%** readiness per `FEATURE_REGISTRY.toml`. Remaining gaps are production hardening — multi-validator testing, external bridge integration, and CI gate wiring — not missing VM functionality.
+`ON_FAIL` registers failure-handler targets in the local VM. The implementation
+and regression cases are in [`vm/src/executor.rs`](../vm/src/executor.rs).
+A local control-flow test does not establish live adapter execution or network readiness.
 
-- **26 opcodes**: all executing in VM
-- **10+ E2E control-flow tests**: IF, LOOP, REQUIRE, ON_FAIL, ON_TIMEOUT, ATOMIC_BEGIN/END/ROLLBACK
-- **Bridge backend**: 4 verifier families (evm-light-client, svm-light-client, evm-rpc, svm-rpc)
-- **CI gates**: 22 gates all passing
-- **Registry**: 23 features tracked in `FEATURE_REGISTRY.toml` (average readiness ~36%)
+The [VM execution table](../README.md#x3-lang-vm--what-executes-and-where)
+distinguishes dispatched instructions, reserved opcodes and adapter requirements.
+Trading Core v1 uses fixture hosts; live venue integration and on-chain execution
+need separate evidence.
 
-**X3-lang status: All opcodes execute. Production hardening in progress. 🚧**
-
-*Last updated: June 2026*
+For a CI or release claim, record the tested commit, commands, results and
+workflow links. Track live adapter execution, deployment and independent review
+separately from local VM tests.

@@ -1,0 +1,36 @@
+{
+  "classification": "LIVE_QUOTE_UNFUNDED_UNAUTHORIZED_NOT_SETTLED",
+  "response": {
+    "correlationId": "d42c1b5d-c7c5-4127-b073-97c148d8b9e1",
+    "timestamp": "2026-11-07T06:31:19.985Z",
+    "quoteRequest": {
+      "dry": false,
+      "swapType": "EXACT_INPUT",
+      "slippageTolerance": 100,
+      "originAsset": "nep141:base-0x38d81431b9f76d9699af7517040d5221d9dea252.tp-omft.testnet",
+      "depositType": "ORIGIN_CHAIN",
+      "destinationAsset": "nep141:usdc.tidepool-sandbox.testnet",
+      "amount": "1000000",
+      "refundTo": "0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721",
+      "refundType": "ORIGIN_CHAIN",
+      "recipient": "x3lang.testnet",
+      "recipientType": "DESTINATION_CHAIN",
+      "deadline": "2026-11-07T06:56:19.630Z"
+    },
+    "quote": {
+      "amountIn": "1000000",
+      "amountInFormatted": "1",
+      "amountInUsd": "0.9997",
+      "minAmountIn": "1000000",
+      "amountOut": "997400",
+      "amountOutFormatted": "0.9974",
+      "amountOutUsd": "0.9971",
+      "minAmountOut": "987426",
+      "timeEstimate": 60,
+      "depositAddress": "0x9195A7547f057FF2790601f7bE4b58ABcB372185",
+      "deadline": "2026-11-07T06:56:19.630Z",
+      "timeWhenInactive": "2026-11-07T06:56:19.630Z"
+    },
+    "signature": "ed25519:5f9hBs9bkcMVEQYncVFgKdAzdgvtnZkR2RWpeGWPpM7QpmEbph4MqATLPEkpXji44MoxynmpBHt9dTCTDqntkWqC"
+  }
+}

@@ -87,6 +87,8 @@ jobs:
           workspaces: x3-lang/near/x3-guard
       - name: Install NEAR Guard WASM target
         run: rustup target add wasm32-unknown-unknown
+      - name: Allocator gate failure regression tests
+        run: python3 -m unittest discover -s tests/ci -p 'test_near_allocator_gate.py' -v
       - name: Ensure no abandoned wasm32 allocator in NEAR Guard
         run: bash scripts/check-near-allocator.sh
       - name: Rust NEAR Guard contract tests

@@ -79,7 +79,7 @@ provisioning. The NEAR Guard has a
 separate owner-authorized testnet deployment and finite evidence set; the
 local demonstration does not activate a wallet or deposit.
 
-**Real execution security proof:** the [first-swap walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) includes real finalized chain evidence plus separately scoped local NEAR Sandbox nonce, signature and replay adversarial tests, and six killed Rust Guard source mutants. The local Guard and deployed Tidepool Guard are not the same binary.
+**Finalized testnet trade and separate local adversarial tests:** the [first-swap walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) includes real finalized chain evidence plus separately scoped local NEAR Sandbox nonce, signature and replay adversarial tests, and six killed Rust Guard source mutants. The local Guard and deployed Tidepool Guard are not the same binary.
 
 ## Adversarial coverage
 
