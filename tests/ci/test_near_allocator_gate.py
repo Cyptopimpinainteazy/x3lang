@@ -151,6 +151,8 @@ class NearAllocatorGateTests(unittest.TestCase):
             '  name="wee_alloc"',
             '\tname\t=\t"wee_alloc"\t',
             'name = "wee_alloc" # forbidden even outside the wasm32 graph',
+            "name = 'wee_alloc'",
+            "\tname\t= 'wee_alloc' # single-quoted TOML strings are valid",
         ):
             with self.subTest(name_line=name_line):
                 result = self.run_gate(

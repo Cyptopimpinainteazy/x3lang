@@ -26,7 +26,7 @@ if [[ -z "${locked_dependencies//[[:space:]]/}" ]]; then
   echo 'ERROR: Cargo.lock is empty' >&2
   exit 1
 fi
-if grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*"wee_alloc"[[:space:]]*(#.*)?$' <<< "$locked_dependencies"; then
+if grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*("wee_alloc"|'"'"'wee_alloc'"'"')[[:space:]]*(#.*)?$' <<< "$locked_dependencies"; then
   echo 'ERROR: NEAR Guard Cargo.lock still resolves wee_alloc' >&2
   exit 1
 else
