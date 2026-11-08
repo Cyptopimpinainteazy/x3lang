@@ -1,0 +1,46 @@
+name: X3 Shield Base Sepolia Custody Vault Pilot
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/base-agent-vault/**'
+      - '.github/workflows/x3-base-agent-vault.yml'
+      - 'scripts/hackathon/base_vault_token_preflight.py'
+      - 'scripts/hackathon/test_base_vault_token_preflight.py'
+      - 'evidence/base-vault-local/**'
+      - 'docs/security/BASE_VAULT_INTERNAL_AUDIT_20261107.md'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/base-agent-vault/**'
+      - '.github/workflows/x3-base-agent-vault.yml'
+      - 'scripts/hackathon/base_vault_token_preflight.py'
+      - 'scripts/hackathon/test_base_vault_token_preflight.py'
+      - 'evidence/base-vault-local/**'
+      - 'docs/security/BASE_VAULT_INTERNAL_AUDIT_20261107.md'
+permissions:
+  contents: read
+jobs:
+  foundry-vault:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail-closed independent-RPC token attestation unit cases (NO RPC)
+        run: python3 -m unittest scripts.hackathon.test_base_vault_token_preflight -v
+      - name: Integrity-check immutable historical public-chain observations
+        run: |
+          set -euo pipefail
+          cd evidence/base-vault-local
+          sha256sum -c BASE_VAULT_SHA256SUMS.txt
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Verify source formatting
+        working-directory: x3-lang/base-agent-vault
+        run: forge fmt --check
+      - name: Adversarial vault tests with 256 fuzz runs each
+        working-directory: x3-lang/base-agent-vault
+        run: forge test --fuzz-runs 256 -vv
+      - name: Build exact artifact (no signing or deployment)
+        working-directory: x3-lang/base-agent-vault
+        run: forge build --sizes
