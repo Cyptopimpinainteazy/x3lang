@@ -96,26 +96,31 @@ async fn main() -> Result<()> {
     }
     println!("X3_VAULT_SANDBOX_FUNCTIONCALL_KEY_CONFIRMED scope=vault.testnet::request_payment local_only=true");
 
-    // Attempt to spend native NEAR directly from agent account with the ONLY
-    // exposed disposable agent key. A FunctionCall-only key cannot sign Transfer.
+    // Structured raw-node rejection evidence is still required. Until the exact
+    // access-key subtype and contract failure reasons are captured, observations
+    // are inconclusive and must prevent the final proof-success marker.
+    let mut inconclusive = Vec::new();
+
+    // The scoped key can sign bytes; the node must reject unauthorized actions.
+    // The separate full-access credential remains in this local test harness.
     let raw_attempt = Tokens::account(agent.clone())
         .send_to(attacker.clone())
         .near(NearToken::from_yoctonear(10u128.pow(22)))
         .with_signer(scoped.clone())
         .send_to(&network)
         .await;
-    let direct_denial_class = match raw_attempt {
-        Ok(o) if !o.is_success() => "failed_chain_transaction",
-        Ok(_) => anyhow::bail!("compromised scoped key transferred native NEAR directly"),
+    let direct_observation = match raw_attempt {
+        Ok(o) if o.is_success() => {
+            anyhow::bail!("compromised scoped key transferred native NEAR directly")
+        }
+        Ok(_) => "non_success_outcome_unclassified",
         Err(error) => {
-            println!(
-                "X3_VAULT_SANDBOX_DIRECT_TRANSFER_ERROR_CLASS {:?}",
-                error.to_string().chars().take(160).collect::<String>()
-            );
-            "sdk_or_rpc_permission_refusal"
+            eprintln!("X3_VAULT_SANDBOX_DIRECT_TRANSFER_UNCLASSIFIED_ERROR {error}");
+            "sdk_or_rpc_error_unclassified"
         }
     };
-    println!("X3_VAULT_SANDBOX_SCOPED_DIRECT_TRANSFER_REFUSED local_only=true key_permission=FunctionCall rejection_class={direct_denial_class}");
+    inconclusive.push("direct_transfer_permission");
+    eprintln!("X3_VAULT_SANDBOX_DIRECT_TRANSFER_INCONCLUSIVE local_only=true observation={direct_observation} permission_proven=false");
 
     let call = |nonce: &str, recipient: &AccountId, amount: &str| {
         json!({
@@ -130,6 +135,7 @@ async fn main() -> Result<()> {
         .send_to(&network)
         .await?;
     ensure!(!wrong.is_success(), "attacker recipient was paid");
+    inconclusive.push("wrong_recipient_reason");
     let oversized = contract
         .call_function(
             "request_payment",
@@ -141,7 +147,8 @@ async fn main() -> Result<()> {
         .send_to(&network)
         .await?;
     ensure!(!oversized.is_success(), "payment over cap was allowed");
-    println!("X3_VAULT_SANDBOX_WRONG_RECIPIENT_AND_CAP_REFUSED local_only=true");
+    inconclusive.push("payment_cap_reason");
+    eprintln!("X3_VAULT_SANDBOX_RECIPIENT_AND_CAP_FAILURES_OBSERVED local_only=true reasons_verified=false");
 
     let good = contract
         .call_function("request_payment", call("once", &allowed, "100000000000000000000000"))
@@ -171,6 +178,7 @@ async fn main() -> Result<()> {
         .send_to(&network)
         .await?;
     ensure!(!replay.is_success(), "replayed nonce permitted");
+    inconclusive.push("nonce_replay_reason");
 
     // Even the owner cannot recover live escrow while the mandate is active.
     let active_recovery = contract
@@ -184,6 +192,7 @@ async fn main() -> Result<()> {
         !active_recovery.is_success(),
         "active owner mandate allowed escrow recovery"
     );
+    inconclusive.push("active_recovery_reason");
     contract
         .call_function("revoke", json!({}))
         .transaction()
@@ -203,6 +212,7 @@ async fn main() -> Result<()> {
         .send_to(&network)
         .await?;
     ensure!(!revoked.is_success(), "revoked agent was allowed");
+    inconclusive.push("revocation_reason");
     let final_state: Value = contract
         .call_function("payment", json!({"nonce":"once"}))
         .read_only()
@@ -213,7 +223,7 @@ async fn main() -> Result<()> {
         final_state["state"] == "Paid",
         "successful payment reverted due to later denial"
     );
-    println!("X3_VAULT_SANDBOX_NONCE_REPLAY_AND_REVOCATION_REFUSED local_only=true");
+    eprintln!("X3_VAULT_SANDBOX_REPLAY_AND_REVOCATION_FAILURES_OBSERVED local_only=true reasons_verified=false");
 
     // The compromised scoped key has no permission for owner recovery.
     let agent_recovery = contract
@@ -223,13 +233,18 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await;
-    ensure!(
-        match agent_recovery {
-            Ok(result) => !result.is_success(),
-            Err(_) => true, // RPC/SDK rejects a FunctionCall key with wrong method.
-        },
-        "scoped agent was able to recover owner escrow"
-    );
+    let recovery_observation = match agent_recovery {
+        Ok(result) if result.is_success() => {
+            anyhow::bail!("scoped agent was able to recover owner escrow")
+        }
+        Ok(_) => "non_success_outcome_unclassified",
+        Err(error) => {
+            eprintln!("X3_VAULT_SANDBOX_AGENT_RECOVERY_UNCLASSIFIED_ERROR {error}");
+            "sdk_or_rpc_error_unclassified"
+        }
+    };
+    inconclusive.push("agent_recovery_permission");
+    eprintln!("X3_VAULT_SANDBOX_AGENT_RECOVERY_INCONCLUSIVE local_only=true observation={recovery_observation} permission_proven=false");
 
     let available_before: Value = contract
         .call_function("available", json!({}))
@@ -299,7 +314,11 @@ async fn main() -> Result<()> {
         vault_balance_before >= vault_balance_after + 5u128 * 10u128.pow(23),
         "vault account balance did not fund owner recovery"
     );
-    println!("X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS local_only=true owner_only=true active_mandate_denied=true recovered_yoctonear=500000000000000000000000 pending_payout_protected_by_unit_tests=true owner_net_yoctonear={owner_net} vault_account_balance_decreased=true");
+    println!("X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS local_only=true owner_only=true active_mandate_failure_observed=true active_mandate_reason_verified=false recovered_yoctonear=500000000000000000000000 pending_payout_protected_by_unit_tests=true owner_net_yoctonear={owner_net} vault_account_balance_decreased=true");
+    ensure!(
+        inconclusive.is_empty(),
+        "X3_VAULT_SANDBOX_EVIDENCE_INCONCLUSIVE unresolved={inconclusive:?}; structured permission and policy rejection reasons are required"
+    );
     println!("X3_VAULT_SANDBOX_COMPLETE agent_key_restricted=true funds_vault_custodied=true public_chain=false");
     Ok(())
 }
