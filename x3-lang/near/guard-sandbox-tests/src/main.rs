@@ -9,14 +9,39 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MANDATE_EXPIRES_MS: u64 = 4_000_000_000_000;
 const MANDATE_DEADLINE_MS: u64 = 3_900_000_000_000;
 
-async fn create_funded_account(sandbox: &near_sandbox::Sandbox, name: &str) -> Result<AccountId> {
+// Sandbox state patches can be asynchronously observable. Never assume an
+// account's default signing key is visible just because patch_state succeeded.
+async fn wait_for_local_signing_key(account: &AccountId, network: &NetworkConfig) -> Result<()> {
+    let public_key: near_api::PublicKey = near_sandbox::config::DEFAULT_GENESIS_ACCOUNT_PUBLIC_KEY.parse()?;
+    let mut last_error = String::new();
+    for _ in 0..15 {
+        match Account(account.clone())
+            .access_key(public_key.clone())
+            .fetch_from(network)
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(e) => last_error = e.to_string(),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    anyhow::bail!("local Sandbox access key unavailable for {account}: {last_error}")
+}
+
+async fn create_funded_account(
+    sandbox: &near_sandbox::Sandbox,
+    network: &NetworkConfig,
+    name: &str,
+) -> Result<AccountId> {
     let sandbox_id: SandboxAccountId = name.parse()?;
     sandbox
         .create_account(sandbox_id)
         .initial_balance(NearToken::from_near(10))
         .send()
         .await?;
-    Ok(name.parse()?)
+    let account_id: AccountId = name.parse()?;
+    wait_for_local_signing_key(&account_id, network).await?;
+    Ok(account_id)
 }
 
 fn mandate_terms() -> Value {
@@ -117,6 +142,7 @@ async fn main() -> Result<()> {
         .initial_balance(NearToken::from_near(20))
         .send()
         .await?;
+    wait_for_local_signing_key(&contract_id, &network).await?;
     let signer = Signer::from_secret_key(near_sandbox::config::DEFAULT_GENESIS_ACCOUNT_PRIVATE_KEY.parse()?)?;
     Contract::deploy(contract_id.clone())
         .use_code(wasm)
@@ -242,11 +268,62 @@ async fn main() -> Result<()> {
     );
     println!("X3_SANDBOX_REAL_MANAGER_SIGNATURE_VALID_DRY_QUOTE_REFUSED local_only=true no_deposit_address=true persisted_quote=false");
 
+    // Verify that changing the signed bytes or signature invalidates the
+    // genuine 1Click manager's signature on the deployed contract.
+    let signed_text = signed["signed_payload"].as_str().context("missing signed payload")?;
+    let original_sig = signed["signature"].as_str().context("missing signature")?;
+    let changed_text = format!("{signed_text} ");
+    let mut changed_sig = original_sig.to_string();
+    let final_char = changed_sig.pop().context("empty signature")?;
+    changed_sig.push(if final_char == '1' { '2' } else { '1' });
+    for (case, payload, signature) in [
+        ("signed_bytes", changed_text.as_str(), original_sig),
+        ("signature_bytes", signed_text, changed_sig.as_str()),
+    ] {
+        let checks: Vec<Value> = contract
+            .call_function(
+                "check_quote",
+                json!({"owner": contract_id.clone(), "nonce": nonce,
+                    "signed_payload": payload, "signature": signature}),
+            )
+            .read_only()
+            .fetch_from(&network)
+            .await?
+            .data;
+        anyhow::ensure!(
+            !guard_ok(&checks, "quote_signature"),
+            "modified {case} passed signature verification: {checks:?}"
+        );
+        let tx = contract
+            .call_function(
+                "accept_quote",
+                json!({"nonce": nonce, "signed_payload": payload, "signature": signature}),
+            )
+            .transaction()
+            .gas(NearGas::from_tgas(180))
+            .deposit(NearToken::from_near(1))
+            .with_signer(contract_id.clone(), signer.clone())
+            .send_to(&network)
+            .await?;
+        anyhow::ensure!(!tx.is_success(), "modified {case} was accepted: {tx:?}");
+        let current: Value = contract
+            .call_function("get_intent", json!({"owner": contract_id.clone(), "nonce": nonce}))
+            .read_only()
+            .fetch_from(&network)
+            .await?
+            .data;
+        anyhow::ensure!(
+            current["quote"].is_null(),
+            "modified {case} persisted authorization: {current}"
+        );
+    }
+    println!("X3_SANDBOX_TAMPERED_QUOTE_REFUSED local_only=true signature_mismatch=true stored_quote_unchanged=true");
+
     // Mandate lifecycle against the same deployed WASM: an owner writes a
     // mandate, the agent registers an allowed intent, a forbidden recipient is
     // refused, and revocation stops the agent. Sandbox-local only.
-    let owner = create_funded_account(&sandbox, "owner.sandbox").await?;
-    let agent = create_funded_account(&sandbox, "agent.sandbox").await?;
+    let owner = create_funded_account(&sandbox, &network, "owner.sandbox").await?;
+    let agent = create_funded_account(&sandbox, &network, "agent.sandbox").await?;
 
     let created = contract
         .call_function(
@@ -457,5 +534,127 @@ async fn main() -> Result<()> {
         "expired Sandbox mandate mutated approvals: {after_late}"
     );
     println!("X3_SANDBOX_EXPIRED_APPROVAL_REFUSED local_only=true block_timestamp_expired=true stored_approvals_unchanged=true");
+
+    // Different ephemeral agent accounts submit the same owner+nonce
+    // concurrently. NEAR must serialize them to exactly one stored intent.
+    let race_owner = create_funded_account(&sandbox, &network, "race-owner.sandbox").await?;
+    let race_agent_a = create_funded_account(&sandbox, &network, "race-agent-a.sandbox").await?;
+    let race_agent_b = create_funded_account(&sandbox, &network, "race-agent-b.sandbox").await?;
+    let mut race_terms = mandate_terms();
+    race_terms["approval_above"] = json!("20000000");
+    race_terms["approvers"] = json!([race_owner.clone()]);
+    race_terms["approval_threshold"] = json!(1);
+    for actor in [&race_agent_a, &race_agent_b] {
+        let tx = contract
+            .call_function("create_mandate", json!({"agent": actor, "terms": race_terms.clone()}))
+            .transaction()
+            .gas(NearGas::from_tgas(120))
+            .deposit(NearToken::from_near(1))
+            .with_signer(race_owner.clone(), signer.clone())
+            .send_to(&network)
+            .await?;
+        anyhow::ensure!(tx.is_success(), "race mandate creation failed for {actor}: {tx:?}");
+    }
+    let race_nonce = "same_owner_same_nonce";
+    let future_a = contract
+        .call_function(
+            "agent_register_intent",
+            json!({
+                "owner": race_owner.clone(), "nonce": race_nonce, "policy": mandate_policy("x3-demo.near")
+            }),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(120))
+        .deposit(NearToken::from_near(1))
+        .with_signer(race_agent_a.clone(), signer.clone())
+        .send_to(&network);
+    let future_b = contract
+        .call_function(
+            "agent_register_intent",
+            json!({
+                "owner": race_owner.clone(), "nonce": race_nonce, "policy": mandate_policy("x3-demo.near")
+            }),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(120))
+        .deposit(NearToken::from_near(1))
+        .with_signer(race_agent_b.clone(), signer.clone())
+        .send_to(&network);
+    let (outcome_a, outcome_b) = tokio::join!(future_a, future_b);
+    let outcome_a = outcome_a.context("agent A submission did not produce a receipt")?;
+    let outcome_b = outcome_b.context("agent B submission did not produce a receipt")?;
+    let successes = u8::from(outcome_a.is_success()) + u8::from(outcome_b.is_success());
+    anyhow::ensure!(
+        successes == 1,
+        "two concurrent agent registrations must yield one success: A={outcome_a:?} B={outcome_b:?}"
+    );
+    let winning_agent = if outcome_a.is_success() {
+        &race_agent_a
+    } else {
+        &race_agent_b
+    };
+    let persisted: Value = contract
+        .call_function("get_intent", json!({"owner": race_owner.clone(), "nonce": race_nonce}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    anyhow::ensure!(
+        persisted["owner"] == json!(race_owner)
+            && persisted["agent"] == json!(winning_agent)
+            && persisted["approvals"] == json!([]),
+        "racing agents changed owner/nonce identity unexpectedly: {persisted}"
+    );
+    println!("X3_SANDBOX_CONCURRENT_NONCE_REFUSED local_only=true competing_agents=2 success_count=1 owner_nonce_isolated=true");
+
+    // Replay the successful owner's approval and try a non-approver. Neither
+    // must increase the persistent approval count beyond one.
+    let approved = contract
+        .call_function(
+            "approve_intent",
+            json!({"owner": race_owner.clone(), "nonce": race_nonce}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(race_owner.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(approved.is_success(), "first legitimate approval failed: {approved:?}");
+    let replayed = contract
+        .call_function(
+            "approve_intent",
+            json!({"owner": race_owner.clone(), "nonce": race_nonce}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(race_owner.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(!replayed.is_success(), "duplicate approval accepted: {replayed:?}");
+    let stranger = contract
+        .call_function(
+            "approve_intent",
+            json!({"owner": race_owner.clone(), "nonce": race_nonce}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(race_agent_b.clone(), signer.clone())
+        .send_to(&network)
+        .await?;
+    anyhow::ensure!(!stranger.is_success(), "unauthorized approver accepted: {stranger:?}");
+    let after_replay: Value = contract
+        .call_function("get_intent", json!({"owner": race_owner.clone(), "nonce": race_nonce}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    anyhow::ensure!(
+        after_replay["approvals"] == json!([race_owner]),
+        "duplicate or unauthorized approval modified stored state: {after_replay}"
+    );
+    println!("X3_SANDBOX_APPROVAL_REPLAY_REFUSED local_only=true first_accepted=true duplicate_refused=true stranger_refused=true stored_count=1");
     Ok(())
 }
