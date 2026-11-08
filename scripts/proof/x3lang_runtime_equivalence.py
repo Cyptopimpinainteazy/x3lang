@@ -14,6 +14,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from checkout_integrity import InputIntegrityError, begin, finish
+
 ROOT = Path(__file__).resolve().parents[2]
 SUITES = (
     ("source_three_engine_agreement", "source_language", "std compile"),
@@ -30,7 +32,7 @@ def digest(data: bytes) -> str:
 
 def git(*args: str) -> str:
     return subprocess.check_output(
-        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.STDOUT
+        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.PIPE
     ).strip()
 
 def main() -> int:
@@ -38,7 +40,10 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
     output = args.output_dir.resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    try:
+        before = begin(ROOT, output)
+    except InputIntegrityError as exc:
+        parser.error(str(exc))
     files = (MANIFEST,) + tuple(
         f"crates/x3-integration/tests/{test}.rs" for _, test, _ in SUITES
     )
@@ -53,18 +58,17 @@ def main() -> int:
             ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", relative],
             stdout=subprocess.DEVNULL, check=True,
         )
-        if subprocess.run(
-            ["git", "-C", str(ROOT), "diff", "--quiet", "HEAD", "--", relative]
-        ).returncode:
-            parser.error(f"uncommitted runtime test input: {relative}")
+    output.mkdir(parents=True, exist_ok=True)
     report = {
-        "schema": "x3lang-local-runtime-equivalence/v1",
+        "schema": "x3lang-local-runtime-equivalence/v2",
         "status": "failed",
         "scope": (
             "local X3 runtime, three execution paths, gas, opcode, rollback, "
             "signed receipt replay; NOT EVM/SVM/NEAR settlement or chain finality"
         ),
-        "repo_revision": git("rev-parse", "HEAD"),
+        "repo_revision": before["revision"],
+        "repo_tree": before["tree"],
+        "source_binding": {"before": before, "after": None},
         "observed_utc": datetime.now(timezone.utc).isoformat(),
         "inputs_sha256": {f: digest((ROOT / f).read_bytes()) for f in files},
         "tests": [],
@@ -104,6 +108,12 @@ def main() -> int:
             if code:
                 passed = False
     finally:
+        try:
+            report["source_binding"]["after"] = finish(ROOT, before)
+        except InputIntegrityError as exc:
+            passed = False
+            report["input_error"] = str(exc)
+            print(f"FAIL source integrity: {exc}", file=sys.stderr, flush=True)
         report["status"] = (
             "passed" if passed and len(report["tests"]) == len(SUITES) else "failed"
         )
