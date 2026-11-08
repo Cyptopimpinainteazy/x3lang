@@ -173,6 +173,7 @@ English request -> model -> X3 intent (untrusted) -> compiler -> `under mandate`
 ```bash
 export ANTHROPIC_API_KEY=...            # or X3_AGENT_PROVIDER=openai-compatible with
                                         # X3_AGENT_BASE_URL=http://localhost:11434/v1 X3_AGENT_MODEL=...
+# Replace recipient-account.near with an existing account allowed by the selected mandate.
 python3 x3-lang/near_agent.py pay "Pay recipient-account.near 25 USDC for invoice 4411" \
   --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> \
   --out approved-program.x3 --quote

@@ -10,6 +10,15 @@ From the project root on Linux x86_64 with Rust >=1.85, `wasm32-unknown-unknown`
 bash scripts/hackathon/guard_sandbox_smoke.sh
 ```
 
+The wrapper raises `near-sandbox` startup attempts from its default of five to
+ten and raises the RPC-readiness window from ten to sixty seconds so first-run
+genesis/database creation can finish. If the crate still reports its startup
+port race, the wrapper starts at most three fresh harness processes. Retries
+occur only before any test marker; an actual contract or assertion failure
+stops immediately. The retry count can be overridden with
+`NEAR_SANDBOX_PORT_TRANSFER_RETRY`; the readiness window can be overridden with
+`NEAR_RPC_TIMEOUT_SECS`.
+
 On Ubuntu 22.04 (GLIBC 2.35), the downloaded NEAR Sandbox binary requires a newer libc. The wrapper *does not modify the OS*: when glibc is too old it uses **an already cached Ubuntu 24.04 Docker image** with `--network none`, a read-only repository bind mount and temporary in-memory `/tmp`. External networking is disabled for the entire sandbox run. The container also mounts a SHA-256-pinned, cached NEAR Sandbox 2.14.0 executable **read-only** via `NEAR_SANDBOX_BIN_PATH` rather than attempting downloads into the read-only Cargo build directory. The expected binary SHA-256 is `797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13`; the default cache path is `~/.cache/x3lang/near-sandbox-2.14.0/near-sandbox` (override with `X3_SANDBOX_BIN_CACHE`). Missing/mismatched cache or Docker image fails closed, with no silent downloads inside the isolated container. Other sufficiently modern Linux systems run the harness natively.
 
 What the program does:

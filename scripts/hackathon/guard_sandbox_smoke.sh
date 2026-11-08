@@ -12,6 +12,36 @@ if [[ -n "${NEAR_NETWORK_ID:-}" ]] && [[ "${NEAR_NETWORK_ID}" != "sandbox" ]]; t
   echo 'Refusing non-sandbox network configuration' >&2
   exit 2
 fi
+# Sandbox port selection occasionally races its own startup readiness check.
+# Keep the retry bounded, but above the crate default of five attempts.
+export NEAR_SANDBOX_PORT_TRANSFER_RETRY="${NEAR_SANDBOX_PORT_TRANSFER_RETRY:-10}"
+# Genesis validation and first database creation can exceed the crate's
+# ten-second RPC-readiness window on an otherwise healthy local machine.
+export NEAR_RPC_TIMEOUT_SECS="${NEAR_RPC_TIMEOUT_SECS:-60}"
+SANDBOX_LOG="$(mktemp "${TMPDIR:-/tmp}/x3-guard-sandbox.XXXXXX")"
+trap 'rm -f "$SANDBOX_LOG"' EXIT
+
+run_sandbox_with_retry() {
+  local attempt status
+  for attempt in 1 2 3; do
+    : >"$SANDBOX_LOG"
+    set +e
+    "$@" >"$SANDBOX_LOG" 2>&1
+    status=$?
+    set -e
+    cat "$SANDBOX_LOG"
+    if (( status == 0 )); then
+      return 0
+    fi
+    if (( attempt < 3 )) && grep -q 'Failed to bind to available ports' "$SANDBOX_LOG"; then
+      echo "Local Sandbox startup raced before any test ran; retrying with a fresh process (${attempt}/3)." >&2
+      sleep 1
+      continue
+    fi
+    return "$status"
+  done
+}
+
 # Build from the Guard directory so its rust-toolchain.toml selects stable.
 # Running cargo from the repository root would use the host default toolchain
 # (1.90 here), which is too old for near-sdk 5.30.
@@ -44,11 +74,11 @@ if [[ "${LIBC_MAJOR_MINOR%.*}" == '2' && "${LIBC_MAJOR_MINOR#*.}" =~ ^[0-9]+$ &&
     exit 2
   fi
   echo 'Starting OFFLINE Ubuntu 24.04 container with pinned cached NEAR Sandbox binary (no host GLIBC upgrade)' >&2
-  docker run --rm --network none --user "$(id -u):$(id -g)" \
+  run_sandbox_with_retry docker run --rm --network none --user "$(id -u):$(id -g)" \
     --tmpfs /tmp:rw,nosuid,size=512m \
     -e HOME=/tmp -e NEAR_SANDBOX_BIN_PATH=/opt/x3-near-sandbox \
     -v "$ROOT:$ROOT:ro" -v "$CACHED_BIN:/opt/x3-near-sandbox:ro" -w "$ROOT" \
     ubuntu:24.04 "$HARNESS" "$WASM" "$FIXTURE"
 else
-  "$HARNESS" "$WASM" "$FIXTURE"
+  run_sandbox_with_retry "$HARNESS" "$WASM" "$FIXTURE"
 fi

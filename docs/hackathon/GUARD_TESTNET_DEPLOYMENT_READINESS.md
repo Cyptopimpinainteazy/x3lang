@@ -61,7 +61,11 @@ Before any deployment/signing, owner must explicitly authorize:
 
 ## 4. Hackathon claims while blocked
 
-**Already evidenced:** deterministic `.x3` policy preview, pinned-manager signature checking in source/tests, 51 native Guard unit tests, successful WASM build, real archived NEAR validator signature checks (under an untrusted bootstrap checkpoint), reproducible judge quick gate.
+**Already evidenced at preflight time:** deterministic `.x3` policy preview,
+pinned-manager signature checking in source/tests, 51 native Guard unit tests
+(the current suite has 63), successful WASM build, real archived NEAR validator
+signature checks (under an untrusted bootstrap checkpoint), and a reproducible
+judge quick gate.
 
 **NOT evidenced:** on-chain Guard accepted quote, on-chain rejection of a valid manager-signed but policy-prohibited quote, independent trust anchor for resulting receipt, authentic NEAR escrow state, cross-chain causality, or authorized deployment.
 
