@@ -74,4 +74,3 @@ import `env.panic_utf8` and every refusal surfaces on chain as a bare `unreachab
 records this with `check_guard_wasm_host_panics.py --expect absent` on the reproduced bytes.
 Current source builds with `--cfg near` (`x3-lang/near/x3-guard/.cargo/config.toml`) and will
 produce a different, not-yet-deployed hash.
-
