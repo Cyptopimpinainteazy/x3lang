@@ -2,9 +2,9 @@ name: X3 Shield Scoped-Agent Vault Pilot
 on:
   push:
     branches: [master]
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','.github/workflows/x3-agent-vault-testnet.yml']
   pull_request:
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','.github/workflows/x3-agent-vault-testnet.yml']
 permissions:
   contents: read
 jobs:
@@ -47,6 +47,7 @@ jobs:
         run: |
           python3 --version
           python3 -m unittest discover -s scripts/hackathon -p 'test_near_permission_refusal.py' -v
+          python3 -m unittest discover -s scripts/hackathon -p 'test_near_rpc_capture.py' -v
 
   check-harness-source:
     runs-on: ubuntu-24.04
@@ -65,6 +66,9 @@ jobs:
       - name: Compile all harness targets (does not run Sandbox)
         working-directory: x3-lang/near/agent-vault-sandbox-tests
         run: cargo check --all-targets --locked
+      - name: Harness classifier integration tests (synthetic inputs, no node)
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        run: cargo test --locked
       - name: Strict harness lints
         working-directory: x3-lang/near/agent-vault-sandbox-tests
         run: cargo clippy --all-targets --locked -- -D warnings
@@ -123,6 +127,7 @@ jobs:
           set -euo pipefail
           bash scripts/hackathon/vault_sandbox_smoke.sh \
             | tee "$RUNNER_TEMP/x3-vault-sandbox.log"
+          test "$(grep -c '^X3_VAULT_SANDBOX_RAW_CAPTURE ' "$RUNNER_TEMP/x3-vault-sandbox.log")" -eq 2
           for marker in \
             X3_VAULT_SANDBOX_SCOPED_DIRECT_TRANSFER_REFUSED \
             X3_VAULT_SANDBOX_RECIPIENT_AND_CAP_REFUSED \
