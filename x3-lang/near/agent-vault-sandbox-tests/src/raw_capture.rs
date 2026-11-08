@@ -45,8 +45,8 @@ fn classify_original_bytes(request: &[u8], response: &[u8], expectation: &Value)
         "response_base64": BASE64_STANDARD.encode(response),
         "expectation": expectation
     }))?;
-    let classifier = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../scripts/hackathon/near_permission_refusal.py");
+    let classifier =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/hackathon/near_permission_refusal.py");
     let mut child = Command::new("python3")
         .arg("-I")
         .arg(classifier)
@@ -70,7 +70,10 @@ fn classify_original_bytes(request: &[u8], response: &[u8], expectation: &Value)
     ensure!(
         output.status.success(),
         "raw-byte refusal classification failed: {}",
-        String::from_utf8_lossy(&output.stderr).chars().take(4096).collect::<String>()
+        String::from_utf8_lossy(&output.stderr)
+            .chars()
+            .take(4096)
+            .collect::<String>()
     );
     let report: Value = serde_json::from_slice(&output.stdout)?;
     ensure!(
@@ -88,10 +91,18 @@ pub async fn send_signed_raw(
     signed: impl Into<SignedTransaction>,
     mut expectation: Value,
 ) -> Result<Value> {
-    let url = network.rpc_endpoints.first().context("sandbox RPC endpoint missing")?.url.clone();
+    let url = network
+        .rpc_endpoints
+        .first()
+        .context("sandbox RPC endpoint missing")?
+        .url
+        .clone();
     ensure!(
         url.scheme() == "http"
-            && url.host_str().and_then(|h| h.parse::<IpAddr>().ok()).is_some_and(|ip| ip.is_loopback())
+            && url
+                .host_str()
+                .and_then(|h| h.parse::<IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback())
             && url.username().is_empty()
             && url.password().is_none()
             && url.query().is_none()
@@ -128,7 +139,10 @@ pub async fn send_signed_raw(
     }
     // Never deserialize the untrusted response before the duplicate-key checks.
     let report = classify_original_bytes(&request, &raw, &expectation)?;
-    let observed = report.get("rpc_response").context("classified response missing")?.clone();
+    let observed = report
+        .get("rpc_response")
+        .context("classified response missing")?
+        .clone();
     // Only disposable local transactions and raw node errors; no secret key is captured.
     println!("X3_VAULT_SANDBOX_RAW_CAPTURE {}", serde_json::to_string(&report)?);
     Ok(observed)
