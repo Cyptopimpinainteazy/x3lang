@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - 'x3-lang/base-agent-vault/**'
+      - 'scripts/hackathon/base_vault_quote_binding.py'
+      - 'scripts/hackathon/test_base_vault_quote_binding.py'
+      - 'scripts/hackathon/base_sepolia_guarded_admission.py'
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
       - '.github/workflows/x3-base-agent-vault.yml'
       - 'scripts/hackathon/base_vault_token_preflight.py'
       - 'scripts/hackathon/test_base_vault_token_preflight.py'
@@ -12,6 +16,10 @@ on:
     branches: [master]
     paths:
       - 'x3-lang/base-agent-vault/**'
+      - 'scripts/hackathon/base_vault_quote_binding.py'
+      - 'scripts/hackathon/test_base_vault_quote_binding.py'
+      - 'scripts/hackathon/base_sepolia_guarded_admission.py'
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
       - '.github/workflows/x3-base-agent-vault.yml'
       - 'scripts/hackathon/base_vault_token_preflight.py'
       - 'scripts/hackathon/test_base_vault_token_preflight.py'
@@ -20,6 +28,20 @@ on:
 permissions:
   contents: read
 jobs:
+  signed-quote-to-vault-binding:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Reject altered signed quotes and mismatched vault or Guard terms
+        env:
+          PYTHONPATH: x3-lang:scripts/hackathon
+        run: |
+          python3 -m unittest scripts.hackathon.test_base_vault_quote_binding -v
+          python3 -m unittest scripts.hackathon.test_base_sepolia_guarded_admission scripts.hackathon.test_tidepool_quote_signature -q
   foundry-vault:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
