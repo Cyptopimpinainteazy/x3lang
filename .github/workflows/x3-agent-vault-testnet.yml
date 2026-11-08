@@ -2,9 +2,9 @@ name: X3 Shield Scoped-Agent Vault Pilot
 on:
   push:
     branches: [master]
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','.github/workflows/x3-agent-vault-testnet.yml']
   pull_request:
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','.github/workflows/x3-agent-vault-testnet.yml']
 permissions:
   contents: read
 jobs:
@@ -43,6 +43,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Known false-positive source regressions (not runtime evidence)
         run: python3 scripts/hackathon/test_vault_refusal_source_guard.py
+      - name: Raw RPC classifier behavioral tests (synthetic inputs, no node)
+        run: |
+          python3 --version
+          python3 -m unittest discover -s scripts/hackathon -p 'test_near_permission_refusal.py' -v
 
   check-harness-source:
     runs-on: ubuntu-24.04
