@@ -1,0 +1,34 @@
+{
+  "agent_key": "ephemeral function-call key; receiver vault.testnet; method request_payment; no full-access authority",
+  "base_commit": "f0fdfac1ba47712a2dcf27986f762167dc7f1211",
+  "captured_utc": "2026-11-07T10:23:31.541283+00:00",
+  "caveats": [
+    "direct transfer refused with RPC InvalidTransaction (no included failed on-chain receipt claimed)",
+    "wrong recipient/over-cap/replay/revocation from local sandbox contract transactions",
+    "owner full-access key excluded from adversary but can directly manage vault",
+    "no public testnet deployment, Base EOA restriction, audit or native bridge atomicity",
+    "deployed-and-initialized in two steps for disposable sandbox only; public deployment must be atomic"
+  ],
+  "chain": "offline ephemeral NEAR Sandbox 2.14.0",
+  "classification": "REAL_LOCAL_NEAR_SANDBOX_CUSTODY_BOUNDARY_NOT_PUBLIC_TESTNET_OR_EVM",
+  "contract": "x3-lang/near/x3-agent-vault",
+  "markers": [
+    "X3_VAULT_SANDBOX_FUNCTIONCALL_KEY_CONFIRMED scope=vault.testnet::request_payment local_only=true",
+    "X3_VAULT_SANDBOX_DIRECT_TRANSFER_ERROR_CLASS \"Transaction error: Critical(ServerError(InvalidTransaction({})))\"",
+    "X3_VAULT_SANDBOX_SCOPED_DIRECT_TRANSFER_REFUSED local_only=true key_permission=FunctionCall rejection_class=sdk_or_rpc_permission_refusal",
+    "X3_VAULT_SANDBOX_WRONG_RECIPIENT_AND_CAP_REFUSED local_only=true",
+    "X3_VAULT_SANDBOX_ALLOWED_PAYMENT_SUCCESS local_only=true units=100000000000000000000000",
+    "X3_VAULT_SANDBOX_NONCE_REPLAY_AND_REVOCATION_REFUSED local_only=true",
+    "X3_VAULT_SANDBOX_COMPLETE agent_key_restricted=true funds_vault_custodied=true public_chain=false"
+  ],
+  "owner_key": "private separate sandbox deployment authority; never supplied to agent",
+  "sandbox_log_sha256": "f22634b134ae5c7ee6ec483d7d578da23106984aac38005c2b17d6cf49f4c468",
+  "schema": "x3.shield.scoped_agent_vault.local_sandbox.v1",
+  "tests": {
+    "native_vault_unit_tests_passed": 8,
+    "rust_clippy_strict": true,
+    "sandbox_exit_code": 0,
+    "wasm_release_built": true
+  },
+  "wasm_sha256": "971d9cc43982b5ca9cdb30deab87e39ac09e752850b20773cace20cae2886128"
+}
