@@ -32,6 +32,7 @@ fn test_key() -> SigningKey {
 fn test_contract() -> Contract {
     // Synthetic test-key contract models a NEW fresh Guard deployment.
     env::storage_write(FRESH_QUOTE_LEDGER_MARKER_KEY, FRESH_QUOTE_LEDGER_MARKER_VALUE);
+    env::storage_write(FRESH_DEPOSIT_LEDGER_MARKER_KEY, FRESH_QUOTE_LEDGER_MARKER_VALUE);
     Contract {
         intents: LookupMap::new(StorageKey::Intents),
         manager_public_key: test_key().verifying_key().to_bytes(),
@@ -489,6 +490,33 @@ fn existing_state_without_a_fresh_quote_ledger_marker_refuses_new_quotes() {
 }
 
 #[test]
+fn missing_deposit_history_marker_fails_closed_before_quote_authorization() {
+    ctx(accounts(0), NOW_MS, one_near());
+    let mut c = test_contract();
+    c.register_intent("pending_deposit_history".into(), policy());
+    // A legacy state may already know consumed quote hashes, but did not
+    // index historical deposit addresses. It must not authorize blindly.
+    env::storage_remove(FRESH_DEPOSIT_LEDGER_MARKER_KEY);
+    let (payload, signature) = signed(&live_payload());
+    ctx(accounts(0), NOW_MS, one_near());
+    let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.accept_quote("pending_deposit_history".into(), payload, signature)
+    }));
+    let error = rejected.expect_err("legacy deposit history was wrongly treated as empty");
+    let reason = error
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| error.downcast_ref::<&str>().map(|v| v.to_string()))
+        .unwrap_or_default();
+    assert!(reason.contains("X3_NEAR_DEPOSIT_LEDGER_UNINITIALIZED"), "{reason}");
+    assert!(c
+        .get_intent(accounts(0), "pending_deposit_history".into())
+        .unwrap()
+        .quote
+        .is_none());
+}
+
+#[test]
 fn quote_hash_registry_prefix_does_not_reassign_existing_storage_keys() {
     // Existing Borsh map prefixes must remain byte-for-byte stable when
     // the new consumed-quote map is appended for a future migration.
@@ -497,6 +525,10 @@ fn quote_hash_registry_prefix_does_not_reassign_existing_storage_keys() {
     assert_eq!(
         near_sdk::borsh::to_vec(&StorageKey::ConsumedQuoteHashes).unwrap(),
         vec![2]
+    );
+    assert_eq!(
+        near_sdk::borsh::to_vec(&StorageKey::ConsumedDepositAddresses).unwrap(),
+        vec![3]
     );
 }
 
@@ -528,6 +560,90 @@ fn one_signed_quote_cannot_authorize_two_distinct_intents() {
     assert!(second.quote.is_none(), "duplicate authorization persisted");
     let first = c.get_intent(accounts(0), "n_001".into()).unwrap();
     assert!(first.quote.is_some(), "first legitimate acceptance was rolled back");
+}
+
+#[test]
+fn quote_hash_registry_still_blocks_replay_when_deposit_registry_is_corrupted() {
+    // Test-only fault injection: erase the *other* replay ledger's entry
+    // after first acceptance. The independent hash registry must still refuse
+    // the same signed quote, even if a storage fault loses deposit indexing.
+    let mut c = registered();
+    ctx(accounts(0), NOW_MS, one_near());
+    c.register_intent("second_pending".into(), policy());
+    let (payload, signature) = signed(&live_payload());
+
+    ctx(accounts(0), NOW_MS, one_near());
+    assert!(c
+        .accept_quote("n_001".into(), payload.clone(), signature.clone())
+        .iter()
+        .all(|g| g.ok));
+    assert!(c.get_quote_consumer(quote_hash(&payload)).is_some());
+
+    let mut damaged_deposit_registry: LookupMap<String, String> = LookupMap::new(StorageKey::ConsumedDepositAddresses);
+    damaged_deposit_registry.remove(&DEPOSIT.to_string());
+    damaged_deposit_registry.flush();
+    assert_eq!(c.get_deposit_consumer(DEPOSIT.into()), None);
+
+    ctx(accounts(0), NOW_MS, one_near());
+    let replay = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.accept_quote("second_pending".into(), payload, signature)
+    }));
+    let error = replay.expect_err("duplicate quote authorized after deposit index fault");
+    let reason = error
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| error.downcast_ref::<&str>().map(|v| v.to_string()))
+        .unwrap_or_default();
+    assert!(reason.contains("X3_NEAR_QUOTE_REPLAY"), "{reason}");
+    assert!(c
+        .get_intent(accounts(0), "second_pending".into())
+        .unwrap()
+        .quote
+        .is_none());
+}
+
+#[test]
+fn differently_signed_quotes_cannot_reuse_a_deposit_address_across_owners() {
+    // Identical underlying deposit destination, but different signed metadata:
+    // a quote-hash-only replay registry must not authorize two deposits.
+    // Synthetic manager test key, native contract tests only; no real funds.
+    let mut c = registered();
+    ctx(accounts(1), NOW_MS, one_near());
+    c.register_intent("owner_b_new_quote".into(), policy());
+
+    let first_quote = live_payload();
+    let mut second_quote = live_payload();
+    second_quote["timeEstimate"] = json!(21);
+    let (first_payload, first_sig) = signed(&first_quote);
+    let (second_payload, second_sig) = signed(&second_quote);
+    assert_ne!(quote_hash(&first_payload), quote_hash(&second_payload));
+    assert_eq!(first_quote["depositAddress"], second_quote["depositAddress"]);
+    assert!(verify_signed_quote(&test_key().verifying_key().to_bytes(), &second_payload, &second_sig).is_ok());
+
+    ctx(accounts(0), NOW_MS, one_near());
+    assert!(c
+        .accept_quote("n_001".into(), first_payload, first_sig)
+        .iter()
+        .all(|r| r.ok));
+
+    ctx(accounts(1), NOW_MS, one_near());
+    let reused_deposit = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.accept_quote("owner_b_new_quote".into(), second_payload, second_sig)
+    }));
+    assert!(
+        reused_deposit.is_err(),
+        "distinct manager-signed quote bytes reused the same deposit address"
+    );
+    let second = c.get_intent(accounts(1), "owner_b_new_quote".into()).unwrap();
+    assert!(
+        second.quote.is_none(),
+        "second authorization persisted despite deposit-address reuse"
+    );
+    assert_eq!(
+        c.get_deposit_consumer(DEPOSIT.into()),
+        Some(format!("{}/{}", accounts(0), "n_001")),
+        "first claimant must remain registered"
+    );
 }
 
 #[test]
@@ -577,6 +693,7 @@ fn refused_policy_does_not_consume_a_quote_hash() {
         .quote
         .is_none());
     assert_eq!(c.get_quote_consumer(signed_hash.clone()), None);
+    assert_eq!(c.get_deposit_consumer(DEPOSIT.into()), None);
     ctx(accounts(0), NOW_MS, one_near());
     assert!(
         c.accept_quote("n_001".into(), payload, signature)
@@ -586,6 +703,10 @@ fn refused_policy_does_not_consume_a_quote_hash() {
     );
     assert_eq!(
         c.get_quote_consumer(signed_hash),
+        Some(format!("{}/{}", accounts(0), "n_001"))
+    );
+    assert_eq!(
+        c.get_deposit_consumer(DEPOSIT.into()),
         Some(format!("{}/{}", accounts(0), "n_001"))
     );
 }

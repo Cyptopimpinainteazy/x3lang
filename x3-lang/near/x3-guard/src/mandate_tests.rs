@@ -3,6 +3,12 @@
 
 use super::*;
 use crate::mandate::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+// Only for synthetic local fixture generation. Distinct payment quotes should
+// have distinct destinations; the explicit collision regression in tests.rs
+// intentionally reuses a destination to test the production rejection.
+static NEXT_SYNTHETIC_DEPOSIT: AtomicU64 = AtomicU64::new(1);
 
 const DAY_MS: u64 = 86_400_000;
 const USDC: u128 = 1_000_000;
@@ -63,6 +69,10 @@ fn quote_at(now_ms: u64, amount: u128) -> (Policy, String, String) {
     p.deadline_ms = now_ms + 600_000;
     p.amount = U128(amount);
     let mut q = live_payload();
+    let serial = NEXT_SYNTHETIC_DEPOSIT.fetch_add(1, Ordering::Relaxed);
+    let unique_address =
+        bs58::encode(Sha256::digest(format!("x3-local-fixture-deposit-{serial}").as_bytes())).into_string();
+    q["depositAddress"] = json!(unique_address);
     for field in ["amount", "amountIn", "minAmountIn"] {
         q[field] = json!(amount.to_string());
     }
