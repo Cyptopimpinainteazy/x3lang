@@ -153,6 +153,23 @@ def test_expiry_before_unix_epoch_is_not_a_u64(tmp_path):
     assert err.value.code == "X3_MANDATE_EXPIRES"
 
 
+def test_oversized_approval_threshold_is_a_structured_refusal(tmp_path):
+    threshold = "9" * 5000
+    path = numeric_mandate_file(
+        tmp_path, {"approve": f"above 20000000 by {threshold} of x3-owner.near"}
+    )
+    line = next(
+        index
+        for index, text in enumerate(Path(path).read_text().splitlines(), start=1)
+        if text.startswith("    approve ")
+    )
+    with pytest.raises(ni.NearIntentsError) as err:
+        nm.parse_mandate(path)
+    assert err.value.code == "X3_MANDATE_APPROVAL"
+    assert err.value.field == "approve"
+    assert err.value.detail == {"line": line}
+
+
 def test_per_payment_cap_boundary_exact_at_limit(tmp_path):
     """Payment amount exactly at per_payment_cap should be ALLOWED."""
     m = _compiled()

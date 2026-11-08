@@ -48,6 +48,11 @@ for (const [name, amount] of [["u128 overflow", U128_MAX + 1n], ["integer digit 
   });
 }
 
+test("oversized approval threshold is refused with its source line", () => {
+  const source = SOURCE.replace("approve above 30000000", `approve above ${"9".repeat(5000)}`);
+  assert.throws(() => lower(source), errorIs("X3_MANDATE_APPROVAL", "approve", x3.parseMandate(source).line_of.approve));
+});
+
 test("approval preserves leading zeros and underscores below the payment cap", () => {
   const source = SOURCE.replace("approve above 30000000", `approve above ${"0".repeat(5000)}30_000_000`);
   assert.equal(lower(source).terms.approval_above, "30000000");

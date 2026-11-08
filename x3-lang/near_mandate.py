@@ -109,7 +109,20 @@ def parse_mandate(path: str) -> Dict[str, Any]:
             m = re.fullmatch(r"approve\s+above\s+(\S+)\s+by\s+(\d+)\s+of\s+(.+)", text)
             if not m:
                 raise _err("X3_MANDATE_PARSE", "expected `approve above <amount> by <n> of <account>, …`", "approve", ln.no)
-            field, value = "approve", {"above": m.group(1), "threshold": int(m.group(2)), "approvers": _list(m.group(3))}
+            try:
+                threshold = int(m.group(2))
+            except (OverflowError, ValueError) as exc:
+                raise _err(
+                    "X3_MANDATE_APPROVAL",
+                    f"the threshold must be 1..{MAX_APPROVERS}",
+                    "approve",
+                    ln.no,
+                ) from exc
+            field, value = "approve", {
+                "above": m.group(1),
+                "threshold": threshold,
+                "approvers": _list(m.group(3)),
+            }
         elif key in ("owner", "agent", "spend", "per_payment", "per_24h", "refund_to", "expires") and len(words) == 2:
             field, value = key, words[1].strip('"')
         else:
