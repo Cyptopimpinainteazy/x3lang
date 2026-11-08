@@ -4,6 +4,11 @@ use near_sdk::json_types::U128;
 use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise};
 use std::collections::{BTreeMap, BTreeSet};
 
+// BTreeMap/BTreeSet entries are serialized into root contract state and
+// permanently retain every used nonce. Bound per-vault lifetime storage
+// until an audited persistent-store and recovery design is implemented.
+const MAX_PAYMENT_RECORDS: usize = 64;
+
 #[near(serializers = [borsh, json])]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PaymentState {
@@ -102,6 +107,10 @@ impl AgentVault {
             "invalid nonce"
         );
         assert!(!self.used.contains(&nonce), "nonce already used");
+        assert!(
+            self.used.len() < MAX_PAYMENT_RECORDS && self.payments.len() < MAX_PAYMENT_RECORDS,
+            "payment history capacity reached"
+        );
         assert!(amount.0 > 0 && amount.0 <= self.cap, "per-payment cap exceeded");
         let committed = self.spent.checked_add(self.reserved).expect("spent overflow");
         assert!(
@@ -350,6 +359,42 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn dust_payment_nonce_spam_must_not_grow_vault_storage_without_bound() {
+        let mut v = vault();
+        fund(&mut v);
+        set("agent.testnet", 0, NOW + 1);
+        let recipient: AccountId = "allowed.testnet".parse().unwrap();
+
+        // An agent can submit tiny positive payments without consuming any
+        // meaningful amount of the owner's spending budget. Each distinct
+        // nonce permanently expands both BTreeSet and BTreeMap state.
+        for i in 0..64 {
+            // Separate actual transactions each receive a fresh gas allotment.
+            set("agent.testnet", 0, NOW + 1);
+            let nonce = format!("dust_{i}");
+            let _promise = v.request_payment(nonce, recipient.clone(), U128(1));
+        }
+        let available = v.available().0;
+        let reserved = v.reserved().0;
+        let count = v.payments.len();
+        assert_eq!(count, 64);
+        assert_eq!(v.used.len(), 64);
+
+        set("agent.testnet", 0, NOW + 1);
+        let denied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            v.request_payment("dust_64".to_string(), recipient, U128(1))
+        }));
+        assert!(
+            denied.is_err(),
+            "65th distinct dust payment must not expand storage forever"
+        );
+        assert_eq!(v.payments.len(), count, "denied payment wrote a record");
+        assert_eq!(v.used.len(), count, "denied payment added a nonce");
+        assert_eq!(v.available().0, available, "denied payment debited escrow");
+        assert_eq!(v.reserved().0, reserved, "denied payment reserved funds");
+    }
+
     #[test]
     fn vault_rejects_mainnet_account_at_initialization() {
         let mut ctx = VMContextBuilder::new();
