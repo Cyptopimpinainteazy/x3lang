@@ -1,20 +1,23 @@
-# X3-lang: 50 Unique Capabilities
+<a id="x3-lang-50-unique-capabilities"></a>
+# X3Lang capability proposals
 
-> **Design catalogue, not a feature list.** The snippets below are an early sketch in a Python-like
-> dialect the compiler does not accept (`x3c check` fails on the first one with
-> `function name: expected identifier`), and most capabilities named here are not implemented.
-> For what the language does today see [`../README.md`](../README.md) and `../examples/`.
+> These 50 entries are design proposals. Most are not implemented. The examples use
+> an unsupported Python-like dialect: `x3c check` rejects the first one with
+> `function name: expected identifier`. For supported syntax and execution paths,
+> see the [language README](../README.md) and [examples](../examples/).
 
 ## Overview
 
-This document catalogs 50 native capabilities unique to X3-lang that distinguish it from every other blockchain language. These capabilities enable X3 to operate seamlessly across EVM, SVM, and X3 chains while providing tools for GPU-accelerated compute, AI-driven optimization, and deterministic off-chain execution.
+The proposals cover cross-VM execution, financial operations, GPU jobs, agent
+controls and off-chain computation. Each entry describes intended behavior.
+For implementation status, see the language README.
 
 ---
 
 ## Core Cross-VM & Atomicity
 
 ### 1. Native cross-VM atomic execution
-Seamlessly execute atomic transactions across EVM/SVM/X3 in a single function call without bridges or external coordination.
+Coordinate EVM, SVM and X3 operations within one atomic execution boundary.
 
 ```x3
 fn atomic_swap(user: addr, amount_evm: uint, amount_svm: uint) -> bool:
@@ -76,7 +79,7 @@ fn detect_sandwich(pool: addr, amount: uint) -> bool:
 ## Mathematical & Financial Primitives
 
 ### 6. Built-in fixed-point finance math
-Native support for high-precision decimal arithmetic without rounding errors.
+Fixed-point arithmetic with explicit precision and rounding rules.
 
 ```x3
 fn calculate_exact_output(reserve_in: uint, reserve_out: uint, amount_in: uint) -> uint:
@@ -111,7 +114,8 @@ fn evm_router_swap(data: bytes) -> Result:
 
 ## Execution Model
 
-### 9. Deterministic on-chain / powerful off-chain dual semantics
+<a id="9-deterministic-on-chain--powerful-off-chain-dual-semantics"></a>
+### 9. On-chain and off-chain execution semantics
 Same code runs deterministically on-chain and with acceleration off-chain.
 
 ```x3
@@ -176,7 +180,7 @@ fn sponsor_mint(user: addr, amount: uint):
 ## Reactivity & Events
 
 ### 14. Native event subscription and reactive contract triggers
-Subscribe to events across chains with deterministic liveness guarantees.
+Subscribe to cross-chain events with explicit delivery and liveness requirements.
 
 ```x3
 @subscribe("price_update")
@@ -208,7 +212,7 @@ Bytecode: LOAD_LOCAL 0, LOAD_LOCAL 1, ADD, RET
 ```
 
 ### 17. First-class contract storage namespaces per package
-Each contract owns isolated storage without collision risks.
+Give each contract a storage namespace and define how keys are isolated.
 
 ```x3
 // Storage automatically namespaced to this contract
@@ -361,7 +365,8 @@ fn migrate_and_destroy(new_contract: addr):
     self_destruct()
 ```
 
-### 29. Language-level safe concurrency primitives for isolated state
+<a id="29-language-level-safe-concurrency-primitives-for-isolated-state"></a>
+### 29. Scheduled execution
 Execute jobs periodically without external cron.
 
 ```x3
@@ -413,7 +418,8 @@ fn swap(from: addr, to: addr, amount: uint) -> Result:
 ## Verification & Rollback
 
 ### 33. Language-level cross-VM rollback semantics
-Atomically rollback across EVM and SVM if conditions fail.
+Roll back coordinated EVM/SVM operations when a condition fails. External-chain
+settlement needs a separate failure and refund protocol.
 
 ```x3
 fn atomic_operation(amount: uint):
@@ -485,7 +491,7 @@ fn batch_scan_pools(pool_list: list[addr]) -> list[PoolData]:
 ## Format Conversion
 
 ### 38. Native support for JSON/CBOR/RLP/SSZ conversion
-Convert seamlessly between encoding formats.
+Convert between encoding formats.
 
 ```x3
 fn cross_vm_message(data: MyStruct) -> bytes:
@@ -676,20 +682,10 @@ fail "X3_CROSS_VM_CALL_FAILED"    // Cross-VM specific error
 
 ---
 
-## Summary
-
-These 50 capabilities position X3-lang as the **only language** that natively handles:
-
-- **Atomic cross-VM execution** without bridges
-- **Deterministic GPU acceleration** for swarms
-- **Native financial primitives** for DeFi
-- **Safe AI integration** with sandboxing
-- **First-class mempool awareness** for MEV
-- **Verifiable off-chain computation** with receipts
-
----
-
+<a id="summary"></a>
 ## Integration Path
+
+The phases below group the proposed work; they do not mark it as shipped.
 
 1. **Phase 1**: Core parser, AST, bytecode (caps 1–5, 16–17)
 2. **Phase 2**: X3VM, gas metering, storage (caps 9–10, 17, 26)

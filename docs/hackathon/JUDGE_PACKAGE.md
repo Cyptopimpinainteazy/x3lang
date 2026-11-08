@@ -4,6 +4,8 @@
 
 **Track ids:** `security`, `agents`.
 
+**NEW REAL-CHAIN EVIDENCE:** [X3Lang first two-chain testnet swap — judge walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) has a successful strict independent finalized Base Sepolia + NEAR receipt proof and immutable signed quote. It is a **separate** owner-authorized Tidepool community testnet execution, not a native X3 bridge, and not an official 1Click mainnet trade. The old offline demo below remains valid as an offline demo.
+
 This package reproduces the current offline policy demonstration. It deliberately separates what
 the repository proves locally from wallet authorization, on-chain enforcement, signed quotes,
 transactions and settlement.
@@ -77,6 +79,8 @@ provisioning. The NEAR Guard has a
 separate owner-authorized testnet deployment and finite evidence set; the
 local demonstration does not activate a wallet or deposit.
 
+**Finalized testnet trade and separate local adversarial tests:** the [first-swap walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) includes real finalized chain evidence plus separately scoped local NEAR Sandbox nonce, signature and replay adversarial tests, and six killed Rust Guard source mutants. The local Guard and deployed Tidepool Guard are not the same binary.
+
 ## Adversarial coverage
 
 The existing public interfaces are exercised in:
@@ -143,9 +147,9 @@ The readiness report never calculates a completion percentage. It reports:
 | An official dry manager-signed quote with a forbidden recipient was refused | verified on NEAR testnet after `quote_signature ok:true` |
 | An official live manager-signed allowed quote was accepted | verified on NEAR testnet; stopped before deposit |
 | A live manager-signed forbidden quote was refused by the agent mandate | not verified |
-| A real wallet signed a quote or sent funds | not verified |
-| A source-chain deposit and destination delivery settled | not verified |
-| One transaction caused the other | not proven |
+| A real Base Sepolia testnet wallet sent exactly 1 test USDC after Tidepool Guard authorization | **Verified**, independent finalized source receipt; see first-swap proof, separate from offline demo |
+| A real Tidepool testnet source transfer and matching NEAR test USDC delivery were finalized | **Verified**, strict chain evidence; the trusted Tidepool relayer is not a trustless atomic bridge |
+| Provider-independent cryptographic causality / atomicity between the two chains | **Not proven**; Tidepool was a trusted testnet provider |
 
 ## Historical disclosure
 

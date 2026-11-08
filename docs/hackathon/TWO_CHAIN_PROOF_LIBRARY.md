@@ -1,19 +1,19 @@
 # X3Lang cross-VM trading proof library — evidence tiers
 
-> **Current evidence level: baseline only. No X3Lang cross-VM trade has been executed or settled.**
+> **Current evidence level: first real two-chain testnet execution verified, strict independent L2 and NEAR finality passed.** See [judge walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) and immutable proof SHA-256 `9aa6d251b7e3c8f8cb6fee57e466034d3f747a84b3792233fe36cd97570bbbcc`.
 > This is Tidepool community testnet, not official NEAR 1Click mainnet and not atomic HTLC settlement.
 
 ## Independent evidence levels
 
 | Tier | Required evidence | Current status |
 |---|---|---|
-| 0 | Typed `.x3` frontend route, exact source SHA | Local tests pass in PR #99; not native X3VM bytecode evidence |
-| 1 | Genuine maker-signed quote, hash, refund and explicit minimum | Historical signed dry/live fixtures captured, expired, **never reuse** |
-| 2 | Owner-signed mandate and one-use nonce on independently hashed, deployed testnet Guard, proven already on-chain at a finalized historical block **before** the Base source transfer | **Not yet deployed/authorized** |
-| 3 | Base Sepolia `transfer()` calldata, finalized receipt, matching Transfer event, two agreeing independent RPC providers and token bytecode hash | **Not yet executed** |
-| 4 | NEAR successful finalized `ft_transfer` receipt, matching receipt-outcome ID, token and destination account, minimum output | **Not yet executed** |
-| 5 | Historical finalized NEAR destination `ft_balance_of` baseline and later finalized increase covering the transfer receipt block | **Baseline only; no post-trade change** |
-| 6 | Provider-independent cryptographic *causal linkage* proving NEAR receipt resulted from specific EVM deposit/quote | **Not yet implemented**; tiers 3–5 cannot alone prove trustless atomicity |
+| 0 | Typed `.x3` frontend route, exact source SHA | **Verified**, SHA `1398f64e…df860`; still Python frontend policy, not native Rust X3VM bytecode |
+| 1 | Genuine maker-signed quote, hash, refund and explicit minimum | **Verified** real maker-signed live quote; hash `131f314c…1034c` and archived JSON bytes. Quote expired; **never reuse** |
+| 2 | Owner-signed mandate and one-use nonce on independently hashed, deployed testnet Guard, proven already on-chain at a finalized historical block **before** the Base source transfer | **Verified** at finalized block 276595150, 06:32:56 UTC, before Base inclusion 06:35:02 UTC |
+| 3 | Base Sepolia `transfer()` calldata, finalized receipt, matching Transfer event, two agreeing independent RPC providers and token bytecode hash | **Verified** 1,000,000 units in block 55,557,170; both providers reported finalized head >= 55,557,819 at capture |
+| 4 | NEAR successful finalized `ft_transfer` receipt, matching receipt-outcome ID, token and destination account, minimum output | **Verified** final tx `EBEBxJNg…FyCm1d`, recipient `x3lang.testnet`, 997,400 units |
+| 5 | Historical finalized NEAR destination `ft_balance_of` baseline and later finalized increase covering the transfer receipt block | **Verified**, 100,000,000 → 100,997,400 base units, receipt at NEAR block 276595461 within interval |
+| 6 | Provider-independent cryptographic *causal linkage* proving NEAR receipt resulted from specific EVM deposit/quote | **Still unproven**; Tidepool is a trusted testnet relayer; tiers 3–5 do not prove atomicity |
 | Mainnet | Audited native atomic kernel, correct chain credentials/HTLC finality/settlement economics | **Not authorized or evidenced** |
 
 ## REAL read-only finalized baseline
@@ -35,9 +35,9 @@ PYTHONPATH=x3-lang python3 scripts/hackathon/capture_two_chain_baseline.py \
 
 The command refuses to overwrite existing evidence; after the trade, retain the original pre-trade hash and pass its recorded NEAR `block_hash` as the `--near-balance-before-block` argument.
 
-## Post-trade independently verifiable report (not yet runnable to success)
+## Post-trade independently verifiable report (successfully reproduced; no atomicity claim)
 
-When a real owner-authorized swap has executed and the NEAR account received an actual Tidepool token transfer, obtain the Base Sepolia source transaction hash, the NEAR token-transfer transaction hash and **signer account ID**, and a NEW finalized NEAR block hash *after* the receipt. Then run:
+An actual owner-authorized testnet trade has now executed, with a finalized NEAR token transfer. The complete original inputs and result are recorded in [FIRST_SWAP_JUDGE_WALKTHROUGH.md](FIRST_SWAP_JUDGE_WALKTHROUGH.md). To independently re-run the strict verifier against current RPCs, supply the archived signed quote, the exact source and destination transaction hashes/signers, and the historical finalized Guard/NEAR balance block hashes. The following command is a **parameterized template**:
 
 ```sh
 PYTHONPATH=x3-lang python3 scripts/hackathon/two_chain_settlement_proof.py \
@@ -59,4 +59,4 @@ PYTHONPATH=x3-lang python3 scripts/hackathon/two_chain_settlement_proof.py \
 
 **Fail closed:** No fake transaction hashes, no manual settlement checkboxes, no provider status standing in for on-chain receipt evidence, no partial success artifact, and no automatic retries or private keys. All unit test fixtures are clearly **synthetic**; they validate negative gates only, never serve as public transaction evidence.
 
-The final classifier is `independent_testnet_two_chain_transfer_evidence_NOT_atomicity_or_native_x3vm_proof`. The verifier deliberately **does not claim atomicity or cryptographic origin-to-destination causality**. That requires a separate protocol-level proof tied to the exact EVM deposit and NEAR settlement, with replay/finality validation. The bundled `guard` is an owner policy gate and does not make Tidepool's trusted relay into an HTLC.
+The verified live output classification is `independent_testnet_two_chain_transfer_evidence_NOT_atomicity_or_native_x3vm_proof` and its immutable file is `evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json` (SHA-256 `9aa6d251b7e3c8f8cb6fee57e466034d3f747a84b3792233fe36cd97570bbbcc`). The verifier deliberately **does not claim atomicity or cryptographic origin-to-destination causality**. That requires a separate protocol-level proof tied to the exact EVM deposit and NEAR settlement, with replay/finality validation. The bundled `guard` is an owner policy gate and does not make Tidepool's trusted relay into an HTLC.

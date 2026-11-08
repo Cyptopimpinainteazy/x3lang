@@ -3544,23 +3544,6 @@ fn required_production_rpc_url(name: &'static str) -> Result<String, BridgeError
     Ok(raw.to_string())
 }
 
-/// A required production trust anchor must not be silently accepted as an
-/// empty string. This validates presence/encoding only, not independent
-/// checkpoint trust or network finality.
-fn required_production_trust_anchor(name: &'static str) -> Result<String, BridgeError> {
-    let value = std::env::var(name).map_err(|_| BridgeError {
-        code: "X3_BRIDGE_INIT_FAILED",
-        message: format!("{name} must be explicitly configured"),
-    })?;
-    if value.trim().is_empty() {
-        return Err(BridgeError {
-            code: "X3_BRIDGE_INIT_FAILED",
-            message: format!("{name} must not be empty"),
-        });
-    }
-    Ok(value)
-}
-
 /// Optional does not mean typo-tolerant: if an operator sets a security
 /// threshold, malformed or out-of-range values stop production startup.
 fn strict_optional_bridge_threshold(name: &'static str, max: u64) -> Result<Option<u64>, BridgeError> {
@@ -3614,10 +3597,25 @@ fn strict_optional_bridge_threshold(name: &'static str, max: u64) -> Result<Opti
 /// Never silently falls back to `DryRunBridge`. Callers that don't set
 /// `X3_BRIDGE_VERIFIER` should explicitly pass `None` and use
 /// `resolve_bridge_backend()` for the dry-run path.
+fn bridge_config_error(name: &str, reason: &str) -> BridgeError {
+    BridgeError {
+        code: "X3_BRIDGE_INIT_FAILED",
+        message: format!("{name}: {reason}"),
+    }
+}
+
+fn bridge_required_config(name: &str) -> Result<String, BridgeError> {
+    let value = std::env::var(name).map_err(|_| bridge_config_error(name, "must be explicitly configured"))?;
+    if value.trim().is_empty() {
+        return Err(bridge_config_error(name, "must not be empty"));
+    }
+    Ok(value)
+}
+
 pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, BridgeError> {
     let verifier: Box<dyn BridgeAdapter> = match std::env::var("X3_BRIDGE_VERIFIER").as_deref() {
         Ok("evm-light-client") => {
-            let trusted_hash = required_production_trust_anchor("X3_EVM_TRUSTED_HEADER_HASH")?;
+            let trusted_hash = bridge_required_config("X3_EVM_TRUSTED_HEADER_HASH")?;
             let mut verifier = EthereumLightClientVerifier::new(&trusted_hash);
             if let Some(n) = strict_optional_bridge_threshold("X3_EVM_MIN_BLOCK_NUMBER", u64::MAX)? {
                 verifier = verifier.with_min_block_number(n);
@@ -3633,7 +3631,7 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("svm-light-client") => {
-            let trusted_hash = required_production_trust_anchor("X3_SVM_TRUSTED_BANK_HASH")?;
+            let trusted_hash = bridge_required_config("X3_SVM_TRUSTED_BANK_HASH")?;
             let mut verifier = SolanaLightClientVerifier::new(&trusted_hash);
             if let Ok(pubkeys) = std::env::var("X3_SVM_VALIDATOR_PUBKEYS") {
                 verifier = verifier.with_validator_pubkeys(pubkeys.split(',').map(|s| s.trim().to_string()).collect());
@@ -3698,10 +3696,10 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             return Ok(None);
         }
         Err(_) => {
-            return Err(BridgeError {
-                code: "X3_BRIDGE_INIT_FAILED",
-                message: "X3_BRIDGE_VERIFIER contains invalid UTF-8".to_string(),
-            });
+            return Err(bridge_config_error(
+                "X3_BRIDGE_VERIFIER",
+                "non-Unicode verifier selection is invalid",
+            ));
         }
     };
     Ok(Some(verifier))

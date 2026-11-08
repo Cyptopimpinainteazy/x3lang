@@ -6,12 +6,12 @@ These are **backend admission** findings, not claims of actual theft or bypassed
 
 ## Required modes
 
-- `X3_BACKEND=prod`: requires a **wired production** verifier; `resolve_bridge_backend()` itself returns a hard error until a production adapter has been provided. `init_production_backend()` requires a valid `X3_BRIDGE_VERIFIER` when prod is selected.
+- `X3_BACKEND=prod`: requires a **wired production** verifier; `resolve_bridge_backend()` itself always returns a hard error in prod. Production callers must pass their configured adapter to `resolve_bridge_backend_with()`. `init_production_backend()` requires a valid `X3_BRIDGE_VERIFIER` when prod is selected.
 - `X3_BACKEND=dry`: explicit simulation mode. Simulation must never be mislabeled as chain evidence.
 - Unset, mistyped, non-UTF-8, or unknown modes: hard error in `resolve_bridge_backend()`. No implicit dry-run.
 - `X3_BRIDGE_VERIFIER=evm-rpc`: `X3_EVM_RPC_URL` must explicitly specify an absolute http(s) URL without embedded credentials; no default `localhost:8545`.
 - `X3_BRIDGE_VERIFIER=svm-rpc`: `X3_SVM_RPC_URL` must explicitly specify an absolute http(s) URL without embedded credentials; no default `localhost:8899`.
-- Optional numeric security settings `X3_EVM_MIN_BLOCK_NUMBER`, `X3_EVM_MIN_CONFIRMATIONS`, `X3_SVM_MIN_SIGNATURES`, `X3_SVM_MIN_STAKE_BPS` are strictly parsed **if present**. Zero, empty, negative, non-integer, overflow and out-of-range values cause `X3_BRIDGE_INIT_FAILED`, never an implicit weaker/default value. Defaults apply only when a setting is completely absent. Signature and stake bounds are 1–10,000; confirmation and block-number bounds are 1–u64::MAX.
+- Optional numeric security settings `X3_EVM_MIN_BLOCK_NUMBER`, `X3_EVM_MIN_CONFIRMATIONS`, `X3_SVM_MIN_SIGNATURES`, `X3_SVM_MIN_STAKE_BPS` are strictly parsed when their corresponding verifier family is selected and the setting is present. Zero, empty, negative, non-integer, overflow and out-of-range values in that family cause `X3_BRIDGE_INIT_FAILED`, never an implicit weaker/default value. Defaults apply only when a setting is completely absent. Signature and stake bounds are 1–10,000; confirmation and block-number bounds are 1–u64::MAX.
 - Explicitly configured `http://localhost` is still allowed for a deliberate **local test validator**, not inferred automatically. Presence of an RPC URL alone does not authenticate an endpoint; independent chain/receipt/finality checks are still required.
 
 ## Adversarial regression
