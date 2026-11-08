@@ -1,7 +1,15 @@
 //! TESTNET ONLY: a custody-bound contract, never an advisory EOA Guard.
 //! A scoped agent key cannot withdraw native NEAR directly from this vault.
+//!
+//! Every refusal carries a stable code: `X3_VAULT_INIT`, `X3_VAULT_DENIED` or
+//! `X3_VAULT_LEDGER`. On-chain WASM must be built with `--cfg near` (this crate's
+//! `.cargo/config.toml`, as `cargo near build`); without it near-sdk discards every
+//! refusal reason and the explorer shows a bare `unreachable` trap.
+
+#[cfg(all(target_arch = "wasm32", not(near)))]
+compile_error!("x3-agent-vault: WASM must be built with `--cfg near` (cargo-near, or this crate's .cargo/config.toml)");
 use near_sdk::json_types::U128;
-use near_sdk::{env, near, AccountId, Gas, NearToken, PanicOnDefault, Promise};
+use near_sdk::{env, near, require, AccountId, Gas, NearToken, PanicOnDefault, Promise};
 use std::collections::{BTreeMap, BTreeSet};
 
 // BTreeMap/BTreeSet entries are serialized into root contract state and
@@ -55,18 +63,26 @@ impl AgentVault {
         budget: U128,
         deadline_ms: u64,
     ) -> Self {
-        assert!(env::current_account_id().as_str().ends_with(".testnet"), "testnet only");
-        assert!(
-            owner != agent && recipient != agent && owner != recipient,
-            "distinct principal roles required"
+        require!(
+            env::current_account_id().as_str().ends_with(".testnet"),
+            "X3_VAULT_INIT: testnet only"
         );
-        assert!(recipient != env::current_account_id(), "vault cannot pay itself");
-        assert!(cap.0 > 0 && budget.0 >= cap.0, "invalid cap or budget");
-        assert!(deadline_ms > env::block_timestamp_ms(), "expired owner mandate");
-        assert_eq!(
-            env::predecessor_account_id(),
-            env::current_account_id(),
-            "vault initializer must be called by deployment account"
+        require!(
+            owner != agent && recipient != agent && owner != recipient,
+            "X3_VAULT_INIT: distinct principal roles required"
+        );
+        require!(
+            recipient != env::current_account_id(),
+            "X3_VAULT_INIT: vault cannot pay itself"
+        );
+        require!(cap.0 > 0 && budget.0 >= cap.0, "X3_VAULT_INIT: invalid cap or budget");
+        require!(
+            deadline_ms > env::block_timestamp_ms(),
+            "X3_VAULT_INIT: expired owner mandate"
+        );
+        require!(
+            env::predecessor_account_id() == env::current_account_id(),
+            "X3_VAULT_INIT: vault initializer must be called by deployment account"
         );
         Self {
             owner,
@@ -89,9 +105,12 @@ impl AgentVault {
     /// reserve is NOT spendable by agents and cannot inflate this ledger.
     #[payable]
     pub fn fund(&mut self) {
-        assert_eq!(env::predecessor_account_id(), self.owner, "owner only");
+        require!(
+            env::predecessor_account_id() == self.owner,
+            "X3_VAULT_DENIED: owner only"
+        );
         let amount = env::attached_deposit().as_yoctonear();
-        assert!(amount > 0, "zero escrow");
+        require!(amount > 0, "X3_VAULT_DENIED: zero escrow");
         self.available = self.available.checked_add(amount).expect("escrow overflow");
     }
 
@@ -99,30 +118,42 @@ impl AgentVault {
     /// A NEAR FunctionCall-only key scoped to this method cannot directly transfer
     /// the agent's account balance or call unauthorized contract functions.
     pub fn request_payment(&mut self, nonce: String, recipient: AccountId, amount: U128) -> Promise {
-        assert_eq!(env::predecessor_account_id(), self.agent, "unregistered agent");
-        assert!(!self.revoked, "owner revoked mandate");
-        assert!(env::block_timestamp_ms() < self.deadline_ms, "owner mandate expired");
-        assert_eq!(recipient, self.recipient, "recipient not allowlisted");
-        assert!(
+        require!(
+            env::predecessor_account_id() == self.agent,
+            "X3_VAULT_DENIED: unregistered agent"
+        );
+        require!(!self.revoked, "X3_VAULT_DENIED: owner revoked mandate");
+        require!(
+            env::block_timestamp_ms() < self.deadline_ms,
+            "X3_VAULT_DENIED: owner mandate expired"
+        );
+        require!(
+            recipient == self.recipient,
+            "X3_VAULT_DENIED: recipient not allowlisted"
+        );
+        require!(
             !nonce.is_empty()
                 && nonce.len() <= 64
                 && nonce
                     .bytes()
                     .all(|x| x.is_ascii_alphanumeric() || x == b'_' || x == b'-'),
-            "invalid nonce"
+            "X3_VAULT_DENIED: invalid nonce"
         );
-        assert!(!self.used.contains(&nonce), "nonce already used");
-        assert!(
+        require!(!self.used.contains(&nonce), "X3_VAULT_DENIED: nonce already used");
+        require!(
             self.used.len() < MAX_PAYMENT_RECORDS && self.payments.len() < MAX_PAYMENT_RECORDS,
-            "payment history capacity reached"
+            "X3_VAULT_DENIED: payment history capacity reached"
         );
-        assert!(amount.0 > 0 && amount.0 <= self.cap, "per-payment cap exceeded");
+        require!(
+            amount.0 > 0 && amount.0 <= self.cap,
+            "X3_VAULT_DENIED: per-payment cap exceeded"
+        );
         let committed = self.spent.checked_add(self.reserved).expect("spent overflow");
-        assert!(
+        require!(
             committed <= self.budget && amount.0 <= self.budget - committed,
-            "cumulative budget exceeded"
+            "X3_VAULT_DENIED: cumulative budget exceeded"
         );
-        assert!(amount.0 <= self.available, "insufficient escrow");
+        require!(amount.0 <= self.available, "X3_VAULT_DENIED: insufficient escrow");
         self.available -= amount.0;
         self.reserved = self.reserved.checked_add(amount.0).expect("reserved overflow");
         self.used.insert(nonce.clone());
@@ -148,7 +179,10 @@ impl AgentVault {
     #[private]
     pub fn on_payout(&mut self, nonce: String) -> bool {
         let payment = self.payments.get_mut(&nonce).expect("unknown payment");
-        assert_eq!(payment.state, PaymentState::Pending, "terminal payout");
+        require!(
+            payment.state == PaymentState::Pending,
+            "X3_VAULT_LEDGER: terminal payout"
+        );
         let amount = payment.amount.0;
         self.reserved = self.reserved.checked_sub(amount).expect("reserved underflow");
         if env::promise_result_checked(0, 32).is_ok() {
@@ -165,13 +199,22 @@ impl AgentVault {
     /// never withdrawable. Contract storage stake and callback liquidity are
     /// explicitly reserved; this is a TESTNET pilot, not production accounting.
     pub fn recover_available(&mut self, amount: U128) -> Promise {
-        assert_eq!(env::predecessor_account_id(), self.owner, "owner only");
-        assert!(
-            self.revoked || env::block_timestamp_ms() >= self.deadline_ms,
-            "revoke or expire mandate before recovery"
+        require!(
+            env::predecessor_account_id() == self.owner,
+            "X3_VAULT_DENIED: owner only"
         );
-        assert_eq!(self.pending_recovery, 0, "owner recovery already pending");
-        assert!(amount.0 > 0 && amount.0 <= self.available, "invalid recovery amount");
+        require!(
+            self.revoked || env::block_timestamp_ms() >= self.deadline_ms,
+            "X3_VAULT_DENIED: revoke or expire mandate before recovery"
+        );
+        require!(
+            self.pending_recovery == 0,
+            "X3_VAULT_DENIED: owner recovery already pending"
+        );
+        require!(
+            amount.0 > 0 && amount.0 <= self.available,
+            "X3_VAULT_DENIED: invalid recovery amount"
+        );
 
         let storage_stake = (env::storage_usage() as u128)
             .checked_mul(env::storage_byte_cost().as_yoctonear())
@@ -181,9 +224,9 @@ impl AgentVault {
             .and_then(|n| n.checked_add(RECOVERY_GAS_BUFFER_YOCTO))
             .expect("recovery reserve overflow");
         let safely_transferable = env::account_balance().as_yoctonear().saturating_sub(required_reserve);
-        assert!(
+        require!(
             amount.0 <= safely_transferable,
-            "storage, outstanding payouts or callback reserve would be consumed"
+            "X3_VAULT_DENIED: storage, outstanding payouts or callback reserve would be consumed"
         );
 
         self.available -= amount.0;
@@ -202,7 +245,7 @@ impl AgentVault {
     #[private]
     pub fn on_recovery(&mut self) -> bool {
         let amount = self.pending_recovery;
-        assert!(amount > 0, "no pending owner recovery");
+        require!(amount > 0, "X3_VAULT_LEDGER: no pending owner recovery");
         self.pending_recovery = 0;
         if env::promise_result_checked(0, 32).is_ok() {
             true
@@ -213,7 +256,10 @@ impl AgentVault {
     }
 
     pub fn revoke(&mut self) {
-        assert_eq!(env::predecessor_account_id(), self.owner, "owner only");
+        require!(
+            env::predecessor_account_id() == self.owner,
+            "X3_VAULT_DENIED: owner only"
+        );
         self.revoked = true;
     }
     pub fn payment(&self, nonce: String) -> Option<Payment> {
@@ -588,5 +634,96 @@ mod tests {
             NOW + 60000
         ))
         .is_err());
+    }
+
+    fn refusal(f: impl FnOnce()) -> String {
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let err =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).expect_err("call was expected to be refused");
+        std::panic::set_hook(hook);
+        err.downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn refusals_carry_stable_reason_codes() {
+        set("vault.testnet", 0, NOW);
+        let bad_init = refusal(|| {
+            let _ = AgentVault::new(
+                "owner.testnet".parse().unwrap(),
+                "owner.testnet".parse().unwrap(),
+                "allowed.testnet".parse().unwrap(),
+                U128(1),
+                U128(1),
+                NOW + 1,
+            );
+        });
+        assert!(
+            bad_init.starts_with("X3_VAULT_INIT: distinct principal roles"),
+            "{bad_init}"
+        );
+
+        let mut v = vault();
+        fund(&mut v);
+        set("agent.testnet", 0, NOW + 1);
+        let pay = |v: &mut AgentVault, nonce: &str, to: &str, amount: u128| {
+            let to: AccountId = to.parse().unwrap();
+            let nonce = nonce.to_string();
+            refusal(move || {
+                let _ = v.request_payment(nonce, to, U128(amount));
+            })
+        };
+        for (got, want) in [
+            (
+                pay(&mut v, "a", "attacker.testnet", 1),
+                "X3_VAULT_DENIED: recipient not allowlisted",
+            ),
+            (
+                pay(&mut v, "a", "allowed.testnet", 3 * 10u128.pow(23)),
+                "X3_VAULT_DENIED: per-payment cap exceeded",
+            ),
+            (
+                pay(&mut v, "bad nonce!", "allowed.testnet", 1),
+                "X3_VAULT_DENIED: invalid nonce",
+            ),
+        ] {
+            assert_eq!(got, want);
+        }
+        set("attacker.testnet", 0, NOW + 1);
+        assert_eq!(
+            pay(&mut v, "a", "allowed.testnet", 1),
+            "X3_VAULT_DENIED: unregistered agent"
+        );
+        assert_eq!(refusal(|| v.revoke()), "X3_VAULT_DENIED: owner only");
+        assert_eq!(
+            refusal(|| {
+                let _ = v.recover_available(U128(1));
+            }),
+            "X3_VAULT_DENIED: owner only"
+        );
+        set("owner.testnet", 0, NOW + 1);
+        assert_eq!(
+            refusal(|| {
+                let _ = v.recover_available(U128(1));
+            }),
+            "X3_VAULT_DENIED: revoke or expire mandate before recovery"
+        );
+        v.revoke();
+        set("agent.testnet", 0, NOW + 2);
+        assert_eq!(
+            pay(&mut v, "a", "allowed.testnet", 1),
+            "X3_VAULT_DENIED: owner revoked mandate"
+        );
+        set("vault.testnet", 0, NOW + 2);
+        assert_eq!(
+            refusal(|| {
+                let _ = v.on_recovery();
+            }),
+            "X3_VAULT_LEDGER: no pending owner recovery"
+        );
+        assert_eq!(v.available().0, 10u128.pow(24), "refusals must not touch escrow");
     }
 }

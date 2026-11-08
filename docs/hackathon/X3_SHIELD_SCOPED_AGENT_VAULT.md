@@ -87,6 +87,25 @@ public testnet until these gates and explicit owner authorization are met.
 This work does not demonstrate mainnet readiness, cross-VM custody
 enforcement, or trustless settlement, and it does not modify Tidepool Guard.
 
+## Readable refusals and build mode
+
+Every refusal carries a stable code: `X3_VAULT_INIT: …` (initialization),
+`X3_VAULT_DENIED: …` (caller, mandate, nonce, cap, budget or escrow checks) or
+`X3_VAULT_LEDGER: …` (callback state). The crate builds with `--cfg near`
+(`x3-lang/near/x3-agent-vault/.cargo/config.toml`, as `cargo near build`) and refuses
+to compile for wasm32 without it. Without that flag near-sdk discards every refusal message
+and the explorer shows only `WebAssembly trap: unreachable`; the same build defect is in the
+deployed X3 Guard (see `GUARD_TESTNET_EVIDENCE.md`).
+
+This changes the compiled WASM. The SHA-256 values and Sandbox evidence above belong to the
+earlier builds: re-run `scripts/hackathon/vault_sandbox_smoke.sh` and record new evidence
+before citing results for this source.
+
+**Dust storage:** the 64-record history cap bounds what a compromised agent can lock in
+storage stake to roughly 64 records of state (about 0.08 NEAR at the current byte cost), and
+`recover_available` reserves the account's actual storage stake. Charging each record's
+storage to the agent's budget, proposed in #134, was not adopted.
+
 ## 90-second judge narration (recording plan, NOT a completed video)
 
 **0–15s:** "X3 Shield doesn't just ask an AI agent to obey rules. This vault makes the spending boundary enforceable, with only a FunctionCall key available to the agent." Show local on-chain access-key permission.
