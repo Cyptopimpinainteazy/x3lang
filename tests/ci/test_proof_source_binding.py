@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 import sys
@@ -202,6 +203,101 @@ class ProofSourceBindingTests(unittest.TestCase):
                     self.assertEqual(len(report["tests"]), suites)
                 calls = [json.loads(line) for line in fixture.calls.read_text().splitlines()]
                 self.assertEqual(sum(call[:2] == ["cargo", "test"] for call in calls), suites * 2)
+
+    def test_committed_relative_symlinks_are_accepted(self):
+        for runner in RUNNERS:
+            with self.subTest(runner=runner), self.fixture(runner) as fixture:
+                # Match the monorepo's tracked Corepack link, including node_modules.
+                toolchain = fixture.repo / ".toolchain/node-v20.19.2-linux-x64"
+                target = toolchain / "lib/node_modules/corepack/dist/corepack.js"
+                target.parent.mkdir(parents=True)
+                target.write_text("// Committed tool fixture, never executed.\n")
+                link = toolchain / "bin/corepack"
+                link.parent.mkdir(parents=True)
+                link.symlink_to("../lib/node_modules/corepack/dist/corepack.js")
+                (fixture.repo / "tool-alias").symlink_to(str(link.relative_to(fixture.repo)))
+                (fixture.repo / "source-alias").symlink_to("x3-lang/compiler/src")
+                (fixture.repo / "source-chain").symlink_to("source-alias")
+                (fixture.repo / "nested-source").symlink_to("source-chain/lib.rs")
+                (fixture.repo / "substrate").symlink_to(".")
+                fixture.git("add", "--force", "--", ".toolchain", "tool-alias", "source-alias",
+                            "source-chain", "nested-source", "substrate")
+                fixture.git("commit", "--quiet", "-m", "Committed internal symlinks")
+                revision = fixture.git("rev-parse", "HEAD").stdout.strip()
+                result = fixture.run()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                report = json.loads((fixture.output / "manifest.json").read_text())
+                self.assertEqual(report["status"], "passed")
+                self.assertEqual(report["repo_revision"], revision)
+
+    def test_symlink_targets_require_committed_checkout_provenance(self):
+        for runner in RUNNERS:
+            for case in (
+                "absolute", "outside", "dangling", "ignored_file", "ignored_directory",
+                "cycle", "file_suffix", "alias_parent_escape",
+            ):
+                with self.subTest(runner=runner, case=case), self.fixture(runner) as fixture:
+                    link = fixture.repo / "source-alias"
+                    if case == "absolute":
+                        link.symlink_to(fixture.repo / SOURCE)
+                    elif case == "outside":
+                        (fixture.repo.parent / "outside.rs").write_text("// Outside checkout.\n")
+                        link.symlink_to("../outside.rs")
+                    elif case == "dangling":
+                        link.symlink_to("missing.rs")
+                    elif case == "file_suffix":
+                        link.symlink_to(SOURCE + "/.")
+                    elif case == "alias_parent_escape":
+                        (fixture.repo / "alias-dir").symlink_to(".")
+                        (fixture.repo / "outside.rs").write_text("// Committed decoy.\n")
+                        (fixture.repo.parent / "outside.rs").write_text("// Real escaped target.\n")
+                        link.symlink_to("alias-dir/../outside.rs")
+                        fixture.git("add", "--", "alias-dir", "outside.rs")
+                    elif case in ("ignored_file", "ignored_directory"):
+                        target = fixture.repo / "node_modules/unbound.rs"
+                        target.parent.mkdir()
+                        target.write_text("// Not committed, even though ignored.\n")
+                        exclude = fixture.repo / ".git/info/exclude"
+                        exclude.parent.mkdir(parents=True, exist_ok=True)
+                        exclude.write_text("/node_modules/\n")
+                        link.symlink_to("node_modules/unbound.rs" if case == "ignored_file" else "node_modules")
+                    else:
+                        link.symlink_to("second-alias")
+                        (fixture.repo / "second-alias").symlink_to("source-alias")
+                        fixture.git("add", "--", "second-alias")
+                    fixture.git("add", "--", "source-alias")
+                    fixture.git("commit", "--quiet", "-m", "Unsupported symlink target")
+                    self.assert_refused_before_tools(fixture, "alias")
+
+    def test_symlink_bytes_types_and_targets_are_checked_without_git_status(self):
+        helper = runpy.run_path(str(ROOT / "scripts/proof/source_binding.py"))
+        for case in ("link_bytes", "link_type", "target_bytes", "target_mode"):
+            with self.subTest(case=case), self.fixture("x3lang_execution_proof.py") as fixture:
+                link = fixture.repo / "source-alias"
+                link.symlink_to(SOURCE)
+                fixture.git("add", "--", "source-alias")
+                fixture.git("commit", "--quiet", "-m", "Committed source alias")
+                if case == "link_bytes":
+                    link.unlink()
+                    link.symlink_to("x3-lang/vm/src/lib.rs")
+                elif case == "link_type":
+                    link.unlink()
+                    link.write_text(SOURCE)
+                elif case == "target_bytes":
+                    (fixture.repo / SOURCE).write_text("// Uncommitted target bytes.\n")
+                else:
+                    (fixture.repo / SOURCE).chmod(0o755)
+                with self.assertRaises(helper["SourceBindingError"]):
+                    helper["verify_committed_source"](fixture.repo, output_dir=fixture.output)
+                self.assertFalse(fixture.calls.exists())
+
+    def test_committed_gitlinks_remain_refused(self):
+        for runner in RUNNERS:
+            with self.subTest(runner=runner), self.fixture(runner) as fixture:
+                (fixture.repo / "linked-dependency").mkdir()
+                fixture.git("update-index", "--add", "--cacheinfo", "160000", fixture.revision, "linked-dependency")
+                fixture.git("commit", "--quiet", "-m", "Unattested submodule fixture")
+                self.assert_refused_before_tools(fixture, "linked-dependency")
 
     def test_source_mutation_during_suites_prevents_passed_manifest(self):
         for runner in RUNNERS:

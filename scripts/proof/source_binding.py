@@ -11,6 +11,7 @@ not a filesystem snapshot and cannot detect an edit that is reverted during a su
 """
 from __future__ import annotations
 
+from collections import deque
 import hashlib
 import os
 from pathlib import Path
@@ -33,6 +34,48 @@ def _git(root: Path, *args: str) -> bytes:
         raise SourceBindingError(f"cannot inspect Git checkout ({args[0]})") from exc
 
 
+def _verify_symlink_targets(
+    entries: dict[Path, tuple[str, str]], links: dict[Path, bytes],
+) -> None:
+    """Resolve links against the verified Git tree, never untracked host paths."""
+    directories = {parent for relative in entries for parent in relative.parents}
+    for relative in links:
+        current = relative.parent
+        target = os.fsdecode(links[relative])
+        pending = deque(target.split(os.sep))
+        followed = 1
+        if not target or Path(target).is_absolute():
+            raise SourceBindingError(f"tracked symlink has an absolute or empty target: {relative}")
+        while pending:
+            part = pending.popleft()
+            if part in ("", "."):
+                continue
+            if part == "..":
+                if current == Path("."):
+                    raise SourceBindingError(f"tracked symlink target leaves the checkout: {relative}")
+                current = current.parent
+                continue
+            candidate = current / part
+            if candidate in links:
+                followed += 1
+                target = os.fsdecode(links[candidate])
+                if not target or Path(target).is_absolute():
+                    raise SourceBindingError(f"tracked symlink has an absolute or empty target: {candidate}")
+                if followed > 40:
+                    raise SourceBindingError(f"tracked symlink target is cyclic or too deep: {relative}")
+                pending.extendleft(reversed(target.split(os.sep)))
+            elif candidate in directories:
+                current = candidate
+            elif candidate in entries and entries[candidate][0] in ("100644", "100755"):
+                if pending:
+                    raise SourceBindingError(f"tracked symlink target traverses a file: {relative}")
+                current = candidate
+            else:
+                raise SourceBindingError(
+                    f"tracked symlink target is not committed: {relative} -> {candidate}"
+                )
+
+
 def verify_committed_source(
     root: Path, *, output_dir: Path, expected_revision: str | None = None,
 ) -> str:
@@ -40,7 +83,9 @@ def verify_committed_source(
 
     Reports must be outside the checkout or in a Cargo target directory. Granting
     an arbitrary --output-dir exemption would let it conceal untracked build input.
-    Symlinks and submodules require separate provenance and are refused here.
+    Relative symlinks are bound by their committed link bytes and must resolve to
+    committed files/directories in this checkout. Dangling, external and untracked
+    targets are refused. Submodules require separate provenance and are refused.
     """
     root = root.resolve()
     actual_root = Path(os.fsdecode(_git(root, "rev-parse", "--show-toplevel")).strip()).resolve()
@@ -99,17 +144,26 @@ def verify_committed_source(
         raise SourceBindingError(f"untracked input is not bound to HEAD: {relative}")
 
     algorithm = _git(root, "rev-parse", "--show-object-format").decode().strip()
+    links = {}
     for relative, (mode, object_id) in entries.items():
         path = root / relative
         try:
-            if mode not in ("100644", "100755"):
+            if mode not in ("100644", "100755", "120000"):
                 raise SourceBindingError(f"unsupported tracked symlink/submodule: {relative}")
             info = path.lstat()
-            if not stat.S_ISREG(info.st_mode) or path.resolve() != path:
+            if path.parent.resolve() != path.parent:
                 raise SourceBindingError(f"tracked input is not a regular checkout file: {relative}")
-            if bool(info.st_mode & stat.S_IXUSR) != (mode == "100755"):
-                raise SourceBindingError(f"tracked input mode differs from HEAD: {relative}")
-            data = path.read_bytes()
+            if mode == "120000":
+                if not stat.S_ISLNK(info.st_mode):
+                    raise SourceBindingError(f"tracked symlink type differs from HEAD: {relative}")
+                data = os.readlink(os.fsencode(path))
+                links[relative] = data
+            else:
+                if not stat.S_ISREG(info.st_mode):
+                    raise SourceBindingError(f"tracked input is not a regular checkout file: {relative}")
+                if bool(info.st_mode & stat.S_IXUSR) != (mode == "100755"):
+                    raise SourceBindingError(f"tracked input mode differs from HEAD: {relative}")
+                data = path.read_bytes()
         except OSError as exc:
             raise SourceBindingError(f"cannot read tracked input: {relative}") from exc
         # Compare actual bytes rather than git diff's index stat cache. This also
@@ -117,4 +171,5 @@ def verify_committed_source(
         actual = hashlib.new(algorithm, b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
         if actual != object_id:
             raise SourceBindingError(f"tracked input differs from HEAD: {relative}")
+    _verify_symlink_targets(entries, links)
     return revision
