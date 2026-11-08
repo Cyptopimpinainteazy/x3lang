@@ -1,0 +1,478 @@
+{
+  "observed_date_utc": "2026-11-08",
+  "master_sha": "5bc7e51d01c03ea21ae7dfef29df3494577c58e1",
+  "open_pr_count": 30,
+  "prs": [
+    {
+      "number": 94,
+      "title": "fix(guard): block approvals after owner mandate expiry",
+      "headRefName": "agent/security-redteam-breakfix-20261106",
+      "headRefOid": "6bf0cb80580e44b1f9eb2b763d038a40d1b89631",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/94",
+      "failed_checks": [
+        "real-deployed-wasm-exact-byte-proof (FAILURE)",
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 98,
+      "title": "test(guard): real Sandbox nonce races, signature tamper, approval replay + Rust mutations",
+      "headRefName": "agent/guard-attack-matrix-20261106",
+      "headRefOid": "cb63eb4a3a3e09d5df34a85702da8f762607722d",
+      "baseRefName": "agent/security-redteam-breakfix-20261106",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/98",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 101,
+      "title": "test(guard): 8-way concurrent nonce stress and cross-owner replay isolation",
+      "headRefName": "agent/guard-heavy-attacks-20261106",
+      "headRefOid": "2ab303712f393a6c7217c43eb38a5ffb8973e7b1",
+      "baseRefName": "agent/guard-attack-matrix-20261106",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/101",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 102,
+      "title": "fix(guard): contract-wide signed quote replay protection",
+      "headRefName": "agent/guard-quote-replay-audit-20261106",
+      "headRefOid": "1135569ec733d0b8ecd2043e60e9c6e94ac78132",
+      "baseRefName": "agent/guard-attack-matrix-20261106",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/102",
+      "failed_checks": [
+        "real-deployed-wasm-exact-byte-proof (FAILURE)",
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 103,
+      "title": "fix(guard): block legacy upgrades without verified quote replay history",
+      "headRefName": "agent/guard-upgrade-replay-20261106",
+      "headRefOid": "b1270f47e66117e39a85b7773582f59339df8566",
+      "baseRefName": "agent/guard-quote-replay-audit-20261106",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/103",
+      "failed_checks": [
+        "real-deployed-wasm-exact-byte-proof (FAILURE)",
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 105,
+      "title": "test(guard): repeated concurrent nonce races and cross-owner isolation",
+      "headRefName": "agent/guard-race-stress-20261106",
+      "headRefOid": "426a953c4824eedf5208e351eb869f4e80b8469b",
+      "baseRefName": "agent/guard-attack-matrix-20261106",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/105",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 108,
+      "title": "fix(guard): reject different signed quotes reusing one deposit destination",
+      "headRefName": "agent/guard-deposit-collision-20261106",
+      "headRefOid": "ea1796f24459f3138bdec7b5d3f2401e64827fe4",
+      "baseRefName": "agent/guard-upgrade-replay-20261106",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/108",
+      "failed_checks": [
+        "real-deployed-wasm-exact-byte-proof (FAILURE)",
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 112,
+      "title": "fix(evidence): fail-closed RPC quorum and interrupted proof-store recovery",
+      "headRefName": "agent/near-proof-crash-recovery-20261107",
+      "headRefOid": "d8063394ccd66fa728ba65142581df466de1bc72",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/112",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 116,
+      "title": "fix(bridge): fail closed when production RPC or security thresholds are invalid",
+      "headRefName": "fix/bridge-explicit-rpc-threshold-20261107",
+      "headRefOid": "1a3653ec3f5889b438e5674f96ac6a6b73e5cf1b",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/116",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 117,
+      "title": "fix(vm/security): refuse implicit dry-run, missing RPCs and malformed bridge thresholds",
+      "headRefName": "fix/vm-bridge-config-failclosed-20261107",
+      "headRefOid": "ac407564d32b50c4785d182eb128f81e35f1ea26",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/117",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 120,
+      "title": "fix(bridge): reject empty trust anchors and non-UTF8 verifier selection",
+      "headRefName": "fix/bridge-trust-anchor-admission-20261107",
+      "headRefOid": "81d534fd6d60aea499f74f71f27a4625f6910d1f",
+      "baseRefName": "fix/vm-bridge-config-failclosed-20261107",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "CLEAN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/120",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 123,
+      "title": "docs(base): private 2026 Stocks Maxxing application and demo preparation",
+      "headRefName": "docs/base-stocksmaxxing-2026-prep",
+      "headRefOid": "6a2b108fecc1d3b6ddae14f4e3048b9394766f2d",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/123",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 125,
+      "title": "feat(shield/P0): contract-custodied scoped-agent NEAR vault + real offline Sandbox attack proof",
+      "headRefName": "feat/shield-nonbypassable-near-vault-20261107",
+      "headRefOid": "a9f0e4169969c5009b0dc2052890746aff4b54b0",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/125",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 127,
+      "title": "test(security): prove scoped agent access-key denies NEAR bypasses on local node",
+      "headRefName": "test/scoped-agent-near-sandbox-20261107",
+      "headRefOid": "7146a066b4bfc2e5a703bf67c6c41d244e1436d3",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/127",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 130,
+      "title": "fix(vault): bound nonce history against dust-payment storage exhaustion",
+      "headRefName": "fix/agent-vault-bounded-payment-history-20261107",
+      "headRefOid": "b447d25d2b83e92f5ff68baf31ff7d8ece668650",
+      "baseRefName": "feat/shield-nonbypassable-near-vault-20261107",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/130",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 132,
+      "title": "test(guard): real persisted NEAR Sandbox restart and interrupted nonce recovery",
+      "headRefName": "agent/guard-node-restart-20261107",
+      "headRefOid": "79ffd275fa03a1102c408a60e83da0d6dcf4eb50",
+      "baseRefName": "agent/guard-deposit-collision-20261106",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/132",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 133,
+      "title": "fix(guard): build with --cfg near so on-chain refusals carry their reason",
+      "headRefName": "fix/guard-cfg-near-readable-refusals-20261107",
+      "headRefOid": "9a86d3ec4d1a2d2d6633d7d4f48c831f4a10e69a",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/133",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 134,
+      "title": "fix(vault): charge record storage to escrow, add owner withdraw, readable refusals",
+      "headRefName": "fix/vault-review-hardening-20261107",
+      "headRefOid": "2acfff219c6f2f6f4ae83230b729a2ebe7b99e8f",
+      "baseRefName": "feat/shield-nonbypassable-near-vault-20261107",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/134",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 136,
+      "title": "fix(vault): owner-only escrow recovery with bounded async receipt and reserve",
+      "headRefName": "fix/agent-vault-owner-recovery-20261107",
+      "headRefOid": "850c18e80b80ed062e6be3d94eed721322b14f3b",
+      "baseRefName": "fix/agent-vault-bounded-payment-history-20261107",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/136",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 137,
+      "title": "fix(vault): owner-only escrow recovery with real local NEAR Sandbox settlement tests",
+      "headRefName": "fix/agent-vault-owner-escrow-recovery-20261107",
+      "headRefOid": "8b9650b3a5c0daf319c4eedda7f738701afbbde0",
+      "baseRefName": "fix/agent-vault-bounded-payment-history-20261107",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/137",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 138,
+      "title": "feat(shield/P0): Base Sepolia ERC20 custody vault with scoped EIP-712 agent spending",
+      "headRefName": "feat/base-sepolia-custody-vault-20261107",
+      "headRefOid": "8b1ab64780b392d16e21d30efe600a094fafe188",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/138",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 140,
+      "title": "feat(shield): bind real maker-signed Tidepool quote to unsigned Base vault policy",
+      "headRefName": "feat/base-vault-maker-quote-binding-20261107",
+      "headRefOid": "096e2692b72ac225bc36b8a26f79b7cfca6b1a91",
+      "baseRefName": "feat/base-sepolia-custody-vault-20261107",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "CLEAN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/140",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 142,
+      "title": "fix(shield/P0): two independent finalized NEAR Guard RPCs before unsigned Base vault quote binding",
+      "headRefName": "fix/base-vault-near-guard-quorum-20261107",
+      "headRefOid": "1907df570daa3035be538945095cd84a059c0bd7",
+      "baseRefName": "feat/base-vault-maker-quote-binding-20261107",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "CLEAN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/142",
+      "failed_checks": [],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 143,
+      "title": "fix(ci): fail closed when allocator dependency inspection fails",
+      "headRefName": "fix/gauntlet-allocator-gate-20261108",
+      "headRefOid": "5c3171f0b74b088417cf7e73cdd0b7634ed3a690",
+      "baseRefName": "master",
+      "isDraft": false,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/143",
+      "failed_checks": [
+        "recurseml/analysis (ERROR)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 144,
+      "title": "fix(bridge): reject oversized Ed25519 fields before Base58 decoding",
+      "headRefName": "fix/gauntlet-base58-bounds-20261108",
+      "headRefOid": "b817f17343e3583aa32f1443e727e1bd566bc665",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/144",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)",
+        "recurseml/analysis (ERROR)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 146,
+      "title": "fix(judge): make full evidence mode cover every quick test",
+      "headRefName": "fix/gauntlet-judge-coverage-20261108",
+      "headRefOid": "38ccade0b58edf840cbf1a4b720790cdf819eb0c",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/146",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)",
+        "recurseml/analysis (ERROR)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 147,
+      "title": "docs: clarify the README-to-judge evidence handoff",
+      "headRefName": "docs/judge-evidence-handoff",
+      "headRefOid": "ef8df59fb54344577d5d33734f0cd0bb5729594d",
+      "baseRefName": "docs/no-ai-slop-20261107",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/147",
+      "failed_checks": [
+        "recurseml/analysis (ERROR)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 148,
+      "title": "Improve X3 Guard demo discovery and evidence links",
+      "headRefName": "codex/x3-guard-agent-discovery",
+      "headRefOid": "11a9151f9b2c7be2366c9d24410324970d271f0c",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/148",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)",
+        "recurseml/analysis (ERROR)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 149,
+      "title": "fix(proof): refuse evidence from uncommitted production inputs",
+      "headRefName": "fix/gauntlet-proof-binding-20261108",
+      "headRefOid": "aeacc392f0b9459bf4ef1ff3a325d850b2b711d7",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNKNOWN",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/149",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)",
+        "recurseml/analysis (ERROR)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    },
+    {
+      "number": 150,
+      "title": "fix(mandate): enforce U128, bps and exact expiry bounds in both compilers",
+      "headRefName": "fix/gauntlet-mandate-bounds-20261108",
+      "headRefOid": "b08a002b866c88ddd27386923b43f609b3057144",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/150",
+      "failed_checks": [
+        "Verify identical proof code in both GitHub repos (FAILURE)",
+        "recurseml/analysis (ERROR)"
+      ],
+      "pending_checks": [],
+      "head_reachable_from_master": false
+    }
+  ]
+}

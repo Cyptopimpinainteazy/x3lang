@@ -1,0 +1,81 @@
+{
+  "all_executed_tests_passed": true,
+  "claimed_onchain_proven": false,
+  "dirty_worktree": false,
+  "generated_utc": "2026-11-07T11:09:40.688230+00:00",
+  "git_head": "8fa8266b25fedb04011680976f79f38ba9b1aa07",
+  "receipt": {
+    "caveat": "NEAR balance increase does not identify the sender or establish solver causality",
+    "claimed_outcome": null,
+    "cross_chain_causality_proven": false,
+    "delivery_independently_rechecked": false,
+    "deposit_independently_rechecked": false,
+    "live_quote": false,
+    "quote_signature_valid": false,
+    "receipt_binding_valid": false,
+    "refund_independently_rechecked": false,
+    "rpc_refresh_requested": false,
+    "status": "not_supplied"
+  },
+  "repository": "Cyptopimpinainteazy/x3lang",
+  "schema": "x3.judge_evidence.v1",
+  "test_mode": "full",
+  "tests": [
+    {
+      "duration_seconds": 18.87,
+      "exit_code": 0,
+      "name": "python_policy_and_chain_evidence_tests",
+      "output_sha256": "779ae6262879d9bfb370424f7db6b9eb2086932e246de44cea2056abc32301cc",
+      "status": "passed"
+    },
+    {
+      "duration_seconds": 0.27,
+      "exit_code": 0,
+      "name": "browser_signature_and_guard_tests",
+      "output_sha256": "5cd9db3eb50c2517ff78d4ec3a6db331a396664344c81761ac2fcabfe369679c",
+      "status": "passed"
+    },
+    {
+      "duration_seconds": 16.28,
+      "exit_code": 0,
+      "name": "allocator_supply_chain_gate",
+      "output_sha256": "0ae0d00bf4ed3a83f9eb2a9bcbd4ffb91d39d307ac261aa939bc1edcbcebf7de",
+      "status": "passed"
+    },
+    {
+      "duration_seconds": 77.43,
+      "exit_code": 0,
+      "name": "near_guard_mandate_and_quote_tests",
+      "output_sha256": "d2c28fbb93573e0e058c78b71e79243d6c4d9b2a2e2a71493b9ef5ea8b28f975",
+      "status": "passed"
+    },
+    {
+      "duration_seconds": 82.37,
+      "exit_code": 0,
+      "name": "rust_vm_tests",
+      "output_sha256": "b6ff8255a4f442f277b31c5de401550ca09a2444f4921d1db96b44d8eca3fc20",
+      "status": "passed"
+    },
+    {
+      "duration_seconds": 5.33,
+      "exit_code": 0,
+      "name": "rust_format",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed"
+    },
+    {
+      "duration_seconds": 31.86,
+      "exit_code": 0,
+      "name": "rust_vm_clippy",
+      "output_sha256": "bae62ca832e16f9f85b9dce3fd95166c9a7d15e479c02ee2b00d28003a6365e6",
+      "status": "passed"
+    },
+    {
+      "duration_seconds": 54.73,
+      "exit_code": 0,
+      "name": "near_guard_wasm_compile",
+      "output_sha256": "be2ee49fcdf782e392ab168b806f79570fb4ba78be5e0d177ecdb1ca119b978b",
+      "status": "passed"
+    }
+  ]
+}
