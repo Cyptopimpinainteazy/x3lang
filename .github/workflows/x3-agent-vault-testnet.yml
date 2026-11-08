@@ -1,0 +1,35 @@
+name: X3 Shield Scoped-Agent Vault Pilot
+on:
+  push:
+    branches: [master]
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','.github/workflows/x3-agent-vault-testnet.yml']
+  pull_request:
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','.github/workflows/x3-agent-vault-testnet.yml']
+permissions:
+  contents: read
+jobs:
+  test-vault-wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/x3-agent-vault
+      - name: Vault custody authorization and payout-state tests
+        working-directory: x3-lang/near/x3-agent-vault
+        run: cargo test --locked
+      - name: Strict Rust lints
+        working-directory: x3-lang/near/x3-agent-vault
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Format
+        working-directory: x3-lang/near/x3-agent-vault
+        run: cargo fmt --check
+      - name: Build real NEAR WASM (no deployment)
+        working-directory: x3-lang/near/x3-agent-vault
+        run: cargo build --locked --release --target wasm32-unknown-unknown

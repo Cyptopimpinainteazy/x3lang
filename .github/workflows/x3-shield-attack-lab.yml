@@ -40,9 +40,18 @@ jobs:
                   if 'id' in row:self.ids.append(row['id'])
           ids=IDs();ids.feed(html)
           assert len(ids.ids)==len(set(ids.ids)),'duplicate element ids'
-          assert "import {previewRequest} from './attack-lab-policy.mjs'" in html
+          import re
+          imports=re.findall(r"import \{([^}]*)\} from '\./attack-lab-policy\.mjs'",html)
+          assert len(imports)==1,'page must import the shared policy module exactly once'
+          assert 'runScenario' in imports[0] and 'submitToLedger' in imports[0],'page must evaluate through the policy module'
+          script=html.split('<script type="module">',1)[1].split('</script>',1)[0]
+          referenced=set(re.findall(r"\$\('([A-Za-z0-9_-]+)'\)",script))
+          missing=sorted(referenced-set(ids.ids))
+          assert not missing,f'script references missing element ids: {missing}'
+          Path('/tmp/attack-lab-inline.mjs').write_text(script)
           for forbidden in ['eth_sendTransaction','eth_sendRawTransaction','window.ethereum.request','privateKey','wallet_connect','cast send']:
               for source in (html,policy):
                   assert forbidden not in source, forbidden
-          print('ATTACK_LAB_STATIC_CHECK_OK', len(ids.ids),'unique_ids')
+          print('ATTACK_LAB_STATIC_CHECK_OK', len(ids.ids),'unique_ids', len(referenced),'script_refs_resolved')
           PY
+          node --check /tmp/attack-lab-inline.mjs

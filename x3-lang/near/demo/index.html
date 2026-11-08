@@ -3,8 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>X3 Guard</title>
-<meta name="description" content="Write a NEAR Intents swap's rules as an X3 program, get a real 1Click quote, and watch every rule checked before any deposit.">
+<title>X3 Guard | X3 Shield dry quote demo</title>
+<meta name="description" content="Try X3 Shield's X3Lang policy checks against signed NEAR Intents 1Click dry quotes and inspect the separate NEAR testnet evidence.">
+<link rel="canonical" href="https://x3-guard.pages.dev/">
+<link rel="alternate" type="text/markdown" href="/index.md" title="X3 Guard demo in Markdown">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://x3-guard.pages.dev/">
+<meta property="og:title" content="X3 Guard | X3 Shield dry quote demo">
+<meta property="og:description" content="Try X3Lang policy checks against signed NEAR Intents 1Click dry quotes.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "X3 Guard",
+  "url": "https://x3-guard.pages.dev/",
+  "description": "Browser demo for X3 Shield that checks signed NEAR Intents 1Click dry quotes against X3Lang policies.",
+  "inLanguage": "en",
+  "isBasedOn": "https://github.com/Cyptopimpinainteazy/x3lang"
+}
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231C2631'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' stroke='%2357B98F' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -171,10 +188,10 @@
       </div>
       <p class="diagnostic" id="diagnostic" role="alert"></p>
       <div class="actions">
-        <button class="primary" id="run" type="button">Get a live quote</button>
+        <button class="primary" id="run" type="button">Get a dry quote</button>
         <button class="quiet" id="reset" type="button">Restore the example</button>
         <button class="quiet" id="agent" type="button">Try it as an AI agent</button>
-        <span class="hint">A dry quote: nothing is signed, deposited or sent.</span>
+        <span class="hint">1Click signs the dry quote. No wallet signature, deposit or transfer is required.</span>
       </div>
     </section>
 
@@ -197,7 +214,7 @@
 
     <section class="report" aria-labelledby="report-title">
       <h2 id="report-title" class="sr">What 1Click quoted</h2>
-      <p class="status" id="status" aria-live="polite">Change any rule, then get a live quote. Each line of the program gets its verdict in the margin.</p>
+      <p class="status" id="status" aria-live="polite">Change any rule, then get a dry quote. Each line of the program gets its verdict in the margin.</p>
       <div id="result"></div>
     </section>
   </main>
@@ -210,15 +227,27 @@
         <li><strong>1Click quotes it, and signs the quote</strong><p>The request goes straight from your browser to the 1Click API. 1Click signs every quote with its Ed25519 manager key.</p></li>
         <li><strong>This page checks the signature before reading a number</strong><p>It rebuilds the exact bytes 1Click signed, using the same steps as NEAR's official SDK, and verifies them with your browser's own cryptography. A forged or altered quote stops here.</p></li>
         <li><strong>Every rule is checked against the signed numbers</strong><p>The amount, the floor, slippage, the cost of the swap and of a refund, and whether the quote is fresh. Each verdict lands on the line of the program it came from.</p></li>
-        <li><strong>An AI agent spends only inside its owner's mandate</strong><p>A program that says <code>under mandate &lt;owner&gt;</code> was written by an agent. Before 1Click is asked for anything, the page checks it against the owner's mandate: who may be paid, in what, how much per payment and per 24 hours, where refunds go, and the loosest slippage and fees allowed. On NEAR, x3-guard runs the same checks when the agent registers and again when it accepts a quote, and the owner can revoke the agent at once.</p></li>
+        <li><strong>The demo checks the owner’s mandate</strong><p>A program that says <code>under mandate &lt;owner&gt;</code> was written by an agent. Before 1Click is asked for anything, the page checks it against the owner's mandate: who may be paid, in what, how much per payment and per 24 hours, where refunds go, and the loosest slippage and fees allowed. On NEAR, x3-guard runs the same checks when the agent registers and again when it accepts a quote. An owner can revoke the agent’s mandate for later Guard-mediated requests.</p></li>
       </ol>
-      <p class="limits">For a real swap, the <a href="https://github.com/Cyptopimpinainteazy/xxxstar/tree/feat/near-intents-adapter/x3-lang/near/x3-guard">x3-guard contract</a> does step 3 and step 4 again on NEAR, with <code>env::ed25519_verify</code>, and lets each nonce open only one deposit address. Spending over 24 hours, approvals and revocation live in the contract, so this page checks a mandate as written, with nothing spent yet. It stays on dry quotes, so it never holds keys or moves funds.</p>
+      <p class="limits">For a real swap, the <a href="https://github.com/Cyptopimpinainteazy/x3lang/tree/master/x3-lang/near/x3-guard">x3-guard contract</a> does step 3 and step 4 again on NEAR, with <code>env::ed25519_verify</code>, and lets each nonce open only one deposit address. Spending over 24 hours, approvals and revocation live in the contract, so this page checks a mandate as written, with nothing spent yet. It stays on dry quotes, so it never holds keys or moves funds. An unrestricted key with access to the funds can still transfer them directly.</p>
+    </div>
+  </section>
+
+  <section class="how" aria-labelledby="evidence-title">
+    <h2 id="evidence-title">What each demonstration proves</h2>
+    <div>
+      <ul>
+        <li><a href="./judge.html">Local policy evaluation</a>: the browser shows how an owner mandate rules out a payment to an unlisted recipient.</li>
+        <li><a href="https://github.com/Cyptopimpinainteazy/x3lang/blob/master/docs/hackathon/GUARD_TESTNET_EVIDENCE.md">NEAR testnet Guard decisions</a>: the deployed contract refused a signed 1Click dry quote with a mismatched recipient. A separate accepted quote stopped before deposit.</li>
+        <li><a href="https://github.com/Cyptopimpinainteazy/x3lang/blob/master/docs/hackathon/FIRST_FINALIZED_SWAP_EVIDENCE.md">Finalized testnet settlement</a>: a separate transfer sent 1.000000 test USDC on Base Sepolia, and 0.997400 test USDC arrived on NEAR testnet. The route relied on the trusted Tidepool relayer. The receipts show the finalized transfers on each chain and leave cross-chain causality dependent on the relay.</li>
+      </ul>
     </div>
   </section>
 
   <footer>
-    <a href="https://github.com/Cyptopimpinainteazy/xxxstar/pull/724">Source</a>
+    <a href="https://github.com/Cyptopimpinainteazy/x3lang">Source</a>
     <a href="https://docs.near-intents.org/integration/distribution-channels/1click-api/verify-quote-signature">How 1Click signs quotes</a>
+    <a href="./index.md">Markdown overview</a>
     <span>Built at NEAR HACKATHON, November 2026</span>
     <button class="quiet theme" id="theme" type="button" aria-label="Switch color theme">Theme: system</button>
   </footer>

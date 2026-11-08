@@ -1,0 +1,47 @@
+name: X3Lang NEAR Evidence RPC and Crash-Recovery Security Gate
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/bridge/near_evidence.py'
+      - 'x3-lang/bridge/test_near_evidence.py'
+      - 'x3-lang/bridge/near_receipt_proof.py'
+      - 'docs/security/NEAR_EVIDENCE_CHAOS.md'
+      - 'scripts/hackathon/requirements-judge.txt'
+      - '.github/workflows/x3lang-near-evidence-chaos.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/bridge/near_evidence.py'
+      - 'x3-lang/bridge/test_near_evidence.py'
+      - '.github/workflows/x3lang-near-evidence-chaos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  near-evidence-chaos:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact proposed head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Create isolated, hash-locked environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/x3-proof-venv"
+          "$RUNNER_TEMP/x3-proof-venv/bin/python" -m pip install \
+            --require-hashes -r scripts/hackathon/requirements-judge.txt
+      - name: Exercise RPC equivocation, interrupted evidence, process crashes and concurrent indexing
+        shell: bash
+        run: |
+          PYTHONPATH=x3-lang/bridge "$RUNNER_TEMP/x3-proof-venv/bin/python" \
+            -W error::ResourceWarning -m unittest test_near_evidence -v

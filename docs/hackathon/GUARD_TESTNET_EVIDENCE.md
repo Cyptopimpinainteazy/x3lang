@@ -74,6 +74,27 @@ SHA-256.
 
 Each entry stores its own block hash/height, receipt IDs/statuses, `method_names`, and `args_sha256` with signatures/payloads replaced by SHA-256 hashes in sanitized args (no private-key fields, no env data). Failed `accept_quote` receipts show a generic WebAssembly `unreachable` trap on-chain; the precise guard reason is in the view below and in contract code (`X3_NEAR_INVALID_SIGNATURE` vs `quote rejected by …`), not in the receipt string.
 
+### Why the deployed binary's refusals carry no reason text
+
+The deployed code (`ac44fa53…`, source `800a077e`) was compiled with plain
+`cargo build --target wasm32-unknown-unknown`, **without `--cfg near`**. near-sdk 5.x only
+calls the `env.panic_utf8` host function in that on-chain mode; otherwise `env::panic_str`
+and `require!` drop their message and execute a WebAssembly `unreachable`. The deployed WASM
+therefore cannot report *any* refusal reason, including the storage-deposit check in
+`D9jz…`. This is a build-mode defect, not a missing check: the guard decisions are unchanged.
+
+Source after this fix sets `--cfg near` in `x3-lang/near/x3-guard/.cargo/config.toml`,
+refuses to compile for wasm32 without it, and is gated in CI by
+`scripts/hackathon/check_guard_wasm_host_panics.py` (`env.panic_utf8` must be imported) and
+by the local NEAR Sandbox run, which requires refused calls to fail with
+`Smart contract panicked: X3_QUOTE_REJECTED …` / `X3_MANDATE_DENIED …` and never a bare
+`unreachable`. The deployed-byte proof also asserts the legacy binary lacks that import.
+
+**None of this changes the deployed contract.** The receipts above stay exactly as recorded.
+Readable on-chain refusals exist only after an owner-authorized redeploy, which produces a
+**new** code hash that must be recorded as a new deployment and never presented as
+`ac44fa53…`/`CbU8Sp…`.
+
 ## Paths
 
 - **Allowed/live (positive control):** `evidence-allowed-live-02` (`defuse.near`, +7d policy) + official **live** quote (`dry:false`, `Ck96…`, deadline `2026-11-09T23:01:40.753Z`, hash `FugpJ…`, ts `2026-11-06T22:51:40.892Z`) → `check_quote` all `ok:true`, `accept_quote` `6B6k…` succeeded with `quote_accepted`. Stopped before deposit; no SOL/USDC sent to `Ck96…`. First attempt `D9jz…` failed only on storage deposit (0.01 NEAR insufficient after event, rolled back); retry with 0.1 NEAR succeeded from the same fresh quote. Short-policy attempt (`5apK…`, +2h) failed `deadline` because live 1Click deadlines are ~3 days out.

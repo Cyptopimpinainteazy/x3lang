@@ -1,0 +1,68 @@
+name: X3 Guard Rust Security Source Mutation Gate
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near/x3-guard/**'
+      - 'x3-lang/near/guard-sandbox-tests/**'
+      - 'scripts/security/guard_rust_mutations.py'
+      - 'docs/security/RUST_GUARD_MUTATION_GATE.md'
+      - '.github/workflows/x3guard-rust-source-mutations.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-security-mutations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Rust 1.99.1
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+      - name: Cache pinned Guard dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/x3-guard
+      - name: Fetch pinned Rust dependencies
+        run: cargo fetch --manifest-path x3-lang/near/x3-guard/Cargo.toml --locked
+      - name: Run baseline native Guard test suite
+        run: cargo test --offline --locked --manifest-path x3-lang/near/x3-guard/Cargo.toml
+      - name: Run ten source mutations against real Rust assertions
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          python3 scripts/security/guard_rust_mutations.py \
+            --target-dir "$RUNNER_TEMP/x3-guard-mutants-target" \
+            --output "$RUNNER_TEMP/x3-guard-mutants.json" --timeout 180
+      - name: Validate measured results
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "x3-guard-mutants.json").read_text())
+          summary = report["summary"]
+          assert summary["total"] == 10, summary
+          assert summary["counts"] == {
+              "KILLED": 10, "SURVIVED": 0, "INVALID": 0, "TIMEOUT": 0
+          }, summary
+          assert summary["base_commit"] == os.environ["EXPECTED_HEAD"], summary
+          print("Ten real Rust source mutations killed by focused assertions")
+          PY
+      - name: Upload mutation evidence (not chain proof)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x3-guard-rust-security-mutations
+          path: ${{ runner.temp }}/x3-guard-mutants.json
+          if-no-files-found: warn
+          retention-days: 14

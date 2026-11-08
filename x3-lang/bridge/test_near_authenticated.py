@@ -4,9 +4,12 @@ import contextlib
 import hashlib
 import io
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -20,6 +23,8 @@ from near_authenticated import (
     AuthenticatedLightClientError,
     _approval_message,
     _b58encode,
+    _key_bytes,
+    _signature_bytes,
     _verify_approvals,
     _view_block_hash,
     advance_state,
@@ -255,6 +260,89 @@ class AuthenticatedLightClientTests(unittest.TestCase):
             hashlib.sha256(GB.read_bytes()).hexdigest(),
             "c47f0c381dbd9a37ac432aa4f77cf9d47ea8ccc452bfe4ff2a67b868953caed7",
         )
+
+    def test_impossible_ed25519_lengths_fail_before_base58_parsing(self):
+        for decode, byte_length, maximum in (
+            (_key_bytes, 32, 44),
+            (_signature_bytes, 64, 88),
+        ):
+            for encoded_length in (byte_length - 1, maximum + 1):
+                with self.subTest(bytes=byte_length, characters=encoded_length):
+                    with mock.patch("near_authenticated.BASE58_RE") as pattern:
+                        pattern.fullmatch.side_effect = AssertionError(
+                            "impossible length reached Base58 parsing"
+                        )
+                        with self.assertRaises(AuthenticatedLightClientError):
+                            decode("ed25519:" + "z" * encoded_length, "test field")
+                        pattern.fullmatch.assert_not_called()
+
+    def test_ed25519_base58_length_boundaries_preserve_exact_decoding(self):
+        private = seed(1)
+        message = b"base58 length boundary"
+        for decode, raw, maximum in (
+            (_key_bytes, private.public_key().public_bytes_raw(), 44),
+            (_signature_bytes, private.sign(message), 88),
+        ):
+            with self.subTest(bytes=len(raw)):
+                encoded = _b58encode(raw)
+                self.assertEqual(len(encoded), maximum)
+                self.assertEqual(decode("ed25519:" + encoded, "test field"), raw)
+                # Leading zero bytes admit the shortest canonical encoding.
+                shortest = b"\x00" * (len(raw) - 1) + b"\x01"
+                encoded = _b58encode(shortest)
+                self.assertEqual(len(encoded), len(raw))
+                self.assertEqual(
+                    decode("ed25519:" + encoded, "test field"), shortest
+                )
+                # The text-length bound cannot replace the exact byte check.
+                with self.assertRaisesRegex(
+                    AuthenticatedLightClientError,
+                    f"must decode to {len(raw)} bytes",
+                ):
+                    decode("ed25519:" + "z" * maximum, "test field")
+
+    def test_oversized_candidate_fields_preserve_persisted_state(self):
+        state, gb, checkpoint, approval, trust_policy = self.real_p27_setup()
+        state_path = self.tmp_path / "bounded-head.json"
+        candidate_path = self.tmp_path / "oversized-candidate.json"
+        store = AuthenticatedHeadStore(state_path)
+        store.initialize(
+            checkpoint,
+            approval,
+            trust_policy,
+            expected_policy_sha256=sha(trust_policy),
+            expected_checkpoint_sha256=checkpoint_checksum(checkpoint),
+        )
+        before = state_path.read_bytes()
+        for field, byte_length in (("public_key", 32), ("signature", 64)):
+            with self.subTest(field=field):
+                candidate = copy.deepcopy(gb)
+                oversized = "ed25519:" + "z" * 1_000_000
+                if field == "public_key":
+                    candidate["result"]["next_bps"][0]["public_key"] = oversized
+                else:
+                    candidate["result"]["approvals_after_next"][0] = oversized
+                candidate_path.write_text(json.dumps(candidate))
+                self.assertLess(candidate_path.stat().st_size, 16 * 1024 * 1024)
+                try:
+                    refused = subprocess.run(
+                        [
+                            sys.executable, str(ROOT / "near_authenticated.py"),
+                            "advance", "--state", str(state_path),
+                            "--candidate", str(candidate_path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    self.assertEqual(state_path.read_bytes(), before)
+                    self.fail("oversized field exceeded the 5-second safety timeout")
+                self.assertEqual(refused.returncode, 2, refused.stderr)
+                self.assertIn(f"must decode to {byte_length} bytes", refused.stderr)
+                self.assertEqual(state_path.read_bytes(), before)
+        self.assertEqual(store.load(), state)
+        self.assertEqual(authenticated_head(store.advance(gb)).height, 276420402)
 
     def test_checkpoint_candidate_builder_and_hashes_are_deterministic(self):
         p27 = json.loads(P27.read_text())

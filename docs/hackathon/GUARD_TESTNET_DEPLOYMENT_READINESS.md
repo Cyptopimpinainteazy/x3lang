@@ -25,6 +25,15 @@ python3 scripts/hackathon/guard_readonly_deployment_preflight.py \
   --report /tmp/x3-guard-readonly-preflight.json
 ```
 
+Before any future deployment, also confirm the build reports refusal reasons on chain
+(it must import `env.panic_utf8`, i.e. it was built with `--cfg near` from the contract
+directory):
+
+```bash
+python3 scripts/hackathon/check_guard_wasm_host_panics.py --expect present \
+  x3-lang/near/x3-guard/target/wasm32-unknown-unknown/release/x3_guard.wasm
+```
+
 The Python command makes ONLY JSON-RPC read requests: `status`, `EXPERIMENTAL_protocol_config`, and `query(view_account)`. It uses two testnet RPC services and an explicitly pinned known testnet genesis hash; it fails on malformed responses or conflicting balance/code/staking data. It **never** calls transaction broadcast, queries key files, creates an account, signs, deploys or moves tokens. It returns exit **3** if the account is funded below the lower-bound WASM byte storage requirement; exit **2** on invalid/incomplete evidence, and exit **0** only for the numeric/account-view precheck (NOT deployment authorization). The report always states `deploy_authorized=false`, `keys_loaded=false`, `funds_moved=false` and `independently_authenticated_chain=false`.
 
 On 2026-11-06 UTC a prior local build of `x3_guard.wasm` was 545,640 bytes with SHA-256 `b2b3c397d088c5d813d9efea1cd18e6250baeb743ad701d5f7d48166f0b9fae3`. Two public NEAR Testnet RPC services returned `x3lang.testnet` exists with no deployed code (code hash `11111111111111111111111111111111`), 2 NEAR account balance, and current storage staking `10000000000000000000` yoctoNEAR per byte. The contract code alone therefore requires at least **5.4564 NEAR** of storage stake; existing state, program storage, creation costs and gas add further headroom requirements. The public account's ownership **has not been proven**. The account name and balance do not authorize us to use its keys or deploy software.

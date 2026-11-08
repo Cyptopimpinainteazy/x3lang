@@ -31,6 +31,19 @@ python3 -m http.server 8000      # ES modules need http://, not file://
 It needs a browser with Ed25519 in WebCrypto: current Chrome, Firefox or Safari. Any static
 host serves it; there is no build step.
 
+## Deploy the static demo
+
+Stage the following files in the Cloudflare Pages publish root, preserving paths:
+
+- `index.html`, `index.md`, `judge.html`, `bnb.html`, `x3guard.mjs`
+- `judge/judge.mjs`, `judge/scenarios.json`, `judge/bnb-readiness.json`
+- `404.html`, `_headers`, `robots.txt`, `sitemap.xml`
+
+After deployment, check that the public home page and `/judge` serve distinct
+pages without sign-in, `/judge/scenarios.json` parses as JSON, `/index.md`
+returns Markdown, `/sitemap.xml` returns XML, and an unused URL returns HTTP 404.
+The public demo’s canonical URL is https://x3-guard.pages.dev/.
+
 ## Test it
 
 ```bash

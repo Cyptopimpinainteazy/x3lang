@@ -392,6 +392,10 @@ impl Contract {
         );
         require!(!m.revoked, "X3_MANDATE_DENIED: the mandate is revoked");
         require!(
+            env::block_timestamp_ms() < m.terms.expires_at_ms,
+            "X3_MANDATE_DENIED: the mandate is expired"
+        );
+        require!(
             m.approvals_needed(record.policy.amount.0) > 0,
             "this payment is within approval_above and needs no approval"
         );

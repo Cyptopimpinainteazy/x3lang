@@ -1,0 +1,28 @@
+{
+  "classification": "isolated_local_near_sandbox_observation_not_public_chain_evidence",
+  "compiled_wasm_sha256": "fe5bad16b3242eba09f17042f87f55ec4174b5fd2c866c0b7f79bd42a4dadfc3",
+  "contract": "x3-agent-vault-testnet",
+  "expected_escrow_after_yoctonear": 400000000000000000000000,
+  "expected_escrow_before_yoctonear": 900000000000000000000000,
+  "limitations": [
+    "local disposable NEAR Sandbox, not public chain",
+    "runner assertions, not independently authenticated consensus proof",
+    "failed callback restoration and pending-payout protection tested at Rust unit level only",
+    "no migration, storage economics audit or guaranteed callback recovery"
+  ],
+  "no_public_testnet_or_mainnet_transactions": true,
+  "observed_runner_assertions": [
+    "X3_VAULT_SANDBOX_FUNCTIONCALL_KEY_CONFIRMED scope=vault.testnet::request_payment local_only=true",
+    "X3_VAULT_SANDBOX_DIRECT_TRANSFER_ERROR_CLASS \"Transaction error: Critical(ServerError(InvalidTransaction({})))\"",
+    "X3_VAULT_SANDBOX_SCOPED_DIRECT_TRANSFER_REFUSED local_only=true key_permission=FunctionCall rejection_class=sdk_or_rpc_permission_refusal",
+    "X3_VAULT_SANDBOX_WRONG_RECIPIENT_AND_CAP_REFUSED local_only=true",
+    "X3_VAULT_SANDBOX_ALLOWED_PAYMENT_SUCCESS local_only=true units=100000000000000000000000",
+    "X3_VAULT_SANDBOX_NONCE_REPLAY_AND_REVOCATION_REFUSED local_only=true",
+    "X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS local_only=true owner_only=true active_mandate_denied=true recovered_yoctonear=500000000000000000000000 pending_payout_protected_by_unit_tests=true owner_net_yoctonear=499604140982893700000000 vault_account_balance_decreased=true",
+    "X3_VAULT_SANDBOX_COMPLETE agent_key_restricted=true funds_vault_custodied=true public_chain=false"
+  ],
+  "owner_net_receipt_after_gas_yoctonear": 499604140982893700000000,
+  "owner_recovery_requested_yoctonear": 500000000000000000000000,
+  "script": "scripts/hackathon/vault_sandbox_smoke.sh",
+  "test_network": "local NEAR Sandbox 2.14.0 with disposable accounts"
+}

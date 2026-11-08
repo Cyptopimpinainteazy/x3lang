@@ -9,6 +9,7 @@ on:
       - 'tests/proof/**'
       - '.github/workflows/x3lang-execution-proof.yml'
       - 'tests/ci/test_private_peer_checkout.py'
+      - 'tests/ci/test_proof_source_binding.py'
   workflow_dispatch:
 
 permissions:
@@ -63,6 +64,8 @@ jobs:
           workspaces: x3-lang
       - name: Test private peer authentication fail-closed policy
         run: python3 -m unittest discover -s tests/ci -p test_private_peer_checkout.py -v
+      - name: Test proof source binding before Cargo execution
+        run: python3 -m unittest discover -s tests/ci -p test_proof_source_binding.py -v
       - name: Syntax-check both mirrored proof runners
         run: python3 -m py_compile scripts/proof/*.py
       - name: Test source binding and mirror failure boundaries

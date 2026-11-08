@@ -1,0 +1,46 @@
+{
+  "account": "x3guardlaunch2026.testnet",
+  "captured_utc": "2026-11-07T18:34:21.116608+00:00",
+  "caution": "Two independently agreeing public NEAR RPC observers are not a validator-signature authenticated light client. Historical approval does not mean the prior maker quote is still live.",
+  "classification": "TWO_INDEPENDENT_NEAR_FINALIZED_RPC_GUARD_OBSERVATIONS_NO_VALIDATOR_PROOF",
+  "cryptographic_validator_finality_proven": false,
+  "nonce": "x3_base_testnet_trade_001",
+  "observation": {
+    "checkpoint": {
+      "hash": "511hD4HZqg6fjK8SquRFggbcm4D4awNhYkZxK73ZPQ9q",
+      "height": 276668280
+    },
+    "classification": "TWO_INDEPENDENT_NEAR_FINALIZED_RPC_GUARD_OBSERVATIONS_NO_VALIDATOR_PROOF",
+    "finalized_head_heights": [
+      276668280,
+      276668290
+    ],
+    "policy": {
+      "nonce": "x3_base_testnet_trade_001",
+      "owner": "x3lang.testnet",
+      "policy": {
+        "amount_in": "1000000",
+        "expiry_ms": 1794036317757,
+        "max_slippage_bps": 100,
+        "minimum_out": "980000",
+        "program_sha256": "1398f64e7e208d3796883aa59cb169187c1042ac1af3781bd6efc014755df860",
+        "refund_to": "0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721"
+      },
+      "quote_sha256": "131f314c2532965f2678e79f3f7cc87cfe8238a549da1405e802f4c90db1034c",
+      "revoked": false
+    },
+    "provider_count": 2,
+    "signing_or_funding_authorized": false,
+    "trustless_validator_finality_proven": false
+  },
+  "onchain_transaction_or_approval_broadcast": false,
+  "owner": "x3lang.testnet",
+  "quote_freshness_or_maker_signature_verified": false,
+  "rpc_urls": [
+    "https://test.rpc.fastnear.com",
+    "https://rpc.testnet.near.org"
+  ],
+  "schema": "x3.near_guard_dual_finalized_rpc_observation.v1",
+  "vault_deployment_approved": false,
+  "wasm_sha256": "1d7a8b1ee97b7cdc500db1c19b8f3a2bef06e986576ec428f62f8c3ea1b5a145"
+}

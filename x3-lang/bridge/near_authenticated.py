@@ -83,7 +83,13 @@ def _check_checksum(document: dict, field: str, label: str) -> str:
 
 
 def _b58decode(value: str, *, label: str, length: int | None = None) -> bytes:
-    if type(value) is not str or not BASE58_RE.fullmatch(value):
+    if type(value) is not str:
+        raise AuthenticatedLightClientError(f"invalid base58 {label}")
+    # Bound Ed25519 fields before regex matching or large-integer decoding.
+    maximum = {32: 44, 64: 88}.get(length)
+    if maximum is not None and not length <= len(value) <= maximum:
+        raise AuthenticatedLightClientError(f"{label} must decode to {length} bytes")
+    if not BASE58_RE.fullmatch(value):
         raise AuthenticatedLightClientError(f"invalid base58 {label}")
     number = 0
     for character in value:

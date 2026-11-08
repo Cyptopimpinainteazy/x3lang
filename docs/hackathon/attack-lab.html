@@ -3,139 +3,523 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="X3 Shield: interactive offline policy preview and independent testnet proof.">
-<title>X3 Shield // Agent Break-In Lab</title>
+<meta name="description" content="X3 Shield control room: attack an AI agent's spending mandate in an offline policy preview, then inspect independent testnet evidence.">
+<meta name="theme-color" content="#071017">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23071017'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%23bbff71'%3E%E2%9C%B3%3C/text%3E%3C/svg%3E">
+<title>X3 Shield // Control Room</title>
 <style>
-:root{color-scheme:dark;--bg:#071017;--panel:#10222c;--line:#33505b;--text:#f2fcfe;--mute:#b4cbd2;--lime:#bbff71;--cyan:#74e8ff;--amber:#ffbd7a}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% -15%,#23535b,transparent 52%),var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
-main,header,footer{max-width:1160px;margin:auto;padding-left:22px;padding-right:22px}
-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:22px;padding-bottom:22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.brand{font-weight:850;letter-spacing:.2em;color:var(--lime)}.pill{font-size:12px;border:1px solid #7a6c4c;color:var(--amber);padding:6px 11px;border-radius:30px;font-weight:700}
-h1{font-size:clamp(42px,7vw,82px);line-height:.98;letter-spacing:-.06em;margin:52px 0 23px}h1 em{font-style:normal;color:var(--lime)}
-h2{font-size:clamp(24px,3vw,35px);letter-spacing:-.03em}h3{font-size:20px}p{margin-top:0}.lede{font-size:clamp(18px,2vw,22px);color:#cfdee6;max-width:760px}
-.alert{border-left:3px solid var(--amber);background:#34281b;color:#ffe2c9;padding:13px 18px;margin:26px 0;border-radius:0 9px 9px 0;font-size:14px}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:26px 0 46px}.box{background:linear-gradient(140deg,#0f2530,#0b1921);border:1px solid var(--line);border-radius:15px;padding:22px}
-.stat{font-weight:800;font-size:clamp(24px,3vw,39px);color:var(--lime)}.caption{font-size:13px;letter-spacing:.07em;text-transform:uppercase;color:var(--mute)}
-.lab{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(310px,.8fr);gap:16px}.scenarios{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:20px 0}
-button{background:#183542;color:var(--text);border:1px solid #4a6974;border-radius:8px;padding:10px;font:700 13px system-ui;cursor:pointer;min-height:43px}button:hover,button:focus-visible{border-color:var(--lime)}button.active{color:var(--lime);border-color:var(--lime);background:#1e3c33}
-.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px}label{display:block;font-size:13px;font-weight:700;color:#d5e6ed;margin-bottom:6px}
-input,select{width:100%;padding:10px;min-height:43px;background:#071820;border:1px solid #47646f;border-radius:8px;color:white;font:14px system-ui}
-input:focus,select:focus{outline:2px solid var(--cyan);outline-offset:2px}
-.toggles{display:flex;gap:15px;flex-wrap:wrap;margin:20px 0}.toggles label{display:flex;align-items:center;gap:7px}.toggles input{min-height:auto;width:17px;accent-color:var(--lime)}
-#evaluate{width:100%;background:var(--lime);border-color:var(--lime);color:#142718;font-size:15px}.decision{background:#071820;border:1px solid var(--line);padding:18px;border-radius:10px;margin:16px 0 24px;min-height:145px}
-.decision strong{display:block;font-size:23px;margin:7px 0}.decision small,.muted{color:var(--mute);font-size:13px}.ok{color:var(--lime)}.denied{color:var(--amber)}
+:root{color-scheme:dark;--bg:#071017;--panel:#10222c;--panel2:#0b1921;--sunk:#071820;--line:#33505b;--line2:#47646f;--text:#f2fcfe;--mute:#b4cbd2;--dim:#7f9aa3;--lime:#bbff71;--cyan:#74e8ff;--amber:#ffbd7a;--red:#ff8a80;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:radial-gradient(ellipse at 80% -15%,#23535b,transparent 52%),var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;-webkit-text-size-adjust:100%}
+main,header,footer{max-width:1180px;margin:auto;padding-left:20px;padding-right:20px}
+a{color:var(--cyan);text-underline-offset:3px}a:hover{color:var(--lime)}
+code,.mono{font:12.5px/1.45 var(--mono);overflow-wrap:anywhere}
+.skip{position:absolute;left:-999px;top:8px;background:var(--lime);color:#142718;padding:8px 12px;border-radius:6px;z-index:9}.skip:focus{left:8px}
+
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:18px;padding-bottom:18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-weight:850;letter-spacing:.18em;color:var(--lime);font-size:14px}
+.pill{font-size:11.5px;border:1px solid #7a6c4c;color:var(--amber);padding:5px 11px;border-radius:30px;font-weight:700;letter-spacing:.03em}
+nav.jump{display:flex;gap:16px;font-size:13px;font-weight:650;flex-wrap:wrap}nav.jump a{color:var(--mute);text-decoration:none}nav.jump a:hover{color:var(--lime)}
+
+h1{font-size:clamp(40px,7vw,80px);line-height:.98;letter-spacing:-.055em;margin:44px 0 20px}h1 em{font-style:normal;color:var(--lime)}
+h2{font-size:clamp(23px,3vw,33px);letter-spacing:-.03em;margin:0 0 14px}
+h3{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:0 0 12px}
+p{margin-top:0}
+.lede{font-size:clamp(17px,2vw,21px);color:#cfdee6;max-width:760px}
+.alert{border-left:3px solid var(--amber);background:#34281b;color:#ffe2c9;padding:12px 16px;margin:22px 0;border-radius:0 9px 9px 0;font-size:14px}
+.box{background:linear-gradient(140deg,#0f2530,var(--panel2));border:1px solid var(--line);border-radius:14px;padding:20px}
+.muted{color:var(--mute);font-size:13.5px}
+.section{margin-top:46px;scroll-margin-top:12px}
+.kicker{font:700 12px var(--mono);color:var(--lime);letter-spacing:.1em;margin-bottom:6px}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0 8px}
+.stat{font-weight:800;font-size:clamp(24px,3vw,37px);color:var(--lime);line-height:1.15}
+.caption{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--mute);margin-top:4px}
+
+/* owner mandate */
+.mandate{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;margin:0 0 14px;padding:0;overflow:hidden}
+.mandate div{padding:14px 16px;border-right:1px solid var(--line)}.mandate div:last-child{border-right:0}
+.mandate dt{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin-bottom:3px}
+.mandate dd{margin:0;font:600 14px var(--mono);overflow-wrap:anywhere}
+
+/* scenario board */
+.board-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.summary{font-size:14px;color:var(--mute);min-height:1.5em}.summary.ok{color:var(--lime)}.summary.bad{color:var(--red)}
+.scenarios{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+button{font:700 13px system-ui,-apple-system,sans-serif;color:var(--text);background:#183542;border:1px solid #4a6974;border-radius:9px;padding:10px 12px;min-height:44px;cursor:pointer}
+button:hover:not(:disabled),button:focus-visible{border-color:var(--lime)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+button:disabled{opacity:.55;cursor:progress}
+.primary{background:var(--lime);border-color:var(--lime);color:#142718}
+.primary:hover:not(:disabled){filter:brightness(1.07)}
+.ghost{background:transparent}
+.scenario{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:11px 12px;min-height:84px;position:relative}
+.scenario .s-kind{font:700 10.5px var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--dim)}
+.scenario[data-kind=control] .s-kind{color:var(--cyan)}
+.scenario .s-label{font-size:14px}
+.scenario .s-result{font:600 11.5px var(--mono);color:var(--dim);margin-top:auto;overflow-wrap:anywhere}
+.scenario[aria-pressed=true]{border-color:var(--lime);background:#1e3c33;box-shadow:0 0 0 1px var(--lime) inset}
+.scenario[data-result=pass] .s-result{color:var(--lime)}
+.scenario[data-result=fail]{border-color:var(--red)}.scenario[data-result=fail] .s-result{color:var(--red)}
+
+/* lab */
+.lab{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:14px;margin-top:14px;align-items:start}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{display:block;font-size:13px;font-weight:700;color:#d5e6ed;margin-bottom:5px}
+input,select{width:100%;padding:10px;min-height:44px;background:var(--sunk);border:1px solid var(--line2);border-radius:8px;color:#fff;font:15px system-ui,-apple-system,sans-serif}
+input{font-family:var(--mono);font-size:14px}
+fieldset{border:1px solid var(--line);border-radius:10px;margin:14px 0 0;padding:10px 14px 12px}
+legend{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:0 6px}
+.toggles{display:flex;gap:22px;flex-wrap:wrap}.toggles label{display:flex;align-items:center;gap:8px;margin:0;font-weight:600;min-height:32px}
+.toggles input{width:18px;min-height:auto;accent-color:var(--lime)}
+.actions{display:flex;gap:8px;margin-top:16px}.actions .primary{flex:1;font-size:15px}
+.note{font-size:12.5px;color:var(--dim);margin:10px 0 0}
+
+.verdict-col{position:sticky;top:12px}
+.verdict{background:var(--sunk);border:1px solid var(--line);border-radius:11px;padding:16px 18px;scroll-margin-top:12px}
+.verdict small{font:700 11px var(--mono);letter-spacing:.08em;color:var(--dim)}
+.verdict .v-head{display:block;font-size:clamp(20px,2.6vw,25px);font-weight:800;margin:6px 0 6px;letter-spacing:-.01em;overflow-wrap:anywhere}
+.verdict p{margin:0 0 6px;font-size:14.5px}
+.verdict .v-req{color:var(--mute);margin-top:8px}
+.verdict .v-story{color:var(--mute)}
+.ok{color:var(--lime)}.denied{color:var(--amber)}.bad{color:var(--red)}
+.trace{list-style:none;margin:14px 0 0;padding:0;counter-reset:rule}
+.trace li{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:baseline;padding:7px 2px;border-bottom:1px solid #1f3842;font-size:13.5px;counter-increment:rule}
+.trace li:last-child{border-bottom:0}
+.trace .r-icon{font:700 13px var(--mono);text-align:center}
+.trace .r-code{font:600 11px var(--mono);color:var(--dim)}
+.trace li[data-status=pass] .r-icon{color:var(--lime)}
+.trace li[data-status=fail]{background:#3a2117;border-radius:6px}.trace li[data-status=fail] .r-icon,.trace li[data-status=fail] .r-code{color:var(--amber)}
+.trace li[data-status=not_reached],.trace li[data-status=idle]{color:var(--dim)}
+.trace-meta{font-size:12.5px;color:var(--dim);margin-top:8px}
+
+.duo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:14px;margin-top:14px;align-items:start}
+.meter{height:12px;border-radius:99px;background:var(--sunk);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.meter span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--lime));transition:width .35s ease}
+.meter.full span{background:linear-gradient(90deg,var(--amber),var(--red))}
+.ledger-line{display:flex;justify-content:space-between;gap:10px;font-size:14px;flex-wrap:wrap}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;min-height:28px}
+.chip{font:600 12px var(--mono);border:1px solid var(--line2);border-radius:99px;padding:3px 9px;color:var(--mute)}
+.log{list-style:none;margin:0;padding:0;max-height:330px;overflow:auto;font-size:13px}
+.log li{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;padding:8px 2px;border-bottom:1px solid #1f3842}
+.log .tag{font:800 11px var(--mono);padding:2px 7px;border-radius:5px;align-self:start}
+.log .tag.allow{background:#1f3d22;color:var(--lime)}.log .tag.deny{background:#3a2a19;color:var(--amber)}
+.log .l-title{font-weight:650}.log .l-detail{grid-column:2;color:var(--dim);font:12px var(--mono);overflow-wrap:anywhere}
+.log li.divider{display:block;color:var(--cyan);font:700 11.5px var(--mono);letter-spacing:.05em;border-bottom:1px dashed var(--line)}
+.log .empty{color:var(--dim)}
+
 .check{border-bottom:1px solid var(--line);padding:10px 0;display:flex;justify-content:space-between;gap:10px;font-size:14px}.check span:last-child{color:var(--lime);text-align:right}
-.section{margin-top:40px}.proofgrid{display:grid;grid-template-columns:1fr 1fr;gap:15px}a{color:var(--cyan);text-underline-offset:3px}a:hover{color:var(--lime)}.step{border-bottom:1px solid var(--line);padding:12px 0}
-.step strong{display:block}.step p{font-size:14px;color:var(--mute);margin:3px 0}.mono{font:12px ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
-footer{color:var(--mute);border-top:1px solid var(--line);padding-top:22px;padding-bottom:40px;margin-top:54px;font-size:13px}
-@media(max-width:850px){.lab,.proofgrid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
-@media(max-width:500px){.stats,.fields{grid-template-columns:1fr}.scenarios{grid-template-columns:1fr 1fr}}
+.proofgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.step{border-bottom:1px solid var(--line);padding:12px 0}.step:last-child{border-bottom:0}.step strong{display:block}.step p{font-size:14px;color:var(--mute);margin:3px 0}
+.links p{margin:0 0 10px}
+footer{color:var(--mute);border-top:1px solid var(--line);padding-top:20px;padding-bottom:40px;margin-top:52px;font-size:13px}
+
+@media(max-width:1020px){.scenarios{grid-template-columns:repeat(3,minmax(0,1fr))}.mandate{grid-template-columns:repeat(3,minmax(0,1fr))}.mandate div:nth-child(3){border-right:0}.mandate div:nth-child(-n+3){border-bottom:1px solid var(--line)}}
+@media(max-width:860px){.lab,.duo,.proofgrid{grid-template-columns:1fr}.verdict-col{position:static}.stats{grid-template-columns:1fr 1fr}.stats .box:last-child{grid-column:1/-1}}
+@media(max-width:560px){main,header,footer{padding-left:14px;padding-right:14px}.box{padding:16px}.scenarios{grid-template-columns:1fr 1fr}.fields{grid-template-columns:1fr}.mandate{grid-template-columns:1fr 1fr}.mandate div{border-right:0!important;border-bottom:1px solid var(--line)}.mandate div:nth-child(odd){border-right:1px solid var(--line)!important}.mandate div:nth-last-child(-n+2){border-bottom:0}nav.jump{display:none}h1{margin-top:30px}.scenario{min-height:76px}.scenario .s-code{display:none}}
 </style>
 </head>
 <body>
-<header><div class="brand">✳ X3 SHIELD / ATTACK LAB</div><div class="pill">PRIVATE PRE-RELEASE · OFFLINE PREVIEW</div></header>
+<a class="skip" href="#play">Skip to the attack lab</a>
+<header>
+  <div class="brand">✳ X3 SHIELD / CONTROL ROOM</div>
+  <nav class="jump" aria-label="Sections"><a href="#play">Attack lab</a><a href="#sandbox">Sandbox</a><a href="#receipts">Testnet trade</a><a href="#unproven">Unproven</a></nav>
+  <div class="pill">PRIVATE PRE-RELEASE · OFFLINE PREVIEW</div>
+</header>
 <main>
 <h1>MAKE THE AGENT<br><em>MISBEHAVE.</em></h1>
-<p class="lede">The owner controls the funds. The agent holds a scoped key. Try breaking the policy, then inspect the separately recorded NEAR Sandbox and cross-chain testnet proofs.</p>
-<div class="alert"><strong>Evidence boundary:</strong> The interactive controls are a browser-only policy preview. They do not connect to a chain, sign transactions, or prove security. The linked Sandbox evidence uses real local-chain transactions. The public Base→NEAR trade uses a trusted Tidepool relay and is a separate system.</div>
+<p class="lede">The owner controls the funds. The agent holds a scoped key. Run every attack against the owner's mandate, watch each rule decide, then inspect the separately recorded NEAR Sandbox and cross-chain testnet proofs.</p>
+<div class="alert"><strong>Evidence boundary:</strong> The interactive controls are a browser-only policy preview. They do not connect to a chain, sign transactions, or prove security. The session ledger lives in this tab's memory. The linked Sandbox evidence uses real local-chain transactions. The public Base→NEAR trade uses a trusted Tidepool relay and is a separate system.</div>
 <div class="stats">
-<div class="box"><div class="stat">8 / 8</div><div class="caption">Vault Rust unit tests</div></div>
-<div class="box"><div class="stat">0.1 NEAR</div><div class="caption">Real Sandbox approved payout</div></div>
-<div class="box"><div class="stat">0.9974 USDC</div><div class="caption">Real finalized NEAR testnet payout</div></div>
+  <div class="box"><div class="stat">8 / 8</div><div class="caption">Vault Rust unit tests</div></div>
+  <div class="box"><div class="stat">0.1 NEAR</div><div class="caption">Real Sandbox approved payout</div></div>
+  <div class="box"><div class="stat">0.9974 USDC</div><div class="caption">Real finalized NEAR testnet payout</div></div>
 </div>
-<section class="section" id="play"><h2>01 / Attack the owner policy</h2>
-<div class="lab">
-<div class="box"><h3>Select an attack</h3><p class="muted">Only the local vault contract can authorize real payouts. This browser predicts policy decisions without submitting them.</p>
-<div class="scenarios" id="scenarios">
-<button data-case="allowed">Allowed payment</button><button data-case="redirect">Attacker recipient</button><button data-case="oversize">Oversized amount</button>
-<button data-case="replay">Nonce replay</button><button data-case="revoked">Revoked mandate</button><button data-case="direct">Direct transfer</button>
-</div>
-<form id="form">
-<div class="fields">
-<div><label for="agent">Agent account</label><select id="agent"><option>agent.testnet</option><option>attacker.testnet</option></select></div>
-<div><label for="recipient">Recipient</label><select id="recipient"><option>allowed.testnet</option><option>attacker.testnet</option></select></div>
-<div><label for="amount">Amount (native test NEAR)</label><input id="amount" value="0.1" inputmode="decimal" autocomplete="off"></div>
-<div><label for="nonce">One-use nonce</label><input id="nonce" value="demo1" autocomplete="off"></div>
-</div>
-<div class="toggles"><label><input id="used" type="checkbox"> Used nonce</label><label><input id="revoked" type="checkbox"> Revoked</label><label><input id="expired" type="checkbox"> Expired</label></div>
-<button type="submit" id="evaluate">Evaluate offline policy</button>
-</form></div>
-<aside class="box"><h3>Expected decision</h3><div id="decision" class="decision" role="status" aria-live="polite"><small>OFFLINE PREVIEW · NOT A SIGNED TRANSACTION</small><strong>Choose an attack</strong><p>Inspect the rule that would block an unauthorized action.</p></div>
-<h3>Recorded Sandbox results</h3>
-<div class="check"><span>Scoped FunctionCall key</span><span>Confirmed on local chain</span></div>
-<div class="check"><span>Direct native transfer</span><span>RPC InvalidTransaction</span></div>
-<div class="check"><span>Recipient / cap bypass</span><span>Refused</span></div>
-<div class="check"><span>Authorized 0.1 NEAR payout</span><span>Paid</span></div>
-<div class="check"><span>Replay and revocation</span><span>Refused</span></div>
-<p class="muted">A direct transfer was rejected by the RPC, without an included failure receipt. Other denied calls were actual local Sandbox contract transactions. See <a href="https://github.com/Cyptopimpinainteazy/x3lang/pull/125">private draft PR #125</a> for the real harness and evidence.</p>
-</aside></div></section>
-<section class="section" id="receipts"><h2>02 / The real two-chain testnet trade</h2>
-<div class="proofgrid">
-<div class="box">
-<div class="step"><strong>1. Owner authorizes a signed quote</strong><p>A typed X3Lang strategy and one-use Guard mandate were committed to NEAR before funding.</p></div>
-<div class="step"><strong>2. Source transfer finalizes</strong><p>1.000000 test USDC transferred on Base Sepolia in block 55,557,170, independently verified.</p></div>
-<div class="step"><strong>3. NEAR receives the payout</strong><p>0.997400 test USDC delivered to x3lang.testnet, confirmed by NEAR receipt and historical balance delta.</p></div>
-</div>
-<div class="box"><h3>Inspect independent evidence</h3>
-<p><a target="_blank" rel="noopener noreferrer" href="https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9">View Base Sepolia source receipt</a></p>
-<p><a target="_blank" rel="noopener noreferrer" href="https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d">View finalized NEAR payout</a></p>
-<p><a href="../../evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json">Read immutable strict proof JSON</a></p>
-<p><a href="FIRST_SWAP_JUDGE_WALKTHROUGH.md">Follow the exact judge walkthrough</a></p>
-<p class="muted">No trustless atomicity or native BSC↔NEAR bridge completion is claimed from this Tidepool trade.</p></div></div>
+
+<section class="section" id="play" aria-labelledby="play-title">
+  <div class="kicker">01</div>
+  <h2 id="play-title">Attack the owner's mandate</h2>
+  <dl class="box mandate" aria-label="Owner mandate">
+    <div><dt>Agent</dt><dd id="m-agent">agent.testnet</dd></div>
+    <div><dt>Recipient</dt><dd id="m-recipient">allowed.testnet</dd></div>
+    <div><dt>Per payment</dt><dd id="m-cap">0.2 NEAR</dd></div>
+    <div><dt>Total budget</dt><dd id="m-budget">0.4 NEAR</dd></div>
+    <div><dt>Key scope</dt><dd>request_payment</dd></div>
+    <div><dt>Asset</dt><dd id="m-asset">native test NEAR</dd></div>
+  </dl>
+
+  <div class="box">
+    <div class="board-head">
+      <div>
+        <h3 style="margin:0 0 2px">Scripted scenarios</h3>
+        <div id="summary" class="summary" role="status" aria-live="polite">Tap one scenario, or run all of them.</div>
+      </div>
+      <button type="button" id="run-all" class="primary">▶ Run all scenarios</button>
+    </div>
+    <div class="scenarios" id="scenarios" role="group" aria-label="Scenarios"></div>
+  </div>
+
+  <div class="lab">
+    <form class="box" id="form" novalidate>
+      <h3>Request</h3>
+      <div class="fields">
+        <div><label for="action">Action</label><select id="action"><option value="request_payment">request_payment (vault call)</option><option value="native_transfer">Transfer (native NEAR)</option></select></div>
+        <div><label for="agent">Signed by</label><select id="agent"><option>agent.testnet</option><option>attacker.testnet</option></select></div>
+        <div><label for="recipient">Recipient</label><select id="recipient"><option>allowed.testnet</option><option>attacker.testnet</option></select></div>
+        <div><label for="amount">Amount (test NEAR)</label><input id="amount" value="0.1" inputmode="decimal" autocomplete="off" spellcheck="false"></div>
+        <div style="grid-column:1/-1"><label for="nonce">One-use nonce</label><input id="nonce" value="pay-1" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      </div>
+      <fieldset><legend>Mandate state</legend>
+        <div class="toggles"><label><input id="revoked" type="checkbox"> Revoked by owner</label><label><input id="expired" type="checkbox"> Past deadline</label></div>
+      </fieldset>
+      <div class="actions">
+        <button type="submit" id="submit" class="primary">Submit request (offline)</button>
+        <button type="button" id="reset-ledger" class="ghost">Reset ledger</button>
+      </div>
+      <p class="note">An allowed request is recorded in the session ledger: its nonce is consumed and its amount counts against the budget. Submit it twice to see replay protection.</p>
+    </form>
+
+    <div class="verdict-col">
+      <div class="box">
+        <h3>Decision</h3>
+        <div id="verdict" class="verdict" role="status" aria-live="polite">
+          <small>OFFLINE POLICY PREVIEW · NO CHAIN TRANSACTION</small>
+          <span class="v-head">Waiting for a request</span>
+          <p class="muted">Pick a scenario or submit the form. Every rule is checked in order; the first one that fails decides.</p>
+        </div>
+        <ol class="trace" id="trace" aria-label="Rules checked, in order"></ol>
+        <div class="trace-meta" id="trace-meta"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="duo">
+    <div class="box">
+      <h3>Session ledger</h3>
+      <div class="ledger-line"><span id="spent-text">0 / 0.4 NEAR spent</span><span id="left-text" class="muted">0.4 NEAR left</span></div>
+      <div class="meter" id="meter" role="progressbar" aria-label="Budget used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="meter-bar"></span></div>
+      <div class="muted" style="margin-top:12px">Consumed nonces</div>
+      <div class="chips" id="nonces"><span class="muted">none yet</span></div>
+      <p class="note">Browser memory for this preview only. The real vault keeps this state on chain (PR #125, local Sandbox).</p>
+    </div>
+    <div class="box">
+      <h3>Activity</h3>
+      <ol class="log" id="log" aria-label="Activity log, newest first"><li class="empty">Nothing submitted yet.</li></ol>
+    </div>
+  </div>
 </section>
-<section class="section"><h2>03 / What is still unproven?</h2>
-<div class="box">
-<p><strong>The NEAR vault:</strong> local Sandbox proof only. No public deployment, independent audit or mainnet funding approval. The owner's unrestricted key remains an administrative trust boundary.</p>
-<p><strong>The Base EOA:</strong> a compromised unrestricted EVM key can still bypass an advisory Guard. An audited smart-account or vault is required before claiming EVM non-bypassability.</p>
-<p><strong>Preview locally:</strong> serve the private repository root with <span class="mono">python3 -m http.server 8000</span> and open <span class="mono">http://localhost:8000/docs/hackathon/attack-lab.html</span>.</p>
-</div></section>
+
+<section class="section" id="sandbox" aria-labelledby="sandbox-title">
+  <div class="kicker">02</div>
+  <h2 id="sandbox-title">What the real local Sandbox recorded</h2>
+  <div class="box">
+    <div class="check"><span>Scoped FunctionCall key</span><span>Confirmed on local chain</span></div>
+    <div class="check"><span>Direct native transfer</span><span>RPC InvalidTransaction</span></div>
+    <div class="check"><span>Recipient / cap bypass</span><span>Refused</span></div>
+    <div class="check"><span>Authorized 0.1 NEAR payout</span><span>Paid</span></div>
+    <div class="check"><span>Replay and revocation</span><span>Refused</span></div>
+    <p class="muted" style="margin:12px 0 0">A direct transfer was rejected by the RPC, without an included failure receipt. Other denied calls were actual local Sandbox contract transactions. See <a href="https://github.com/Cyptopimpinainteazy/x3lang/pull/125">private draft PR #125</a> for the real harness and evidence.</p>
+  </div>
+</section>
+
+<section class="section" id="receipts" aria-labelledby="receipts-title">
+  <div class="kicker">03</div>
+  <h2 id="receipts-title">The real two-chain testnet trade</h2>
+  <div class="proofgrid">
+    <div class="box">
+      <div class="step"><strong>1. Owner authorizes a signed quote</strong><p>A typed X3Lang strategy and one-use Guard mandate were committed to NEAR before funding.</p></div>
+      <div class="step"><strong>2. Source transfer finalizes</strong><p>1.000000 test USDC transferred on Base Sepolia in block 55,557,170, independently verified.</p></div>
+      <div class="step"><strong>3. NEAR receives the payout</strong><p>0.997400 test USDC delivered to x3lang.testnet, confirmed by NEAR receipt and historical balance delta.</p></div>
+    </div>
+    <div class="box links"><h3>Inspect independent evidence</h3>
+      <p><a target="_blank" rel="noopener noreferrer" href="https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9">View Base Sepolia source receipt ↗</a></p>
+      <p><a target="_blank" rel="noopener noreferrer" href="https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d">View finalized NEAR payout ↗</a></p>
+      <p><a href="../../evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json">Read immutable strict proof JSON</a></p>
+      <p><a href="FIRST_SWAP_JUDGE_WALKTHROUGH.md">Follow the exact judge walkthrough</a></p>
+      <p class="muted">No trustless atomicity or native BSC↔NEAR bridge completion is claimed from this Tidepool trade.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="unproven" aria-labelledby="unproven-title">
+  <div class="kicker">04</div>
+  <h2 id="unproven-title">What is still unproven?</h2>
+  <div class="box">
+    <p><strong>The NEAR vault:</strong> local Sandbox proof only. No public deployment, independent audit or mainnet funding approval. The owner's unrestricted key remains an administrative trust boundary.</p>
+    <p><strong>The Base EOA:</strong> a compromised unrestricted EVM key can still bypass an advisory Guard. An audited smart-account or vault is required before claiming EVM non-bypassability.</p>
+    <p><strong>This page:</strong> the decisions above come from <code>attack-lab-policy.mjs</code> running in your browser. They predict the vault's rules; they are not the vault.</p>
+    <p style="margin:0"><strong>Preview locally:</strong> serve the private repository root with <span class="mono">python3 -m http.server 8000</span> and open <span class="mono">http://localhost:8000/docs/hackathon/attack-lab.html</span>. Deep links: <span class="mono">#scenario=replay</span>, <span class="mono">#run-all</span>.</p>
+  </div>
+</section>
+<noscript><p class="alert">The attack lab needs JavaScript (ES modules). The evidence sections above work without it.</p></noscript>
 </main>
 <footer>X3 Shield · Real local custody tests + independently verified testnet settlement · No wallet connection from this page · Do not publish before release approval.</footer>
+
 <script type="module">
-import {previewRequest} from './attack-lab-policy.mjs';
-const byId=id=>document.getElementById(id);
-const explanations={
-  POLICY_PREVIEW_ALLOWED:'This request fits the offline policy preview. Real payment still requires the scoped agent key and on-chain contract execution.',
-  RECIPIENT_DENIED:'The destination is not the owner-approved recipient.',
-  AGENT_DENIED:'Only the designated agent account is authorized to request payments.',
-  PER_PAYMENT_CAP:'The amount exceeds the 0.2 test NEAR payment cap.',
-  TOTAL_BUDGET_EXCEEDED:'Pending and completed transfers exhaust the 0.4 test NEAR aggregate budget.',
-  NONCE_REPLAY:'The nonce was already consumed and cannot be reused.',
-  NONCE_INVALID:'The nonce must contain 1–64 ASCII letters, numbers, underscores or hyphens.',
-  MANDATE_REVOKED:'Owner revocation blocks future requests.',
-  MANDATE_EXPIRED:'The owner mandate is no longer active.',
-  ACCESS_KEY_SCOPE:'The disposable FunctionCall key has no native Transfer permission. Local Sandbox RPC rejected the direct attempt.',
-  INVALID_AMOUNT:'Amount must be a positive plain decimal with at most 24 places.',
-  INVALID_CONTEXT:'Invalid accounting context; fail closed.'
+import {CHECKS, LIMITS, PREVIEW, SCENARIOS, createLedger, formatNearAmount, runScenario, submitToLedger} from './attack-lab-policy.mjs';
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 };
-const scenarios={allowed:{},redirect:{recipient:'attacker.testnet'},oversize:{amount:'0.3'},replay:{used:true},revoked:{revoked:true},direct:{action:'native_transfer'}};
-let action='request_payment';
-function reset(){
-  byId('agent').value='agent.testnet';byId('recipient').value='allowed.testnet';
-  byId('amount').value='0.1';byId('nonce').value='demo1';byId('used').checked=false;
-  byId('revoked').checked=false;byId('expired').checked=false;action='request_payment';
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const narrow = () => window.matchMedia('(max-width: 860px)').matches;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const EXPLAIN = {
+  POLICY_PREVIEW_ALLOWED: 'This request fits the owner mandate. A real payment still requires the scoped agent key and on-chain vault execution.',
+  RECIPIENT_DENIED: 'The destination is not the owner-approved recipient.',
+  AGENT_DENIED: 'Only the designated agent account may request payments.',
+  PER_PAYMENT_CAP: `The amount exceeds the ${PREVIEW.perPayment} test NEAR per-payment cap.`,
+  TOTAL_BUDGET_EXCEEDED: `Spent, pending and this amount together exceed the ${PREVIEW.budget} test NEAR budget.`,
+  NONCE_REPLAY: 'This nonce was already consumed. A request can never be paid twice.',
+  NONCE_INVALID: 'The nonce must be 1–64 ASCII letters, digits, underscores or hyphens.',
+  MANDATE_REVOKED: 'The owner revoked the mandate; every later request is refused.',
+  MANDATE_EXPIRED: 'The mandate is past its deadline.',
+  ACCESS_KEY_SCOPE: 'The disposable FunctionCall key has no native Transfer permission. The local Sandbox RPC rejected the real direct attempt.',
+  INVALID_AMOUNT: 'Amount must be a positive plain decimal with at most 24 places. Exponents, signs and NaN are refused, never rounded.',
+  INVALID_CONTEXT: 'Invalid accounting context; refused (fail closed).',
+};
+const ICON = {pass: '✓', fail: '✗', not_reached: '·', idle: '○'};
+
+const state = {ledger: createLedger(), busy: false, entries: 0};
+
+/* ── Owner mandate (from the policy module, so the page cannot drift from it) ── */
+$('m-agent').textContent = PREVIEW.agent;
+$('m-recipient').textContent = PREVIEW.receiver;
+$('m-cap').textContent = `${PREVIEW.perPayment} NEAR`;
+$('m-budget').textContent = `${PREVIEW.budget} NEAR`;
+$('m-asset').textContent = PREVIEW.asset;
+
+/* ── Scenario cards ── */
+const cards = new Map();
+for (const scenario of SCENARIOS) {
+  const card = el('button', 'scenario');
+  card.type = 'button';
+  card.dataset.id = scenario.id;
+  card.dataset.kind = scenario.kind;
+  card.setAttribute('aria-pressed', 'false');
+  card.title = scenario.story;
+  card.append(
+    el('span', 's-kind', scenario.kind === 'control' ? 'Control' : 'Attack'),
+    el('span', 's-label', scenario.label),
+    el('span', 's-result', scenario.kind === 'control' ? 'expects: allowed' : 'expects: blocked'),
+  );
+  $('scenarios').append(card);
+  cards.set(scenario.id, card);
 }
-function evaluate(){
-  const nonce=byId('nonce').value.trim();
-  const result=previewRequest({action,agent:byId('agent').value,recipient:byId('recipient').value,amount:byId('amount').value.trim(),nonce,used:byId('used').checked?[nonce]:[],revoked:byId('revoked').checked,expired:byId('expired').checked,spent:'0',pending:'0'});
-  const view=byId('decision');view.replaceChildren();
-  const small=document.createElement('small');small.textContent='OFFLINE POLICY PREVIEW · NO CHAIN TRANSACTION';
-  const strong=document.createElement('strong');strong.className=result.allowed?'ok':'denied';
-  strong.textContent=(result.allowed?'ALLOW':'DENY')+' / '+result.code;
-  const p=document.createElement('p');p.textContent=explanations[result.code]||'Refused.';
-  view.append(small,strong,p);
+
+function setActive(id) {
+  for (const [key, card] of cards) card.setAttribute('aria-pressed', String(key === id));
 }
-byId('scenarios').addEventListener('click',event=>{
- const b=event.target.closest('button[data-case]');if(!b)return;
- const x=scenarios[b.dataset.case];if(!x)return;reset();
- if(x.recipient)byId('recipient').value=x.recipient;if(x.amount)byId('amount').value=x.amount;
- if(x.used)byId('used').checked=true;if(x.revoked)byId('revoked').checked=true;
- if(x.action)action=x.action;
- document.querySelectorAll('#scenarios button').forEach(y=>y.classList.toggle('active',y===b));evaluate();
+
+function markCard(scenario, result) {
+  const card = cards.get(scenario.id);
+  const decision = result.final.trace.decision;
+  card.dataset.result = result.matched ? 'pass' : 'fail';
+  const status = result.matched ? (decision.allowed ? '✓ allowed' : '✓ blocked') : '✗ unexpected';
+  card.querySelector('.s-result').replaceChildren(document.createTextNode(status), el('span', 's-code', ` · ${decision.code}`));
+}
+
+/* ── Form ── */
+function setForm(request) {
+  $('action').value = request.action === 'request_payment' ? 'request_payment' : 'native_transfer';
+  $('agent').value = request.agent;
+  $('recipient').value = request.recipient;
+  $('amount').value = String(request.amount ?? '');
+  $('nonce').value = String(request.nonce ?? '');
+  $('revoked').checked = request.revoked === true;
+  $('expired').checked = request.expired === true;
+}
+
+function readForm() {
+  return {
+    action: $('action').value,
+    agent: $('agent').value,
+    recipient: $('recipient').value,
+    amount: $('amount').value.trim(),
+    nonce: $('nonce').value.trim(),
+    revoked: $('revoked').checked,
+    expired: $('expired').checked,
+  };
+}
+
+/* ── Decision + rule trace ── */
+function renderTrace(trace) {
+  const list = $('trace');
+  list.replaceChildren();
+  const steps = trace ? trace.steps : CHECKS.map((check) => ({...check, status: 'idle'}));
+  steps.forEach((step, index) => {
+    const row = el('li');
+    row.dataset.status = step.status;
+    const status = {pass: 'passed', fail: 'failed', not_reached: 'not reached', idle: 'not checked yet'}[step.status];
+    row.setAttribute('aria-label', `Rule ${index + 1}: ${step.label}, ${status}`);
+    row.append(el('span', 'r-icon', ICON[step.status]), el('span', 'r-label', step.label), el('span', 'r-code', step.code));
+    list.append(row);
+  });
+  const meta = $('trace-meta');
+  if (!trace) { meta.textContent = `${CHECKS.length} rules, checked in this order.`; return; }
+  const failedAt = trace.steps.findIndex((step) => step.status === 'fail');
+  meta.textContent = failedAt === -1
+    ? `All ${trace.steps.length} rules passed.`
+    : `Stopped at rule ${failedAt + 1} of ${trace.steps.length}; later rules were not evaluated.`;
+}
+
+function renderVerdict(run, scenario, matched) {
+  const {decision} = run.trace;
+  const view = $('verdict');
+  view.replaceChildren();
+  view.append(el('small', '', 'OFFLINE POLICY PREVIEW · NO CHAIN TRANSACTION'));
+  view.append(el('span', `v-head ${decision.allowed ? 'ok' : 'denied'}`, `${decision.allowed ? 'ALLOWED' : 'BLOCKED'} · ${decision.code}`));
+  view.append(el('p', '', EXPLAIN[decision.code] || 'Refused.'));
+  if (scenario) {
+    view.append(el('p', 'v-story', `Scenario: ${scenario.story}`));
+    view.append(el('p', matched ? 'ok' : 'bad', matched ? `Expected ${scenario.expect} ✓` : `Expected ${scenario.expect} but got ${decision.code} ✗`));
+  } else if (decision.allowed) {
+    view.append(el('p', 'v-story', `Nonce “${run.request.nonce}” is now consumed. Submit again to watch replay protection.`));
+  }
+  const r = run.request;
+  view.append(el('p', 'v-req mono', `${String(r.action)} · ${String(r.amount)} NEAR → ${String(r.recipient)} · by ${String(r.agent)} · nonce ${String(r.nonce)}`));
+}
+
+/* ── Ledger ── */
+function renderLedger() {
+  const {spent, used} = state.ledger;
+  const left = LIMITS.budget > spent ? LIMITS.budget - spent : 0n;
+  const pct = Math.min(100, Number((spent * 1000n) / LIMITS.budget) / 10);
+  $('spent-text').textContent = `${formatNearAmount(spent)} / ${PREVIEW.budget} NEAR spent`;
+  $('left-text').textContent = `${formatNearAmount(left)} NEAR left`;
+  $('meter-bar').style.width = `${pct}%`;
+  $('meter').setAttribute('aria-valuenow', String(pct));
+  $('meter').classList.toggle('full', left === 0n);
+  const chips = $('nonces');
+  chips.replaceChildren();
+  if (used.length === 0) chips.append(el('span', 'muted', 'none yet'));
+  for (const nonce of used) chips.append(el('span', 'chip', nonce));
+}
+
+/* ── Activity log ── */
+function logPrepend(node) {
+  const log = $('log');
+  log.querySelector('.empty')?.remove();
+  log.prepend(node);
+  while (log.children.length > 60) log.lastElementChild.remove();
+}
+function logDivider(text) { logPrepend(el('li', 'divider', text)); }
+function logRun(run, title) {
+  const {decision} = run.trace;
+  state.entries += 1;
+  const row = el('li');
+  const r = run.request;
+  row.append(
+    el('span', `tag ${decision.allowed ? 'allow' : 'deny'}`, decision.allowed ? 'ALLOW' : 'DENY'),
+    el('span', 'l-title', `#${state.entries} ${title} · ${decision.code}`),
+    el('span', 'l-detail', `${String(r.amount)} NEAR → ${String(r.recipient)} · nonce ${String(r.nonce)}`),
+  );
+  logPrepend(row);
+}
+
+/* ── Running ── */
+function playScenario(scenario, {scroll = false} = {}) {
+  const result = runScenario(scenario);
+  state.ledger = result.ledger;
+  logDivider(`${scenario.label.toUpperCase()} · fresh ledger`);
+  result.runs.forEach((run, i) => {
+    logRun(run, result.runs.length > 1 ? `step ${i + 1}/${result.runs.length}` : scenario.label);
+  });
+  setForm(result.final.request);
+  renderVerdict(result.final, scenario, result.matched);
+  renderTrace(result.final.trace);
+  renderLedger();
+  markCard(scenario, result);
+  setActive(scenario.id);
+  if (scroll && narrow()) $('verdict').scrollIntoView({behavior: reduceMotion ? 'auto' : 'smooth', block: 'start'});
+  return result;
+}
+
+function setBusy(busy) {
+  state.busy = busy;
+  for (const button of document.querySelectorAll('button')) button.disabled = busy;
+  $('run-all').textContent = busy ? 'Running…' : '▶ Run all scenarios';
+}
+
+async function runAll() {
+  if (state.busy) return;
+  setBusy(true);
+  const summary = $('summary');
+  summary.className = 'summary';
+  let attacks = 0, blocked = 0, controls = 0, allowed = 0, unexpected = 0;
+  try {
+    for (const [index, scenario] of SCENARIOS.entries()) {
+      summary.textContent = `Running ${index + 1} of ${SCENARIOS.length}: ${scenario.label}…`;
+      const result = playScenario(scenario);
+      const {decision} = result.final.trace;
+      if (scenario.kind === 'attack') { attacks += 1; if (!decision.allowed) blocked += 1; }
+      else { controls += 1; if (decision.allowed) allowed += 1; }
+      if (!result.matched) unexpected += 1;
+      await sleep(reduceMotion ? 0 : 380);
+    }
+  } finally {
+    setBusy(false);
+  }
+  const clean = unexpected === 0 && blocked === attacks && allowed === controls;
+  summary.className = `summary ${clean ? 'ok' : 'bad'}`;
+  summary.textContent = `${blocked}/${attacks} attacks blocked · ${allowed}/${controls} legit payment allowed · `
+    + (unexpected === 0 ? 'every result hit its expected rule' : `${unexpected} unexpected result(s), investigate`);
+}
+
+$('scenarios').addEventListener('click', (event) => {
+  const card = event.target.closest('button.scenario');
+  if (!card || state.busy) return;
+  const scenario = SCENARIOS.find((s) => s.id === card.dataset.id);
+  if (!scenario) return;
+  playScenario(scenario, {scroll: true});
+  history.replaceState(null, '', `#scenario=${scenario.id}`);
 });
-byId('form').addEventListener('submit',event=>{event.preventDefault();evaluate();});
-byId('form').addEventListener('input',()=>{action='request_payment';document.querySelectorAll('#scenarios button').forEach(b=>b.classList.remove('active'));});
-document.querySelector('#scenarios button').click();
+
+$('run-all').addEventListener('click', () => {
+  history.replaceState(null, '', '#run-all');
+  runAll();
+});
+
+$('form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (state.busy) return;
+  const run = submitToLedger(state.ledger, readForm());
+  state.ledger = run.ledger;
+  logRun(run, 'Manual request');
+  renderVerdict(run, null, false);
+  renderTrace(run.trace);
+  renderLedger();
+  setActive(null);
+  if (narrow()) $('verdict').scrollIntoView({behavior: reduceMotion ? 'auto' : 'smooth', block: 'start'});
+});
+
+$('form').addEventListener('input', () => setActive(null));
+
+$('reset-ledger').addEventListener('click', () => {
+  state.ledger = createLedger();
+  logDivider('LEDGER RESET');
+  renderLedger();
+});
+
+/* ── Deep links: #scenario=<id> or #run-all ── */
+function followHash() {
+  if (state.busy) return;
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const linked = SCENARIOS.find((s) => s.id === hash.get('scenario'));
+  if (linked) playScenario(linked);
+  else if (hash.has('run-all')) runAll();
+}
+renderTrace(null);
+renderLedger();
+followHash();
+window.addEventListener('hashchange', followHash);
 </script>
 </body>
 </html>

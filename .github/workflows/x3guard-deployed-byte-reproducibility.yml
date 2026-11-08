@@ -9,6 +9,7 @@ on:
       - 'scripts/hackathon/verify_guard_wasm_repro.sh'
       - 'scripts/hackathon/test_guard_wasm_repro.py'
       - '.github/workflows/x3guard-deployed-byte-reproducibility.yml'
+      - 'scripts/hackathon/check_guard_wasm_host_panics.py'
   workflow_dispatch:
 
 permissions:
@@ -24,6 +25,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          # The proof rebuilds the pinned deployed source commit from history.
+          fetch-depth: 0
       - name: Pin Rust compiler and WebAssembly target
         uses: dtolnay/rust-toolchain@master
         with:
@@ -52,6 +55,12 @@ jobs:
             echo 'PINNED_SHA256=ac44fa53acf514d26c7adf883b31b49a125faf5a4c1074928d3e1fe94b36f8ab'
             exit 1
           fi
+      - name: Document the legacy deployed build mode (no env.panic_utf8 import)
+        run: |
+          python3 -m unittest discover -s scripts/hackathon -p 'test_check_guard_wasm_host_panics.py' -v
+          python3 scripts/hackathon/check_guard_wasm_host_panics.py --expect absent \
+            "$HOME/.cache/x3lang/guard-wasm-repro-1.99.1/wasm32-unknown-unknown/release/x3_guard.wasm"
+          echo 'The deployed bytes above were built without --cfg near: on-chain refusals carry no reason text.'
       - name: Retain failed unsigned WASM for review (one day, no keys)
         if: failure()
         uses: actions/upload-artifact@v4

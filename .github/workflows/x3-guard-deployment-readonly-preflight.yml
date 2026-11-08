@@ -8,6 +8,8 @@ on:
       - 'docs/hackathon/GUARD_TESTNET_DEPLOYMENT_READINESS.md'
       - 'x3-lang/near/x3-guard/**'
       - '.github/workflows/x3-guard-deployment-readonly-preflight.yml'
+      - 'scripts/hackathon/check_guard_wasm_host_panics.py'
+      - 'scripts/hackathon/test_check_guard_wasm_host_panics.py'
   workflow_dispatch:
 
 permissions:
@@ -34,12 +36,21 @@ jobs:
           workspaces: x3-lang/near/x3-guard
       - name: Verify read-only preflight unit/negative cases (no RPC network calls)
         run: python3 -m unittest discover -s scripts/hackathon -p 'test_guard_readonly_deployment_preflight.py' -v
+      # Build from the contract directory so its .cargo/config.toml applies `--cfg near`
+      # (near-sdk's on-chain mode). The crate refuses to compile for wasm32 without it.
       - name: Verify native Guard tests and WASM target
+        working-directory: x3-lang/near/x3-guard
         run: |
-          cargo test --locked --manifest-path x3-lang/near/x3-guard/Cargo.toml --quiet
-          cargo check --locked --manifest-path x3-lang/near/x3-guard/Cargo.toml --target wasm32-unknown-unknown --quiet
+          cargo test --locked --quiet
+          cargo check --locked --target wasm32-unknown-unknown --quiet
       - name: Reproduce locally verifiable unsigned WASM artifact
+        working-directory: x3-lang/near/x3-guard
         run: |
-          cargo build --locked --release --manifest-path x3-lang/near/x3-guard/Cargo.toml --target wasm32-unknown-unknown --quiet
-          sha256sum x3-lang/near/x3-guard/target/wasm32-unknown-unknown/release/x3_guard.wasm
+          cargo build --locked --release --target wasm32-unknown-unknown --quiet
+          sha256sum target/wasm32-unknown-unknown/release/x3_guard.wasm
           echo 'This workflow NEVER reads keys, broadcasts, deposits, or deploys.'
+      - name: Refusal reasons reach the chain (WASM imports env.panic_utf8)
+        run: |
+          python3 -m unittest discover -s scripts/hackathon -p 'test_check_guard_wasm_host_panics.py' -v
+          python3 scripts/hackathon/check_guard_wasm_host_panics.py --expect present \
+            x3-lang/near/x3-guard/target/wasm32-unknown-unknown/release/x3_guard.wasm

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fcntl
 import hashlib
 import json
 import os
@@ -303,6 +304,51 @@ class EvidenceStore:
             "bytes": len(raw),
         }
 
+    def _ensure_manifest_indexed(self, path: Path, manifest: dict) -> None:
+        """Durably repair an orphaned manifest index after an interrupted write.
+
+        Content-addressed manifest links may survive a process crash before
+        the separate index append. Under an exclusive file lock, check for an
+        existing exact record and append at most once. Refuse damaged indexes.
+        """
+        raw = path.read_bytes()
+        if strict_json(raw) != manifest:
+            raise EvidenceError(f"stored manifest differs from requested manifest: {path}")
+        relative = path.relative_to(self.network_root)
+        record = {
+            "manifest_id": manifest["manifest_id"],
+            "manifest_sha256": _sha256(raw),
+            "manifest_path": relative.as_posix(),
+            "kind": manifest["kind"],
+            "network": self.network,
+            "status": manifest["status"],
+            "authenticated": False,
+        }
+        index = self.network_root / "index.jsonl"
+        descriptor = os.open(index, os.O_CREAT | os.O_APPEND | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            with os.fdopen(os.dup(descriptor), "rb") as reader:
+                existing = reader.read()
+            if existing and not existing.endswith(b"\n"):
+                raise EvidenceError(f"partial evidence index: {index}")
+            for line in existing.splitlines():
+                entry = strict_json(line)
+                if not isinstance(entry, dict) or type(entry.get("manifest_id")) is not str:
+                    raise EvidenceError(f"invalid evidence index record: {index}")
+                if entry["manifest_id"] == record["manifest_id"]:
+                    if entry != record:
+                        raise EvidenceError(f"conflicting evidence index record: {index}")
+                    return
+            encoded = _canonical(record) + b"\n"
+            if os.write(descriptor, encoded) != len(encoded):
+                raise OSError("incomplete evidence index append")
+            os.fsync(descriptor)
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
     def commit_manifest(self, manifest: dict) -> tuple[Path, bool]:
         if manifest.get("schema") != SCHEMA:
             raise EvidenceError("wrong evidence manifest schema")
@@ -331,33 +377,23 @@ class EvidenceStore:
         raw = _canonical(manifest) + b"\n"
         relative = Path("manifests") / f"{digest}.json"
         path = self.network_root / relative
-        if path.exists():
-            existing = strict_json(path.read_bytes())
-            if not isinstance(existing, dict) or existing.get("manifest_id") != digest:
+        duplicate = path.exists()
+        if not duplicate:
+            created = self._atomic_write(path, raw)
+            duplicate = not created
+        if duplicate:
+            # Never trust a crash-orphaned file merely because its name and
+            # self-reported manifest_id match the expected content address.
+            existing = _load_manifest(path)
+            if existing.get("manifest_id") != digest:
                 raise EvidenceError(f"manifest digest collision: {path}")
             manifest.clear()
             manifest.update(existing)
-            return path, True
-        created = self._atomic_write(path, raw)
-        if not created:
-            return path, True
-        index = self.network_root / "index.jsonl"
-        record = {
-            "manifest_id": digest,
-            "manifest_sha256": _sha256(raw),
-            "manifest_path": relative.as_posix(),
-            "kind": manifest["kind"],
-            "network": self.network,
-            "status": manifest["status"],
-            "authenticated": False,
-        }
-        descriptor = os.open(index, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
-        try:
-            os.write(descriptor, _canonical(record) + b"\n")
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        return path, False
+        # Even a pre-existing content-addressed manifest can be an orphan:
+        # the process might have stopped before committing its index row.
+        # Never return a duplicate until the index is durably reconciled.
+        self._ensure_manifest_indexed(path, manifest)
+        return path, duplicate
 
 
 def _identity(status_response: dict) -> dict:
@@ -790,8 +826,11 @@ def collect_checkpoint(
         candidate = {
             "classification": "candidate_checkpoint_untrusted",
             "selected_provider": selected_provider,
-            "provider_consensus": all(
-                item == comparisons[0] for item in comparisons[1:]
+            "provider_consensus": (
+                status == "complete_candidate"
+                and len(comparisons) == len(providers)
+                and len(comparisons) >= 2
+                and all(item == comparisons[0] for item in comparisons[1:])
             ),
             "checkpoint_id": first["candidate_block_hash"],
             "block_height": light["inner_lite"]["height"],
@@ -966,7 +1005,12 @@ def collect_receipt(
 
     status = _manifest_status(providers, comparisons)
     candidate = None
-    if comparisons and all(item == comparisons[0] for item in comparisons[1:]):
+    if (
+        status == "complete_candidate"
+        and len(comparisons) == len(providers)
+        and len(comparisons) >= 2
+        and all(item == comparisons[0] for item in comparisons[1:])
+    ):
         proof = comparisons[0]["proof"]
         candidate = {
             "classification": "syntactically_valid_untrusted_receipt_proof",
@@ -1097,7 +1141,12 @@ def collect_transaction(
         providers.append(provider)
     status = _manifest_status(providers, comparisons)
     candidate = None
-    if comparisons and all(item == comparisons[0] for item in comparisons[1:]):
+    if (
+        status == "complete_candidate"
+        and len(comparisons) == len(providers)
+        and len(comparisons) >= 2
+        and all(item == comparisons[0] for item in comparisons[1:])
+    ):
         proof = comparisons[0]["proof"]
         candidate = {
             "classification": "syntactically_valid_untrusted_transaction_proof",
@@ -1184,7 +1233,10 @@ def verify_store(root: str | Path, *, require_negative_corpus: bool = False) -> 
         index_path = network_root / "index.jsonl"
         if not index_path.is_file():
             raise EvidenceError(f"missing evidence index: {network}")
-        for line_number, line in enumerate(index_path.read_bytes().splitlines(), 1):
+        index_raw = index_path.read_bytes()
+        if index_raw and not index_raw.endswith(b"\n"):
+            raise EvidenceError(f"partial evidence index: {network}")
+        for line_number, line in enumerate(index_raw.splitlines(), 1):
             if not line:
                 raise EvidenceError(f"blank evidence index line: {network}:{line_number}")
             record = strict_json(line)

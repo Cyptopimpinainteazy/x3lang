@@ -92,9 +92,9 @@ jobs:
         run: |
           set -euo pipefail
           for n in a b; do
-            CARGO_TARGET_DIR="$RUNNER_TEMP/x3-guard-$n" \
-              cargo build --manifest-path x3-lang/near/x3-guard/Cargo.toml \
-              --locked --release --target wasm32-unknown-unknown
+            # Run from the contract directory so .cargo/config.toml applies `--cfg near`.
+            (cd x3-lang/near/x3-guard && CARGO_TARGET_DIR="$RUNNER_TEMP/x3-guard-$n" \
+              cargo build --locked --release --target wasm32-unknown-unknown)
             cp "$RUNNER_TEMP/x3-guard-$n/wasm32-unknown-unknown/release/x3_guard.wasm" "$RUNNER_TEMP/guard-$n.wasm"
           done
           sha256sum "$RUNNER_TEMP/guard-a.wasm" "$RUNNER_TEMP/guard-b.wasm"
