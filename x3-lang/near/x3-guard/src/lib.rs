@@ -10,7 +10,8 @@
 //! 2. **The quote.** [`Contract::accept_quote`] takes the exact payload 1Click signed and its
 //!    signature, verifies the signature **on chain** against the pinned 1Click manager key, and
 //!    only then reads the quote out of the verified bytes and runs every guard against the
-//!    stored policy. A policy accepts **one** quote, so a nonce opens one deposit address.
+//!    stored policy. A policy accepts **one** quote. Signed quote hashes are also
+//!    consumed once contract-wide, to prevent cross-nonce authorization replay.
 //! 3. **The outcome.** [`Contract::record_outcome`] records how the swap ended, once.
 //! 4. **Agents.** An owner can let an AI agent's NEAR account swap on its behalf under a
 //!    [`mandate::Mandate`]: per-payment and rolling-24-hour caps, allowlisted recipients and
@@ -84,6 +85,8 @@ pub const MAX_CLOCK_SKEW_MS: u64 = 60_000;
 enum StorageKey {
     Intents,
     Mandates,
+    // Append-only storage prefix: preserve the existing Intents/Mandates keys.
+    ConsumedQuoteHashes,
 }
 
 /// What an X3 program allows, as lowered by `near_intents.py`.
@@ -829,6 +832,14 @@ impl Contract {
         )
     }
 
+    /// Read the on-chain owner/nonce that first consumed a signed quote hash.
+    /// Only records accepted *after* this replay ledger was introduced exist
+    /// here; pre-upgrade receipts require a separately authenticated backfill.
+    pub fn get_quote_consumer(&self, quote_hash: String) -> Option<String> {
+        let consumed: LookupMap<String, String> = LookupMap::new(StorageKey::ConsumedQuoteHashes);
+        consumed.get(&quote_hash).cloned()
+    }
+
     /// Dry-run the signature check and the guards for a registered intent. Changes nothing.
     pub fn check_quote(
         &self,
@@ -968,6 +979,19 @@ impl Contract {
                     "X3_NEAR_INVALID_SIGNATURE: Cryptographic quote verification failed; deposit prohibited ({reason})"
                 ))
             });
+        // Quote signatures authenticate terms but do not bind an owner's
+        // arbitrary intent nonce. A separate, contract-wide consumed-hash
+        // namespace is therefore required to prevent duplicate authorizations.
+        // This is intentionally NOT a Contract struct field, preserving the
+        // existing Borsh state layout and original map prefixes.
+        let mut consumed: LookupMap<String, String> = LookupMap::new(StorageKey::ConsumedQuoteHashes);
+        require!(
+            consumed.get(&facts.quote_hash).is_none(),
+            format!(
+                "X3_NEAR_QUOTE_REPLAY: signed quote {} already accepted by another intent",
+                facts.quote_hash
+            )
+        );
         let now = env::block_timestamp_ms();
         let results = evaluate(&record.policy, &facts, now);
         let failed: Vec<&str> = results.iter().filter(|r| !r.ok).map(|r| r.guard.as_str()).collect();
@@ -978,6 +1002,8 @@ impl Contract {
                 failed.join(", ")
             )
         );
+        let consumed_hash = facts.quote_hash.clone();
+        let consuming_intent = key(&record.owner, &record.nonce);
         emit(
             "quote_accepted",
             json!({
@@ -996,6 +1022,10 @@ impl Contract {
             accepted_at_ms: now,
         });
         self.store_intent(record);
+        // No consumption occurs on a failed signature or rejected policy.
+        // The map write and the intent write are in the same NEAR transaction.
+        consumed.insert(consumed_hash, consuming_intent);
+        consumed.flush();
         results
     }
 

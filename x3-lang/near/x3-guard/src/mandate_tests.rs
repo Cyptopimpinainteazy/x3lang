@@ -288,6 +288,35 @@ fn a_quote_that_fails_its_guards_does_not_count_against_the_cap() {
 }
 
 #[test]
+fn agent_cannot_replay_a_consumed_signed_quote_or_charge_twice() {
+    let mut c = with_mandate(terms());
+    let (p, signed_payload, signature) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "agent_first".into(), p.clone());
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "agent_second".into(), p);
+    ctx(agent(), NOW_MS, one_near());
+    assert!(c
+        .agent_accept_quote(owner(), "agent_first".into(), signed_payload.clone(), signature.clone(),)
+        .iter()
+        .all(|g| g.ok));
+    assert_eq!(
+        c.get_mandate(owner(), agent()).unwrap().spent_in_window(NOW_MS),
+        (25 * USDC, 1)
+    );
+    ctx(agent(), NOW_MS, one_near());
+    let refused = panics(|| c.agent_accept_quote(owner(), "agent_second".into(), signed_payload, signature));
+    assert!(refused.contains("X3_NEAR_QUOTE_REPLAY"), "{refused}");
+    let other = c.get_intent(owner(), "agent_second".into()).unwrap();
+    assert!(other.quote.is_none(), "replayed agent quote was stored");
+    assert_eq!(
+        c.get_mandate(owner(), agent()).unwrap().spent_in_window(NOW_MS),
+        (25 * USDC, 1),
+        "a rejected quote must not increase rolling spend"
+    );
+}
+
+#[test]
 fn revoking_stops_the_agent_at_once_and_replacing_voids_old_intents() {
     let mut c = with_mandate(terms());
     let (p, text, sig) = quote_at(NOW_MS, 25 * USDC);

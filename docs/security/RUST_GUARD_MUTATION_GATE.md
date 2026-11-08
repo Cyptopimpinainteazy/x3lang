@@ -41,12 +41,15 @@ The runner creates a disposable copy of `x3-lang/near/x3-guard`, includes its ac
 | Expired approval bypass | `expired_mandate_cannot_record_late_approvals` |
 | Recipient allowlist bypass | `every_term_refuses_an_intent_that_breaks_it` |
 | Per-payment cap bypass | `every_term_refuses_an_intent_that_breaks_it` |
+| Contract-wide signed-quote-hash replay bypass | `one_signed_quote_cannot_authorize_two_distinct_intents` |
 
 **KILLED** requires a real Rust assertion/test failure. An import/compile error, timeout, bad source-match count, or red baseline fails closed and cannot count as a killed mutant. **SURVIVED** means the original test still passed against the changed source; any survivor blocks the mutation gate. Each report includes exact HEAD, original/mutant SHA-256, command, test and failure details.
 
 ### Local evidence from first run
 
 On source base commit `6bf0cb80580e44b1f9eb2b763d038a40d1b89631`, the first local mutation run on x3star1 recorded **6 killed / 0 survived / 0 invalid / 0 timeouts**. The first Sandbox run added the concurrent submissions, two signature negatives and approval replay and finished **exit 0**. The GitHub Actions workflow must independently rerun these at the exact proposed PR HEAD before the suite can be called CI-green.
+
+A subsequent local run with the contract-wide quote-consumption patch added the seventh replay-bypass mutation: **7 killed / 0 survived / 0 invalid / 0 timeouts**, with all six distinct focused baselines passing. That measurement is restricted to seven curated native Rust source changes; GitHub CI on the new PR head is still required.
 
 ## Hard release boundaries
 
