@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SHARED = (
+    "scripts/proof/checkout_integrity.py",
     "scripts/proof/x3lang_execution_proof.py",
     "scripts/proof/x3lang_runtime_equivalence.py",
     "scripts/proof/check_x3lang_mirror.py",
@@ -32,9 +35,26 @@ def changes(repo: Path, base: str | None) -> set[str]:
         return set()
     # Use branch divergence, not a reviewer's guessed file list.
     upstream = git(repo, "merge-base", base, "HEAD")
-    names = git(repo, "diff", "--name-only", "--diff-filter=ACDMR",
-                upstream, "HEAD", "--", *SCOPED)
-    return set(names.splitlines()) if names else set()
+    # Disable rename folding so the old path's deletion is checked as well.
+    # Include every change type, including regular-file/symlink transitions.
+    names = subprocess.check_output(
+        ["git", "-C", str(repo), "diff", "--no-renames", "--name-only", "-z",
+         upstream, "HEAD", "--", *SCOPED], stderr=subprocess.STDOUT,
+    )
+    return {os.fsdecode(name) for name in names.split(b"\0") if name}
+
+
+def identity(path: Path) -> tuple[str, str] | None:
+    """Compare Git file modes and stored bytes without following symlinks."""
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(mode):
+        return "120000", hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
+    if stat.S_ISREG(mode):
+        return ("100755" if mode & 0o111 else "100644"), hashlib.sha256(path.read_bytes()).hexdigest()
+    raise ValueError("unsupported file type")
 
 
 def main() -> int:
@@ -57,19 +77,26 @@ def main() -> int:
     paths = sorted(set(SHARED) | changed)
     failures = []
     for rel in paths:
-        left, right = ROOT / rel, peer / rel
-        if not left.exists() and not right.exists() and rel not in SHARED:
+        try:
+            left, right = identity(ROOT / rel), identity(peer / rel)
+        except (OSError, ValueError) as exc:
+            failures.append((rel, f"cannot compare file: {exc}"))
+            continue
+        if left is None and right is None and rel not in SHARED:
             print(f"MATCH DELETE {rel}")
             continue
-        if not left.is_file() or not right.is_file():
+        if left is None or right is None:
             failures.append((rel, "missing on one or both repositories"))
             continue
-        a = hashlib.sha256(left.read_bytes()).hexdigest()
-        b = hashlib.sha256(right.read_bytes()).hexdigest()
-        if a != b:
+        if left[0] != right[0]:
+            failures.append((rel, f"Git mode mismatch {left[0]} != {right[0]}"))
+        elif rel in SHARED and left[0] == "120000":
+            failures.append((rel, "required proof input must be a regular file"))
+        elif left[1] != right[1]:
+            a, b = left[1], right[1]
             failures.append((rel, f"SHA mismatch {a[:12]} != {b[:12]}"))
         else:
-            print(f"MATCH {rel} sha256={a}")
+            print(f"MATCH {rel} mode={left[0]} sha256={left[1]}")
     if failures:
         for rel, why in failures:
             print(f"DRIFT {rel}: {why}", file=sys.stderr)

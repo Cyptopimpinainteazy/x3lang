@@ -12,6 +12,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from checkout_integrity import InputIntegrityError, begin, finish
+
 ROOT = Path(__file__).resolve().parents[2]
 INPUTS = (
     "x3-lang/compiler/tests/test_control_flow_e2e.rs",
@@ -42,22 +44,23 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
     output = args.output_dir.resolve()
-    output.mkdir(parents=True, exist_ok=True)
-
-    # Do not bind a green result to uncommitted source/test edits.
+    try:
+        before = begin(ROOT, output)
+    except InputIntegrityError as exc:
+        parser.error(str(exc))
     for path in INPUTS:
         if not (ROOT / path).is_file():
             parser.error(f"required test is missing: {path}")
         subprocess.run(["git", "-C", str(ROOT), "ls-files", "--error-unmatch", path],
                        stdout=subprocess.DEVNULL, check=True)
-        if subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", "HEAD", "--", path]).returncode:
-            parser.error(f"test differs from committed HEAD: {path}")
-
-    rev = git("rev-parse", "HEAD")
+    output.mkdir(parents=True, exist_ok=True)
+    rev = before["revision"]
     report = {
         "schema": "x3lang-local-execution-proof/v1",
         "status": "failed",
         "repo_revision": rev,
+        "repo_tree": before["tree"],
+        "source_binding": {"before": before, "after": None},
         "repository": git("config", "--get", "remote.origin.url"),
         "observed_utc": datetime.now(timezone.utc).isoformat(),
         "scope": "local Rust compiler/VM tests only; no EVM, SVM, NEAR or settlement finality proof",
@@ -116,6 +119,11 @@ def main() -> int:
             else:
                 print(f"PASS {name}", flush=True)
     finally:
+        try:
+            report["source_binding"]["after"] = finish(ROOT, before)
+        except InputIntegrityError as exc:
+            passed = False
+            report["input_error"] = str(exc)
         report["status"] = "passed" if passed and len(report["tests"]) == len(TESTS) else "failed"
         path = output / "manifest.json"
         path.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")
