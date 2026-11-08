@@ -213,5 +213,5 @@ Other surfaces (Solana vault, BSC economics) are in
 ## License
 
 MIT ([LICENSE](LICENSE)). The preserved pre-hackathon source has multiple contributors; see
-[COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md#forks-ownership-and-licensing--what-is-realistic)
+[docs/business/COMMERCIAL_MODEL.md](docs/business/COMMERCIAL_MODEL.md#forks-ownership-and-licensing--what-is-realistic)
 for the ownership boundary.

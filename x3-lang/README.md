@@ -69,7 +69,7 @@ adapters, multi-validator execution, an external audit.
 
 ## Bridge backend (x3-lang VM)
 
-`init_production_backend()` in [`vm/src/bridge.rs`](vm/src/bridge.rs:2990) supports 4 verifier families:
+`init_production_backend()` in [`vm/src/bridge.rs`](vm/src/bridge.rs#L3615) supports 4 verifier families:
 - `evm-light-client` (EthereumLightClientVerifier)
 - `svm-light-client` (SolanaLightClientVerifier)
 - `evm-rpc` (EthereumRpcFinalityVerifier)
@@ -243,7 +243,7 @@ python3 x3-lang/value_fee.py --preview-stdin < x3-lang/examples/fees/verified_sa
 
 This is **not** `.x3` syntax today and is not wired to NEAR 1Click `appFees`;
 `collectible: false` is mandatory because a signed quote is not proof of
-settlement or user authorization. See `../COMMERCIAL_MODEL.md` for the
+settlement or user authorization. See `../docs/business/COMMERCIAL_MODEL.md` for the
 commercial API/on-chain design and safeguards.
 
 ## Quick start
