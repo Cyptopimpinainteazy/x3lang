@@ -158,14 +158,9 @@ test("a page without WebCrypto is told why, not that the quote is forged", () =>
 
 test("without WebCrypto a real quote still fails closed, with the real reason", async () => {
   const r = capture("near_intents_quote_dry_live_capture.json");
-  const saved = Object.getOwnPropertyDescriptor(globalThis, "crypto");
-  Object.defineProperty(globalThis, "crypto", { value: {}, configurable: true });
-  try {
-    const check = await x3.checkQuoteSignature(r);
-    assert.equal(check.valid, false);
-    assert.match(check.reason, /turned off WebCrypto/);
-  } finally {
-    Object.defineProperty(globalThis, "crypto", saved);
-  }
+  const noWebCrypto = { isSecureContext: true, crypto: {} };
+  const check = await x3.checkQuoteSignature(r, x3.ONE_CLICK_MANAGER_PUBLIC_KEY, noWebCrypto);
+  assert.equal(check.valid, false);
+  assert.match(check.reason, /turned off WebCrypto/);
   assert.equal((await x3.checkQuoteSignature(r)).valid, true);
 });
