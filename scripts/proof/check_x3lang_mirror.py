@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import os
 from pathlib import Path
@@ -46,32 +47,71 @@ def changes(repo: Path, base: str | None) -> set[str]:
 
 
 def worktree_identity(repo: Path, relative: str) -> tuple[str, str] | None:
-    """Check every parent without following links before reading a final file/link."""
+    """Read through pinned directory descriptors without following replaced links."""
     rel = Path(relative)
     if rel.is_absolute() or not rel.parts or ".." in rel.parts:
         raise ValueError("invalid repository-relative input path")
-    parent = repo
-    for part in rel.parts[:-1]:
-        parent /= part
-        try:
-            mode = parent.lstat().st_mode
-        except FileNotFoundError:
-            return None
-        if stat.S_ISLNK(mode):
-            raise ValueError("proof input has a symlink parent")
-        if not stat.S_ISDIR(mode):
-            raise ValueError("proof input parent is not a directory")
-    path = repo / rel
+    if not all(hasattr(os, flag) for flag in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK")):
+        raise ValueError("mirror checks require descriptor-relative no-follow file access")
+
+    def version(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_size,
+                info.st_mtime_ns, info.st_ctime_ns)
+
     try:
-        mode = path.lstat().st_mode
+        with ExitStack() as descriptors:
+            directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            root_fd = os.open(repo, directory_flags)
+            descriptors.callback(os.close, root_fd)
+            root_info = os.fstat(root_fd)
+            parent_fd = root_fd
+            parents = []
+            for part in rel.parts[:-1]:
+                before = os.stat(part, dir_fd=parent_fd, follow_symlinks=False)
+                if not stat.S_ISDIR(before.st_mode):
+                    raise ValueError("proof input parent is not a regular directory")
+                child_fd = os.open(part, directory_flags, dir_fd=parent_fd)
+                descriptors.callback(os.close, child_fd)
+                opened = os.fstat(child_fd)
+                if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+                    raise ValueError("proof input parent changed while opening")
+                parents.append((parent_fd, part, child_fd))
+                parent_fd = child_fd
+
+            name = rel.name
+            before = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            if stat.S_ISLNK(before.st_mode):
+                stored = os.fsencode(os.readlink(name, dir_fd=parent_fd))
+                result = "120000", hashlib.sha256(stored).hexdigest()
+            elif stat.S_ISREG(before.st_mode):
+                # Nonblocking open also prevents a replacement FIFO from hanging the check.
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
+                descriptors.callback(os.close, fd)
+                opened = os.fstat(fd)
+                if not stat.S_ISREG(opened.st_mode) or version(before) != version(opened):
+                    raise ValueError("proof input changed while opening")
+                digest = hashlib.sha256()
+                while chunk := os.read(fd, 64 * 1024):
+                    digest.update(chunk)
+                if version(opened) != version(os.fstat(fd)):
+                    raise ValueError("proof input changed while reading")
+                result = ("100755" if opened.st_mode & stat.S_IXUSR else "100644"), digest.hexdigest()
+            else:
+                raise ValueError("unsupported file type")
+
+            if version(before) != version(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)):
+                raise ValueError("proof input path changed while reading")
+            for ancestor_fd, part, child_fd in parents:
+                current = os.stat(part, dir_fd=ancestor_fd, follow_symlinks=False)
+                opened = os.fstat(child_fd)
+                if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+                    raise ValueError("proof input parent changed while reading")
+            current_root = os.stat(repo, follow_symlinks=False)
+            if not stat.S_ISDIR(current_root.st_mode) or (current_root.st_dev, current_root.st_ino) != (root_info.st_dev, root_info.st_ino):
+                raise ValueError("proof checkout root changed while reading")
+            return result
     except FileNotFoundError:
         return None
-    if stat.S_ISLNK(mode):
-        return "120000", hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
-    if stat.S_ISREG(mode):
-        git_mode = "100755" if mode & stat.S_IXUSR else "100644"
-        return git_mode, hashlib.sha256(path.read_bytes()).hexdigest()
-    raise ValueError("unsupported file type")
 
 
 def committed_identity(repo: Path, relative: str) -> tuple[str, str] | None:

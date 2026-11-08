@@ -1,13 +1,14 @@
 """Exercise proof-runner refusal boundaries without claiming Rust execution.
 
-Only the external Rust tool process is substituted in these test fixtures.
-Git revisions, tracked input files, dirty checks, manifests and logs are real.
+Rust tool processes are substituted in these fixtures. Race hooks replace real
+fixture files at filesystem-call boundaries; Git, manifests and logs are real.
 """
 from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 from pathlib import Path
 import subprocess
@@ -42,6 +43,7 @@ def initialize(repo, paths):
     git(repo, "init", "--quiet")
     git(repo, "config", "user.name", "Proof fixture")
     git(repo, "config", "user.email", "proof@example.invalid")
+    git(repo, "config", "core.warnAmbiguousRefs", "true")
     git(repo, "remote", "add", "origin", "https://example.invalid/proof-fixture.git")
     for path in paths:
         target = repo / path
@@ -171,6 +173,89 @@ class MirrorTests(unittest.TestCase):
         shutil.rmtree(source)
         source.symlink_to(outside, target_is_directory=True)
         self.assertEqual(self.compare(), 1)
+
+    def test_file_replaced_by_symlink_after_stat_is_refused(self):
+        relative = MIRROR.SHARED[0]
+        target = self.peer / relative
+        outside = self.root / "external-input"
+        outside.write_bytes(target.read_bytes())
+        real_stat = os.stat
+        replaced = False
+
+        def swap_after_stat(path, *args, **kwargs):
+            nonlocal replaced
+            observed = real_stat(path, *args, **kwargs)
+            if not replaced and os.fspath(path) in (str(target), target.name):
+                replaced = True
+                target.unlink()
+                target.symlink_to(outside)
+            return observed
+
+        with patch.object(MIRROR.os, "stat", side_effect=swap_after_stat):
+            with self.assertRaises((OSError, ValueError)):
+                MIRROR.identity(self.peer, relative)
+        self.assertTrue(replaced)
+
+    def test_parent_replaced_by_symlink_after_stat_is_refused(self):
+        relative = "x3-lang/vm/tests/trading_receipts.rs"
+        parent = self.peer / "x3-lang"
+        outside = self.root / "external-language"
+        real_stat = os.stat
+        replaced = False
+
+        def swap_after_stat(path, *args, **kwargs):
+            nonlocal replaced
+            observed = real_stat(path, *args, **kwargs)
+            if not replaced and os.fspath(path) in (str(parent), parent.name):
+                replaced = True
+                parent.rename(outside)
+                parent.symlink_to(outside, target_is_directory=True)
+            return observed
+
+        with patch.object(MIRROR.os, "stat", side_effect=swap_after_stat):
+            with self.assertRaises((OSError, ValueError)):
+                MIRROR.identity(self.peer, relative)
+        self.assertTrue(replaced)
+
+    def test_open_file_mode_mutation_during_read_is_refused(self):
+        relative = MIRROR.SHARED[0]
+        target = self.peer / relative
+        real_read = os.read
+        changed = False
+
+        def change_after_read(fd, size):
+            nonlocal changed
+            chunk = real_read(fd, size)
+            if not changed:
+                changed = True
+                target.chmod(0o755)
+            return chunk
+
+        with patch.object(MIRROR.os, "read", side_effect=change_after_read):
+            with self.assertRaisesRegex(ValueError, "changed while reading"):
+                MIRROR.identity(self.peer, relative)
+        self.assertTrue(changed)
+
+    def test_open_parent_replacement_during_read_is_refused(self):
+        relative = "x3-lang/vm/tests/trading_receipts.rs"
+        parent = self.peer / "x3-lang"
+        outside = self.root / "external-language"
+        real_read = os.read
+        changed = False
+
+        def replace_after_read(fd, size):
+            nonlocal changed
+            chunk = real_read(fd, size)
+            if not changed:
+                changed = True
+                parent.rename(outside)
+                parent.symlink_to(outside, target_is_directory=True)
+            return chunk
+
+        with patch.object(MIRROR.os, "read", side_effect=replace_after_read):
+            with self.assertRaisesRegex(ValueError, "parent changed while reading"):
+                MIRROR.identity(self.peer, relative)
+        self.assertTrue(changed)
 
     def test_committed_mode_mismatch_cannot_be_hidden_by_normalized_worktree_modes(self):
         relative = MIRROR.SHARED[0]
