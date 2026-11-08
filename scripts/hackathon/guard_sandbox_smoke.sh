@@ -15,9 +15,11 @@ fi
 # Build from the Guard directory so its rust-toolchain.toml selects stable.
 # Running cargo from the repository root would use the host default toolchain
 # (1.90 here), which is too old for near-sdk 5.30.
-(cd "$ROOT/x3-lang/near/x3-guard" && cargo build --locked --release --target wasm32-unknown-unknown)
+(cd "$ROOT/x3-lang/near/x3-guard" && cargo build --locked --release --target wasm32-unknown-unknown --manifest-path "$MANIFEST")
 cargo build --locked --manifest-path "$TEST_MANIFEST"
 sha256sum "$WASM"
+# The sandbox must exercise an on-chain-mode build: refusal reasons need env.panic_utf8.
+python3 "$ROOT/scripts/hackathon/check_guard_wasm_host_panics.py" --expect present "$WASM"
 # Ubuntu 22.04's glibc 2.35 cannot execute recent prebuilt NEAR Sandbox, which
 # needs glibc >=2.39. Use only cached Ubuntu 24.04 Docker image and an
 # explicitly DISCONNECTED network to avoid any public blockchain interaction.

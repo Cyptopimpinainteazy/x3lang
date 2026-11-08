@@ -103,6 +103,13 @@ impl NativeNearHtlc {
 impl NativeNearHtlc {
     #[init]
     pub fn new() -> Self {
+        // Testnet pilot only. Name suffix is a necessary deployment precaution,
+        // NOT cryptographic network validation: the deployer must independently
+        // verify NEAR testnet genesis over the intended RPC before signing.
+        assert!(
+            env::current_account_id().as_str().ends_with(".testnet"),
+            "testnet deployment only"
+        );
         Self {
             registrar: env::predecessor_account_id(),
             windows: BTreeMap::new(),
@@ -361,9 +368,43 @@ mod tests {
             START + 600_000_000_000,
         );
     }
+    fn new_testnet_vault() -> NativeNearHtlc {
+        set("registrar.testnet", 0, START);
+        NativeNearHtlc::new()
+    }
+
+    #[test]
+    fn native_near_htlc_allows_testnet_named_contract_with_registrar() {
+        set("owner.testnet", 0, START);
+        let vault = NativeNearHtlc::new();
+        assert_eq!(vault.registrar.as_str(), "owner.testnet");
+    }
+
+    #[test]
+    #[should_panic(expected = "testnet deployment only")]
+    fn native_near_htlc_refuses_mainnet_named_contract_at_init() {
+        let mut ctx = VMContextBuilder::new();
+        ctx.current_account_id("native-x3-vault.near".parse().unwrap())
+            .predecessor_account_id("owner.near".parse().unwrap())
+            .block_timestamp(START);
+        testing_env!(ctx.build());
+        NativeNearHtlc::new();
+    }
+
+    #[test]
+    #[should_panic(expected = "testnet deployment only")]
+    fn native_near_htlc_refuses_implicit_account_at_init() {
+        let mut ctx = VMContextBuilder::new();
+        ctx.current_account_id("a".repeat(64).parse().unwrap())
+            .predecessor_account_id("owner.near".parse().unwrap())
+            .block_timestamp(START);
+        testing_env!(ctx.build());
+        NativeNearHtlc::new();
+    }
+
     #[test]
     fn funding_window_json_view_has_expected_wire_fields() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         set("registrar.testnet", 0, START);
         // Separate deployer from registrar is tested elsewhere; test the wire view.
         // Contract was created in the previous VM context, so this uses its
@@ -389,7 +430,7 @@ mod tests {
     #[test]
     fn can_never_close_funding_window_early_or_fund_at_deadline() {
         set("registrar.testnet", 0, START);
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         let deadline = START + 600_000_000_000;
         c.register_window(
             swap_id(),
@@ -412,7 +453,7 @@ mod tests {
 
     #[test]
     fn existing_escrow_json_amount_is_exact_decimal_string() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         let json = near_sdk::serde_json::to_value(c.get(swap_id()).unwrap()).unwrap();
         assert_eq!(json["amount"], 10u128.pow(24).to_string());
@@ -421,7 +462,7 @@ mod tests {
     #[test]
     fn registered_window_can_be_irreversibly_closed_when_never_funded() {
         set("registrar.testnet", 0, START);
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         set("registrar.testnet", 0, START);
         c.register_window(
             swap_id(),
@@ -452,7 +493,7 @@ mod tests {
     #[test]
     fn funded_window_cannot_be_closed_as_unfunded() {
         set("registrar.testnet", 0, START);
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         set("registrar.testnet", 0, START);
         c.register_window(
             swap_id(),
@@ -474,7 +515,7 @@ mod tests {
     #[test]
     fn unauthorized_registrar_and_wrong_lp_or_amount_rejected() {
         set("registrar.testnet", 0, START);
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         set("stranger.testnet", 0, START);
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.register_window(
@@ -507,7 +548,7 @@ mod tests {
 
     #[test]
     fn locks_native_near_and_records_payout_owner() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         let swap = c.get(swap_id()).unwrap();
         assert_eq!(swap.amount, 10u128.pow(24));
@@ -517,7 +558,7 @@ mod tests {
     }
     #[test]
     fn claim_credits_on_chain_before_secret_becomes_useful() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
         c.claim(swap_id(), Base64VecU8(secret()));
@@ -527,7 +568,7 @@ mod tests {
     }
     #[test]
     fn only_recipient_with_correct_secret_can_claim() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         set("attacker.testnet", 0, START + 1);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -544,7 +585,7 @@ mod tests {
     }
     #[test]
     fn duplicate_swap_id_is_rejected_after_claim() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
         c.claim(swap_id(), Base64VecU8(secret()));
@@ -559,7 +600,7 @@ mod tests {
     }
     #[test]
     fn refund_credits_only_owner_after_expiry() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         set("lp.testnet", 0, START + 1);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.refund(swap_id()))).is_err());
@@ -572,7 +613,7 @@ mod tests {
     }
     #[test]
     fn withdrawal_moves_credit_to_inflight_without_double_spend() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
         c.claim(swap_id(), Base64VecU8(secret()));
@@ -598,7 +639,7 @@ mod tests {
 
     #[test]
     fn failed_async_wallet_transfer_restores_claimant_credit() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
         c.claim(swap_id(), Base64VecU8(secret()));
@@ -618,7 +659,7 @@ mod tests {
 
     #[test]
     fn confirmed_async_wallet_transfer_reduces_liability_once() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
         c.claim(swap_id(), Base64VecU8(secret()));
@@ -637,7 +678,7 @@ mod tests {
     }
     #[test]
     fn rejects_invalid_lock_details_and_zero_amount() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         set("lp.testnet", 0, START);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
             swap_id(),
@@ -658,13 +699,13 @@ mod tests {
 
     #[test]
     fn live_swap_limit_is_fail_closed() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         for i in 0..MAX_LIVE_SWAPS {
             set("lp.testnet", 10u128.pow(24), START);
             c.lock(
                 swap_id_at(i),
                 "alice.testnet".parse().unwrap(),
-                Base64VecU8(env::sha256(&secret())),
+                Base64VecU8(env::sha256(secret())),
                 START + 600_000_000_000,
             );
         }
@@ -673,7 +714,7 @@ mod tests {
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.lock(
             swap_id_at(MAX_LIVE_SWAPS),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             START + 600_000_000_000
         )))
         .is_err());
@@ -681,7 +722,7 @@ mod tests {
 
     #[test]
     fn terminal_swap_does_not_consume_a_live_slot() {
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         lock(&mut c);
         set("alice.testnet", 0, START + 1);
         c.claim(swap_id(), Base64VecU8(secret()));
@@ -691,7 +732,7 @@ mod tests {
         c.lock(
             swap_id_at(1),
             "alice.testnet".parse().unwrap(),
-            Base64VecU8(env::sha256(&secret())),
+            Base64VecU8(env::sha256(secret())),
             START + 600_000_000_000,
         );
         assert_eq!(c.live_swaps(), 1);
@@ -700,17 +741,17 @@ mod tests {
     #[test]
     fn live_window_limit_is_fail_closed() {
         set("registrar.testnet", 0, START);
-        let mut c = NativeNearHtlc::new();
+        let mut c = new_testnet_vault();
         set("registrar.testnet", 0, START);
         for i in 0..MAX_LIVE_WINDOWS {
             c.register_window(
                 swap_id_at(i),
                 "lp.testnet".parse().unwrap(),
                 "alice.testnet".parse().unwrap(),
-                Base64VecU8(env::sha256(&secret())),
+                Base64VecU8(env::sha256(secret())),
                 U128(10u128.pow(24)),
                 START + 600_000_000_000,
-                START + 1200_000_000_000,
+                START + 1_200_000_000_000,
             );
         }
         assert_eq!(c.live_windows(), MAX_LIVE_WINDOWS);
@@ -719,10 +760,10 @@ mod tests {
                 swap_id_at(MAX_LIVE_WINDOWS),
                 "lp.testnet".parse().unwrap(),
                 "alice.testnet".parse().unwrap(),
-                Base64VecU8(env::sha256(&secret())),
+                Base64VecU8(env::sha256(secret())),
                 U128(10u128.pow(24)),
                 START + 600_000_000_000,
-                START + 1200_000_000_000
+                START + 1_200_000_000_000
             )))
             .is_err()
         );

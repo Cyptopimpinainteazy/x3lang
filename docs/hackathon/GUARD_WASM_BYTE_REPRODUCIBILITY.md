@@ -60,3 +60,18 @@ SHA-256 exactly, `ac44fa53...f8ab`, at **544944 bytes**. No source code, contrac
 The successful real on-chain Guard transactions include a **manager-signed dry forbidden quote refusal** and a separate **manager-signed live allowed quote acceptance**. No deposit or settlement was established. A **fresh valid live quote that violates an active mandate and is refused as a finalized on-chain `agent_accept_quote` transaction** is still a distinct unproven milestone (Issue #73).
 
 Recheck the relevant contract's public code hash and chain ID immediately before any proposed testnet interaction. An exact binary match is a source-provenance argument, not an independent audit or authorization to sign or transmit transactions.
+
+## Source pinning and build mode
+
+`verify_guard_wasm_repro.sh` rebuilds the deployed bytes from the reviewed source commit
+`800a077eec0b36bc66d7115995cb6903fa9d4f0a`, extracted with `git archive`, not from the
+checked-out branch. Later Guard source changes therefore cannot break this proof, and the
+working tree cannot influence it. CI checks out full history (`fetch-depth: 0`) so the
+commit is available.
+
+The deployed binary was built without `--cfg near` (near-sdk's on-chain mode), so it does not
+import `env.panic_utf8` and every refusal surfaces on chain as a bare `unreachable` trap. CI
+records this with `check_guard_wasm_host_panics.py --expect absent` on the reproduced bytes.
+Current source builds with `--cfg near` (`x3-lang/near/x3-guard/.cargo/config.toml`) and will
+produce a different, not-yet-deployed hash.
+

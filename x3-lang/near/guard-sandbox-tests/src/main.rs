@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use near_account_id::AccountId as SandboxAccountId;
 use near_api::{Account, AccountId, Contract, NearGas, NearToken, NetworkConfig, Signer};
 use serde_json::{json, Value};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MANDATE_EXPIRES_MS: u64 = 4_000_000_000_000;
@@ -97,6 +98,28 @@ async fn check_agent_intent(
         .as_array()
         .cloned()
         .context("check_agent_intent did not return a guard array")
+}
+
+/// A refused call must reach the chain with the Guard's own reason, never a bare trap.
+/// near-sdk reports `env::panic_str` / `require!` text to the runtime only when the WASM is
+/// built with `--cfg near`; otherwise the receipt reads "WebAssembly trap: ... unreachable".
+fn require_onchain_reason(label: &str, outcome: &dyn std::fmt::Debug, reasons: &[&str]) -> Result<()> {
+    let text = format!("{outcome:?}");
+    anyhow::ensure!(
+        !text.contains("unreachable"),
+        "{label}: refusal reached the chain as a bare `unreachable` trap (WASM built without --cfg near?): {text}"
+    );
+    anyhow::ensure!(
+        text.contains("Smart contract panicked"),
+        "{label}: refusal reason was not reported by the contract: {text}"
+    );
+    for reason in reasons {
+        anyhow::ensure!(
+            text.contains(reason),
+            "{label}: on-chain failure lacks {reason:?}: {text}"
+        );
+    }
+    Ok(())
 }
 
 fn guard_ok(checks: &[Value], guard: &str) -> bool {
@@ -224,6 +247,11 @@ async fn main() -> Result<()> {
         !rejected.is_success(),
         "Guard accepted a dry quote as a payable deposit!"
     );
+    require_onchain_reason(
+        "dry-quote accept_quote",
+        &rejected,
+        &["X3_QUOTE_REJECTED", "quote_kind", "do not deposit"],
+    )?;
     let record: Value = contract
         .call_function(
             "get_intent",
@@ -357,6 +385,11 @@ async fn main() -> Result<()> {
         !refused.is_success(),
         "sandbox accepted a forbidden recipient: {refused:?}"
     );
+    require_onchain_reason(
+        "forbidden-recipient agent_register_intent",
+        &refused,
+        &["X3_MANDATE_DENIED", "mandate_recipient"],
+    )?;
 
     let revoked = contract
         .call_function("revoke_mandate", json!({"agent": agent.clone()}))
@@ -404,6 +437,12 @@ async fn main() -> Result<()> {
         !after_revoke.is_success(),
         "sandbox accepted a registration after revocation: {after_revoke:?}"
     );
+    require_onchain_reason(
+        "post-revocation agent_register_intent",
+        &after_revoke,
+        &["X3_MANDATE_DENIED", "mandate_active"],
+    )?;
+    println!("X3_SANDBOX_REFUSAL_REASONS_ON_CHAIN local_only=true dry_quote=X3_QUOTE_REJECTED forbidden_recipient=X3_MANDATE_DENIED revoked=X3_MANDATE_DENIED bare_unreachable=false");
 
     println!("X3_SANDBOX_MANDATE_ACCEPT_REFUSE_REVOKE local_only=true allowed_registration=true forbidden_recipient_refused=true revoked_registration_refused=true");
 
@@ -747,5 +786,184 @@ async fn main() -> Result<()> {
         "cross-owner same-nonce records collided or approvals changed: A={first_record} B={second_record}"
     );
     println!("X3_SANDBOX_CROSS_OWNER_NONCE_ISOLATION local_only=true distinct_owners=2 shared_nonce=true independent_state=true");
+
+    multi_agent_stress(&sandbox, &network, &contract, signer.clone(), &race_owner).await?;
+    Ok(())
+}
+
+// Bounded, deterministic 8-way / 4-round contention. Uses actual Sandbox
+// transactions from distinct account IDs and checks chain state after each round.
+// No public RPC, no wallet funds, no simulated transaction outcomes.
+async fn multi_agent_stress(
+    sandbox: &near_sandbox::Sandbox,
+    network: &NetworkConfig,
+    contract: &Contract,
+    signer: Arc<Signer>,
+    previous_owner: &AccountId,
+) -> Result<()> {
+    const AGENTS: usize = 8;
+    const ROUNDS: usize = 4;
+    let owner = create_funded_account(sandbox, network, "stress-owner.sandbox").await?;
+    let mut agents = Vec::with_capacity(AGENTS);
+    for i in 0..AGENTS {
+        let actor = create_funded_account(sandbox, network, &format!("stress-agent-{i}.sandbox")).await?;
+        let tx = contract
+            .call_function(
+                "create_mandate",
+                json!({
+                    "agent": actor.clone(), "terms": mandate_terms()
+                }),
+            )
+            .transaction()
+            .gas(NearGas::from_tgas(120))
+            .deposit(NearToken::from_near(1))
+            .with_signer(owner.clone(), signer.clone())
+            .send_to(network)
+            .await?;
+        anyhow::ensure!(tx.is_success(), "stress mandate setup failed for {actor}: {tx:?}");
+        agents.push(actor);
+    }
+
+    // Each round uses a fresh nonce but exactly the same owner. All eight
+    // already-authorized agents are eligible; no two should win one nonce.
+    for round in 0..ROUNDS {
+        let nonce = format!("stress_nonce_{round:02}");
+        let requests = agents.iter().map(|agent| {
+            contract
+                .call_function(
+                    "agent_register_intent",
+                    json!({
+                        "owner": owner.clone(),
+                        "nonce": nonce.clone(),
+                        "policy": mandate_policy("x3-demo.near")
+                    }),
+                )
+                .transaction()
+                .gas(NearGas::from_tgas(120))
+                .deposit(NearToken::from_near(1))
+                .with_signer(agent.clone(), signer.clone())
+                .send_to(network)
+        });
+        // All requests are submitted without waiting for each other's receipts.
+        let outcomes = futures::future::join_all(requests).await;
+        let outcomes: Vec<_> = outcomes
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("stress round {round} lacked a transaction receipt"))?;
+        let winners: Vec<usize> = outcomes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, outcome)| outcome.is_success().then_some(i))
+            .collect();
+        anyhow::ensure!(
+            winners.len() == 1,
+            "stress round {round}: expected one successful receipt of {AGENTS}, got {}: {outcomes:?}",
+            winners.len()
+        );
+        let winning_agent = &agents[winners[0]];
+        let stored: Value = contract
+            .call_function("get_intent", json!({"owner": owner.clone(), "nonce": nonce.clone()}))
+            .read_only()
+            .fetch_from(network)
+            .await?
+            .data;
+        anyhow::ensure!(
+            stored["owner"] == json!(owner)
+                && stored["nonce"] == json!(nonce)
+                && stored["agent"] == json!(winning_agent)
+                && stored["approvals"] == json!([])
+                && stored["quote"].is_null(),
+            "stress round {round}: owner/nonce/agent state mismatch: {stored}"
+        );
+        // Both the winning signer and a losing signer must now be refused.
+        // A failed transaction must preserve every stored byte of the intent.
+        for attacker in [winning_agent, &agents[(winners[0] + 1) % AGENTS]] {
+            let replay = contract
+                .call_function(
+                    "agent_register_intent",
+                    json!({
+                        "owner": owner.clone(), "nonce": nonce.clone(),
+                        "policy": mandate_policy("x3-demo.near")
+                    }),
+                )
+                .transaction()
+                .gas(NearGas::from_tgas(120))
+                .deposit(NearToken::from_near(1))
+                .with_signer(attacker.clone(), signer.clone())
+                .send_to(network)
+                .await?;
+            anyhow::ensure!(
+                !replay.is_success(),
+                "stress round {round}: agent {attacker} replayed existing nonce: {replay:?}"
+            );
+        }
+        let unchanged: Value = contract
+            .call_function("get_intent", json!({"owner": owner.clone(), "nonce": nonce.clone()}))
+            .read_only()
+            .fetch_from(network)
+            .await?
+            .data;
+        anyhow::ensure!(
+            unchanged == stored,
+            "stress round {round}: rejected replay mutated persistent intent: {unchanged}"
+        );
+    }
+    println!(
+        "X3_SANDBOX_EIGHT_AGENT_RACES local_only=true agents={AGENTS} rounds={ROUNDS} attempts={} winners={ROUNDS} replay_rejections={} state_unchanged=true",
+        AGENTS * ROUNDS,
+        ROUNDS * 2
+    );
+
+    // A nonce is unique PER OWNER, not globally. A second owner must be able
+    // to reuse a nonce previously consumed by a different owner.
+    let nonce = "same_owner_same_nonce";
+    let previous: Value = contract
+        .call_function("get_intent", json!({"owner": previous_owner, "nonce": nonce}))
+        .read_only()
+        .fetch_from(network)
+        .await?
+        .data;
+    anyhow::ensure!(
+        previous["owner"] == json!(previous_owner) && previous["nonce"] == json!(nonce),
+        "prior owner's distinct nonce record was not present"
+    );
+    let registered = contract
+        .call_function(
+            "agent_register_intent",
+            json!({
+                "owner": owner.clone(), "nonce": nonce,
+                "policy": mandate_policy("x3-demo.near")
+            }),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(120))
+        .deposit(NearToken::from_near(1))
+        .with_signer(agents[0].clone(), signer.clone())
+        .send_to(network)
+        .await?;
+    anyhow::ensure!(
+        registered.is_success(),
+        "a separate owner was blocked from its own nonce: {registered:?}"
+    );
+    let first_after: Value = contract
+        .call_function("get_intent", json!({"owner": previous_owner, "nonce": nonce}))
+        .read_only()
+        .fetch_from(network)
+        .await?
+        .data;
+    let second: Value = contract
+        .call_function("get_intent", json!({"owner": owner.clone(), "nonce": nonce}))
+        .read_only()
+        .fetch_from(network)
+        .await?
+        .data;
+    anyhow::ensure!(
+        previous == first_after
+            && second["owner"] == json!(owner)
+            && second["agent"] == json!(agents[0])
+            && second["quote"].is_null(),
+        "cross-owner nonce reuse corrupted identity or state: {second}"
+    );
+    println!("X3_SANDBOX_CROSS_OWNER_NONCE_ISOLATED local_only=true owners=2 same_nonce=true separate_state=true");
     Ok(())
 }

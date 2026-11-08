@@ -1,0 +1,5 @@
+{
+  "warning": "Historical provider-signed DRY quote; NEVER deposit. Placeholder refund recipient.",
+  "signed_payload": "{\"correlationId\":\"bc200a3d-aa8d-46bb-ade6-7e0e6a9b1244\",\"timestamp\":\"2026-11-07T04:55:58.871Z\",\"quoteRequest\":{\"dry\":true,\"swapType\":\"EXACT_INPUT\",\"slippageTolerance\":100,\"originAsset\":\"nep141:base-0x38d81431b9f76d9699af7517040d5221d9dea252.tp-omft.testnet\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:usdc.tidepool-sandbox.testnet\",\"amount\":\"1000000\",\"refundTo\":\"0x0000000000000000000000000000000000000001\",\"refundType\":\"ORIGIN_CHAIN\",\"recipient\":\"x3lang.testnet\",\"recipientType\":\"DESTINATION_CHAIN\",\"deadline\":\"2026-11-07T05:25:58.485Z\"},\"quote\":{\"amountIn\":\"1000000\",\"amountInFormatted\":\"1\",\"amountInUsd\":\"0.9997\",\"minAmountIn\":\"1000000\",\"amountOut\":\"997400\",\"amountOutFormatted\":\"0.9974\",\"amountOutUsd\":\"0.9971\",\"minAmountOut\":\"987426\",\"timeEstimate\":60}}",
+  "signature": "ed25519:42hXQarwFLcCHjVFTYCLe1Z3DUAfJhqUDSEGDod75Dgw4LgWcfMqHRDHkx9vND6Ytwe7qTB3pbak72bK4byQNBc2"
+}

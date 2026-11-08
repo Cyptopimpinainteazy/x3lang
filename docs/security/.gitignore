@@ -1,0 +1,5 @@
+# Mutation test results are regenerated on each run
+# CI/CD should re-generate these before checking the gate
+mutation_results/*.json
+mutation_results/*.md
+!mutation_results/README.md
