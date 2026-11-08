@@ -3472,7 +3472,8 @@ pub type MockBridge = DryRunBridge;
 /// - `X3_BACKEND=prod` → requires a wired production adapter. Fails closed
 ///   (returns an error) when no production adapter is configured, rather
 ///   than silently falling back to dry-run simulation.
-/// - `X3_BACKEND=dry` (or unset) → use `DryRunBridge` for simulations.
+/// - `X3_BACKEND=dry` → use `DryRunBridge` for **explicit** simulations.
+/// - Unset or unknown values → error (never accidentally start simulations).
 ///
 /// Production callers must configure a backend via
 /// `resolve_bridge_backend_with()`.
@@ -3488,7 +3489,19 @@ pub fn resolve_bridge_backend() -> Result<Box<dyn BridgeAdapter>, BridgeError> {
             )
             .to_string(),
         }),
-        _ => Ok(Box::new(DryRunBridge::default())),
+        Ok("dry") => Ok(Box::new(DryRunBridge::default())),
+        Err(std::env::VarError::NotPresent) => Err(BridgeError {
+            code: "X3_BACKEND_MODE_INVALID",
+            message: "X3_BACKEND is required; choose prod or explicitly dry".to_string(),
+        }),
+        Ok(other) => Err(BridgeError {
+            code: "X3_BACKEND_MODE_INVALID",
+            message: format!("unknown X3_BACKEND mode {other:?}; use prod or dry explicitly"),
+        }),
+        Err(_) => Err(BridgeError {
+            code: "X3_BACKEND_MODE_INVALID",
+            message: "X3_BACKEND mode is not valid UTF-8".to_string(),
+        }),
     }
 }
 
@@ -3502,6 +3515,51 @@ pub fn resolve_bridge_backend_with(backend: Box<dyn BridgeAdapter>) -> Option<Bo
         Some(backend)
     } else {
         None
+    }
+}
+
+/// A production adapter may only use an explicitly configured RPC endpoint.
+/// Even if the caller intends to use a locally hosted node, it must opt in
+/// by specifying that URL rather than inheriting a hidden localhost default.
+fn required_production_rpc_url(name: &'static str) -> Result<String, BridgeError> {
+    let raw = std::env::var(name).map_err(|_| BridgeError {
+        code: "X3_BRIDGE_INIT_FAILED",
+        message: format!("{name} is required for the production RPC backend"),
+    })?;
+    let raw = raw.trim();
+    let url = reqwest::Url::parse(raw).map_err(|_| BridgeError {
+        code: "X3_BRIDGE_INIT_FAILED",
+        message: format!("{name} must be an absolute http:// or https:// RPC URL"),
+    })?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(BridgeError {
+            code: "X3_BRIDGE_INIT_FAILED",
+            message: format!("{name} must be an http(s) endpoint without embedded credentials"),
+        });
+    }
+    Ok(raw.to_string())
+}
+
+/// Optional does not mean typo-tolerant: if an operator sets a security
+/// threshold, malformed or out-of-range values stop production startup.
+fn strict_optional_bridge_threshold(name: &'static str, max: u64) -> Result<Option<u64>, BridgeError> {
+    match std::env::var(name) {
+        Ok(raw) => match raw.parse::<u64>() {
+            Ok(value) if (1..=max).contains(&value) => Ok(Some(value)),
+            _ => Err(BridgeError {
+                code: "X3_BRIDGE_INIT_FAILED",
+                message: format!("{name} must be an integer in 1..={max}; refusing unsafe configuration"),
+            }),
+        },
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(_) => Err(BridgeError {
+            code: "X3_BRIDGE_INIT_FAILED",
+            message: format!("{name} is not a valid UTF-8 integer"),
+        }),
     }
 }
 
@@ -3554,24 +3612,12 @@ fn bridge_required_config(name: &str) -> Result<String, BridgeError> {
     Ok(value)
 }
 
-fn bridge_optional_number<T: std::str::FromStr>(name: &str) -> Result<Option<T>, BridgeError> {
-    match std::env::var(name) {
-        Ok(raw) => raw
-            .trim()
-            .parse::<T>()
-            .map(Some)
-            .map_err(|_| bridge_config_error(name, "invalid numeric threshold")),
-        Err(std::env::VarError::NotPresent) => Ok(None),
-        Err(_) => Err(bridge_config_error(name, "invalid non-Unicode threshold")),
-    }
-}
-
 pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, BridgeError> {
     let verifier: Box<dyn BridgeAdapter> = match std::env::var("X3_BRIDGE_VERIFIER").as_deref() {
         Ok("evm-light-client") => {
             let trusted_hash = bridge_required_config("X3_EVM_TRUSTED_HEADER_HASH")?;
             let mut verifier = EthereumLightClientVerifier::new(&trusted_hash);
-            if let Some(n) = bridge_optional_number::<u64>("X3_EVM_MIN_BLOCK_NUMBER")? {
+            if let Some(n) = strict_optional_bridge_threshold("X3_EVM_MIN_BLOCK_NUMBER", u64::MAX)? {
                 verifier = verifier.with_min_block_number(n);
             }
             if let Ok(token_addr) = std::env::var("X3_EVM_ERC20_CHECK_ADDRESS") {
@@ -3590,19 +3636,10 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             if let Ok(pubkeys) = std::env::var("X3_SVM_VALIDATOR_PUBKEYS") {
                 verifier = verifier.with_validator_pubkeys(pubkeys.split(',').map(|s| s.trim().to_string()).collect());
             }
-            if let Some(n) = bridge_optional_number::<usize>("X3_SVM_MIN_SIGNATURES")? {
-                if n == 0 {
-                    return Err(bridge_config_error("X3_SVM_MIN_SIGNATURES", "must be positive"));
-                }
-                verifier = verifier.with_min_signatures(n);
+            if let Some(n) = strict_optional_bridge_threshold("X3_SVM_MIN_SIGNATURES", 10_000)? {
+                verifier = verifier.with_min_signatures(n as usize);
             }
-            if let Some(n) = bridge_optional_number::<u64>("X3_SVM_MIN_STAKE_BPS")? {
-                if !(1..=10_000).contains(&n) {
-                    return Err(bridge_config_error(
-                        "X3_SVM_MIN_STAKE_BPS",
-                        "must be between 1 and 10000",
-                    ));
-                }
+            if let Some(n) = strict_optional_bridge_threshold("X3_SVM_MIN_STAKE_BPS", 10_000)? {
                 verifier = verifier.with_min_stake_threshold_bps(n);
             }
             let store_path = std::env::var("X3_RECEIPT_STORE_PATH")
@@ -3613,11 +3650,9 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("evm-rpc") => {
-            let rpc_url = bridge_required_config("X3_EVM_RPC_URL")?;
-            let min_confirmations = bridge_optional_number::<u64>("X3_EVM_MIN_CONFIRMATIONS")?.unwrap_or(12);
-            if min_confirmations == 0 {
-                return Err(bridge_config_error("X3_EVM_MIN_CONFIRMATIONS", "must be positive"));
-            }
+            let rpc_url = required_production_rpc_url("X3_EVM_RPC_URL")?;
+            let min_confirmations =
+                strict_optional_bridge_threshold("X3_EVM_MIN_CONFIRMATIONS", u64::MAX)?.unwrap_or(12);
             let verifier = EthereumRpcFinalityVerifier::new(&rpc_url, "").with_min_confirmations(min_confirmations);
             let store_path = std::env::var("X3_RECEIPT_STORE_PATH")
                 .unwrap_or_else(|_| ".autoclaw/bridge-receipts.jsonl".to_string());
@@ -3627,7 +3662,7 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("svm-rpc") => {
-            let rpc_url = bridge_required_config("X3_SVM_RPC_URL")?;
+            let rpc_url = required_production_rpc_url("X3_SVM_RPC_URL")?;
             let mut verifier = SolanaRpcFinalityVerifier::new(&rpc_url, "");
             if let Ok(program_id) = std::env::var("X3_SVM_EXPECTED_PROGRAM_ID") {
                 verifier = verifier.with_expected_program_id(program_id);
@@ -3650,8 +3685,14 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             });
         }
         Err(std::env::VarError::NotPresent) => {
-            // No verifier configured: caller must explicitly choose a dry run
-            // or refuse production operation.
+            // An explicit production request cannot turn into a missing-verifier
+            // sentinel that a caller might accidentally route to simulation.
+            if std::env::var("X3_BACKEND").as_deref() == Ok("prod") {
+                return Err(BridgeError {
+                    code: "X3_BRIDGE_INIT_FAILED",
+                    message: "X3_BACKEND=prod requires X3_BRIDGE_VERIFIER".to_string(),
+                });
+            }
             return Ok(None);
         }
         Err(_) => {
@@ -3959,11 +4000,164 @@ mod tests {
         assert_eq!(err.code, "X3_EVM_RECEIPT_TRIE_NODE_HASH_MISMATCH");
     }
 
-    // Note: env-var-dependent init_production_backend and resolve_bridge_backend_with
-    // tests are not included here because parallel test execution causes race conditions
-    // on environment variables. Those code paths are exercised by the verifier backend
-    // tests above (evm_backend_verifies_and_persists_jsonl_receipt, etc.) which construct
-    // backends directly without env vars.
+    // The bridge test module alone changes these environment variables, guarded by
+    // a mutex and restored even when a test panics. Other tests must not mutate them.
+    static BACKEND_ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    struct RestoreBackendEnv(Vec<(&'static str, Option<std::ffi::OsString>)>);
+    impl Drop for RestoreBackendEnv {
+        fn drop(&mut self) {
+            for (name, value) in self.0.drain(..) {
+                match value {
+                    Some(x) => std::env::set_var(name, x),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+    fn with_backend_env<R>(pairs: &[(&str, &str)], run: impl FnOnce() -> R) -> R {
+        let _lock = BACKEND_ENV_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        const KEYS: &[&str] = &[
+            "X3_BACKEND",
+            "X3_BRIDGE_VERIFIER",
+            "X3_EVM_RPC_URL",
+            "X3_SVM_RPC_URL",
+            "X3_EVM_MIN_CONFIRMATIONS",
+            "X3_SVM_MIN_SIGNATURES",
+            "X3_SVM_MIN_STAKE_BPS",
+            "X3_EVM_MIN_BLOCK_NUMBER",
+            "X3_EVM_TRUSTED_HEADER_HASH",
+            "X3_SVM_TRUSTED_BANK_HASH",
+        ];
+        let _restore = RestoreBackendEnv(KEYS.iter().map(|k| (*k, std::env::var_os(k))).collect());
+        for key in KEYS {
+            std::env::remove_var(key);
+        }
+        for (key, value) in pairs {
+            std::env::set_var(key, value);
+        }
+        run()
+    }
+    fn assert_bridge_init_rejected(pairs: &[(&str, &str)]) {
+        with_backend_env(pairs, || {
+            let outcome = init_production_backend();
+            assert!(
+                matches!(
+                    outcome,
+                    Err(BridgeError {
+                        code: "X3_BRIDGE_INIT_FAILED",
+                        ..
+                    })
+                ),
+                "unsafe bridge configuration must hard-fail, rather than producing a verifier"
+            );
+        });
+    }
+
+    #[test]
+    fn production_rpc_never_invents_localhost_when_url_unset_or_blank() {
+        assert_bridge_init_rejected(&[("X3_BACKEND", "prod"), ("X3_BRIDGE_VERIFIER", "evm-rpc")]);
+        assert_bridge_init_rejected(&[("X3_BACKEND", "prod"), ("X3_BRIDGE_VERIFIER", "svm-rpc")]);
+        assert_bridge_init_rejected(&[
+            ("X3_BACKEND", "prod"),
+            ("X3_BRIDGE_VERIFIER", "evm-rpc"),
+            ("X3_EVM_RPC_URL", "  "),
+        ]);
+        assert_bridge_init_rejected(&[
+            ("X3_BACKEND", "prod"),
+            ("X3_BRIDGE_VERIFIER", "svm-rpc"),
+            ("X3_SVM_RPC_URL", "ftp://unsafe.example"),
+        ]);
+    }
+
+    #[test]
+    fn production_rpc_refuses_malformed_and_zero_confirmations() {
+        for value in ["twelve", "0", "-3", "1.5", ""] {
+            assert_bridge_init_rejected(&[
+                ("X3_BACKEND", "prod"),
+                ("X3_BRIDGE_VERIFIER", "evm-rpc"),
+                ("X3_EVM_RPC_URL", "https://example.com"),
+                ("X3_EVM_MIN_CONFIRMATIONS", value),
+            ]);
+        }
+    }
+
+    #[test]
+    fn production_light_clients_refuse_typoed_or_unsafe_security_thresholds() {
+        for value in ["typo", "0", "10001"] {
+            assert_bridge_init_rejected(&[
+                ("X3_BACKEND", "prod"),
+                ("X3_BRIDGE_VERIFIER", "svm-light-client"),
+                ("X3_SVM_TRUSTED_BANK_HASH", "a".repeat(64).as_str()),
+                ("X3_SVM_MIN_STAKE_BPS", value),
+            ]);
+        }
+        for value in ["two", "0"] {
+            assert_bridge_init_rejected(&[
+                ("X3_BACKEND", "prod"),
+                ("X3_BRIDGE_VERIFIER", "svm-light-client"),
+                ("X3_SVM_TRUSTED_BANK_HASH", "a".repeat(64).as_str()),
+                ("X3_SVM_MIN_SIGNATURES", value),
+            ]);
+        }
+    }
+
+    #[test]
+    fn explicit_production_backend_must_not_continue_without_verifier_family() {
+        assert_bridge_init_rejected(&[("X3_BACKEND", "prod")]);
+    }
+    #[test]
+    fn omitted_backend_mode_never_selects_simulation_implicitly() {
+        with_backend_env(&[], || {
+            assert!(resolve_bridge_backend().is_err(), "absent X3_BACKEND chose simulation");
+        });
+        with_backend_env(&[("X3_BACKEND", "dry")], || {
+            assert!(
+                resolve_bridge_backend().is_ok(),
+                "explicit dry simulation should remain usable"
+            );
+        });
+    }
+
+    #[test]
+    fn typoed_backend_mode_never_selects_simulation() {
+        with_backend_env(&[("X3_BACKEND", "prdo")], || {
+            assert!(
+                resolve_bridge_backend().is_err(),
+                "unknown mode selected a dry-run backend"
+            );
+        });
+    }
+
+    #[test]
+    fn explicitly_configured_rpc_backend_remains_selectable() {
+        with_backend_env(
+            &[
+                ("X3_BACKEND", "prod"),
+                ("X3_BRIDGE_VERIFIER", "evm-rpc"),
+                ("X3_EVM_RPC_URL", "https://example.com"),
+                ("X3_EVM_MIN_CONFIRMATIONS", "12"),
+            ],
+            || {
+                assert!(
+                    matches!(init_production_backend(), Ok(Some(_))),
+                    "explicit EVM endpoint and valid confirmation threshold should construct a verifier"
+                );
+            },
+        );
+        with_backend_env(
+            &[
+                ("X3_BACKEND", "prod"),
+                ("X3_BRIDGE_VERIFIER", "svm-rpc"),
+                ("X3_SVM_RPC_URL", "http://127.0.0.1:8899"),
+            ],
+            || {
+                assert!(
+                    matches!(init_production_backend(), Ok(Some(_))),
+                    "explicit local test-validator endpoint is a deliberate operator choice"
+                );
+            },
+        );
+    }
 
     #[test]
     fn production_bridge_adapter_delegates_evm_call_to_backend() {
