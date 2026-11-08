@@ -33,26 +33,16 @@ fn policy_reason_from_tx_error(error: TxExecutionError) -> Option<String> {
     }
 }
 
-fn require_policy_failure(
-    result: near_api::types::transaction::result::TransactionResult,
-    expected_reason: &str,
-) -> Result<()> {
-    let execution = result
-        .into_full()
-        .ok_or_else(|| anyhow::anyhow!("transaction did not reach a full execution result"))?;
+fn require_single_policy_reason(errors: Vec<TxExecutionError>, expected_reason: &str) -> Result<String> {
     ensure!(
-        execution.is_failure(),
-        "expected contract policy failure, got {execution:?}"
+        errors.len() == 1,
+        "expected exactly one contract failure, got {}",
+        errors.len()
     );
-    let contract_reason = execution
-        .failures()
+    let contract_reason = errors
         .into_iter()
-        .find_map(|outcome| match outcome.clone().into_result() {
-            Err(near_api::types::errors::ExecutionError::TransactionExecutionFailed(error)) => {
-                policy_reason_from_tx_error(*error)
-            }
-            _ => None,
-        })
+        .next()
+        .and_then(policy_reason_from_tx_error)
         .ok_or_else(|| anyhow::anyhow!("contract failure lacked an execution reason"))?;
     let actual_reason = contract_reason
         .strip_prefix("Smart contract panicked: ")
@@ -61,6 +51,39 @@ fn require_policy_failure(
         actual_reason == expected_reason,
         "unexpected policy reason: expected {expected_reason:?}, got {actual_reason:?}"
     );
+    Ok(actual_reason.to_string())
+}
+
+fn require_policy_failure(
+    result: near_api::types::transaction::result::TransactionResult,
+    expected_reason: &str,
+    contract_account: &AccountId,
+) -> Result<()> {
+    let execution = result
+        .into_full()
+        .ok_or_else(|| anyhow::anyhow!("transaction did not reach a full execution result"))?;
+    ensure!(
+        execution.is_failure(),
+        "expected contract policy failure, got {execution:?}"
+    );
+    let failures = execution.failures();
+    ensure!(
+        failures.len() == 1,
+        "expected exactly one failed execution outcome, got {}: {execution:?}",
+        failures.len()
+    );
+    let failure = failures[0];
+    ensure!(
+        &failure.executor_id == contract_account,
+        "policy failure executed on {:?}, expected {:?}",
+        failure.executor_id,
+        contract_account
+    );
+    let error = match failure.clone().into_result() {
+        Err(near_api::types::errors::ExecutionError::TransactionExecutionFailed(error)) => *error,
+        other => anyhow::bail!("failure outcome was not a typed transaction error: {other:?}"),
+    };
+    require_single_policy_reason(vec![error], expected_reason)?;
     println!(
         "X3_VAULT_SANDBOX_POLICY_REFUSAL local_only=true reason={:?}",
         expected_reason
@@ -206,7 +229,7 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await?;
-    require_policy_failure(wrong, "X3_VAULT_DENIED: recipient not allowlisted")?;
+    require_policy_failure(wrong, "X3_VAULT_DENIED: recipient not allowlisted", &vault)?;
     let oversized = contract
         .call_function(
             "request_payment",
@@ -217,7 +240,7 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await?;
-    require_policy_failure(oversized, "X3_VAULT_DENIED: per-payment cap exceeded")?;
+    require_policy_failure(oversized, "X3_VAULT_DENIED: per-payment cap exceeded", &vault)?;
     let available_after_denials: Value = contract
         .call_function("available", json!({}))
         .read_only()
@@ -257,7 +280,7 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await?;
-    require_policy_failure(replay, "X3_VAULT_DENIED: nonce already used")?;
+    require_policy_failure(replay, "X3_VAULT_DENIED: nonce already used", &vault)?;
 
     // Even the owner cannot recover live escrow while the mandate is active.
     let active_recovery = contract
@@ -270,6 +293,7 @@ async fn main() -> Result<()> {
     require_policy_failure(
         active_recovery,
         "X3_VAULT_DENIED: revoke or expire mandate before recovery",
+        &vault,
     )?;
     contract
         .call_function("revoke", json!({}))
@@ -289,7 +313,7 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await?;
-    require_policy_failure(revoked, "X3_VAULT_DENIED: owner revoked mandate")?;
+    require_policy_failure(revoked, "X3_VAULT_DENIED: owner revoked mandate", &vault)?;
     let final_state: Value = contract
         .call_function("payment", json!({"nonce":"once"}))
         .read_only()
@@ -451,5 +475,35 @@ mod tests {
     fn invalid_transaction_error_is_not_a_contract_policy_reason() {
         let error = TxExecutionError::InvalidTxError(near_openapi_types::InvalidTxError::InvalidSignature);
         assert_eq!(policy_reason_from_tx_error(error), None);
+    }
+
+    fn policy_error(reason: &str) -> TxExecutionError {
+        TxExecutionError::ActionError(near_openapi_types::ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(format!(
+                "Smart contract panicked: {reason}"
+            ))),
+        })
+    }
+
+    #[test]
+    fn every_policy_failure_must_be_the_single_expected_reason() {
+        let expected = "X3_VAULT_DENIED: recipient not allowlisted";
+        assert_eq!(
+            require_single_policy_reason(vec![policy_error(expected)], expected).unwrap(),
+            expected
+        );
+        assert!(require_single_policy_reason(
+            vec![
+                policy_error(expected),
+                policy_error("X3_VAULT_DENIED: owner revoked mandate")
+            ],
+            expected,
+        )
+        .is_err());
+        assert!(
+            require_single_policy_reason(vec![policy_error("X3_VAULT_DENIED: owner revoked mandate")], expected,)
+                .is_err()
+        );
     }
 }

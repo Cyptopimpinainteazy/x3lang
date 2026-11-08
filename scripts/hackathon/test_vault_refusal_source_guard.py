@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "x3-lang/near/agent-vault-sandbox-tests/src/main.rs"
+WORKFLOW = ROOT / ".github/workflows/x3-agent-vault-testnet.yml"
 EVIDENCE = ROOT / "evidence/agent-vault-local/typed-refusal-sandbox-20261108.json"
 
 
@@ -50,6 +51,20 @@ class VaultRefusalSourceGuard(unittest.TestCase):
         self.assertIn("ActionErrorKind::FunctionCallError", self.source)
         self.assertIn("FunctionCallError::ExecutionError", self.source)
         self.assertIn('strip_prefix("Smart contract panicked: ")', self.source)
+        self.assertIn("require_single_policy_reason", self.source)
+        self.assertIn("failures.len() == 1", self.source)
+        self.assertIn("failure.executor_id", self.source)
+        self.assertNotIn(".find_map(", self.source)
+
+    def test_every_workflow_checkout_pins_the_exact_pr_head(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        checkouts = workflow.split("- uses: actions/checkout@v4")[1:]
+        self.assertGreaterEqual(len(checkouts), 4)
+        expected = "ref: ${{ github.event.pull_request.head.sha || github.sha }}"
+        for index, checkout in enumerate(checkouts):
+            with self.subTest(checkout=index):
+                step = checkout.split("\n      - ", 1)[0]
+                self.assertIn(expected, step)
 
     def test_all_contract_refusals_match_the_intended_stable_reason(self):
         for reason in (
