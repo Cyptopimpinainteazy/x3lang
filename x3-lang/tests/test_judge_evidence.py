@@ -137,20 +137,50 @@ def test_receipt_local_flags_cannot_grant_verified_outcome(tmp_path):
     assert r["cross_chain_causality_proven"] is False
 
 
-def test_quick_and_full_modes_are_explicit_and_disjoint():
-    quick = judge_evidence.plan_tests("quick")
+def test_full_mode_covers_every_quick_test_and_gate():
+    quick = {job["name"]: job for job in judge_evidence.plan_tests("quick")}
+    full = {job["name"]: job for job in judge_evidence.plan_tests("full")}
+    assert quick.keys() < full.keys()
+    for name, job in quick.items():
+        assert job["argv"] and job["cwd"] == full[name]["cwd"]
+        if name == "python_policy_and_chain_evidence_tests":
+            full_paths = [ROOT / path for path in full[name]["argv"][4:]]
+            for path in job["argv"][4:]:
+                test_file = ROOT / path
+                assert test_file.is_file()
+                assert any(
+                    selected == test_file
+                    or (selected.is_dir() and selected in test_file.parents)
+                    for selected in full_paths
+                ), f"full mode omits quick Python test: {path}"
+        elif name == "browser_signature_and_guard_tests":
+            assert job["argv"][:2] == full[name]["argv"][:2]
+            assert set(job["argv"][2:]) <= set(full[name]["argv"][2:])
+        else:
+            assert job == full[name]
+    assert any("wasm32-unknown-unknown" in job["argv"] for job in full.values())
+
+
+def test_full_browser_mode_discovers_all_test_files_without_shell_expansion(tmp_path, monkeypatch):
+    browser_dir = Path("x3-lang/near/demo/test")
+    test_dir = tmp_path / browser_dir
+    test_dir.mkdir(parents=True)
+    names = ["x3guard.test.mjs", "judge.test.mjs", "additional [suite].test.mjs"]
+    for name in [*names, "helper.mjs"]:
+        (test_dir / name).touch()
+    monkeypatch.setattr(judge_evidence, "ROOT", tmp_path)
+    monkeypatch.setattr(judge_evidence, "LANG", tmp_path / "x3-lang")
     full = judge_evidence.plan_tests("full")
-    assert all(x["argv"] and x["cwd"] for x in quick)
-    assert any("pytest" in " ".join(x["argv"]) for x in quick)
-    assert any("cargo" in " ".join(x["argv"]) for x in quick)
-    assert len(full) > len(quick)
-    assert any("wasm32-unknown-unknown" in " ".join(x["argv"]) for x in full)
+    browser = next(job for job in full if job["name"] == "browser_signature_and_guard_tests")
+    assert browser["argv"][1:] == ["--test", *(str(browser_dir / name) for name in sorted(names))]
+    assert browser["cwd"] == str(tmp_path)
 
 
-def test_node_override_propagates_to_browser_gate(monkeypatch):
+@pytest.mark.parametrize("mode", ["quick", "full"])
+def test_node_override_propagates_to_browser_gate(monkeypatch, mode):
     monkeypatch.setenv("NODE", "/opt/node-24/bin/node")
-    quick = judge_evidence.plan_tests("quick")
-    browser = next(job for job in quick if job["name"] == "browser_signature_and_guard_tests")
+    jobs = judge_evidence.plan_tests(mode)
+    browser = next(job for job in jobs if job["name"] == "browser_signature_and_guard_tests")
     assert browser["argv"][0] == "/opt/node-24/bin/node"
 
 
