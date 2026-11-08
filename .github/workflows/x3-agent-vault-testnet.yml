@@ -2,9 +2,9 @@ name: X3 Shield Scoped-Agent Vault Pilot
 on:
   push:
     branches: [master]
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','.github/workflows/x3-agent-vault-testnet.yml']
   pull_request:
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','.github/workflows/x3-agent-vault-testnet.yml']
 permissions:
   contents: read
 jobs:
@@ -33,3 +33,37 @@ jobs:
       - name: Build real NEAR WASM (no deployment)
         working-directory: x3-lang/near/x3-agent-vault
         run: cargo build --locked --release --target wasm32-unknown-unknown
+
+  refusal-source-guards:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Known false-positive source regressions (not runtime evidence)
+        run: python3 scripts/hackathon/test_vault_refusal_source_guard.py
+
+  check-harness-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/agent-vault-sandbox-tests
+      - name: Compile all harness targets (does not run Sandbox)
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        run: cargo check --all-targets --locked
+      - name: Strict harness lints
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Harness format
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        run: cargo fmt --check
