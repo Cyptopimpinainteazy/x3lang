@@ -8,9 +8,15 @@ Starting branch head: `b399c1ab277e1d04081890753f8cb7b5dbd15e70`.
 
 Implemented a dependency-free, read-only Python classifier for original NEAR
 JSON-RPC permission-error responses. This is a behavioral verifier, not another
-source-text assertion. The classifier is NOT yet connected to the live Rust
-Sandbox collector. The existing harness quarantine and final inconclusive gate
-remain unchanged. Task 1 and issue #119 remain open.
+source-text assertion.
+
+A later increment independently connected the same strict wire shape to the Rust
+Sandbox collector, removed the temporary inconclusive quarantine, and passed the
+real local lifecycle. That live increment currently performs its own typed
+classification; the Python classifier remains an independent behavioral verifier
+and is not imported by the Rust harness. Task 1's core lifecycle is therefore
+verified locally, while expiry/deposit edge cases, exact-head CI and review remain
+open. Issue #119 remains open.
 
 This increment adds no transactions, deployment, signing, contract changes,
 dependency changes, historical evidence changes, or publication. `xxxstar` remains
@@ -126,18 +132,16 @@ Do not describe the branch as all-green or ready to merge based on the classifie
 
 ## Next integration gate
 
-Capture original JSON-RPC bytes from the actual isolated Sandbox, before SDK
-conversion loses subtype detail. Bind each capture to a unique independently
-chosen request ID, the actual signed transaction identity and the intended
-operation. Reject HTTP/transport failures before classification. Exercise the
-same restricted key with a valid permitted control and fresh transaction nonces;
-verify relevant key scope, state and balance observations separately.
+The live Rust collector now captures the original JSON-RPC error structure before
+SDK conversion and matches exact `RequiresFullAccess` and `MethodNameMismatch`
+values during a passing Sandbox lifecycle. It exercises a permitted control, a
+fresh post-revocation nonce, contract-level refusal reasons and balance/state
+controls. The next hardening step is to persist and replay the original response
+bytes through this Python classifier as an independent second check.
 
-Only then may the live harness use this classifier for the four permission cases.
-Do not remove the existing inconclusive gate merely because these unit tests pass.
-Contract-level recipient/cap/replay/revocation assertions still require their own
-specific execution reasons and state checks. The language-to-vault configuration
-binding remains the following milestone, not a completed feature.
+Expiry and attached-deposit cases still need real Sandbox coverage. The
+language-to-vault configuration binding remains the following milestone, not a
+completed feature.
 
 Rollback is a reviewed revert of this increment. There are no deployed contracts
 or funds to roll back, and the earlier evidence quarantine must remain intact.

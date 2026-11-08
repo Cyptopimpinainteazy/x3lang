@@ -68,6 +68,7 @@ The exact compiled contract WASM used by the successful run had SHA-256:
 | `RUSTUP_TOOLCHAIN=1.90.0 cargo test --locked` | PASS, 4 focused classifier tests |
 | `RUSTUP_TOOLCHAIN=1.90.0 cargo clippy --all-targets --locked -- -D warnings` | PASS |
 | `python3 scripts/hackathon/test_vault_refusal_source_guard.py` | PASS, 8 source guards |
+| `python3 scripts/hackathon/test_near_permission_refusal.py` | PASS, 27 independent JSON-RPC classifier tests |
 | `python3 -m py_compile scripts/hackathon/test_vault_refusal_source_guard.py` | PASS |
 | Workflow YAML parse | PASS |
 | Real local NEAR Sandbox lifecycle on the compiled WASM | PASS, exit 0 |
