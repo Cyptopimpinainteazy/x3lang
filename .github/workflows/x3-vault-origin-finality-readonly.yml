@@ -1,0 +1,52 @@
+name: X3 Shield Vault-Origin Two-Chain Read-only Verification Tests
+on:
+  pull_request:
+    paths:
+      - 'scripts/hackathon/keccak_min.py'
+      - 'scripts/hackathon/vault_origin_base_proof.py'
+      - 'scripts/hackathon/near_delivery_receipt_proof.py'
+      - 'scripts/hackathon/vault_two_chain_pairing.py'
+      - 'scripts/hackathon/vault_origin_two_chain_cli.py'
+      - 'scripts/hackathon/test_vault_origin_base_proof.py'
+      - 'scripts/hackathon/test_near_delivery_receipt_proof.py'
+      - 'scripts/hackathon/test_vault_two_chain_pairing.py'
+      - 'scripts/hackathon/test_vault_two_chain_cli.py'
+      - 'docs/security/X3_VAULT_ORIGIN_FINALITY_REVIEW.md'
+      - 'docs/security/OWNER_APPROVAL_PACKET_TEMPLATE.json'
+      - 'docs/security/ISSUE141_PATCH_HANDOFF.md'
+      - 'docs/security/ISSUE141_PATCH_SHA256SUMS.txt'
+      - '.github/workflows/x3-vault-origin-finality-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-receipt-unit-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove Ethereum Keccak constants
+        run: python3 scripts/hackathon/keccak_min.py
+      - name: Fail-closed Base vault, NEAR transfer and Guard tests (SYNTHETIC RPC FIXTURES)
+        env:
+          PYTHONPATH: scripts/hackathon
+        run: |
+          python3 -m unittest -v \
+            scripts.hackathon.test_vault_origin_base_proof \
+            scripts.hackathon.test_near_delivery_receipt_proof \
+            scripts.hackathon.test_vault_two_chain_pairing \
+            scripts.hackathon.test_vault_two_chain_cli
+      - name: Reject accidental source/test syntax errors
+        run: |
+          python3 -m py_compile \
+            scripts/hackathon/keccak_min.py \
+            scripts/hackathon/vault_origin_base_proof.py \
+            scripts/hackathon/near_delivery_receipt_proof.py \
+            scripts/hackathon/vault_two_chain_pairing.py \
+            scripts/hackathon/vault_origin_two_chain_cli.py

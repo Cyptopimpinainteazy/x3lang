@@ -5,6 +5,8 @@ on:
       - 'x3-lang/base-agent-vault/**'
       - 'scripts/hackathon/base_vault_quote_binding.py'
       - 'scripts/hackathon/test_base_vault_quote_binding.py'
+      - 'scripts/hackathon/near_guard_quorum.py'
+      - 'scripts/hackathon/test_near_guard_quorum.py'
       - 'scripts/hackathon/base_sepolia_guarded_admission.py'
       - 'scripts/hackathon/base_sepolia_x3_intent.py'
       - '.github/workflows/x3-base-agent-vault.yml'
@@ -18,6 +20,8 @@ on:
       - 'x3-lang/base-agent-vault/**'
       - 'scripts/hackathon/base_vault_quote_binding.py'
       - 'scripts/hackathon/test_base_vault_quote_binding.py'
+      - 'scripts/hackathon/near_guard_quorum.py'
+      - 'scripts/hackathon/test_near_guard_quorum.py'
       - 'scripts/hackathon/base_sepolia_guarded_admission.py'
       - 'scripts/hackathon/base_sepolia_x3_intent.py'
       - '.github/workflows/x3-base-agent-vault.yml'
@@ -40,8 +44,10 @@ jobs:
         env:
           PYTHONPATH: x3-lang:scripts/hackathon
         run: |
-          python3 -m unittest scripts.hackathon.test_base_vault_quote_binding -v
+          python3 -m unittest scripts.hackathon.test_base_vault_quote_binding scripts.hackathon.test_near_guard_quorum -v
           python3 -m unittest scripts.hackathon.test_base_sepolia_guarded_admission scripts.hackathon.test_tidepool_quote_signature -q
+          cd evidence/base-vault-local
+          sha256sum -c GUARD_QUORUM_SHA256SUMS.txt
   foundry-vault:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
