@@ -151,6 +151,9 @@ def test_guards_agree_on_real_dry_quotes(tmp_path, name):
 from test_near_mandate import (  # noqa: E402
     AGENT_INTENT, BASE, MANDATE, POLICY_CASES, agent_intent, mandate_file, nm, replaced, tokens,
 )
+from test_near_mandate_boundaries import (  # noqa: E402
+    BPS_CONTROLS, NUMERIC_CONTROLS, NUMERIC_REFUSALS, numeric_mandate_file,
+)
 
 
 def test_the_agent_example_lowers_identically():
@@ -189,6 +192,41 @@ def test_mandates_are_refused_with_the_same_code(tmp_path, lines):
     with pytest.raises(ni.NearIntentsError) as err:
         nm.compile_mandate(path, tokens(), now=NOW)
     assert js("mandate", path, TOKENS, NOW_MS).get("error", {}).get("code") == err.value.code
+
+
+@pytest.mark.parametrize("changes,code,field", NUMERIC_REFUSALS)
+def test_mandate_numeric_range_errors_have_browser_parity(tmp_path, changes, code, field):
+    path = numeric_mandate_file(tmp_path, changes)
+    with pytest.raises(ni.NearIntentsError) as err:
+        nm.compile_mandate(path, tokens(), now=NOW)
+    assert err.value.code == code
+    browser_error = js("mandate", path, TOKENS, NOW_MS).get("error", {})
+    assert browser_error.get("code") == code
+    if field in {"per_payment", "per_24h", "approve", "expires"}:
+        assert browser_error.get("line") == err.value.detail["line"]
+
+
+@pytest.mark.parametrize("changes,expected", NUMERIC_CONTROLS)
+def test_valid_mandate_numeric_boundaries_have_browser_parity(tmp_path, changes, expected):
+    path = numeric_mandate_file(tmp_path, changes)
+    compiled = nm.compile_mandate(path, tokens(), now=NOW)
+    assert {key: compiled["terms"][key] for key in expected} == expected
+    assert js("mandate", path, TOKENS, NOW_MS).get("compiled") == compiled
+
+
+@pytest.mark.parametrize("kind,term", [("slippage", "max_slippage_bps"), ("fees", "max_fee_bps")])
+@pytest.mark.parametrize("bound,expected", BPS_CONTROLS)
+def test_mandate_bps_boundaries_have_browser_parity(tmp_path, kind, term, bound, expected):
+    path = numeric_mandate_file(tmp_path, {f"require {kind}": bound})
+    compiled = nm.compile_mandate(path, tokens(), now=NOW)
+    assert compiled["terms"][term] == expected
+    assert js("mandate", path, TOKENS, NOW_MS).get("compiled") == compiled
+
+
+@pytest.mark.parametrize("kind", ["slippage", "fees"])
+def test_mandate_strictest_bps_clause_has_browser_parity(tmp_path, kind):
+    path = mandate_file(tmp_path, *BASE, f"require {kind} <= 10001bps")
+    assert js("mandate", path, TOKENS, NOW_MS).get("compiled") == nm.compile_mandate(path, tokens(), now=NOW)
 
 
 @pytest.mark.parametrize("name,kwargs,expected", POLICY_CASES, ids=[c[0] for c in POLICY_CASES])

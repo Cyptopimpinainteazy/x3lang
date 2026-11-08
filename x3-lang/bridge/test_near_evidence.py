@@ -2,13 +2,18 @@
 import copy
 import hashlib
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from near_evidence import (
     EvidenceError,
     EvidenceStore,
+    RpcUnavailable,
     NEGATIVE_CASES,
     collect_checkpoint,
     collect_receipt,
@@ -371,6 +376,209 @@ class EvidenceStoreTests(unittest.TestCase):
             )
         )
 
+    def test_reopen_after_interrupted_index_append_recovers_orphan_manifest(self):
+        # The process can die after durable manifest creation, but before
+        # adding its index record. Reopening the store must repair the index,
+        # not silently classify the unindexed manifest as a complete duplicate.
+        import os
+
+        root = self.root
+        store = EvidenceStore(root, "testnet")
+        first_args = dict(
+            network="testnet",
+            head_hash=HEAD,
+            store=store,
+            rpc=fake_transport(),
+            retrieved_at="2026-11-06T00:00:00Z",
+        )
+        original_open = os.open
+        index_path = root / "testnet" / "index.jsonl"
+
+        def fail_index_open(path, *args, **kwargs):
+            if Path(path) == index_path:
+                raise OSError("simulated crash just before index append")
+            return original_open(path, *args, **kwargs)
+
+        with patch("near_evidence.os.open", side_effect=fail_index_open):
+            with self.assertRaisesRegex(OSError, "simulated crash"):
+                collect_checkpoint(
+                    ["https://rpc-a.example", "https://rpc-b.example"], **first_args
+                )
+        self.assertEqual(
+            len(list((root / "testnet" / "manifests").glob("*.json"))), 1
+        )
+        self.assertFalse(index_path.exists())
+        with self.assertRaises(EvidenceError):
+            verify_store(root)
+
+        # New EvidenceStore instance models a new process reusing the same
+        # content-addressed directory after an interrupted collector.
+        resumed = EvidenceStore(root, "testnet")
+        manifest, _, duplicate = collect_checkpoint(
+            ["https://rpc-a.example", "https://rpc-b.example"],
+            network="testnet",
+            head_hash=HEAD,
+            store=resumed,
+            rpc=fake_transport(),
+            retrieved_at="2026-11-06T01:00:00Z",
+        )
+        self.assertTrue(duplicate)
+        self.assertEqual(manifest["retrieved_at"], "2026-11-06T00:00:00Z")
+        self.assertTrue(index_path.exists(), "crash orphan was not recovered into index")
+        lines = index_path.read_bytes().splitlines()
+        self.assertEqual(len(lines), 1, "interrupted manifest was not indexed on retry")
+        self.assertEqual(json.loads(lines[0])["manifest_id"], manifest["manifest_id"])
+        verify_store(root)
+
+    def test_hard_killed_collector_process_recovers_manifest_without_downgrading(self):
+        # This is a REAL isolated subprocess terminated with os._exit before
+        # the index append, not a simulated exception in the test process.
+        # No validator or public RPC is started or stopped.
+        child = """
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
+from near_evidence import EvidenceStore, collect_checkpoint
+from test_near_evidence import HEAD, fake_transport
+root = Path(sys.argv[1])
+index = root / "testnet" / "index.jsonl"
+raw_open = os.open
+def terminate_before_index(path, *args, **kwargs):
+    if Path(path) == index:
+        os._exit(73)
+    return raw_open(path, *args, **kwargs)
+with patch("near_evidence.os.open", side_effect=terminate_before_index):
+    collect_checkpoint(
+        ["https://rpc-a.example", "https://rpc-b.example"],
+        network="testnet", head_hash=HEAD,
+        store=EvidenceStore(root, "testnet"),
+        rpc=fake_transport(), retrieved_at="2026-11-06T00:00:00Z"
+    )
+"""
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parent)
+        crashed = subprocess.run(
+            [sys.executable, "-c", child, str(self.root)],
+            env=env, capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(crashed.returncode, 73, crashed.stderr)
+        self.assertEqual(
+            len(list((self.root / "testnet" / "manifests").glob("*.json"))), 1
+        )
+        with self.assertRaises(EvidenceError):
+            verify_store(self.root)
+
+        recovered, _, duplicate = collect_checkpoint(
+            ["https://rpc-a.example", "https://rpc-b.example"],
+            network="testnet",
+            head_hash=HEAD,
+            store=EvidenceStore(self.root, "testnet"),
+            rpc=fake_transport(),
+            retrieved_at="2026-11-06T01:00:00Z",
+        )
+        self.assertTrue(duplicate)
+        self.assertEqual(recovered["status"], "complete_candidate")
+        self.assertFalse(recovered["authenticated"])
+        self.assertFalse(recovered["authorized_to_sign"])
+        self.assertEqual(
+            len((self.root / "testnet" / "index.jsonl").read_bytes().splitlines()), 1
+        )
+        verify_store(self.root)
+
+    def test_tampered_crash_orphan_is_refused_not_reindexed(self):
+        # No committed index can vouch for a manifest altered between an
+        # interrupted write and a later recovery attempt.
+        original_open = os.open
+        index = self.root / "testnet" / "index.jsonl"
+
+        def crash_before_index(path, *args, **kwargs):
+            if Path(path) == index:
+                raise OSError("interrupted before index")
+            return original_open(path, *args, **kwargs)
+
+        with patch("near_evidence.os.open", side_effect=crash_before_index):
+            with self.assertRaises(OSError):
+                collect_checkpoint(
+                    ["https://rpc-a.example", "https://rpc-b.example"],
+                    network="testnet", head_hash=HEAD,
+                    store=EvidenceStore(self.root, "testnet"),
+                    rpc=fake_transport(), retrieved_at="2026-11-06T00:00:00Z",
+                )
+        orphan = next((self.root / "testnet" / "manifests").glob("*.json"))
+        changed = json.loads(orphan.read_text())
+        changed["status"] = "disagreement"  # No change to subject digest.
+        orphan.write_text(json.dumps(changed, sort_keys=True) + "\n")
+        with self.assertRaisesRegex(EvidenceError, "manifest subject digest mismatch"):
+            collect_checkpoint(
+                ["https://rpc-a.example", "https://rpc-b.example"],
+                network="testnet", head_hash=HEAD,
+                store=EvidenceStore(self.root, "testnet"),
+                rpc=fake_transport(), retrieved_at="2026-11-06T01:00:00Z",
+            )
+        self.assertFalse(index.exists(), "tampered orphan was incorrectly indexed")
+
+    def test_simultaneous_collector_processes_write_one_index_record(self):
+        # Four actual processes contend on the same content-addressed
+        # manifest. A lock must prevent duplicate index rows.
+        child = """
+import sys
+from pathlib import Path
+from near_evidence import EvidenceStore, collect_checkpoint
+from test_near_evidence import HEAD, fake_transport
+collect_checkpoint(
+    ["https://rpc-a.example", "https://rpc-b.example"],
+    network="testnet", head_hash=HEAD,
+    store=EvidenceStore(Path(sys.argv[1]), "testnet"),
+    rpc=fake_transport(), retrieved_at="2026-11-06T00:00:00Z",
+)
+"""
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parent)
+        workers = [
+            subprocess.Popen(
+                [sys.executable, "-c", child, str(self.root)],
+                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            for _ in range(4)
+        ]
+        for worker in workers:
+            stdout, stderr = worker.communicate(timeout=20)
+            self.assertEqual(worker.returncode, 0, stderr.decode() or stdout.decode())
+        self.assertEqual(
+            len((self.root / "testnet" / "index.jsonl").read_bytes().splitlines()), 1
+        )
+        self.assertEqual(
+            len(list((self.root / "testnet" / "manifests").glob("*.json"))), 1
+        )
+        verify_store(self.root)
+
+    def test_truncated_index_refuses_to_repair_silently(self):
+        store = EvidenceStore(self.root, "testnet")
+        collect_checkpoint(
+            ["https://rpc-a.example", "https://rpc-b.example"],
+            network="testnet",
+            head_hash=HEAD,
+            store=store,
+            rpc=fake_transport(),
+            retrieved_at="2026-11-06T00:00:00Z",
+        )
+        index = self.root / "testnet" / "index.jsonl"
+        corrupted = index.read_bytes()[:-1]  # Remove terminating newline.
+        index.write_bytes(corrupted)
+        with self.assertRaisesRegex(EvidenceError, "partial evidence index"):
+            collect_checkpoint(
+                ["https://rpc-a.example", "https://rpc-b.example"],
+                network="testnet",
+                head_hash=HEAD,
+                store=EvidenceStore(self.root, "testnet"),
+                rpc=fake_transport(),
+                retrieved_at="2026-11-06T01:00:00Z",
+            )
+        self.assertEqual(index.read_bytes(), corrupted, "corruption was silently rewritten")
+        with self.assertRaises(EvidenceError):
+            verify_store(self.root)
+
     def test_duplicate_evidence_is_not_appended_twice(self):
         store = EvidenceStore(self.root, "testnet")
         args = dict(
@@ -419,6 +627,116 @@ class EvidenceStoreTests(unittest.TestCase):
         self.assertIsNotNone(manifest["candidate"])
         self.assertFalse(manifest["candidate"]["provider_consensus"])
         verify_store(self.root)
+
+    def test_three_rpc_split_brain_cannot_claim_provider_consensus(self):
+        # Two coherent but untrusted RPC responses against a third conflicting
+        # epoch must not be mistaken for authenticated finalized consensus.
+        honest = checkpoint_responses()
+        conflicting = checkpoint_responses()
+        light_key = ("next_light_client_block", (HEAD,))
+        conflicting[light_key] = copy.deepcopy(conflicting[light_key])
+        conflicting[light_key]["result"]["inner_lite"]["next_epoch_id"] = b58("forked-epoch")
+        block_key = ("block", (("block_id", 103),))
+        conflicting[block_key] = copy.deepcopy(conflicting[block_key])
+        conflicting[block_key]["result"]["header"]["next_epoch_id"] = b58("forked-epoch")
+        store = EvidenceStore(self.root, "testnet")
+        manifest, _, _ = collect_checkpoint(
+            ["https://rpc-a.example", "https://rpc-b.example", "https://rpc-c.example"],
+            network="testnet",
+            head_hash=HEAD,
+            store=store,
+            rpc=fake_transport(honest, conflicting),
+            retrieved_at="2026-11-06T00:00:00Z",
+        )
+        self.assertEqual(manifest["status"], "disagreement")
+        self.assertEqual(len(manifest["providers"]), 3)
+        self.assertTrue(all("error" not in provider for provider in manifest["providers"]))
+        self.assertFalse(manifest["candidate"]["provider_consensus"])
+        self.assertEqual(manifest["candidate"]["classification"], "candidate_checkpoint_untrusted")
+        self.assertFalse(manifest["authenticated"])
+        self.assertFalse(manifest["authorized_to_sign"])
+        verify_store(self.root)
+
+    def test_rpc_interrupted_mid_checkpoint_does_not_claim_provider_consensus(self):
+        def midflight_timeout(endpoint, method, params, request_id, timeout_sec=20):
+            if endpoint.endswith("b.example") and method == "next_light_client_block":
+                raise RpcUnavailable("fault-injected RPC dropped after status/head")
+            return fake_transport()(endpoint, method, params, request_id, timeout_sec)
+
+        store = EvidenceStore(self.root, "testnet")
+        manifest, _, _ = collect_checkpoint(
+            ["https://rpc-a.example", "https://rpc-b.example"],
+            network="testnet",
+            head_hash=HEAD,
+            store=store,
+            rpc=midflight_timeout,
+            retrieved_at="2026-11-06T00:00:00Z",
+        )
+        self.assertEqual(manifest["status"], "incomplete")
+        self.assertEqual(len(manifest["providers"]), 2)
+        self.assertIn("fault-injected RPC", manifest["providers"][1]["error"])
+        self.assertFalse(manifest["candidate"]["provider_consensus"],
+                         "one working provider does not establish a two-provider quorum")
+        self.assertFalse(manifest["authenticated"])
+        self.assertFalse(manifest["authorized_to_sign"])
+        verify_store(self.root)
+
+        # Network recovery creates a new separately indexed candidate.
+        recovered = EvidenceStore(self.root, "testnet")
+        successful, _, duplicate = collect_checkpoint(
+            ["https://rpc-a.example", "https://rpc-b.example"],
+            network="testnet",
+            head_hash=HEAD,
+            store=recovered,
+            rpc=fake_transport(),
+            retrieved_at="2026-11-06T01:00:00Z",
+        )
+        self.assertFalse(duplicate)
+        self.assertEqual(successful["status"], "complete_candidate")
+        self.assertFalse(successful["authenticated"])
+        self.assertEqual(len((self.root / "testnet" / "index.jsonl").read_bytes().splitlines()), 2)
+        verify_store(self.root)
+
+    def test_partial_receipt_and_transaction_proofs_never_emit_candidates(self):
+        # A lone surviving RPC is not a quorum. Preserve partial evidence
+        # without giving downstream clients a candidate they can mistake for
+        # a complete multi-provider proof.
+        for kind in ("receipt", "transaction"):
+            with self.subTest(kind=kind):
+                responses = (
+                    receipt_responses() if kind == "receipt" else transaction_responses()
+                )
+                unmodified = fake_transport(responses)
+
+                def interrupted(endpoint, method, params, request_id, timeout_sec=20):
+                    if endpoint.endswith("rpc-b.example") and method == "light_client_proof":
+                        raise RpcUnavailable("fault-injected proof RPC timeout")
+                    return unmodified(endpoint, method, params, request_id, timeout_sec)
+
+                store_root = self.root / kind
+                store = EvidenceStore(store_root, "testnet")
+                params = dict(
+                    endpoints=["https://rpc-a.example", "https://rpc-b.example"],
+                    network="testnet",
+                    head_hash=HEAD,
+                    store=store,
+                    rpc=interrupted,
+                    retrieved_at="2026-11-06T00:00:00Z",
+                )
+                if kind == "receipt":
+                    manifest, _, _ = collect_receipt(
+                        receipt_id=RECEIPT, receiver_id=RECEIVER, **params
+                    )
+                else:
+                    manifest, _, _ = collect_transaction(
+                        transaction_hash=TRANSACTION, sender_id=SENDER, **params
+                    )
+                self.assertEqual(manifest["status"], "incomplete")
+                self.assertIsNone(manifest["candidate"])
+                self.assertFalse(manifest["authenticated"])
+                self.assertFalse(manifest["authorized_to_sign"])
+                self.assertIn("fault-injected", manifest["providers"][1]["error"])
+                verify_store(store_root)
 
     def test_wrong_network_and_unavailable_provider_are_never_substituted(self):
         wrong_network = checkpoint_responses()

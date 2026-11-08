@@ -51,6 +51,7 @@ export const CHECKS = Object.freeze([
   {id: 'context', code: 'INVALID_CONTEXT', label: 'Request is a well-formed object'},
   {id: 'scope', code: 'ACCESS_KEY_SCOPE', label: 'Key scope allows only request_payment'},
   {id: 'agent', code: 'AGENT_DENIED', label: `Caller is the designated agent (${PREVIEW.agent})`},
+  {id: 'lifecycle', code: 'INVALID_CONTEXT', label: 'Revocation and expiry flags are explicit booleans'},
   {id: 'revoked', code: 'MANDATE_REVOKED', label: 'Owner has not revoked the mandate'},
   {id: 'expiry', code: 'MANDATE_EXPIRED', label: 'Mandate has not expired'},
   {id: 'nonce_format', code: 'NONCE_INVALID', label: 'Nonce is 1–64 letters, digits, _ or -'},
@@ -72,6 +73,8 @@ export function tracePreviewRequest(data) {
     context: () => Boolean(data) && typeof data === 'object',
     scope: () => data.action === 'request_payment',
     agent: () => data.agent === PREVIEW.agent,
+    // Missing or non-boolean flags fail closed (a string 'true' must never read as "not revoked").
+    lifecycle: () => typeof data.revoked === 'boolean' && typeof data.expired === 'boolean',
     revoked: () => data.revoked !== true,
     expiry: () => data.expired !== true,
     nonce_format: () => typeof data.nonce === 'string' && NONCE_RE.test(data.nonce),

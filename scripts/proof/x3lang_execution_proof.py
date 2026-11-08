@@ -12,6 +12,9 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from checkout_integrity import InputIntegrityError, begin, finish
+from source_binding import SourceBindingError, verify_committed_source
+
 ROOT = Path(__file__).resolve().parents[2]
 INPUTS = (
     "x3-lang/compiler/tests/test_control_flow_e2e.rs",
@@ -29,7 +32,7 @@ TESTS = (
 
 def git(*args: str) -> str:
     return subprocess.check_output(
-        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.STDOUT
+        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.PIPE
     ).strip()
 
 
@@ -39,25 +42,37 @@ def sha256(data: bytes) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--output-dir", required=True, type=Path,
+                        help="report directory outside the checkout")
     args = parser.parse_args()
     output = args.output_dir.resolve()
-    output.mkdir(parents=True, exist_ok=True)
 
-    # Do not bind a green result to uncommitted source/test edits.
+    missing = [path for path in INPUTS if not (ROOT / path).is_file()]
+    if missing:
+        parser.error(f"required test is missing: {missing[0]}")
+    try:
+        before = begin(ROOT, output)
+        verify_committed_source(ROOT, output_dir=output)
+    except InputIntegrityError as exc:
+        parser.error(f"source binding refused: {exc}")
+    except SourceBindingError as exc:
+        parser.error(f"source binding refused: {exc}")
     for path in INPUTS:
-        if not (ROOT / path).is_file():
-            parser.error(f"required test is missing: {path}")
         subprocess.run(["git", "-C", str(ROOT), "ls-files", "--error-unmatch", path],
                        stdout=subprocess.DEVNULL, check=True)
-        if subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", "HEAD", "--", path]).returncode:
-            parser.error(f"test differs from committed HEAD: {path}")
-
-    rev = git("rev-parse", "HEAD")
+    output.mkdir(parents=True, exist_ok=True)
+    rev = before["revision"]
     report = {
-        "schema": "x3lang-local-execution-proof/v1",
+        "schema": "x3lang-local-execution-proof/v2",
         "status": "failed",
         "repo_revision": rev,
+        "repo_tree": before["tree"],
+        "source_binding": {
+            "before": before,
+            "after": None,
+            "byte_and_mode_check": "committed checkout checked before and after tests; "
+            "toolchain, dependencies and environment not attested",
+        },
         "repository": git("config", "--get", "remote.origin.url"),
         "observed_utc": datetime.now(timezone.utc).isoformat(),
         "scope": "local Rust compiler/VM tests only; no EVM, SVM, NEAR or settlement finality proof",
@@ -116,6 +131,20 @@ def main() -> int:
             else:
                 print(f"PASS {name}", flush=True)
     finally:
+        try:
+            verify_committed_source(ROOT, output_dir=output, expected_revision=rev)
+            report["source_binding"]["after"] = finish(ROOT, before)
+        except (InputIntegrityError, SourceBindingError) as exc:
+            passed = False
+            message = str(exc)
+            if "differs from HEAD" in message or "untracked input" in message:
+                message = f"uncommitted proof checkout inputs: {message}"
+            if isinstance(exc, SourceBindingError):
+                report["source_binding_error"] = str(exc)
+                if message.startswith("HEAD changed"):
+                    message = message.replace("HEAD changed", "HEAD/tree changed", 1)
+            report["input_error"] = message
+            print(f"FAIL source integrity: {message}", file=sys.stderr, flush=True)
         report["status"] = "passed" if passed and len(report["tests"]) == len(TESTS) else "failed"
         path = output / "manifest.json"
         path.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")

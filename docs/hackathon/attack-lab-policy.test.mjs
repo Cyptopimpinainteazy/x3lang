@@ -21,6 +21,17 @@ test('spending cap fails',()=>assert.equal(check({amount:'0.3'}).code,'PER_PAYME
 test('replay fails',()=>assert.equal(check({used:['fresh']}).code,'NONCE_REPLAY'));
 test('revocation fails',()=>assert.equal(check({revoked:true}).code,'MANDATE_REVOKED'));
 test('deadline fails',()=>assert.equal(check({expired:true}).code,'MANDATE_EXPIRED'));
+test('missing or malformed lifecycle flags fail closed',()=>{
+  for (const field of ['revoked','expired']) {
+    for (const value of [undefined,null,'false','true',0,1,[],{}]) {
+      assert.deepEqual(check({[field]:value}),{
+        allowed:false,code:'INVALID_CONTEXT',level:'offline_preview'
+      },`${field}=${JSON.stringify(value)}`);
+    }
+    const missing={...base};delete missing[field];
+    assert.equal(previewRequest(missing).code,'INVALID_CONTEXT');
+  }
+});
 test('pending commitments count towards cumulative budget',()=>assert.equal(check({spent:'0.2',pending:'0.15'}).code,'TOTAL_BUDGET_EXCEEDED'));
 test('invalid numeric amounts refuse, never float round',()=>{
   for (const amount of ['NaN','-0.1','0','0.1000000000000000000000001','1e9']) {
@@ -44,6 +55,8 @@ function referencePreviewRequest(data) {
   if (!data || typeof data !== 'object') return DENY('INVALID_CONTEXT');
   if (data.action !== 'request_payment') return DENY('ACCESS_KEY_SCOPE');
   if (data.agent !== 'agent.testnet') return DENY('AGENT_DENIED');
+  // master 5df23da: missing or non-boolean lifecycle flags fail closed.
+  if (typeof data.revoked !== 'boolean' || typeof data.expired !== 'boolean') return DENY('INVALID_CONTEXT');
   if (data.revoked === true) return DENY('MANDATE_REVOKED');
   if (data.expired === true) return DENY('MANDATE_EXPIRED');
   if (typeof data.nonce !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(data.nonce)) return DENY('NONCE_INVALID');
@@ -94,9 +107,9 @@ test('trace marks the deciding rule as fail and every later rule as not reached'
   assert.ok(t.steps.slice(at+1).every(s=>s.status==='not_reached'));
   assert.equal(t.decision.code,'RECIPIENT_DENIED');
 });
-test('an allowed trace passes all twelve rules',()=>{
+test('an allowed trace passes all thirteen rules',()=>{
   const t=tracePreviewRequest(base);
-  assert.equal(t.steps.length,12);
+  assert.equal(t.steps.length,13);
   assert.ok(t.steps.every(s=>s.status==='pass'));
   assert.equal(t.amountYocto,10n**23n);
 });

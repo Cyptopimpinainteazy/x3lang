@@ -10,7 +10,8 @@
 //! 2. **The quote.** [`Contract::accept_quote`] takes the exact payload 1Click signed and its
 //!    signature, verifies the signature **on chain** against the pinned 1Click manager key, and
 //!    only then reads the quote out of the verified bytes and runs every guard against the
-//!    stored policy. A policy accepts **one** quote, so a nonce opens one deposit address.
+//!    stored policy. A policy accepts **one** quote. Signed quote hashes are also
+//!    consumed once contract-wide, to prevent cross-nonce authorization replay.
 //! 3. **The outcome.** [`Contract::record_outcome`] records how the swap ended, once.
 //! 4. **Agents.** An owner can let an AI agent's NEAR account swap on its behalf under a
 //!    [`mandate::Mandate`]: per-payment and rolling-24-hour caps, allowlisted recipients and
@@ -34,6 +35,20 @@
 //!
 //! Every write is paid by the caller: attach NEAR to cover the bytes added, and the excess is
 //! refunded in the same call.
+//!
+//! ## Build mode
+//!
+//! On-chain WASM must be compiled with `--cfg near` (this crate's `.cargo/config.toml` sets it,
+//! as `cargo near build` does). Without it near-sdk 5.x selects its off-chain fallbacks:
+//! `env::panic_str` and every `require!` discard their message and end in a bare WebAssembly
+//! `unreachable` trap, so a refusal is indistinguishable from a crash in an explorer. The
+//! `compile_error!` below makes that build impossible instead of silently shipping it.
+
+#[cfg(all(target_arch = "wasm32", not(near)))]
+compile_error!(
+    "x3-guard: WASM must be built with `--cfg near` (cargo-near, or this crate's .cargo/config.toml). \
+     Without it near-sdk drops every refusal reason and traps with `unreachable` on chain."
+);
 
 use near_sdk::borsh::io::{ErrorKind, Read, Write};
 use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
@@ -49,6 +64,15 @@ pub const EVENT_VERSION: &str = "1.3.0";
 
 /// Current persisted contract state layout.
 pub const STATE_VERSION: u16 = 2;
+
+// Separate storage marker: fresh deployments initialize an empty quote-consumption
+// ledger; legacy contracts upgraded in place MUST NOT assume historical quote
+// hashes were backfilled. No unaudited migration function may set this marker.
+const FRESH_QUOTE_LEDGER_MARKER_KEY: &[u8] = b"x3.quote-ledger.fresh.v1";
+const FRESH_QUOTE_LEDGER_MARKER_VALUE: &[u8] = b"fresh-state-only";
+// Legacy contracts do not have a complete historical deposit-destination index.
+// Upgrading in place must not silently assume that the index is empty.
+const FRESH_DEPOSIT_LEDGER_MARKER_KEY: &[u8] = b"x3.deposit-ledger.fresh.v1";
 
 /// The 1Click manager's Ed25519 key, from `@defuse-protocol/one-click-sdk-typescript` 0.1.26.
 pub const ONE_CLICK_MANAGER_PUBLIC_KEY: &str = "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc";
@@ -70,6 +94,10 @@ pub const MAX_CLOCK_SKEW_MS: u64 = 60_000;
 enum StorageKey {
     Intents,
     Mandates,
+    // Append-only storage prefix: preserve the existing Intents/Mandates keys.
+    ConsumedQuoteHashes,
+    // Append-only: protect all previously assigned storage map prefixes.
+    ConsumedDepositAddresses,
 }
 
 /// What an X3 program allows, as lowered by `near_intents.py`.
@@ -682,6 +710,16 @@ impl Contract {
     /// Initialize with the 1Click manager key the official SDK pins. There is no setter.
     #[init]
     pub fn new() -> Self {
+        require!(
+            !env::storage_has_key(FRESH_QUOTE_LEDGER_MARKER_KEY),
+            "X3_NEAR_QUOTE_LEDGER_UNINITIALIZED: unexpected pre-existing replay marker"
+        );
+        require!(
+            !env::storage_has_key(FRESH_DEPOSIT_LEDGER_MARKER_KEY),
+            "X3_NEAR_DEPOSIT_LEDGER_UNINITIALIZED: unexpected pre-existing deposit marker"
+        );
+        env::storage_write(FRESH_QUOTE_LEDGER_MARKER_KEY, FRESH_QUOTE_LEDGER_MARKER_VALUE);
+        env::storage_write(FRESH_DEPOSIT_LEDGER_MARKER_KEY, FRESH_QUOTE_LEDGER_MARKER_VALUE);
         Self {
             intents: LookupMap::new(StorageKey::Intents),
             manager_public_key: decode_ed25519::<32>(ONE_CLICK_MANAGER_PUBLIC_KEY)
@@ -813,6 +851,36 @@ impl Contract {
             "{ED25519_PREFIX}{}",
             bs58::encode(self.manager_public_key).into_string()
         )
+    }
+
+    /// True only for a fresh initialization with an empty, auditable
+    /// quote-consumption ledger. Upgrades of legacy state remain fail-closed
+    /// until a separately audited migration/backfill mechanism exists.
+    pub fn is_fresh_quote_ledger_initialized(&self) -> bool {
+        env::storage_read(FRESH_QUOTE_LEDGER_MARKER_KEY).as_deref() == Some(FRESH_QUOTE_LEDGER_MARKER_VALUE)
+    }
+
+    /// Only a fresh initialization can assert that the consumed-deposit registry
+    /// was initially empty; a legacy upgrade without authenticated history
+    /// must refuse new quote authorization.
+    pub fn is_fresh_deposit_ledger_initialized(&self) -> bool {
+        env::storage_read(FRESH_DEPOSIT_LEDGER_MARKER_KEY).as_deref() == Some(FRESH_QUOTE_LEDGER_MARKER_VALUE)
+    }
+
+    /// Read the owner/nonce that first consumed a deposit destination.
+    /// This protects against separately signed quote bytes that name the
+    /// same deposit address. Legacy history requires an audited backfill.
+    pub fn get_deposit_consumer(&self, deposit_address: String) -> Option<String> {
+        let consumed: LookupMap<String, String> = LookupMap::new(StorageKey::ConsumedDepositAddresses);
+        consumed.get(&deposit_address).cloned()
+    }
+
+    /// Read the on-chain owner/nonce that first consumed a signed quote hash.
+    /// Only records accepted *after* this replay ledger was introduced exist
+    /// here; pre-upgrade receipts require a separately authenticated backfill.
+    pub fn get_quote_consumer(&self, quote_hash: String) -> Option<String> {
+        let consumed: LookupMap<String, String> = LookupMap::new(StorageKey::ConsumedQuoteHashes);
+        consumed.get(&quote_hash).cloned()
     }
 
     /// Dry-run the signature check and the guards for a registered intent. Changes nothing.
@@ -954,13 +1022,48 @@ impl Contract {
                     "X3_NEAR_INVALID_SIGNATURE: Cryptographic quote verification failed; deposit prohibited ({reason})"
                 ))
             });
+        // Quote signatures authenticate terms but do not bind an owner's
+        // arbitrary intent nonce. A separate, contract-wide consumed-hash
+        // namespace is therefore required to prevent duplicate authorizations.
+        // This is intentionally NOT a Contract struct field, preserving the
+        // existing Borsh state layout and original map prefixes.
+        require!(
+            self.is_fresh_quote_ledger_initialized(),
+            "X3_NEAR_QUOTE_LEDGER_UNINITIALIZED: legacy quote history not backfilled; deposit authorization refused"
+        );
+        let mut consumed: LookupMap<String, String> = LookupMap::new(StorageKey::ConsumedQuoteHashes);
+        require!(
+            consumed.get(&facts.quote_hash).is_none(),
+            format!(
+                "X3_NEAR_QUOTE_REPLAY: signed quote {} already accepted by another intent",
+                facts.quote_hash
+            )
+        );
+        require!(
+            self.is_fresh_deposit_ledger_initialized(),
+            "X3_NEAR_DEPOSIT_LEDGER_UNINITIALIZED: legacy deposit history not backfilled; deposit authorization refused"
+        );
+        let mut consumed_deposits: LookupMap<String, String> = LookupMap::new(StorageKey::ConsumedDepositAddresses);
+        require!(
+            consumed_deposits.get(&facts.deposit_address).is_none(),
+            format!(
+                "X3_NEAR_DEPOSIT_REPLAY: deposit address {} already authorized for a different intent",
+                facts.deposit_address
+            )
+        );
         let now = env::block_timestamp_ms();
         let results = evaluate(&record.policy, &facts, now);
         let failed: Vec<&str> = results.iter().filter(|r| !r.ok).map(|r| r.guard.as_str()).collect();
         require!(
             failed.is_empty(),
-            format!("quote rejected by {}; do not deposit", failed.join(", "))
+            format!(
+                "X3_QUOTE_REJECTED: quote rejected by {}; do not deposit",
+                failed.join(", ")
+            )
         );
+        let consumed_hash = facts.quote_hash.clone();
+        let consumed_address = facts.deposit_address.clone();
+        let consuming_intent = key(&record.owner, &record.nonce);
         emit(
             "quote_accepted",
             json!({
@@ -979,6 +1082,12 @@ impl Contract {
             accepted_at_ms: now,
         });
         self.store_intent(record);
+        // No consumption occurs on a failed signature or rejected policy.
+        // The map write and the intent write are in the same NEAR transaction.
+        consumed.insert(consumed_hash, consuming_intent.clone());
+        consumed.flush();
+        consumed_deposits.insert(consumed_address, consuming_intent);
+        consumed_deposits.flush();
         results
     }
 

@@ -3,12 +3,13 @@ name: X3Lang Exact-Head Local Execution Proof
 on:
   pull_request:
     paths:
+      - '.gitignore'
       - 'x3-lang/**'
-      - 'scripts/proof/x3lang_execution_proof.py'
-      - 'scripts/proof/x3lang_runtime_equivalence.py'
-      - 'scripts/proof/check_x3lang_mirror.py'
+      - 'scripts/proof/**'
+      - 'tests/proof/**'
       - '.github/workflows/x3lang-execution-proof.yml'
       - 'tests/ci/test_private_peer_checkout.py'
+      - 'tests/ci/test_proof_source_binding.py'
   workflow_dispatch:
 
 permissions:
@@ -63,8 +64,12 @@ jobs:
           workspaces: x3-lang
       - name: Test private peer authentication fail-closed policy
         run: python3 -m unittest discover -s tests/ci -p test_private_peer_checkout.py -v
+      - name: Test proof source binding before Cargo execution
+        run: python3 -m unittest discover -s tests/ci -p test_proof_source_binding.py -v
       - name: Syntax-check both mirrored proof runners
-        run: python3 -m py_compile scripts/proof/x3lang_execution_proof.py scripts/proof/x3lang_runtime_equivalence.py scripts/proof/check_x3lang_mirror.py
+        run: python3 -m py_compile scripts/proof/*.py
+      - name: Test source binding and mirror failure boundaries
+        run: python3 -m unittest discover -s tests/proof -p 'test_*.py' -v
       - name: Execute exact-head compiler and VM proof
         run: python3 scripts/proof/x3lang_execution_proof.py --output-dir "$RUNNER_TEMP/x3lang-proof"
       - name: Publish signed-off-by-no-one evidence (not a chain proof)

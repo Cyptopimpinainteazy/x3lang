@@ -4,7 +4,9 @@
 
 **Scope:** owner-bound X3Lang Python frontend policy, deployed NEAR testnet Tidepool Guard, authenticated maker quote, Base Sepolia ERC-20 transfer, Tidepool community testnet relay, finalized NEAR receipt, independently verified pre/post NEP-141 balances.
 
-**Release posture:** repository remains private until owner-approved hackathon disclosure. Never reuse the expired historical deposit address, nonce or quote.
+**Release posture:** this repository remains private until the owner approves hackathon disclosure.
+
+**Historical evidence:** never reuse the expired deposit address, nonce or quote.
 
 ## What judges should see (90–120-second sequence)
 
@@ -24,7 +26,11 @@ Show the separately deployed NEAR testnet Guard `x3guardlaunch2026.testnet`; bot
 The owner registered `x3_base_testnet_trade_001` and authorized the **genuine Tidepool maker-signed quote**, hash:
 `131f314c2532965f2678e79f3f7cc87cfe8238a549da1405e802f4c90db1034c`.
 
-Most importantly, the strict verifier recovered a **historical finalized NEAR block** containing the code hash, quote authorization, owner, nonce and exact program, **already on-chain at 2026-11-07 06:32:56 UTC**, before the Base transaction entered its block at 06:35:02 UTC. Approval block **276595150**, hash `sPCSCCtVtPE3d4JGvno83zNoK41K5Ns51xspSx3fH1x`. It is not just a present-day view.
+The strict verifier recovered a historical finalized NEAR block containing the
+code hash, quote authorization, owner, nonce and exact program. They were on-chain
+at **2026-11-07 06:32:56 UTC**, before the Base transaction entered its block at
+06:35:02 UTC. Approval block **276595150**, hash
+`sPCSCCtVtPE3d4JGvno83zNoK41K5Ns51xspSx3fH1x`.
 
 **00:35–00:55 | Real source-chain execution, with FINALIZED head**
 
@@ -40,7 +46,9 @@ https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d
 
 Independent NEAR RPC evidence shows `FINAL` execution and **six successful receipts**. The verifier's `ft_withdraw` and token contract's actual `ft_transfer` credited **997,400 base units = 0.997400 test USDC** to **`x3lang.testnet`**, above the maker-signed minimum of **987,426 units**.
 
-Canonical finalized recipient balance at block 276593025 was **100.000000 test USDC**; by block 276596190 it was **100.997400 test USDC**. The actual token transfer receipt was included at block **276595461**, inside the snapshot interval. This is not merely a provider claim or a balance screenshot.
+Canonical finalized recipient balance at block 276593025 was **100.000000 test USDC**;
+by block 276596190 it was **100.997400 test USDC**. The token transfer receipt was
+included at block **276595461**, inside the snapshot interval.
 
 **01:15–01:35 | Demonstrate the hard denials**
 
@@ -55,7 +63,7 @@ Say clearly: *"We demonstrated a genuine, independently verified two-chain testn
 | File | Description | SHA-256 |
 |---|---|---|
 | [Historical signed quote](../../evidence/tidepool-testnet/first-swap-signed-live-quote-20261107.json) | Authentic expired Tidepool maker-signed live response, captured before funding. The original classification is historical, not the current trade status. | `7718da27680bbb35cbf199caaae06ee77987dd5daf60f2dfd1ca175a08da7535` |
-| [Finalized pretrade baseline](../../evidence/tidepool-testnet/pretrade-finalized-baseline-20261107.json) | Two-chain independent baseline before this swap. | `69a835814805876acd1e6bf4d4fca6bcc4c5347dbb609c4120` |
+| [Finalized pretrade baseline](../../evidence/tidepool-testnet/pretrade-finalized-baseline-20261107.json) | Two-chain independent baseline before this swap. | `69a835814805876acd2eafb1ca0390081e6bf4d4fca6bcc4c5347dbb609c4120` |
 | [Strict successful two-chain proof](../../evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json) | Actual read-only chain verification output with source RPC quorum, historical Guard approval, finalized NEAR receipt and canonical balance change. | `9aa6d251b7e3c8f8cb6fee57e466034d3f747a84b3792233fe36cd97570bbbcc` |
 
 The maker-signed quote payload SHA-256 (`131f314c…1034c`) and archived JSON file SHA-256 (`7718da2…7535`) are **different digests of different bytes**. Do not mix them.
