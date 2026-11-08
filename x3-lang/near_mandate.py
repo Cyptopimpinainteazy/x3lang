@@ -48,6 +48,11 @@ MAX_PAYMENTS_PER_WINDOW = 64
 MAX_LIST = 16
 MAX_APPROVERS = 8
 BPS = 10_000
+U128_MAX = (1 << 128) - 1
+# Shared with the browser: the last millisecond of a four-digit UTC year. This
+# representability bound is stricter than the contract's u64 expiry storage.
+MAX_EXPIRY_MS = 253_402_300_799_999
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 # Bound by `near_intents._mandates()`, so errors, units and assets mean exactly what they mean
 # in the adapter (one `NearIntentsError` class, one duration and bps parser).
@@ -127,13 +132,26 @@ def parse_mandate(path: str) -> Dict[str, Any]:
 _DURATION_UNITS = {"ms": 1, "s": 1_000, "m": 60_000, "h": 3_600_000, "d": 86_400_000}
 
 
+def _expiry_range_error(line: Optional[int]):
+    return _err("X3_MANDATE_EXPIRES", "expires must fit a UTC timestamp from 1970-01-01T00:00:00.000Z "
+                "through 9999-12-31T23:59:59.999Z", "expires", line)
+
+
 def parse_expiry(text: str, line: Optional[int] = None) -> timedelta:
     """`30d`, `12h`, `90m`: how long the mandate lasts. Days are allowed here, unlike a swap
     timeout; there is no unit for blocks, because the contract compares wall-clock times."""
     m = re.fullmatch(r"(\d+)(ms|s|m|h|d)", text.strip())
-    if not m or int(m.group(1)) == 0:
+    if not m:
         raise _err("X3_MANDATE_EXPIRES", f"expires {text!r} must be a positive <n>ms|s|m|h|d duration", "expires", line)
-    return timedelta(milliseconds=int(m.group(1)) * _DURATION_UNITS[m.group(2)])
+    try:
+        milliseconds = int(m.group(1)) * _DURATION_UNITS[m.group(2)]
+        if milliseconds == 0:
+            raise _err("X3_MANDATE_EXPIRES", f"expires {text!r} must be a positive <n>ms|s|m|h|d duration", "expires", line)
+        if milliseconds > MAX_EXPIRY_MS:
+            raise _expiry_range_error(line)
+        return timedelta(milliseconds=milliseconds)
+    except (OverflowError, ValueError) as exc:
+        raise _expiry_range_error(line) from exc
 
 
 def _chain_asset(ref: str, field: str, line: Optional[int]) -> Dict[str, str]:
@@ -152,6 +170,21 @@ def _near_account(value: str, field: str, line: Optional[int]) -> str:
     return value
 
 
+def _mandate_amount(value: str, field: str, line: Optional[int], *, code: str = "X3_MANDATE_LIMIT",
+                    source_field: Optional[str] = None) -> int:
+    # Keep the adapter's base-unit syntax, including underscores and leading zeros,
+    # without letting Python's integer digit limit escape as an unstructured error.
+    text = str(value).strip().replace("_", "")
+    text = re.sub(r"^0+(?=[0-9])", "", text)
+    try:
+        amount = _ni.base_units(text, field)
+    except ValueError as exc:
+        raise _err(code, f"{field} must be at most {U128_MAX} (u128)", source_field or field, line) from exc
+    if amount > U128_MAX:
+        raise _err(code, f"{field} must be at most {U128_MAX} (u128)", source_field or field, line)
+    return amount
+
+
 def lower_mandate(parsed: Dict[str, Any], tokens: List[Dict[str, Any]], *, source_sha256: str,
                   now: Optional[datetime] = None) -> Dict[str, Any]:
     """The `create_mandate` call: the owner who sends it, and its `agent` and `terms` arguments."""
@@ -167,8 +200,8 @@ def lower_mandate(parsed: Dict[str, Any], tokens: List[Dict[str, Any]], *, sourc
     destinations = [_chain_asset(ref, "allow assets", at.get("allow_assets")) for ref in parsed["allow_assets"]]
     destination_ids = [_ni.resolve_asset(tokens, d["chain"], d["asset"])["assetId"] for d in destinations]
 
-    per_payment = _ni.base_units(parsed["per_payment"], "per_payment")
-    per_24h = _ni.base_units(parsed["per_24h"], "per_24h")
+    per_payment = _mandate_amount(parsed["per_payment"], "per_payment", at.get("per_payment"))
+    per_24h = _mandate_amount(parsed["per_24h"], "per_24h", at.get("per_24h"))
     if per_payment <= 0:
         raise _err("X3_MANDATE_LIMIT", "per_payment must be positive", "per_payment", at.get("per_payment"))
     if per_payment > per_24h:
@@ -195,11 +228,15 @@ def lower_mandate(parsed: Dict[str, Any], tokens: List[Dict[str, Any]], *, sourc
             raise _err("X3_MANDATE_BOUND", f"a mandate must bound `require {kind} <= …`: the agent would otherwise "
                        "choose it", "require")
         bounds[kind] = min(found)
+        if bounds[kind] > BPS:
+            raise _err("X3_MANDATE_BOUND", f"require {kind} must bound the compiled value to at most {BPS} bps",
+                       f"require {kind}")
 
     approve = parsed.get("approve")
     approval_above, approvers, threshold = None, [], 0
     if approve:
-        approval_above = _ni.base_units(approve["above"], "approve above")
+        approval_above = _mandate_amount(approve["above"], "approve above", at.get("approve"),
+                                        code="X3_MANDATE_APPROVAL", source_field="approve")
         approvers = [_near_account(a, "approve", at.get("approve")) for a in approve["approvers"]]
         threshold = approve["threshold"]
         if approval_above >= per_payment:
@@ -214,7 +251,16 @@ def lower_mandate(parsed: Dict[str, Any], tokens: List[Dict[str, Any]], *, sourc
             raise _err("X3_MANDATE_APPROVAL", "the threshold must be 1..the number of approvers", "approve",
                        at.get("approve"))
 
-    expires = now + parse_expiry(parsed["expires"], at.get("expires"))
+    try:
+        expires = (now + parse_expiry(parsed["expires"], at.get("expires"))).astimezone(timezone.utc)
+        since_epoch = expires - _EPOCH
+    except (OverflowError, ValueError) as exc:
+        raise _expiry_range_error(at.get("expires")) from exc
+    # Float timestamp() rounds up near year 9999. Match the ISO string's truncation
+    # to milliseconds using integer arithmetic, including at the final millisecond.
+    expires_ms = (since_epoch.days * 86_400 + since_epoch.seconds) * 1000 + since_epoch.microseconds // 1000
+    if not 0 <= expires_ms <= MAX_EXPIRY_MS:
+        raise _expiry_range_error(at.get("expires"))
     terms = {
         "program_sha256": source_sha256,
         "asset": spend_id,
@@ -228,7 +274,7 @@ def lower_mandate(parsed: Dict[str, Any], tokens: List[Dict[str, Any]], *, sourc
         "approval_above": None if approval_above is None else str(approval_above),
         "approvers": approvers,
         "approval_threshold": threshold,
-        "expires_at_ms": int(expires.timestamp() * 1000),
+        "expires_at_ms": expires_ms,
     }
     return {"name": parsed["name"], "owner": owner, "agent": agent, "terms": terms,
             "expires": _ni.format_timestamp(expires)}
