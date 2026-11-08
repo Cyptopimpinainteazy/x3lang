@@ -16,7 +16,7 @@ Confidence: high in the recorded command exits and exact commits; low in any ove
 ## Actual movement
 
 - Implemented and independently reviewed malformed preview expiry/revocation refusal in `5df23da`; 12 tests pass. #128 merged by another actor as `90d58d5`; not a new public-chain security claim.
-- Verified current master full and separate quick gates; local proof/archive/source-binding regressions pass.
+- Verified full gates on historical `8fa8266` and `5bc7e51`, plus the separate quick path and 75 proof/archive/source-binding regressions on `5bc7e51`. Release-report candidate verification remains separate.
 - Restored repository privacy following owner instruction and verified both repositories private.
 - Reproduced two public competitors' local tests and recorded their strongest advantages without promoting README claims to proof.
 - Preserved the historical 30-PR snapshot and refreshed the current queue to one draft (#159), held on failed peer parity. No check was disabled, no funds moved, no deployment or submission occurred.
