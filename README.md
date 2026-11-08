@@ -56,7 +56,7 @@ intent near_intents_agent_denied {
 ```
 
 The owner's mandate ([`near_mandate_agent.x3`](x3-lang/examples/near_mandate_agent.x3)) only
-allows `x3-demo.near`:
+allows the example recipient below:
 
 ```text
 mandate x3_shopping_agent {
@@ -65,7 +65,7 @@ mandate x3_shopping_agent {
     spend Solana.USDC
     per_payment 50000000
     per_24h 200000000
-    allow recipients x3-demo.near
+    allow recipients recipient-account.near
     allow assets Near.USDC
     require slippage <= 1%
     require fees <= 100 bps
@@ -208,6 +208,6 @@ Other surfaces (Solana vault, BSC economics) are in
 
 ## License
 
-MIT ([LICENSE](LICENSE)). The preserved pre-hackathon source has multiple contributors; see
-[COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md#forks-ownership-and-licensing--what-is-realistic)
-for the ownership boundary.
+MIT ([LICENSE](LICENSE)). The preserved pre-hackathon source has multiple
+contributors; see [PRIOR_WORK.md](PRIOR_WORK.md) and the
+[provenance map](docs/provenance/) for the ownership and history boundary.

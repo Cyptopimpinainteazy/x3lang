@@ -67,6 +67,25 @@ guard_cmd() {
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["command"])'
 }
 
+validate_near_recipient() {
+  local account="$1"
+  PYTHONPATH="$X3_LANG" python3 - "$account" <<'PY'
+import sys
+from near_intents import NearIntentsError, NearRpc, validate_near_account_id
+
+account = sys.argv[1]
+try:
+    validate_near_account_id(account)
+    if not NearRpc().account_exists(account):
+        raise SystemExit(f"NEAR recipient {account!r} does not exist; no mandate was written")
+except NearIntentsError as exc:
+    raise SystemExit(f"could not validate NEAR recipient {account!r}: {exc.message}") from exc
+except Exception as exc:
+    raise SystemExit(f"could not validate NEAR recipient {account!r}: {exc}") from exc
+print(f"  Validated existing NEAR recipient: {account}")
+PY
+}
+
 send_expected_refusal() {
   local command="$1" log="$2" label="$3" code
   confirm "$label This sends one NEAR transaction that is expected to fail."
@@ -101,8 +120,9 @@ cmd_setup() {
   [[ -f "$agent_key" ]] || die "agent key file not found: $agent_key"
   read -rp "  x3-guard contract account [${owner}]: " contract
   contract="${contract:-$owner}"
-  read -rp "  Recipient NEAR account allowed by the mandate [x3-demo.near]: " recipient
-  recipient="${recipient:-x3-demo.near}"
+  read -rp "  Existing recipient NEAR account allowed by the mandate: " recipient
+  [[ -n "$recipient" ]] || die "a real recipient NEAR account that you control or intend to pay is required."
+  validate_near_recipient "$recipient"
   read -rp "  Owner's Solana wallet (sends USDC, receives refunds): " sol
   [[ "$sol" =~ ^[1-9A-HJ-NP-Za-km-z]{32,44}$ ]] || die "that is not a Solana address."
   read -rp "  Payment amount in USDC [25]: " amount

@@ -16,6 +16,7 @@ const TEST_MANAGER_KEY: [u8; 32] = [7; 32];
 
 fn ctx() {
     let builder = VMContextBuilder::new()
+        .current_account_id(accounts(0))
         .predecessor_account_id(accounts(0))
         .block_timestamp(NOW_MS * 1_000_000)
         .build();
@@ -208,6 +209,20 @@ fn v12_state_keeps_agent_bindings_approvals_and_mandates() {
         .get_mandate(accounts(0), accounts(1))
         .expect("the mandate survives");
     assert_eq!(mandate.version, 4);
+}
+
+#[test]
+#[should_panic(expected = "Method is private")]
+fn migration_can_only_be_called_by_the_contract_account() {
+    ctx();
+    write_v11();
+    let builder = VMContextBuilder::new()
+        .current_account_id(accounts(0))
+        .predecessor_account_id(accounts(1))
+        .block_timestamp(NOW_MS * 1_000_000)
+        .build();
+    testing_env!(builder);
+    let _ = Contract::migrate();
 }
 
 #[test]

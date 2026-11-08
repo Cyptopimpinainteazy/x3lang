@@ -123,8 +123,10 @@ predate versioning:
 
 The migration preserves both `LookupMap` prefixes and the pinned manager key, creates the
 mandate map when absent, records a `state_migrated` event, and refuses an already-current or
-future schema. Unit tests serialize both old layouts, run the migration, reload the new state,
-and check that intents, authorizations and mandates survive.
+future schema. `migrate` is `#[private]`: only an initializer call from the contract account
+itself may invoke it. Unit tests serialize both old layouts, run the migration, reload the new
+state, check that intents, authorizations and mandates survive, and verify an external caller
+cannot invoke the initializer.
 
 Upgrading the deployed testnet contract is an operator action and has not been performed.
 Snapshot state first, then deploy the replacement code and call `migrate` as the initializer.
