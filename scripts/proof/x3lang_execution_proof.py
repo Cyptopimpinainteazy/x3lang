@@ -12,6 +12,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from source_binding import SourceBindingError, verify_committed_source
+
 ROOT = Path(__file__).resolve().parents[2]
 INPUTS = (
     "x3-lang/compiler/tests/test_control_flow_e2e.rs",
@@ -39,21 +41,20 @@ def sha256(data: bytes) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--output-dir", required=True, type=Path,
+                        help="report directory outside the checkout or inside a Cargo target directory")
     args = parser.parse_args()
     output = args.output_dir.resolve()
-    output.mkdir(parents=True, exist_ok=True)
 
-    # Do not bind a green result to uncommitted source/test edits.
     for path in INPUTS:
         if not (ROOT / path).is_file():
             parser.error(f"required test is missing: {path}")
-        subprocess.run(["git", "-C", str(ROOT), "ls-files", "--error-unmatch", path],
-                       stdout=subprocess.DEVNULL, check=True)
-        if subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", "HEAD", "--", path]).returncode:
-            parser.error(f"test differs from committed HEAD: {path}")
+    try:
+        rev = verify_committed_source(ROOT, output_dir=output)
+    except SourceBindingError as exc:
+        parser.error(f"source binding refused: {exc}")
+    output.mkdir(parents=True, exist_ok=True)
 
-    rev = git("rev-parse", "HEAD")
     report = {
         "schema": "x3lang-local-execution-proof/v1",
         "status": "failed",
@@ -61,6 +62,10 @@ def main() -> int:
         "repository": git("config", "--get", "remote.origin.url"),
         "observed_utc": datetime.now(timezone.utc).isoformat(),
         "scope": "local Rust compiler/VM tests only; no EVM, SVM, NEAR or settlement finality proof",
+        "source_binding": (
+            "committed checkout checked before tests; "
+            "toolchain, dependencies and environment not attested"
+        ),
         "inputs_sha256": {p: sha256((ROOT / p).read_bytes()) for p in INPUTS},
         "toolchain": {},
         "tests": [],
@@ -116,6 +121,16 @@ def main() -> int:
             else:
                 print(f"PASS {name}", flush=True)
     finally:
+        try:
+            verify_committed_source(ROOT, output_dir=output, expected_revision=rev)
+            report["source_binding"] = (
+                "committed checkout checked before and after tests; "
+                "toolchain, dependencies and environment not attested"
+            )
+        except SourceBindingError as exc:
+            passed = False
+            report["source_binding_error"] = str(exc)
+            print(f"FAIL source binding: {exc}", flush=True)
         report["status"] = "passed" if passed and len(report["tests"]) == len(TESTS) else "failed"
         path = output / "manifest.json"
         path.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")

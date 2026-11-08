@@ -14,6 +14,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from source_binding import SourceBindingError, verify_committed_source
+
 ROOT = Path(__file__).resolve().parents[2]
 SUITES = (
     ("source_three_engine_agreement", "source_language", "std compile"),
@@ -28,17 +30,12 @@ MANIFEST = "crates/x3-integration/Cargo.toml"
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-def git(*args: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.STDOUT
-    ).strip()
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--output-dir", required=True, type=Path,
+                        help="report directory outside the checkout or inside a Cargo target directory")
     args = parser.parse_args()
     output = args.output_dir.resolve()
-    output.mkdir(parents=True, exist_ok=True)
     files = (MANIFEST,) + tuple(
         f"crates/x3-integration/tests/{test}.rs" for _, test, _ in SUITES
     )
@@ -48,15 +45,11 @@ def main() -> int:
             f"canonical runtime workspace absent: {missing}. "
             "Run this suite in xxxstar; standalone x3lang only mirrors the runner."
         )
-    for relative in files:
-        subprocess.run(
-            ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", relative],
-            stdout=subprocess.DEVNULL, check=True,
-        )
-        if subprocess.run(
-            ["git", "-C", str(ROOT), "diff", "--quiet", "HEAD", "--", relative]
-        ).returncode:
-            parser.error(f"uncommitted runtime test input: {relative}")
+    try:
+        rev = verify_committed_source(ROOT, output_dir=output)
+    except SourceBindingError as exc:
+        parser.error(f"source binding refused: {exc}")
+    output.mkdir(parents=True, exist_ok=True)
     report = {
         "schema": "x3lang-local-runtime-equivalence/v1",
         "status": "failed",
@@ -64,7 +57,11 @@ def main() -> int:
             "local X3 runtime, three execution paths, gas, opcode, rollback, "
             "signed receipt replay; NOT EVM/SVM/NEAR settlement or chain finality"
         ),
-        "repo_revision": git("rev-parse", "HEAD"),
+        "repo_revision": rev,
+        "source_binding": (
+            "committed checkout checked before tests; "
+            "toolchain, dependencies and environment not attested"
+        ),
         "observed_utc": datetime.now(timezone.utc).isoformat(),
         "inputs_sha256": {f: digest((ROOT / f).read_bytes()) for f in files},
         "tests": [],
@@ -104,6 +101,16 @@ def main() -> int:
             if code:
                 passed = False
     finally:
+        try:
+            verify_committed_source(ROOT, output_dir=output, expected_revision=rev)
+            report["source_binding"] = (
+                "committed checkout checked before and after tests; "
+                "toolchain, dependencies and environment not attested"
+            )
+        except SourceBindingError as exc:
+            passed = False
+            report["source_binding_error"] = str(exc)
+            print(f"FAIL source binding: {exc}", flush=True)
         report["status"] = (
             "passed" if passed and len(report["tests"]) == len(SUITES) else "failed"
         )
