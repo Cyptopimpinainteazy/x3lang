@@ -17,8 +17,7 @@ ce = ni.chain_evidence
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 DEPOSIT = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
 SENDER = "7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2"
-# Public on-chain program address used only as transaction metadata.
-SPL_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 DEPOSIT_SIG = "5Kd3NBUAdUnhyzenEwVLy9pBKxSwXvE9FMPyR4UKZvpe6E3AgLr6PbXCeLRAUQh8M2VeS1kz5Wnw6hcqEfWyqGcW"
 REFUND_SIG = "3pGoFxv2D5QBgG7Ckr4dkCcqufWaGyZT6fDZ6N4i3BRpYLcBy96HmYMkVuqoEhKDY4qbtCbP8WxF6wPCvhC1ZhJz"
 NEAR_USDC_CONTRACT = NEAR_USDC.split(":", 1)[1]
@@ -30,7 +29,7 @@ BSC_REFUND_TO = "0x000000000000000000000000000000000000dEaD"
 
 
 def balance(index, owner, amount, mint=USDC_MINT):
-    return {"accountIndex": index, "mint": mint, "owner": owner, "programId": SPL_PROGRAM_ID,
+    return {"accountIndex": index, "mint": mint, "owner": owner, "programId": TOKEN_PROGRAM,
             "uiTokenAmount": {"amount": str(amount), "decimals": 6, "uiAmount": amount / 1e6, "uiAmountString": str(amount / 1e6)}}
 
 
