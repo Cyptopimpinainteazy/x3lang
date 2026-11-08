@@ -58,3 +58,13 @@ A subsequent local run with the contract-wide quote-consumption patch added the 
 - The Sandbox fixture's authentic 1Click-manager signature proves signed quote terms only; its archived dry quote neither authorizes a deposit nor demonstrates settlement.
 - The patched WASM bytes differ from the public testnet deployment; source mutation test success does **not** update production code identity.
 - PR #94 and this stacked test PR must remain **draft** pending independent review and existing exact-head security gates, including private `xxxstar` peer checkout and deployed-byte proof. No mainnet assertions or unattended wallet operations.
+
+## Extended nonce-race stress cases (stacked test-only follow-up)
+
+Four additional real-node contention rounds use fresh nonces and alternate which future is polled first. For each round, two separately authorized agent accounts simultaneously invoke the production `agent_register_intent` ABI for the same owner and nonce, **with different payment amounts**; exactly one receipt must succeed, and the persisted intent must belong to that winner, contain its exact amount, contain no quote, and have no approvals. The original single-pair race is still included, for **five two-agent contention rounds per full Sandbox smoke**.
+
+A cross-owner namespace test then creates a second owner, registers its own mandate, and reuses a nonce already registered by the first owner. This must succeed independently. Read-only checks prove both records retain their respective owner and agent and do not share approval state. These are the actual contract's storage semantics, not simulated transactions or a synthetic lock.
+
+**Boundaries:** This finite matrix does not establish resistance to arbitrary concurrency levels, real RPC reordering, chain reorgs, or cross-chain settlement. Tests use ephemeral accounts and a disconnected NEAR Sandbox. Every incorrect receipt or persisted-state mismatch fails the smoke command; no required case is skipped.
+
+Reproduce from the repo root with `bash scripts/hackathon/guard_sandbox_smoke.sh`. The initial local extended run completed exit 0 against real locally deployed Guard WASM. Exact-head CI and independent review are still required before any merge.
