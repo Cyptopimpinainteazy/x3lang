@@ -74,6 +74,28 @@ async fn check_agent_intent(
         .context("check_agent_intent did not return a guard array")
 }
 
+/// A refused call must reach the chain with the Guard's own reason, never a bare trap.
+/// near-sdk reports `env::panic_str` / `require!` text to the runtime only when the WASM is
+/// built with `--cfg near`; otherwise the receipt reads "WebAssembly trap: ... unreachable".
+fn require_onchain_reason(label: &str, outcome: &dyn std::fmt::Debug, reasons: &[&str]) -> Result<()> {
+    let text = format!("{outcome:?}");
+    anyhow::ensure!(
+        !text.contains("unreachable"),
+        "{label}: refusal reached the chain as a bare `unreachable` trap (WASM built without --cfg near?): {text}"
+    );
+    anyhow::ensure!(
+        text.contains("Smart contract panicked"),
+        "{label}: refusal reason was not reported by the contract: {text}"
+    );
+    for reason in reasons {
+        anyhow::ensure!(
+            text.contains(reason),
+            "{label}: on-chain failure lacks {reason:?}: {text}"
+        );
+    }
+    Ok(())
+}
+
 fn guard_ok(checks: &[Value], guard: &str) -> bool {
     checks
         .iter()
@@ -198,6 +220,11 @@ async fn main() -> Result<()> {
         !rejected.is_success(),
         "Guard accepted a dry quote as a payable deposit!"
     );
+    require_onchain_reason(
+        "dry-quote accept_quote",
+        &rejected,
+        &["X3_QUOTE_REJECTED", "quote_kind", "do not deposit"],
+    )?;
     let record: Value = contract
         .call_function(
             "get_intent",
@@ -280,6 +307,11 @@ async fn main() -> Result<()> {
         !refused.is_success(),
         "sandbox accepted a forbidden recipient: {refused:?}"
     );
+    require_onchain_reason(
+        "forbidden-recipient agent_register_intent",
+        &refused,
+        &["X3_MANDATE_DENIED", "mandate_recipient"],
+    )?;
 
     let revoked = contract
         .call_function("revoke_mandate", json!({"agent": agent.clone()}))
@@ -327,6 +359,12 @@ async fn main() -> Result<()> {
         !after_revoke.is_success(),
         "sandbox accepted a registration after revocation: {after_revoke:?}"
     );
+    require_onchain_reason(
+        "post-revocation agent_register_intent",
+        &after_revoke,
+        &["X3_MANDATE_DENIED", "mandate_active"],
+    )?;
+    println!("X3_SANDBOX_REFUSAL_REASONS_ON_CHAIN local_only=true dry_quote=X3_QUOTE_REJECTED forbidden_recipient=X3_MANDATE_DENIED revoked=X3_MANDATE_DENIED bare_unreachable=false");
 
     println!("X3_SANDBOX_MANDATE_ACCEPT_REFUSE_REVOKE local_only=true allowed_registration=true forbidden_recipient_refused=true revoked_registration_refused=true");
     Ok(())

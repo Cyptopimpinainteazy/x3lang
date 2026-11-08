@@ -34,6 +34,20 @@
 //!
 //! Every write is paid by the caller: attach NEAR to cover the bytes added, and the excess is
 //! refunded in the same call.
+//!
+//! ## Build mode
+//!
+//! On-chain WASM must be compiled with `--cfg near` (this crate's `.cargo/config.toml` sets it,
+//! as `cargo near build` does). Without it near-sdk 5.x selects its off-chain fallbacks:
+//! `env::panic_str` and every `require!` discard their message and end in a bare WebAssembly
+//! `unreachable` trap, so a refusal is indistinguishable from a crash in an explorer. The
+//! `compile_error!` below makes that build impossible instead of silently shipping it.
+
+#[cfg(all(target_arch = "wasm32", not(near)))]
+compile_error!(
+    "x3-guard: WASM must be built with `--cfg near` (cargo-near, or this crate's .cargo/config.toml). \
+     Without it near-sdk drops every refusal reason and traps with `unreachable` on chain."
+);
 
 use near_sdk::borsh::io::{ErrorKind, Read, Write};
 use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
@@ -959,7 +973,10 @@ impl Contract {
         let failed: Vec<&str> = results.iter().filter(|r| !r.ok).map(|r| r.guard.as_str()).collect();
         require!(
             failed.is_empty(),
-            format!("quote rejected by {}; do not deposit", failed.join(", "))
+            format!(
+                "X3_QUOTE_REJECTED: quote rejected by {}; do not deposit",
+                failed.join(", ")
+            )
         );
         emit(
             "quote_accepted",
