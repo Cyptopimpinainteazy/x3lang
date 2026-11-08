@@ -382,6 +382,36 @@ fn payments_above_the_threshold_need_n_of_m_approvals() {
 }
 
 #[test]
+fn expired_mandate_cannot_record_late_approvals() {
+    let mut t = terms();
+    t.approval_above = Some(U128(20 * USDC));
+    t.approvers = vec![owner(), accounts(2)];
+    t.approval_threshold = 1;
+    // The intent remains within the mandate, but approval arrives after expiry.
+    let expiry = NOW_MS + 600_001;
+    t.expires_at_ms = expiry;
+    let mut c = with_mandate(t);
+    let (p, _, _) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "late_approval".into(), p);
+
+    let original = c.get_intent(owner(), "late_approval".into()).unwrap();
+    assert!(original.approvals.is_empty());
+
+    ctx(accounts(2), expiry, one_near());
+    let failure = panics(|| c.approve_intent(owner(), "late_approval".into()));
+    assert!(
+        failure.contains("X3_MANDATE_DENIED") && failure.contains("expired"),
+        "late approval must fail for expired mandate: {failure}"
+    );
+    let unchanged = c.get_intent(owner(), "late_approval".into()).unwrap();
+    assert!(
+        unchanged.approvals.is_empty(),
+        "an expired mandate recorded an approval"
+    );
+}
+
+#[test]
 fn terms_that_would_not_mean_what_they_say_are_refused() {
     let cases: Vec<(&str, Change<MandateTerms>)> = vec![
         ("program_sha256", Box::new(|t| t.program_sha256 = "x".into())),
