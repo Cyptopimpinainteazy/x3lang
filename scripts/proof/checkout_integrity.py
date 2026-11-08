@@ -12,8 +12,8 @@ class InputIntegrityError(RuntimeError):
 def _git(root: Path, *args: str) -> bytes:
     try:
         return subprocess.check_output(
-            ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
-             "-C", str(root), *args], stderr=subprocess.STDOUT,
+            ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.fileMode=true",
+             "-C", str(root), *args], stderr=subprocess.PIPE,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise InputIntegrityError(f"cannot inspect proof checkout: {exc}") from exc

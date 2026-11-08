@@ -24,28 +24,44 @@ SHARED = (
 SCOPED = ("x3-lang/", "scripts/proof/")
 
 
-def git(repo: Path, *args: str) -> str:
+def git_bytes(repo: Path, *args: str) -> bytes:
+    # Git warnings belong to diagnostics, never parsed hashes, paths or blob bytes.
     return subprocess.check_output(
-        ["git", "-C", str(repo), *args], text=True, stderr=subprocess.STDOUT
-    ).strip()
+        ["git", "-C", str(repo), *args], stderr=subprocess.PIPE,
+    )
+
+
+def git(repo: Path, *args: str) -> str:
+    return git_bytes(repo, *args).decode().strip()
 
 
 def changes(repo: Path, base: str | None) -> set[str]:
     if not base:
         return set()
-    # Use branch divergence, not a reviewer's guessed file list.
     upstream = git(repo, "merge-base", base, "HEAD")
-    # Disable rename folding so the old path's deletion is checked as well.
-    # Include every change type, including regular-file/symlink transitions.
-    names = subprocess.check_output(
-        ["git", "-C", str(repo), "diff", "--no-renames", "--name-only", "-z",
-         upstream, "HEAD", "--", *SCOPED], stderr=subprocess.STDOUT,
-    )
+    # Disabling rename folding inventories both paths; do not filter out type changes.
+    names = git_bytes(repo, "diff", "--no-renames", "--name-only", "-z",
+                      upstream, "HEAD", "--", *SCOPED)
     return {os.fsdecode(name) for name in names.split(b"\0") if name}
 
 
-def identity(path: Path) -> tuple[str, str] | None:
-    """Compare Git file modes and stored bytes without following symlinks."""
+def worktree_identity(repo: Path, relative: str) -> tuple[str, str] | None:
+    """Check every parent without following links before reading a final file/link."""
+    rel = Path(relative)
+    if rel.is_absolute() or not rel.parts or ".." in rel.parts:
+        raise ValueError("invalid repository-relative input path")
+    parent = repo
+    for part in rel.parts[:-1]:
+        parent /= part
+        try:
+            mode = parent.lstat().st_mode
+        except FileNotFoundError:
+            return None
+        if stat.S_ISLNK(mode):
+            raise ValueError("proof input has a symlink parent")
+        if not stat.S_ISDIR(mode):
+            raise ValueError("proof input parent is not a directory")
+    path = repo / rel
     try:
         mode = path.lstat().st_mode
     except FileNotFoundError:
@@ -53,8 +69,34 @@ def identity(path: Path) -> tuple[str, str] | None:
     if stat.S_ISLNK(mode):
         return "120000", hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
     if stat.S_ISREG(mode):
-        return ("100755" if mode & 0o111 else "100644"), hashlib.sha256(path.read_bytes()).hexdigest()
+        git_mode = "100755" if mode & stat.S_IXUSR else "100644"
+        return git_mode, hashlib.sha256(path.read_bytes()).hexdigest()
     raise ValueError("unsupported file type")
+
+
+def committed_identity(repo: Path, relative: str) -> tuple[str, str] | None:
+    """Read the exact HEAD mode and stored blob, including literal unusual filenames."""
+    records = git_bytes(repo, "ls-tree", "-z", "HEAD", "--", ":(literal)" + relative)
+    entries = [entry for entry in records.split(b"\0") if entry]
+    if not entries:
+        return None
+    if len(entries) != 1:
+        raise ValueError("proof path does not identify exactly one committed file")
+    metadata, name = entries[0].split(b"\t", 1)
+    mode, kind, object_id = metadata.split()
+    if name != os.fsencode(relative) or kind != b"blob" or mode not in (b"100644", b"100755", b"120000"):
+        raise ValueError("proof input is not a supported committed file type")
+    blob = git_bytes(repo, "cat-file", "blob", object_id.decode())
+    return mode.decode(), hashlib.sha256(blob).hexdigest()
+
+
+def identity(repo: Path, relative: str) -> tuple[str, str] | None:
+    """Require actual kind/bytes to match HEAD; then compare committed identities."""
+    actual = worktree_identity(repo, relative)
+    committed = committed_identity(repo, relative)
+    if actual != committed:
+        raise ValueError("working-tree input mode/bytes or uncommitted deletion differs from HEAD")
+    return committed
 
 
 def main() -> int:
@@ -78,8 +120,8 @@ def main() -> int:
     failures = []
     for rel in paths:
         try:
-            left, right = identity(ROOT / rel), identity(peer / rel)
-        except (OSError, ValueError) as exc:
+            left, right = identity(ROOT, rel), identity(peer, rel)
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
             failures.append((rel, f"cannot compare file: {exc}"))
             continue
         if left is None and right is None and rel not in SHARED:

@@ -31,7 +31,7 @@ TESTS = (
 
 def git(*args: str) -> str:
     return subprocess.check_output(
-        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.STDOUT
+        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.PIPE
     ).strip()
 
 
@@ -56,7 +56,7 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     rev = before["revision"]
     report = {
-        "schema": "x3lang-local-execution-proof/v1",
+        "schema": "x3lang-local-execution-proof/v2",
         "status": "failed",
         "repo_revision": rev,
         "repo_tree": before["tree"],
@@ -124,6 +124,7 @@ def main() -> int:
         except InputIntegrityError as exc:
             passed = False
             report["input_error"] = str(exc)
+            print(f"FAIL source integrity: {exc}", file=sys.stderr, flush=True)
         report["status"] = "passed" if passed and len(report["tests"]) == len(TESTS) else "failed"
         path = output / "manifest.json"
         path.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")

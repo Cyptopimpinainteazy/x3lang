@@ -3,6 +3,7 @@ name: X3Lang Exact-Head Local Execution Proof
 on:
   pull_request:
     paths:
+      - '.gitignore'
       - 'x3-lang/**'
       - 'scripts/proof/**'
       - 'tests/proof/**'

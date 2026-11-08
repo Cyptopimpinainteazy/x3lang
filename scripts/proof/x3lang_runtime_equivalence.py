@@ -32,7 +32,7 @@ def digest(data: bytes) -> str:
 
 def git(*args: str) -> str:
     return subprocess.check_output(
-        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.STDOUT
+        ["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.PIPE
     ).strip()
 
 def main() -> int:
@@ -60,7 +60,7 @@ def main() -> int:
         )
     output.mkdir(parents=True, exist_ok=True)
     report = {
-        "schema": "x3lang-local-runtime-equivalence/v1",
+        "schema": "x3lang-local-runtime-equivalence/v2",
         "status": "failed",
         "scope": (
             "local X3 runtime, three execution paths, gas, opcode, rollback, "
@@ -113,6 +113,7 @@ def main() -> int:
         except InputIntegrityError as exc:
             passed = False
             report["input_error"] = str(exc)
+            print(f"FAIL source integrity: {exc}", file=sys.stderr, flush=True)
         report["status"] = (
             "passed" if passed and len(report["tests"]) == len(SUITES) else "failed"
         )

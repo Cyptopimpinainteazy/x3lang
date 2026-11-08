@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -50,10 +51,15 @@ def initialize(repo, paths):
     git(repo, "commit", "--quiet", "-m", "fixture baseline")
 
 
-def invoke(module, repo, *args):
-    with patch.object(module, "ROOT", repo), patch.object(sys, "argv", [module.__name__, *args]), \
-            redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-        return module.main()
+def invoke(module, repo, *args, capture=None):
+    output, errors = io.StringIO(), io.StringIO()
+    try:
+        with patch.object(module, "ROOT", repo), patch.object(sys, "argv", [module.__name__, *args]), \
+                redirect_stdout(output), redirect_stderr(errors):
+            return module.main()
+    finally:
+        if capture is not None:
+            capture.update(stdout=output.getvalue(), stderr=errors.getvalue())
 
 
 class MirrorTests(unittest.TestCase):
@@ -100,6 +106,8 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(self.compare("--base-ref", baseline), 1)
         peer_target = self.peer / "x3-lang/new-test.rs"
         peer_target.write_bytes(target.read_bytes())
+        git(self.peer, "add", "x3-lang/new-test.rs")
+        git(self.peer, "commit", "--quiet", "-m", "mirror scoped input")
         self.assertEqual(self.compare("--base-ref", baseline), 0)
 
     def test_type_changes_are_checked_without_following_links(self):
@@ -118,6 +126,8 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(self.compare("--base-ref", baseline), 1)
         (self.peer / relative).unlink()
         (self.peer / relative).symlink_to("missing.rs")
+        git(self.peer, "add", relative)
+        git(self.peer, "commit", "--quiet", "-m", "mirror file type")
         self.assertEqual(self.compare("--base-ref", baseline), 0)
 
     def test_rename_checks_old_path_deletion_on_both_sides(self):
@@ -134,6 +144,8 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(MIRROR.changes(self.current, base), {"x3-lang/old.rs", "x3-lang/new.rs"})
         self.assertEqual(self.compare("--base-ref", base, "--peer-base-ref", peer_base), 1)
         (self.peer / "x3-lang/old.rs").unlink()
+        git(self.peer, "add", "x3-lang/old.rs")
+        git(self.peer, "commit", "--quiet", "-m", "mirror source deletion")
         self.assertEqual(self.compare("--base-ref", base, "--peer-base-ref", peer_base), 0)
 
     def test_executable_mode_and_required_symlinks_are_checked(self):
@@ -147,7 +159,63 @@ class MirrorTests(unittest.TestCase):
             file = repo / relative
             file.unlink()
             file.symlink_to("external.py")
+            git(repo, "add", relative)
+            git(repo, "commit", "--quiet", "-m", "committed required input symlink")
         self.assertEqual(self.compare(), 1)
+
+
+    def test_symlink_parent_cannot_substitute_identical_external_files(self):
+        source = self.peer / "x3-lang"
+        outside = self.root / "external-language"
+        shutil.copytree(source, outside)
+        shutil.rmtree(source)
+        source.symlink_to(outside, target_is_directory=True)
+        self.assertEqual(self.compare(), 1)
+
+    def test_committed_mode_mismatch_cannot_be_hidden_by_normalized_worktree_modes(self):
+        relative = MIRROR.SHARED[0]
+        target = self.peer / relative
+        target.chmod(0o755)
+        git(self.peer, "add", relative)
+        git(self.peer, "commit", "--quiet", "-m", "committed executable mode")
+        git(self.peer, "config", "core.fileMode", "false")
+        target.chmod(0o644)
+        self.assertEqual(self.compare(), 1)
+        target.chmod(0o755)
+        self.assertEqual(self.compare(), 1)
+        git(self.peer, "update-index", "--chmod=-x", relative)
+        git(self.peer, "commit", "--quiet", "-m", "restore committed mode")
+        target.chmod(0o644)
+        self.assertEqual(self.compare(), 0)
+
+    def test_new_and_deleted_mirror_paths_must_be_committed_on_both_sides(self):
+        relative = "x3-lang/new-implementation.rs"
+        baseline = git(self.current, "rev-parse", "HEAD")
+        (self.current / relative).write_text("new source\n")
+        git(self.current, "add", relative)
+        git(self.current, "commit", "--quiet", "-m", "new implementation")
+        (self.peer / relative).write_text("new source\n")
+        self.assertEqual(self.compare("--base-ref", baseline), 1)
+        git(self.peer, "add", relative)
+        git(self.peer, "commit", "--quiet", "-m", "mirror implementation")
+        self.assertEqual(self.compare("--base-ref", baseline), 0)
+        base, peer_base = (git(repo, "rev-parse", "HEAD") for repo in (self.current, self.peer))
+        git(self.current, "rm", "--quiet", relative)
+        git(self.current, "commit", "--quiet", "-m", "delete implementation")
+        (self.peer / relative).unlink()
+        args = ("--base-ref", base, "--peer-base-ref", peer_base)
+        self.assertEqual(self.compare(*args), 1)
+        git(self.peer, "add", relative)
+        git(self.peer, "commit", "--quiet", "-m", "mirror deletion")
+        self.assertEqual(self.compare(*args), 0)
+
+    def test_git_warning_stderr_does_not_become_a_diff_revision_or_path(self):
+        git(self.current, "update-ref", "refs/tags/HEAD", git(self.current, "rev-parse", "HEAD"))
+        warning = REAL_RUN(["git", "-C", str(self.current), "merge-base", "HEAD", "HEAD"],
+                           capture_output=True, text=True, check=True)
+        self.assertIn("ambiguous", warning.stderr)
+        self.assertEqual(MIRROR.changes(self.current, "HEAD"), set())
+        self.assertEqual(self.compare("--base-ref", "HEAD"), 0)
 
 
 class RunnerTests(unittest.TestCase):
@@ -190,8 +258,10 @@ class RunnerTests(unittest.TestCase):
             data = f"test result: ok. {cases} passed; 0 failed; 0 ignored\n".encode()
             return subprocess.CompletedProcess(command, cargo_code, stdout=data)
 
+        capture = {}
         with patch.object(subprocess, "run", side_effect=rust_process):
-            code = invoke(module, repo, "--output-dir", str(output))
+            code = invoke(module, repo, "--output-dir", str(output), capture=capture)
+        self.last_stderr = capture["stderr"]
         return code, json.loads((output / "manifest.json").read_text()), output
 
     def test_zero_executed_cases_are_refused(self):
@@ -224,6 +294,8 @@ class RunnerTests(unittest.TestCase):
                 code, report, output = self.run_fixture(module, repo, "positive")
                 self.assertEqual(code, 0)
                 self.assertEqual(report["status"], "passed")
+                expected_schema = "x3lang-local-execution-proof/v2" if hasattr(module, "INPUTS") else "x3lang-local-runtime-equivalence/v2"
+                self.assertEqual(report["schema"], expected_schema)
                 self.assertEqual(report["repo_revision"], git(repo, "rev-parse", "HEAD"))
                 self.assertEqual(report["repo_tree"], git(repo, "rev-parse", "HEAD^{tree}"))
                 self.assertEqual(report["source_binding"]["before"], report["source_binding"]["after"])
@@ -311,6 +383,7 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertEqual(report["status"], "failed")
                 self.assertIn("uncommitted", report["input_error"])
+                self.assertIn(report["input_error"], self.last_stderr)
                 self.assertIsNone(report["source_binding"]["after"])
 
     def test_head_mutation_during_tests_cannot_produce_passed_evidence(self):
@@ -326,6 +399,39 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(report["repo_revision"], before)
                 self.assertNotEqual(before, git(repo, "rev-parse", "HEAD"))
                 self.assertIn("HEAD/tree changed", report["input_error"])
+                self.assertIn(report["input_error"], self.last_stderr)
+
+
+    def test_executable_changes_are_refused_even_with_core_filemode_false(self):
+        for module, repo, _ in self.cases:
+            with self.subTest(module=module.__name__):
+                relative = self.BUILD_INPUTS[0]
+                target = repo / relative
+                git(repo, "config", "core.fileMode", "false")
+                target.chmod(0o755)
+                with self.assertRaises(SystemExit) as refusal:
+                    self.run_fixture(module, repo, "hidden-mode")
+                self.assertEqual(refusal.exception.code, 2)
+                target.chmod(0o644)
+                code, report, _ = self.run_fixture(
+                    module, repo, "mode-during-run", on_run=lambda: target.chmod(0o755),
+                )
+                self.assertEqual(code, 1)
+                self.assertEqual(report["status"], "failed")
+                self.assertIn("uncommitted", report["input_error"])
+                target.chmod(0o644)
+
+    def test_git_warning_stderr_does_not_contaminate_bound_hashes(self):
+        for module, repo, _ in self.cases:
+            with self.subTest(module=module.__name__):
+                git(repo, "update-ref", "refs/tags/HEAD", git(repo, "rev-parse", "HEAD"))
+                observed = REAL_RUN(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                    capture_output=True, text=True, check=True)
+                self.assertIn("ambiguous", observed.stderr)
+                code, report, _ = self.run_fixture(module, repo, "warning-stderr")
+                self.assertEqual(code, 0)
+                self.assertEqual(report["repo_revision"], observed.stdout.strip())
+                self.assertRegex(report["repo_tree"], r"^[0-9a-f]{40}$")
 
 
 if __name__ == "__main__":
