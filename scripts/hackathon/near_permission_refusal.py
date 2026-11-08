@@ -11,6 +11,7 @@ The pinned SDK's generic InvalidTransaction text is deliberately insufficient.
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass
 import hashlib
 import json
@@ -21,6 +22,9 @@ from typing import Any
 
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_EXPECTATION_BYTES = 4096
+MAX_SIGNED_TRANSACTION_BYTES = 131_072
+MAX_REQUEST_BYTES = 262_144
+MAX_CAPTURE_BYTES = 2_097_152
 
 
 class RefusalEvidenceError(ValueError):
@@ -142,6 +146,63 @@ def classify(raw_response: bytes, expected: Expectation) -> dict[str, Any]:
     }
 
 
+def _capture_base64(value: Any, maximum: int) -> bytes:
+    _require(type(value) is str and 0 < len(value) <= 4 * ((maximum + 2) // 3),
+             "missing or oversized base64 capture")
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (ValueError, UnicodeError) as error:
+        raise RefusalEvidenceError("invalid base64 capture") from error
+    _require(0 < len(raw) <= maximum, "empty or oversized decoded capture")
+    _require(base64.b64encode(raw).decode("ascii") == value, "noncanonical base64 capture")
+    return raw
+
+
+def classify_capture(raw_capture: bytes) -> dict[str, Any]:
+    """Check original request/response bytes received from the local harness.
+
+    Request identity binds the observation to the exact bytes submitted, not to
+    authenticated transaction semantics. No signature, node identity or chain
+    finality is verified here. A fabricated capture remains possible.
+    """
+    capture = _object(_parse(raw_capture, MAX_CAPTURE_BYTES), "capture")
+    _require(set(capture) == {"request_base64", "response_base64", "expectation"},
+             "unsupported capture fields")
+    values = _object(capture["expectation"], "expectation")
+    try:
+        expected = Expectation(**values)
+    except TypeError as error:
+        raise RefusalEvidenceError("invalid capture expectation fields") from error
+    raw_request = _capture_base64(capture["request_base64"], MAX_REQUEST_BYTES)
+    raw_response = _capture_base64(capture["response_base64"], MAX_RESPONSE_BYTES)
+    request = _object(_parse(raw_request, MAX_REQUEST_BYTES), "original request")
+    _require(set(request) == {"jsonrpc", "id", "method", "params"}, "unexpected request fields")
+    _require(request["jsonrpc"] == "2.0" and request["method"] == "send_tx",
+             "capture must be a send_tx JSON-RPC 2.0 request")
+    _require(request["id"] == expected.request_id, "request does not match independent expectation")
+    params = _object(request["params"], "request params")
+    _require(set(params) == {"signed_tx_base64", "wait_until"} and params["wait_until"] == "FINAL",
+             "request must submit one signed transaction with FINAL wait status")
+    signed_bytes = _capture_base64(params["signed_tx_base64"], MAX_SIGNED_TRANSACTION_BYTES)
+    digest = hashlib.sha256(signed_bytes).hexdigest()
+    prefix = f"x3-vault-{digest}-"
+    _require(expected.request_id.startswith(prefix), "request ID does not bind submitted transaction bytes")
+    counter = expected.request_id[len(prefix):]
+    _require(bool(counter) and counter.isascii() and counter.isdecimal() and len(counter) <= 20,
+             "invalid request sequence")
+    _require(str(int(counter)) == counter and int(counter) < 2**64, "noncanonical request sequence")
+    result = classify(raw_response, expected)
+    result.update({
+        "request_sha256": hashlib.sha256(raw_request).hexdigest(),
+        "signed_transaction_sha256": digest,
+        "request_payload_bound": True,
+        "original_request_base64": capture["request_base64"],
+        "original_response_base64": capture["response_base64"],
+        "rpc_response": _parse(raw_response, MAX_RESPONSE_BYTES),
+    })
+    return result
+
+
 def _read_bounded(path: Path, limit: int) -> bytes:
     with path.open("rb") as handle:
         raw = handle.read(limit + 1)
@@ -151,15 +212,24 @@ def _read_bounded(path: Path, limit: int) -> bytes:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--response", type=Path, required=True, help="original raw JSON-RPC response file")
-    parser.add_argument("--expectation", type=Path, required=True, help="independently prepared expectation JSON")
+    parser.add_argument("--response", type=Path, help="original raw JSON-RPC response file")
+    parser.add_argument("--expectation", type=Path, help="independently prepared expectation JSON")
+    parser.add_argument("--capture-stdin", action="store_true", help="bounded original-wire capture from the local harness")
     args = parser.parse_args(argv)
+    if args.capture_stdin:
+        if args.response is not None or args.expectation is not None:
+            parser.error("capture stdin cannot be mixed with file inputs")
+    elif args.response is None or args.expectation is None:
+        parser.error("supply both --response and --expectation, or --capture-stdin")
     try:
-        raw_expected = _read_bounded(args.expectation, MAX_EXPECTATION_BYTES)
-        values = _object(_parse(raw_expected, MAX_EXPECTATION_BYTES), "expectation")
-        expected = Expectation(**values)
-        result = classify(_read_bounded(args.response, MAX_RESPONSE_BYTES), expected)
-        result["expectation_sha256"] = hashlib.sha256(raw_expected).hexdigest()
+        if args.capture_stdin:
+            result = classify_capture(sys.stdin.buffer.read(MAX_CAPTURE_BYTES + 1))
+        else:
+            raw_expected = _read_bounded(args.expectation, MAX_EXPECTATION_BYTES)
+            values = _object(_parse(raw_expected, MAX_EXPECTATION_BYTES), "expectation")
+            expected = Expectation(**values)
+            result = classify(_read_bounded(args.response, MAX_RESPONSE_BYTES), expected)
+            result["expectation_sha256"] = hashlib.sha256(raw_expected).hexdigest()
     except (OSError, TypeError, RefusalEvidenceError) as error:
         print(f"INCONCLUSIVE: {error}", file=sys.stderr)
         return 2
