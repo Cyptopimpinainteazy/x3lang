@@ -758,6 +758,10 @@ export const MANDATE_WINDOW_MS = 86_400_000;
 export const MAX_PAYMENTS_PER_WINDOW = 64;
 const MANDATE_MAX_LIST = 16;
 const MANDATE_MAX_APPROVERS = 8;
+const MANDATE_U128_MAX = (1n << 128n) - 1n;
+// The Python compiler and four-digit UTC timestamps share this representability
+// bound, which is below both u64 and JavaScript's safe integer / Date limits.
+const MANDATE_MAX_EXPIRY_MS = 253402300799999;
 const MANDATE_KEYS = ["owner", "agent", "spend", "per_payment", "per_24h", "refund_to", "expires"];
 const mandateList = (text) => text.split(",").map((x) => x.trim().replace(/"/g, "")).filter(Boolean);
 const fieldName = (f) => (f.startsWith("allow_") ? f.replace("_", " ") : f);
@@ -822,10 +826,16 @@ function mandateAccount(value, field, line) {
   return value;
 }
 
+function mandateExpiryRangeError(line) {
+  return new X3Error("X3_MANDATE_EXPIRES", "expires must fit a UTC timestamp from 1970-01-01T00:00:00.000Z through 9999-12-31T23:59:59.999Z", { field: "expires", line });
+}
+
 export function parseExpiryMs(text, line = null) {
   const m = /^(\d+)(ms|s|m|h|d)$/.exec(String(text).trim());
-  if (!m || Number(m[1]) === 0) throw new X3Error("X3_MANDATE_EXPIRES", `expires '${text}' must be a positive <n>ms|s|m|h|d duration`, { field: "expires", line });
-  return Number(m[1]) * { ms: 1, s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
+  if (!m || BigInt(m[1]) === 0n) throw new X3Error("X3_MANDATE_EXPIRES", `expires '${text}' must be a positive <n>ms|s|m|h|d duration`, { field: "expires", line });
+  const milliseconds = BigInt(m[1]) * { ms: 1n, s: 1000n, m: 60000n, h: 3600000n, d: 86400000n }[m[2]];
+  if (milliseconds > BigInt(MANDATE_MAX_EXPIRY_MS)) throw mandateExpiryRangeError(line);
+  return Number(milliseconds);
 }
 
 const distinct = (xs) => new Set(xs).size === xs.length;
@@ -842,6 +852,9 @@ export function lowerMandate(parsed, tokens, nowMs, sourceSha256) {
   const destinationIds = destinations.map((d) => resolveAsset(tokens, d.chain, d.asset).assetId);
   const perPayment = baseUnits(parsed.per_payment, "per_payment");
   const per24h = baseUnits(parsed.per_24h, "per_24h");
+  for (const [field, amount] of [["per_payment", perPayment], ["per_24h", per24h]]) {
+    if (amount > MANDATE_U128_MAX) throw new X3Error("X3_MANDATE_LIMIT", `${field} must be at most ${MANDATE_U128_MAX} (u128)`, { field, line: at[field] });
+  }
   if (perPayment > per24h) throw new X3Error("X3_MANDATE_LIMIT", "per_payment must not exceed per_24h", { field: "per_payment", line: at.per_payment });
   const recipients = parsed.allow_recipients;
   const chains = [...new Set(destinations.map((d) => d.chain))].sort();
@@ -858,6 +871,7 @@ export function lowerMandate(parsed, tokens, nowMs, sourceSha256) {
     const found = parsed.requires.filter((r) => r.kind === kind).map((r) => upperBoundBps(r, `require ${kind}`));
     if (!found.length) throw new X3Error("X3_MANDATE_BOUND", `a mandate must bound \`require ${kind} <= …\`: the agent would otherwise choose it`, { field: "require" });
     bounds[kind] = Math.min(...found);
+    if (bounds[kind] > 10000) throw new X3Error("X3_MANDATE_BOUND", `require ${kind} must bound the compiled value to at most 10000 bps`, { field: `require ${kind}` });
   }
   let approvalAbove = null;
   let approvers = [];
@@ -873,7 +887,9 @@ export function lowerMandate(parsed, tokens, nowMs, sourceSha256) {
     if (approvers.includes(agent)) throw bad("the agent cannot approve its own payments");
     if (threshold < 1 || threshold > approvers.length) throw bad("the threshold must be 1..the number of approvers");
   }
+  if (!Number.isSafeInteger(nowMs)) throw mandateExpiryRangeError(at.expires);
   const expiresAt = nowMs + parseExpiryMs(parsed.expires, at.expires);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt < 0 || expiresAt > MANDATE_MAX_EXPIRY_MS) throw mandateExpiryRangeError(at.expires);
   return {
     name: parsed.name,
     owner,
