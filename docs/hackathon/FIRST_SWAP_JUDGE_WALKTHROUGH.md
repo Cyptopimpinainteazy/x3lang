@@ -4,7 +4,7 @@
 
 **Scope:** owner-bound X3Lang Python frontend policy, deployed NEAR testnet Tidepool Guard, authenticated maker quote, Base Sepolia ERC-20 transfer, Tidepool community testnet relay, finalized NEAR receipt, independently verified pre/post NEP-141 balances.
 
-**Release posture:** repository remains private until owner-approved hackathon disclosure. Never reuse the expired historical deposit address, nonce or quote.
+**Historical evidence:** never reuse the expired deposit address, nonce or quote.
 
 ## What judges should see (90–120-second sequence)
 
@@ -24,7 +24,11 @@ Show the separately deployed NEAR testnet Guard `x3guardlaunch2026.testnet`; bot
 The owner registered `x3_base_testnet_trade_001` and authorized the **genuine Tidepool maker-signed quote**, hash:
 `131f314c2532965f2678e79f3f7cc87cfe8238a549da1405e802f4c90db1034c`.
 
-Most importantly, the strict verifier recovered a **historical finalized NEAR block** containing the code hash, quote authorization, owner, nonce and exact program, **already on-chain at 2026-11-07 06:32:56 UTC**, before the Base transaction entered its block at 06:35:02 UTC. Approval block **276595150**, hash `sPCSCCtVtPE3d4JGvno83zNoK41K5Ns51xspSx3fH1x`. It is not just a present-day view.
+The strict verifier recovered a historical finalized NEAR block containing the
+code hash, quote authorization, owner, nonce and exact program. They were on-chain
+at **2026-11-07 06:32:56 UTC**, before the Base transaction entered its block at
+06:35:02 UTC. Approval block **276595150**, hash
+`sPCSCCtVtPE3d4JGvno83zNoK41K5Ns51xspSx3fH1x`.
 
 **00:35–00:55 | Real source-chain execution, with FINALIZED head**
 
@@ -40,7 +44,9 @@ https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d
 
 Independent NEAR RPC evidence shows `FINAL` execution and **six successful receipts**. The verifier's `ft_withdraw` and token contract's actual `ft_transfer` credited **997,400 base units = 0.997400 test USDC** to **`x3lang.testnet`**, above the maker-signed minimum of **987,426 units**.
 
-Canonical finalized recipient balance at block 276593025 was **100.000000 test USDC**; by block 276596190 it was **100.997400 test USDC**. The actual token transfer receipt was included at block **276595461**, inside the snapshot interval. This is not merely a provider claim or a balance screenshot.
+Canonical finalized recipient balance at block 276593025 was **100.000000 test USDC**;
+by block 276596190 it was **100.997400 test USDC**. The token transfer receipt was
+included at block **276595461**, inside the snapshot interval.
 
 **01:15–01:35 | Demonstrate the hard denials**
 
