@@ -77,20 +77,17 @@ async fn main() -> Result<()> {
                 receiver_id: vault.to_string(),
                 method_names: vec!["request_payment".into()],
             }),
-            pubkey.clone(),
+            pubkey,
         )
         .with_signer(full.clone())
         .send_to(&network)
         .await?
         .assert_success();
-    let recorded = Account(agent.clone())
-        .access_key(pubkey.clone())
-        .fetch_from(&network)
-        .await?;
+    let recorded = Account(agent.clone()).access_key(pubkey).fetch_from(&network).await?;
     match &recorded.data.permission {
         AccessKeyPermission::FunctionCall(permission) => {
             ensure!(
-                permission.receiver_id == vault.to_string()
+                permission.receiver_id.as_str() == vault.as_str()
                     && permission.method_names == vec!["request_payment".to_string()],
                 "agent key grants broader methods or receiver than approved"
             );
@@ -174,6 +171,19 @@ async fn main() -> Result<()> {
         .send_to(&network)
         .await?;
     ensure!(!replay.is_success(), "replayed nonce permitted");
+
+    // Even the owner cannot recover live escrow while the mandate is active.
+    let active_recovery = contract
+        .call_function("recover_available", json!({"amount":"500000000000000000000000"}))
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(owner.clone(), full.clone())
+        .send_to(&network)
+        .await?;
+    ensure!(
+        !active_recovery.is_success(),
+        "active owner mandate allowed escrow recovery"
+    );
     contract
         .call_function("revoke", json!({}))
         .transaction()
@@ -204,6 +214,92 @@ async fn main() -> Result<()> {
         "successful payment reverted due to later denial"
     );
     println!("X3_VAULT_SANDBOX_NONCE_REPLAY_AND_REVOCATION_REFUSED local_only=true");
+
+    // The compromised scoped key has no permission for owner recovery.
+    let agent_recovery = contract
+        .call_function("recover_available", json!({"amount":"100000000000000000000000"}))
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(agent.clone(), scoped.clone())
+        .send_to(&network)
+        .await;
+    ensure!(
+        match agent_recovery {
+            Ok(result) => !result.is_success(),
+            Err(_) => true, // RPC/SDK rejects a FunctionCall key with wrong method.
+        },
+        "scoped agent was able to recover owner escrow"
+    );
+
+    let available_before: Value = contract
+        .call_function("available", json!({}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(
+        available_before == "900000000000000000000000",
+        "unexpected escrow before owner recovery: {available_before:?}"
+    );
+    // Observe real Sandbox account balances, not just an internal ledger delta.
+    let owner_balance_before = Tokens::account(owner.clone())
+        .near_balance()
+        .fetch_from(&network)
+        .await?
+        .total
+        .as_yoctonear();
+    let vault_balance_before = Tokens::account(vault.clone())
+        .near_balance()
+        .fetch_from(&network)
+        .await?
+        .total
+        .as_yoctonear();
+    // Actual local chain Promise transfer and final callback must both succeed.
+    let owner_recovery = contract
+        .call_function("recover_available", json!({"amount":"500000000000000000000000"}))
+        .transaction()
+        .gas(NearGas::from_tgas(140))
+        .with_signer(owner.clone(), full.clone())
+        .send_to(&network)
+        .await?;
+    ensure!(
+        owner_recovery.is_success(),
+        "owner recovery failed on real Sandbox node: {owner_recovery:?}"
+    );
+    let available_after: Value = contract
+        .call_function("available", json!({}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(
+        available_after == "400000000000000000000000",
+        "owner recovery did not debit exactly 0.5 test NEAR: {available_after:?}"
+    );
+    let owner_balance_after = Tokens::account(owner.clone())
+        .near_balance()
+        .fetch_from(&network)
+        .await?
+        .total
+        .as_yoctonear();
+    let vault_balance_after = Tokens::account(vault.clone())
+        .near_balance()
+        .fetch_from(&network)
+        .await?
+        .total
+        .as_yoctonear();
+    let owner_net = owner_balance_after
+        .checked_sub(owner_balance_before)
+        .ok_or_else(|| anyhow::anyhow!("owner balance decreased during recovery"))?;
+    ensure!(
+        owner_net >= 4u128 * 10u128.pow(23),
+        "owner did not receive the 0.5 NEAR recovery after gas: net={owner_net}"
+    );
+    ensure!(
+        vault_balance_before >= vault_balance_after + 5u128 * 10u128.pow(23),
+        "vault account balance did not fund owner recovery"
+    );
+    println!("X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS local_only=true owner_only=true active_mandate_denied=true recovered_yoctonear=500000000000000000000000 pending_payout_protected_by_unit_tests=true owner_net_yoctonear={owner_net} vault_account_balance_decreased=true");
     println!("X3_VAULT_SANDBOX_COMPLETE agent_key_restricted=true funds_vault_custodied=true public_chain=false");
     Ok(())
 }
