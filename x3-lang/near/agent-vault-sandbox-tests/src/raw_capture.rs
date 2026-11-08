@@ -23,7 +23,7 @@ fn prepare_request(signed_bytes: &[u8], expectation: &mut Value) -> Result<Vec<u
         write!(&mut digest, "{byte:02x}")?;
     }
     let sequence = REQUEST_SEQUENCE
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
         .map_err(|_| anyhow::anyhow!("raw request sequence exhausted"))?;
     let request_id = format!("x3-vault-{digest}-{sequence}");
     expectation
