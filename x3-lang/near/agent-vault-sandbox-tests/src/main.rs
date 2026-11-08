@@ -1,10 +1,12 @@
 //! Real offline NEAR Sandbox transactions; no public wallets, no real funds.
 use anyhow::{ensure, Result};
-use base64::{prelude::BASE64_STANDARD, Engine as _};
 use near_api::types::{transaction::actions::FunctionCallPermission, AccessKeyPermission};
 use near_api::{Account, AccountId, Contract, NearGas, NearToken, NetworkConfig, Signer, Tokens, Transaction};
 use near_openapi_types::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use serde_json::{json, Value};
+
+mod raw_capture;
+use raw_capture::send_signed_raw;
 
 fn require_access_key_error<'a>(response: &'a Value, expected: &Value) -> Result<&'a Value> {
     ensure!(
@@ -64,39 +66,6 @@ fn require_policy_failure(
         expected_reason
     );
     Ok(())
-}
-
-async fn send_signed_raw(
-    network: &NetworkConfig,
-    signed: impl Into<near_api::types::transaction::SignedTransaction>,
-) -> Result<Value> {
-    let url = network
-        .rpc_endpoints
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("sandbox network has no RPC endpoint"))?
-        .url
-        .clone();
-    let signed = signed.into();
-    let signed_tx_base64 = BASE64_STANDARD.encode(borsh::to_vec(&signed)?);
-    let response = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?
-        .post(url)
-        .json(&json!({
-            "jsonrpc": "2.0",
-            "id": "x3-vault-raw-rejection",
-            "method": "send_tx",
-            "params": {
-                "signed_tx_base64": signed_tx_base64,
-                "wait_until": "FINAL"
-            }
-        }))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-    Ok(response)
 }
 
 #[tokio::main]
@@ -211,7 +180,7 @@ async fn main() -> Result<()> {
         .transaction
         .signed()
         .ok_or_else(|| anyhow::anyhow!("direct transfer transaction was not signed"))?;
-    let direct_observation = send_signed_raw(&network, direct_signed).await?;
+    let direct_observation = send_signed_raw(&network, direct_signed, json!({"case":"direct_transfer"})).await?;
     require_access_key_error(&direct_observation, &json!("RequiresFullAccess"))?;
     let attacker_balance_after = Tokens::account(attacker.clone())
         .near_balance()
@@ -344,7 +313,12 @@ async fn main() -> Result<()> {
         .transaction
         .signed()
         .ok_or_else(|| anyhow::anyhow!("agent recovery transaction was not signed"))?;
-    let recovery_observation = send_signed_raw(&network, agent_recovery_signed).await?;
+    let recovery_observation = send_signed_raw(
+        &network,
+        agent_recovery_signed,
+        json!({"case":"wrong_method","method_name":"recover_available"}),
+    )
+    .await?;
     require_access_key_error(
         &recovery_observation,
         &json!({"MethodNameMismatch":{"method_name":"recover_available"}}),
