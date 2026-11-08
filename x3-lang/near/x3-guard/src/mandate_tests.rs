@@ -3,6 +3,12 @@
 
 use super::*;
 use crate::mandate::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+// Only for synthetic local fixture generation. Distinct payment quotes should
+// have distinct destinations; the explicit collision regression in tests.rs
+// intentionally reuses a destination to test the production rejection.
+static NEXT_SYNTHETIC_DEPOSIT: AtomicU64 = AtomicU64::new(1);
 
 const DAY_MS: u64 = 86_400_000;
 const USDC: u128 = 1_000_000;
@@ -63,6 +69,10 @@ fn quote_at(now_ms: u64, amount: u128) -> (Policy, String, String) {
     p.deadline_ms = now_ms + 600_000;
     p.amount = U128(amount);
     let mut q = live_payload();
+    let serial = NEXT_SYNTHETIC_DEPOSIT.fetch_add(1, Ordering::Relaxed);
+    let unique_address =
+        bs58::encode(Sha256::digest(format!("x3-local-fixture-deposit-{serial}").as_bytes())).into_string();
+    q["depositAddress"] = json!(unique_address);
     for field in ["amount", "amountIn", "minAmountIn"] {
         q[field] = json!(amount.to_string());
     }
@@ -288,6 +298,35 @@ fn a_quote_that_fails_its_guards_does_not_count_against_the_cap() {
 }
 
 #[test]
+fn agent_cannot_replay_a_consumed_signed_quote_or_charge_twice() {
+    let mut c = with_mandate(terms());
+    let (p, signed_payload, signature) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "agent_first".into(), p.clone());
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "agent_second".into(), p);
+    ctx(agent(), NOW_MS, one_near());
+    assert!(c
+        .agent_accept_quote(owner(), "agent_first".into(), signed_payload.clone(), signature.clone(),)
+        .iter()
+        .all(|g| g.ok));
+    assert_eq!(
+        c.get_mandate(owner(), agent()).unwrap().spent_in_window(NOW_MS),
+        (25 * USDC, 1)
+    );
+    ctx(agent(), NOW_MS, one_near());
+    let refused = panics(|| c.agent_accept_quote(owner(), "agent_second".into(), signed_payload, signature));
+    assert!(refused.contains("X3_NEAR_QUOTE_REPLAY"), "{refused}");
+    let other = c.get_intent(owner(), "agent_second".into()).unwrap();
+    assert!(other.quote.is_none(), "replayed agent quote was stored");
+    assert_eq!(
+        c.get_mandate(owner(), agent()).unwrap().spent_in_window(NOW_MS),
+        (25 * USDC, 1),
+        "a rejected quote must not increase rolling spend"
+    );
+}
+
+#[test]
 fn revoking_stops_the_agent_at_once_and_replacing_voids_old_intents() {
     let mut c = with_mandate(terms());
     let (p, text, sig) = quote_at(NOW_MS, 25 * USDC);
@@ -379,6 +418,36 @@ fn payments_above_the_threshold_need_n_of_m_approvals() {
     assert!(panics(|| c.approve_intent(owner(), "a_big".into())).contains("already accepted"));
     ctx(accounts(2), NOW_MS, one_near());
     assert!(panics(|| c.approve_intent(owner(), "a_small".into())).contains("needs no approval"));
+}
+
+#[test]
+fn expired_mandate_cannot_record_late_approvals() {
+    let mut t = terms();
+    t.approval_above = Some(U128(20 * USDC));
+    t.approvers = vec![owner(), accounts(2)];
+    t.approval_threshold = 1;
+    // The intent remains within the mandate, but approval arrives after expiry.
+    let expiry = NOW_MS + 600_001;
+    t.expires_at_ms = expiry;
+    let mut c = with_mandate(t);
+    let (p, _, _) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "late_approval".into(), p);
+
+    let original = c.get_intent(owner(), "late_approval".into()).unwrap();
+    assert!(original.approvals.is_empty());
+
+    ctx(accounts(2), expiry, one_near());
+    let failure = panics(|| c.approve_intent(owner(), "late_approval".into()));
+    assert!(
+        failure.contains("X3_MANDATE_DENIED") && failure.contains("expired"),
+        "late approval must fail for expired mandate: {failure}"
+    );
+    let unchanged = c.get_intent(owner(), "late_approval".into()).unwrap();
+    assert!(
+        unchanged.approvals.is_empty(),
+        "an expired mandate recorded an approval"
+    );
 }
 
 #[test]

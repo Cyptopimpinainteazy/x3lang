@@ -20,6 +20,10 @@ near-sdk = { version = "5.30", default-features = false, features = ["unit-testi
 ed25519-dalek = "2"
 sha2 = "0.10"
 
+# `cfg(near)` is set for wasm32 by .cargo/config.toml (as cargo-near does); see src/lib.rs.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(near)"] }
+
 [profile.release]
 codegen-units = 1
 opt-level = "z"

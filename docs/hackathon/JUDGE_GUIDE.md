@@ -1,12 +1,63 @@
 # X3 Shield — Judge Guide
 
-**Status: November 6, 2026 release candidate.** Distinguish tested code, signed
-quotes, observed testnet transactions, and proven causal settlement. This
-repository has NEAR testnet evidence, but no public mainnet deployment or
-payment evidence. Do not invent any.
+Start with the evidence for the claim you want to verify. The three checks
+below can be completed without a wallet. They cover the AI Security & Defense
+and Agent Economy submission.
 
-**Track focus:** AI Security & Defense and Agent Economy. DeFi routing is roadmap
-work until a separately evidenced deposit and settlement exist.
+## 1. Run the offline policy demo
+
+From the repo root, use Python with [the project dependencies](../../x3-lang/requirements.txt):
+
+```bash
+python3 scripts/hackathon/demo.py
+```
+
+In panel 3, find `prompt-injection-recipient`: the [checked-in X3Lang
+request](../../x3-lang/examples/near_intents_agent_denied.x3) to `attacker.near`
+returns `denied_by_policy` with `mandate_recipient`. This is a local policy
+evaluation over a fixture. If you cannot run Python, the
+[README example](../../README.md#what-a-prompt-injection-looks-like) shows
+the request, the owner’s allowlist, and the expected result.
+
+## 2. Inspect the testnet Guard decisions
+
+- **Agent intent:** On `x3lang.testnet`, `agent_register_intent` refused the request
+  to `attacker.near`. The [failed transaction](https://testnet.nearblocks.io/txns/AhVBD7oXfwsixBipupjCzuhNdqunjdXJnLz3LXnmfnN8)
+  records the failure. The [archived policy view](../../evidence/near-guard-testnet-live-2026-11-06.md)
+  identifies `mandate_recipient`. The [allowed control](https://testnet.nearblocks.io/txns/DPJfcRUGk56h8sSsFsDFFgUMQAiyBCtpMuvquF9FvTct)
+  registered an intent for the permitted recipient.
+- **1Click quote:** On `x3lang-guard-20261106.testnet`, Guard refused an official
+  signed [dry quote](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q)
+  with a recipient mismatch and accepted a separate
+  [live quote](https://testnet.nearblocks.io/txns/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ)
+  that matched policy. The live quote authorized a deposit address and the demo
+  stopped before funding it. The [archived Guard evidence](GUARD_TESTNET_EVIDENCE.md)
+  records the signature, recipient, and dry-quote checks. Use the archived
+  evidence for the reason if the explorer shows only a generic trap.
+
+## 3. Verify the archived Tidepool delivery
+
+A separate testnet route used an owner-authorized Tidepool Guard before the
+[Base Sepolia transfer](https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9)
+of **1.000000 test USDC**. The [finalized NEAR payout](https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d)
+credited **0.997400 test USDC** to `x3lang.testnet`. The
+[certificate and receipt details](FIRST_FINALIZED_SWAP_EVIDENCE.md) record
+historical Guard approval, finalized chain observations, and the recipient’s
+balance change.
+
+From the repo root, replay the archived evidence offline:
+
+```bash
+PYTHONPATH=x3-lang:scripts/hackathon python3 scripts/hackathon/verify_first_swap_archive.py
+```
+
+Expect `PASS` in `offline-signed-evidence` mode, with both transaction hashes
+and the amounts in base units. The verifier checks the archived signed quote
+and certificate. The optional `--live` flag rechecks the historical records over
+RPC. If the RPC recheck fails, use the offline command to inspect the archived
+evidence and keep the RPC result separate. Both chain records document
+the movements, and linking them as one delivery relies on the **trusted
+Tidepool testnet relay**. Cryptographic cross-chain atomicity remains unproven.
 
 ## Why X3 Shield is different from the NEAR Agent API
 
@@ -44,18 +95,19 @@ accepted by finalized transaction
 [`6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ`](https://explorer.testnet.near.org/transactions/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ)
 as a positive control. It stopped before deposit; no funds moved.
 
-**Still missing:** a live manager-signed quote with forbidden terms refused
-by `agent_accept_quote`/`mandate_recipient`, independent light-client
-authentication, a deposit, settlement, and cross-chain causality. Invalid
-signatures, dry-only terms, and the test-only mock-chain signer are not
-substitutes for those claims.
+**Still missing for this 1Click demonstration:** a live manager-signed quote
+with forbidden terms refused by `agent_accept_quote`/`mandate_recipient`,
+independent light-client authentication of the refusal, and a funded 1Click
+deposit and settlement. Those claims require evidence from the live 1Click
+path.
 
 **The eventual flow** is agent request → `.x3` policy → pinned-key signed
 1Click quote → deployed Guard's permit/refuse decision → authentic NEAR
 consensus proof of that decision. This release proves local policy refusal,
 real testnet deployment and contract behavior, and the signed-quote checks
-listed above. It does not prove the complete independently authenticated
-end-to-end flow or any transfer/settlement.
+listed above. The 1Click demonstration ends at deposit authorization. See
+[the separate Tidepool delivery](#3-verify-the-archived-tidepool-delivery)
+for the recorded testnet transfer.
 
 ### References to the baseline
 
@@ -238,10 +290,11 @@ enforcement is independently proven.
 | Owner mandate and revocation | NEAR contract transaction hashes | VERIFIED TESTNET: `J4Wrx…`, `7aVon…` |
 | Allowed official-live quote acceptance | NEAR tx + nonce + quote guard result | VERIFIED TESTNET OWNER PATH: `6B6k…`; no deposit |
 | Official dry quote with forbidden recipient refused | Manager signature check + failure tx | VERIFIED TESTNET: `check_quote` signature ok, recipient mismatch, `3Q7q…` failure |
-| Prompt-injected agent intent refused by recipient mandate | Finalized failure tx + `check_agent_intent` | VERIFIED TESTNET: `mandate_recipient`, `AhVBD…`; allowed control `DPJfc…` |
+| Agent intent to `attacker.near` refused by recipient mandate | Finalized failure tx + `check_agent_intent` | VERIFIED TESTNET: `mandate_recipient`, `AhVBD…`; allowed control `DPJfc…` |
 | Live forbidden quote refused by agent mandate | Live manager-signed failure tx and `mandate_recipient` result | PENDING |
-| Solana USDC deposit | Finalized source transfer tx + mint and amount | PENDING |
-| NEAR USDC receipt | Destination tx / balance observation, with attribution caveat | PENDING |
+| 1Click Solana USDC deposit | Finalized source transfer tx + mint and amount | PENDING |
+| 1Click NEAR USDC receipt | Destination tx / balance observation, with attribution caveat | PENDING |
+| Tidepool Base Sepolia → NEAR testnet delivery | Finalized source transfer, historical Guard approval, NEAR token receipt and balance change | [RECORDED: 1.000000 sent, 0.997400 delivered](#3-verify-the-archived-tidepool-delivery) via the trusted Tidepool relay |
 | Real local model red team | Model/provider, actual output, compiled artifact | VERIFIED LOCAL: `qwen3:8b`, 8 cases; 7 model refusals and one safe real-recipient program neutralized by effect checks |
 | Cryptographic solver causality | Independent cross-chain attribution proof | NOT PROVEN |
 
@@ -258,8 +311,8 @@ call, compiler and output. If it is only a handwritten example, say so.
 deployed testnet dry-quote recipient-mismatch failure and live allowed
 acceptance. Say that the live testnet acceptance stopped before deposit.
 
-**01:45–02:35** Open the exact testnet transaction URLs and evidence hashes.
-Do not show Solana deposit evidence because none exists.
+**01:45–02:35** Open the separate [Tidepool transfer and payout](#3-verify-the-archived-tidepool-delivery).
+Show both transaction hashes, the amounts, and the trusted-relay boundary.
 
 **02:35–03:00** Show the judge gate's test results, baseline comparison,
 source code and what has **not** yet been proven.

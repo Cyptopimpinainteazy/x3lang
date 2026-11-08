@@ -6,13 +6,16 @@ address. Guard does not hold funds or control transfers made outside its methods
 
 Built for the NEAR HACKATHON 2026: AI Security & Defense (primary), Agent Economy.
 
-| What you can check yourself | How |
-|---|---|
-| A prompt-injected payment to `attacker.near` is refused by the owner's rules | `python3 scripts/hackathon/demo.py` (needs Python dependencies; demo is offline) |
-| A 1 test USDC Base Sepolia → NEAR testnet trade settled with independently verified finality | [immutable certificate + receipts](docs/hackathon/FIRST_FINALIZED_SWAP_EVIDENCE.md) (trusted Tidepool testnet relay, not native bridge) |
-| On NEAR testnet, an official dry quote with a valid 1Click signature but the wrong recipient was refused by the deployed contract | [`3Q7q…` on nearblocks](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q), [evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) |
-| Real NEAR validator signatures verified offline: 99.32% of stake signed block 276420402 | [two commands below](#verify-near-validator-signatures-offline) |
-| The deployed contract is the code in this repo, byte for byte | [`GUARD_WASM_BYTE_REPRODUCIBILITY.md`](docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md) |
+## Start here for judging
+
+| What you want to verify | Where to start | What the result establishes |
+|---|---|---|
+| Why the owner’s policy refused a payment request | [Run the offline policy demo](docs/hackathon/JUDGE_GUIDE.md#1-run-the-offline-policy-demo) | The checked-in request to `attacker.near` triggers `mandate_recipient` locally. |
+| What the deployed NEAR Guard refused or authorized | [Inspect the testnet Guard decisions](docs/hackathon/JUDGE_GUIDE.md#2-inspect-the-testnet-guard-decisions) | Guard refused a request to `attacker.near` and separately refused an official 1Click dry quote. An allowed 1Click quote stopped at deposit authorization. |
+| Which transfer delivered funds | [Verify the archived Tidepool delivery](docs/hackathon/JUDGE_GUIDE.md#3-verify-the-archived-tidepool-delivery) | Base Sepolia sent 1.000000 test USDC and `x3lang.testnet` received 0.997400 test USDC. The two finalized chain records are linked by a trusted Tidepool testnet relay. |
+
+For supporting checks, see [offline NEAR validator signatures](#verify-near-validator-signatures-offline)
+and [deployed Guard WASM reproducibility](docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md).
 
 ## The problem
 
@@ -123,11 +126,12 @@ account `x3lang-guard-20261106.testnet`), [evidence](evidence/near-guard-testnet
 
 **Real finalized two-chain testnet transfer**: 1.000000 test USDC from Base Sepolia to NEAR testnet through the trusted Tidepool community testnet, authorized by a separately deployed, byte-reproducible on-chain Guard (`x3guardlaunch2026.testnet`) **before** the source transfer. The NEAR recipient `x3lang.testnet` received exactly **0.997400 test USDC**, above the signed minimum; two independent Base RPCs verified source finality and NEAR RPCs verified the finalized destination receipt plus historical balance increase. Original immutable evidence: [frozen signed quote + final certificate](docs/hackathon/FIRST_FINALIZED_SWAP_EVIDENCE.md), [full judge walkthrough](docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md), [source Base transaction](https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9), [finalized NEAR payout](https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d) and [strict proof JSON](evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json). This is **trusted relayer testnet settlement**, not independent cryptographic cross-chain atomicity, and it did **not** use the newer draft EVM/NEAR scoped-agent vaults.
 
-On the explorer, a refused call on these deployments shows a generic
-`WebAssembly trap: unreachable`, not the reason. The contract was built without near-sdk's
-on-chain mode, which discards refusal messages; the reason is readable through the
-`check_quote` view. The [evidence page](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) records
-the cause and which evidence is a chain receipt and which is a view.
+An explorer failure can show only a generic `WebAssembly trap: unreachable`.
+For the refusal reason, see the archived `check_agent_intent` result in the
+[agent-intent evidence](evidence/near-guard-testnet-live-2026-11-06.md) or the
+archived `check_quote` result in the [1Click quote evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md).
+The archived view results explain the checks. The transaction receipts record
+the on-chain outcomes.
 
 ## Verify NEAR validator signatures offline
 

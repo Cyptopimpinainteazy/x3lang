@@ -3597,13 +3597,25 @@ fn strict_optional_bridge_threshold(name: &'static str, max: u64) -> Result<Opti
 /// Never silently falls back to `DryRunBridge`. Callers that don't set
 /// `X3_BRIDGE_VERIFIER` should explicitly pass `None` and use
 /// `resolve_bridge_backend()` for the dry-run path.
+fn bridge_config_error(name: &str, reason: &str) -> BridgeError {
+    BridgeError {
+        code: "X3_BRIDGE_INIT_FAILED",
+        message: format!("{name}: {reason}"),
+    }
+}
+
+fn bridge_required_config(name: &str) -> Result<String, BridgeError> {
+    let value = std::env::var(name).map_err(|_| bridge_config_error(name, "must be explicitly configured"))?;
+    if value.trim().is_empty() {
+        return Err(bridge_config_error(name, "must not be empty"));
+    }
+    Ok(value)
+}
+
 pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, BridgeError> {
     let verifier: Box<dyn BridgeAdapter> = match std::env::var("X3_BRIDGE_VERIFIER").as_deref() {
         Ok("evm-light-client") => {
-            let trusted_hash = std::env::var("X3_EVM_TRUSTED_HEADER_HASH").map_err(|_| BridgeError {
-                code: "X3_BRIDGE_INIT_FAILED",
-                message: "X3_BRIDGE_VERIFIER=evm-light-client requires X3_EVM_TRUSTED_HEADER_HASH".to_string(),
-            })?;
+            let trusted_hash = bridge_required_config("X3_EVM_TRUSTED_HEADER_HASH")?;
             let mut verifier = EthereumLightClientVerifier::new(&trusted_hash);
             if let Some(n) = strict_optional_bridge_threshold("X3_EVM_MIN_BLOCK_NUMBER", u64::MAX)? {
                 verifier = verifier.with_min_block_number(n);
@@ -3619,10 +3631,7 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
             )))
         }
         Ok("svm-light-client") => {
-            let trusted_hash = std::env::var("X3_SVM_TRUSTED_BANK_HASH").map_err(|_| BridgeError {
-                code: "X3_BRIDGE_INIT_FAILED",
-                message: "X3_BRIDGE_VERIFIER=svm-light-client requires X3_SVM_TRUSTED_BANK_HASH".to_string(),
-            })?;
+            let trusted_hash = bridge_required_config("X3_SVM_TRUSTED_BANK_HASH")?;
             let mut verifier = SolanaLightClientVerifier::new(&trusted_hash);
             if let Ok(pubkeys) = std::env::var("X3_SVM_VALIDATOR_PUBKEYS") {
                 verifier = verifier.with_validator_pubkeys(pubkeys.split(',').map(|s| s.trim().to_string()).collect());
@@ -3675,7 +3684,7 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
                 ),
             });
         }
-        Err(_) => {
+        Err(std::env::VarError::NotPresent) => {
             // An explicit production request cannot turn into a missing-verifier
             // sentinel that a caller might accidentally route to simulation.
             if std::env::var("X3_BACKEND").as_deref() == Ok("prod") {
@@ -3685,6 +3694,12 @@ pub fn init_production_backend() -> Result<Option<Box<dyn BridgeAdapter>>, Bridg
                 });
             }
             return Ok(None);
+        }
+        Err(_) => {
+            return Err(bridge_config_error(
+                "X3_BRIDGE_VERIFIER",
+                "non-Unicode verifier selection is invalid",
+            ));
         }
     };
     Ok(Some(verifier))
