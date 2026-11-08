@@ -25,6 +25,12 @@ SHARED = (
 SCOPED = ("x3-lang/", "scripts/proof/")
 
 
+class NonDirectoryParent(ValueError):
+    def __init__(self, relative: str):
+        super().__init__("proof input parent is not a regular directory")
+        self.relative = relative
+
+
 def git_bytes(repo: Path, *args: str) -> bytes:
     # Git warnings belong to diagnostics, never parsed hashes, paths or blob bytes.
     return subprocess.check_output(
@@ -66,10 +72,10 @@ def worktree_identity(repo: Path, relative: str) -> tuple[str, str] | None:
             root_info = os.fstat(root_fd)
             parent_fd = root_fd
             parents = []
-            for part in rel.parts[:-1]:
+            for index, part in enumerate(rel.parts[:-1]):
                 before = os.stat(part, dir_fd=parent_fd, follow_symlinks=False)
                 if not stat.S_ISDIR(before.st_mode):
-                    raise ValueError("proof input parent is not a regular directory")
+                    raise NonDirectoryParent(str(Path(*rel.parts[:index + 1])))
                 child_fd = os.open(part, directory_flags, dir_fd=parent_fd)
                 descriptors.callback(os.close, child_fd)
                 opened = os.fstat(child_fd)
@@ -132,8 +138,16 @@ def committed_identity(repo: Path, relative: str) -> tuple[str, str] | None:
 
 def identity(repo: Path, relative: str) -> tuple[str, str] | None:
     """Require actual kind/bytes to match HEAD; then compare committed identities."""
-    actual = worktree_identity(repo, relative)
     committed = committed_identity(repo, relative)
+    try:
+        actual = worktree_identity(repo, relative)
+    except NonDirectoryParent as exc:
+        # A committed directory-to-file/link replacement deletes its descendants.
+        # Validate that ancestor itself; never follow it or accept an uncommitted
+        # substitution merely because the descendant is absent from HEAD.
+        if committed is not None or identity(repo, exc.relative) is None:
+            raise
+        return None
     if actual != committed:
         raise ValueError("working-tree input mode/bytes or uncommitted deletion differs from HEAD")
     return committed

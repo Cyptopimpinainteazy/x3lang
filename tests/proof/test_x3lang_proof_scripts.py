@@ -220,13 +220,15 @@ class MirrorTests(unittest.TestCase):
     def test_open_file_mode_mutation_during_read_is_refused(self):
         relative = MIRROR.SHARED[0]
         target = self.peer / relative
+        original = target.stat()
         real_read = os.read
         changed = False
 
         def change_after_read(fd, size):
             nonlocal changed
             chunk = real_read(fd, size)
-            if not changed:
+            opened = os.fstat(fd)
+            if not changed and (opened.st_dev, opened.st_ino) == (original.st_dev, original.st_ino):
                 changed = True
                 target.chmod(0o755)
             return chunk
@@ -238,6 +240,7 @@ class MirrorTests(unittest.TestCase):
 
     def test_open_parent_replacement_during_read_is_refused(self):
         relative = "x3-lang/vm/tests/trading_receipts.rs"
+        original = (self.peer / relative).stat()
         parent = self.peer / "x3-lang"
         outside = self.root / "external-language"
         real_read = os.read
@@ -246,7 +249,8 @@ class MirrorTests(unittest.TestCase):
         def replace_after_read(fd, size):
             nonlocal changed
             chunk = real_read(fd, size)
-            if not changed:
+            opened = os.fstat(fd)
+            if not changed and (opened.st_dev, opened.st_ino) == (original.st_dev, original.st_ino):
                 changed = True
                 parent.rename(outside)
                 parent.symlink_to(outside, target_is_directory=True)
@@ -301,6 +305,45 @@ class MirrorTests(unittest.TestCase):
         self.assertIn("ambiguous", warning.stderr)
         self.assertEqual(MIRROR.changes(self.current, "HEAD"), set())
         self.assertEqual(self.compare("--base-ref", "HEAD"), 0)
+
+    def test_committed_parent_replacements_preserve_descendant_deletions(self):
+        relative = "x3-lang/assets/old.txt"
+        for kind in ("file", "symlink"):
+            with self.subTest(kind=kind):
+                repos = [self.root / kind / side for side in ("current", "peer")]
+                bases = []
+                outside = self.root / (kind + "-external")
+                outside.mkdir()
+                (outside / "old.txt").write_text("must not follow this descendant\n")
+                for repo in repos:
+                    initialize(repo, (*MIRROR.SHARED, relative))
+                    bases.append(git(repo, "rev-parse", "HEAD"))
+                    (repo / relative).unlink()
+                    parent = repo / "x3-lang/assets"
+                    parent.rmdir()
+                    if kind == "file":
+                        parent.write_text("replacement file\n")
+                    else:
+                        parent.symlink_to(outside, target_is_directory=True)
+                    git(repo, "add", "x3-lang/assets")
+                    git(repo, "commit", "--quiet", "-m", "replace committed directory")
+                self.assertEqual(invoke(MIRROR, repos[0], "--peer-repo", str(repos[1]),
+                                        "--base-ref", bases[0], "--peer-base-ref", bases[1]), 0)
+
+    def test_uncommitted_parent_cannot_hide_a_committed_descendant_deletion(self):
+        relative = "x3-lang/assets/old.txt"
+        bases = []
+        for repo in (self.current, self.peer):
+            target = repo / relative
+            target.parent.mkdir(parents=True)
+            target.write_text("old input\n")
+            git(repo, "add", relative)
+            git(repo, "commit", "--quiet", "-m", "old descendant")
+            bases.append(git(repo, "rev-parse", "HEAD"))
+            git(repo, "rm", "--quiet", relative)
+            git(repo, "commit", "--quiet", "-m", "delete descendant only")
+            target.parent.write_text("uncommitted parent replacement\n")
+        self.assertEqual(self.compare("--base-ref", bases[0], "--peer-base-ref", bases[1]), 1)
 
 
 class RunnerTests(unittest.TestCase):
