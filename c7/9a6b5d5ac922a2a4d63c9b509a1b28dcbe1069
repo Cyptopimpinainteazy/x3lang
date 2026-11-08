@@ -1,0 +1,51 @@
+x3-lang/near/agent-vault-sandbox-tests/src/main.rs
+  s_a682023dabf919::t_d190f67cb56ef9 303-304,350-352
+  s_a682023dabf919::t_506b254c677da5 198-203,217-226,240,251-262
+  s_a682023dabf919::t_143ad53be1fb88 428-454,456-458,460-481
+  s_a682023dabf919::t_027f94ac52178d 40-47
+  s_a682023dabf919::t_d511d1a5f79319 3,75-101,204-207,209-216,302,344-349
+  s_a682023dabf919::t_413cf37be363e3 455,459
+  s_a682023dabf919::t_9f71140e0e9843 57-59
+  s_a682023dabf919::t_c0ef81490616f9 5,9-23,36-39,60,63-74,426-427
+  s_a682023dabf919::t_01a79b613fadd3 6,48-50,54-56,61-62
+  s_a682023dabf919::t_5f1161474079fd 24-35,51-53
+  s_a682023dabf919::t_065d163e7e0130 196-197,291,301,323,334,337,342-343,422
+.github/workflows/x3-agent-vault-testnet.yml
+  s_a682023dabf919::t_2568bcc5248760 74-143
+  s_a682023dabf919::t_8077db7caeecd0 44
+scripts/hackathon/test_vault_refusal_source_guard.py
+  s_a682023dabf919::t_061f1879a2bec6 8-9,14,87-93
+  s_a682023dabf919::t_e0bbb624be9f27 2,4-5,23,25,27-30,35-65,67-75,77-85
+docs/hackathon/X3_SHIELD_EXECUTION_PROGRESS_2026-11-08.md
+  s_a682023dabf919::t_0878de9fd80702 4-5,8,10,12-22,24-26,33,35,37-97,101-110,113-114
+  s_a682023dabf919::t_b3030e37012cd4 28-31
+  s_a682023dabf919::t_90c4347b9f7af4 98-100
+docs/hackathon/X3_SHIELD_EXECUTION_PLAN.md
+  s_a682023dabf919::t_90c4347b9f7af4 75
+x3-lang/near/agent-vault-sandbox-tests/Cargo.toml
+  s_a682023dabf919::t_d511d1a5f79319 9-10,15
+  s_a682023dabf919::t_7da863c30528c0 12
+evidence/agent-vault-local/typed-refusal-sandbox-20261108.txt
+  s_a682023dabf919::t_d73809692d5ace 1-13
+evidence/agent-vault-local/typed-refusal-sandbox-20261108.json
+  s_a682023dabf919::t_d73809692d5ace 8
+  s_a682023dabf919::t_67aba73d6ae137 1-7,9-65
+x3-lang/near/agent-vault-sandbox-tests/Cargo.lock
+  s_a682023dabf919::t_b14faf180bfbd1 2844-2845,2848,2850
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c79a6b5d5ac922a2a4d63c9b509a1b28dcbe1069",
+  "prompts": {},
+  "sessions": {
+    "s_a682023dabf919": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bcfc-37bf-7c31-9cd6-f78c4074c19b",
+        "model": "deepseek-flash"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
