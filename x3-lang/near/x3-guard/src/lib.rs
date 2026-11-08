@@ -694,8 +694,13 @@ impl Contract {
     /// Upgrade a Guard deployed with the pre-mandate (v1.1) or unversioned
     /// mandate (v1.2) state layout. The existing map prefixes and manager key
     /// are preserved; v1.1 records decode their missing agent fields as `None`.
+    #[private]
     #[init(ignore_state)]
     pub fn migrate() -> Self {
+        // `#[private]` protects the generated NEAR entry point. Keep the
+        // explicit assertion in the body too so direct Rust calls and tests
+        // enforce the same authorization boundary.
+        near_sdk::utils::assert_self();
         let bytes = env::storage_read(b"STATE")
             .unwrap_or_else(|| env::panic_str("state has no recognized x3-guard migration layout"));
         if let Ok(current) = Contract::try_from_slice(&bytes) {

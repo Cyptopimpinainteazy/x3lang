@@ -260,11 +260,11 @@ def test_signed_live_quote_cannot_trust_unsigned_receipt_fields(tmp_path, monkey
     assert not r['cross_chain_causality_proven']
 
 
-def test_quick_mode_includes_model_and_fee_tests():
+def test_quick_mode_includes_model_and_excludes_commercial_experiments():
     steps = judge_evidence.plan_tests('quick')
     python_argv = next(step['argv'] for step in steps if 'pytest' in step['argv'])
     assert 'x3-lang/tests/test_near_agent.py' in python_argv
-    assert 'x3-lang/tests/test_value_fee.py' in python_argv
+    assert 'x3-lang/tests/test_value_fee.py' not in python_argv
 
 
 def test_malformed_nested_receipt_fails_closed(tmp_path):

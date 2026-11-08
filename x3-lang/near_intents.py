@@ -87,13 +87,14 @@ and `status` track the swap to a terminal X3 outcome.
   live quote whose delivery could never be measured is refused (`X3_EVIDENCE_BASELINE`).
 - `verify-deposit` proves from Solana (`getTransaction`, finalized) that at least `amountIn`
   of the origin mint reached the signed deposit address before the signed deadline.
-- `verify-settlement` proves the recipient's balance rose by at least the signed
-  `minAmountOut`, or, with `--refund-tx`, that `amountIn - refundFee` came back to the refund
-  address on Solana after the deposit.
-- The receipt's `verified_outcome` is set only when the deposit and its end are both proven.
-  It records whether 1Click's reported status agrees. Every check records its RPC endpoints,
-  slot or block, and a SHA-256 of each raw result. `SOLANA_RPC_URLS` / `NEAR_RPC_URLS`
-  (comma-separated) add endpoints that must all agree.
+- `verify-settlement` observes whether the recipient's balance rose by at least the signed
+  `minAmountOut`, or, with `--refund-tx`, that `amountIn - refundFee` came back to the signed
+  refund address on Solana after the deposit. These are observations, not causal attribution.
+- A signed quote proves terms, a finalized source transfer proves one leg, and a destination
+  balance increase proves a second observation. None alone proves that a particular solver
+  linked a specific source transfer to that destination change. The receipt records
+  `cross_chain_causality_proven: false` unless a future independently reviewed verifier can
+  establish that linkage.
 """
 import argparse
 import contextlib
@@ -936,6 +937,19 @@ class OneClickClient:
 
 DEFAULT_NEAR_RPC_URL = "https://free.rpc.fastnear.com"
 _IMPLICIT_ACCOUNT_RE = re.compile(r"[a-f0-9]{64}|0x[a-f0-9]{40}")
+_NAMED_ACCOUNT_RE = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")
+
+
+def validate_near_account_id(account_id: str) -> None:
+    """Reject malformed account IDs before asking RPC or requesting a quote."""
+    if not isinstance(account_id, str) or not 2 <= len(account_id) <= 64:
+        raise NearIntentsError("X3_NEAR_ACCOUNT_ID", "a NEAR account ID must be 2..64 characters", "recipient")
+    if not (_NAMED_ACCOUNT_RE.fullmatch(account_id) or _IMPLICIT_ACCOUNT_RE.fullmatch(account_id)):
+        raise NearIntentsError(
+            "X3_NEAR_ACCOUNT_ID",
+            f"{account_id!r} is not a valid NEAR account ID",
+            "recipient",
+        )
 
 
 class NearRpc:
@@ -953,6 +967,7 @@ class NearRpc:
         self.timeout = timeout
 
     def account_exists(self, account_id: str) -> bool:
+        validate_near_account_id(account_id)
         if _IMPLICIT_ACCOUNT_RE.fullmatch(account_id):
             # An implicit account is its key; it exists as soon as it is funded, so a deposit
             # to it is valid before any transaction has touched it.
@@ -1464,7 +1479,10 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
 
 
 def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None, solana=None) -> Dict[str, Any]:
-    """Delivery on NEAR (balance rise >= the signed minAmountOut), or a refund back on Solana."""
+    """Observe a compatible NEAR balance rise or signed-address Solana refund.
+
+    A balance increase alone does not establish which source transaction caused it.
+    """
     quote_obj = _signed_quote(receipt)
     leg = receipt["leg"]
     if refund_tx:
@@ -1549,7 +1567,7 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
 
 
 def conclude(receipt: Dict[str, Any]) -> Dict[str, Any]:
-    """A verified outcome exists only when the chains prove both the deposit and its end."""
+    """Record both-leg observations without overstating cross-chain causality."""
     ev = receipt.get("evidence") or {}
     ok = lambda k: bool((ev.get(k) or {}).get("verified"))
     outcome = None
@@ -1561,15 +1579,22 @@ def conclude(receipt: Dict[str, Any]) -> Dict[str, Any]:
     if not (ok("settlement") or ok("refund")):
         missing.append("settlement or refund")
     reported = next((s["outcome"] for s in reversed(receipt.get("status_history") or []) if s.get("terminal")), None)
-    verification = {"status": "verified" if outcome else "unverified", "outcome": outcome, "missing": missing,
-                    "1click_reported": reported}
+    verification = {
+        "status": "both_legs_observed" if outcome else "unverified",
+        "outcome": outcome,
+        "missing": missing,
+        "1click_reported": reported,
+        "cross_chain_causality_proven": False,
+        "evidence_note": ("source and destination legs were observed independently; "
+                          "the balance increase alone does not identify the solver or link both legs"),
+    }
     if outcome and reported:
         verification["1click_agrees"] = reported == outcome
     receipt["verification"] = verification
     if outcome:
-        receipt["verified_outcome"] = outcome
+        receipt["observed_outcome"] = outcome
     else:
-        receipt.pop("verified_outcome", None)
+        receipt.pop("observed_outcome", None)
     return verification
 
 

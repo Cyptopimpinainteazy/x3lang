@@ -45,7 +45,6 @@ def plan_tests(mode: str) -> list[dict]:
         "x3-lang/tests/test_near_intents.py",
         "x3-lang/tests/test_judge_evidence.py",
         "x3-lang/tests/test_near_agent.py",
-        "x3-lang/tests/test_value_fee.py",
     ]
     jobs = [
         _step("python_policy_and_chain_evidence_tests",
@@ -142,7 +141,7 @@ def inspect_receipt(receipt_path: Path | None, *, refresh_chain: bool) -> dict:
         return out
     if not isinstance(receipt, dict) or receipt.get("kind") != "x3.near_intents.v1":
         return out
-    claimed = receipt.get("verified_outcome")
+    claimed = receipt.get("observed_outcome") or receipt.get("verified_outcome")
     if claimed in ("settled", "refunded"):
         out["claimed_outcome"] = claimed
     response = receipt.get("quote_response")
