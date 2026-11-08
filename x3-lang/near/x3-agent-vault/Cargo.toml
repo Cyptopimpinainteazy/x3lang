@@ -10,4 +10,7 @@ crate-type = ["cdylib","rlib"]
 near-sdk = { version = "=5.30.0", default-features = false }
 [dev-dependencies]
 near-sdk = { version = "=5.30.0", default-features = false, features = ["unit-testing"] }
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(near)"] }
+
 [workspace]
