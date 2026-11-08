@@ -1,27 +1,29 @@
 # X3 Shield
 
-**An AI agent can be tricked into paying the wrong account. X3 Shield checks every payment
-against rules the owner wrote, and refuses the bad ones even when the payment's signature is
-valid.**
+X3 Shield checks AI-agent payment requests against rules written by the owner.
+Its NEAR Guard contract checks signed quote terms before authorizing a deposit
+address. Guard does not hold funds or control transfers made outside its methods.
 
 Built for the NEAR HACKATHON 2026: AI Security & Defense (primary), Agent Economy.
 
-| What you can check yourself | How |
-|---|---|
-| A prompt-injected payment to `attacker.near` is refused by the owner's rules | `python3 scripts/hackathon/demo.py` (needs Python dependencies; demo is offline) |
-| A **real 1 test USDC Base Sepolia → NEAR testnet trade** settled with independently verified finality | [immutable certificate + receipts](docs/hackathon/FIRST_FINALIZED_SWAP_EVIDENCE.md) (trusted Tidepool testnet relay, not native bridge) |
-| On NEAR testnet, an official **dry** quote with a **valid 1Click signature** but the wrong recipient was refused by the deployed contract | [`3Q7q…` on nearblocks](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q), [evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) |
-| Real NEAR validator signatures verified offline: **99.32% of stake** signed block 276420402 | [two commands below](#verify-near-validator-signatures-offline) |
-| The deployed contract is the code in this repo, byte for byte | [`GUARD_WASM_BYTE_REPRODUCIBILITY.md`](docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md) |
+## Start here for judging
+
+| What you want to verify | Where to start | What the result establishes |
+|---|---|---|
+| Why the owner’s policy refused a payment request | [Run the offline policy demo](docs/hackathon/JUDGE_GUIDE.md#1-run-the-offline-policy-demo) | The checked-in request to `attacker.near` triggers `mandate_recipient` locally. |
+| What the deployed NEAR Guard refused or authorized | [Inspect the testnet Guard decisions](docs/hackathon/JUDGE_GUIDE.md#2-inspect-the-testnet-guard-decisions) | Guard refused a request to `attacker.near` and separately refused an official 1Click dry quote. An allowed 1Click quote stopped at deposit authorization. |
+| Which transfer delivered funds | [Verify the archived Tidepool delivery](docs/hackathon/JUDGE_GUIDE.md#3-verify-the-archived-tidepool-delivery) | Base Sepolia sent 1.000000 test USDC and `x3lang.testnet` received 0.997400 test USDC. The two finalized chain records are linked by a trusted Tidepool testnet relay. |
+
+For supporting checks, see [offline NEAR validator signatures](#verify-near-validator-signatures-offline)
+and [deployed Guard WASM reproducibility](docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md).
 
 ## The problem
 
-Spending limits and scoped keys stop an agent from spending *too much*. They don't stop it
-from paying the *wrong place*. A NEAR Intents / 1Click quote is signed by 1Click, so it looks
-legitimate. But the agent asked for it, and a prompt-injected agent asks for whatever the
-attacker wants.
+A prompt-injected agent can request a correctly signed NEAR Intents / 1Click quote
+that pays an attacker. Signature verification authenticates the quote; the owner's
+mandate determines whether its recipient, asset, amount and other terms are allowed.
 
-X3 Shield puts a program between the agent and the money:
+X3 Shield checks those terms in three steps:
 
 1. The owner writes a **mandate** in X3Lang, a typed policy language: who may be paid, in
    what asset, how much per payment and per day, the refund address, the slippage and fee
@@ -75,22 +77,27 @@ mandate x3_shopping_agent {
 }
 ```
 
-Result: `decision=denied_by_policy, failed_guards=['mandate_recipient']`. The model fell for
-the injection; the rule still refused it.
+Result: `decision=denied_by_policy, failed_guards=['mandate_recipient']`. This
+checked-in request demonstrates recipient-policy refusal. The example alone does
+not establish how a live model responds to the injected prompt.
 
 ## Try it
 
-**Private interactive judge preview:** [X3 Shield Attack Lab](docs/hackathon/attack-lab.html) lets you attempt wrong recipient, payment cap, nonce replay and revoked policy. This is **browser-only policy evaluation**. It is not the on-chain attack engine; local NEAR Sandbox custody tests are in draft [#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125). No website or source code will be publicly released until authorized.
+[X3 Shield Attack Lab](docs/hackathon/attack-lab.html) is a private preview that
+evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases in
+the browser. The website and source remain private until the owner authorizes
+public release. Local NEAR Sandbox custody tests are tracked separately in draft
+[#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125).
 
 | What | Command | Needs |
 |---|---|---|
-| Terminal demo (runs in under a second) | `python3 scripts/hackathon/demo.py` | Python 3 with [`x3-lang/requirements.txt`](x3-lang/requirements.txt) |
+| Terminal demo | `python3 scripts/hackathon/demo.py` | Python 3 with [`x3-lang/requirements.txt`](x3-lang/requirements.txt) |
 | Browser console | `python3 -m http.server 8000 --directory x3-lang/near/demo`, then open `http://localhost:8000/judge.html` | Python 3, a browser |
 | Contract tests | `(cd x3-lang/near/x3-guard && cargo test --locked)` | Rust |
-| Every local gate | `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge` | Linux x86_64, Python 3.12, Rust, Node.js |
+| Local judge checks | `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge` | Linux x86_64, Python 3.12, Rust, Node.js |
 
-The last command runs every local gate: scenario freshness, the demo, Python/browser
-guard-by-guard parity, and the evidence checks. It makes no blockchain transactions and
+The last command checks scenario freshness, runs the demo, compares Python/browser
+guard decisions, and validates the evidence package. It makes no blockchain transactions and
 uses no wallet. See the [judge guide](docs/hackathon/JUDGE_GUIDE.md).
 
 The browser console runs the same mandate checks as the production adapter and compares
@@ -114,16 +121,17 @@ account `x3lang-guard-20261106.testnet`), [evidence](evidence/near-guard-testnet
 
 | What happened | Transaction |
 |---|---|
-| Official 1Click **dry** quote, signature valid, recipient differs from the policy: refused (recipient mismatch plus the dry-quote checks) | [`3Q7q…`](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q) |
+| Official 1Click dry quote, signature valid, recipient differs from the policy: refused (recipient mismatch plus the dry-quote checks) | [`3Q7q…`](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q) |
 | Official 1Click **live** quote that matches the policy: accepted, stopped before any deposit | [`6B6k…`](https://testnet.nearblocks.io/txns/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ) |
 
 **Real finalized two-chain testnet transfer**: 1.000000 test USDC from Base Sepolia to NEAR testnet through the trusted Tidepool community testnet, authorized by a separately deployed, byte-reproducible on-chain Guard (`x3guardlaunch2026.testnet`) **before** the source transfer. The NEAR recipient `x3lang.testnet` received exactly **0.997400 test USDC**, above the signed minimum; two independent Base RPCs verified source finality and NEAR RPCs verified the finalized destination receipt plus historical balance increase. Original immutable evidence: [frozen signed quote + final certificate](docs/hackathon/FIRST_FINALIZED_SWAP_EVIDENCE.md), [full judge walkthrough](docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md), [source Base transaction](https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9), [finalized NEAR payout](https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d) and [strict proof JSON](evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json). This is **trusted relayer testnet settlement**, not independent cryptographic cross-chain atomicity, and it did **not** use the newer draft EVM/NEAR scoped-agent vaults.
 
-On the explorer, a refused call on these deployments shows a generic
-`WebAssembly trap: unreachable`, not the reason. The contract was built without near-sdk's
-on-chain mode, which discards refusal messages; the reason is readable through the
-`check_quote` view. The [evidence page](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) records
-the cause and which evidence is a chain receipt and which is a view.
+An explorer failure can show only a generic `WebAssembly trap: unreachable`.
+For the refusal reason, see the archived `check_agent_intent` result in the
+[agent-intent evidence](evidence/near-guard-testnet-live-2026-11-06.md) or the
+archived `check_quote` result in the [1Click quote evidence](docs/hackathon/GUARD_TESTNET_EVIDENCE.md).
+The archived view results explain the checks. The transaction receipts record
+the on-chain outcomes.
 
 ## Verify NEAR validator signatures offline
 
@@ -147,30 +155,48 @@ of any signature in `approvals_after_next` and it exits `2` with
 ([ceremony record](evidence/near-light-client-ceremony-2026-11-06/README.md)). This
 authenticates block headers; it does not prove a wallet transfer or settlement.
 
-## Hard questions
+<a id="hard-questions"></a>
+## Trust boundaries
 
-**Can a compromised agent with a full wallet key just skip the Guard?** **Yes**, if that unrestricted key still controls funds. The deployed x3-guard checks Guard-mediated actions; it does not custody tokens and cannot stop transfers made outside X3. We are testing **separate, enforceable custody** in a NEAR FunctionCall-only agent vault ([#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125), real *local* Sandbox) and an EIP-712 Base ERC-20 contract vault ([#138](https://github.com/Cyptopimpinainteazy/x3lang/pull/138), Foundry and real-token *local fork*), with a read-only signed-quote/Guard-to-Base binding in [#140](https://github.com/Cyptopimpinainteazy/x3lang/pull/140). The newer vaults are not publicly deployed, independently audited or part of the historical Tidepool transfer; neither constrains an unrelated funded EOA. Owner keys remain trusted custody roots.
+A holder of an unrestricted wallet key can bypass Guard and transfer funds directly.
+The deployed contract checks Guard-mediated actions and does not custody tokens.
+Separate custody work is tracked in a NEAR FunctionCall-only agent vault
+([#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125), local Sandbox),
+an EIP-712 Base ERC-20 vault
+([#138](https://github.com/Cyptopimpinainteazy/x3lang/pull/138), local Foundry fork),
+and read-only signed-quote/Guard-to-Base binding
+([#140](https://github.com/Cyptopimpinainteazy/x3lang/pull/140)). These vaults are
+not publicly deployed, independently audited or part of the historical Tidepool
+transfer. They do not constrain an unrelated funded EOA. Owner keys remain trusted.
 
-**Isn't this what policy-bound wallets and function-call keys already do?** Those limit
-*which methods* and *how much*. X3 Shield checks the *signed terms of the quote* (recipient,
-asset, minimum output, deadline, refund address) against a typed program. It complements
-key restrictions rather than replacing them.
+X3 Shield compares signed quote terms with a typed program: recipient, asset,
+minimum output, deadline and refund address. Key restrictions and custody controls
+must enforce which actions an agent can take outside that check.
 
-**Do you trust 1Click?** Only its signature. The manager key is pinned at initialization
-with no setter, and every number the Guard reads comes from the signed bytes. A signed quote
-proves signed terms, not that a swap completed.
+The 1Click manager key is pinned at initialization with no setter. The Guard reads
+quote values from the signed bytes. A valid signature proves those terms, not
+completion of a swap.
 
-**What if the RPC lies?** Evidence verifiers pin the genesis hash and exact blocks and fail
-closed on disagreement. RPC agreement is not treated as finality: the light client above is
-the authenticated path.
+Evidence verifiers pin the genesis hash and exact blocks and fail closed on
+RPC disagreement. RPC agreement alone does not authenticate finality. The light
+client described above verifies validator approvals from a trusted checkpoint.
 
-**What is new for this hackathon?** X3Lang's compiler and VM predate the hackathon. Their
-real Git history is preserved, and [PRIOR_WORK.md](PRIOR_WORK.md) dates each component
-against the hackathon start, with a [SHA map](docs/provenance/) to the original repository.
+X3Lang's compiler and VM predate the hackathon. Their Git history is preserved.
+[PRIOR_WORK.md](PRIOR_WORK.md) dates components against the hackathon start and
+links to the original repository's [commit map](docs/provenance/).
 
-## Not claimed
+<a id="not-claimed"></a>
+## Deployment and evidence limits
 
-No mainnet deployment, no public Base/NEAR **vault** deployment or audited smart-account custody, no funded deposit for the **official 1Click manager** dry/live quote demonstration, no permissionless **native X3 BSC↔NEAR bridge**, no cryptographic atomic cross-chain causality and no native Rust X3VM bytecode execution on-chain. **Separately**, a real Tidepool community-testnet Base→NEAR transfer is finalized and evidenced above. The full list of controls and open risks is in the [threat model](docs/security/X3_SHIELD_THREAT_MODEL.md).
+The evidence above covers testnet Guard calls and a Tidepool community-testnet
+Base-to-NEAR transfer. The official 1Click manager dry/live quote demonstration
+stopped before a funded deposit. The Tidepool transfer relied on a trusted relay.
+
+Mainnet deployment, public Base/NEAR vault deployment, audited smart-account
+custody, a permissionless native X3 BSC-to-NEAR bridge, cryptographic atomic
+cross-chain causality and native Rust X3VM execution on-chain remain outside these
+claims. See the [threat model](docs/security/X3_SHIELD_THREAT_MODEL.md) for the
+controls and open risks.
 
 ## Repository layout
 
