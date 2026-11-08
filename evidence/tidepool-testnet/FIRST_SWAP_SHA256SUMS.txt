@@ -1,0 +1,4 @@
+7718da27680bbb35cbf199caaae06ee77987dd5daf60f2dfd1ca175a08da7535  first-swap-signed-live-quote-20261107.json
+9aa6d251b7e3c8f8cb6fee57e466034d3f747a84b3792233fe36cd97570bbbcc  first-swap-strict-two-chain-proof-20261107.json
+69a835814805876acd2eafb1ca0390081e6bf4d4fca6bcc4c5347dbb609c4120  pretrade-finalized-baseline-20261107.json
+2298a4e0f69a398f783e295d1fbcb4d9096a3c7f2047e77289b61ccccf68e3ac  local-guard-adversarial-review-20261107.json

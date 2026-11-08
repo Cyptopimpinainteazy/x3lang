@@ -1,0 +1,104 @@
+{
+  "base_evidence": {
+    "classification": "independent_base_sepolia_finalized_transfer",
+    "observations": [
+      {
+        "block_hash": "0xa592deccd3e32b3a47dc819cb5daffe1c8d950ebe6c39ed29c26e8dc70231828",
+        "block_number": 55557170,
+        "chain_id": 84532,
+        "confirmations": 28034,
+        "deposit_address": "0x9195a7547f057ff2790601f7be4b58abcb372185",
+        "event_log_index": "0x3",
+        "finalized_block_hash": "0xb4b432dd96be6affca16a35cf6dabe867ad80dc5c1be408c51c432bc749a8588",
+        "finalized_block_height": 55578176,
+        "from": "0x5af0c1bf95b3a158f6fc48e3ded35903b2fa0721",
+        "inclusion_timestamp_unix_s": 1794033302,
+        "rpc": "https://sepolia.base.org",
+        "token": "0x38d81431b9f76d9699af7517040d5221d9dea252",
+        "token_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83",
+        "tx_hash": "0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9",
+        "units": 1000000
+      },
+      {
+        "block_hash": "0xa592deccd3e32b3a47dc819cb5daffe1c8d950ebe6c39ed29c26e8dc70231828",
+        "block_number": 55557170,
+        "chain_id": 84532,
+        "confirmations": 28036,
+        "deposit_address": "0x9195a7547f057ff2790601f7be4b58abcb372185",
+        "event_log_index": "0x3",
+        "finalized_block_hash": "0xb4b432dd96be6affca16a35cf6dabe867ad80dc5c1be408c51c432bc749a8588",
+        "finalized_block_height": 55578176,
+        "from": "0x5af0c1bf95b3a158f6fc48e3ded35903b2fa0721",
+        "inclusion_timestamp_unix_s": 1794033302,
+        "rpc": "https://base-sepolia-rpc.publicnode.com",
+        "token": "0x38d81431b9f76d9699af7517040d5221d9dea252",
+        "token_code_sha256": "db77a21a647b5973bac5728bf9f6977b56933006bf2f0730a14d109d33072c83",
+        "tx_hash": "0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9",
+        "units": 1000000
+      }
+    ]
+  },
+  "claim_limits": [
+    "Provider is custodial testnet relay",
+    "No cryptographic atomic HTLC proof",
+    "No mainnet readiness"
+  ],
+  "classification": "independent_testnet_two_chain_transfer_evidence_NOT_atomicity_or_native_x3vm_proof",
+  "guard_account": "x3guardlaunch2026.testnet",
+  "guard_wasm_sha256": "1d7a8b1ee97b7cdc500db1c19b8f3a2bef06e986576ec428f62f8c3ea1b5a145",
+  "historical_guard_approval_evidence": {
+    "approval_near_block_hash": "9uNGKrtSN8dDQS9HYbVNZ7SmYasF52Vm1o8Bxt5kbbYq",
+    "approval_near_block_height": 276595201,
+    "approval_timestamp_nanoseconds": 1794033207035071142,
+    "historical_code_sha256": "1d7a8b1ee97b7cdc500db1c19b8f3a2bef06e986576ec428f62f8c3ea1b5a145",
+    "historical_policy": {
+      "nonce": "x3_base_testnet_trade_001",
+      "owner": "x3lang.testnet",
+      "policy": {
+        "amount_in": "1000000",
+        "expiry_ms": 1794036317757,
+        "max_slippage_bps": 100,
+        "minimum_out": "980000",
+        "program_sha256": "1398f64e7e208d3796883aa59cb169187c1042ac1af3781bd6efc014755df860",
+        "refund_to": "0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721"
+      },
+      "quote_sha256": "131f314c2532965f2678e79f3f7cc87cfe8238a549da1405e802f4c90db1034c",
+      "revoked": false
+    },
+    "nonce": "x3_base_testnet_trade_001",
+    "owner": "x3lang.testnet"
+  },
+  "near_balance_evidence": {
+    "after": {
+      "block_hash": "NQmCZvFDptmKFkQp1SZD1hpDnHx5PiatwW2phie2oCk",
+      "block_height": 276595590,
+      "units": 100997400
+    },
+    "before": {
+      "block_hash": "A5dpq1mU5qPY5Mo71aUzkG97atz8yQ4V7grHAkxydCvU",
+      "block_height": 276593025,
+      "units": 100000000
+    },
+    "classification": "independent_near_state_balance_delta_not_sufficient_by_itself",
+    "net_increase_units": 997400
+  },
+  "near_receipt_evidence": {
+    "classification": "near_finalized_transfer_receipt",
+    "delivered_units": 997400,
+    "receipt_count": 6,
+    "receiver": "x3lang.testnet",
+    "signer": "maker.tidepool-sandbox.testnet",
+    "token": "usdc.tidepool-sandbox.testnet",
+    "transaction_hash": "EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d",
+    "transfer_receipt": {
+      "amount": 997400,
+      "block_hash": "9QmjP54YoZ8TcivsVDy5FiiqcVH7ddrvTLt7fTqJ7dH9",
+      "block_height": 276595461,
+      "receipt_id": "3svyUVK2tG6MR7qBfpkZtBk6pSqqxiLEpbyjeTgW6eSJ"
+    }
+  },
+  "program_sha256": "1398f64e7e208d3796883aa59cb169187c1042ac1af3781bd6efc014755df860",
+  "quote_sha256": "131f314c2532965f2678e79f3f7cc87cfe8238a549da1405e802f4c90db1034c",
+  "received_at_utc": "2026-11-07T08:08:34.528294+00:00",
+  "refundable_source": "0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721"
+}

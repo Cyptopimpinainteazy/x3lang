@@ -4,20 +4,24 @@ on:
     paths:
       - 'scripts/hackathon/two_chain_settlement_proof.py'
       - 'scripts/hackathon/test_two_chain_settlement_proof.py'
+      - 'scripts/hackathon/test_first_swap_proof_bundle.py'
       - 'scripts/hackathon/capture_two_chain_baseline.py'
       - 'scripts/hackathon/test_two_chain_baseline.py'
       - 'evidence/tidepool-testnet/**'
       - 'docs/hackathon/TWO_CHAIN_PROOF_LIBRARY.md'
+      - 'docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md'
       - '.github/workflows/x3-two-chain-settlement-proof.yml'
   push:
     branches: [master]
     paths:
       - 'scripts/hackathon/two_chain_settlement_proof.py'
       - 'scripts/hackathon/test_two_chain_settlement_proof.py'
+      - 'scripts/hackathon/test_first_swap_proof_bundle.py'
       - 'scripts/hackathon/capture_two_chain_baseline.py'
       - 'scripts/hackathon/test_two_chain_baseline.py'
       - 'evidence/tidepool-testnet/**'
       - 'docs/hackathon/TWO_CHAIN_PROOF_LIBRARY.md'
+      - 'docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md'
       - '.github/workflows/x3-two-chain-settlement-proof.yml'
 permissions:
   contents: read
@@ -38,13 +42,19 @@ jobs:
           PYTHONPATH: x3-lang
         run: |
           set -euo pipefail
-          python -m unittest scripts/hackathon/test_two_chain_baseline.py scripts/hackathon/test_two_chain_settlement_proof.py -v
+          python -m unittest scripts/hackathon/test_two_chain_baseline.py scripts/hackathon/test_two_chain_settlement_proof.py scripts/hackathon/test_first_swap_proof_bundle.py -v
           python -m py_compile scripts/hackathon/capture_two_chain_baseline.py scripts/hackathon/two_chain_settlement_proof.py
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
           else
             git diff --check "${{ github.event.before }}" HEAD
           fi
+      - name: Check exact immutable first-swap signed quote and chain proof bytes
+        run: |
+          set -euo pipefail
+          cd evidence/tidepool-testnet
+          sha256sum -c FIRST_SWAP_SHA256SUMS.txt
+
       - name: Deny key custody or transfer submission in proof tooling
         run: |
           set -euo pipefail

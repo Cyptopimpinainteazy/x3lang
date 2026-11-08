@@ -1,0 +1,96 @@
+{
+  "claims_excluded": [
+    "not public NEAR testnet transaction evidence",
+    "not a test of the separate deployed Tidepool Guard",
+    "not exhaustive mutation coverage",
+    "not independent two-chain transfer proof",
+    "not mainnet-ready"
+  ],
+  "classification": "LOCAL_REAL_NEAR_SANDBOX_GUARD_MUTATION_TESTS_NOT_PUBLIC_CHAIN_SETTLEMENT",
+  "exact_test_head": "426a953c4824eedf5208e351eb869f4e80b8469b",
+  "mutation_result_sha256": "d06c042bdde9963fac7440209f9c383c2bd4156a06ae00ad4a0929445485beba",
+  "mutation_results": [
+    {
+      "base_sha256": "ebe44c24d8a83a8fd182250c1ce0ad3c075109b9b0ab6cd5c335f974e69eeb2b",
+      "exit": 101,
+      "id": "signature_bypass",
+      "kind": "ASSERTION_FAILURE",
+      "mutant_sha256": "6aefdf55703614987a148935b98483ea404193308dbf76c47e188674c92b7161",
+      "status": "KILLED",
+      "test": "tampering_with_any_signed_byte_fails_verification"
+    },
+    {
+      "base_sha256": "ebe44c24d8a83a8fd182250c1ce0ad3c075109b9b0ab6cd5c335f974e69eeb2b",
+      "exit": 101,
+      "id": "nonce_replay_bypass",
+      "kind": "ASSERTION_FAILURE",
+      "mutant_sha256": "5e0492195a3341fd2e6f3018711bc8bd1a8f1d97822f3af2ed028e556726ea11",
+      "status": "KILLED",
+      "test": "a_nonce_registers_once"
+    },
+    {
+      "base_sha256": "2b80103c3709a8de57a07875e4832013b6d4029edd533b30dc97670b06bef2f6",
+      "exit": 101,
+      "id": "duplicate_approval_bypass",
+      "kind": "ASSERTION_FAILURE",
+      "mutant_sha256": "793bc9a8569c1805cab4932d0fa2ed2804d96d9a1dcb69243c385f60154258d1",
+      "status": "KILLED",
+      "test": "payments_above_the_threshold_need_n_of_m_approvals"
+    },
+    {
+      "base_sha256": "2b80103c3709a8de57a07875e4832013b6d4029edd533b30dc97670b06bef2f6",
+      "exit": 101,
+      "id": "expired_approval_bypass",
+      "kind": "ASSERTION_FAILURE",
+      "mutant_sha256": "553ca32911dbb5b61ff01c3bc10986c43361cd9de51b7921cbdea0cd635379bb",
+      "status": "KILLED",
+      "test": "expired_mandate_cannot_record_late_approvals"
+    },
+    {
+      "base_sha256": "2b80103c3709a8de57a07875e4832013b6d4029edd533b30dc97670b06bef2f6",
+      "exit": 101,
+      "id": "recipient_allowlist_bypass",
+      "kind": "ASSERTION_FAILURE",
+      "mutant_sha256": "f1e3e5c1da2a61537f7aba072ee7fb09aa704bcb3fe49089db5ea6ab0d2d9371",
+      "status": "KILLED",
+      "test": "every_term_refuses_an_intent_that_breaks_it"
+    },
+    {
+      "base_sha256": "2b80103c3709a8de57a07875e4832013b6d4029edd533b30dc97670b06bef2f6",
+      "exit": 101,
+      "id": "payment_cap_bypass",
+      "kind": "ASSERTION_FAILURE",
+      "mutant_sha256": "833e90910f809148e79672bdbb5cfb25c9093767a3cb9aae0a7362e9de702977",
+      "status": "KILLED",
+      "test": "every_term_refuses_an_intent_that_breaks_it"
+    }
+  ],
+  "mutation_summary": {
+    "base_commit": "426a953c4824eedf5208e351eb869f4e80b8469b",
+    "counts": {
+      "INVALID": 0,
+      "KILLED": 6,
+      "SURVIVED": 0,
+      "TIMEOUT": 0
+    },
+    "scope": "native Rust Guard unit assertions only",
+    "score": 100.0,
+    "total": 6
+  },
+  "observed_at_utc": "2026-11-07T07:02:00.149813+00:00",
+  "sandbox_execution": "REAL_LOCAL_OFFLINE_NEAR_SANDBOX_WASM_TRANSACTIONS_EXIT_0",
+  "sandbox_log_sha256": "3f84a6505ca6fb32b942cd6c9b2193ab45f5cbf3159d9a5cb6857275f037897e",
+  "sandbox_markers": [
+    "X3_SANDBOX_GUARD_DEPLOY_AND_INIT_SUCCESS local_only=true ephemeral_accounts=true schema=2",
+    "X3_SANDBOX_REAL_MANAGER_SIGNATURE_VALID_DRY_QUOTE_REFUSED local_only=true no_deposit_address=true persisted_quote=false",
+    "X3_SANDBOX_TAMPERED_QUOTE_REFUSED local_only=true signature_mismatch=true stored_quote_unchanged=true",
+    "X3_SANDBOX_MANDATE_ACCEPT_REFUSE_REVOKE local_only=true allowed_registration=true forbidden_recipient_refused=true revoked_registration_refused=true",
+    "X3_SANDBOX_EXPIRED_APPROVAL_REFUSED local_only=true block_timestamp_expired=true stored_approvals_unchanged=true",
+    "X3_SANDBOX_CONCURRENT_NONCE_REFUSED local_only=true competing_agents=2 success_count=1 owner_nonce_isolated=true",
+    "X3_SANDBOX_APPROVAL_REPLAY_REFUSED local_only=true first_accepted=true duplicate_refused=true stranger_refused=true stored_count=1",
+    "X3_SANDBOX_REPEAT_NONCE_RACES local_only=true rounds=4 pairs=4 exactly_one_winner_each=true",
+    "X3_SANDBOX_CROSS_OWNER_NONCE_ISOLATION local_only=true distinct_owners=2 shared_nonce=true independent_state=true"
+  ],
+  "schema": "x3.local_guard_adversarial_evidence.v1",
+  "subject": "x3-lang/near/x3-guard production Guard local WASM; different from deployed Tidepool Guard on public testnet"
+}
