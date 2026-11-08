@@ -39,7 +39,7 @@ def git(*args: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True, type=Path,
-                        help="report directory outside the checkout or inside a Cargo target directory")
+                        help="report directory outside the checkout")
     args = parser.parse_args()
     output = args.output_dir.resolve()
 
