@@ -182,28 +182,26 @@ class ProofSourceBindingTests(unittest.TestCase):
 
     def test_output_directory_cannot_exempt_source_from_binding(self):
         for runner in RUNNERS:
-            with self.subTest(runner=runner), self.fixture(runner) as fixture:
-                fixture.output = fixture.repo / "x3-lang/compiler/src"
-                self.assert_refused_before_tools(fixture, "--output-dir")
+            for relative in ("x3-lang/compiler/src", "target/proof"):
+                with self.subTest(runner=runner, output=relative), self.fixture(runner) as fixture:
+                    fixture.output = fixture.repo / relative
+                    self.assert_refused_before_tools(fixture, "--output-dir")
 
     def test_clean_control_and_existing_generated_outputs_are_accepted(self):
         for runner, suites in RUNNERS.items():
-            for output_in_target in (False, True):
-                with self.subTest(runner=runner, output_in_target=output_in_target), self.fixture(runner) as fixture:
-                    if output_in_target:
-                        fixture.output = fixture.repo / "target/proof"
-                    artifact = fixture.repo / "x3-lang/target/debug/fixture.rlib"
-                    artifact.parent.mkdir(parents=True)
-                    artifact.write_bytes(b"generated fixture, never loaded")
-                    for _ in range(2):
-                        result = fixture.run()
-                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                        report = json.loads((fixture.output / "manifest.json").read_text())
-                        self.assertEqual(report["status"], "passed")
-                        self.assertEqual(report["repo_revision"], fixture.revision)
-                        self.assertEqual(len(report["tests"]), suites)
-                    calls = [json.loads(line) for line in fixture.calls.read_text().splitlines()]
-                    self.assertEqual(sum(call[:2] == ["cargo", "test"] for call in calls), suites * 2)
+            with self.subTest(runner=runner), self.fixture(runner) as fixture:
+                artifact = fixture.repo / "x3-lang/target/debug/fixture.rlib"
+                artifact.parent.mkdir(parents=True)
+                artifact.write_bytes(b"generated fixture, never loaded")
+                for _ in range(2):
+                    result = fixture.run()
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    report = json.loads((fixture.output / "manifest.json").read_text())
+                    self.assertEqual(report["status"], "passed")
+                    self.assertEqual(report["repo_revision"], fixture.revision)
+                    self.assertEqual(len(report["tests"]), suites)
+                calls = [json.loads(line) for line in fixture.calls.read_text().splitlines()]
+                self.assertEqual(sum(call[:2] == ["cargo", "test"] for call in calls), suites * 2)
 
     def test_source_mutation_during_suites_prevents_passed_manifest(self):
         for runner in RUNNERS:

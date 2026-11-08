@@ -7,9 +7,10 @@ The module `x3-lang/bridge/near_merkle.py` implements protocol-level cryptograph
 - SHA-256 binary Merkle-path reconstruction respecting Left/Right sibling placement and rejecting malformed paths.
 - Cryptographic comparison of calculated block-header hash with the receipt proof's claimed containing block and reconstruction of its membership against a **caller-supplied** head block-Merkle root.
 
-These are **real hash calculations**, but the source of the expected Merkle root is still untrusted. The `BlockMerkleCheck.authenticated` and `.authorized_to_sign` flags are always `False`. No committee key is loaded or signature produced. None of this code is wired to BSC `AttestedBnbEscrow.settle`.
+The calculations verify hashes against a supplied Merkle root whose source remains untrusted. The `BlockMerkleCheck.authenticated` and `.authorized_to_sign` flags are always `False`. No committee key is loaded or signature produced. None of this code is wired to BSC `AttestedBnbEscrow.settle`.
 
-## Crucial missing cryptographic validation
+<a id="crucial-missing-cryptographic-validation"></a>
+## Missing cryptographic validation
 
 1. **A real checkpoint and validator chain:** a trusted NEAR checkpoint must be obtained and pinned independently; validate successive light-client block views with epoch/next-epoch commitments, Ed25519 validator approval signatures, strict >2/3 total signed stake, `next_bps` Borsh commitment, and valid header / epoch transitions. Only then can the head block-Merkle root be treated as authenticated.
 2. **Outcome inclusion:** hash an exact NEAR execution outcome per its versioned Borsh encoding; verify `outcome_proof.proof` and `outcome_root_proof` against the included header's outcome root. A successful receipt alone does not prove the permanent terminal state of the escrow.
