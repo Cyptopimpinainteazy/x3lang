@@ -42,6 +42,7 @@ The runner creates a disposable copy of `x3-lang/near/x3-guard`, includes its ac
 | Recipient allowlist bypass | `every_term_refuses_an_intent_that_breaks_it` |
 | Per-payment cap bypass | `every_term_refuses_an_intent_that_breaks_it` |
 | Contract-wide signed-quote-hash replay bypass | `one_signed_quote_cannot_authorize_two_distinct_intents` |
+| Missing legacy-upgrade replay ledger check | `existing_state_without_a_fresh_quote_ledger_marker_refuses_new_quotes` |
 
 **KILLED** requires a real Rust assertion/test failure. An import/compile error, timeout, bad source-match count, or red baseline fails closed and cannot count as a killed mutant. **SURVIVED** means the original test still passed against the changed source; any survivor blocks the mutation gate. Each report includes exact HEAD, original/mutant SHA-256, command, test and failure details.
 
@@ -49,7 +50,7 @@ The runner creates a disposable copy of `x3-lang/near/x3-guard`, includes its ac
 
 On source base commit `6bf0cb80580e44b1f9eb2b763d038a40d1b89631`, the first local mutation run on x3star1 recorded **6 killed / 0 survived / 0 invalid / 0 timeouts**. The first Sandbox run added the concurrent submissions, two signature negatives and approval replay and finished **exit 0**. The GitHub Actions workflow must independently rerun these at the exact proposed PR HEAD before the suite can be called CI-green.
 
-A subsequent local run with the contract-wide quote-consumption patch added the seventh replay-bypass mutation: **7 killed / 0 survived / 0 invalid / 0 timeouts**, with all six distinct focused baselines passing. That measurement is restricted to seven curated native Rust source changes; GitHub CI on the new PR head is still required.
+A subsequent local run with the contract-wide quote-consumption patch added the seventh replay-bypass mutation (**7/7 killed**). A further independent local run added an eighth mutation disabling the new legacy-upgrade marker check: **8 killed / 0 survived / 0 invalid / 0 timeouts**, with seven distinct focused baselines passing. These measurements concern only curated native Rust source changes; exact-head GitHub CI on the proposed PR is still required.
 
 ## Hard release boundaries
 

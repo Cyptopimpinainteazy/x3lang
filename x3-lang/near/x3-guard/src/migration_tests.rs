@@ -176,6 +176,10 @@ fn v11_state_migrates_without_losing_intents_or_the_manager_key() {
     let contract = Contract::migrate();
 
     assert_eq!(contract.state_version(), STATE_VERSION);
+    assert!(
+        !contract.is_fresh_quote_ledger_initialized(),
+        "an existing Guard must not invent a verified quote-history backfill"
+    );
     assert_eq!(contract.manager_public_key, expected_key);
     let intent = contract
         .get_intent(accounts(0), "legacy_v11".into())
@@ -197,6 +201,10 @@ fn v12_state_keeps_agent_bindings_approvals_and_mandates() {
     let contract = Contract::migrate();
 
     assert_eq!(contract.state_version(), STATE_VERSION);
+    assert!(
+        !contract.is_fresh_quote_ledger_initialized(),
+        "an existing Guard must not invent a verified quote-history backfill"
+    );
     assert_eq!(contract.manager_public_key, expected_key);
     let intent = contract
         .get_intent(accounts(0), "legacy_v12".into())

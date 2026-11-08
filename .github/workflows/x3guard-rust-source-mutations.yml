@@ -35,7 +35,7 @@ jobs:
         run: cargo fetch --manifest-path x3-lang/near/x3-guard/Cargo.toml --locked
       - name: Run baseline native Guard test suite
         run: cargo test --offline --locked --manifest-path x3-lang/near/x3-guard/Cargo.toml
-      - name: Run seven source mutations against real Rust assertions
+      - name: Run eight source mutations against real Rust assertions
         env:
           CARGO_TERM_COLOR: never
         run: |
@@ -51,12 +51,12 @@ jobs:
           from pathlib import Path
           report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "x3-guard-mutants.json").read_text())
           summary = report["summary"]
-          assert summary["total"] == 7, summary
+          assert summary["total"] == 8, summary
           assert summary["counts"] == {
-              "KILLED": 7, "SURVIVED": 0, "INVALID": 0, "TIMEOUT": 0
+              "KILLED": 8, "SURVIVED": 0, "INVALID": 0, "TIMEOUT": 0
           }, summary
           assert summary["base_commit"] == os.environ["EXPECTED_HEAD"], summary
-          print("Seven real Rust source mutations killed by focused assertions")
+          print("Eight real Rust source mutations killed by focused assertions")
           PY
       - name: Upload mutation evidence (not chain proof)
         if: always()
