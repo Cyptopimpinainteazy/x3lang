@@ -72,7 +72,7 @@ migration design.
 
 | Task | Deliverable | Acceptance gate | Status |
 | --- | --- | --- | --- |
-| 1 | Correct refusal evidence | Expected permission/policy errors pass; unrelated failures never pass; valid controls succeed | First implementation increment |
+| 1 | Correct refusal evidence | Expected permission/policy errors pass; unrelated failures never pass; valid controls succeed | Core lifecycle locally verified; expiry/deposit cases and exact-head CI pending |
 | 2 | Bind `.x3` semantics to custody configuration | Generated values match deployed values; changing a supported rule changes enforcement without hand-editing parameters | Not started by this plan |
 | 3 | Integrated payment lifecycle | Same pinned deployment demonstrates allowed payment, adversarial requests, replay, fresh post-revocation request and recovery | Not verified by this plan |
 | 4 | Judge demo and evidence page | One understandable sequence, evidence labels and limitations; no splicing unrelated runs into a single transaction | Pending |

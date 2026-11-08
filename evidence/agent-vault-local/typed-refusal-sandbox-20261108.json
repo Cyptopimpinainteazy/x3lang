@@ -1,0 +1,65 @@
+{
+  "schema": "x3.shield.scoped_agent_vault.local_sandbox.v2",
+  "captured_utc": "2026-11-08T21:37:21Z",
+  "source_base_commit": "b399c1ab277e1d04081890753f8cb7b5dbd15e70",
+  "classification": "REAL_LOCAL_NEAR_SANDBOX_TYPED_REFUSAL_EVIDENCE_NOT_PUBLIC_CHAIN",
+  "contract": "x3-lang/near/x3-agent-vault",
+  "compiled_wasm_sha256": "9a6d8932d11094bb99f683f9c2b52c7c790a1bb0b8db55354397b70e79cc3a9c",
+  "sandbox_log": "evidence/agent-vault-local/typed-refusal-sandbox-20261108.txt",
+  "sandbox_log_sha256": "89dabd3a916480013509455903c0b0beb1d6fccbcaebcc42f3720187f3b4b5f0",
+  "test_network": "ephemeral local NEAR Sandbox 2.14.0",
+  "execution": {
+    "contract_build": "PASS",
+    "harness_check": "PASS",
+    "harness_unit_tests": "PASS (4)",
+    "strict_clippy": "PASS",
+    "sandbox_exit_code": 0,
+    "exact_head_ci": "NOT RUN"
+  },
+  "verified_refusals": [
+    {
+      "action": "direct native transfer with FunctionCall-only key",
+      "typed_rejection": "RequiresFullAccess",
+      "balance_unchanged": true
+    },
+    {
+      "action": "wrong recipient",
+      "typed_rejection": "X3_VAULT_DENIED: recipient not allowlisted"
+    },
+    {
+      "action": "amount above per-payment cap",
+      "typed_rejection": "X3_VAULT_DENIED: per-payment cap exceeded"
+    },
+    {
+      "action": "replayed nonce",
+      "typed_rejection": "X3_VAULT_DENIED: nonce already used"
+    },
+    {
+      "action": "recovery while mandate is active",
+      "typed_rejection": "X3_VAULT_DENIED: revoke or expire mandate before recovery"
+    },
+    {
+      "action": "fresh nonce after owner revocation",
+      "typed_rejection": "X3_VAULT_DENIED: owner revoked mandate"
+    },
+    {
+      "action": "owner recovery with FunctionCall-only agent key",
+      "typed_rejection": "MethodNameMismatch:recover_available"
+    }
+  ],
+  "verified_controls": [
+    "allowed 0.1 NEAR payment reached Paid state",
+    "original payment remained Paid after replay and revocation refusals",
+    "both denied contract requests left escrow at 1.0 NEAR",
+    "owner recovered 0.5 NEAR after revocation",
+    "vault escrow became 0.4 NEAR",
+    "vault account balance decreased and owner net balance increased after gas"
+  ],
+  "limitations": [
+    "local disposable Sandbox, not public testnet or mainnet",
+    "runner observations are not independently authenticated consensus proof",
+    "unrestricted wallet keyholders can bypass Guard-mediated paths",
+    "no public deployment, custody audit, state migration or production storage economics",
+    "expiry and attached-deposit cases remain for the next increment"
+  ]
+}

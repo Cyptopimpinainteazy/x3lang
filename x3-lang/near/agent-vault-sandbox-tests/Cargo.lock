@@ -2841,9 +2841,13 @@ name = "x3-agent-vault-sandbox-test"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
+ "borsh",
  "near-account-id 3.0.0",
  "near-api",
+ "near-openapi-types",
  "near-sandbox",
+ "reqwest",
  "serde_json",
  "tokio",
 ]

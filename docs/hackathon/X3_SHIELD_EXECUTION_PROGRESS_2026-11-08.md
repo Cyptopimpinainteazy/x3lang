@@ -1,99 +1,114 @@
 # X3 Shield execution ledger — 2026-11-08
 
 Plan: [X3_SHIELD_EXECUTION_PLAN.md](X3_SHIELD_EXECUTION_PLAN.md).
-Tracking: [draft PR #159](https://github.com/Cyptopimpinainteazy/x3lang/pull/159), related to [#119](https://github.com/Cyptopimpinainteazy/x3lang/issues/119).
-Branch owner: ChatGPT for `fix/shield-harness-evidence-20261108` only.
+Tracking: draft PR [#159](https://github.com/Cyptopimpinainteazy/x3lang/pull/159),
+related to issue [#119](https://github.com/Cyptopimpinainteazy/x3lang/issues/119).
 Baseline: `038e82d73a522642ae755af48eb6acb838902329`.
 
-## Scope ruling
+## Current status
 
-Task 1 is split into two reviewable increments:
+Task 1 now has a passing local Sandbox run, not merely a compile check:
 
-- **1A, this draft:** quarantine known false-positive refusal evidence. Generic
-  errors and non-success outcomes are not treated as verified permission or policy
-  refusals. Preserve the existing legitimate-payment and recovery observations.
-- **1B, still open:** capture and validate exact structured node/contract rejection
-  reasons, prove matching controls and relevant unchanged balances, then run the
-  complete isolated Sandbox lifecycle at the exact proposed commit.
+- The FunctionCall-only agent key is rejected with the exact structured node
+  error `RequiresFullAccess` when it attempts a direct NEAR transfer.
+- Calling `recover_available` with that key is rejected with the exact structured
+  node error `MethodNameMismatch:recover_available`.
+- Included contract failures are matched to the intended stable
+  `X3_VAULT_DENIED` reason through a typed `ActionError` /
+  `FunctionCallError::ExecutionError`, not arbitrary failure text.
+- A permitted payment succeeds and remains terminal after replay and revocation
+  refusals.
+- Owner recovery succeeds only after revocation and changes both the vault ledger
+  and the observed owner/vault account balances.
 
-Reason: the existing harness discards the rejection subtype, and the current
-execution environment cannot run Rust/Sandbox. Guessing an SDK shape or matching
-error strings would replace one unproven assertion with another. A compile/test
-result must not be represented as a completed adversarial chain proof.
+The run used an ephemeral local NEAR Sandbox 2.14.0 node and an ephemeral agent
+key. It used no public RPC, wallet, account, token or funds. This is local
+custody-harness evidence, not a public-testnet deployment.
 
-**Operational effect:** this is an intentionally fail-closed evidence quarantine.
-The current harness records unresolved classifications and exits nonzero before
-its final `X3_VAULT_SANDBOX_COMPLETE` marker. This draft does not restore a passing
-end-to-end proof run. Do not merge it as a finished custody milestone or remove
-its final gate just to obtain green output.
+Machine-readable evidence:
+[typed-refusal-sandbox-20261108.json](../../evidence/agent-vault-local/typed-refusal-sandbox-20261108.json).
+The sanitized 13-line runner output is
+[typed-refusal-sandbox-20261108.txt](../../evidence/agent-vault-local/typed-refusal-sandbox-20261108.txt).
 
-## Commits and changes
+## Exact verified behavior
 
-| Commit | Work |
+| Observation | Required result |
 | --- | --- |
-| `9b4e2295588ea2297d372482b4caacb7d2e1cb49` | Approved strategy and execution plan recorded |
-| `4c095a600cd88d7b18afbeb16e6d8e899ed9b422` | Eight source-regression guards added before the Rust change |
-| `16560efadaf76c4624efeb79016fd771fcbcd9ae` | Unclassified failures quarantined; final completion requires no inconclusive observations |
-| `e9922d78fb5f5506880a514b8f01baecb88ea533` | Additive CI checks for source guards and exact-head harness compilation, lint and format |
+| Scoped key attempts direct transfer | `InvalidAccessKeyError: RequiresFullAccess`; attacker balance unchanged |
+| Wrong recipient | `X3_VAULT_DENIED: recipient not allowlisted` |
+| Amount above per-payment cap | `X3_VAULT_DENIED: per-payment cap exceeded` |
+| Both denied requests | escrow remains exactly `1.0` NEAR |
+| Allowed payment | exactly `0.1` NEAR; payment state becomes `Paid` |
+| Replay of used nonce | `X3_VAULT_DENIED: nonce already used` |
+| Recovery while mandate is active | `X3_VAULT_DENIED: revoke or expire mandate before recovery` |
+| Payment after owner revocation | `X3_VAULT_DENIED: owner revoked mandate` |
+| Original payment after later refusals | remains `Paid` |
+| Scoped key attempts owner recovery | `InvalidAccessKeyError: MethodNameMismatch:recover_available` |
+| Owner recovery after revocation | `0.5` NEAR recovered; vault escrow becomes `0.4` NEAR |
+| Owner and vault balances | measured before/after; vault decreases and owner net increases after gas |
 
-The contract implementation, dependency lockfiles, immutable chain evidence and
-historical provenance are unchanged by these increments. The original vault CI
-job is retained. The added jobs do not run the Sandbox and are labeled accordingly.
+The final runner marker is:
 
-## Verification actually performed in this session
+```text
+X3_VAULT_SANDBOX_COMPLETE agent_key_restricted=true funds_vault_custodied=true public_chain=false
+```
 
-The conversation container holds a materialized source snapshot, not a full clone.
-Before editing, the Rust source was checked against the GitHub Git-blob SHA
-`833b2e3484b80190121d8329dc23214fab6c2be0`.
+## Verification actually performed
 
-| Check | Observed result | Meaning |
-| --- | --- | --- |
-| `python3 scripts/hackathon/test_vault_refusal_source_guard.py` against original source | Exit 1; 8 methods, 10 failed assertions including subtests | Known ambiguous-success paths detected |
-| Same command against patched source | Exit 0; 8 methods pass | Those source patterns removed and the completion gate present |
-| `python3 -m unittest discover -s scripts/hackathon -p test_vault_refusal_source_guard.py -v` | Exit 0; 8 methods pass | Same static guards discovered and executed |
-| `python3 -m py_compile scripts/hackathon/test_vault_refusal_source_guard.py` | Exit 0 | Python test file parses |
-| Changed source trailing-whitespace check | No trailing-whitespace lines | Limited text hygiene, not Rust formatting |
-| Patched Rust Git-blob SHA | `90a3134d0e8a8836f1cdc762f91df614d471438e` matches GitHub write result | Uploaded Rust bytes match the locally inspected patch |
+The exact compiled contract WASM used by the successful run had SHA-256:
 
-These are **static source regressions**, not semantic Rust tests, protocol proofs,
-SDK-behavior tests or a real Sandbox run. They do not establish correct rejection
-reasons or deny-all/false-negative freedom. When Task 1B introduces the real typed
-proof, replace the quarantine-specific assertions with appropriate behavior tests.
+```text
+9a6d8932d11094bb99f683f9c2b52c7c790a1bb0b8db55354397b70e79cc3a9c
+```
 
-## Verification not established here
+| Command | Result |
+| --- | --- |
+| `RUSTUP_TOOLCHAIN=1.95.0 RUSTFLAGS='--cfg near' cargo build --locked --release --target wasm32-unknown-unknown` | PASS |
+| `RUSTUP_TOOLCHAIN=1.90.0 cargo check --all-targets --locked` | PASS |
+| `RUSTUP_TOOLCHAIN=1.90.0 cargo test --locked` | PASS, 4 focused classifier tests |
+| `RUSTUP_TOOLCHAIN=1.90.0 cargo clippy --all-targets --locked -- -D warnings` | PASS |
+| `python3 scripts/hackathon/test_vault_refusal_source_guard.py` | PASS, 8 source guards |
+| `python3 -m py_compile scripts/hackathon/test_vault_refusal_source_guard.py` | PASS |
+| Workflow YAML parse | PASS |
+| Real local NEAR Sandbox lifecycle on the compiled WASM | PASS, exit 0 |
 
-- Local Cargo check/test/clippy/fmt: not run; no Rust toolchain available.
-- New isolated Sandbox execution: not run.
-- Full repository test matrix: not run in the materialized snapshot.
-- Exact-head GitHub CI: inspect the PR check results; no success is inferred here.
-- Independent review and approval: outstanding.
-- Public-testnet custody evidence: not produced.
+The CI workflow now adds a `sandbox-lifecycle` job that downloads the pinned
+Sandbox 2.14.0 binary, verifies its SHA-256, runs the same compiled-WASM harness,
+checks the required success markers, and uploads the sanitized local log.
 
-Desktop Commander is paused at its monthly usage limit; SentinelX reports no
-enrolled host. External toolchain downloads in the conversation container failed
-hostname resolution. No service was reconnected, installed or reconfigured to
-work around these limits. GitHub remains available for the isolated draft changes.
+## Implementation boundary
 
-## Next acceptance work
+No vault contract logic, state layout, dependency lockfile outside the Sandbox
+test harness, immutable chain evidence or historical provenance changed in this
+increment. The harness adds:
 
-1. Use the pinned SDK/raw-node source to retain the structured `InvalidAccessKey`
-   reason for each forbidden action. Reject unknown, transport, gas, malformed
-   transaction, stale-nonce and wrong-network cases as evidence failures.
-2. Distinguish included contract policy failure from pre-inclusion key rejection;
-   require the intended rule and matching valid controls. Do not invent receipts
-   for transactions rejected before inclusion.
-3. Verify affected balances/state and run the existing payment/recovery lifecycle.
-4. Implement the supported `.x3`-to-vault configuration path without a second parser,
-   silently weakened semantics or manually substituted constructor values.
-5. Reconcile README status and build the honest judge demo only after the evidence
-   supports its claims.
+- a raw JSON-RPC path because `near-api` 0.8.6 collapses access-key subtypes to
+  `InvalidTransaction({})`;
+- typed matching of access-key and contract execution errors;
+- balance/state controls around the tested refusals;
+- focused unit tests proving empty, generic and wrong variants fail closed.
 
-## Non-actions and rollback
+No unknown, transport, timeout, malformed, nonce, gas or wrong-network error may
+be treated as a successful policy refusal.
+
+## Remaining work
+
+1. Bind a supported `.x3` mandate source to generated vault configuration without
+   a second parser or manually substituted constructor values.
+2. Add expiry and attached-deposit cases to the real Sandbox run. The current run
+   already proves a fresh post-revocation nonce is refused and the original
+   terminal payment is preserved.
+3. Pass exact-head GitHub CI, including the new Sandbox lifecycle job.
+4. Complete independent review and owner approval.
+5. Reconcile the final README/demo claims only after exact-head CI and independent
+   review pass.
+
+The non-bypassable custody claim still excludes an unrestricted wallet keyholder,
+public deployment, audited key custody, state migration and production storage
+economics.
+
+## Non-actions
 
 No merge, public deployment, funding, real wallet signing, public disclosure,
-mainnet action or changes to `xxxstar`. No historical evidence was rewritten.
-
-Rollback this draft through normal review by closing it or reverting its focused
-commits. No contract upgrade or funds movement is associated with this patch.
-Restoring generic errors as successful security evidence is not an acceptable fix
-for a red proof gate.
+mainnet action or historical evidence rewrite was performed. This draft remains
+reviewable evidence, not production custody approval.

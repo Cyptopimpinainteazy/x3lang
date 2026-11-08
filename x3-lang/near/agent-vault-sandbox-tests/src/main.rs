@@ -1,8 +1,103 @@
 //! Real offline NEAR Sandbox transactions; no public wallets, no real funds.
 use anyhow::{ensure, Result};
+use base64::{prelude::BASE64_STANDARD, Engine as _};
 use near_api::types::{transaction::actions::FunctionCallPermission, AccessKeyPermission};
-use near_api::{Account, AccountId, Contract, NearGas, NearToken, NetworkConfig, Signer, Tokens};
+use near_api::{Account, AccountId, Contract, NearGas, NearToken, NetworkConfig, Signer, Tokens, Transaction};
+use near_openapi_types::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use serde_json::{json, Value};
+
+fn require_access_key_error<'a>(response: &'a Value, expected: &Value) -> Result<&'a Value> {
+    ensure!(
+        response.get("result").is_none() && response.get("error").is_some(),
+        "raw transaction unexpectedly returned a result: {response}"
+    );
+    let actual = response
+        .pointer("/error/data/TxExecutionError/InvalidTxError/InvalidAccessKeyError")
+        .ok_or_else(|| anyhow::anyhow!("raw rejection lacked InvalidAccessKeyError: {response}"))?;
+    ensure!(
+        actual == expected,
+        "unexpected access-key rejection: expected {expected}, got {actual}"
+    );
+    Ok(actual)
+}
+
+fn policy_reason_from_tx_error(error: TxExecutionError) -> Option<String> {
+    match error {
+        TxExecutionError::ActionError(error) => match error.kind {
+            ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(reason)) => Some(reason),
+            _ => None,
+        },
+        TxExecutionError::InvalidTxError(_) => None,
+    }
+}
+
+fn require_policy_failure(
+    result: near_api::types::transaction::result::TransactionResult,
+    expected_reason: &str,
+) -> Result<()> {
+    let execution = result
+        .into_full()
+        .ok_or_else(|| anyhow::anyhow!("transaction did not reach a full execution result"))?;
+    ensure!(
+        execution.is_failure(),
+        "expected contract policy failure, got {execution:?}"
+    );
+    let contract_reason = execution
+        .failures()
+        .into_iter()
+        .find_map(|outcome| match outcome.clone().into_result() {
+            Err(near_api::types::errors::ExecutionError::TransactionExecutionFailed(error)) => {
+                policy_reason_from_tx_error(*error)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| anyhow::anyhow!("contract failure lacked an execution reason"))?;
+    let actual_reason = contract_reason
+        .strip_prefix("Smart contract panicked: ")
+        .unwrap_or(&contract_reason);
+    ensure!(
+        actual_reason == expected_reason,
+        "unexpected policy reason: expected {expected_reason:?}, got {actual_reason:?}"
+    );
+    println!(
+        "X3_VAULT_SANDBOX_POLICY_REFUSAL local_only=true reason={:?}",
+        expected_reason
+    );
+    Ok(())
+}
+
+async fn send_signed_raw(
+    network: &NetworkConfig,
+    signed: impl Into<near_api::types::transaction::SignedTransaction>,
+) -> Result<Value> {
+    let url = network
+        .rpc_endpoints
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("sandbox network has no RPC endpoint"))?
+        .url
+        .clone();
+    let signed = signed.into();
+    let signed_tx_base64 = BASE64_STANDARD.encode(borsh::to_vec(&signed)?);
+    let response = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()?
+        .post(url)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": "x3-vault-raw-rejection",
+            "method": "send_tx",
+            "params": {
+                "signed_tx_base64": signed_tx_base64,
+                "wait_until": "FINAL"
+            }
+        }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(response)
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -96,31 +191,39 @@ async fn main() -> Result<()> {
     }
     println!("X3_VAULT_SANDBOX_FUNCTIONCALL_KEY_CONFIRMED scope=vault.testnet::request_payment local_only=true");
 
-    // Structured raw-node rejection evidence is still required. Until the exact
-    // access-key subtype and contract failure reasons are captured, observations
-    // are inconclusive and must prevent the final proof-success marker.
-    let mut inconclusive = Vec::new();
-
     // The scoped key can sign bytes; the node must reject unauthorized actions.
     // The separate full-access credential remains in this local test harness.
-    let raw_attempt = Tokens::account(agent.clone())
-        .send_to(attacker.clone())
-        .near(NearToken::from_yoctonear(10u128.pow(22)))
+    let attacker_balance_before = Tokens::account(attacker.clone())
+        .near_balance()
+        .fetch_from(&network)
+        .await?
+        .total
+        .as_yoctonear();
+    let direct_signed = Transaction::construct(agent.clone(), attacker.clone())
+        .add_action(near_api::types::transaction::actions::Action::Transfer(
+            near_api::types::transaction::actions::TransferAction {
+                deposit: NearToken::from_yoctonear(10u128.pow(22)),
+            },
+        ))
         .with_signer(scoped.clone())
-        .send_to(&network)
-        .await;
-    let direct_observation = match raw_attempt {
-        Ok(o) if o.is_success() => {
-            anyhow::bail!("compromised scoped key transferred native NEAR directly")
-        }
-        Ok(_) => "non_success_outcome_unclassified",
-        Err(error) => {
-            eprintln!("X3_VAULT_SANDBOX_DIRECT_TRANSFER_UNCLASSIFIED_ERROR {error}");
-            "sdk_or_rpc_error_unclassified"
-        }
-    };
-    inconclusive.push("direct_transfer_permission");
-    eprintln!("X3_VAULT_SANDBOX_DIRECT_TRANSFER_INCONCLUSIVE local_only=true observation={direct_observation} permission_proven=false");
+        .presign_with(&network)
+        .await?
+        .transaction
+        .signed()
+        .ok_or_else(|| anyhow::anyhow!("direct transfer transaction was not signed"))?;
+    let direct_observation = send_signed_raw(&network, direct_signed).await?;
+    require_access_key_error(&direct_observation, &json!("RequiresFullAccess"))?;
+    let attacker_balance_after = Tokens::account(attacker.clone())
+        .near_balance()
+        .fetch_from(&network)
+        .await?
+        .total
+        .as_yoctonear();
+    ensure!(
+        attacker_balance_after == attacker_balance_before,
+        "direct transfer changed attacker balance"
+    );
+    println!("X3_VAULT_SANDBOX_SCOPED_DIRECT_TRANSFER_REFUSED local_only=true rejection=RequiresFullAccess balance_unchanged=true");
 
     let call = |nonce: &str, recipient: &AccountId, amount: &str| {
         json!({
@@ -134,8 +237,7 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await?;
-    ensure!(!wrong.is_success(), "attacker recipient was paid");
-    inconclusive.push("wrong_recipient_reason");
+    require_policy_failure(wrong, "X3_VAULT_DENIED: recipient not allowlisted")?;
     let oversized = contract
         .call_function(
             "request_payment",
@@ -146,9 +248,18 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await?;
-    ensure!(!oversized.is_success(), "payment over cap was allowed");
-    inconclusive.push("payment_cap_reason");
-    eprintln!("X3_VAULT_SANDBOX_RECIPIENT_AND_CAP_FAILURES_OBSERVED local_only=true reasons_verified=false");
+    require_policy_failure(oversized, "X3_VAULT_DENIED: per-payment cap exceeded")?;
+    let available_after_denials: Value = contract
+        .call_function("available", json!({}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(
+        available_after_denials == "1000000000000000000000000",
+        "denied requests changed escrow: {available_after_denials:?}"
+    );
+    println!("X3_VAULT_SANDBOX_RECIPIENT_AND_CAP_REFUSED local_only=true reasons_verified=true balance_unchanged=true");
 
     let good = contract
         .call_function("request_payment", call("once", &allowed, "100000000000000000000000"))
@@ -177,8 +288,7 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await?;
-    ensure!(!replay.is_success(), "replayed nonce permitted");
-    inconclusive.push("nonce_replay_reason");
+    require_policy_failure(replay, "X3_VAULT_DENIED: nonce already used")?;
 
     // Even the owner cannot recover live escrow while the mandate is active.
     let active_recovery = contract
@@ -188,11 +298,10 @@ async fn main() -> Result<()> {
         .with_signer(owner.clone(), full.clone())
         .send_to(&network)
         .await?;
-    ensure!(
-        !active_recovery.is_success(),
-        "active owner mandate allowed escrow recovery"
-    );
-    inconclusive.push("active_recovery_reason");
+    require_policy_failure(
+        active_recovery,
+        "X3_VAULT_DENIED: revoke or expire mandate before recovery",
+    )?;
     contract
         .call_function("revoke", json!({}))
         .transaction()
@@ -211,8 +320,7 @@ async fn main() -> Result<()> {
         .with_signer(agent.clone(), scoped.clone())
         .send_to(&network)
         .await?;
-    ensure!(!revoked.is_success(), "revoked agent was allowed");
-    inconclusive.push("revocation_reason");
+    require_policy_failure(revoked, "X3_VAULT_DENIED: owner revoked mandate")?;
     let final_state: Value = contract
         .call_function("payment", json!({"nonce":"once"}))
         .read_only()
@@ -223,28 +331,25 @@ async fn main() -> Result<()> {
         final_state["state"] == "Paid",
         "successful payment reverted due to later denial"
     );
-    eprintln!("X3_VAULT_SANDBOX_REPLAY_AND_REVOCATION_FAILURES_OBSERVED local_only=true reasons_verified=false");
+    println!("X3_VAULT_SANDBOX_REPLAY_AND_REVOCATION_REFUSED local_only=true reasons_verified=true terminal_payment_preserved=true");
 
     // The compromised scoped key has no permission for owner recovery.
-    let agent_recovery = contract
+    let agent_recovery_signed = contract
         .call_function("recover_available", json!({"amount":"100000000000000000000000"}))
         .transaction()
         .gas(NearGas::from_tgas(100))
         .with_signer(agent.clone(), scoped.clone())
-        .send_to(&network)
-        .await;
-    let recovery_observation = match agent_recovery {
-        Ok(result) if result.is_success() => {
-            anyhow::bail!("scoped agent was able to recover owner escrow")
-        }
-        Ok(_) => "non_success_outcome_unclassified",
-        Err(error) => {
-            eprintln!("X3_VAULT_SANDBOX_AGENT_RECOVERY_UNCLASSIFIED_ERROR {error}");
-            "sdk_or_rpc_error_unclassified"
-        }
-    };
-    inconclusive.push("agent_recovery_permission");
-    eprintln!("X3_VAULT_SANDBOX_AGENT_RECOVERY_INCONCLUSIVE local_only=true observation={recovery_observation} permission_proven=false");
+        .presign_with(&network)
+        .await?
+        .transaction
+        .signed()
+        .ok_or_else(|| anyhow::anyhow!("agent recovery transaction was not signed"))?;
+    let recovery_observation = send_signed_raw(&network, agent_recovery_signed).await?;
+    require_access_key_error(
+        &recovery_observation,
+        &json!({"MethodNameMismatch":{"method_name":"recover_available"}}),
+    )?;
+    println!("X3_VAULT_SANDBOX_AGENT_RECOVERY_REFUSED local_only=true rejection=MethodNameMismatch:recover_available");
 
     let available_before: Value = contract
         .call_function("available", json!({}))
@@ -314,11 +419,63 @@ async fn main() -> Result<()> {
         vault_balance_before >= vault_balance_after + 5u128 * 10u128.pow(23),
         "vault account balance did not fund owner recovery"
     );
-    println!("X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS local_only=true owner_only=true active_mandate_failure_observed=true active_mandate_reason_verified=false recovered_yoctonear=500000000000000000000000 pending_payout_protected_by_unit_tests=true owner_net_yoctonear={owner_net} vault_account_balance_decreased=true");
-    ensure!(
-        inconclusive.is_empty(),
-        "X3_VAULT_SANDBOX_EVIDENCE_INCONCLUSIVE unresolved={inconclusive:?}; structured permission and policy rejection reasons are required"
-    );
+    println!("X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS local_only=true owner_only=true active_mandate_refusal_verified=true recovered_yoctonear=500000000000000000000000 pending_payout_protected_by_unit_tests=true owner_net_yoctonear={owner_net} vault_account_balance_decreased=true");
     println!("X3_VAULT_SANDBOX_COMPLETE agent_key_restricted=true funds_vault_custodied=true public_chain=false");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn direct_transfer_requires_the_exact_access_key_variant() {
+        let response = json!({
+            "error": {
+                "data": {
+                    "TxExecutionError": {
+                        "InvalidTxError": {
+                            "InvalidAccessKeyError": "RequiresFullAccess"
+                        }
+                    }
+                }
+            }
+        });
+        assert_eq!(
+            require_access_key_error(&response, &json!("RequiresFullAccess")).unwrap(),
+            &json!("RequiresFullAccess")
+        );
+        assert!(require_access_key_error(&response, &json!("ReceiverMismatch")).is_err());
+    }
+
+    #[test]
+    fn empty_or_generic_errors_are_not_access_key_proof() {
+        for response in [
+            json!({"error": {}}),
+            json!({"error": {"data": {"TxExecutionError": {"InvalidTxError": {"InvalidAccessKeyError": {}}}}}}),
+            json!({"result": {"status": {"Failure": "unknown"}}}),
+        ] {
+            assert!(require_access_key_error(&response, &json!("RequiresFullAccess")).is_err());
+        }
+    }
+
+    #[test]
+    fn policy_reason_comes_from_typed_execution_failure() {
+        let error = TxExecutionError::ActionError(near_openapi_types::ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "Smart contract panicked: X3_VAULT_DENIED: recipient not allowlisted".into(),
+            )),
+        });
+        assert_eq!(
+            policy_reason_from_tx_error(error).as_deref(),
+            Some("Smart contract panicked: X3_VAULT_DENIED: recipient not allowlisted")
+        );
+    }
+
+    #[test]
+    fn invalid_transaction_error_is_not_a_contract_policy_reason() {
+        let error = TxExecutionError::InvalidTxError(near_openapi_types::InvalidTxError::InvalidSignature);
+        assert_eq!(policy_reason_from_tx_error(error), None);
+    }
 }
