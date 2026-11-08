@@ -74,6 +74,35 @@ def test_refresh_requires_receipt():
     assert "receipt" in result.stderr.lower()
 
 
+def test_refund_signature_is_explicitly_unsupported_by_judge_gate(tmp_path):
+    # This gate cannot bind an imported receipt to finalized refund evidence.
+    # Accepting --refund-tx and silently ignoring it misleads an operator.
+    path = tmp_path / "claimed-refund.json"
+    path.write_text(json.dumps({"kind": "x3.near_intents.v1", "verified_outcome": "refunded"}))
+    result = subprocess.run(
+        [sys.executable, str(MODULE), "--skip-tests", "--receipt", str(path),
+         "--refresh-chain", "--refund-tx", "5" * 88],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 2
+    assert "not supported" in result.stderr.lower()
+
+
+def test_require_live_rejects_unproven_claims_even_with_tests_skipped(tmp_path):
+    path = tmp_path / "claimed-live.json"
+    path.write_text(json.dumps({
+        "kind": "x3.near_intents.v1",
+        "verified_outcome": "settled",
+        "evidence": {"deposit": {"verified": True}, "settlement": {"verified": True}},
+    }))
+    result = subprocess.run(
+        [sys.executable, str(MODULE), "--skip-tests", "--receipt", str(path),
+         "--refresh-chain", "--require-live"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 5
+
+
 def test_evidence_json_does_not_copy_keys_or_private_quote_fields(tmp_path):
     secret = "NEAR_INTENTS_JWT_SUPER_SECRET_TEST_ONLY"
     receipt = tmp_path / "receipt.json"
@@ -116,6 +145,24 @@ def test_quick_and_full_modes_are_explicit_and_disjoint():
     assert any("cargo" in " ".join(x["argv"]) for x in quick)
     assert len(full) > len(quick)
     assert any("wasm32-unknown-unknown" in " ".join(x["argv"]) for x in full)
+
+
+def test_judge_tests_do_not_inherit_unrecorded_rustflags(monkeypatch):
+    import subprocess
+    monkeypatch.setenv("RUSTFLAGS", "-C target-cpu=native")
+    captured = []
+
+    def test_process(argv, *, env, **_kwargs):
+        captured.append(dict(env))
+        return subprocess.CompletedProcess(argv, 0, stdout="pass")
+
+    monkeypatch.setattr(judge_evidence, "plan_tests", lambda mode: [{
+        "name": "rust_vm_tests", "argv": ["cargo", "test"], "cwd": ROOT, "timeout": 10
+    }])
+    monkeypatch.setattr(judge_evidence.subprocess, "run", test_process)
+    outcomes = judge_evidence.run_tests("full")
+    assert outcomes[0]["status"] == "passed"
+    assert captured and all("RUSTFLAGS" not in env for env in captured)
 
 
 def test_missing_receipt_is_not_inferred_from_optional_status():
@@ -213,11 +260,11 @@ def test_signed_live_quote_cannot_trust_unsigned_receipt_fields(tmp_path, monkey
     assert not r['cross_chain_causality_proven']
 
 
-def test_quick_mode_includes_model_and_fee_tests():
+def test_quick_mode_includes_model_and_excludes_commercial_experiments():
     steps = judge_evidence.plan_tests('quick')
     python_argv = next(step['argv'] for step in steps if 'pytest' in step['argv'])
     assert 'x3-lang/tests/test_near_agent.py' in python_argv
-    assert 'x3-lang/tests/test_value_fee.py' in python_argv
+    assert 'x3-lang/tests/test_value_fee.py' not in python_argv
 
 
 def test_malformed_nested_receipt_fails_closed(tmp_path):

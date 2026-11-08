@@ -108,9 +108,11 @@ First real swap: `x3-lang/near/first-swap.sh` walks one small swap end to end:
 you send the USDC → `deposited <solana-tx>` (track, prove from both chains, record the outcome).
 It never moves your funds and asks before every step that spends NEAR.
 
-Chain evidence: `verify-deposit --receipt R` proves the Solana deposit and `verify-settlement
---receipt R [--refund-tx SIG]` proves the NEAR delivery (balance rise from a baseline taken at
-quote time) or the Solana refund. A receipt's `verified_outcome` is set only from chain data.
+Chain evidence distinguishes four levels: an authenticated 1Click quote proves signed terms;
+`verify-deposit --receipt R` checks a finalized source-chain transfer; `verify-settlement
+--receipt R` observes a destination balance rise from the quote-time baseline; and no current
+path proves that a particular solver causally linked those two legs. Refund checks also require
+the signed refund destination and a finalized Solana transfer after the source deposit.
 
 Browser demo (live at https://x3-guard.pages.dev): `x3-lang/near/demo` is a static page that compiles an intent, fetches a real
 1Click dry quote, verifies its signature with WebCrypto and marks each program line with its
@@ -145,7 +147,8 @@ English request -> model -> X3 intent (untrusted) -> compiler -> `under mandate`
 ```bash
 export ANTHROPIC_API_KEY=...            # or X3_AGENT_PROVIDER=openai-compatible with
                                         # X3_AGENT_BASE_URL=http://localhost:11434/v1 X3_AGENT_MODEL=...
-python3 x3-lang/near_agent.py pay "Pay x3-demo.near 25 USDC for invoice 4411" \
+export RECIPIENT_ACCOUNT=recipient-account.near  # an existing account you intend to pay
+python3 x3-lang/near_agent.py pay "Pay $RECIPIENT_ACCOUNT 25 USDC for invoice 4411" \
   --mandate x3-lang/examples/near_mandate_agent.x3 --guard-contract <x3-guard account> \
   --out approved-program.x3 --quote
 python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... \
@@ -182,6 +185,9 @@ to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses 
 `agent-demo.sh` runs the judge-facing sequence in order: mandate, dry model run, owner-approved
 live quote, agent register/accept, owner deposit, chain verification, one on-chain refusal, and
 owner revocation. Store any committed red-team evidence under `evidence/agent-redteam-<date>/`.
+Its `setup` step requires an existing recipient account with no placeholder default, validates the
+account through NEAR RPC, and writes no transaction. Every later NEAR transaction is separately
+confirmed before execution; the script never deposits USDC itself.
 
 What the agent cannot do: x3-guard holds no funds, so a holder of the origin wallet key can still
 deposit directly and bypass Guard. The mandate restricts Guard methods and is meant for an agent
@@ -195,22 +201,6 @@ Environment: `NEAR_INTENTS_JWT` (API key; without it the unauthenticated fee sch
 `X3_NEAR_NONCE_STORE`. The adapter never signs
 or sends the deposit; that is made from the sender's wallet. 1Click has no testnet, so live runs
 use real funds — start small.
-
-## Transparent optional value fees (preview-only)
-
-The new `value_fee.py` library computes a capped, opt-in **share of positive
-net route improvement**, using exact destination-token integer amounts and
-fresh comparable quote inputs. It rejects unknown costs, mismatched assets,
-stale references and any proposal that would erase the user's minimum gain.
-
-```bash
-python3 x3-lang/value_fee.py --preview-stdin < x3-lang/examples/fees/verified_savings_preview.json
-```
-
-This is **not** `.x3` syntax today and is not wired to NEAR 1Click `appFees`;
-`collectible: false` is mandatory because a signed quote is not proof of
-settlement or user authorization. See `../COMMERCIAL_MODEL.md` for the
-commercial API/on-chain design and safeguards.
 
 ## Quick start
 

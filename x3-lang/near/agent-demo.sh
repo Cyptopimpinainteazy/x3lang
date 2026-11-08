@@ -14,7 +14,7 @@
 #   x3-lang/near/agent-demo.sh show             where everything is
 #
 # Set X3_AGENT_PROVIDER / ANTHROPIC_API_KEY (or an OpenAI-compatible provider) before
-# pay-dry and pay-live. Keys and state are stored in $X3_AGENT_RUN_DIR with modes 700/600.
+# pay-dry. Keys and state are stored in $X3_AGENT_RUN_DIR with modes 700/600.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,12 +54,31 @@ guard_cmd() {
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["command"])'
 }
 
+validate_near_recipient() {
+  local account="$1"
+  PYTHONPATH="$X3_LANG" python3 - "$account" <<'PY'
+import sys
+from near_intents import NearIntentsError, NearRpc, validate_near_account_id
+
+account = sys.argv[1]
+try:
+    validate_near_account_id(account)
+    if not NearRpc().account_exists(account):
+        raise SystemExit(f"NEAR recipient {account!r} does not exist; no mandate was written")
+except NearIntentsError as exc:
+    raise SystemExit(f"could not validate NEAR recipient {account!r}: {exc.message}") from exc
+except Exception as exc:
+    raise SystemExit(f"could not validate NEAR recipient {account!r}: {exc}") from exc
+print(f"  Validated existing NEAR recipient: {account}")
+PY
+}
+
 cmd_setup() {
   mkdir -p "$RUN_DIR"
   chmod 700 "$RUN_DIR"
   say "Setting up the AI Money Agent demo"
 
-  local owner agent_account owner_key agent_key contract sol amount
+  local owner agent_account owner_key agent_key contract recipient sol amount
   read -rp "  Owner NEAR account: " owner
   [[ -n "$owner" ]] || die "an owner account is required."
   read -rp "  Owner key file: " owner_key
@@ -70,6 +89,9 @@ cmd_setup() {
   [[ -f "$agent_key" ]] || die "agent key file not found: $agent_key"
   read -rp "  x3-guard contract account [${owner}]: " contract
   contract="${contract:-$owner}"
+  read -rp "  Existing recipient NEAR account allowed by the mandate: " recipient
+  [[ -n "$recipient" ]] || die "a real recipient NEAR account that you control or intend to pay is required."
+  validate_near_recipient "$recipient"
   read -rp "  Owner's Solana wallet (sends USDC, receives refunds): " sol
   [[ "$sol" =~ ^[1-9A-HJ-NP-Za-km-z]{32,44}$ ]] || die "that is not a Solana address."
   read -rp "  Payment amount in USDC [25]: " amount
@@ -84,7 +106,7 @@ mandate x3_shopping_agent {
     spend Solana.USDC
     per_payment ${amount}000000
     per_24h ${amount}000000
-    allow recipients x3-demo.near
+    allow recipients ${recipient}
     allow assets Near.USDC
     refund_to ${sol}
     require slippage <= 1%
@@ -98,6 +120,7 @@ EOF
     printf 'AGENT_ACCOUNT=%q\n' "$agent_account"
     printf 'AGENT_KEY=%q\n' "$agent_key"
     printf 'CONTRACT=%q\n' "$contract"
+    printf 'RECIPIENT=%q\n' "$recipient"
     printf 'SOLANA=%q\n' "$sol"
     printf 'AMOUNT=%q\n' "$amount"
   } > "$STATE"
@@ -118,7 +141,7 @@ cmd_mandate() {
 cmd_pay_dry() {
   load_state
   say "Real model: English request -> X3 intent -> deterministic checks"
-  agent pay "Pay x3-demo.near ${AMOUNT} USDC for invoice 4411." --mandate "$MANDATE" \
+  agent pay "Pay ${RECIPIENT} ${AMOUNT} USDC for invoice 4411." --mandate "$MANDATE" \
     --out "$ALLOWED" --quote
   info "Approval hash is printed above as --approve <sha256>."
   info "Next: $0 pay-live <sha256>"
@@ -129,7 +152,7 @@ cmd_pay_live() {
   local sha="${1:-}"
   [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || die "give the program SHA-256 from pay-dry."
   say "Owner-approved live quote"
-  agent pay "Pay x3-demo.near ${AMOUNT} USDC for invoice 4411." --mandate "$MANDATE" \
+  agent pay "Pay ${RECIPIENT} ${AMOUNT} USDC for invoice 4411." --mandate "$MANDATE" \
     --out "$ALLOWED" --approved-program "$ALLOWED" --guard-contract "$CONTRACT" --live --approve "$sha" \
     --nonce-store "$RUN_DIR/nonces.json" --receipt "$RECEIPT" > "$RUN_DIR/live-quote.json"
   chmod 600 "$RECEIPT"

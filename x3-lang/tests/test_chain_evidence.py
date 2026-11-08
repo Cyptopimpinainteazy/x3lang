@@ -212,7 +212,7 @@ def test_settled_end_to_end_through_the_cli(tmp_path, capsys):
     sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
     assert ni.main(["verify-deposit", "--receipt", str(path)], solana=sol) == 0
 
-    # Before the payout lands, settlement is not proven, and the receipt says so.
+    # Before the payout lands, no compatible destination balance is observed.
     views = ni.near_views_for(rpc)
     assert ni.main(["verify-settlement", "--receipt", str(path)], near_views=views) == ni.EXIT_UNVERIFIED
     assert json.loads(path.read_text())["verification"]["status"] == "unverified"
@@ -223,11 +223,13 @@ def test_settled_end_to_end_through_the_cli(tmp_path, capsys):
     capsys.readouterr()
 
     receipt = json.loads(path.read_text())
-    assert receipt["verified_outcome"] == "settled"
-    assert receipt["verification"] == {"status": "verified", "outcome": "settled", "missing": [],
-                                       "1click_reported": "settled", "1click_agrees": True}
+    assert receipt["observed_outcome"] == "settled"
+    assert receipt["verification"]["status"] == "both_legs_observed"
+    assert receipt["verification"]["outcome"] == "settled"
+    assert receipt["verification"]["1click_agrees"] is True
+    assert receipt["verification"]["cross_chain_causality_proven"] is False
     assert receipt["evidence"]["settlement"]["delivered"] == "24950000"
-    # The contract records the amount the chain proved, not 1Click's unsigned status.
+    # The contract records the observed balance delta, not 1Click's unsigned status.
     chain.balances[(NEAR_USDC_CONTRACT, "x3-demo.near")] = 1_000_000 + 24_960_000
     assert ni.verify_settlement(receipt, near_views=views)["delivered"] == "24960000"
     assert ni.guard_args(receipt, "outcome")["amount_out"] == "24960000"
@@ -243,7 +245,8 @@ def test_refunded_end_to_end(tmp_path):
     assert ni.verify_deposit(receipt, tx_signature=DEPOSIT_SIG, solana=sol)["verified"]
     ev = ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)
     assert ev["verified"] and ev["required"] == str(25_000_000 - 244_425)
-    assert receipt["verified_outcome"] == "refunded"
+    assert receipt["observed_outcome"] == "refunded"
+    assert receipt["verification"]["cross_chain_causality_proven"] is False
 
 
 def test_refund_cannot_use_mutated_unsigned_recipient(tmp_path):
@@ -376,7 +379,7 @@ def test_a_refund_from_before_the_deposit_proves_nothing(tmp_path):
     ni.verify_deposit(receipt, tx_signature=DEPOSIT_SIG, solana=sol)
     ev = ni.verify_settlement(receipt, refund_tx=REFUND_SIG, solana=sol)
     assert checks(ev)["after_deposit"] is False
-    assert "verified_outcome" not in receipt
+    assert "observed_outcome" not in receipt
 
 
 def test_settlement_without_a_proven_deposit_is_not_an_outcome(tmp_path):

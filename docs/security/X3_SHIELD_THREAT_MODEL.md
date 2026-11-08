@@ -135,23 +135,6 @@ Remaining risks:
 - Denial of service through slow inference remains possible; timeouts now fail the affected case
   rather than crashing the whole suite.
 
-## Financial arithmetic
-
-Fee logic must use integer base units and checked arithmetic. The proposed invariant is:
-
-```text
-F <= floor(S x P)
-F <= approved absolute cap
-C - F >= R + minimum user benefit
-```
-
-where `R` is the reference net output, `C` is the candidate net output before X3's fee, `S` is
-positive improvement, `P` is the approved savings share, and `F` is the fee.
-
-The current draft computes only a non-billable preview. It has no authenticated comparable quote,
-wallet authorization, Guard fee policy, settlement-linked collection, or observed savings. The
-correct live default remains zero.
-
 ## Evidence taxonomy
 
 | Class | Meaning |

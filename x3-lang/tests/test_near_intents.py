@@ -505,6 +505,33 @@ def test_implicit_accounts_are_not_looked_up():
     assert calls.calls == []
 
 
+@pytest.mark.parametrize("account", [
+    "example.near",
+    "sub.example-account.near",
+    "a" * 64,
+    "0x" + "b" * 40,
+])
+def test_valid_near_account_ids_pass_local_validation(account):
+    ni.validate_near_account_id(account)
+
+
+@pytest.mark.parametrize("account", [
+    "",
+    "a",
+    "Upper.Near",
+    "double..separator.near",
+    "-leading.near",
+    "trailing-.near",
+    "contains space.near",
+])
+def test_malformed_near_account_ids_are_rejected_before_rpc(account):
+    rpc, calls = near_rpc()
+    with pytest.raises(ni.NearIntentsError) as err:
+        rpc.account_exists(account)
+    assert err.value.code == "X3_NEAR_ACCOUNT_ID"
+    assert calls.calls == []
+
+
 def test_an_rpc_that_cannot_answer_fails_closed():
     rpc, _ = near_rpc(error={"name": "REQUEST_VALIDATION_ERROR", "cause": {"name": "PARSE_ERROR"}, "code": -32700})
     with pytest.raises(ni.NearIntentsError) as err:

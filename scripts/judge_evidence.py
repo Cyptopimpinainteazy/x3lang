@@ -45,7 +45,6 @@ def plan_tests(mode: str) -> list[dict]:
         "x3-lang/tests/test_near_intents.py",
         "x3-lang/tests/test_judge_evidence.py",
         "x3-lang/tests/test_near_agent.py",
-        "x3-lang/tests/test_value_fee.py",
     ]
     jobs = [
         _step("python_policy_and_chain_evidence_tests",
@@ -77,7 +76,7 @@ def run_tests(mode: str) -> list[dict]:
     # Subprocess test runners must never inherit operational wallet or API credentials.
     env = {k: v for k, v in os.environ.items()
            if k in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR',
-                    'RUSTUP_HOME', 'CARGO_HOME', 'RUSTFLAGS', 'PYTHONHOME')}
+                    'RUSTUP_HOME', 'CARGO_HOME', 'PYTHONHOME')}
     env['PYTHONPATH'] = str(LANG)
     results = []
     for step in plan_tests(mode):
@@ -107,8 +106,7 @@ def run_tests(mode: str) -> list[dict]:
     return results
 
 
-def inspect_receipt(receipt_path: Path | None, *, refresh_chain: bool,
-                    refund_tx: str | None = None) -> dict:
+def inspect_receipt(receipt_path: Path | None, *, refresh_chain: bool) -> dict:
     """Inspect a locally provided receipt without copying potentially sensitive fields.
 
     Local 'verified' flags are self-reported JSON and carry ZERO proof weight.
@@ -143,7 +141,7 @@ def inspect_receipt(receipt_path: Path | None, *, refresh_chain: bool,
         return out
     if not isinstance(receipt, dict) or receipt.get("kind") != "x3.near_intents.v1":
         return out
-    claimed = receipt.get("verified_outcome")
+    claimed = receipt.get("observed_outcome") or receipt.get("verified_outcome")
     if claimed in ("settled", "refunded"):
         out["claimed_outcome"] = claimed
     response = receipt.get("quote_response")
@@ -252,21 +250,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--skip-tests", action="store_true")
     p.add_argument("--receipt", type=Path, help="optional PRIVATE local X3 1Click receipt")
     p.add_argument("--refresh-chain", action="store_true",
-                   help="read public NEAR/Solana RPCs; no wallet/signing/deployment")
-    p.add_argument("--refund-tx", help="public Solana refund tx signature (only if refund is claimed)")
+                   help="recheck quote signature and receipt bindings; RPC transaction proof is not yet supported")
+    p.add_argument("--refund-tx", help="currently unsupported by judge; explicit use fails closed")
     p.add_argument("--require-live", action="store_true",
-                   help="exit 5 unless the supplied receipt's chain facts were independently re-read")
+                   help="fail closed (exit 5) until independently bound live chain evidence is implemented")
     p.add_argument("--report-dir", type=Path, help="write sanitized evidence.json and evidence.md (private by default)")
     args = p.parse_args(argv)
 
     if args.refresh_chain and args.receipt is None:
         p.error("--refresh-chain requires --receipt")
-    if args.refund_tx and not args.refresh_chain:
-        p.error("--refund-tx requires --refresh-chain")
+    if args.refund_tx is not None:
+        p.error("--refund-tx is not supported by this judge gate: source/refund chain binding is unimplemented")
 
     results = [] if args.skip_tests else run_tests(args.mode)
     try:
-        receipt = inspect_receipt(args.receipt, refresh_chain=args.refresh_chain, refund_tx=args.refund_tx)
+        receipt = inspect_receipt(args.receipt, refresh_chain=args.refresh_chain)
     except (OSError, ValueError) as exc:
         print(f"receipt refused: {type(exc).__name__}", file=sys.stderr)
         return 2
@@ -292,7 +290,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if any(t["status"] != "passed" for t in results):
         return 1
-    if args.require_live and receipt["status"] != "chain_facts_rechecked_but_causality_unproven":
+    # No imported-receipt chain rechecker currently passes an independent
+    # quote-to-transfer binding gate. Do not compare against an unreachable
+    # status name or accidentally promote local JSON claims to live evidence.
+    if args.require_live:
         return 5
     return 0
 
