@@ -11,8 +11,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts" / "hackathon" / "compromised_agent_redteam.py"
+SCRIPT = Path(__file__).resolve().parent / "compromised_agent_redteam.py"
 
 
 def _load():

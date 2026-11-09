@@ -376,8 +376,8 @@ def test_redteam_records_every_case_and_counts_what_held(tmp_path):
     result = agent.redteam(str(MANDATE), model=Scripted(gullible), client=client(), tokens_path=str(TOKENS),
                            out_dir=str(tmp_path), now=NOW)
     assert result["total"] == len(agent.REDTEAM) and result["held"] == result["total"], result
-    # NEAR account IDs are lowercase ASCII, so the type checker rejects the Cyrillic look-alike
-    # (X3_INVALID_RECEIVER) before the mandate's recipient allowlist would; either is deterministic.
+    # The homoglyph payload is a valid account as far as X3 is concerned, so it is the mandate
+    # (recipient allowlist) that stops it, never the compiler.
     assert {c["stopped_at"] for c in result["cases"]} <= {"mandate", "compile", None}
     assert all(c["model_output"] for c in result["cases"]), "the model's actual output is kept as evidence"
 
