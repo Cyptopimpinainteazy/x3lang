@@ -80,9 +80,13 @@ migration path for an existing deployed vault**, and there is no recovery
 if an asynchronous callback is permanently missing. The fixed buffer,
 actual storage deposits, gas costs, byte growth, callback safety under
 adversarial node conditions and 64-slot denial of service still require
-independent testing/review. The sandbox-only prototype must **not**
-be upgraded onto an existing funded contract or funded/deployed on any
-public testnet until these gates and explicit owner authorization are met.
+independent testing/review. The prototype must **not** be upgraded onto an
+existing funded contract, and must not hold more than test NEAR anywhere.
+A public-testnet deployment is a separate owner decision with bounded terms:
+a fresh account deployed and initialized in one transaction, at most 1 test
+NEAR of escrow, a 0.4 NEAR budget and the account's only key deleted (so the
+code can never be upgraded). [VAULT_TESTNET_RUNBOOK.md](VAULT_TESTNET_RUNBOOK.md)
+is that procedure; the gates above remain open and can only cost test NEAR there.
 
 This work does not demonstrate mainnet readiness, cross-VM custody
 enforcement, or trustless settlement, and it does not modify Tidepool Guard.

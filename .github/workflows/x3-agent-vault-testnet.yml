@@ -2,9 +2,9 @@ name: X3 Shield Scoped-Agent Vault Pilot
 on:
   push:
     branches: [master]
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','x3-lang/near/vault-testnet.sh','scripts/hackathon/vault_testnet_evidence.py','scripts/hackathon/test_vault_testnet_evidence.py','scripts/hackathon/testnet_guard_evidence.py','.github/workflows/x3-agent-vault-testnet.yml']
   pull_request:
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','x3-lang/near/vault-testnet.sh','scripts/hackathon/vault_testnet_evidence.py','scripts/hackathon/test_vault_testnet_evidence.py','scripts/hackathon/testnet_guard_evidence.py','.github/workflows/x3-agent-vault-testnet.yml']
 permissions:
   contents: read
 jobs:
@@ -50,6 +50,26 @@ jobs:
           python3 --version
           python3 -m unittest discover -s scripts/hackathon -p 'test_near_permission_refusal.py' -v
           python3 -m unittest discover -s scripts/hackathon -p 'test_near_rpc_capture.py' -v
+
+  testnet-runbook-tooling:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read-only testnet evidence judge (fake localhost RPC, no network, no keys)
+        working-directory: scripts/hackathon
+        run: |
+          python -m pip install pytest==9.2.0
+          python -m pytest -q test_vault_testnet_evidence.py test_testnet_guard_evidence.py
+      - name: Operator script syntax and lint
+        run: |
+          bash -n x3-lang/near/vault-testnet.sh
+          shellcheck x3-lang/near/vault-testnet.sh
 
   check-harness-source:
     runs-on: ubuntu-24.04

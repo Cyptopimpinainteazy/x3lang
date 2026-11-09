@@ -168,6 +168,8 @@ and read-only signed-quote/Guard-to-Base binding
 ([#140](https://github.com/Cyptopimpinainteazy/x3lang/pull/140)). These vaults are
 not publicly deployed, independently audited or part of the historical Tidepool
 transfer. They do not constrain an unrelated funded EOA. Owner keys remain trusted.
+[VAULT_TESTNET_RUNBOOK.md](docs/hackathon/VAULT_TESTNET_RUNBOOK.md) deploys the NEAR vault
+to public testnet and attacks it with the agent's own key; it has not been run yet.
 
 X3 Shield compares signed quote terms with a typed program: recipient, asset,
 minimum output, deadline and refund address. Key restrictions and custody controls
