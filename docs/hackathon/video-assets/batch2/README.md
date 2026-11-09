@@ -52,3 +52,22 @@ The GitHub repository is currently private, so unauthenticated `raw.githubuserco
 Remote Desktop Commander for x3star1 was online but its monthly tool-call limit was reached, so this batch is published through the GitHub asset branch and requires the explicit user-run bootstrap above. GitHub master is unchanged.
 ## Animated micro-clips
 The renderer also creates three 4-second 720p moving-pulse clips: `X3BC_Bytecode_Pulse_4s.mp4`, `X3Shield_Guard_Decision_4s.mp4`, and `Tidepool_Trusted_Relay_4s.mp4`. They are illustrative motion graphics layered over the diagrams, **not live transaction playback**.
+
+## Open a headless gallery securely (x3star1 → x3gpu1)
+
+The browser needs a graphical session. Do not launch `xdg-open` from a headless SSH session.
+
+On **x3star1**, after the batch2 build has produced `index.html`:
+
+```bash
+cd ~/Downloads/X3Lang-Video/batch2
+python3 -m http.server 8877 --bind 127.0.0.1
+```
+
+On **x3gpu1** (in a separate terminal), establish a tunnel:
+
+```bash
+ssh -o ExitOnForwardFailure=yes -N -L 8877:127.0.0.1:8877 lojak@x3star1
+```
+
+Use Firefox running on **x3gpu1** to open `http://127.0.0.1:8877/index.html`. The service stays bound to x3star1's loopback interface; the SSH tunnel carries it privately. If the gallery file is missing on x3star1, run the authenticated batch2 installer **on x3star1** before starting the server. A public/raw GitHub URL will 404 while the repository remains private.
