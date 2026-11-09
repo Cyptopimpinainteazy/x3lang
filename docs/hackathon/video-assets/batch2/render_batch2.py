@@ -39,7 +39,20 @@ def make_video(name, indexes, duration=2.7,fade=.5):
          "-c:v","libx264","-preset","ultrafast","-crf","24",
          "-movflags","+faststart","-t",f"{total:.2f}",str(dst)]
     print("ENCODING",name,flush=True)
-    subprocess.run(cmd,check=True)
+    try:
+        subprocess.run(cmd,check=True)
+    except subprocess.CalledProcessError:
+        print("Crossfade encoder failed; using simple cut-safe fallback",flush=True)
+        concat=vid/(name+".ffconcat")
+        rows=["ffconcat version 1.0"]
+        for f in sources:
+            rows.extend(["file '"+str(f)+"'",f"duration {duration}"])
+        rows.append("file '"+str(sources[-1])+"'")
+        concat.write_text("\n".join(rows)+"\n",encoding="utf-8")
+        subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-f","concat",
+                        "-safe","0","-i",str(concat),"-vf","scale=1280:720,format=yuv420p",
+                        "-r","24","-c:v","libx264","-preset","ultrafast","-crf","24",
+                        "-pix_fmt","yuv420p","-movflags","+faststart",str(dst)],check=True)
     subprocess.run(["ffprobe","-v","error","-show_entries","format=duration,size",
                     "-of","default=noprint_wrappers=1",str(dst)],check=True)
     print("VIDEO_OK",dst.name,dst.stat().st_size,flush=True)
