@@ -2,9 +2,9 @@ name: X3 Shield Scoped-Agent Vault Pilot
 on:
   push:
     branches: [master]
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','.github/workflows/x3-agent-vault-testnet.yml']
   pull_request:
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','.github/workflows/x3-agent-vault-testnet.yml']
 permissions:
   contents: read
 jobs:
@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.99.1'
@@ -33,3 +35,116 @@ jobs:
       - name: Build real NEAR WASM (no deployment)
         working-directory: x3-lang/near/x3-agent-vault
         run: cargo build --locked --release --target wasm32-unknown-unknown
+
+  refusal-source-guards:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Exact-reason source guards (not runtime evidence)
+        run: python3 scripts/hackathon/test_vault_refusal_source_guard.py
+      - name: Raw RPC classifier behavioral tests (synthetic inputs, no node)
+        run: |
+          python3 --version
+          python3 -m unittest discover -s scripts/hackathon -p 'test_near_permission_refusal.py' -v
+          python3 -m unittest discover -s scripts/hackathon -p 'test_near_rpc_capture.py' -v
+
+  check-harness-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/agent-vault-sandbox-tests
+      - name: Compile all harness targets (does not run Sandbox)
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        run: cargo check --all-targets --locked
+      - name: Harness classifier integration tests (synthetic inputs, no node)
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        run: cargo test --locked
+      - name: Strict harness lints
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Harness format
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        run: cargo fmt --check
+
+  sandbox-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            x3-lang/near/x3-agent-vault -> target
+            x3-lang/near/agent-vault-sandbox-tests -> target
+      - name: Provision pinned NEAR Sandbox 2.14.0 binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$RUNNER_TEMP/near-sandbox-2.14.0.tar.gz"
+          curl --fail --location --retry 2 --proto '=https' --tlsv1.2 \
+            'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/2.14.0/near-sandbox.tar.gz' \
+            -o "$ARCHIVE"
+          python3 - "$ARCHIVE" "$RUNNER_TEMP/near-sandbox-2.14.0" <<'PY'
+          import pathlib, sys, tarfile
+          archive, dest = sys.argv[1:]
+          with tarfile.open(archive, 'r:gz') as tf:
+              entries = [
+                  member for member in tf.getmembers()
+                  if member.isfile()
+                  and pathlib.PurePosixPath(member.name).name == 'near-sandbox'
+              ]
+              if len(entries) != 1:
+                  raise SystemExit('expected exactly one sandbox binary')
+              with tf.extractfile(entries[0]) as source, open(dest, 'wb') as output:
+                  while chunk := source.read(1024 * 1024):
+                      output.write(chunk)
+          pathlib.Path(dest).chmod(0o755)
+          PY
+          test "$(sha256sum "$RUNNER_TEMP/near-sandbox-2.14.0" | awk '{print $1}')" = \
+            '797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13'
+      - name: Run real local vault audit on the compiled WASM
+        env:
+          NEAR_NETWORK_ID: sandbox
+          X3_SANDBOX_BIN_CACHE: ${{ runner.temp }}/near-sandbox-2.14.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/hackathon/vault_sandbox_smoke.sh \
+            | tee "$RUNNER_TEMP/x3-vault-sandbox.log"
+          test "$(grep -c '^X3_VAULT_SANDBOX_RAW_CAPTURE ' "$RUNNER_TEMP/x3-vault-sandbox.log")" -eq 2
+          for marker in \
+            X3_VAULT_SANDBOX_SCOPED_DIRECT_TRANSFER_REFUSED \
+            X3_VAULT_SANDBOX_RECIPIENT_AND_CAP_REFUSED \
+            X3_VAULT_SANDBOX_REPLAY_AND_REVOCATION_REFUSED \
+            X3_VAULT_SANDBOX_AGENT_RECOVERY_REFUSED \
+            X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS \
+            X3_VAULT_SANDBOX_COMPLETE
+          do
+            grep -F "$marker" "$RUNNER_TEMP/x3-vault-sandbox.log"
+          done
+      - name: Publish local Sandbox log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x3-agent-vault-sandbox-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/x3-vault-sandbox.log
+          if-no-files-found: warn
+          retention-days: 14
