@@ -15,6 +15,7 @@ do
   test -s "svg/$n.svg"
 done
 curl --fail --location --show-error --silent "$base/render_batch2.py" -o render_batch2.py
+curl --fail --location --show-error --silent "$base/render_motion.py" -o render_motion.py
 curl --fail --location --show-error --silent "$base/README.md" -o README.md
 if test -x "$HOME/Downloads/X3Lang-Video/.assets-venv/bin/python"; then
   py="$HOME/Downloads/X3Lang-Video/.assets-venv/bin/python"
