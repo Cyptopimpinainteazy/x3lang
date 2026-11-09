@@ -1,0 +1,48 @@
+name: Guard RustSec target dependency report
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/guard-rustsec-target-tree.yml'
+      - 'x3-lang/near/x3-guard/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependency-tree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pinned Guard Rust
+        working-directory: x3-lang/near/x3-guard
+        run: |
+          rustc --version
+          cargo --version
+      - name: Record target and host dependency graphs
+        working-directory: x3-lang/near/x3-guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/guard-rustsec"
+          cargo tree --locked --target wasm32-unknown-unknown --edges normal --prefix none > "$RUNNER_TEMP/guard-rustsec/wasm-normal.txt"
+          cargo tree --locked --target wasm32-unknown-unknown --edges normal,build --prefix none > "$RUNNER_TEMP/guard-rustsec/wasm-normal-build.txt"
+          cargo tree --locked --target x86_64-unknown-linux-gnu --edges normal,build,dev --prefix none > "$RUNNER_TEMP/guard-rustsec/host-test.txt"
+          for f in wasm-normal wasm-normal-build host-test; do
+            echo "::group::$f crypto-bigint entries"
+            if grep -E '^crypto-bigint v' "$RUNNER_TEMP/guard-rustsec/$f.txt"; then
+              echo "Listed above; investigate each path."
+            else
+              echo "No crypto-bigint package in this displayed tree."
+            fi
+            echo "::endgroup::"
+          done
+          echo "Dependency graph only: presence or absence is not exploitability analysis or proof of final WASM contents."
+      - name: Check Guard WASM target
+        working-directory: x3-lang/near/x3-guard
+        run: cargo check --locked --target wasm32-unknown-unknown
+      - name: Retain graph evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guard-rustsec-target-trees
+          path: ${{ runner.temp }}/guard-rustsec/
+          if-no-files-found: error
