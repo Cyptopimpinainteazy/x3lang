@@ -83,10 +83,10 @@ not establish how a live model responds to the injected prompt.
 
 ## Try it
 
-[X3 Shield Attack Lab](docs/hackathon/attack-lab.html) is a private preview that
-evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases in
-the browser. The website and source remain private until the owner authorizes
-public release. Local NEAR Sandbox custody tests are tracked separately in draft
+[X3 Shield Attack Lab](docs/hackathon/attack-lab.html) is a browser-based preview that
+evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases locally.
+Its source is available in this repository; hosted access is a separate deployment.
+Local NEAR Sandbox custody tests are tracked separately in draft
 [#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125).
 
 | What | Command | Needs |
