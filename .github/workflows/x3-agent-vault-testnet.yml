@@ -2,9 +2,9 @@ name: X3 Shield Scoped-Agent Vault Pilot
 on:
   push:
     branches: [master]
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','scripts/hackathon/native_vault_binding.py','scripts/hackathon/test_native_vault_binding.py','x3-lang/near_native_vault.py','x3-lang/near_mandate.py','x3-lang/examples/near_native_vault*.x3','.github/workflows/x3-agent-vault-testnet.yml']
   pull_request:
-    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','.github/workflows/x3-agent-vault-testnet.yml']
+    paths: ['x3-lang/near/x3-agent-vault/**','x3-lang/near/agent-vault-sandbox-tests/**','scripts/hackathon/vault_sandbox_smoke.sh','scripts/hackathon/test_vault_refusal_source_guard.py','scripts/hackathon/near_permission_refusal.py','scripts/hackathon/test_near_permission_refusal.py','scripts/hackathon/test_near_rpc_capture.py','scripts/hackathon/native_vault_binding.py','scripts/hackathon/test_native_vault_binding.py','x3-lang/near_native_vault.py','x3-lang/near_mandate.py','x3-lang/examples/near_native_vault*.x3','.github/workflows/x3-agent-vault-testnet.yml']
 permissions:
   contents: read
 jobs:
@@ -58,6 +58,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare hash-locked policy compiler runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/policy-venv"
+          "$RUNNER_TEMP/policy-venv/bin/python" -m pip install --require-hashes -r scripts/hackathon/requirements-judge.txt
+          echo "$RUNNER_TEMP/policy-venv/bin" >> "$GITHUB_PATH"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.99.1'
@@ -75,8 +85,24 @@ jobs:
         working-directory: x3-lang/near/agent-vault-sandbox-tests
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Harness format
+        id: harness-format
         working-directory: x3-lang/near/agent-vault-sandbox-tests
         run: cargo fmt --check
+      - name: Preserve formatter corrections after a failed format gate
+        if: failure() && steps.harness-format.outcome == 'failure'
+        working-directory: x3-lang/near/agent-vault-sandbox-tests
+        shell: bash
+        run: |
+          cargo fmt
+          git diff -- src > "$RUNNER_TEMP/harness-rustfmt.patch"
+      - name: Upload diagnostic formatting patch (does not pass the gate)
+        if: failure() && steps.harness-format.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-rustfmt-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/harness-rustfmt.patch
+          if-no-files-found: error
+          retention-days: 7
 
   sandbox-lifecycle:
     runs-on: ubuntu-24.04
@@ -85,6 +111,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare hash-locked policy compiler runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/policy-venv"
+          "$RUNNER_TEMP/policy-venv/bin/python" -m pip install --require-hashes -r scripts/hackathon/requirements-judge.txt
+          echo "$RUNNER_TEMP/policy-venv/bin" >> "$GITHUB_PATH"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.99.1'
@@ -129,13 +165,17 @@ jobs:
           set -euo pipefail
           bash scripts/hackathon/vault_sandbox_smoke.sh \
             | tee "$RUNNER_TEMP/x3-vault-sandbox.log"
-          test "$(grep -c '^X3_VAULT_SANDBOX_RAW_CAPTURE ' "$RUNNER_TEMP/x3-vault-sandbox.log")" -eq 2
+          test "$(grep -c '^X3_VAULT_SANDBOX_RAW_CAPTURE ' "$RUNNER_TEMP/x3-vault-sandbox.log")" -eq 3
+          test "$(grep -c '^X3_VAULT_SANDBOX_GENERATED_POLICY ' "$RUNNER_TEMP/x3-vault-sandbox.log")" -eq 2
           for marker in \
             X3_VAULT_SANDBOX_SCOPED_DIRECT_TRANSFER_REFUSED \
             X3_VAULT_SANDBOX_RECIPIENT_AND_CAP_REFUSED \
             X3_VAULT_SANDBOX_REPLAY_AND_REVOCATION_REFUSED \
             X3_VAULT_SANDBOX_AGENT_RECOVERY_REFUSED \
             X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS \
+            X3_VAULT_SANDBOX_ATTACHED_DEPOSIT_REFUSED \
+            X3_VAULT_SANDBOX_SOURCE_ONLY_CAP_EFFECT \
+            X3_VAULT_SANDBOX_EXPIRY_REFUSED \
             X3_VAULT_SANDBOX_COMPLETE
           do
             grep -F "$marker" "$RUNNER_TEMP/x3-vault-sandbox.log"

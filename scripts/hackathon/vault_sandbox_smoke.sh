@@ -11,13 +11,13 @@ if [ "$(getconf GNU_LIBC_VERSION | cut -d. -f2)" -lt 39 ]; then
   USE_CONTAINER=1
   docker image inspect "$RUNTIME_IMAGE" >/dev/null 2>&1
   docker run --rm --network none --user "$(id -u):$(id -g)" --entrypoint python3 \
-    "$RUNTIME_IMAGE" -I -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 2)' || {
-      echo "offline Sandbox runtime needs Python 3.12+; pre-provision it and set X3_SANDBOX_RUNTIME_IMAGE" >&2
+    "$RUNTIME_IMAGE" -I -c 'import sys, cryptography; sys.exit(0 if sys.version_info >= (3, 12) else 2)' || {
+      echo "offline Sandbox runtime needs Python 3.12+ and the compiler dependencies; pre-provision it and set X3_SANDBOX_RUNTIME_IMAGE" >&2
       exit 2
     }
 else
-  python3 -I -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 2)' || {
-    echo "Sandbox raw-response verification requires Python 3.12+" >&2
+  python3 -I -c 'import sys, cryptography; sys.exit(0 if sys.version_info >= (3, 12) else 2)' || {
+    echo "Sandbox raw-response verification requires Python 3.12+ and the compiler dependencies" >&2
     exit 2
   }
 fi

@@ -5,6 +5,7 @@ use near_api::{Account, AccountId, Contract, NearGas, NearToken, NetworkConfig, 
 use near_openapi_types::{ActionErrorKind, FunctionCallError, TxExecutionError};
 use serde_json::{json, Value};
 
+mod policy_binding;
 mod raw_capture;
 use raw_capture::send_signed_raw;
 
@@ -97,6 +98,9 @@ async fn main() -> Result<()> {
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("missing wasm path"))?;
     let wasm = std::fs::read(wasm_path)?;
+    let policy_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/near_native_vault_supplier.x3");
+    let source = std::fs::read(policy_path)?;
     ensure!(wasm.starts_with(b"\0asm"), "not a wasm contract");
     let sandbox = near_sandbox::Sandbox::start_sandbox().await?;
     let network = NetworkConfig::from_rpc_url("sandbox", sandbox.rpc_addr.parse()?);
@@ -111,6 +115,7 @@ async fn main() -> Result<()> {
         "agent.testnet",
         "allowed.testnet",
         "attacker.testnet",
+        "tight.testnet",
     ] {
         sandbox
             .create_account(id.parse()?)
@@ -119,8 +124,17 @@ async fn main() -> Result<()> {
             .await?;
     }
     let full = Signer::from_secret_key(near_sandbox::config::DEFAULT_GENESIS_ACCOUNT_PRIVATE_KEY.parse()?)?;
+    let compiled_at_ms = policy_binding::timestamp_ms(&policy_binding::block(&network).await?)?;
+    let generated = policy_binding::compile(&source, &wasm, vault.as_str(), compiled_at_ms)?;
+    let tight: AccountId = "tight.testnet".parse()?;
+    let tight_source = policy_binding::source_with_lower_cap(&source)?;
+    let tight_generated = policy_binding::compile(&tight_source, &wasm, tight.as_str(), compiled_at_ms)?;
+    let mut expected_tight = policy_binding::constructor(&generated)?;
+    expected_tight["cap"] = json!("50000000000000000000000");
+    ensure!(policy_binding::constructor(&tight_generated)? == expected_tight,
+        "source-only comparison changed constructor fields other than cap");
     Contract::deploy(vault.clone())
-        .use_code(wasm)
+        .use_code(wasm.clone())
         .without_init_call()
         .with_signer(full.clone())
         .send_to(&network)
@@ -130,12 +144,7 @@ async fn main() -> Result<()> {
     contract
         .call_function(
             "new",
-            json!({
-                "owner":owner,"agent":agent,"recipient":allowed,
-                "cap":"200000000000000000000000",
-                "budget":"400000000000000000000000",
-                "deadline_ms":4000000000000u64
-            }),
+            policy_binding::constructor(&generated)?,
         )
         .transaction()
         .gas(NearGas::from_tgas(80))
@@ -143,6 +152,9 @@ async fn main() -> Result<()> {
         .send_to(&network)
         .await?
         .assert_success();
+
+    // No fund is admitted until the actual code hash and all six fields match.
+    policy_binding::observe(&network, &generated).await?;
 
     let fund = contract
         .call_function("fund", json!({}))
@@ -222,6 +234,21 @@ async fn main() -> Result<()> {
             "nonce":nonce,"recipient":recipient,"amount":amount
         })
     };
+    let deposit_signed = contract
+        .call_function("request_payment", call("deposit-denied", &allowed, "100000000000000000000000"))
+        .transaction()
+        .deposit(NearToken::from_yoctonear(1))
+        .gas(NearGas::from_tgas(100))
+        .with_signer(agent.clone(), scoped.clone())
+        .presign_with(&network).await?.transaction.signed()
+        .ok_or_else(|| anyhow::anyhow!("deposit attempt was not signed"))?;
+    let deposit_observation = send_signed_raw(&network, deposit_signed, json!({"case":"attached_deposit"})).await?;
+    require_access_key_error(&deposit_observation, &json!("DepositWithFunctionCall"))?;
+    let deposit_nonce: Value = contract.call_function("payment", json!({"nonce":"deposit-denied"}))
+        .read_only().fetch_from(&network).await?.data;
+    ensure!(deposit_nonce.is_null(), "rejected deposit attempt created a payment record");
+    println!("X3_VAULT_SANDBOX_ATTACHED_DEPOSIT_REFUSED local_only=true rejection=DepositWithFunctionCall");
+
     let wrong = contract
         .call_function("request_payment", call("wrong", &attacker, "100000000000000000000000"))
         .transaction()
@@ -253,6 +280,8 @@ async fn main() -> Result<()> {
     );
     println!("X3_VAULT_SANDBOX_RECIPIENT_AND_CAP_REFUSED local_only=true reasons_verified=true balance_unchanged=true");
 
+    let recipient_before = Tokens::account(allowed.clone()).near_balance().fetch_from(&network)
+        .await?.total.as_yoctonear();
     let good = contract
         .call_function("request_payment", call("once", &allowed, "100000000000000000000000"))
         .transaction()
@@ -271,6 +300,10 @@ async fn main() -> Result<()> {
         receipt["state"] == "Paid",
         "asynchronous native payout not confirmed: {receipt:?}"
     );
+    let recipient_after = Tokens::account(allowed.clone()).near_balance().fetch_from(&network)
+        .await?.total.as_yoctonear();
+    ensure!(recipient_after.checked_sub(recipient_before) == Some(10u128.pow(23)),
+        "allowed recipient did not receive exact generated-policy payout");
     println!("X3_VAULT_SANDBOX_ALLOWED_PAYMENT_SUCCESS local_only=true units=100000000000000000000000");
 
     let replay = contract
@@ -418,6 +451,73 @@ async fn main() -> Result<()> {
         "vault account balance did not fund owner recovery"
     );
     println!("X3_VAULT_SANDBOX_OWNER_RECOVERY_SUCCESS local_only=true owner_only=true active_mandate_refusal_verified=true recovered_yoctonear=500000000000000000000000 pending_payout_protected_by_unit_tests=true owner_net_yoctonear={owner_net} vault_account_balance_decreased=true");
+    // Same compiled WASM and constructor fields, except the cap authored in .x3.
+    Contract::deploy(tight.clone()).use_code(wasm).without_init_call().with_signer(full.clone())
+        .send_to(&network).await?.assert_success();
+    let tight_contract = Account(tight.clone()).as_contract();
+    tight_contract.call_function("new", policy_binding::constructor(&tight_generated)?)
+        .transaction().gas(NearGas::from_tgas(80)).with_signer(tight.clone(), full.clone())
+        .send_to(&network).await?.assert_success();
+    policy_binding::observe(&network, &tight_generated).await?;
+    tight_contract.call_function("fund", json!({})).transaction().deposit(NearToken::from_near(1))
+        .gas(NearGas::from_tgas(80)).with_signer(owner.clone(), full.clone())
+        .send_to(&network).await?.assert_success();
+    let tight_signer = Signer::from_secret_key(near_api::signer::generate_secret_key()?)?;
+    let tight_key = tight_signer.get_public_key().await?;
+    Account(agent.clone()).add_key(AccessKeyPermission::FunctionCall(FunctionCallPermission {
+        allowance: Some(NearToken::from_near(1)), receiver_id: tight.to_string(),
+        method_names: vec!["request_payment".into()],
+    }), tight_key).with_signer(full.clone()).send_to(&network).await?.assert_success();
+    let tight_key_view = Account(agent.clone()).access_key(tight_key).fetch_from(&network).await?;
+    ensure!(matches!(&tight_key_view.data.permission, AccessKeyPermission::FunctionCall(p)
+        if p.receiver_id.as_str() == tight.as_str() && p.method_names == vec!["request_payment".to_string()]),
+        "narrow-policy agent key was not restricted");
+    let before = Tokens::account(allowed.clone()).near_balance().fetch_from(&network).await?.total.as_yoctonear();
+    let denied = tight_contract.call_function("request_payment", call("once", &allowed, "100000000000000000000000"))
+        .transaction().gas(NearGas::from_tgas(100)).with_signer(agent.clone(), tight_signer.clone())
+        .send_to(&network).await?;
+    require_policy_failure(denied, "X3_VAULT_DENIED: per-payment cap exceeded", &tight)?;
+    let after = Tokens::account(allowed.clone()).near_balance().fetch_from(&network).await?.total.as_yoctonear();
+    let available: Value = tight_contract.call_function("available", json!({})).read_only().fetch_from(&network).await?.data;
+    let nonce: Value = tight_contract.call_function("payment", json!({"nonce":"once"})).read_only().fetch_from(&network).await?.data;
+    ensure!(before == after && available == "1000000000000000000000000" && nonce.is_null(),
+        "source-cap refusal changed recipient balance, escrow or payment record");
+    println!("X3_VAULT_SANDBOX_SOURCE_ONLY_CAP_EFFECT local_only=true payment_yoctonear=100000000000000000000000 base_allowed=true tighter_refused=true code_identical=true");
+
+    // A smaller valid control proves the narrower vault is not just broken.
+    let small = tight_contract.call_function("request_payment", call("expiry-control", &allowed, "10000000000000000000000"))
+        .transaction().gas(NearGas::from_tgas(100)).with_signer(agent.clone(), tight_signer.clone())
+        .send_to(&network).await?;
+    ensure!(small.is_success(), "narrow-policy valid control failed: {small:?}");
+    let paid: Value = tight_contract.call_function("payment", json!({"nonce":"expiry-control"})).read_only().fetch_from(&network).await?.data;
+    let funded_balance = Tokens::account(allowed.clone()).near_balance().fetch_from(&network).await?.total.as_yoctonear();
+    ensure!(paid["state"] == "Paid" && funded_balance.checked_sub(after) == Some(10u128.pow(22)),
+        "narrow-policy control did not deliver exact amount");
+
+    // Advance the actual disposable node, not a mocked clock. Verify observed
+    // chain time, and use a fresh nonce on a non-revoked vault to isolate expiry.
+    sandbox.fast_forward(50_000).await?;
+    let deadline = tight_generated["constructor"]["deadline_ms"].as_u64()
+        .ok_or_else(|| anyhow::anyhow!("generated deadline missing"))?;
+    let mut after_time = policy_binding::timestamp_ms(&policy_binding::block(&network).await?)?;
+    for _ in 0..30 {
+        if after_time >= deadline { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        after_time = policy_binding::timestamp_ms(&policy_binding::block(&network).await?)?;
+    }
+    ensure!(after_time >= deadline, "Sandbox advancement did not cross the generated expiry");
+    let active: Value = tight_contract.call_function("is_revoked", json!({})).read_only().fetch_from(&network).await?.data;
+    ensure!(active == false, "expiry case was already revoked");
+    let expired = tight_contract.call_function("request_payment", call("expiry-fresh", &allowed, "10000000000000000000000"))
+        .transaction().gas(NearGas::from_tgas(100)).with_signer(agent.clone(), tight_signer.clone())
+        .send_to(&network).await?;
+    require_policy_failure(expired, "X3_VAULT_DENIED: owner mandate expired", &tight)?;
+    let recipient_end = Tokens::account(allowed.clone()).near_balance().fetch_from(&network).await?.total.as_yoctonear();
+    let expired_nonce: Value = tight_contract.call_function("payment", json!({"nonce":"expiry-fresh"})).read_only().fetch_from(&network).await?.data;
+    let available_end: Value = tight_contract.call_function("available", json!({})).read_only().fetch_from(&network).await?.data;
+    ensure!(recipient_end == funded_balance && expired_nonce.is_null() && available_end == "990000000000000000000000",
+        "expired request changed balance, escrow or nonce ledger");
+    println!("X3_VAULT_SANDBOX_EXPIRY_REFUSED local_only=true reason=owner_mandate_expired fresh_nonce=true not_revoked=true observed_ms={after_time} deadline_ms={deadline}");
     println!("X3_VAULT_SANDBOX_COMPLETE agent_key_restricted=true funds_vault_custodied=true public_chain=false");
     Ok(())
 }
