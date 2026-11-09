@@ -37,12 +37,15 @@ Prepared November 8, 2026. Sixteen 16:9 source SVGs, with an automated x3star1 b
 
 ## Download and render on x3star1
 ```bash
-curl -fL https://raw.githubusercontent.com/Cyptopimpinainteazy/x3lang/assets/judge-video-diagrams-20261106/docs/hackathon/video-assets/batch2/build_batch2.sh -o /tmp/build_x3lang_batch2.sh
+gh auth status -h github.com || gh auth login
+gh api -H "Accept: application/vnd.github.raw+json" \
+  "repos/Cyptopimpinainteazy/x3lang/contents/docs/hackathon/video-assets/batch2/build_batch2.sh?ref=assets%2Fjudge-video-diagrams-20261106" \
+  > /tmp/build_x3lang_batch2.sh
 bash /tmp/build_x3lang_batch2.sh
 xdg-open ~/Downloads/X3Lang-Video/batch2/index.html
 ```
 
-The script reuses your existing `.assets-venv` and ffmpeg if available; it installs nothing system-wide. It renders all 16 images to 1920×1080 PNG and three **silent** 1280×720 video reels for review. Source SVGs remain at full 1920×1080 canvas size. Use the PNG/SVG masters for final HD/4K exports.
+The GitHub repository is currently private, so unauthenticated `raw.githubusercontent.com` URLs return 404. Use the authenticated `gh api` command above. If `gh` is not installed, install GitHub CLI first. The script reuses your existing `.assets-venv` and ffmpeg if available; it installs nothing system-wide. It renders all 16 images to 1920×1080 PNG and three **silent** 1280×720 video reels for review. Source SVGs remain at full 1920×1080 canvas size. Use the PNG/SVG masters for final HD/4K exports.
 
 **Scope:** Technical explanatory B-roll, not a recording of on-chain execution. The animation transitions between static diagrams, and some SVGs contain decorative CSS pulses; these are not transaction traces.
 
