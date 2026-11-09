@@ -18,12 +18,40 @@ from dataclasses import fields
 from datetime import datetime
 from hashlib import sha256
 import json
+import re
 from pathlib import Path
 import sys
 
 from vault_origin_base_proof import Expected, ProofRejected, _https_rpc,verify_two_providers as verify_base
 from near_delivery_receipt_proof import NearExpected,NearProofRejected,_https_near_rpc,verify_two_providers as verify_near
 from vault_two_chain_pairing import correlate
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LEGACY_SPENT_NONCE = 'x3_base_testnet_trade_001'
+
+
+def verified_fresh_x3_source(source_path: Path, nonce: str, expected_sha256: str) -> dict:
+    """Reparse owner-selected .x3 source; refuse legacy and unpinned source changes."""
+    if not isinstance(nonce,str) or re.fullmatch(r'x3_[a-z0-9_]{5,61}',nonce) is None:
+        raise ProofRejected('NEW_X3_OWNER_NONCE_INVALID')
+    if nonce == LEGACY_SPENT_NONCE:
+        raise ProofRejected('HISTORICAL_ALREADY_USED_X3_NONCE_FOR_NEW_VAULT')
+    if not isinstance(expected_sha256,str) or re.fullmatch(r'[0-9a-f]{64}',expected_sha256) is None:
+        raise ProofRejected('OWNER_REVIEWED_X3_PROGRAM_HASH_REQUIRED')
+    if not isinstance(source_path, Path):
+        raise ProofRejected('APPROVED_X3_SOURCE_PATH_REQUIRED')
+    path = source_path if source_path.is_absolute() else REPO_ROOT/source_path
+    resolved = path.resolve()
+    if not resolved.is_relative_to(REPO_ROOT) or path.is_symlink() or not path.is_file():
+        raise ProofRejected('X3_SOURCE_MUST_BE_EXISTING_REPO_FILE_NO_SYMLINK')
+    try:
+        from base_sepolia_x3_intent import compile_testnet_intent, ProgramRefused
+        compiled = compile_testnet_intent(path, expected_nonce=nonce)
+    except (ImportError, OSError, ValueError) as exc:
+        raise ProofRejected('X3_CANDIDATE_SOURCE_NOT_VERIFIED_BY_REAL_FRONTEND') from exc
+    if compiled.get('program_sha256') != expected_sha256 or compiled.get('nonce') != nonce:
+        raise ProofRejected('X3_CANDIDATE_SOURCE_HASH_OR_NONCE_DRIFT')
+    return compiled
 
 
 def _strict_object(doc:dict,fields_:set[str],extra:set[str],reason:str)->None:
@@ -37,8 +65,13 @@ def execute(argv:list[str]|None=None)->int:
     p.add_argument('--near-manifest',required=True,type=Path)
     p.add_argument('--signed-quote-file',required=True,type=Path)
     p.add_argument('--output',required=True,type=Path)
+    p.add_argument('--fresh-x3-source',type=Path)
+    p.add_argument('--expected-owner-nonce')
+    p.add_argument('--expected-program-sha256')
     args=p.parse_args(argv)
     try:
+        if not (args.fresh_x3_source and args.expected_owner_nonce and args.expected_program_sha256):
+            raise ProofRejected('FRESH_X3_SOURCE_NONCE_AND_SHA_REQUIRED')
         base=json.loads(args.base_manifest.read_text())
         near=json.loads(args.near_manifest.read_text())
         raw_quote=json.loads(args.signed_quote_file.read_text())
@@ -66,7 +99,7 @@ def execute(argv:list[str]|None=None)->int:
         issued=datetime.fromisoformat(response['timestamp'].replace('Z','+00:00'))
         if issued.utcoffset() is None:raise ProofRejected('QUOTE_TIMESTAMP_MUST_BE_UTC')
         q=admission.check_quote(response,issued) # Pinned authentic Ed25519 signature and terms
-        source=compile_testnet_intent() # Real .x3 frontend; must be fresh new nonce
+        source=verified_fresh_x3_source(args.fresh_x3_source,args.expected_owner_nonce,args.expected_program_sha256)
         if q['quote_sha256']!=ebase.quote_sha256 or q['quote_sha256']!=enear.quote_sha256:
             raise ProofRejected('SIGNED_QUOTE_HASH_NOT_BOUND_TO_VAULT_AND_GUARD')
         if source['program_sha256']!=ebase.program_sha256 or source['program_sha256']!=enear.program_sha256:
