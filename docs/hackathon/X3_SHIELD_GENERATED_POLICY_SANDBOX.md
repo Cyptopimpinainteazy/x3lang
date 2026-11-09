@@ -122,3 +122,20 @@ independent review and explicit owner merge approval remain required. Public
 funding, deployment, publication and submission require separate authorization.
 Rollback is a reviewed revert of this branch's implementation; no public funds
 or deployed state were changed by this local testing increment.
+
+## Time-advance execution bound
+
+The first accessor-enabled run at `1f4425d` did not finish the Sandbox step
+promptly. Its in-progress log was unavailable, so no successful lifecycle is
+claimed from it. Primary SDK source shows its HTTP send occurs before the
+30-second polling timer; nearcore also crosses each epoch boundary through
+ordinary block production. The revised local node explicitly uses a 100,000-block
+epoch, making the 50,000-block request an intra-epoch experiment. This is recorded
+in the log, not claimed equivalent to public-network consensus settings.
+
+Time advancement now uses the loopback-only, 30-second-timeout RPC client rather
+than the SDK's blocking send. The response is only an acknowledgement: the harness
+still reads actual finalized chain timestamps, requires the generated deadline
+to have passed, and then submits a fresh signed request. Transport failure,
+insufficient advancement, or wrong policy reason fails the gate. No clock or
+contract-state field is patched to force a denial.

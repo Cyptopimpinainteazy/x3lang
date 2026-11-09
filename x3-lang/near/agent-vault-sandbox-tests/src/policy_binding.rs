@@ -135,6 +135,15 @@ async fn rpc(network: &NetworkConfig, method: &str, params: Value) -> Result<Val
     Ok(result.clone())
 }
 
+/// Use the same bounded loopback RPC client for time advancement. The SDK's
+/// blocking send precedes its polling timeout, so it cannot bound this call.
+pub async fn advance_for_expiry(network: &NetworkConfig) -> Result<()> {
+    println!("X3_VAULT_SANDBOX_ADVANCE_BEGIN local_only=true requested_blocks=50000 rpc_timeout_seconds=30");
+    rpc(network, "sandbox_fast_forward", json!({"delta_height":50_000})).await?;
+    println!("X3_VAULT_SANDBOX_ADVANCE_ACK local_only=true clock_not_yet_verified=true");
+    Ok(())
+}
+
 pub async fn block(network: &NetworkConfig) -> Result<Value> {
     let result = rpc(network, "block", json!({"finality":"final"})).await?;
     let header = result.get("header").context("missing observed block header")?.clone();

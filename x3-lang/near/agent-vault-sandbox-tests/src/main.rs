@@ -102,7 +102,14 @@ async fn main() -> Result<()> {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/near_native_vault_supplier.x3");
     let source = std::fs::read(policy_path)?;
     ensure!(wasm.starts_with(b"\0asm"), "not a wasm contract");
-    let sandbox = near_sandbox::Sandbox::start_sandbox().await?;
+    // Keep this local time-advance experiment within one epoch. This is not a
+    // public-network consensus/finality benchmark.
+    let config = near_sandbox::SandboxConfig {
+        additional_genesis: Some(json!({"epoch_length":100_000})),
+        ..Default::default()
+    };
+    let sandbox = near_sandbox::Sandbox::start_sandbox_with_config(config).await?;
+    println!("X3_VAULT_SANDBOX_SETTINGS local_only=true epoch_length=100000");
     let network = NetworkConfig::from_rpc_url("sandbox", sandbox.rpc_addr.parse()?);
     let owner: AccountId = "owner.testnet".parse()?;
     let vault: AccountId = "vault.testnet".parse()?;
@@ -593,7 +600,7 @@ async fn main() -> Result<()> {
 
     // Advance the actual disposable node, not a mocked clock. Verify observed
     // chain time, and use a fresh nonce on a non-revoked vault to isolate expiry.
-    sandbox.fast_forward(50_000).await?;
+    policy_binding::advance_for_expiry(&network).await?;
     let deadline = tight_generated["constructor"]["deadline_ms"]
         .as_u64()
         .ok_or_else(|| anyhow::anyhow!("generated deadline missing"))?;
