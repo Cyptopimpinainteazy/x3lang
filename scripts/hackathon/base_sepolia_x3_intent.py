@@ -30,7 +30,10 @@ def require(cond: bool,message: str) -> None:
 def compile_testnet_intent(path: Path = SOURCE, *, expected_nonce: str = NONCE) -> dict:
     require(isinstance(expected_nonce, str) and re.fullmatch(r'x3_[a-z0-9_]{5,61}', expected_nonce) is not None, 'INVALID_TESTNET_OWNER_NONCE')
     source = path.read_bytes()
-    result=cli.parse_file(str(path))
+    try:
+        result=cli.parse_source(source.decode("utf-8"))
+    except cli.X3ParseError as exc:
+        raise ProgramRefused("X3LANG_PARSE_FAILED: " + str(exc)) from exc
     valid,errors=typechecker.typecheck(result)
     require(valid,'X3LANG_TYPECHECK_FAILED: '+str([str(e) for e in errors]))
     fr=result.get('from') or {};to=result.get('to') or {}

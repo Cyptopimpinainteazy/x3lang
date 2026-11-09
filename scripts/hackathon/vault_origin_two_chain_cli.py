@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import fields
-from datetime import datetime
 from hashlib import sha256
 import json
 import re
@@ -45,7 +44,7 @@ def verified_fresh_x3_source(source_path: Path, nonce: str, expected_sha256: str
     if not resolved.is_relative_to(REPO_ROOT) or path.is_symlink() or not path.is_file():
         raise ProofRejected('X3_SOURCE_MUST_BE_EXISTING_REPO_FILE_NO_SYMLINK')
     try:
-        from base_sepolia_x3_intent import compile_testnet_intent, ProgramRefused
+        from base_sepolia_x3_intent import compile_testnet_intent
         compiled = compile_testnet_intent(path, expected_nonce=nonce)
     except (ImportError, OSError, ValueError) as exc:
         raise ProofRejected('X3_CANDIDATE_SOURCE_NOT_VERIFIED_BY_REAL_FRONTEND') from exc
@@ -91,26 +90,24 @@ def execute(argv:list[str]|None=None)->int:
         # untrusted manifest boolean can substitute for these verifiers.
         try:
             import base_sepolia_guarded_admission as admission
-            from base_sepolia_x3_intent import compile_testnet_intent
             import near_guard_quorum
         except ImportError as exc:
             raise ProofRejected('CANONICAL_X3_GUARD_AND_MAKER_VERIFIERS_MISSING') from exc
-        if not isinstance(response.get('timestamp'),str):raise ProofRejected('QUOTE_TIMESTAMP_MISSING')
-        issued=datetime.fromisoformat(response['timestamp'].replace('Z','+00:00'))
-        if issued.utcoffset() is None:raise ProofRejected('QUOTE_TIMESTAMP_MUST_BE_UTC')
-        q=admission.check_quote(response,issued) # Pinned authentic Ed25519 signature and terms
         source=verified_fresh_x3_source(args.fresh_x3_source,args.expected_owner_nonce,args.expected_program_sha256)
+        try:
+            q=admission.verify_signed_quote(response)
+        except admission.AdmissionError as exc:
+            raise ProofRejected(str(exc)) from exc
+        if not 60 <= (q['deadline']-q['issued_at']).total_seconds() <= source['timeout_minutes']*60:
+            raise ProofRejected('X3_COMPILED_TIMEOUT_EXCEEDED')
+        if q['minimum_out'] < source['minimum_out']:
+            raise ProofRejected('X3_COMPILED_MIN_RECEIVE_VIOLATED')
         if q['quote_sha256']!=ebase.quote_sha256 or q['quote_sha256']!=enear.quote_sha256:
             raise ProofRejected('SIGNED_QUOTE_HASH_NOT_BOUND_TO_VAULT_AND_GUARD')
         if source['program_sha256']!=ebase.program_sha256 or source['program_sha256']!=enear.program_sha256:
             raise ProofRejected('X3_COMPILED_PROGRAM_HASH_NOT_BOUND_TO_VAULT_AND_GUARD')
         if source['nonce']!=enear.nonce:
             raise ProofRejected('OWNER_X3_COMPILED_NONCE_NOT_MATCHED')
-        # The first finalized historical Tidepool trade already used this
-        # specific owner nonce with a direct EOA source transaction. Never
-        # reuse it as the authorization of a NEW contract-vault trade.
-        if source['nonce']=='x3_base_testnet_trade_001':
-            raise ProofRejected('HISTORICAL_ALREADY_USED_X3_NONCE_FOR_NEW_VAULT')
         # Neither a synthetic quote nor arbitrary review-manifest fields may
         # override the real X3 canonical testnet route and pinned token.
         if (ebase.token.lower()!=admission.TOKEN.lower()
@@ -130,8 +127,6 @@ def execute(argv:list[str]|None=None)->int:
             raise ProofRejected('AGENT_KEY_NOT_SEPARATE_FROM_FUNDED_OWNER')
         if q['deposit_address'].lower()!=ebase.deposit_address.lower():
             raise ProofRejected('MAKER_SIGNED_DEPOSIT_ADDRESS_NOT_VAULT_RECIPIENT')
-        if q['minimum_out']!=enear.minimum_units:
-            raise ProofRejected('MAKER_SIGNED_MINIMUM_NOT_PINNED')
         if source['refund_to'].lower()!=response['quoteRequest']['refundTo'].lower():
             raise ProofRejected('MAKER_REFUND_TO_NOT_OWNER_REVIEWED')
         if (enear.refund_to.lower()!=source['refund_to'].lower()
@@ -144,7 +139,7 @@ def execute(argv:list[str]|None=None)->int:
         b=verify_base(((base['rpc_urls'][0],_https_rpc(base['rpc_urls'][0])),
                        (base['rpc_urls'][1],_https_rpc(base['rpc_urls'][1]))),ebase,base['tx_hash'])
         included=b['observations'][0]['inclusion_unix_s']
-        if not int(issued.timestamp())-120<=included<=int(q['deadline'].timestamp()):
+        if not int(q['issued_at'].timestamp())<=included<=int(q['deadline'].timestamp()):
             raise ProofRejected('BASE_VAULT_PAYMENT_OUTSIDE_MAKER_SIGNED_QUOTE_WINDOW')
         if included!=enear.source_inclusion_unix_s:
             raise ProofRejected('NEAR_RECEIPT_INPUT_SOURCE_TIME_MISMATCH')

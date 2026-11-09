@@ -42,6 +42,16 @@ class FreshX3ProofBinding(unittest.TestCase):
             with self.assertRaisesRegex(ProofRejected,'REPO_FILE_NO_SYMLINK'):
                 verified_fresh_x3_source(outside,NONCE,PROGRAM_SHA)
 
+    def test_substituted_bytes_and_malformed_source_are_refused(self):
+        with TemporaryDirectory(dir=REPO_ROOT) as tmp:
+            candidate=Path(tmp)/'candidate.x3'
+            candidate.write_bytes((REPO_ROOT/SOURCE).read_bytes()+b'\n// replacement bytes\n')
+            with self.assertRaisesRegex(ProofRejected,'X3_CANDIDATE_SOURCE_HASH_OR_NONCE_DRIFT'):
+                verified_fresh_x3_source(candidate,NONCE,PROGRAM_SHA)
+            candidate.write_bytes(b'')
+            with self.assertRaisesRegex(ProofRejected,'X3_CANDIDATE_SOURCE_NOT_VERIFIED'):
+                verified_fresh_x3_source(candidate,NONCE,PROGRAM_SHA)
+
     def test_old_cli_without_fresh_nonce_cannot_emit_any_evidence(self):
         with TemporaryDirectory() as tmp:
             root=Path(tmp)

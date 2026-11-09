@@ -2,6 +2,11 @@ name: X3 Shield Vault-Origin Two-Chain Read-only Verification Tests
 on:
   pull_request:
     paths:
+      - 'x3-lang/*.py'
+      - 'x3-lang/near/x3-tidepool-guard/src/signed_live_fixture.json'
+      - 'scripts/hackathon/base_sepolia_guarded_admission.py'
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/near_guard_quorum.py'
       - 'scripts/hackathon/keccak_min.py'
       - 'scripts/hackathon/vault_origin_base_proof.py'
       - 'scripts/hackathon/near_delivery_receipt_proof.py'
