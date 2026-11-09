@@ -46,6 +46,8 @@ def make_video(name, indexes, duration=2.7,fade=.5):
 make_video("X3Lang_Technical_Reel.mp4",range(16))
 make_video("X3Lang_Compiler_X3BC_X3VM.mp4",range(6),3.0,.5)
 make_video("X3Shield_Near_Tidepool_Proof.mp4",range(8,16),3.0,.5)
+from render_motion import create_motion_clips
+create_motion_clips(root)
 cards="".join('<article><a href="png/'+p.name+'"><img loading="lazy" src="png/'+p.name+'"></a><p>'+
               p.stem.replace("_"," ").title()+'<br><a href="svg/'+p.stem+'.svg">SVG master</a></p></article>' for p in images)
 videos="".join('<h3>'+p.stem.replace("_"," ")+'</h3><video controls preload="metadata" src="video/'+p.name+'"></video>' for p in sorted(vid.glob("*.mp4")))
@@ -59,7 +61,7 @@ video{width:min(95%,840px);border-radius:13px}aside{background:#342b3e;padding:1
 <aside>The X3BC VM path and the NEAR Guard path are different. The funded Tidepool
 testnet pilot is separate from the official 1Click signed quote demo.</aside><section>'''+videos+'</section><h2>16 editable scenes</h2><main>'+cards+'</main></html>'
 (root/"index.html").write_text(html,encoding="utf-8")
-items=[*sorted(svg.glob("*.svg")),*images,*sorted(vid.glob("*.mp4")),root/"contact_sheet.png",root/"index.html",root/"README.md",root/"render_batch2.py"]
+items=[*sorted(svg.glob("*.svg")),*images,*sorted(vid.glob("*.mp4")),root/"contact_sheet.png",root/"index.html",root/"README.md",root/"render_batch2.py",root/"render_motion.py"]
 out=root.parent/"X3Lang_Batch2_Technical_Assets.zip"
 with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED,compresslevel=6) as z:
     for f in items:z.write(f,arcname=f.relative_to(root.parent))
