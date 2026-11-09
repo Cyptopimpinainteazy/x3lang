@@ -62,7 +62,7 @@ class NativeVaultPolicyTests(unittest.TestCase):
         self.assertEqual(result["units"], "yoctonear")
         self.assertFalse(result["owner_authorized"])
         self.assertFalse(result["deployment_verified"])
-        self.assertEqual(self.native.verify_manifest(result, SOURCE, now_ms=NOW, **CONTEXT), result["constructor"])
+        self.assertEqual(self.native.verify_manifest(result, SOURCE, now_ms=NOW, expected_compiled_at_ms=NOW, **CONTEXT), result["constructor"])
 
     def test_same_source_and_context_are_deterministic(self):
         self.assertEqual(self.compile(), self.compile())
@@ -140,14 +140,14 @@ class NativeVaultPolicyTests(unittest.TestCase):
             changed["constructor"][field] = value
             changed["manifest_sha256"] = self.native.manifest_digest(changed)
             with self.subTest(field=field), self.assertRaises(ValueError):
-                self.native.verify_manifest(changed, SOURCE, now_ms=NOW, **CONTEXT)
+                self.native.verify_manifest(changed, SOURCE, now_ms=NOW, expected_compiled_at_ms=NOW, **CONTEXT)
 
     def test_context_mismatch_and_old_policy_version_are_rejected(self):
         manifest = self.compile()
         for override in ({"network": "testnet"}, {"vault_account": "other.testnet"},
                          {"policy_version": 2}, {"wasm_sha256": "f" * 64}):
             with self.subTest(override=override), self.assertRaises(ValueError):
-                self.native.verify_manifest(manifest, SOURCE, now_ms=NOW, **{**CONTEXT, **override})
+                self.native.verify_manifest(manifest, SOURCE, now_ms=NOW, expected_compiled_at_ms=NOW, **{**CONTEXT, **override})
 
     def test_source_identity_compiler_identity_and_unknown_fields_are_checked(self):
         manifest = self.compile()
@@ -158,23 +158,31 @@ class NativeVaultPolicyTests(unittest.TestCase):
             changed[field] = value
             changed["manifest_sha256"] = self.native.manifest_digest(changed)
             with self.subTest(field=field), self.assertRaises(ValueError):
-                self.native.verify_manifest(changed, SOURCE, now_ms=NOW, **CONTEXT)
+                self.native.verify_manifest(changed, SOURCE, now_ms=NOW, expected_compiled_at_ms=NOW, **CONTEXT)
         with self.assertRaises(ValueError):
-            self.native.verify_manifest(manifest, SOURCE + b"// changed source bytes\n", now_ms=NOW, **CONTEXT)
+            self.native.verify_manifest(manifest, SOURCE + b"// changed source bytes\n", now_ms=NOW, expected_compiled_at_ms=NOW, **CONTEXT)
+
+    def test_recompilation_cannot_move_the_frozen_deadline(self):
+        changed = self.compile()
+        changed["compiled_at_ms"] += 1
+        changed["constructor"]["deadline_ms"] += 1
+        changed["manifest_sha256"] = self.native.manifest_digest(changed)
+        with self.assertRaises(ValueError):
+            self.native.verify_manifest(changed, SOURCE, now_ms=NOW + 1, expected_compiled_at_ms=NOW, **CONTEXT)
 
     def test_future_stale_and_expired_manifests_are_rejected(self):
         manifest = self.compile()
         for now in (NOW - 1, NOW + 300_001, NOW + 3_600_000, True):
             with self.subTest(now=now), self.assertRaises(ValueError):
-                self.native.verify_manifest(manifest, SOURCE, now_ms=now, **CONTEXT)
+                self.native.verify_manifest(manifest, SOURCE, now_ms=now, expected_compiled_at_ms=NOW, **CONTEXT)
 
     def test_manifest_bytes_reject_duplicates_nonfinite_and_bad_types(self):
         manifest = self.compile()
         raw = json.dumps(manifest).encode()
-        self.assertEqual(self.native.verify_manifest_bytes(raw, SOURCE, now_ms=NOW, **CONTEXT), manifest["constructor"])
+        self.assertEqual(self.native.verify_manifest_bytes(raw, SOURCE, now_ms=NOW, expected_compiled_at_ms=NOW, **CONTEXT), manifest["constructor"])
         for broken in (b'{"schema":"forged",' + raw[1:], b"NaN", b"[]", b"{" , raw.replace(b'"policy_version": 1', b'"policy_version": true')):
             with self.subTest(broken=broken[:60]), self.assertRaises(ValueError):
-                self.native.verify_manifest_bytes(broken, SOURCE, now_ms=NOW, **CONTEXT)
+                self.native.verify_manifest_bytes(broken, SOURCE, now_ms=NOW, expected_compiled_at_ms=NOW, **CONTEXT)
 
     def test_existing_guard_parser_does_not_accept_native_profile_implicitly(self):
         import near_intents as ni
@@ -183,6 +191,34 @@ class NativeVaultPolicyTests(unittest.TestCase):
             source.write_bytes(SOURCE)
             with self.assertRaises(ni.NearIntentsError):
                 ni.mandates().parse_mandate(str(source))
+
+    def test_cli_verification_requires_independently_pinned_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "policy.x3"
+            manifest_path = Path(directory) / "manifest.json"
+            source.write_bytes(SOURCE)
+            manifest_path.write_text(json.dumps(self.compile()))
+            args = [sys.executable, str(MODULE), "verify", str(source), "--network", "sandbox",
+                    "--vault-account", "vault.testnet", "--wasm-sha256", CONTEXT["wasm_sha256"],
+                    "--policy-version", "1", "--at-ms", str(NOW), "--manifest", str(manifest_path)]
+            missing = subprocess.run(args, capture_output=True, text=True, timeout=20)
+            self.assertEqual(missing.returncode, 2)
+            self.assertEqual(missing.stdout, "")
+            valid = subprocess.run(args + ["--approved-at-ms", str(NOW)], capture_output=True, text=True, timeout=20)
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+            self.assertFalse(json.loads(valid.stdout)["deployment_verified"])
+            mismatch = subprocess.run(args + ["--approved-at-ms", str(NOW - 1)], capture_output=True, text=True, timeout=20)
+            self.assertEqual(mismatch.returncode, 2)
+            self.assertEqual(mismatch.stdout, "")
+
+    def test_short_expiry_and_trusted_time_types_are_checked(self):
+        source = SOURCE.replace(b"expires 1h", b"expires 1ms")
+        manifest = self.compile(source)
+        with self.assertRaises(ValueError):
+            self.native.verify_manifest(manifest, source, now_ms=NOW + 1, expected_compiled_at_ms=NOW, **CONTEXT)
+        for value in (True, -1, float(NOW), str(NOW)):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.native.verify_manifest(self.compile(), SOURCE, now_ms=NOW, expected_compiled_at_ms=value, **CONTEXT)
 
     def test_cli_compiles_without_deployment_and_rejects_unsupported_policy(self):
         with tempfile.TemporaryDirectory() as directory:

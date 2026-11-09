@@ -131,15 +131,19 @@ def compile_policy(source: bytes, *, network: str, vault_account: str, wasm_sha2
 
 
 def verify_manifest(manifest: dict[str, Any], source: bytes, *, network: str, vault_account: str,
-                    wasm_sha256: str, policy_version: int, now_ms: int) -> dict[str, Any]:
+                    wasm_sha256: str, policy_version: int, now_ms: int,
+                    expected_compiled_at_ms: int) -> dict[str, Any]:
     """Recompile from trusted inputs; never trust a self-recomputed manifest hash.
 
     This checks offline source/configuration consistency only. Policy-version and
     code-context matching do not prove that a deployed contract stores them.
+    expected_compiled_at_ms must be pinned outside the untrusted manifest;
+    otherwise relative expiry could be extended by rewriting both timestamps.
     """
     _require(type(manifest) is dict, "manifest must be an object")
     now_ms = _time(now_ms)
-    issued_at = _time(manifest.get("compiled_at_ms"))
+    issued_at = _time(expected_compiled_at_ms)
+    _require(_time(manifest.get("compiled_at_ms")) == issued_at, "compilation time differs from independently reviewed context")
     _require(0 <= now_ms - issued_at <= MAX_MANIFEST_AGE_MS, "future or stale manifest; recompile before deployment review")
     expected = compile_policy(source, network=network, vault_account=vault_account, wasm_sha256=wasm_sha256,
                               policy_version=policy_version, issued_at_ms=issued_at)
@@ -190,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--at-ms", type=int, help="explicit compile/replay time; defaults to current time")
         if name == "verify":
             command.add_argument("--manifest", type=Path, required=True)
+            command.add_argument("--approved-at-ms", type=int, required=True,
+                                 help="independently reviewed compilation time; never read from untrusted manifest")
     args = parser.parse_args(argv)
     try:
         source = _read(args.source, MAX_SOURCE_BYTES)
@@ -199,7 +205,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "compile":
             result = compile_policy(source, issued_at_ms=now, **context)
         else:
-            constructor = verify_manifest_bytes(_read(args.manifest, MAX_MANIFEST_BYTES), source, now_ms=now, **context)
+            constructor = verify_manifest_bytes(_read(args.manifest, MAX_MANIFEST_BYTES), source, now_ms=now,
+                                                expected_compiled_at_ms=args.approved_at_ms, **context)
             result = {"offline_configuration_verified": True, "constructor": constructor,
                       "owner_authorized": False, "deployment_verified": False}
         output = _canonical(result).decode("ascii")
