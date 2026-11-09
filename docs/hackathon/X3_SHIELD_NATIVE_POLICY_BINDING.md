@@ -59,17 +59,22 @@ Replace the WASM path and the policy/principals with the intended reviewed input
 WASM=x3-lang/near/x3-agent-vault/target/wasm32-unknown-unknown/release/x3_agent_vault_testnet.wasm
 CODE_SHA=$(sha256sum "$WASM" | cut -d' ' -f1)
 POLICY=x3-lang/examples/near_native_vault_supplier.x3
+APPROVED_AT=$(python3 -c 'import time; print(time.time_ns() // 1000000)')
 python3 x3-lang/near_native_vault.py compile "$POLICY" \
   --network sandbox --vault-account vault.testnet \
-  --wasm-sha256 "$CODE_SHA" --policy-version 1 > /tmp/native-vault-manifest.json
+  --wasm-sha256 "$CODE_SHA" --policy-version 1 --at-ms "$APPROVED_AT" \
+  > /tmp/native-vault-manifest.json
 python3 x3-lang/near_native_vault.py verify "$POLICY" \
   --network sandbox --vault-account vault.testnet \
   --wasm-sha256 "$CODE_SHA" --policy-version 1 \
-  --manifest /tmp/native-vault-manifest.json
+  --manifest /tmp/native-vault-manifest.json --approved-at-ms "$APPROVED_AT"
 ```
 
 `--at-ms` is an explicit compile/replay time for deterministic testing. Do not use
-an attacker-supplied timestamp for deployment admission. Verification rejects
+an attacker-supplied timestamp for deployment admission. `--approved-at-ms` is
+mandatory for verification and must be retained separately from the manifest as
+part of the reviewed context. The variable in the example is only a proposed
+compilation time, not proof of owner consent. Verification rejects
 future manifests, manifests older than five minutes, and expired policies.
 Recompiling is a new proposed configuration: it is not automatic owner approval
 and must not silently extend an owner's already-approved deadline.
@@ -77,11 +82,11 @@ and must not silently extend an owner's already-approved deadline.
 ## Trust and identity boundaries
 
 Verification **recompiles** independently trusted source bytes with independently
-provided network, vault, WASM identity and expected policy version. A manifest's
-own hash is not sufficient, even when an attacker recomputes it after altering a
-constructor value. Duplicate JSON keys, floats, nonfinite numbers, unexpected
-fields and mismatched types are rejected. The parser reads a private temporary
-snapshot of the exact source bytes that are hashed.
+provided network, vault, WASM identity, expected policy version and reviewed
+compilation time. A manifest's own hash is not sufficient, even when an attacker
+recomputes it after altering a constructor value. Duplicate JSON keys, floats,
+nonfinite numbers, unexpected fields and mismatched types are rejected. The parser
+reads a private temporary snapshot of the exact source bytes that are hashed.
 
 The output records the hashes of five relevant compiler source files; this is
 not a complete transitive-dependency attestation or reproducible binary proof.
@@ -109,6 +114,40 @@ The dedicated exact-head workflow runs the real shared-parser integration tests
 in an isolated environment and retains the tracked source snapshot plus test log.
 That artifact is compiler-input/test evidence, never chain evidence. Final test
 results and exact source heads are recorded in PR comments without moving the head.
+The first compiler-source artifact (`8a0d325`) was downloaded and digest-checked
+before local integration replay. All 17 initial tests passed locally and in CI.
+An added regression then exposed a coordinated `compiled_at_ms` / `deadline_ms`
+rewrite that could otherwise extend relative expiry despite a consistent hash.
+The test failed with "ValueError not raised". Verification was changed to require
+an independently pinned `expected_compiled_at_ms`; the regression then passed.
+With CLI-time and short-expiry coverage added, 20 focused tests passed. A separate
+surface regression checks the checked-in native example and its explicit budget.
+
+Existing mandate/boundary/Python-browser parity: 205 passed, one existing skip.
+Browser suite: 88 passed. The initial local full-suite attempt stopped at a
+missing root-level `scripts/judge_evidence.py` in the partial `x3-lang` archive;
+it is recorded as a collection blocker, not a pass. The new CI job runs the full
+Python and browser suites from the complete checkout using the existing
+hash-locked judge dependency environment and preserves full tracked source inputs.
+
+Changing the shared parser shifted existing mutation anchors by 19 lines. The
+mutation runner's exact-expression and line checks correctly rejected those
+stale pins; they were repinned without deleting mutations or loosening the
+classifier. All 12 curated mutants were caught locally after repinning, with
+zero survivors, invalid cases or timeouts; all five mutation-runner tests passed.
+
+The first full CI regression run correctly rejected the new example because it
+was not yet classified in the surface-boundary table. The table now records the
+observed `X3_PARSE_NO_INTENT` result for the generic intent parser, while the
+explicit native profile reads the same example. No parser refusal is suppressed.
+After the full source archive was obtained, local regression results were 613
+passed, one skipped and two failures in `test_judge_evidence.py` caused by the
+snapshot's missing `.git` metadata. These are not claimed as green; the complete
+CI checkout is the verification environment for those tests. The local virtual
+environment reuses preinstalled platform dependencies without global installation;
+CI installs the existing hash-locked judge runtime. Final-head results are recorded
+separately in the PR.
+
 The existing broader Python/browser/VM/security and peer-mirror checks remain
 required; a green new workflow cannot override a failing peer gate.
 
