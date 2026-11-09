@@ -7,6 +7,7 @@ its registry, then lowered only to an immutable, testnet-specific policy record.
 """
 from __future__ import annotations
 import hashlib
+import re
 from pathlib import Path
 import sys
 
@@ -26,7 +27,8 @@ class ProgramRefused(ValueError):pass
 def require(cond: bool,message: str) -> None:
     if not cond:raise ProgramRefused(message)
 
-def compile_testnet_intent(path: Path = SOURCE) -> dict:
+def compile_testnet_intent(path: Path = SOURCE, *, expected_nonce: str = NONCE) -> dict:
+    require(isinstance(expected_nonce, str) and re.fullmatch(r'x3_[a-z0-9_]{5,61}', expected_nonce) is not None, 'INVALID_TESTNET_OWNER_NONCE')
     source = path.read_bytes()
     result=cli.parse_file(str(path))
     valid,errors=typechecker.typecheck(result)
@@ -44,7 +46,7 @@ def compile_testnet_intent(path: Path = SOURCE) -> dict:
     require(str(leg.get('min_receive'))=='980000','TESTNET_MINIMUM_MISMATCH')
     requires=result.get('requires') or []
     require(len(requires)==2 and any(r.get('kind')=='slippage' and r.get('op')=='<=' and r.get('value')=='1%' for r in requires),'TESTNET_SLIPPAGE_MISMATCH')
-    require(any(r.get('kind')=='nonce' and r.get('value')=='unused '+NONCE for r in requires),'TESTNET_NONCE_MISMATCH')
+    require(any(r.get('kind')=='nonce' and r.get('value')=='unused '+expected_nonce for r in requires),'TESTNET_NONCE_MISMATCH')
     policy=result.get('policies') or {}
     timeout=policy.get('timeout') or {}; action=timeout.get('action') or {}
     require(timeout.get('duration')=='30m' and action.get('type')=='refund' and registry.normalize_chain(action.get('chain'))=='basesepolia' and action.get('asset')=='USDC' and str(action.get('to')).lower()==ORIGIN.lower(),'TESTNET_REFUND_MISMATCH')
@@ -54,7 +56,7 @@ def compile_testnet_intent(path: Path = SOURCE) -> dict:
             'origin_chain':'basesepolia','source_account':ORIGIN,'origin_asset':'USDC',
             'origin_amount':1000000,'destination_chain':'near','destination_account':RECEIVER,
             'destination_asset':'USDC','minimum_out':980000,'slippage_max_bps':100,
-            'nonce':NONCE,'refund_to':ORIGIN,'timeout_minutes':30}
+            'nonce':expected_nonce,'refund_to':ORIGIN,'timeout_minutes':30}
 
 if __name__=='__main__':
     import json
