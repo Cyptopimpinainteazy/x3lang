@@ -1,0 +1,12 @@
+// Offline native-NEAR custody configuration; compilation does not deploy.
+// Amounts are yoctonear. The budget is cumulative over this vault's lifetime.
+mandate native_supplier {
+    target near_native_vault_v1
+    owner owner.testnet
+    agent agent.testnet
+    spend Near.NEAR
+    per_payment 200000000000000000000000
+    lifetime_budget 400000000000000000000000
+    allow recipients allowed.testnet
+    expires 1h
+}
