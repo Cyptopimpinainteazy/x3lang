@@ -107,7 +107,7 @@ cd x3-lang/near/x3-guard
 cargo near build non-reproducible-wasm      # -> target/near/x3_guard.wasm
 ```
 
-This folder's `rust-toolchain.toml` uses `stable` with the `wasm32-unknown-unknown` target,
+This folder's `rust-toolchain.toml` pins Rust `1.99.1` with the `wasm32-unknown-unknown` target,
 overriding the repository's 1.90 pin. cargo-near checks the rustc version against what NEAR's
 protocol accepts and says so if the toolchain is too new.
 
