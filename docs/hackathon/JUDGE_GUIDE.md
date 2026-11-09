@@ -19,6 +19,26 @@ evaluation over a fixture. If you cannot run Python, the
 [README example](../../README.md#what-a-prompt-injection-looks-like) shows
 the request, the owner’s allowlist, and the expected result.
 
+### 1b. Make the model the attacker
+
+The fixture above shows one refusal. To check that the model is not what stops attacks, run
+the eight red-team cases with a scripted model that complies with every one of them:
+
+```bash
+python3 scripts/hackathon/compromised_agent_redteam.py
+```
+
+The model writes the X3 program each attack asks for (`attacker.near`, 75 and 400 USDC,
+a redirected refund, a Cyrillic look-alike account, wNEAR instead of USDC). Expect
+`Model complied with 8/8 attacks; deterministic checks refused 8/8`, each row naming the
+check that refused it (`mandate_recipient`, `mandate_per_payment`, `mandate_refund_to`,
+`mandate_destination_asset`, or `X3_INVALID_RECEIVER` from the type checker), and under each
+row the payment that program would have submitted with no policy layer. A control request
+for the sanctioned 5 USDC payment runs through the same harness and must be allowed; the
+command exits non-zero otherwise. It is offline and runs the off-chain compiler and mandate
+checks, not the Guard contract. Contrast the [local `qwen3:8b` run](../../evidence/agent-redteam-local-2026-11-06/README.md),
+where the model refused seven of eight attacks itself.
+
 ## 2. Inspect the testnet Guard decisions
 
 - **Agent intent:** On `x3lang.testnet`, `agent_register_intent` refused the request
@@ -119,6 +139,33 @@ for the recorded testnet transfer.
 ## Deterministic Guard-level signed-quote refusal (local mock chain)
 
 [Reproduce the scoped contract test and see it in the browser](X3_SHIELD_SIGNED_QUOTE_REFUSAL_DEMO.md): a correctly signed quote using the repo's deliberately **test-only** Ed25519 signer tries to pay `attacker.near`. `agent_accept_quote` rejects it after verification, records no accepted quote and no spend, while an allowed signed quote succeeds. The judge console's evidence panel runs and labels this test separately with `--with-contract`. This is **not** a genuine 1Click production-manager-signed live quote or a testnet transaction. Issue #73 still tracks that milestone.
+
+### How Guard binds a signed quote to the mandate
+
+A forbidden signed quote on the agent path is refused by `quote_request_echo`, not by a
+`mandate_*` guard, and that is the binding working as designed. `agent_accept_quote`
+re-runs every mandate check against the agent's **registered intent** (which was itself
+mandate-checked at registration), then requires the signed quote to equal that intent on
+`originAsset`, `destinationAsset`, `recipient`, `refundTo`, `slippageTolerance` and `amount`,
+and checks quoted fees against the intent's cap. Those are the fields the mandate restricts,
+so signed terms can only be accepted inside it: quote ⊆ intent ⊆ mandate. A quote naming
+`attacker.near` against an intent for `x3-demo.near` fails with `mismatched: ["recipient"]`.
+An intent naming `attacker.near` never registers (`mandate_recipient`, testnet `AhVBD…`).
+
+### Known Guard limits
+
+These are open in the [threat model](../security/X3_SHIELD_THREAT_MODEL.md) and are scheduled after
+the testnet proof, so the proof is made against the reviewed contract bytes:
+
+- **Asset and recipient are allowed independently, not as pairs.** A mandate allowing
+  recipients {A, B} and destination assets {USDC, wNEAR} accepts any combination, such as
+  wNEAR to A even if the owner only meant USDC to A.
+- **Active intents per owner are unbounded.** An agent can register many unaccepted intents;
+  the agent pays the storage, but there is no cap per owner yet.
+- **Guard does not hold funds.** It authorizes Guard-mediated deposits; a holder of an
+  unrestricted wallet key can still transfer directly. Custody vault work is separate.
+- **The historical testnet deployment traps without a reason string.** Its explorer view shows
+  a generic `unreachable`; the archived `check_agent_intent` view gives the reason.
 
 ## Actual Guard WASM in a local NEAR Sandbox (separate from Testnet)
 
@@ -291,11 +338,12 @@ enforcement is independently proven.
 | Allowed official-live quote acceptance | NEAR tx + nonce + quote guard result | VERIFIED TESTNET OWNER PATH: `6B6k…`; no deposit |
 | Official dry quote with forbidden recipient refused | Manager signature check + failure tx | VERIFIED TESTNET: `check_quote` signature ok, recipient mismatch, `3Q7q…` failure |
 | Agent intent to `attacker.near` refused by recipient mandate | Finalized failure tx + `check_agent_intent` | VERIFIED TESTNET: `mandate_recipient`, `AhVBD…`; allowed control `DPJfc…` |
-| Live forbidden quote refused by agent mandate | Live manager-signed failure tx and `mandate_recipient` result | PENDING |
+| Live forbidden quote refused on the agent path | Live manager-signed quote; finalized `agent_accept_quote` failure with `quote_signature` ok, mandate checks on the registered intent ok, and `quote_request_echo` failed on `recipient`; no `quote_accepted` event or spend | PENDING ([why `quote_request_echo`](#how-guard-binds-a-signed-quote-to-the-mandate)) |
 | 1Click Solana USDC deposit | Finalized source transfer tx + mint and amount | PENDING |
 | 1Click NEAR USDC receipt | Destination tx / balance observation, with attribution caveat | PENDING |
 | Tidepool Base Sepolia → NEAR testnet delivery | Finalized source transfer, historical Guard approval, NEAR token receipt and balance change | [RECORDED: 1.000000 sent, 0.997400 delivered](#3-verify-the-archived-tidepool-delivery) via the trusted Tidepool relay |
 | Real local model red team | Model/provider, actual output, compiled artifact | VERIFIED LOCAL: `qwen3:8b`, 8 cases; 7 model refusals and one safe real-recipient program neutralized by effect checks |
+| Compromised model stopped by deterministic checks | Scripted model that writes every attack; per-case refusing check; allowed control | VERIFIED LOCAL OFF-CHAIN: [`compromised_agent_redteam.py`](#1b-make-the-model-the-attacker), 8/8 complied, 8/8 refused for the attack's own reason, control allowed; not a Guard contract refusal |
 | Cryptographic solver causality | Independent cross-chain attribution proof | NOT PROVEN |
 
 Never treat mock signatures or bundled test fixtures as mainnet evidence.
