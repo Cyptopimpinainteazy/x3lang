@@ -63,6 +63,9 @@ env_get() {
 
 write_env() {
   local mode="$1" team="${2:-}" aud="${3:-}" tmp
+  if [[ "$mode" == access ]]; then
+    [[ "$X3_OWNER_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] || die "invalid owner email for server environment"
+  fi
   mkdir -p "$STATE"
   tmp="$(umask 077 && mktemp "$STATE/.server.env.XXXXXX")"
   {
@@ -70,6 +73,9 @@ write_env() {
     echo "X3_ACCESS_MODE=$mode"
     echo "X3_ACCESS_TEAM_DOMAIN=$team"
     echo "X3_ACCESS_AUD=$aud"
+    if [[ "$mode" == access ]]; then
+      echo "X3_OWNER_EMAIL=$X3_OWNER_EMAIL"
+    fi
     echo "X3_DEMOS_PORT=$PORT"
     echo "X3_DEMOS_BIND=127.0.0.1"
   } > "$tmp"
@@ -253,6 +259,13 @@ ensure_tunnel() {
   [[ -f "$CF_DIR/cert.pem" || -n "${TUNNEL_ORIGIN_CERT:-}" ]] || die "cloudflared is not logged in. Run once: cloudflared tunnel login"
   local id h
   id="$(tunnel_id)"
+  local pinned=""
+  if [[ -f "$TUNNEL_CFG" ]]; then
+    pinned="$(sed -n 's/^tunnel: //p' "$TUNNEL_CFG")"
+    [[ -n "$pinned" && "$pinned" == "$id" ]] || die "existing tunnel does not match this deployment's saved ID"
+  elif [[ -n "$id" ]]; then
+    die "tunnel name already exists; use a new dedicated name or migrate it explicitly"
+  fi
   if [[ -z "$id" ]]; then
     say "creating tunnel $TUNNEL_NAME"
     cloudflared tunnel create "$TUNNEL_NAME" >/dev/null
@@ -290,7 +303,7 @@ route_dns() {
   verify_gate_before_dns
   local h
   while IFS= read -r h; do
-    cloudflared tunnel route dns --overwrite-dns "$TUNNEL_ID" "$h" >/dev/null
+    cloudflared tunnel route dns "$TUNNEL_ID" "$h" >/dev/null
     say "DNS $h -> tunnel $TUNNEL_NAME"
   done < <(hosts)
 }

@@ -75,3 +75,5 @@ changes to existing pages). The server refuses to start if a listed file is miss
 ```bash
 node --test deploy/x3star/*.test.mjs
 ```
+
+Access mode also checks the signed email at the origin. Run `deploy.sh lock` to refresh an existing origin configuration. The deployment refuses to adopt a same-name tunnel without a saved ID and does not overwrite DNS records. Existing DNS migrations require separate operator review.

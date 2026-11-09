@@ -38,7 +38,7 @@ function mockCerts(keys = [jwk]) {
 }
 
 describe('Cloudflare Access JWT verification', () => {
-  const verifier = () => createAccessVerifier({teamDomain: TEAM, aud: AUD, fetchImpl: mockCerts().fetchImpl, now: () => NOW});
+  const verifier = () => createAccessVerifier({teamDomain: TEAM, aud: AUD, ownerEmail: 'owner@example.com', fetchImpl: mockCerts().fetchImpl, now: () => NOW});
 
   test('accepts a correctly signed, unexpired token for this team and AUD', async () => {
     assert.deepEqual(await verifier()(sign(good())), {ok: true, email: 'owner@example.com'});
@@ -48,6 +48,8 @@ describe('Cloudflare Access JWT verification', () => {
   });
   const refusals = {
     'missing token': [undefined],
+    'valid token for another user': [sign(good({email: 'other@example.com'})), 'wrong owner'],
+    'valid token without an owner claim': [sign(good({email: undefined})), 'wrong owner'],
     'malformed token': ['abc.def'],
     'unsupported algorithm': [sign(good(), {alg: 'none'})],
     'unknown key id': [sign(good(), {kid: 'nope'})],
@@ -57,11 +59,11 @@ describe('Cloudflare Access JWT verification', () => {
     expired: [sign(good({exp: NOW / 1000 - 31}))],
     'not yet valid': [sign(good({nbf: NOW / 1000 + 120}))],
   };
-  for (const [reason, [token]] of Object.entries(refusals)) {
+  for (const [reason, [token, expected = reason]] of Object.entries(refusals)) {
     test(`refuses: ${reason}`, async () => {
       const result = await verifier()(token);
       assert.equal(result.ok, false);
-      assert.equal(result.reason, reason);
+      assert.equal(result.reason, expected);
     });
   }
   test('refuses a token whose payload was altered after signing', async () => {
@@ -76,7 +78,7 @@ describe('Cloudflare Access JWT verification', () => {
     assert.equal((await verifier()(`${head}.${body}.${sig}`)).reason, 'unsupported algorithm');
   });
   test('fails closed when the certs endpoint is down', async () => {
-    const v = createAccessVerifier({teamDomain: TEAM, aud: AUD, now: () => NOW, fetchImpl: async () => ({ok: false, status: 503, json: async () => ({})})});
+    const v = createAccessVerifier({teamDomain: TEAM, aud: AUD, ownerEmail: 'owner@example.com', now: () => NOW, fetchImpl: async () => ({ok: false, status: 503, json: async () => ({})})});
     const result = await v(sign(good()));
     assert.equal(result.ok, false);
     assert.match(result.reason, /cannot load signing keys/);
@@ -84,7 +86,7 @@ describe('Cloudflare Access JWT verification', () => {
   test('caches keys and refetches at most every 30s for unknown key ids', async () => {
     let t = NOW;
     const {fetchImpl, calls} = mockCerts();
-    const v = createAccessVerifier({teamDomain: TEAM, aud: AUD, fetchImpl, now: () => t});
+    const v = createAccessVerifier({teamDomain: TEAM, aud: AUD, ownerEmail: 'owner@example.com', fetchImpl, now: () => t});
     await v(sign(good()));
     await v(sign(good()));
     assert.equal(calls.n, 1);
@@ -99,9 +101,9 @@ describe('Cloudflare Access JWT verification', () => {
 describe('configuration fails closed', () => {
   const manifest = path.join(here, 'sites.json');
   test('access mode is the default and requires team domain and AUD', () => {
-    assert.throws(() => loadConfig({X3_DEMOS_MANIFEST: manifest}), /X3_ACCESS_TEAM_DOMAIN is required/);
-    assert.throws(() => loadConfig({X3_DEMOS_MANIFEST: manifest, X3_ACCESS_TEAM_DOMAIN: TEAM}), /X3_ACCESS_AUD/);
-    const ok = loadConfig({X3_DEMOS_MANIFEST: manifest, X3_ACCESS_TEAM_DOMAIN: TEAM, X3_ACCESS_AUD: AUD});
+    assert.throws(() => loadConfig({X3_DEMOS_MANIFEST: manifest}), /X3_OWNER_EMAIL is required/);
+    assert.throws(() => loadConfig({X3_DEMOS_MANIFEST: manifest, X3_OWNER_EMAIL: 'owner@example.com', X3_ACCESS_TEAM_DOMAIN: TEAM}), /X3_ACCESS_AUD/);
+    const ok = loadConfig({X3_DEMOS_MANIFEST: manifest, X3_OWNER_EMAIL: 'owner@example.com', X3_ACCESS_TEAM_DOMAIN: TEAM, X3_ACCESS_AUD: AUD});
     assert.equal(ok.mode, 'access');
     assert.equal(ok.bind, '127.0.0.1');
   });
@@ -189,13 +191,13 @@ describe('HTTP behavior', () => {
     writeFileSync(path.join(root, 'site/evidence.json'), '{"secret":"local paths"}');
     writeFileSync(path.join(outside, 'secret.html'), 'outside');
     writeFileSync(path.join(root, '.env'), 'TOKEN=nope');
-    const config = {root, manifest: loadManifest(manifestFor(root)), port: 0, bind: '127.0.0.1', mode: 'access', teamDomain: TEAM, aud: AUD};
+    const config = {root, manifest: loadManifest(manifestFor(root)), port: 0, bind: '127.0.0.1', mode: 'access', teamDomain: TEAM, aud: AUD, ownerEmail: 'owner@example.com'};
     // a listed name that is a symlink to a file outside the root must refuse to load
     symlinkSync(path.join(outside, 'secret.html'), path.join(root, 'site/link.html'));
     assert.throws(() => loadFiles(root, config.manifest), /not a regular file inside/);
     rmSync(path.join(root, 'site/link.html'));
     writeFileSync(path.join(root, 'site/link.html'), 'inside');
-    const verifier = createAccessVerifier({teamDomain: TEAM, aud: AUD, fetchImpl: mockCerts().fetchImpl, now: () => Date.now()});
+    const verifier = createAccessVerifier({teamDomain: TEAM, aud: AUD, ownerEmail: 'owner@example.com', fetchImpl: mockCerts().fetchImpl, now: () => Date.now()});
     ({server} = await startServer(config, {verifier}));
     base = `http://127.0.0.1:${server.address().port}`;
   });
