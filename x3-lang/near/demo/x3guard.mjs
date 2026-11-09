@@ -577,26 +577,43 @@ export function webCryptoProblem(g = globalThis) {
   return null;
 }
 
-export async function quoteHash(response) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(signedQuotePayload(response)));
+async function resolveWebCrypto(runtime = globalThis) {
+  if (runtime.crypto?.subtle) return runtime.crypto;
+  if (runtime === globalThis && typeof process !== "undefined" && process.versions?.node) {
+    try {
+      return (await import("node:crypto")).webcrypto;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function quoteHash(response, runtime = globalThis) {
+  const webCrypto = await resolveWebCrypto(runtime);
+  if (!webCrypto?.subtle) throw new Error(webCryptoProblem(runtime));
+  const digest = await webCrypto.subtle.digest("SHA-256", new TextEncoder().encode(signedQuotePayload(response)));
   return b58encode(new Uint8Array(digest));
 }
 
 /** { valid, reason, hash }. Never throws: anything it cannot check is invalid. */
-export async function checkQuoteSignature(response, managerPublicKey = ONE_CLICK_MANAGER_PUBLIC_KEY) {
+export async function checkQuoteSignature(response, managerPublicKey = ONE_CLICK_MANAGER_PUBLIC_KEY, runtime = globalThis) {
   let key;
-  const unavailable = webCryptoProblem();
+  const webCrypto = await resolveWebCrypto(runtime);
+  const unavailable = webCrypto?.subtle
+    ? null
+    : webCryptoProblem({ isSecureContext: runtime.isSecureContext, crypto: webCrypto });
   if (unavailable) return { valid: false, reason: unavailable, hash: null };
   try {
     const pub = decodeEd25519(managerPublicKey, 32);
     const sig = decodeEd25519(response?.signature, 64);
-    const hash = await quoteHash(response);
+    const hash = await quoteHash(response, runtime);
     try {
-      key = await crypto.subtle.importKey("raw", pub, { name: "Ed25519" }, false, ["verify"]);
+      key = await webCrypto.subtle.importKey("raw", pub, { name: "Ed25519" }, false, ["verify"]);
     } catch {
       return { valid: false, reason: "this browser cannot verify Ed25519 signatures; use a current Chrome, Firefox or Safari", hash: null };
     }
-    const ok = await crypto.subtle.verify({ name: "Ed25519" }, key, sig, new TextEncoder().encode(hash));
+    const ok = await webCrypto.subtle.verify({ name: "Ed25519" }, key, sig, new TextEncoder().encode(hash));
     return ok ? { valid: true, reason: "verified", hash } : { valid: false, reason: "signature does not verify under the 1Click manager key", hash: null };
   } catch (e) {
     return { valid: false, reason: `unsupported quote format: ${e.message}`, hash: null };
@@ -913,8 +930,10 @@ export function lowerMandate(parsed, tokens, nowMs, sourceSha256) {
   };
 }
 
-export async function sha256Hex(text) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+export async function sha256Hex(text, runtime = globalThis) {
+  const webCrypto = await resolveWebCrypto(runtime);
+  if (!webCrypto?.subtle) throw new Error(webCryptoProblem(runtime));
+  const digest = await webCrypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
