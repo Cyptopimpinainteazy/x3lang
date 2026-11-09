@@ -8,6 +8,8 @@ Built for the NEAR HACKATHON 2026: AI Security & Defense (primary), Agent Econom
 
 ## Start here for judging
 
+[Why X3 Shield stands out](docs/hackathon/WHY_X3_SHIELD.md) connects each distinguishing claim to its evidence and limits.
+
 | What you want to verify | Where to start | What the result establishes |
 |---|---|---|
 | Why the owner’s policy refused a payment request | [Run the offline policy demo](docs/hackathon/JUDGE_GUIDE.md#1-run-the-offline-policy-demo) | The checked-in request to `attacker.near` triggers `mandate_recipient` locally. |
