@@ -1,6 +1,6 @@
 # X3Lang / X3 Shield — Judge video assets, batch 2
 
-Prepared November 8, 2026. Sixteen 16:9 source SVGs, with an automated x3star1 builder for PNG, MP4, a gallery and ZIP.
+Prepared November 8, 2026. Sixteen 16:9 source SVGs, with an automated x3star1 builder for PNG, six MP4 previews, a gallery and ZIP.
 
 ## Scene list
 10. Owner-defined `.x3` financial mandate
@@ -47,3 +47,5 @@ The script reuses your existing `.assets-venv` and ffmpeg if available; it insta
 **Scope:** Technical explanatory B-roll, not a recording of on-chain execution. The animation transitions between static diagrams, and some SVGs contain decorative CSS pulses; these are not transaction traces.
 
 Remote Desktop Commander for x3star1 was online but its monthly tool-call limit was reached, so this batch is published through the GitHub asset branch and requires the explicit user-run bootstrap above. GitHub master is unchanged.
+## Animated micro-clips
+The renderer also creates three 4-second 720p moving-pulse clips: `X3BC_Bytecode_Pulse_4s.mp4`, `X3Shield_Guard_Decision_4s.mp4`, and `Tidepool_Trusted_Relay_4s.mp4`. They are illustrative motion graphics layered over the diagrams, **not live transaction playback**.
