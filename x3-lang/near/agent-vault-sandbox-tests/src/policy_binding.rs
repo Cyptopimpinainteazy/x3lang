@@ -22,8 +22,8 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn helper(mode: &str, input: &Value) -> Result<Value> {
-    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../scripts/hackathon/native_vault_binding.py");
+    let script =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/hackathon/native_vault_binding.py");
     let raw = serde_json::to_vec(input)?;
     ensure!(raw.len() <= MAX_BYTES, "binding input is oversized");
     let mut child = Command::new("python3")
@@ -72,17 +72,32 @@ pub fn constructor(binding: &Value) -> Result<Value> {
 pub fn source_with_lower_cap(source: &[u8]) -> Result<Vec<u8>> {
     let source = std::str::from_utf8(source)?;
     let old = "per_payment 200000000000000000000000";
-    ensure!(source.matches(old).count() == 1, "expected one reviewed demonstration cap clause");
-    Ok(source.replacen(old, "per_payment 50000000000000000000000", 1).into_bytes())
+    ensure!(
+        source.matches(old).count() == 1,
+        "expected one reviewed demonstration cap clause"
+    );
+    Ok(source
+        .replacen(old, "per_payment 50000000000000000000000", 1)
+        .into_bytes())
 }
 
 async fn rpc(network: &NetworkConfig, method: &str, params: Value) -> Result<Value> {
-    let url = network.rpc_endpoints.first().context("missing Sandbox RPC")?.url.clone();
+    let url = network
+        .rpc_endpoints
+        .first()
+        .context("missing Sandbox RPC")?
+        .url
+        .clone();
     ensure!(
         url.scheme() == "http"
-            && url.host_str().and_then(|host| host.parse::<IpAddr>().ok()).is_some_and(|ip| ip.is_loopback())
-            && url.username().is_empty() && url.password().is_none()
-            && url.query().is_none() && url.fragment().is_none(),
+            && url
+                .host_str()
+                .and_then(|host| host.parse::<IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback())
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none(),
         "policy readback requires a literal loopback Sandbox endpoint"
     );
     let sequence = OBSERVATION_SEQUENCE
@@ -96,16 +111,25 @@ async fn rpc(network: &NetworkConfig, method: &str, params: Value) -> Result<Val
         .build()?
         .post(url)
         .json(&json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}))
-        .send().await?;
-    ensure!(response.status() == reqwest::StatusCode::OK, "unexpected policy-readback HTTP status");
+        .send()
+        .await?;
+    ensure!(
+        response.status() == reqwest::StatusCode::OK,
+        "unexpected policy-readback HTTP status"
+    );
     let mut raw = Vec::new();
     while let Some(chunk) = response.chunk().await? {
-        ensure!(chunk.len() <= MAX_BYTES - raw.len(), "oversized policy-readback RPC response");
+        ensure!(
+            chunk.len() <= MAX_BYTES - raw.len(),
+            "oversized policy-readback RPC response"
+        );
         raw.extend_from_slice(&chunk);
     }
     let value: Value = serde_json::from_slice(&raw)?;
-    ensure!(value["id"] == id && value["jsonrpc"] == "2.0" && value.get("error").is_none(),
-        "policy observation RPC failed: {value}");
+    ensure!(
+        value["id"] == id && value["jsonrpc"] == "2.0" && value.get("error").is_none(),
+        "policy observation RPC failed: {value}"
+    );
     let result = value.get("result").context("policy observation lacks a result")?;
     ensure!(result.get("error").is_none(), "policy view execution failed: {result}");
     Ok(result.clone())
@@ -114,41 +138,70 @@ async fn rpc(network: &NetworkConfig, method: &str, params: Value) -> Result<Val
 pub async fn block(network: &NetworkConfig) -> Result<Value> {
     let result = rpc(network, "block", json!({"finality":"final"})).await?;
     let header = result.get("header").context("missing observed block header")?.clone();
-    ensure!(header["hash"].is_string() && header["height"].as_u64().is_some(), "malformed block identity");
+    ensure!(
+        header["hash"].is_string() && header["height"].as_u64().is_some(),
+        "malformed block identity"
+    );
     timestamp_ms(&header)?;
     Ok(header)
 }
 
 pub fn timestamp_ms(header: &Value) -> Result<u64> {
-    let timestamp = header["timestamp_nanosec"].as_str().context("missing block nanosecond timestamp")?;
+    let timestamp = header["timestamp_nanosec"]
+        .as_str()
+        .context("missing block nanosecond timestamp")?;
     Ok(timestamp.parse::<u64>()? / 1_000_000)
 }
 
 pub async fn observe(network: &NetworkConfig, binding: &Value) -> Result<Value> {
-    let vault = binding["context"]["vault_account"].as_str().context("binding vault missing")?;
+    let vault = binding["context"]["vault_account"]
+        .as_str()
+        .context("binding vault missing")?;
     let header = block(network).await?;
     let hash = &header["hash"];
-    let account = rpc(network, "query", json!({"request_type":"view_account", "account_id":vault,
-        "block_id":hash})).await?;
-    let config = rpc(network, "query", json!({"request_type":"call_function", "account_id":vault,
-        "block_id":hash, "method_name":"configuration", "args_base64":"e30="})).await?;
+    let account = rpc(
+        network,
+        "query",
+        json!({"request_type":"view_account", "account_id":vault,
+        "block_id":hash}),
+    )
+    .await?;
+    let config = rpc(
+        network,
+        "query",
+        json!({"request_type":"call_function", "account_id":vault,
+        "block_id":hash, "method_name":"configuration", "args_base64":"e30="}),
+    )
+    .await?;
     for observed in [&account, &config] {
-        ensure!(observed["block_hash"] == *hash && observed["block_height"] == header["height"],
-            "readback did not use the pinned common block");
+        ensure!(
+            observed["block_hash"] == *hash && observed["block_height"] == header["height"],
+            "readback did not use the pinned common block"
+        );
     }
     let bytes: Vec<u8> = serde_json::from_value(config["result"].clone()).context("configuration view lacks bytes")?;
     let observed = json!({
         "vault_account":vault, "block_hash":hash, "block_height":header["height"],
         "code_hash":account["code_hash"], "configuration":serde_json::from_slice::<Value>(&bytes)?
     });
-    let report = helper("verify", &json!({"binding":binding,"observation":observed,
-        "now_ms":timestamp_ms(&header)?}))?;
-    ensure!(report["configuration_matches"] == true && report["code_hash_matches"] == true
-        && report["cryptographic_proof"] == false && report["public_chain"] == false,
-        "invalid configuration verification report");
-    println!("X3_VAULT_SANDBOX_GENERATED_POLICY {}", serde_json::to_string(&json!({
-        "binding":binding,"observation":observed,"now_ms":timestamp_ms(&header)?,"report":report
-    }))?);
+    let report = helper(
+        "verify",
+        &json!({"binding":binding,"observation":observed,
+        "now_ms":timestamp_ms(&header)?}),
+    )?;
+    ensure!(
+        report["configuration_matches"] == true
+            && report["code_hash_matches"] == true
+            && report["cryptographic_proof"] == false
+            && report["public_chain"] == false,
+        "invalid configuration verification report"
+    );
+    println!(
+        "X3_VAULT_SANDBOX_GENERATED_POLICY {}",
+        serde_json::to_string(&json!({
+            "binding":binding,"observation":observed,"now_ms":timestamp_ms(&header)?,"report":report
+        }))?
+    );
     Ok(observed)
 }
 
@@ -159,9 +212,20 @@ mod tests {
 
     #[test]
     fn source_change_only_changes_cap_in_generated_constructor() {
-        let base = compile(SOURCE, b"\0asm fixture not deployed", "vault.testnet", 1_900_000_000_000).unwrap();
-        let narrow = compile(&source_with_lower_cap(SOURCE).unwrap(), b"\0asm fixture not deployed",
-            "tight.testnet", 1_900_000_000_000).unwrap();
+        let base = compile(
+            SOURCE,
+            b"\0asm fixture not deployed",
+            "vault.testnet",
+            1_900_000_000_000,
+        )
+        .unwrap();
+        let narrow = compile(
+            &source_with_lower_cap(SOURCE).unwrap(),
+            b"\0asm fixture not deployed",
+            "tight.testnet",
+            1_900_000_000_000,
+        )
+        .unwrap();
         let mut expected = constructor(&base).unwrap();
         expected["cap"] = json!("50000000000000000000000");
         assert_eq!(constructor(&narrow).unwrap(), expected);
@@ -180,7 +244,11 @@ mod tests {
         let binding = compile(SOURCE, b"fixture", "vault.testnet", 1_900_000_000_000).unwrap();
         let observed = json!({"vault_account":"vault.testnet", "block_hash":"11111111111111111111111111111111",
             "block_height":10, "code_hash":"wrong", "configuration":constructor(&binding).unwrap()});
-        assert!(helper("verify", &json!({"binding":binding, "observation":observed,
-            "now_ms":1_900_000_000_001u64})).is_err());
+        assert!(helper(
+            "verify",
+            &json!({"binding":binding, "observation":observed,
+            "now_ms":1_900_000_000_001u64})
+        )
+        .is_err());
     }
 }
