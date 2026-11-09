@@ -17,6 +17,13 @@ It is not an instruction to deploy and does not itself authorize any action.
   and [Sandbox build](https://github.com/Cyptopimpinainteazy/x3lang/actions/runs/42664246585).
   These are CI log observations; those runs did not retain a deployable
   artifact. They do not prove a locally reproduced release or deployment.
+- A later independent CI job in draft [PR #174](https://github.com/Cyptopimpinainteazy/x3lang/pull/174)
+  checked out the pinned candidate, tested and built it, checked that hash,
+  byte length, and panic import, and retained an unsigned [artifact](https://github.com/Cyptopimpinainteazy/x3lang/actions/runs/42683867418/artifacts/13703488647)
+  with provenance ([successful run](https://github.com/Cyptopimpinainteazy/x3lang/actions/runs/42683867418)).
+  GitHub records the archive SHA-256 `46cf82ab89124cdba7020e470795b8e419f85bf854854da0d48bc543739d1ac8`
+  and expiry 2026-11-23. This packet has not downloaded or independently
+  checked the archive; retention is not deployment approval or on-chain proof.
 - Historical deployed code has a different hash; do not alter its evidence or
   represent this candidate as that deployed binary.
 - The local Sandbox run is test evidence, not a public-chain transaction.
