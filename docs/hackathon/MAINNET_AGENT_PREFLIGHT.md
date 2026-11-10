@@ -204,7 +204,15 @@ python3 scripts/hackathon/verify_mainnet_payment.py \
 Get the payout signer from the candidate NEAR transaction in an explorer.
 The command checks the authenticated live quote, the exact finalized standard
 SPL transfer signed by the funding owner, and the canonical finalized USDC
-`ft_transfer` receipt from `intents.near`. It queries NEAR's archival RPC for finalized transaction and receipt history.
+`ft_transfer` receipt from `intents.near`. It queries a NEAR archival RPC for finalized transaction and receipt history.
+The default public endpoint is severely rate limited and has returned a
+deprecation warning. For a funded run, configure a supported archival endpoint
+in the operator's private environment as `X3_NEAR_ARCHIVAL_RPC_URL`. The
+verifier checks mainnet genesis and omits the configured URL from reports.
+If a lookup is rate limited, retain the same deposit signature and resume with
+a working archival endpoint.
+[NEAR RPC providers](https://docs.near.org/api/rpc/providers)
+
 A read-only mainnet negative control retrieved an unrelated finalized
 `execute_intents` transaction and refused it for missing a direct USDC payout.
 The other probed endpoints timed out on that lookup. This checks the live

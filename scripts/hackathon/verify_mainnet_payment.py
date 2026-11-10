@@ -4,7 +4,9 @@
 import argparse
 import base64
 import json
+import os
 import re
+from urllib.parse import urlsplit
 
 from mainnet_agent_preflight import API, NEAR_GENESIS, NEAR_USDC, SOL_ASSET, SOL_MINT, ni
 
@@ -179,6 +181,21 @@ def verify(receipt, approved_quote_hash, funding_owner, payout_signer, *, client
             "source": source, "payout": payout}
 
 
+def near_rpc_endpoint():
+    configured = os.environ.get("X3_NEAR_ARCHIVAL_RPC_URL")
+    if not configured:
+        return NEAR_ARCHIVAL_RPC, NEAR_ARCHIVAL_RPC
+    try:
+        parts = urlsplit(configured)
+        valid = (parts.scheme == "https" and parts.hostname and not parts.username
+                 and parts.password is None and not parts.fragment
+                 and not any(char.isspace() for char in configured))
+    except ValueError:
+        valid = False
+    require(valid, "X3_NEAR_ARCHIVAL_RPC_URL must be an HTTPS RPC URL")
+    return configured, "operator_configured_https"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--receipt", required=True, help="private local live quote receipt with deposit hash")
@@ -187,13 +204,14 @@ def main():
     parser.add_argument("--payout-signer", required=True, help="public signer of the candidate NEAR transaction")
     args = parser.parse_args()
     try:
+        endpoint, endpoint_label = near_rpc_endpoint()
         with open(args.receipt, encoding="utf-8") as handle:
             receipt = json.load(handle)
         def sol_rpc(method, params):
             return ce.json_rpc(ni.urllib_transport, SOL_RPC, method, params)
 
         def near_rpc(method, params):
-            return ce.json_rpc(ni.urllib_transport, NEAR_ARCHIVAL_RPC, method, params)
+            return ce.json_rpc(ni.urllib_transport, endpoint, method, params)
 
         result = verify(receipt, args.approved_quote_hash, args.funding_owner, args.payout_signer, client=ni.OneClickClient(base_url=API, jwt=""),
                         sol_rpc=sol_rpc, near_rpc=near_rpc)
@@ -202,7 +220,7 @@ def main():
         reason = str(exc) if isinstance(exc, ProofRejected) else type(exc).__name__
         print(json.dumps({"status": "unverified", "reason": reason}))
         return 5
-    result["rpc_endpoints"] = {"solana": SOL_RPC, "near": NEAR_ARCHIVAL_RPC}
+    result["rpc_endpoints"] = {"solana": SOL_RPC, "near": endpoint_label}
     print(json.dumps(result, indent=2))
     return 0
 

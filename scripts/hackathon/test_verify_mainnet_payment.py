@@ -168,3 +168,19 @@ def test_provider_linkage(monkeypatch, case):
     else:
         with pytest.raises(proof.ProofRejected):
             proof.verify(receipt, approved, FUNDING, SIGNER, **kwargs)
+
+
+def test_archival_rpc_credentials_are_excluded_from_provenance(monkeypatch):
+    monkeypatch.delenv("X3_NEAR_ARCHIVAL_RPC_URL", raising=False)
+    assert proof.near_rpc_endpoint() == (proof.NEAR_ARCHIVAL_RPC, proof.NEAR_ARCHIVAL_RPC)
+    endpoint = "https://rpc.example.invalid/private-fixture"
+    monkeypatch.setenv("X3_NEAR_ARCHIVAL_RPC_URL", endpoint)
+    assert proof.near_rpc_endpoint() == (endpoint, "operator_configured_https")
+
+
+@pytest.mark.parametrize("endpoint", ["http://rpc.example.invalid", "https://user@rpc.example.invalid",
+                                     "https://rpc.example.invalid/#fragment"])
+def test_invalid_archival_rpc_configuration_fails_closed(monkeypatch, endpoint):
+    monkeypatch.setenv("X3_NEAR_ARCHIVAL_RPC_URL", endpoint)
+    with pytest.raises(proof.ProofRejected, match="must be an HTTPS RPC URL"):
+        proof.near_rpc_endpoint()
