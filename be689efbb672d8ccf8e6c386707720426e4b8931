@@ -1,0 +1,29 @@
+scripts/proof/check_x3lang_mirror.py
+  s_a682023dabf919::t_1ea2b5491018f8 1-206
+scripts/proof/checkout_integrity.py
+  s_a682023dabf919::t_05db4cd2ccbc0d 1-60
+scripts/proof/source_binding.py
+  s_a682023dabf919::t_273fee63346543 1-175
+scripts/proof/x3lang_execution_proof.py
+  s_a682023dabf919::t_6f9463f409ca69 1-156
+scripts/proof/x3lang_runtime_equivalence.py
+  s_a682023dabf919::t_9d2c54550119fa 1-147
+x3-lang/vm/tests/trading_receipts.rs
+  s_a682023dabf919::t_1a5c261e65dced 225-250,729-741
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "be689efbb672d8ccf8e6c386707720426e4b8931",
+  "prompts": {},
+  "sessions": {
+    "s_a682023dabf919": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bcfc-37bf-7c31-9cd6-f78c4074c19b",
+        "model": "deepseek-flash"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
