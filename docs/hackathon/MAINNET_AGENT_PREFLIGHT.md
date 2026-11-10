@@ -236,6 +236,32 @@ account. An independently reviewed mainnet Guard deployment is still required.
 [Sanitized observation](../../evidence/agent-mainnet-route-probe-2026-11-10/observation.json)
 and [SHA-256 checksum](../../evidence/agent-mainnet-route-probe-2026-11-10/SHA256SUMS).
 
+## Separate owner decision for mainnet Guard
+
+**Status: hold.** The documented deployment authorization is for
+`x3lang-guard-20261106.testnet`. The example `x3guard.near` does not exist
+on mainnet. If an existing mainnet Guard is available, review its account,
+deployment transaction, code hash, initialization, manager key, access
+keys and mandate methods before building a payment around it.
+
+If a new deployment is needed, prepare a separate review using the proposed
+mainnet account, exact reviewed source and reproducible WASM hash and size,
+initializer, owner and agent permissions, available storage balance, gas and
+a maximum owner-approved NEAR spend. Verify the resulting deployment and
+initialization before authorizing a payment quote. Keep any deployment
+costs out of the USDC trade amount and require the owner to sign separately.
+
+On November 10, both `free.rpc.fastnear.com` and
+`archival-rpc.mainnet.near.org` reported mainnet protocol version 88 and
+`10000000000000000000` yoctoNEAR per byte at finality. At that observed rate,
+the historical testnet binary (544,944 bytes) would require 5.44944 NEAR for
+code storage alone. This is a scale reference. Recalculate from the exact
+mainnet candidate. Existing state, mandate and receipt storage, account
+creation and gas require a separate budget. A storage stake and a gas fee
+are different costs.
+[Deployment authorization and Guard methods](../../x3-lang/near/x3-guard/README.md)
+· [Historical binary identity](GUARD_TESTNET_EVIDENCE.md).
+
 ## Release status
 
 - [ ] Obtain reviewed public addresses and spending caps. Read the actual
