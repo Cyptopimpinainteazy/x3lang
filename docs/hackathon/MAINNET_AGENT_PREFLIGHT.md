@@ -115,3 +115,13 @@ The [November 10 local rehearsal](../../evidence/agent-mainnet-prep-local-2026-1
 records actual model generation, model refusal, and a separately labeled explicit
 tamper refused by the local mandate check. It used illustrative accounts and
 made no quote requests or wallet transactions; it is not mainnet trade evidence.
+
+## Resume the same tracked deposit
+
+Use the quote hash from the separate owner review. Save the Solana signature
+with the live receipt. If tracking is interrupted, resume with that same
+signature and quote. The tracker saves the finalized signature before notifying
+1Click. If the notification response is lost, resume status polling for that
+deposit. The [1Click deposit notification](https://docs.near-intents.org/api-reference/oneclick/submit-deposit-transaction-hash)
+is optional. A timeout leaves the outcome uncertain. Check the original transfer
+before taking any further action.
