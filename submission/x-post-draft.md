@@ -6,12 +6,11 @@ first, one complete moment, what NEAR does, a next step.
 
 ## Post 1 (attach video; fits 280 characters)
 
-A prompt-injected AI agent will pay an attacker if nothing checks it.
+A prompt-injected agent can request a payment to an attacker.
 
-X3 Shield: the owner writes spending rules in .x3. A NEAR contract refuses any
-agent payment that breaks them.
+X3 Shield: owners write .x3 rules. NEAR Guard checks requests before authorizing a deposit address.
 
-Watch attacker.near get refused on testnet.
+Watch an attacker.near intent get refused on testnet.
 
 Built at NEAR HACKATHON @NEARProtocol #NEARHackathon
 
@@ -26,8 +25,8 @@ relay, not atomic settlement.
 
 What NEAR does here: the Guard contract verifies the 1Click quote's Ed25519
 signature on-chain, then checks the signed recipient, asset, minimum output and
-refund address against the owner's policy. A valid quote to the wrong recipient
-is refused.
+refund address against the owner's policy. An official signed dry quote was refused;
+the archived checks include recipient mismatch and separate dry-quote failures.
 
 ## Post 4 (reply)
 
