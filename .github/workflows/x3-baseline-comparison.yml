@@ -1,0 +1,38 @@
+name: X3 Shield Baseline Comparison
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/**'
+      - 'evidence/near-guard-testnet/**'
+      - 'scripts/hackathon/baseline_comparison.py'
+      - 'scripts/hackathon/test_baseline_comparison.py'
+      - '.github/workflows/x3-baseline-comparison.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/**'
+      - 'evidence/near-guard-testnet/**'
+      - 'scripts/hackathon/baseline_comparison.py'
+      - 'scripts/hackathon/test_baseline_comparison.py'
+      - '.github/workflows/x3-baseline-comparison.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-quote-baselines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install judge dependencies
+        run: python -m pip install -r x3-lang/requirements.txt pytest
+      - name: Only the X3 term check separates the two archived signed quotes
+        run: |
+          set -euo pipefail
+          python3 scripts/hackathon/baseline_comparison.py
+          python3 -m pytest scripts/hackathon/test_baseline_comparison.py -q

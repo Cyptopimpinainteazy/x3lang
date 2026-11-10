@@ -14,7 +14,7 @@ X3 Shield brings together an owner-readable `.x3` mandate, deterministic policy 
 | Guard has an on-chain allow/refuse control | [Testnet decisions](JUDGE_GUIDE.md#2-inspect-the-testnet-guard-decisions) | One agent intent was refused and a separate permitted intent registered. The archived view gives the reason; the transaction explorer may show a generic trap. |
 | A signature is necessary, but policy still matters | [Signed-quote evidence](GUARD_TESTNET_EVIDENCE.md) | An official signed dry quote with a recipient mismatch was refused; a separate matching live quote was accepted and stopped before deposit. The dry quote also fails dry-quote checks. |
 | There is a real cross-chain testnet evidence trail | [Tidepool walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) and [certificate](FIRST_FINALIZED_SWAP_EVIDENCE.md) | Historical records show 1.000000 test USDC sent on Base Sepolia and 0.997400 received on NEAR. Their linkage depends on the trusted Tidepool testnet relay; this is not proof of atomic cross-chain causality. |
-| Judges can inspect consensus work | [Offline validator verification](../../README.md#verify-near-validator-signatures-offline) | Archived testnet validator approvals can be checked from a pinned checkpoint. This verifies headers, not an independently authenticated Guard receipt or settlement. |
+| Judges can inspect consensus work | [Offline validator verification](../../README.md#10-verify-near-validator-signatures-offline) | Archived testnet validator approvals can be checked from a pinned checkpoint. This verifies headers, not an independently authenticated Guard receipt or settlement. |
 
 ## Try it yourself
 

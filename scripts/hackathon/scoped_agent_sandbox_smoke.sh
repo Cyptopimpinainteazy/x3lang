@@ -12,7 +12,8 @@ if [[ -n "${NEAR_NETWORK_ID:-}" && "${NEAR_NETWORK_ID}" != sandbox ]]; then
   echo "Refusing non-sandbox NEAR network configuration" >&2
   exit 2
 fi
-cargo build --locked --release --target wasm32-unknown-unknown --manifest-path "$GUARD_MANIFEST"
+# Cargo discovers the Guard rustflags from its working directory.
+(cd "$ROOT/x3-lang/near/x3-guard" && cargo build --locked --release --target wasm32-unknown-unknown --manifest-path "$GUARD_MANIFEST")
 cargo build --locked --manifest-path "$HARNESS_MANIFEST" --bin scoped_agent_boundary
 test -f "$GUARD_WASM" && test -x "$HARNESS"
 echo "X3_SCOPED_BOUNDARY_WASM_SHA256 $(sha256sum "$GUARD_WASM" | cut -d' ' -f1)"
