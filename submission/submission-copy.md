@@ -12,7 +12,7 @@ What runs today, all on testnet or locally:
 
 1. A cross-chain trade specified by one .x3 program. Its source hash was bound on a NEAR Guard contract first; then 1.000000 test USDC left Base Sepolia and 0.997400 arrived at x3lang.testnet on NEAR. Both transactions are finalized and public, and an offline verifier in the repo checks the archive. The link between the legs is a trusted Tidepool testnet relay, not atomic settlement.
 
-2. On-chain refusals. The deployed Guard refused an agent payment to attacker.near (mandate_recipient) and accepted the permitted control. It also verified an official 1Click signed quote's Ed25519 signature, then refused it because the signed recipient broke policy. A matching live quote was accepted and stopped before deposit.
+2. On-chain refusals. The deployed Guard refused an agent intent to attacker.near (mandate_recipient) and accepted the permitted control. It also verified an official 1Click dry quote's Ed25519 signature; the quote was refused with recipient mismatch and separate dry-quote failures. A matching live quote was accepted and stopped before deposit.
 
 3. The model is not the defence. A scripted model that complies with all 8 attacks gets 8 of 8 refused by deterministic checks. Nine unsafe edits to an agent payment fail to compile.
 
