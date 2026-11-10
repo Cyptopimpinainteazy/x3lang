@@ -8,6 +8,10 @@ The repository documents an owner-authorized Tidepool community testnet route fr
 
 The saved strict evidence is historical; rerun the documented archival verification and record the exact commit and result before submission. A matching finalized transfer on each chain does not independently establish cryptographic cross-chain causality. Tidepool is a trusted testnet relayer. This was not the newer scoped vault, a native X3VM bytecode execution, official NEAR Intents 1Click mainnet settlement, or a trustless atomic bridge. Do not reuse the historical quote, nonce or deposit address.
 
+## Offline archive check on master
+
+At master commit `2caa28e95014068e0cbd273552aa797b613cd870`, `PYTHONPATH=x3-lang:scripts/hackathon python3 scripts/hackathon/verify_first_swap_archive.py` returned PASS in `offline-signed-evidence` mode; the seven `test_first_swap_archive.py` unit tests passed. This checks saved signed evidence and internal relationships, not current chain state. A `--live` recheck was attempted but interrupted while waiting for RPC access; it yielded no result. Repeat both checks at the final submission commit and record independent RPC results before claiming fresh verification.
+
 ## Track fit and remaining work
 
 The [organizer's track description](https://nearhackathon.com/) emphasizes trading and cross-chain settlement through NEAR Intents. The Tidepool demonstration supports a real testnet cross-chain trading story, but does not by itself establish an official NEAR Intents settlement. The existing 1Click positive control stopped at deposit-address acceptance. Do not conflate the two.
