@@ -7,9 +7,10 @@ It is not an instruction to deploy and does not itself authorize any action.
 
 ## Candidate identity
 
-- Source candidate: X3Lang PR #170 head
-  `35152b85f12b657f3e8918c999e205e71d8a9668`; unmerged draft. Recheck its
-  final reviewed head and repeat all checks if it changes.
+- Historical source candidate: X3Lang PR #170 head
+  `35152b85f12b657f3e8918c999e205e71d8a9668`. PR #170 merged to master at
+  `8dc617cd556e152dd283dfc51a75b95ca7cbdc97`. The candidate build below
+  is pinned to the historical PR head. Repeat the checks for any new source.
 - Two CI jobs at that head logged an unsigned Guard WASM with SHA-256
   `ae7cac5962fe4bba3e527e466e7671a587c4899488e2035e8411a80a3905d302`,
   551,302 bytes, and an `env.panic_utf8` import:
@@ -17,7 +18,7 @@ It is not an instruction to deploy and does not itself authorize any action.
   and [Sandbox build](https://github.com/Cyptopimpinainteazy/x3lang/actions/runs/42664246585).
   These are CI log observations; those runs did not retain a deployable
   artifact. They do not prove a locally reproduced release or deployment.
-- A later independent CI job in draft [PR #174](https://github.com/Cyptopimpinainteazy/x3lang/pull/174)
+- A later independent CI job in [PR #174](https://github.com/Cyptopimpinainteazy/x3lang/pull/174)
   checked out the pinned candidate, tested and built it, checked that hash,
   byte length, and panic import, and retained an unsigned [artifact](https://github.com/Cyptopimpinainteazy/x3lang/actions/runs/42683867418/artifacts/13703488647)
   with provenance ([successful run](https://github.com/Cyptopimpinainteazy/x3lang/actions/runs/42683867418)).

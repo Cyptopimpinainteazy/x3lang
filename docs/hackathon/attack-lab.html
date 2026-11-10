@@ -126,7 +126,7 @@ footer{color:var(--mute);border-top:1px solid var(--line);padding-top:20px;paddi
 <header>
   <div class="brand">✳ X3 SHIELD / CONTROL ROOM</div>
   <nav class="jump" aria-label="Sections"><a href="#play">Attack lab</a><a href="#sandbox">Sandbox</a><a href="#receipts">Testnet trade</a><a href="#unproven">Unproven</a></nav>
-  <div class="pill">PRIVATE PRE-RELEASE · OFFLINE PREVIEW</div>
+  <div class="pill">OFFLINE PREVIEW · NOT AN ON-CHAIN PROOF</div>
 </header>
 <main>
 <h1>MAKE THE AGENT<br><em>MISBEHAVE.</em></h1>
@@ -202,7 +202,7 @@ footer{color:var(--mute);border-top:1px solid var(--line);padding-top:20px;paddi
       <div class="meter" id="meter" role="progressbar" aria-label="Budget used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="meter-bar"></span></div>
       <div class="muted" style="margin-top:12px">Consumed nonces</div>
       <div class="chips" id="nonces"><span class="muted">none yet</span></div>
-      <p class="note">Browser memory for this preview only. The real vault keeps this state on chain (PR #125, local Sandbox).</p>
+      <p class="note">Browser memory for this preview only. The real vault (<span class="mono">x3-lang/near/x3-agent-vault</span>, merged in PR #125) keeps this state on chain; its refusal evidence is from a local Sandbox.</p>
     </div>
     <div class="box">
       <h3>Activity</h3>
@@ -220,7 +220,7 @@ footer{color:var(--mute);border-top:1px solid var(--line);padding-top:20px;paddi
     <div class="check"><span>Recipient / cap bypass</span><span>Refused</span></div>
     <div class="check"><span>Authorized 0.1 NEAR payout</span><span>Paid</span></div>
     <div class="check"><span>Replay and revocation</span><span>Refused</span></div>
-    <p class="muted" style="margin:12px 0 0">A direct transfer was rejected by the RPC, without an included failure receipt. Other denied calls were actual local Sandbox contract transactions. See <a href="https://github.com/Cyptopimpinainteazy/x3lang/pull/125">private draft PR #125</a> for the real harness and evidence.</p>
+    <p class="muted" style="margin:12px 0 0">A direct transfer was rejected by the RPC, without an included failure receipt. Other denied calls were actual local Sandbox contract transactions. See <a href="https://github.com/Cyptopimpinainteazy/x3lang/pull/125">PR #125</a> (merged) and <span class="mono">x3-lang/near/agent-vault-sandbox-tests</span> for the real harness and evidence.</p>
   </div>
 </section>
 
@@ -250,7 +250,7 @@ footer{color:var(--mute);border-top:1px solid var(--line);padding-top:20px;paddi
     <p><strong>The NEAR vault:</strong> local Sandbox proof only. No public deployment, independent audit or mainnet funding approval. The owner's unrestricted key remains an administrative trust boundary.</p>
     <p><strong>The Base EOA:</strong> a compromised unrestricted EVM key can still bypass an advisory Guard. An audited smart-account or vault is required before claiming EVM non-bypassability.</p>
     <p><strong>This page:</strong> the decisions above come from <code>attack-lab-policy.mjs</code> running in your browser. They predict the vault's rules; they are not the vault.</p>
-    <p style="margin:0"><strong>Preview locally:</strong> serve the private repository root with <span class="mono">python3 -m http.server 8000</span> and open <span class="mono">http://localhost:8000/docs/hackathon/attack-lab.html</span>. Deep links: <span class="mono">#scenario=replay</span>, <span class="mono">#run-all</span>.</p>
+    <p style="margin:0"><strong>Preview locally:</strong> from a clone of this repository, serve its root with <span class="mono">python3 -m http.server 8000</span> and open <span class="mono">http://localhost:8000/docs/hackathon/attack-lab.html</span>. Deep links: <span class="mono">#scenario=replay</span>, <span class="mono">#run-all</span>.</p>
   </div>
 </section>
 <noscript><p class="alert">The attack lab needs JavaScript (ES modules). The evidence sections above work without it.</p></noscript>

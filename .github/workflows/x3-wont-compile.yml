@@ -1,0 +1,36 @@
+name: X3 Unsafe Payments Do Not Compile
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/**'
+      - 'scripts/hackathon/x3_wont_compile.py'
+      - 'scripts/hackathon/test_x3_wont_compile.py'
+      - '.github/workflows/x3-wont-compile.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/**'
+      - 'scripts/hackathon/x3_wont_compile.py'
+      - 'scripts/hackathon/test_x3_wont_compile.py'
+      - '.github/workflows/x3-wont-compile.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile-time-refusals:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install judge dependencies
+        run: python -m pip install -r x3-lang/requirements.txt pytest
+      - name: Nine unsafe edits to the agent payment are refused at compile time
+        run: |
+          set -euo pipefail
+          python3 scripts/hackathon/x3_wont_compile.py
+          python3 -m pytest scripts/hackathon/test_x3_wont_compile.py -q
