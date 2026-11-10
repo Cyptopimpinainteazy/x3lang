@@ -185,8 +185,11 @@ made no quote requests or wallet transactions; it is not mainnet trade evidence.
 
 Use the quote hash from the separate owner review. Save the Solana signature
 with the live receipt. If tracking is interrupted, resume with that same
-signature and quote. Check the original transfer before taking any further
-action. A timeout leaves the outcome uncertain.
+signature and quote. The tracker saves the finalized signature before notifying
+1Click. If the notification response is lost, resume status polling for that
+deposit. The [1Click deposit notification](https://docs.near-intents.org/api-reference/oneclick/submit-deposit-transaction-hash)
+is optional. A timeout leaves the outcome uncertain. Check the original transfer
+before taking any further action.
 
 ```bash
 python3 scripts/hackathon/verify_mainnet_payment.py \

@@ -179,6 +179,7 @@ cmd_pay_dry() {
 cmd_pay_live() {
   load_state
   local sha="${1:-}" dry_sha issued_nonce
+  [[ ! -e "$RECEIPT" ]] || die "this run already has a live receipt. Review the existing quote and deposit before starting another run."
   [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || die "give the program SHA-256 from pay-dry."
   [[ -f "$DRY_REPORT" && -f "$ALLOWED" ]] || die "run '$0 pay-dry' first."
   dry_sha="$(json_get "$DRY_REPORT" program.sha256)"
