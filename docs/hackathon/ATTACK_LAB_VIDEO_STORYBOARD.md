@@ -1,6 +1,6 @@
 # X3 Shield — two-minute judge video storyboard (pre-publication)
 
-**Status:** private recording plan; NOT a completed or published video. Do not expose the private repository or testnet signing credentials before the approved submission reveal.
+**Status:** recording plan; NOT a completed or published video. Never show testnet signing credentials, wallet keys or `.env` files on screen.
 
 ## 0:00–0:20 — The problem
 
