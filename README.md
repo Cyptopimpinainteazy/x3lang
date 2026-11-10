@@ -15,8 +15,8 @@ Built at NEAR HACKATHON 2026. Tracks: **AI Security & Defense** (`security`, pri
 | Result | Network | Check it |
 |---|---|---|
 | An `.x3` program specified a cross-chain trade that finalized: **1.000000 test USDC left Base Sepolia, 0.997400 arrived on NEAR testnet**. The program's SHA-256 was bound on a NEAR Guard contract before the source transfer. | Base Sepolia + NEAR testnet | [Step 1](#1-the-x3-program-behind-the-cross-chain-trade), [Step 2](#2-verify-the-finalized-two-chain-trade) |
-| The deployed Guard refused an agent payment to `attacker.near` and accepted the permitted control. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
-| The deployed Guard verified an official 1Click signed quote, then refused it because the signed recipient broke the owner's policy. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
+| The deployed Guard refused an agent intent to `attacker.near` and accepted a permitted intent. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
+| Guard verified an official 1Click dry quote's signature and refused it; the archived checks include a recipient mismatch and dry-quote failures. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
 | A model that complies with all 8 scripted attacks still gets 8 of 8 refused by deterministic checks. | Local | [Step 5](#5-make-the-model-the-attacker) |
 | 9 unsafe edits to an agent payment fail to compile. | Local | [Step 3](#3-unsafe-payments-do-not-compile) |
 
@@ -133,7 +133,7 @@ next to `authorized: decision=preflight_passed` and
 `needs-approval: decision=approval_required`. The refused request is
 [`near_intents_agent_denied.x3`](x3-lang/examples/near_intents_agent_denied.x3), which pays
 `attacker.near`. This is a local check on a checked-in request. It does not show how a live
-model reacts to an injection; step 5 covers that.
+model reacts to an injection; step 5 uses a scripted compliant model and links a separate real-model run.
 
 ### 5. Make the model the attacker
 
@@ -200,7 +200,8 @@ test runs; steps 1 to 8 are unaffected.
 
 ```bash
 E=evidence/near-light-client-ceremony-2026-11-06
-S=$(mktemp -u /tmp/x3-head.XXXXXX.json)
+X3_HEAD_DIR=$(mktemp -d /tmp/x3-head.XXXXXX)
+S="$X3_HEAD_DIR/head.json"
 python3 x3-lang/bridge/near_authenticated.py initialize --state "$S" \
   --checkpoint $E/checkpoint.json --approval $E/checkpoint-approval.json \
   --trust-policy $E/trust-policy.json \
@@ -234,11 +235,10 @@ It makes no blockchain transactions and uses no wallet. Longer walkthrough:
 | Track | What X3 Shield shows | Steps |
 |---|---|---|
 | **AI Security & Defense** | A policy engine for agent spending: recipient and asset allowlists, per-payment and 24-hour caps, slippage and fee ceilings, approval thresholds, expiry, one-use nonces. Enforced off-chain by the compiler and on-chain by `x3-guard`, which reads terms from the signed quote bytes. | 3, 4, 5, 6, 9, [testnet refusals](#proof-on-near-testnet) |
-| **Agent Economy** | An agent pays through NEAR Intents under a mandate its owner set once. Payments under the threshold proceed, payments above it return `approval_required`, payments outside the mandate are refused. | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet) |
+| **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. The official live quote was accepted only up to deposit authorization. | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet) |
 | **Unstoppable DeFi** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
 
-The DeFi entry is the narrowest of the three. NEAR Intents has no testnet, so the finalized
-trade used Tidepool, a 1Click-compatible community testnet, with a trusted relay. The
+The DeFi entry is the narrowest of the three. An official 1Click testnet settlement route has not been confirmed for this demonstration. The finalized testnet trade used Tidepool, a 1Click-compatible community testnet, with a trusted relay. The
 official 1Click quote flow was exercised up to deposit authorization and stopped before
 funding. `demo.py` and `track_control.py` print the first two track names only.
 
