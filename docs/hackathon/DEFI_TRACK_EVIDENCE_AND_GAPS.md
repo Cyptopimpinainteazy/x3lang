@@ -12,6 +12,10 @@ The saved strict evidence is historical; rerun the documented archival verificat
 
 At master commit `2caa28e95014068e0cbd273552aa797b613cd870`, `PYTHONPATH=x3-lang:scripts/hackathon python3 scripts/hackathon/verify_first_swap_archive.py` returned PASS in `offline-signed-evidence` mode; the seven `test_first_swap_archive.py` unit tests passed. This checks saved signed evidence and internal relationships, not current chain state. A `--live` recheck was attempted but interrupted while waiting for RPC access; it yielded no result. Repeat both checks at the final submission commit and record independent RPC results before claiming fresh verification.
 
+## Local judge demo check
+
+At master `2caa28e95014068e0cbd273552aa797b613cd870`, `python3 scripts/hackathon/demo.py` exited 0: the allowed scenario passed local preflight, the threshold case required approval, and the wrong-recipient and prompt-injection scenarios were refused by `mandate_recipient`. This is an offline policy preview using archived token fixtures and scripted examples, not an AI run, signed quote, wallet authorization, or on-chain enforcement. `node --test x3-lang/near/demo/test/*.test.mjs` passed 88 tests, including checks of archived official quote signatures and tampering. These tests do not establish a fresh 1Click response. Python pytest checks were not run because pytest was unavailable in the environment. The final release head and actual browser/API flow still require verification.
+
 ## Track fit and remaining work
 
 The [organizer's track description](https://nearhackathon.com/) emphasizes trading and cross-chain settlement through NEAR Intents. The Tidepool demonstration supports a real testnet cross-chain trading story, but does not by itself establish an official NEAR Intents settlement. The existing 1Click positive control stopped at deposit-address acceptance. Do not conflate the two.
