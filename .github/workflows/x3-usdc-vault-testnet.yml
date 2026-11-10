@@ -1,0 +1,38 @@
+name: X3 Shield USDC vault candidate
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near/x3-usdc-vault/**'
+      - '.github/workflows/x3-usdc-vault-testnet.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/near/x3-usdc-vault/**'
+      - '.github/workflows/x3-usdc-vault-testnet.yml'
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: x3-lang/near/x3-usdc-vault
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang/near/x3-usdc-vault
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo build --locked --release --target wasm32-unknown-unknown
+      - name: Record unsigned candidate digest
+        run: sha256sum target/wasm32-unknown-unknown/release/x3_usdc_vault_testnet.wasm
