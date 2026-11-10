@@ -10,6 +10,8 @@ two. Model output never authorizes anything.
 Built at NEAR HACKATHON 2026. Tracks: **AI Security & Defense** (`security`, primary),
 **Agent Economy** (`agents`), **Unstoppable DeFi** (`defi`).
 
+[Why X3 Shield stands out](docs/hackathon/WHY_X3_SHIELD.md) connects each distinguishing claim to its evidence and limits.
+
 ## What exists today
 
 | Result | Network | Check it |
