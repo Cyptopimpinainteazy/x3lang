@@ -4,8 +4,27 @@ Finalized NEAR RPC returned the agent account creation and `create_mandate`
 transactions linked in the [judge console](../../x3-lang/near/demo/judge.html).
 The historical mandate covers Solana USDC as input and NEAR USDC as output.
 Read its current state before planning any new authorization. Its 25 USDC
-approval threshold applies at the cap. An official quote, a funded payout
-and a custody-enforced swap each need their own evidence.
+approval threshold applies at the cap. The current state read at block 223959390
+returned mandate version 3, an unrevoked mandate and a full-access agent key.
+The existing agent account therefore provides no scoped-key custody proof.
+
+The finalized Guard intent read at block 223959420 returned nonce
+`mainnet_demo_nov10_invoice_02`, registered under mandate version 2, with an
+owner approval and accepted executable quote. It binds program SHA-256
+`71ae752a84a8d6e94fc645eacea31af8d845e44884fb70649de83b45dbe3f3b3` and quote
+hash `6KtdcSbbTdNxhKA1hsGN7AAaDx1wH2NiQGjmLWYq5Mdx`. The input was 25 USDC on
+Solana and the minimum was 24.771975 USDC on NEAR. The Guard outcome was null.
+A separate read of 1Click status on November 10 returned `PENDING_DEPOSIT`
+with empty source and destination transaction lists. The Guard's spend
+ledger entry measures accepted quote exposure. Settlement requires separate
+receipts from both chains. The console's button rechecks the two historical
+setup transactions and code identity. The quote status is a dated observation.
+
+Re-read the intent with NEAR JSON-RPC `query`, request type `call_function`,
+finality `final`, account `x3lang.near`, method `get_intent` and base64 JSON
+arguments `{"owner":"x3lang.near","nonce":"mainnet_demo_nov10_invoice_02"}`.
+Pass the returned quote's deposit address to the official 1Click status
+endpoint for the latest provider observation.
 
 The observed `x3lang.near` WASM at mainnet block 223959077 was 551,278 bytes.
 Its code hash was `GRy6z84ucCR9WMVXyepibVDC34TyKwjWtEi9rteKJtny` and its SHA-256
