@@ -1,0 +1,32 @@
+{
+  "schema": "x3.oneclick.route-probe.observation.v1",
+  "observed_utc_date": "2026-11-10",
+  "code_commit": "9cd626bfaafed454eaf1404cdbf0a1654f43c33a",
+  "api": "https://1click.chaindefuser.com/v0/quote",
+  "mode": "unauthenticated_api_dry_exact_input_only",
+  "slippage_bps": 100,
+  "source_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+  "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+  "decimals": 6,
+  "recipient": "intents.near",
+  "recipient_role": "public probe fixture, never an owner-approved payment recipient",
+  "probes": [
+    {
+      "input_base_units": 1000000,
+      "quote_signature_verified_at_probe_time": true,
+      "output_base_units": 999798,
+      "minimum_output_base_units": 989800,
+      "displayed_unsigned_refund_fee_base_units": 228633,
+      "deposit_address_returned": false
+    },
+    {"input_base_units": 5000000, "http_status": 400, "provider_message": "No liquidity available"},
+    {"input_base_units": 25000000, "http_status": 400, "provider_message": "No liquidity available"}
+  ],
+  "guard_example_account": {
+    "account": "x3guard.near",
+    "rpc": "https://free.rpc.fastnear.com",
+    "final_account_lookup": "unknown_account"
+  },
+  "evidence_level": "sanitized operator observation; raw signed response was not archived",
+  "funds_moved": false
+}

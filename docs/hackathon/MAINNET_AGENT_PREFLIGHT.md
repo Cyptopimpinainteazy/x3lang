@@ -209,6 +209,22 @@ Retain the status and receipt separately for diagnosis. The verifier makes
 read-only requests and cannot record a Guard outcome. The hosted judge
 page remains a public dry-quote checker with a separate deployment.
 
+## November 10 dry route observation
+
+An unauthenticated API call for a dry 1 USDC input returned signed quote
+terms. The pinned manager key verified the covered fields. The preview
+showed 0.989800 USDC minimum output and an unsigned 0.228633 USDC refund fee.
+That displayed fee is 22.8633% of the input and exceeds the rehearsal
+mandate's 1% fee cap. The 5 and 25 USDC dry requests returned HTTP 400
+with “No liquidity available.” These samples establish neither a provider
+minimum nor the terms for the owner's addresses. The 1 USDC probe used a
+public fixture recipient and returned no deposit address.
+
+A finalized account lookup for the example `x3guard.near` returned unknown
+account. An independently reviewed mainnet Guard deployment is still required.
+[Sanitized observation](../../evidence/agent-mainnet-route-probe-2026-11-10/observation.json)
+and [SHA-256 checksum](../../evidence/agent-mainnet-route-probe-2026-11-10/SHA256SUMS).
+
 ## Release status
 
 - [ ] Obtain reviewed public addresses and spending caps. Read the actual
