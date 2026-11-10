@@ -46,15 +46,19 @@ python3 scripts/hackathon/mainnet_agent_preflight.py \
 ```
 
 With program, mandate and cap present, the tool compiles and checks the payment
-locally, checks it against the budget, confirms the NEAR RPC reports mainnet,
-checks destination account existence, and requests only a signed **dry** quote.
+locally, checks it against the budget, verifies the NEAR mainnet genesis,
+and checks destination account existence and native USDC storage registration
+before requesting a signed **dry** quote. An unregistered recipient stops the
+preflight. Review any registration and its cost separately.
+[NEP-145 storage registration](https://github.com/near/NEPs/blob/master/neps/nep-0145.md)
 When a Guard account is supplied it observes its account at `final` and compares
 the code hash if supplied. A mismatch blocks the quote.
 
 Endpoints are fixed to `https://1click.chaindefuser.com` and
 `https://free.rpc.fastnear.com`; environment endpoint overrides are ignored and
 redirects refused. Only token-list reads, dry quote requests, RPC status and
-final account reads are allowed. An optional existing `NEAR_INTENTS_JWT` is sent
+final account reads and the pinned USDC `storage_balance_of` view are allowed.
+An optional existing `NEAR_INTENTS_JWT` is sent
 only to the official API and is never included in output.
 
 Reports are new files only, mode 0600; existing files and symlinks are refused.

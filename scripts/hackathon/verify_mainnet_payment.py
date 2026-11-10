@@ -6,13 +6,12 @@ import base64
 import json
 import re
 
-from mainnet_agent_preflight import API, NEAR_USDC, SOL_ASSET, SOL_MINT, ni
+from mainnet_agent_preflight import API, NEAR_GENESIS, NEAR_USDC, SOL_ASSET, SOL_MINT, ni
 
 ce = ni.chain_evidence
 SOL_RPC = ce.DEFAULT_SOLANA_RPC_URLS[0]
 SOL_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
 NEAR_ARCHIVAL_RPC = "https://archival-rpc.mainnet.near.org"
-NEAR_GENESIS = "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"
 INTENTS_CONTRACT = "intents.near"
 SPL_TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 BASE58 = r"[1-9A-HJ-NP-Za-km-z]"
