@@ -65,6 +65,12 @@ credited **0.997400 test USDC** to `x3lang.testnet`. The
 historical Guard approval, finalized chain observations, and the recipient’s
 balance change.
 
+The transfer was specified by the X3 program
+[`base_sepolia_to_near_testnet_1usdc.x3`](../../x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3).
+`sha256sum` of that file gives `1398f64e…f860`, the program hash the owner bound on the
+Guard before the Base transfer. See [X3 in X3 Shield](X3_LANGUAGE.md) for the offline
+checks and what the record does not prove.
+
 From the repo root, replay the archived evidence offline:
 
 ```bash
