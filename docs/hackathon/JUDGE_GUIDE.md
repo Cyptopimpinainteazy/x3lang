@@ -101,11 +101,34 @@ than merely an invalid signature or a wallet allowance violation.
 
 | Mechanism | Security question | Scope and limitation |
 | --- | --- | --- |
-| Agent API policy-bound wallet | Can this agent use the wallet within its limits? | Provider/wallet authorization; not X3's invention |
-| NEAR function-call access key | Can this key call a scoped method with its allowance? | On-chain account-key capability, not signed quote semantics |
+| Agent API policy-bound wallet, e.g. [OutLayer Agent Custody](https://outlayer.fastnear.com/docs/agent-custody) | Can this agent use the wallet within its limits? | Its docs describe an owner policy stored encrypted on NEAR and evaluated inside an Intel TDX enclave (per-transaction, hourly, daily and monthly limits, address allow/deny lists, approvals, freeze), with swaps via NEAR Intents. It holds the funds, which Guard does not. We found no description of checks on a signed 1Click quote's recipient, refund address or slippage, and enforcement trusts the enclave operator rather than a public contract. Not X3's invention |
+| [NEAR function-call access key](https://docs.near.org/protocol/access-keys) | Can this key call a scoped method with its allowance? | On-chain account-key capability scoped to one receiver contract and optional method names; it cannot see call arguments, so not signed quote semantics |
 | X3 intent / mandate policy | Are these recipient, asset, refund, fee, amount, deadline, nonce and approval terms allowed? | Local adapter and Guard checks; Rust compiler currently preserves adapter metadata but does **not** run the mandate guard inside general X3VM |
 | X3 Guard signed-quote gate | Is the exact 1Click manager-signed quote allowed under the stored policy? | Deployed to NEAR testnet; official manager-signed dry quote with a recipient mismatch is refused after signature verification. An allowed live quote authorizes a deposit address only. No live forbidden-quote refusal or deposit is claimed |
 | X3 NEAR proof work | Does real receipt evidence match block and Merkle commitments? | Genuine archived evidence and read-only VM refusal in experimental draft #72; still lacks an independently trusted checkpoint |
+
+### Run the comparison on the real quotes
+
+```bash
+python3 scripts/hackathon/baseline_comparison.py
+```
+
+It takes the two genuine 1Click manager-signed quotes this Guard saw on testnet and first
+proves they are the bytes sent on-chain: each reconstructed `signed_payload` and signature
+hashes to the value archived for its `accept_quote` call. Then it checks each quote three ways:
+
+| Quote | Signature check | Function-call key (`x3lang-guard-20261106.testnet` / `accept_quote`) | X3 Guard terms | On-chain `accept_quote` |
+|---|---|---|---|---|
+| Live, recipient `defuse.near`, policy `defuse.near` | allows | allows | allows | [`6B6k…`](https://testnet.nearblocks.io/txns/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ) succeeded |
+| Dry, recipient `wrap.near`, policy `x3lang-guard-20261106.testnet` | allows | allows | **refuses**: `quote_request_echo` (recipient), `quote_kind` (dry) | [`3Q7q…`](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q) failed |
+
+Both baselines accept both quotes: each signature is valid, and both calls have the same
+receiver and method. Only the X3 term check, using the policy decoded from Guard's own
+archived `register_intent` result, separates them, and it agrees with each on-chain outcome. The
+refused quote has two independent reasons (wrong recipient, dry quote); a live quote with only
+the recipient wrong is the pending live proof. A third, local-only row edits that quote's
+recipient without re-signing it, and the signature check refuses it, so both layers are needed.
+Offline, archived evidence only.
 
 **What now exists:** contract account `x3lang-guard-20261106.testnet`,
 deployed WASM SHA-256
