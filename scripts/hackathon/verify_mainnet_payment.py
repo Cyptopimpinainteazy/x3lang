@@ -6,11 +6,12 @@ import base64
 import json
 import re
 
-from mainnet_agent_preflight import API, NEAR_USDC, RPC, SOL_ASSET, SOL_MINT, ni
+from mainnet_agent_preflight import API, NEAR_USDC, SOL_ASSET, SOL_MINT, ni
 
 ce = ni.chain_evidence
 SOL_RPC = ce.DEFAULT_SOLANA_RPC_URLS[0]
 SOL_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
+NEAR_ARCHIVAL_RPC = "https://archival-rpc.mainnet.near.org"
 NEAR_GENESIS = "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"
 INTENTS_CONTRACT = "intents.near"
 SPL_TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -193,7 +194,7 @@ def main():
             return ce.json_rpc(ni.urllib_transport, SOL_RPC, method, params)
 
         def near_rpc(method, params):
-            return ce.json_rpc(ni.urllib_transport, RPC, method, params)
+            return ce.json_rpc(ni.urllib_transport, NEAR_ARCHIVAL_RPC, method, params)
 
         result = verify(receipt, args.approved_quote_hash, args.funding_owner, args.payout_signer, client=ni.OneClickClient(base_url=API, jwt=""),
                         sol_rpc=sol_rpc, near_rpc=near_rpc)
@@ -202,6 +203,7 @@ def main():
         reason = str(exc) if isinstance(exc, ProofRejected) else type(exc).__name__
         print(json.dumps({"status": "unverified", "reason": reason}))
         return 5
+    result["rpc_endpoints"] = {"solana": SOL_RPC, "near": NEAR_ARCHIVAL_RPC}
     print(json.dumps(result, indent=2))
     return 0
 

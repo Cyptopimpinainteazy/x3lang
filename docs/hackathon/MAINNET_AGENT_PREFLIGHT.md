@@ -200,7 +200,15 @@ python3 scripts/hackathon/verify_mainnet_payment.py \
 Get the payout signer from the candidate NEAR transaction in an explorer.
 The command checks the authenticated live quote, the exact finalized standard
 SPL transfer signed by the funding owner, and the canonical finalized USDC
-`ft_transfer` receipt from `intents.near`. It supports the direct, no-memo
+`ft_transfer` receipt from `intents.near`. It queries NEAR's archival RPC for finalized transaction and receipt history.
+A read-only mainnet negative control retrieved an unrelated finalized
+`execute_intents` transaction and refused it for missing a direct USDC payout.
+The other probed endpoints timed out on that lookup. This checks the live
+RPC response shape and rejection path. The positive control still uses
+fixtures and the demo payout is outstanding.
+[Public negative-control transaction](https://nearblocks.io/txns/5JSgayEDDtkPnCyXTeJzKTRxwLy76N6S9FvqHnof9BQb).
+
+It supports the direct, no-memo
 native USDC route with no custom recipient message. It stops on multiple
 origin or destination hashes or when an RPC cannot serve the final receipt.
 
