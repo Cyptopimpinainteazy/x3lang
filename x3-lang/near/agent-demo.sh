@@ -230,10 +230,10 @@ cmd_deposit() {
   else
     adapter verify-settlement --receipt "$RECEIPT" || verify_code=$?
   fi
-  if [[ "$status_code" == "0" && "$verify_code" == "0" ]]; then
-    info "VERIFIED: settlement is proven from both chains."
+  if [[ "$status_code" == "0" ]]; then
+    die "1Click reports success, but this adapter only observes a balance delta. Payout transaction verification is not implemented; no settled outcome will be recorded."
   elif [[ "$status_code" == "2" && "$verify_code" == "2" ]]; then
-    info "VERIFIED: refund is proven from Solana."
+    info "Source-chain refund-sized transfer verified; solver causality is not proven."
   else
     die "the chain proof does not match the terminal status; refusing to record an outcome."
   fi

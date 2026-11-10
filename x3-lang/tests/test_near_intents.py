@@ -745,7 +745,13 @@ def _settled_receipt(tmp_path):
 
 
 def _all_guard_args(receipt):
-    args = {step: ni.guard_args(receipt, step) for step in ni.GUARD_STEPS}
+    args = {step: ni.guard_args(receipt, step) for step in ni.GUARD_STEPS if step != "outcome"}
+    with pytest.raises(ni.NearIntentsError, match="payout transaction verifier"):
+        ni.guard_args(receipt, "outcome")
+    # Preserve the historical contract-unit-test ABI fixture, not a claim that
+    # this adapter can prove or generate a settled outcome from provider status.
+    args["outcome"] = {"nonce": "n_001", "status": "Settled", "amount_out": "24950000",
+                       "refunded_amount": None, "tx_hashes": ["o1", "n1"]}
     # Real quotes signed by 1Click's key: the contract must verify these exactly as the SDK does.
     args["real_1click_dry_quotes"] = [
         {"signed_payload": ni.signed_quote_payload(r), "signature": r["signature"], "quote_hash": ni.oneclick_quote_hash(r)}

@@ -329,10 +329,13 @@ def _agent_receipt(tmp_path):
 def test_agent_receipts_use_the_agent_methods_with_the_owner(tmp_path):
     receipt = _agent_receipt(tmp_path)
     for step, method in (("register", "agent_register_intent"), ("quote", "agent_accept_quote"),
-                         ("outcome", "agent_record_outcome"), ("approve", "approve_intent")):
+                         ("approve", "approve_intent")):
         assert ni.guard_method(receipt, step) == method
         args = ni.guard_args(receipt, step)
         assert args["owner"] == "x3-owner.near" and args["nonce"] == "agent_payment_001"
+    assert ni.guard_method(receipt, "outcome") == "agent_record_outcome"
+    with pytest.raises(ni.NearIntentsError, match="payout transaction verifier"):
+        ni.guard_args(receipt, "outcome")
     assert set(ni.guard_args(receipt, "approve")) == {"owner", "nonce"}
     plain = {**receipt, "leg": {k: v for k, v in receipt["leg"].items() if k != "mandate_owner"}}
     assert ni.guard_method(plain, "register") == "register_intent" and "owner" not in ni.guard_args(plain, "register")
@@ -390,7 +393,11 @@ def _fixture(tmp_path):
             now=NOW,
         )["args"],
         "quote": ni.guard_args(receipt, "quote"),
-        "outcome": ni.guard_args(receipt, "outcome"),
+        # Explicit historical contract-unit-test input, never generated as
+        # settlement proof by the adapter.
+        "outcome": {"nonce": "agent_payment_001", "owner": "x3-owner.near",
+                    "status": "Settled", "amount_out": "24950000",
+                    "refunded_amount": None, "tx_hashes": ["o1", "n1"]},
         "policy_cases": cases,
     }
 

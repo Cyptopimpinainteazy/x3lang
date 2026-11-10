@@ -92,11 +92,14 @@ and `status` track the swap to a terminal X3 outcome.
   of the origin mint reached the signed deposit address before the signed deadline. For BSC,
   it proves a successful native-BNB transfer from the transaction and receipt and requires
   the transaction block to be at or below the endpoint's `finalized` block.
-- `verify-settlement` proves the recipient's balance rose by at least the signed
-  `minAmountOut`, or, with `--refund-tx`, that `amountIn - refundFee` came back to the refund
-  address on the origin chain after the deposit.
-- The receipt's `verified_outcome` is set only when the deposit and its end are both proven.
-  It records whether 1Click's reported status agrees. Every check records its RPC endpoints,
+- `verify-settlement` records a limited balance comparison against the locally saved
+  baseline. It cannot authenticate that baseline or link a payout transaction to the quote,
+  so it never declares a settled outcome and exits unverified even if the balance rises.
+  With `--refund-tx`, it checks a later incoming origin-chain transfer to the signed refund
+  address for at least `amountIn - refundFee`; that observation does not prove solver causality.
+- `verified_outcome=settled` and settled Guard outcome arguments are disabled until
+  payout transaction verification is implemented. Refund observations retain the existing
+  behavior, including whether 1Click's reported status agrees. Every check records its RPC endpoints,
   slot or block, and a SHA-256 of each raw result. `SOLANA_RPC_URLS` / `BSC_RPC_URLS` /
   `NEAR_RPC_URLS`
   (comma-separated) add endpoints that must all agree.
@@ -1412,10 +1415,15 @@ def _guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
             "the receipt records no terminal status yet; run `status --wait --receipt` first",
         )
     last = terminal[-1]
+    if last["status"] == "SUCCESS":
+        # No payout-transaction/quote linkage verifier is implemented here.
+        # Neither unsigned status nor editable receipt flags can unlock this.
+        raise NearIntentsError(
+            "X3_EVIDENCE_UNSUPPORTED",
+            "settled outcome recording requires a payout transaction verifier; "
+            "provider SUCCESS and a balance increase are not settlement proof",
+        )
     hashes = [h for h in (last.get("origin_tx") or []) + (last.get("destination_tx") or []) + (last.get("near_tx") or []) if h]
-    # The amount the chain proved delivered, when there is one: 1Click's status is unsigned.
-    settlement = (receipt.get("evidence") or {}).get("settlement") or {}
-    proven_out = settlement.get("delivered") if settlement.get("verified") else None
     refund = (receipt.get("evidence") or {}).get("refund") or {}
     verified_refund_amount = None
     if last["status"] == "REFUNDED":
@@ -1432,8 +1440,7 @@ def _guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
     return {
         "nonce": nonce,
         "status": _STATUS_TO_GUARD[last["status"]],
-        "amount_out": (_u128(proven_out) if proven_out is not None else _u128(last.get("amount_out")))
-        if last["status"] == "SUCCESS" else None,
+        "amount_out": None,
         "refunded_amount": verified_refund_amount if last["status"] == "REFUNDED" else None,
         "tx_hashes": hashes[:MAX_GUARD_TX_HASHES],
     }
@@ -1628,9 +1635,23 @@ def _solana_mint(receipt: Dict[str, Any]) -> str:
     leg, origin = receipt["leg"], (receipt.get("tokens") or {}).get("origin") or {}
     if leg["origin"]["chain"] != "solana":
         raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"deposit evidence is implemented for Solana origins, not {leg['origin']['chain']}")
-    mint = origin.get("contractAddress")
-    if not mint:
-        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"{origin.get('assetId')} has no SPL mint; native SOL transfers are not verified here")
+    # The provider signature covers the asset ID, not editable token metadata.
+    # Keep this deliberately narrow: additional assets need a reviewed binding.
+    # USDC binding: the existing mainnet registry mint and the archived 1Click
+    # asset ID; never accept a replacement mint from a receipt or token listing.
+    pinned = {
+        "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near":
+            registry.TOKEN_ADDRESSES["solana"]["USDC"],
+    }
+    signed_asset = receipt["quote_response"]["quoteRequest"].get("originAsset")
+    mint = pinned.get(signed_asset)
+    if mint is None:
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED",
+                               "no independently pinned Solana mint for this signed asset")
+    if (origin.get("contractAddress") != mint or origin.get("blockchain") != "sol"
+            or origin.get("assetId") != signed_asset):
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "receipt Solana token metadata differs from the pinned signed-asset mint")
     return mint
 
 
@@ -1685,7 +1706,7 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
 
 def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None,
                       solana=None, bsc=None) -> Dict[str, Any]:
-    """Delivery on NEAR (signed minAmountOut rise), or a refund back on the origin chain."""
+    """Observe NEAR balance movement (not settlement proof), or an origin-chain refund."""
     quote_obj = _signed_quote(receipt)
     leg = receipt["leg"]
     if refund_tx:
@@ -1795,23 +1816,45 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
     baseline = (receipt.get("evidence") or {}).get("settlement_baseline")
     if not baseline:
         raise NearIntentsError("X3_EVIDENCE_BASELINE", "the receipt has no starting balance, so a delivery cannot be measured")
+    signed_request = receipt["quote_response"]["quoteRequest"]
+    token = nep141_contract(signed_request["destinationAsset"])
+    account = signed_request["recipient"]
+    if (baseline.get("token") != token or baseline.get("account") != account):
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "balance baseline target differs from the signed destination")
     views = near_views or near_views_for(NearRpc())
-    return _record_evidence(receipt, "settlement", lambda: chain_evidence.judge_near_delivery(
-        baseline, views.ft_balance(baseline["token"], baseline["account"]), min_amount=int(quote_obj["minAmountOut"])))
+
+    def observe_balance():
+        observation = chain_evidence.judge_near_delivery(
+            baseline, views.ft_balance(token, account), min_amount=int(quote_obj["minAmountOut"]))
+        # Preserve the limited balance observation without promoting it to a
+        # verified payout. The saved starting balance is not authenticated,
+        # and even a genuine rise could be an unrelated incoming transfer.
+        observation["balance_delta_observed"] = observation["verified"]
+        observation["verified"] = False
+        observation["baseline_authenticated"] = False
+        observation["cross_chain_causality_proven"] = False
+        observation["limitation"] = (
+            "comparison against a locally saved baseline only; no authenticated "
+            "baseline or payout transaction bound to this quote"
+        )
+        return observation
+
+    return _record_evidence(receipt, "settlement", observe_balance)
 
 
 def conclude(receipt: Dict[str, Any]) -> Dict[str, Any]:
-    """A verified outcome exists only when the chains prove both the deposit and its end."""
+    """Summarize available observations; no settled outcome verifier exists yet."""
     ev = receipt.get("evidence") or {}
     ok = lambda k: bool((ev.get(k) or {}).get("verified"))
     outcome = None
-    if ok("deposit") and ok("settlement"):
-        outcome = "settled"
-    elif ok("deposit") and ok("refund"):
+    # There is no payout transaction verifier in this adapter. In particular,
+    # legacy or fabricated saved settlement.verified flags cannot prove it.
+    if ok("deposit") and ok("refund"):
         outcome = "refunded"
     missing = [k for k in ("deposit",) if not ok(k)]
-    if not (ok("settlement") or ok("refund")):
-        missing.append("settlement or refund")
+    if not ok("refund"):
+        missing.append("payout transaction bound to quote (unsupported), or refund")
     reported = next((s["outcome"] for s in reversed(receipt.get("status_history") or []) if s.get("terminal")), None)
     verification = {"status": "verified" if outcome else "unverified", "outcome": outcome, "missing": missing,
                     "1click_reported": reported}
