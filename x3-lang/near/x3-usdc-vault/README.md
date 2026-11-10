@@ -54,3 +54,20 @@ protocol layer. Confirm gas, callback execution and storage for the exact
 WASM. Public testnet and mainnet deployment require separate owner-signed
 transactions. Use independent review for custody, token selection and upgrade
 authority before any deployment.
+
+The candidate workflow builds the NEAR reference token at
+[commit 15360ac](https://github.com/near-examples/FT/tree/15360ac443fe91e9d55a3b3db616fe6eb6514942)
+and uses the checksum-pinned NEAR Sandbox 2.14.0. On Linux, Sandbox requires
+a file descriptor limit of at least 65,535. To run the same integration test
+locally, point `NEAR_SANDBOX_BIN_PATH`, `X3_USDC_VAULT_WASM` and
+`X3_USDC_TOKEN_WASM` at those verified inputs and run:
+
+```sh
+cargo test --locked --manifest-path ../agent-vault-sandbox-tests/Cargo.toml \
+  --test usdc_sandbox -- --ignored --nocapture
+```
+
+This test creates disposable Sandbox accounts. It checks a raw pre-broadcast
+key permission denial, exact contract refusal reasons, token and vault
+balances after payment, reservation restoration after a failed token receipt,
+and owner recovery.

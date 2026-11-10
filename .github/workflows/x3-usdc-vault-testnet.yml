@@ -3,11 +3,13 @@ on:
   pull_request:
     paths:
       - 'x3-lang/near/x3-usdc-vault/**'
+      - 'x3-lang/near/agent-vault-sandbox-tests/**'
       - '.github/workflows/x3-usdc-vault-testnet.yml'
   push:
     branches: [master]
     paths:
       - 'x3-lang/near/x3-usdc-vault/**'
+      - 'x3-lang/near/agent-vault-sandbox-tests/**'
       - '.github/workflows/x3-usdc-vault-testnet.yml'
 permissions:
   contents: read
@@ -36,3 +38,24 @@ jobs:
       - run: cargo build --locked --release --target wasm32-unknown-unknown
       - name: Record unsigned candidate digest
         run: sha256sum target/wasm32-unknown-unknown/release/x3_usdc_vault_testnet.wasm
+      - name: Build the pinned reference NEP-141 token
+        run: |
+          git init "$RUNNER_TEMP/near-reference-ft"
+          git -C "$RUNNER_TEMP/near-reference-ft" fetch --depth=1 https://github.com/near-examples/FT.git 15360ac443fe91e9d55a3b3db616fe6eb6514942
+          git -C "$RUNNER_TEMP/near-reference-ft" checkout --detach FETCH_HEAD
+          cd "$RUNNER_TEMP/near-reference-ft"
+          RUSTFLAGS='--cfg near' cargo +1.99.1 build --locked --release --target wasm32-unknown-unknown
+          sha256sum target/wasm32-unknown-unknown/release/fungible_token.wasm
+      - name: Run the compiled vault and reference token on local NEAR Sandbox
+        env:
+          NEAR_SANDBOX_BIN_PATH: ${{ runner.temp }}/Linux-x86_64/near-sandbox
+          X3_USDC_TOKEN_WASM: ${{ runner.temp }}/near-reference-ft/target/wasm32-unknown-unknown/release/fungible_token.wasm
+        run: |
+          curl --fail --location --retry 2 --proto '=https' --tlsv1.2 \
+            'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/2.14.0/near-sandbox.tar.gz' \
+            -o "$RUNNER_TEMP/near-sandbox.tar.gz"
+          tar xzf "$RUNNER_TEMP/near-sandbox.tar.gz" -C "$RUNNER_TEMP" Linux-x86_64/near-sandbox
+          echo "797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13  $NEAR_SANDBOX_BIN_PATH" | sha256sum --check
+          export X3_USDC_VAULT_WASM="$PWD/target/wasm32-unknown-unknown/release/x3_usdc_vault_testnet.wasm"
+          cargo test --locked --manifest-path ../agent-vault-sandbox-tests/Cargo.toml \
+            --test usdc_sandbox -- --ignored --nocapture
