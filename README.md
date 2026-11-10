@@ -1,6 +1,6 @@
 # X3 Shield
 
-**An AI agent can ask to move money. An `.x3` program written by the owner decides whether it may.**
+**An AI agent can propose a payment. The owner's `.x3` policy governs whether Guard authorizes the proposed deposit address.**
 
 X3 Shield is a policy layer for AI-agent payments on NEAR. The owner writes spending rules
 in X3, a small typed language for cross-chain payment intents. The agent writes each payment
@@ -17,7 +17,7 @@ Built at NEAR HACKATHON 2026. Tracks: **AI Security & Defense** (`security`, pri
 | An `.x3` program specified a cross-chain trade that finalized: **1.000000 test USDC left Base Sepolia, 0.997400 arrived on NEAR testnet**. The program's SHA-256 was bound on a NEAR Guard contract before the source transfer. | Base Sepolia + NEAR testnet | [Step 1](#1-the-x3-program-behind-the-cross-chain-trade), [Step 2](#2-verify-the-finalized-two-chain-trade) |
 | The deployed Guard refused an agent intent to `attacker.near` and accepted a permitted intent. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
 | Guard verified an official 1Click dry quote's signature and refused it; the archived checks include a recipient mismatch and dry-quote failures. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
-| A model that complies with all 8 scripted attacks still gets 8 of 8 refused by deterministic checks. | Local | [Step 5](#5-make-the-model-the-attacker) |
+| A scripted compliant stand-in produces 8 attack requests; deterministic local checks refuse all 8. | Local | [Step 5](#5-make-the-model-the-attacker) |
 | 9 unsafe edits to an agent payment fail to compile. | Local | [Step 3](#3-unsafe-payments-do-not-compile) |
 
 Everything is testnet or local. Nothing here ran on mainnet. The two-chain trade relied on a
