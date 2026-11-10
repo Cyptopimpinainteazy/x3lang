@@ -53,16 +53,18 @@ DEMO_STEPS = [
 ]
 
 TRACK_GUIDE = [
-    {"track": "AI Security & Defense",
-     "role": "Deny substitutions, overspend, fee evasion, replay and revoked authority."},
     {"track": "Agent Economy",
-     "role": "Allow bounded payments and distinguish approval-required from authorized."},
+     "role": "Check a payment proposal against the owner's budget and approval rules."},
+    {"track": "AI Security & Defense",
+     "role": "Refuse policy violations such as recipient substitution."},
+    {"track": "Unstoppable DeFi",
+     "role": "Preview the Solana-to-NEAR request. Official 1Click mainnet settlement evidence is outstanding."},
 ]
 
 # (id, group, title, story, source file, [(old, new)], assumed Guard state, contract tests)
 SCENARIOS: list[dict[str, Any]] = [
-    {"id": "authorized", "group": "A", "title": "Authorized payment",
-     "story": "The agent pays 25 USDC to a listed recipient, inside every limit.",
+    {"id": "authorized", "group": "A", "title": "Payment within policy",
+     "story": "The checked-in proposal requests 25 USDC for a listed recipient.",
      "takeaway": "All mandate checks pass; the payment is still only locally eligible.",
      "source": PAYMENT, "edits": []},
     {"id": "needs-approval", "group": "A", "title": "Payment that needs approval",
@@ -85,9 +87,10 @@ SCENARIOS: list[dict[str, Any]] = [
      "takeaway": "Recipient substitution stops at mandate_recipient, before any quote.",
      "source": DENIED, "edits": []},
     {"id": "prompt-injection-recipient", "group": "B",
-     "title": "Prompt-injected payment",
-     "story": "A prompt-injected instruction steers the AI agent to pay attacker.near, but the owner never authorized that recipient.",
-     "takeaway": "The model can generate any request; the compiled mandate stops recipient substitution.",
+     "title": "Recipient redirection fixture",
+     "story": "A checked-in fixture models a prompt injection asking for payment to attacker.near. "
+              "This example contains no model output.",
+     "takeaway": "The local policy checker refuses the recipient because the owner did not allow it.",
      "source": DENIED, "edits": []},
     {"id": "refund-redirect", "group": "B", "title": "Redirected refund",
      "story": "The agent points a failed swap's refund at an address the owner did not pin.",

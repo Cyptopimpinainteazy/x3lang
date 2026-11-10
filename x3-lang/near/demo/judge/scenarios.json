@@ -4,17 +4,22 @@
   "evaluated_at": "2026-11-03T03:00:00Z",
   "evidence_level": "local_policy_preview_only",
   "tracks": [
+    "Agent Economy",
     "AI Security & Defense",
-    "Agent Economy"
+    "Unstoppable DeFi"
   ],
   "track_guide": [
     {
-      "track": "AI Security & Defense",
-      "role": "Deny substitutions, overspend, fee evasion, replay and revoked authority."
+      "track": "Agent Economy",
+      "role": "Check a payment proposal against the owner's budget and approval rules."
     },
     {
-      "track": "Agent Economy",
-      "role": "Allow bounded payments and distinguish approval-required from authorized."
+      "track": "AI Security & Defense",
+      "role": "Refuse policy violations such as recipient substitution."
+    },
+    {
+      "track": "Unstoppable DeFi",
+      "role": "Preview the Solana-to-NEAR request. Official 1Click mainnet settlement evidence is outstanding."
     }
   ],
   "demo_steps": [
@@ -116,8 +121,8 @@
     {
       "id": "authorized",
       "group": "A",
-      "title": "Authorized payment",
-      "story": "The agent pays 25 USDC to a listed recipient, inside every limit.",
+      "title": "Payment within policy",
+      "story": "The checked-in proposal requests 25 USDC for a listed recipient.",
       "takeaway": "All mandate checks pass; the payment is still only locally eligible.",
       "evidence_state": "local_python_and_browser",
       "intent": {
@@ -408,9 +413,9 @@
     {
       "id": "prompt-injection-recipient",
       "group": "B",
-      "title": "Prompt-injected payment",
-      "story": "A prompt-injected instruction steers the AI agent to pay attacker.near, but the owner never authorized that recipient.",
-      "takeaway": "The model can generate any request; the compiled mandate stops recipient substitution.",
+      "title": "Recipient redirection fixture",
+      "story": "A checked-in fixture models a prompt injection asking for payment to attacker.near. This example contains no model output.",
+      "takeaway": "The local policy checker refuses the recipient because the owner did not allow it.",
       "evidence_state": "local_python_and_browser",
       "intent": {
         "file": "x3-lang/examples/near_intents_agent_denied.x3",

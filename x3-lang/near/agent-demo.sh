@@ -206,37 +206,36 @@ cmd_register() {
 
 cmd_deposit() {
   load_state
-  local sig="${1:-}" refund_sig="${2:-}" address status_code=0 verify_code=0
+  local sig="${1:-}" refund_sig="${2:-}" address recorded status_code=0 verify_code=0
   [[ -f "$RECEIPT" ]] || die "run '$0 pay-live <sha>' and '$0 register' first."
   [[ "$sig" =~ ^[1-9A-HJ-NP-Za-km-z]{64,90}$ ]] || die "give the owner's Solana transaction signature."
   address="$(json_get "$RECEIPT" deposit.address)"
-  adapter submit-deposit --deposit-address "$address" --tx-hash "$sig" --receipt "$RECEIPT"
+  recorded="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["deposit"].get("tx_hash") or "")' "$RECEIPT")"
+  if [[ -z "$recorded" ]]; then
+    adapter submit-deposit --deposit-address "$address" --tx-hash "$sig" --receipt "$RECEIPT"
+  elif [[ "$recorded" != "$sig" ]]; then
+    die "this receipt is already tracking a different signature; check the original transfer."
+  fi
   say "Waiting for 1Click's terminal status"
   adapter status --deposit-address "$address" --wait --interval 10 --max-wait 1800 --receipt "$RECEIPT" \
     || status_code=$?
   case "$status_code" in
-    0) info "1Click reports: settled" ;;
+    0) info "1Click reports SUCCESS; independent chain verification is required." ;;
     2) info "1Click reports: refunded" ;;
     3) die "1Click reports: failed. Do not record an outcome." ;;
-    *) die "the swap has no terminal outcome yet. Rerun the same command later." ;;
+    *) die "the swap has no confirmed terminal outcome. Resume with the same signature. Do not deposit again." ;;
   esac
 
   adapter verify-deposit --receipt "$RECEIPT" || die "the deposit is not proven yet; wait and rerun."
-  if [[ "$status_code" == "2" ]]; then
-    if [[ -z "$refund_sig" ]]; then
-      read -rp "  Solana signature of the refund transaction: " refund_sig
-    fi
-    adapter verify-settlement --receipt "$RECEIPT" --refund-tx "$refund_sig" || verify_code=$?
-  else
-    adapter verify-settlement --receipt "$RECEIPT" || verify_code=$?
-  fi
   if [[ "$status_code" == "0" ]]; then
-    die "1Click reports success, but this adapter only observes a balance delta. Payout transaction verification is not implemented; no settled outcome will be recorded."
-  elif [[ "$status_code" == "2" && "$verify_code" == "2" ]]; then
-    info "Source-chain refund-sized transfer verified; solver causality is not proven."
-  else
-    die "the chain proof does not match the terminal status; refusing to record an outcome."
+    die "Run scripts/hackathon/verify_mainnet_payment.py with the reviewed quote hash and public wallet and payout signer. This script cannot record a settled Guard outcome."
   fi
+  if [[ -z "$refund_sig" ]]; then
+    read -rp "  Solana signature of the refund transaction: " refund_sig
+  fi
+  adapter verify-settlement --receipt "$RECEIPT" --refund-tx "$refund_sig" || verify_code=$?
+  [[ "$verify_code" == "2" ]] || die "the chain proof does not match the refund status."
+  info "Source-chain refund-sized transfer verified; solver causality is not proven."
 
   say "Record the verified outcome on x3-guard"
   confirm "One agent transaction to $CONTRACT."
