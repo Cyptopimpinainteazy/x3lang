@@ -23,10 +23,9 @@ relay, not atomic settlement.
 
 ## Post 3 (reply)
 
-What NEAR does here: the Guard contract verifies the 1Click quote's Ed25519
-signature on-chain, then checks the signed recipient, asset, minimum output and
-refund address against the owner's policy. An official signed dry quote was refused;
-the archived checks include recipient mismatch and separate dry-quote failures.
+Guard verifies the 1Click quote's Ed25519 signature on-chain and checks its
+terms against policy. An official signed dry quote was refused; archived checks
+show a recipient mismatch and dry-quote failures.
 
 ## Post 4 (reply)
 
