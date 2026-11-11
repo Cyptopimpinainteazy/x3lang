@@ -1,8 +1,19 @@
 # X3 Shield
 
+## Competition framing
+
+**.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
+
+An intent states the desired outcome. The owner’s `.x3` mandate sets the limits.
+The compiler rejects invalid programs; deterministic mandate checks and NEAR Guard
+refuse prohibited terms. NEAR Intents / 1Click supplies the supported execution route.
+Read [the stage-by-stage explanation](docs/hackathon/X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
+for compile-time versus runtime checks and the evidence boundaries.
+
+
 **An AI agent can propose a payment. The owner's `.x3` policy governs whether Guard authorizes the proposed deposit address.**
 
-X3 Shield is a policy layer for AI-agent payments on NEAR. The owner writes spending rules
+X3 Shield brings the .x3 typed intent language, compiler checks and signed-quote policy enforcement to AI-agent payments on NEAR. The owner writes spending rules
 in X3, a small typed language for cross-chain payment intents. The agent writes each payment
 as an `.x3` program. A deterministic compiler and a NEAR contract (`x3-guard`) compare the
 two. Model output never authorizes anything.
