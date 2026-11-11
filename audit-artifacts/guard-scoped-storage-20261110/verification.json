@@ -95,6 +95,17 @@
       "log": "x3-scoped-storage-full-sandbox.txt",
       "working_directory": ".",
       "binary_note": "Executed before path-normalized rebuild; same runtime source. Final normalized binary separately passed upgrade/scoped integration."
+    },
+    {
+      "check": "All ten Rust security mutations",
+      "command": "RUSTUP_TOOLCHAIN=1.99.1 python3 scripts/security/guard_rust_mutations.py --target-dir /tmp/x3-mainnet-guard-target --output /tmp/x3-scoped-storage-mutations-fixed.json --timeout 180",
+      "working_directory": ".",
+      "exit_code": 0,
+      "killed_mutants": 10,
+      "invalid_mutants": 0,
+      "survived_mutants": 0,
+      "log": "x3-scoped-storage-mutations.txt",
+      "note": "Source-matching fix targets approval expiry independently of funding expiry; runtime source/binary unchanged."
     }
   ],
   "additional_checks_passed": [
