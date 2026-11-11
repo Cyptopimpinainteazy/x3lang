@@ -1,0 +1,192 @@
+{
+  "schema": "x3.native-recovery.independent-verification.v1",
+  "observed_at_utc": "2026-11-11T20:16:59.340624+00:00",
+  "network": "mainnet",
+  "rpc_url": "https://free.rpc.fastnear.com",
+  "transaction_hash": "81DFPVN9hTa9WE5fvQFgD91hdp6KiJ49W1ookf4J7YxV",
+  "transaction_url": "https://nearblocks.io/txns/81DFPVN9hTa9WE5fvQFgD91hdp6KiJ49W1ookf4J7YxV",
+  "final_execution_status": "FINAL",
+  "transaction_status": {
+    "SuccessValue": ""
+  },
+  "transaction_metadata": {
+    "signer": "x3lang.near",
+    "receiver": "dotx3.near",
+    "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe",
+    "nonce": 223154312000010,
+    "actions": [
+      {
+        "Transfer": {
+          "deposit": "300000000000000000000000"
+        }
+      }
+    ]
+  },
+  "before_block": {
+    "hash": "BbNtQYh1ifRv4duY1Ky4GcJd17CdjSUJgg46eBKKTtwL",
+    "height": 224112457
+  },
+  "after_block": {
+    "hash": "BsPdhL34NeM2HiZxexeXDpF5cXrxLbLq1VSRTLcWsZyY",
+    "height": 224112590
+  },
+  "before_source": {
+    "amount": "6151510085864144300000000",
+    "block_hash": "BbNtQYh1ifRv4duY1Ky4GcJd17CdjSUJgg46eBKKTtwL",
+    "block_height": 224112457,
+    "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 575538
+  },
+  "after_source": {
+    "amount": "5851465449351644300000000",
+    "block_hash": "BsPdhL34NeM2HiZxexeXDpF5cXrxLbLq1VSRTLcWsZyY",
+    "block_height": 224112590,
+    "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 575538
+  },
+  "before_recipient": {
+    "amount": "0",
+    "block_hash": "BbNtQYh1ifRv4duY1Ky4GcJd17CdjSUJgg46eBKKTtwL",
+    "block_height": 224112457,
+    "code_hash": "11111111111111111111111111111111",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 182
+  },
+  "after_recipient": {
+    "amount": "300000000000000000000000",
+    "block_hash": "BsPdhL34NeM2HiZxexeXDpF5cXrxLbLq1VSRTLcWsZyY",
+    "block_height": 224112590,
+    "code_hash": "11111111111111111111111111111111",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 182
+  },
+  "source_keys_before": [
+    {
+      "access_key": {
+        "nonce": 223154312000009,
+        "permission": "FullAccess"
+      },
+      "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe"
+    }
+  ],
+  "source_keys_after": [
+    {
+      "access_key": {
+        "nonce": 223154312000010,
+        "permission": "FullAccess"
+      },
+      "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe"
+    }
+  ],
+  "recipient_keys_before": [
+    {
+      "access_key": {
+        "nonce": 224015811000000,
+        "permission": "FullAccess"
+      },
+      "public_key": "ed25519:Cm1mu6bJsec7SFsj1AB1BmK29JAPJky9oPfqvxPkfEbG"
+    }
+  ],
+  "recipient_keys_after": [
+    {
+      "access_key": {
+        "nonce": 224015811000000,
+        "permission": "FullAccess"
+      },
+      "public_key": "ed25519:Cm1mu6bJsec7SFsj1AB1BmK29JAPJky9oPfqvxPkfEbG"
+    }
+  ],
+  "state": {
+    "before_sha256": "950bfc8ba0f81da80928548ef9ab5ff7781b5039718a829862c6ddac7a39c297",
+    "after_sha256": "950bfc8ba0f81da80928548ef9ab5ff7781b5039718a829862c6ddac7a39c297",
+    "before_entries": 7,
+    "after_entries": 7,
+    "direct_raw_equality": true,
+    "serialization": "json.dumps(sorted(values,key=lambda entry:entry[\"key\"]),sort_keys=True,separators=(\",\",\":\")) UTF8 SHA256",
+    "values_not_retained": true
+  },
+  "deployed_code": {
+    "bytes": 572248,
+    "sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+    "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T"
+  },
+  "amounts_near": {
+    "transferred": "0.3",
+    "recipient_increase": "0.3",
+    "sender_decrease": "0.3000446365125",
+    "actual_fee": "0.0000446365125",
+    "remaining_source_balance": "5.8514654493516443",
+    "retained_storage_reserve": "5.75538",
+    "retained_operating_surplus": "0.0960854493516443"
+  },
+  "outcomes": [
+    {
+      "id": "81DFPVN9hTa9WE5fvQFgD91hdp6KiJ49W1ookf4J7YxV",
+      "block_hash": "6mYzWLxL4Ahx5rpG8E9qKt9wUv4f3nvLkViuopXHCHYx",
+      "executor": "x3lang.near",
+      "status": {
+        "SuccessReceiptId": "9UkggQh2ZyCKEbYTzmX2jSPmZbBTBMeZoW6xNufKa5DY"
+      },
+      "tokens_burnt": "22318256250000000000"
+    },
+    {
+      "id": "9UkggQh2ZyCKEbYTzmX2jSPmZbBTBMeZoW6xNufKa5DY",
+      "block_hash": "69qP2RiuECUd2MJQxxgoHoe5p2VUwQUsK45DEJ4Sbwqk",
+      "executor": "dotx3.near",
+      "status": {
+        "SuccessValue": ""
+      },
+      "tokens_burnt": "22318256250000000000"
+    },
+    {
+      "id": "Gx11xRbt32psqMRxjFbuYEnztXAp5VfQZMtWFenQkhEs",
+      "block_hash": "HwUvBtajkJRpat9PEo8tQE1o9aE4kKN2BFLsrbaHvvxn",
+      "executor": "x3lang.near",
+      "status": {
+        "SuccessValue": ""
+      },
+      "tokens_burnt": "0"
+    }
+  ],
+  "checks": {
+    "transaction_identity": true,
+    "final": true,
+    "transaction_success": true,
+    "all_outcomes_success": true,
+    "exact_source_destination": true,
+    "exact_single_transfer": true,
+    "approved_signer_publickey": true,
+    "approved_nonce": true,
+    "recipient_delta_exact": true,
+    "source_delta_exact_amount_plus_fee": true,
+    "fee_matches_preflight": true,
+    "fee_within_budget": true,
+    "source_code_hash_unchanged": true,
+    "full_code_hash_correct": true,
+    "source_storage_unchanged": true,
+    "source_stake_unchanged": true,
+    "state_all_records_equal": true,
+    "state_digest_exact": true,
+    "state_entry_count": true,
+    "source_keys_unchanged": true,
+    "source_nonce_correctly_incremented": true,
+    "recipient_keys_unchanged": true,
+    "recipient_code_storage_stake_unchanged": true,
+    "storage_reserve_preserved": true,
+    "operating_surplus_preserved": true,
+    "no_scoped_credit_records": true
+  },
+  "check_count": 26,
+  "all_checks_passed": true,
+  "evidence_boundary": "Independently verified authorized native-account surplus recovery. This is not a swap refund, storage-credit withdrawal, or 1Click settlement. Archived preflight and current final state were fetched independently rather than accepting parent balance/digest summaries.",
+  "signatures_created_by_reviewer": 0,
+  "transactions_submitted_by_reviewer": 0,
+  "keychain_accessed": false,
+  "secret_values_read": false
+}

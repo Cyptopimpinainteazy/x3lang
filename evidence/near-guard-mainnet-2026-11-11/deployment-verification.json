@@ -1,0 +1,159 @@
+{
+  "schema": "x3.mainnet-upgrade.independent-verification.v1",
+  "observed_at_utc": "2026-11-11T20:06:46.496304+00:00",
+  "rpc_url": "https://free.rpc.fastnear.com",
+  "transaction_hash": "BVXX3hJEmThWVZNpUknZv9HCpGezisiN8SQKsZgA3faF",
+  "transaction_url": "https://nearblocks.io/txns/BVXX3hJEmThWVZNpUknZv9HCpGezisiN8SQKsZgA3faF",
+  "final_execution_status": "FINAL",
+  "before_block": {
+    "hash": "ELqLAK5P2GrpFuBxpuU2r4TTwuYqdgkqLWAMyAtMh5Tq",
+    "height": 224111404
+  },
+  "after_block": {
+    "hash": "B6KYqwuP5oPQ3pnd7zbmR41FkqaUmLauPEoWmQhdBzdR",
+    "height": 224111627
+  },
+  "account": {
+    "amount": "6151510085864144300000000",
+    "block_hash": "B6KYqwuP5oPQ3pnd7zbmR41FkqaUmLauPEoWmQhdBzdR",
+    "block_height": 224111627,
+    "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 575538
+  },
+  "keys": {
+    "block_hash": "B6KYqwuP5oPQ3pnd7zbmR41FkqaUmLauPEoWmQhdBzdR",
+    "block_height": 224111627,
+    "keys": [
+      {
+        "access_key": {
+          "nonce": 223154312000009,
+          "permission": "FullAccess"
+        },
+        "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe"
+      }
+    ]
+  },
+  "transaction_metadata": {
+    "signer": "x3lang.near",
+    "receiver": "x3lang.near",
+    "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe",
+    "nonce": 223154312000009,
+    "action_count": 1,
+    "action": "DeployContract",
+    "action_view_code_sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+    "action_view_digest_bytes": 32
+  },
+  "deployed_wasm": {
+    "bytes": 572248,
+    "sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+    "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T"
+  },
+  "state": {
+    "entry_count": 7,
+    "direct_before_after_values_equal": true,
+    "expected_sha256": "950bfc8ba0f81da80928548ef9ab5ff7781b5039718a829862c6ddac7a39c297",
+    "matching_serializations": [
+      "sorted_records_json_compact"
+    ],
+    "computed_digest_variants": {
+      "sorted_records_json_compact": "950bfc8ba0f81da80928548ef9ab5ff7781b5039718a829862c6ddac7a39c297",
+      "sorted_pairs_json_compact": "dec3e38d0f57ba1108e982e0bb5be08280527c51e3458c931a08b73e5d40b4f1",
+      "sorted_records_json_default": "3e34d364e01bf89335930334b34db15d87f456610e17ffb253abb2aed83c4901",
+      "sorted_pairs_json_default": "8a1c4c1279208966e1e609e72e42503f06db482458ab6754c2b3ab57b5ed5618"
+    },
+    "note": "Freshly fetched full values at both archived preflight block and current final block; values compared directly but omitted from evidence."
+  },
+  "views": {
+    "state_version": 2,
+    "storage_credit": "0",
+    "fresh_quote": true,
+    "fresh_deposit": true,
+    "mandate_version": 3,
+    "mandate_revoked": false,
+    "intent_exists": true,
+    "intent_has_accepted_quote": true,
+    "intent_outcome": null
+  },
+  "fee": {
+    "tokens_burnt_yocto": "4143611360986400000000",
+    "native_fee_near": "0.0041436113609864",
+    "account_balance_decrease_yocto": "4143611360986400000000",
+    "gas_burnt_total": 41659296172364,
+    "approved_budget_yocto": "10000000000000000000000",
+    "note": "Includes transaction and receipt tokens_burnt. Gas used in zero-priced refund receipt must not be multiplied by gas price as if charged."
+  },
+  "outcomes": [
+    {
+      "id": "BVXX3hJEmThWVZNpUknZv9HCpGezisiN8SQKsZgA3faF",
+      "block_hash": "5SrKCYG78zFme1ePFATMaHDxAdxhFADWfmALRCBKNqCT",
+      "executor": "x3lang.near",
+      "status": {
+        "SuccessReceiptId": "ADtzRCbLTSERuZf6d8PJRUnEHD2VWeNg6wB1WCfUYPTr"
+      },
+      "gas_burnt": 4191550301752,
+      "tokens_burnt": "419155030175200000000"
+    },
+    {
+      "id": "ADtzRCbLTSERuZf6d8PJRUnEHD2VWeNg6wB1WCfUYPTr",
+      "block_hash": "5SrKCYG78zFme1ePFATMaHDxAdxhFADWfmALRCBKNqCT",
+      "executor": "x3lang.near",
+      "status": {
+        "SuccessValue": ""
+      },
+      "gas_burnt": 37244563308112,
+      "tokens_burnt": "3724456330811200000000"
+    },
+    {
+      "id": "F5og7K91Tc8DBWEc37w2xfpKzeKcWXa6jnciU2xWTki3",
+      "block_hash": "BLJvtyfD1zHFyGNkYiAX6TRwMociAEiAZXyNY6gLaRtr",
+      "executor": "x3lang.near",
+      "status": {
+        "SuccessValue": ""
+      },
+      "gas_burnt": 223182562500,
+      "tokens_burnt": "0"
+    }
+  ],
+  "native_recovery_assessment": {
+    "protocol_storage_cost_per_byte_yocto": "10000000000000000000",
+    "native_balance_near": "6.1515100858641443",
+    "storage_obligation_near": "5.75538",
+    "unused_agent_storage_liability_yocto": "0",
+    "above_storage_before_transfer_fees_and_operating_reserve_near": "0.3961300858641443",
+    "no_refund_claim_exists_from_old_storage": true,
+    "interpretation": "This is an upper bound on account-native surplus, not an approved transfer amount. Retain applicable transfer fees and an owner-chosen operating reserve; future storage writes require funding. All stored records compared unchanged; no scoped-storage credit records exist.",
+    "external_obligation_limits": "Accepted intent still has no recorded outcome. Guard does not custody source swap tokens; these observations do not prove settlement or refund. No separate transfer amount/destination approval is recorded."
+  },
+  "checks": {
+    "final": true,
+    "transaction_success": true,
+    "all_receipts_success": true,
+    "single_deploy_only": true,
+    "action_digest_matches_review": true,
+    "full_deployed_wasm_sha_matches": true,
+    "full_deployed_wasm_size": true,
+    "code_hash": true,
+    "signer_receiver": true,
+    "signer_key": true,
+    "nonce": true,
+    "actual_pre_post_all_raw_records_equal": true,
+    "state_entry_count": true,
+    "state_digest_matches_report": true,
+    "storage_size": true,
+    "fullaccess_key_unchanged": true,
+    "access_key_nonce_matches_transaction": true,
+    "fee_matches_approved_estimate": true,
+    "account_decrease_matches_fee": true,
+    "fee_within_budget": true,
+    "schema_preserved": true,
+    "no_scoped_credit_liabilities": true,
+    "mandate_and_intent_preserved": true
+  },
+  "all_checks_passed": true,
+  "verification_semantics_source": "https://github.com/near/nearcore/blob/2.14.0/core/primitives/src/views.rs#L1497-L1499",
+  "independent_agent_signed": false,
+  "independent_agent_broadcast": false,
+  "secret_values_read": false
+}
