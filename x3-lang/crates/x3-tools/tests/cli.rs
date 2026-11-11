@@ -3763,10 +3763,26 @@ fn assert_testnet_draft_and_generic_refusal(file: &std::path::Path) {
             !output.status.success(),
             "generic {operation} must refuse the unsupported testnet chain: {diagnostic}"
         );
+        let expected_reason = "X3E0501: source chain \"basesepolia\" is not a known production chain";
+        let refused_for_chain = if operation == "check" {
+            // `check` emits a JSON diagnostic after its human-readable prelude.
+            // Match a decoded error, not JSON's escaped quote representation.
+            let json_start = diagnostic
+                .find("\n{")
+                .map(|index| index + 1)
+                .expect("check JSON diagnostic");
+            let report: serde_json::Value = serde_json::from_str(&diagnostic[json_start..]).expect("check JSON");
+            assert_eq!(report["status"], "error");
+            report["errors"]
+                .as_array()
+                .expect("check errors")
+                .iter()
+                .any(|error| error.as_str().is_some_and(|message| message.contains(expected_reason)))
+        } else {
+            diagnostic.contains(expected_reason)
+        };
         assert!(
-            diagnostic.contains("X3E0501")
-                && diagnostic.contains("source chain \"basesepolia\"")
-                && diagnostic.contains("not a known production chain"),
+            refused_for_chain,
             "generic {operation} must name the chain boundary, not fail for an unrelated reason: {diagnostic}"
         );
     }
