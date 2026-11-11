@@ -1,0 +1,150 @@
+{
+  "schema": "x3.mainnet-registration.independent-verification.v1",
+  "observed_at_utc": "2026-11-11T21:37:43.620988+00:00",
+  "rpc": "https://archival-rpc.mainnet.fastnear.com",
+  "network": "mainnet",
+  "transaction_hash": "EfBwTeb4rHNZzDjXfiJGD2J5SwL4QSayaBLaLJUqWA7k",
+  "final_execution_status": "FINAL",
+  "transaction_metadata": {
+    "signer": "x3-agent.x3lang.near",
+    "receiver": "x3lang.near",
+    "public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x",
+    "nonce": 224117214000001,
+    "method": "agent_register_intent",
+    "gas": 10000000000000,
+    "deposit_yocto": "0",
+    "args_sha256": "63cf95cc264a61efb2ee244e852ad25180271d5cd637b1c07584504ca42dd9cf"
+  },
+  "before_block": {
+    "hash": "3Rch4jDTVsGoGRsZ3cXF49ugEqBEJoqbmM4ofTw9ANgx",
+    "height": 224120741
+  },
+  "after_block": {
+    "height": 224120779,
+    "hash": "7zj6bfYfFJM9qN4zDaByk6fEyH48hYHsLAgLvWZZ8Ryo"
+  },
+  "receipt_statuses": [
+    {
+      "id": "EfBwTeb4rHNZzDjXfiJGD2J5SwL4QSayaBLaLJUqWA7k",
+      "status_type": "SuccessReceiptId",
+      "tokens_burnt_yocto": "33409480839000000000"
+    },
+    {
+      "id": "BwtsLZWbrQAFFsccGkd9VyJwv984UKL2d6ZRqe9izZSF",
+      "status_type": "SuccessValue",
+      "tokens_burnt_yocto": "251143243641700000000"
+    },
+    {
+      "id": "J3VMYJvAv6DBGdM5FHiAwMTq7Zm8GKxWr8Wo3ynJ5BFm",
+      "status_type": "SuccessValue",
+      "tokens_burnt_yocto": "0"
+    }
+  ],
+  "actual_fee_yocto": "284552724480700000000",
+  "actual_fee_near": "0.0002845527244807",
+  "agent_account_after": {
+    "amount": "75454266540669500000000",
+    "block_hash": "7zj6bfYfFJM9qN4zDaByk6fEyH48hYHsLAgLvWZZ8Ryo",
+    "block_height": 224120779,
+    "code_hash": "11111111111111111111111111111111",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 371
+  },
+  "guard_account_after": {
+    "amount": "5851213852019866900000000",
+    "block_hash": "7zj6bfYfFJM9qN4zDaByk6fEyH48hYHsLAgLvWZZ8Ryo",
+    "block_height": 224120779,
+    "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 576146
+  },
+  "access_keys_after": [
+    {
+      "access_key": {
+        "nonce": 223937786000003,
+        "permission": "FullAccess"
+      },
+      "public_key": "ed25519:8teaXGYFELKQN5QA7gQqeA4B7URrcMQqaczZ5D68c23u"
+    },
+    {
+      "access_key": {
+        "nonce": 224117214000001,
+        "permission": {
+          "FunctionCall": {
+            "allowance": "19715447275519300000000",
+            "method_names": [
+              "agent_register_intent",
+              "agent_accept_quote",
+              "agent_record_outcome"
+            ],
+            "receiver_id": "x3lang.near"
+          }
+        }
+      },
+      "public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x"
+    }
+  ],
+  "credit_after_yocto": "23920000000000000000000",
+  "storage_growth_bytes": 499,
+  "prior_records_preserved": 7,
+  "state_records_after": 9,
+  "state_digest_before": "cfca91bd29fca7181b44e06131ef25eaeb04685c8f88431165d191219fb55c05",
+  "state_digest_after": "c06716517b68c07b9792059622dac94ecdd41e17bfa6b5743e582b1b5db450a2",
+  "intent_summary_at_registration": {
+    "nonce": "mainnet_demo_nov11_invoice_04",
+    "source_sha256": "c922179f25423e62f09e037a4d4096cf805420cb752dd29a5154df60b1cb8b21",
+    "mandate_version": 3,
+    "approvals": [],
+    "quote_present": false,
+    "outcome_present": false
+  },
+  "fresh_final_observation": {
+    "block": {
+      "height": 224120868,
+      "hash": "3XNTJsr76yTKEh834rKyFYpmRYpbUXHZnWfUuiibtop5"
+    },
+    "same_registered_policy": true,
+    "approvals": [
+      "x3lang.near"
+    ],
+    "quote_present": false,
+    "outcome_present": false
+  },
+  "checks": {
+    "FINAL_success": true,
+    "all_receipts_successful": true,
+    "transaction_identity": true,
+    "signer_key_exact": true,
+    "transaction_nonce_exact": true,
+    "single_function_call": true,
+    "method_exact": true,
+    "gas_10T": true,
+    "zero_deposit": true,
+    "raw_args_exact": true,
+    "args_hash_exact": true,
+    "intent_matches_return": true,
+    "policy_owner_agent_nonce_exact": true,
+    "mandate_v3_preserved": true,
+    "no_approval_quote_outcome_at_registration_snapshot": true,
+    "registered_before_deadline": true,
+    "key_nonce_updated_once": true,
+    "restricted_scope_unchanged": true,
+    "full_access_admin_retained": true,
+    "fee_equals_balance_and_allowance_debit": true,
+    "fee_within_approved_budget": true,
+    "agent_code_storage_unchanged": true,
+    "guard_code_preserved": true,
+    "guard_native_balance_unchanged": true,
+    "499_storage_bytes": true,
+    "credit_debit_matches_storage": true,
+    "seven_previous_records_preserved": true
+  },
+  "limits": [
+    "Read-only public RPC observations, not authenticated light-client proof.",
+    "Registration snapshot is pinned before the separately approved owner authorization, which may already be proceeding.",
+    "Registration is not a quote, source-chain deposit or cross-chain settlement."
+  ],
+  "private_state_signatures_or_credentials_recorded": false
+}

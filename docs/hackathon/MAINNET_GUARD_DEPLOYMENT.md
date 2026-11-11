@@ -1,7 +1,8 @@
-# NEAR mainnet Guard upgrade, recovery and agent provisioning
+# NEAR mainnet Guard upgrade, recovery and payment authorization
 
-Observed November 11, 2026. This records four separately owner-approved operations
-on NEAR mainnet. It does not authorize another transaction or establish official
+Observed November 11, 2026. This records the four completed setup/recovery operations
+and the subsequently owner-approved intent registration and authorization on NEAR
+mainnet. It does not authorize another transaction or establish official
 1Click settlement. [Machine-readable manifest](../../evidence/near-guard-mainnet-2026-11-11/manifest.json).
 
 ## Deployed identity
@@ -55,6 +56,26 @@ proof cases passed under Rust 1.90.0. This branch is not merged; hosted CI was
 still incomplete at this observation, with an external RecurseML error. Two broad
 CLI corpus failures involving a Base Sepolia example were reproduced on its exact
 base commit. These local checks neither authorize a payment nor establish settlement.
+
+[PR #211](https://github.com/Cyptopimpinainteazy/x3lang/pull/211), head
+`1ad2982139aedeab9dc1300e79d10ef4bff70731`, pins the exact offline CLI transaction
+bytes and verifies the signature before one RPC submission. Its local evidence
+records 774 Python tests passed (one skipped), 88 Node tests passed, and synthetic
+installed-CLI offline tests. The first suppressed CLI failure's precise cause
+remains unknown; these tests do not reconstruct that failure.
+
+[PR #212](https://github.com/Cyptopimpinainteazy/x3lang/pull/212), head
+`4594496a79eda2796eb1670c825e44e00367094f`, checks live receipt-gas purchase costs
+before signing and accepts an explicit gas limit from 1 through 30 Tgas. It
+neither changes gas nor increases allowance or retries automatically. Its local
+[evidence](https://github.com/Cyptopimpinainteazy/x3lang/blob/4594496a79eda2796eb1670c825e44e00367094f/audit-artifacts/agent-gas-admission-20261111/verification.json)
+records 92 focused tests, 796 applicable Python tests passed (one skipped), and
+88 Node tests passed. A real local Sandbox registered the candidate-shaped policy
+at **10 Tgas**, with **3,001,220,252,593 gas burnt**, against the unchanged deployed
+WASM. The Sandbox used disposable accounts, a relative deadline, a simpler test
+mandate and a synthetic key allowance; it was not a clone of mainnet state.
+The tested file hashes match the two exact commits. Both PRs remain draft and
+unmerged at this observation; local results do not establish hosted CI success.
 
 ## Native account-surplus recovery
 
@@ -118,6 +139,74 @@ credit were unchanged. All **25 independent read-only checks** passed; see the
 The owner retains account administration and recovery. This is a trusted-operator
 harness; key restriction does not establish OS/runtime credential isolation.
 
+## Registration refusal and corrected gas purchase
+
+Before the successful registration, a 30 Tgas attempt produced transaction hash
+`32csQESKgA7Ux7Dy7dG4ZEvPvUv6fmZ5GwrvDYvCRa38`; submission returned
+`INVALID_TRANSACTION`, with `InvalidAccessKeyError` / `NotEnoughAllowance`.
+At finalized blocks **224119953** (official RPC) and **224119949** (archival
+FastNear RPC), all **18 independent unchanged-state checks** passed: the intent
+was absent, key nonce and allowance were unchanged, and account balances,
+**0.02891 NEAR** credit and all eight stored records were unchanged. Both this
+hash and the previous attempt's hash returned `UNKNOWN_TRANSACTION` with
+`wait_until: NONE`. These observations establish no finalized effects at those
+blocks; they do not prove global mempool absence.
+
+The earlier estimate priced all gas at the current block price. Protocol 88
+instead purchases receipt gas at `max(current_gas_price, min_gas_purchase_price)`:
+**1,000,000,000 yoctoNEAR/gas**, versus the observed current price of
+**100,000,000**. Including action and receipt overhead, the exact registration
+required **0.030922689800803 NEAR** upfront at 30 Tgas, exceeding the delegated
+key's **0.02 NEAR** allowance. At 10 Tgas it requires
+**0.010922689800803 NEAR**, within that unchanged allowance.
+
+Upfront purchase is a temporary reservation. Unused gas and gas-price differences
+can be refunded; the final charged fee must be checked from finalized outcomes
+and balances. The owner's **0.005 NEAR network-fee budget** is distinct from the
+revised **0.012 NEAR upfront-reservation ceiling**. Burning all registration gas
+at the observed price would cost **0.0011223375128354 NEAR** at 10 Tgas; that is a
+price-constant calculation, not a guarantee about future prices. See the
+[historical admission observation](../../evidence/near-guard-mainnet-2026-11-11/registration-admission-observation.json)
+and [nearcore cost calculation](https://github.com/near/nearcore/blob/2.14.0/runtime/runtime/src/config.rs#L451-L513).
+
+## Finalized registration and owner authorization
+
+After explicit approval of the revised **10 Tgas** limit, the agent registered
+`mainnet_demo_nov11_invoice_04` with one zero-deposit `agent_register_intent` call:
+[`EfBwTeb4rHNZzDjXfiJGD2J5SwL4QSayaBLaLJUqWA7k`](https://nearblocks.io/txns/EfBwTeb4rHNZzDjXfiJGD2J5SwL4QSayaBLaLJUqWA7k).
+The transaction and all receipts finalized successfully. Independent verification
+passed **27 checks** against the exact approved argument bytes, restricted key and
+transaction nonce **224117214000001**. The stored policy binds source SHA-256
+`c922179f25423e62f09e037a4d4096cf805420cb752dd29a5154df60b1cb8b21`
+and mandate version **3**. This records policy admission, not a token transfer.
+
+The actual agent fee was **0.0002845527244807 NEAR**, matching both account and
+key-allowance debits after refunds. Registration added **499 bytes**, debiting
+**0.00499 NEAR** of prepaid storage credit and leaving **0.02392 NEAR** unused.
+Seven previous records were preserved; the credit record changed and one intent
+record was added, for nine records. Guard native balance and code, agent storage,
+restricted method scope and owner FullAccess recovery key were preserved.
+See the [registration observation](../../evidence/near-guard-mainnet-2026-11-11/registration-verification.json),
+pinned to post-registration block **224120779** before the owner approval.
+
+The separately approved owner self-call then finalized:
+[`6i8ur3A9FtaLnSz6uk1pCUt3TSp4uhHBPkDKQfLs3GYk`](https://nearblocks.io/txns/6i8ur3A9FtaLnSz6uk1pCUt3TSp4uhHBPkDKQfLs3GYk).
+It called `approve_intent` for the same nonce with **30 Tgas** and **0.02 NEAR**
+attached deposit. Independent verification at block **224120956** passed
+**24 checks**: only the intent's owner approval changed, eight other records were
+preserved, and account storage grew **15 bytes**. The **0.02392 NEAR** unused
+credit, mandate, deployed code and agent account/key state were unchanged.
+
+The owner's upfront gas purchase plus deposit was
+**0.0509190548336098 NEAR**, within the available unencumbered account surplus.
+After refunds, the owner's account decreased only by the charged fee,
+**0.0003077702207735 NEAR**. Remaining unencumbered surplus was
+**0.0653760817990934 NEAR**, after storage reserve and unused-credit liability.
+See the [owner authorization observation](../../evidence/near-guard-mainnet-2026-11-11/owner-authorization-verification.json).
+The observed intent had approval from `x3lang.near`, **no accepted quote and no
+recorded outcome**. These two transactions do not establish a source-chain deposit
+or official 1Click settlement.
+
 ## Read-only verification
 
 With `near-cli-rs` 0.30.1, inspect the finalized transactions and the account at a
@@ -128,6 +217,8 @@ near transaction view-status BVXX3hJEmThWVZNpUknZv9HCpGezisiN8SQKsZgA3faF networ
 near transaction view-status 81DFPVN9hTa9WE5fvQFgD91hdp6KiJ49W1ookf4J7YxV network-config mainnet
 near transaction view-status 72QrfNRf131kxnBTmZb8EJjQP6H3MKEWxvSBrMuyB9qw network-config mainnet
 near transaction view-status 5NbFPn49edaLsdiy6FtZ2wzb73k4SZfEfDqvg5CQ2MaQ network-config mainnet
+near transaction view-status EfBwTeb4rHNZzDjXfiJGD2J5SwL4QSayaBLaLJUqWA7k network-config mainnet
+near transaction view-status 6i8ur3A9FtaLnSz6uk1pCUt3TSp4uhHBPkDKQfLs3GYk network-config mainnet
 near account view-account-summary x3lang.near network-config mainnet at-block-height 224111627
 ```
 
@@ -150,13 +241,13 @@ authenticated NEAR light-client checkpoint.
 
 ## Remaining release boundaries
 
-Owner-prepaid storage credit and the restricted delegated key are now provisioned.
-No new payment registration, live quote or swap was approved or sent as part of
-these four operations. They do not refresh the mandate, approve a payment or fund
-a source-chain deposit. Those actions need their own reviewed inputs and
+Owner-prepaid storage credit and the restricted delegated key are provisioned;
+the new mandate-v3 intent is registered and owner-approved. No accepted quote or
+outcome was present at the final observation. A live quote, its admission and any
+source-chain deposit remain separate steps with their own reviewed inputs and
 authorization. A funded agent purchase and official 1Click mainnet settlement
-remain unproven by this evidence. Track registration and judging
-eligibility are separate from deploying a contract.
+remain unproven by this evidence. Track registration and judging eligibility are
+separate from deploying a contract.
 
 A code rollback requires another explicitly approved deployment. Any new scoped
 storage credits and outstanding withdrawal callbacks must be handled before
