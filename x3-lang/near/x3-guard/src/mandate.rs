@@ -15,6 +15,13 @@
 //! | `approval_above`: N of the listed `approvers` must call [`Contract::approve_intent`] | accept |
 //! | `expires_at_ms`, and the intent's deadline must not outlive it | register and accept |
 //! | revocation ([`Contract::revoke_mandate`]) or replacement (a new `version`) | immediately, for every intent not yet accepted |
+//! | pinned programs ([`Contract::pin_mandate_programs`]): the intent's `program_sha256` must be one the owner pinned under the current mandate version | register and accept, once the owner pins |
+//!
+//! Pinning is opt-in so mandates created before it keep working unchanged. Once an owner pins,
+//! the agent can only run the exact `.x3` programs the owner saw. A pin belongs to the mandate
+//! version it was made under: replacing the mandate leaves the old pin in place and every
+//! intent is refused (`mandate_program`) until the owner pins again or calls
+//! [`Contract::unpin_mandate_programs`].
 //!
 //! Spending is counted when a quote is **accepted**, because that is when a deposit address is
 //! authorized. A refunded swap is not credited back: the counter errs towards spending less.
@@ -43,6 +50,9 @@ const MAX_APPROVERS: usize = 8;
 /// Maximum unspent storage credit per owner/agent pair: 1 NEAR.
 const MAX_AGENT_STORAGE_CREDIT: u128 = 1_000_000_000_000_000_000_000_000;
 
+/// Most program hashes an owner can pin for one agent.
+pub const MAX_PINNED_PROGRAMS: usize = 16;
+
 // Separate, versioned raw-storage namespace preserves the deployed Contract and
 // Mandate Borsh layouts. Balances are fixed-width so charging never adds storage.
 fn storage_credit_key(owner: &AccountId, agent: &AccountId) -> Vec<u8> {
@@ -60,6 +70,75 @@ fn write_credit(owner: &AccountId, agent: &AccountId, balance: u128, pending: bo
     let mut bytes = balance.to_le_bytes().to_vec();
     bytes.push(u8::from(pending));
     env::storage_write(&storage_credit_key(owner, agent), &bytes);
+}
+
+// Pinned programs live in their own raw-storage namespace for the same reason: existing
+// mandates keep their layout and need no migration. Layout: mandate version (u32 LE), then
+// each pinned hash as 64 ASCII hex bytes.
+fn program_pin_key(owner: &AccountId, agent: &AccountId) -> Vec<u8> {
+    format!("X3_MANDATE_PROGRAMS_V1:{owner}/{agent}").into_bytes()
+}
+
+/// The `.x3` programs an owner allows an agent to run, and the mandate version the pin was
+/// made under.
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProgramPin {
+    pub mandate_version: u32,
+    /// SHA-256 of each allowed `.x3` source, lowercase hex.
+    pub programs: Vec<String>,
+}
+
+fn read_program_pin(owner: &AccountId, agent: &AccountId) -> Option<ProgramPin> {
+    env::storage_read(&program_pin_key(owner, agent)).map(|bytes| {
+        require!(
+            bytes.len() > 4 && (bytes.len() - 4) % 64 == 0,
+            "invalid program pin record"
+        );
+        let mandate_version = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+        let programs = bytes[4..]
+            .chunks(64)
+            .map(|c| {
+                let hash =
+                    String::from_utf8(c.to_vec()).unwrap_or_else(|_| env::panic_str("invalid program pin record"));
+                require!(is_hex64(&hash), "invalid program pin record");
+                hash
+            })
+            .collect();
+        ProgramPin {
+            mandate_version,
+            programs,
+        }
+    })
+}
+
+fn write_program_pin(owner: &AccountId, agent: &AccountId, pin: &ProgramPin) {
+    let mut bytes = pin.mandate_version.to_le_bytes().to_vec();
+    for hash in &pin.programs {
+        bytes.extend_from_slice(hash.as_bytes());
+    }
+    env::storage_write(&program_pin_key(owner, agent), &bytes);
+}
+
+/// The `mandate_program` guard for one policy, or `None` when the owner has not pinned
+/// programs for this agent (the legacy, unpinned behavior). A pin made under another mandate
+/// version fails closed.
+pub fn check_program_pin(pin: Option<&ProgramPin>, m: &Mandate, policy: &Policy) -> Option<GuardResult> {
+    let pin = pin?;
+    let current = pin.mandate_version == m.version;
+    let allowed = pin.programs.contains(&policy.program_sha256);
+    Some(GuardResult {
+        guard: "mandate_program".into(),
+        ok: current && allowed,
+        detail: if current {
+            format!("program {}, pinned {:?}", policy.program_sha256, pin.programs)
+        } else {
+            format!(
+                "programs were pinned under mandate version {}; the mandate is now version {}; the owner must pin again",
+                pin.mandate_version, m.version
+            )
+        },
+    })
 }
 
 fn storage_credit(owner: &AccountId, agent: &AccountId) -> u128 {
@@ -408,6 +487,63 @@ impl Contract {
         m
     }
 
+    /// Pin the `.x3` programs the agent may run under the caller's current mandate for `agent`.
+    /// Replaces any earlier pin. From now on an intent whose `program_sha256` is not pinned is
+    /// refused at registration and again at acceptance. The pin is tied to the current mandate
+    /// version: after `create_mandate` replaces the mandate, the owner pins again.
+    #[payable]
+    pub fn pin_mandate_programs(&mut self, agent: AccountId, programs: Vec<String>) -> ProgramPin {
+        let initial = env::storage_usage();
+        let owner = env::predecessor_account_id();
+        let m = self.load_mandate(&owner, &agent);
+        require!(
+            !programs.is_empty(),
+            "pin at least one program; unpin_mandate_programs removes the pin"
+        );
+        require!(
+            programs.len() <= MAX_PINNED_PROGRAMS,
+            format!("at most {MAX_PINNED_PROGRAMS} programs can be pinned")
+        );
+        for (i, hash) in programs.iter().enumerate() {
+            require!(
+                is_hex64(hash),
+                format!("program {hash:?} must be 64 lowercase hex characters")
+            );
+            require!(!programs[..i].contains(hash), format!("program {hash} is listed twice"));
+        }
+        let pin = ProgramPin {
+            mandate_version: m.version,
+            programs,
+        };
+        write_program_pin(&owner, &agent, &pin);
+        emit(
+            "mandate_programs_pinned",
+            json!({
+                "owner": owner,
+                "agent": agent,
+                "mandate_version": pin.mandate_version,
+                "programs": pin.programs,
+            }),
+        );
+        settle_storage(initial);
+        pin
+    }
+
+    /// Remove the caller's program pin for `agent`, returning to unpinned behavior. Returns
+    /// whether a pin existed.
+    pub fn unpin_mandate_programs(&mut self, agent: AccountId) -> bool {
+        let owner = env::predecessor_account_id();
+        let removed = env::storage_remove(&program_pin_key(&owner, &agent));
+        if removed {
+            emit("mandate_programs_unpinned", json!({ "owner": owner, "agent": agent }));
+        }
+        removed
+    }
+
+    pub fn get_mandate_programs(&self, owner: AccountId, agent: AccountId) -> Option<ProgramPin> {
+        read_program_pin(&owner, &agent)
+    }
+
     /// The agent registers an intent in the owner's name. Every term except approvals is checked
     /// now; the binding spend check runs again when the quote is accepted.
     #[payable]
@@ -415,7 +551,13 @@ impl Contract {
         let initial = env::storage_usage();
         let agent = env::predecessor_account_id();
         let m = self.load_mandate(&owner, &agent);
-        refuse_failed(&check_mandate(&m, &policy, env::block_timestamp_ms()), "intent");
+        let mut results = check_mandate(&m, &policy, env::block_timestamp_ms());
+        results.extend(check_program_pin(
+            read_program_pin(&owner, &agent).as_ref(),
+            &m,
+            &policy,
+        ));
+        refuse_failed(&results, "intent");
         let record = self.insert_intent(owner.clone(), nonce, policy, Some((agent.clone(), m.version)));
         self.settle_agent_storage(initial, &owner, &agent);
         record
@@ -486,6 +628,11 @@ impl Contract {
         let now = env::block_timestamp_ms();
         let amount = record.policy.amount.0;
         let mut results = check_mandate(&m, &record.policy, now);
+        results.extend(check_program_pin(
+            read_program_pin(&owner, &env::predecessor_account_id()).as_ref(),
+            &m,
+            &record.policy,
+        ));
         let needed = m.approvals_needed(amount);
         results.push(GuardResult {
             guard: "mandate_approvals".into(),
@@ -657,6 +804,11 @@ impl Contract {
             ),
         }];
         out.extend(check_mandate(m, &record.policy, now));
+        out.extend(check_program_pin(
+            read_program_pin(&owner, agent).as_ref(),
+            m,
+            &record.policy,
+        ));
         let needed = m.approvals_needed(record.policy.amount.0) as usize;
         let approval_count = record
             .approvals
@@ -704,7 +856,11 @@ impl Contract {
                 ok: false,
                 detail: format!("{owner} has no mandate for {agent}"),
             }],
-            Some(m) => check_mandate(m, &policy, env::block_timestamp_ms()),
+            Some(m) => {
+                let mut out = check_mandate(m, &policy, env::block_timestamp_ms());
+                out.extend(check_program_pin(read_program_pin(&owner, &agent).as_ref(), m, &policy));
+                out
+            }
         }
     }
 }

@@ -33,11 +33,19 @@ compiled by `near_intents.py mandate args`.
 |---|---|---|
 | `create_mandate(agent, terms)` | owner | Stores the terms for that agent. Replacing them increases the version, which voids every intent the agent registered under the old terms and has not had accepted. |
 | `revoke_mandate(agent)` | owner | Stops the agent at once: nothing it registered can be accepted any more. A quote already accepted is not undone, since its deposit address exists. |
+| `pin_mandate_programs(agent, programs)` | owner | Pins the SHA-256 of each `.x3` program the agent may run (1 to 16). From then on an intent whose `program_sha256` is not pinned is refused at registration and again at acceptance (`mandate_program`). The pin belongs to the current mandate version: after a replacement every intent is refused until the owner pins again. Costs the owner storage. |
+| `unpin_mandate_programs(agent)` | owner | Removes the pin and returns to unpinned behavior. |
 | `agent_register_intent(owner, nonce, policy)` | agent | Registers an intent under the owner, after checking every term. |
 | `approve_intent(owner, nonce)` | an approver | Signs off on a payment above `approval_above`. The agent is never an approver. |
 | `agent_accept_quote(owner, nonce, signed_payload, signature)` | agent | Checks the mandate again (revocation, expiry, version, approvals, rolling spend), then the quote exactly as `accept_quote`, and counts the payment. |
 | `agent_record_outcome(owner, nonce, …)` | agent | As `record_outcome`; the owner can use `record_outcome` itself. |
-| `get_mandate`, `check_agent_intent` | anyone | Views. `check_agent_intent` dry-runs the terms for a policy. |
+| `get_mandate`, `get_mandate_programs`, `check_agent_intent` | anyone | Views. `check_agent_intent` dry-runs the terms for a policy, including the pin. |
+
+Pinning is opt-in: a mandate with no pin behaves exactly as before and reports no
+`mandate_program` result, so the adapter and browser mirrors below are unchanged. The pin is
+stored in its own raw-storage namespace (`X3_MANDATE_PROGRAMS_V1:`), so existing mandates keep
+their layout and need no migration. An owner that is a multisig or DAO account (for example a
+NEAR Business treasury) pins through a governance proposal that calls `pin_mandate_programs`.
 
 The terms checked, in order (`mandate::check_mandate`, mirrored check for check by
 `near_mandate.py` and the browser demo):

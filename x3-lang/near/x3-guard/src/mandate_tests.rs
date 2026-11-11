@@ -922,3 +922,158 @@ fn valid_test_signature_with_forbidden_recipient_never_authorizes_a_deposit() {
         (25 * USDC, 1)
     );
 }
+
+// ---- Pinned programs ----------------------------------------------------------------------
+
+const OTHER_PROGRAM: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+fn pin(c: &mut Contract, programs: &[&str]) -> ProgramPin {
+    ctx(owner(), NOW_MS, one_near());
+    c.pin_mandate_programs(agent(), programs.iter().map(|p| p.to_string()).collect())
+}
+
+fn guard<'a>(results: &'a [GuardResult], name: &str) -> Option<&'a GuardResult> {
+    results.iter().find(|r| r.guard == name)
+}
+
+#[test]
+fn an_unpinned_mandate_behaves_as_before_and_reports_no_program_guard() {
+    let mut c = with_mandate(terms());
+    assert_eq!(c.get_mandate_programs(owner(), agent()), None);
+    let results = agent_pays(&mut c, "p_000", NOW_MS, 25 * USDC);
+    assert!(results.iter().all(|r| r.ok), "{results:?}");
+    assert!(guard(&results, "mandate_program").is_none(), "{results:?}");
+}
+
+#[test]
+fn a_pinned_program_registers_and_accepts() {
+    let mut c = with_mandate(terms());
+    let p = pin(&mut c, &[PROGRAM]);
+    assert_eq!((p.mandate_version, p.programs.clone()), (1, vec![PROGRAM.to_string()]));
+    assert_eq!(c.get_mandate_programs(owner(), agent()), Some(p));
+    assert!(get_logs().iter().any(|l| l.contains("mandate_programs_pinned")));
+
+    let results = agent_pays(&mut c, "p_001", NOW_MS, 25 * USDC);
+    let g = guard(&results, "mandate_program").expect("pinned mandates report mandate_program");
+    assert!(g.ok, "{g:?}");
+    assert!(results.iter().all(|r| r.ok), "{results:?}");
+    assert!(c.get_intent(owner(), "p_001".into()).unwrap().quote.is_some());
+}
+
+#[test]
+fn an_unpinned_program_is_refused_at_registration() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[OTHER_PROGRAM]);
+    let (p, _, _) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    let err = panics(|| c.agent_register_intent(owner(), "p_002".into(), p));
+    assert!(
+        err.contains("X3_MANDATE_DENIED") && err.contains("mandate_program"),
+        "{err}"
+    );
+    assert!(!c.is_nonce_used(owner(), "p_002".into()));
+}
+
+#[test]
+fn changing_the_pin_after_registration_blocks_acceptance() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[PROGRAM]);
+    let (p, text, sig) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "p_003".into(), p);
+
+    pin(&mut c, &[OTHER_PROGRAM]);
+    ctx(agent(), NOW_MS, one_near());
+    let err = panics(|| c.agent_accept_quote(owner(), "p_003".into(), text, sig));
+    assert!(err.contains("mandate_program"), "{err}");
+    let record = c.get_intent(owner(), "p_003".into()).unwrap();
+    assert!(record.quote.is_none(), "a refused quote changes nothing");
+    assert_eq!(c.get_mandate(owner(), agent()).unwrap().spent_in_window(NOW_MS), (0, 0));
+}
+
+#[test]
+fn replacing_the_mandate_leaves_a_stale_pin_that_fails_closed_until_pinned_again() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[PROGRAM]);
+    ctx(owner(), NOW_MS, one_near());
+    c.create_mandate(agent(), terms());
+    assert_eq!(c.get_mandate(owner(), agent()).unwrap().version, 2);
+
+    let (p, _, _) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    let err = panics(|| c.agent_register_intent(owner(), "p_004".into(), p.clone()));
+    assert!(err.contains("pinned under mandate version 1"), "{err}");
+
+    ctx(owner(), NOW_MS, one_near());
+    let views = c.check_agent_intent(owner(), agent(), p);
+    assert!(!guard(&views, "mandate_program").unwrap().ok, "{views:?}");
+
+    let repinned = pin(&mut c, &[PROGRAM]);
+    assert_eq!(repinned.mandate_version, 2);
+    let results = agent_pays(&mut c, "p_005", NOW_MS, 25 * USDC);
+    assert!(results.iter().all(|r| r.ok), "{results:?}");
+}
+
+#[test]
+fn unpinning_returns_to_unpinned_behavior() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[OTHER_PROGRAM]);
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    assert!(c.unpin_mandate_programs(agent()));
+    assert!(!c.unpin_mandate_programs(agent()), "a second unpin finds nothing");
+    assert_eq!(c.get_mandate_programs(owner(), agent()), None);
+    let results = agent_pays(&mut c, "p_006", NOW_MS, 25 * USDC);
+    assert!(results.iter().all(|r| r.ok) && guard(&results, "mandate_program").is_none());
+}
+
+#[test]
+fn only_the_mandate_owner_can_pin_for_that_mandate() {
+    let mut c = with_mandate(terms());
+    ctx(accounts(4), NOW_MS, one_near());
+    let err = panics(|| c.pin_mandate_programs(agent(), vec![OTHER_PROGRAM.into()]));
+    assert!(err.contains("has no mandate"), "{err}");
+    assert_eq!(c.get_mandate_programs(owner(), agent()), None);
+}
+
+#[test]
+fn pin_input_is_validated() {
+    let mut c = with_mandate(terms());
+    let cases: Vec<(Vec<String>, &str)> = vec![
+        (vec![], "pin at least one program"),
+        (vec!["ABC".into()], "64 lowercase hex"),
+        (vec![PROGRAM.to_uppercase()], "64 lowercase hex"),
+        (vec![PROGRAM.into(), PROGRAM.into()], "listed twice"),
+        (
+            (0..=MAX_PINNED_PROGRAMS).map(|i| format!("{i:064x}")).collect(),
+            "at most 16 programs",
+        ),
+    ];
+    for (programs, expected) in cases {
+        ctx(owner(), NOW_MS, one_near());
+        let err = panics(|| c.pin_mandate_programs(agent(), programs.clone()));
+        assert!(err.contains(expected), "{programs:?}: {err}");
+    }
+    assert_eq!(c.get_mandate_programs(owner(), agent()), None);
+}
+
+#[test]
+fn the_quote_preflight_view_reports_the_pin() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[PROGRAM]);
+    let (p, text, sig) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, one_near());
+    c.agent_register_intent(owner(), "p_007".into(), p);
+    pin(&mut c, &[OTHER_PROGRAM]);
+    ctx(agent(), NOW_MS, NearToken::from_yoctonear(0));
+    let views = c.check_agent_quote(owner(), "p_007".into(), text, sig);
+    let g = guard(&views, "mandate_program").unwrap();
+    assert!(!g.ok && g.detail.contains(PROGRAM), "{g:?}");
+}
+
+#[test]
+fn pinning_costs_storage_paid_by_the_owner() {
+    let mut c = with_mandate(terms());
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    let err = panics(|| c.pin_mandate_programs(agent(), vec![PROGRAM.into()]));
+    assert!(err.contains("attach at least"), "{err}");
+}
