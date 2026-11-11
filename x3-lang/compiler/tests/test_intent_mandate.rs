@@ -50,7 +50,7 @@ fn mandate_is_preserved_in_the_ast_and_adapter_draft() {
         draft
             .constraints
             .iter()
-            .any(|constraint| constraint.kind == "slippage" && constraint.arg == "0.5%"),
+            .any(|constraint| constraint.kind == "slippage" && constraint.arg == "<= 0.5%"),
         "the signed adapter payload must carry one percent sign: {draft:?}"
     );
     assert!(
@@ -149,4 +149,125 @@ fn mandate_without_a_nonce_is_refused_before_admission() {
             .any(|error| error.to_string().contains("require nonce unused")),
         "mandate admission must fail closed without replay protection: {outcome:?}"
     );
+}
+
+#[test]
+fn named_nonce_alias_preserves_canonical_replay_and_mandate_semantics() {
+    let shorthand = SOURCE.replace(
+        "require nonce unused agent_payment_001",
+        "require nonce agent_payment_001",
+    );
+    let program = parse_source(&shorthand).expect("the Python adapter's named nonce alias must parse");
+    let ir = compile_to_ir(&program).expect("the named nonce must lower without losing replay protection");
+    assert_eq!(ir.metadata.nonce.as_deref(), Some("agent_payment_001"));
+    assert!(ir.operations.iter().any(|operation| matches!(
+        operation,
+        Operation::NonceUnused { nonce } if nonce == "agent_payment_001"
+    )));
+    assert!(ir.operations.iter().any(|operation| matches!(
+        operation,
+        Operation::IntentResolve { constraints, .. }
+            if constraints.iter().any(|value| value == "under mandate x3-owner.near")
+    )));
+    assert_eq!(
+        x3_lang_compiler::compile_source(&shorthand).expect("the alias must compile"),
+        x3_lang_compiler::compile_source(SOURCE).expect("the canonical spelling must compile"),
+        "two spellings must commit to the same nonce and enforcement instructions"
+    );
+}
+
+#[test]
+fn missing_named_nonce_and_malformed_nonce_comparisons_remain_errors() {
+    for clause in [
+        "require nonce",
+        "require nonce unused",
+        "require nonce <=",
+        "require nonce unused <=",
+    ] {
+        let source = SOURCE.replace("require nonce unused agent_payment_001", clause);
+        assert!(
+            parse_source(&source).is_err(),
+            "invalid nonce guard must be rejected: {clause}"
+        );
+    }
+}
+
+#[test]
+fn multiple_named_nonces_do_not_bypass_mandate_admission() {
+    for second in ["agent_payment_001", "other_payment_002"] {
+        let source = SOURCE.replace(
+            "require nonce unused agent_payment_001",
+            &format!("require nonce agent_payment_001\n    require nonce {second}"),
+        );
+        let (_, _, diagnostics) = x3_lang_compiler::check_source_diagnostics(&source)
+            .expect("the duplicate guards parse so semantic admission can reject them");
+        assert!(
+            diagnostics
+                .errors
+                .iter()
+                .any(|error| error.to_string().contains("exactly one replay-protection nonce")),
+            "multiple nonce guards must not be admitted: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn payment_export_preserves_nonce_timeout_and_financial_constraints() {
+    let source = include_str!("../../tests/fixtures/near_intents_named_nonce_payment.x3");
+    let draft = from_intent_decl(&intent(source));
+    assert_eq!(
+        draft.timeout_secs, 3600,
+        "an explicit hour must not become the default half-hour"
+    );
+    assert_eq!(draft.dest_min_amount, Some(24_750_000));
+    assert_eq!(draft.mandate_owner.as_deref(), Some("x3lang.near"));
+    for (kind, arg) in [
+        ("nonce", "unused mainnet_demo_nov11_invoice_04"),
+        ("fees", "<= 100 bps"),
+        ("slippage", "<= 0.9%"),
+        (
+            "refund_path",
+            "Solana.USDC:58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+        ),
+    ] {
+        assert!(
+            draft
+                .constraints
+                .iter()
+                .any(|constraint| constraint.kind == kind && constraint.arg == arg),
+            "source constraint {kind} {arg} must survive export: {draft:?}"
+        );
+    }
+    assert!(!draft
+        .constraints
+        .iter()
+        .any(|constraint| constraint.kind == "require_receiver_owner"));
+}
+
+#[test]
+fn export_uses_terminal_destination_floor_not_an_intermediate_visit() {
+    let source = include_str!("../../tests/fixtures/near_intents_named_nonce_payment.x3").replace(
+        "bridge NearIntents Solana.USDC -> Near.USDC min_receive 24750000;",
+        "bridge NearIntents Solana.USDC -> Near.USDC min_receive 24900000;\n        bridge Return Near.USDC -> Solana.USDC min_receive 24800000;\n        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24750000;",
+    );
+    assert_eq!(from_intent_decl(&intent(&source)).dest_min_amount, Some(24_750_000));
+}
+
+#[test]
+fn export_keeps_guard_subject_comparison_and_unit() {
+    let source = SOURCE.replace(
+        "require slippage <= 0.5%",
+        "require risk.pool <= 12\n    require finality.eth == finalized\n    require slippage < 0.5%",
+    );
+    let draft = from_intent_decl(&intent(&source));
+    for (kind, arg) in [
+        ("risk", "pool <= 12"),
+        ("finality", "eth == finalized"),
+        ("slippage", "< 0.5%"),
+    ] {
+        assert!(
+            draft.constraints.iter().any(|c| c.kind == kind && c.arg == arg),
+            "missing {kind} {arg}: {draft:?}"
+        );
+    }
 }
