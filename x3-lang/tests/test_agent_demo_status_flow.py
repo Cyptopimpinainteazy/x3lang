@@ -113,3 +113,51 @@ def test_different_signature_cannot_replace_recorded_deposit(tmp_path):
     assert result.returncode != 0
     assert "different signature" in result.stderr
     assert entries == []
+
+
+@pytest.mark.parametrize("mode", ["0", "1"])
+@pytest.mark.parametrize("entrypoint", ["register", "quote", "outcome", "cmd_refuse", "cmd_post_revoke",
+                                        "cmd_pay_dry", "cmd_pay_live"])
+def test_prepaid_storage_mode_reaches_every_agent_command(tmp_path, mode, entrypoint):
+    library = tmp_path / "functions.sh"
+    library.write_text(SCRIPT.read_text().split('\ncase "${1:-}" in', 1)[0])
+    trace = tmp_path / "trace"
+    shell = r'''
+source "$X3_TEST_LIBRARY"
+load_state() { :; }
+confirm() { :; }
+send_expected_refusal() { :; }
+adapter() { printf '%s\n' "$*" >> "$X3_TEST_TRACE"; printf '{"command":"true"}\n'; }
+agent() {
+  printf '%s\n' "$*" >> "$X3_TEST_TRACE"
+  if [[ " $* " == *" --live "* ]]; then printf '{}\n' > "$RECEIPT"; fi
+  printf '{"command":"true"}\n'
+}
+json_get() { if [[ "$2" == command ]]; then printf 'true\n'; else printf '%064d\n' 0; fi; }
+printf '{}\n' > "$ALLOWED"
+printf '{}\n' > "$DRY_REPORT"
+case "$X3_TEST_ENTRYPOINT" in
+  register|quote|outcome) guard_cmd "$X3_TEST_ENTRYPOINT" ;;
+  cmd_pay_live) cmd_pay_live "$(printf '%064d' 0)" ;;
+  *) "$X3_TEST_ENTRYPOINT" ;;
+esac
+'''
+    env = os.environ | {
+        "X3_TEST_LIBRARY": str(library), "X3_TEST_TRACE": str(trace),
+        "X3_TEST_ENTRYPOINT": entrypoint, "X3_AGENT_RUN_DIR": str(tmp_path),
+        "X3_AGENT_PREPAID_STORAGE": mode, "CONTRACT": "guard.sandbox", "AGENT_ACCOUNT": "agent.sandbox",
+        "AGENT_KEY": "fixture-only.json", "RECIPIENT": "recipient.sandbox", "AMOUNT": "5",
+        "UNITS": "5000000", "SOLANA": "test-refund", "MIN_RECEIVE": "4900000", "OWNER": "owner.sandbox",
+    }
+    result = subprocess.run(["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    calls = trace.read_text().splitlines()
+    assert len(calls) == 1
+    assert ("--prepaid-agent-storage" in calls[0].split()) == (mode == "1")
+
+
+def test_prepaid_storage_mode_rejects_invalid_configuration_before_any_command(tmp_path):
+    env = os.environ | {"X3_AGENT_PREPAID_STORAGE": "auto", "X3_AGENT_RUN_DIR": str(tmp_path)}
+    result = subprocess.run(["bash", str(SCRIPT), "show"], env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode != 0
+    assert "X3_AGENT_PREPAID_STORAGE must be 0 or 1" in result.stderr
