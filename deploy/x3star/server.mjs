@@ -90,7 +90,10 @@ export function loadManifest(manifestPath) {
     if (url.protocol !== 'https:' || url.pathname !== '/' || url.search || url.hash) throw new Error(`CSP origin must be a bare https origin: ${o}`);
     return url.origin;
   });
-  return {sites, files, csp: {connect: origins(csp.connect), style: origins(csp.style), font: origins(csp.font)}};
+  return {sites, files, csp: {
+    connect: origins(csp.connect), style: origins(csp.style), font: origins(csp.font),
+    media: origins(csp.media), img: origins(csp.img),
+  }};
 }
 
 export function loadConfig(env, here = path.dirname(fileURLToPath(import.meta.url))) {
@@ -211,7 +214,8 @@ export function buildCsp(manifest, scriptHashes) {
     `script-src 'self'${scriptHashes.length ? ` ${scriptHashes.join(' ')}` : ''}`,
     `style-src 'self' 'unsafe-inline'${manifest.csp.style.map((o) => ` ${o}`).join('')}`,
     `font-src 'self'${manifest.csp.font.map((o) => ` ${o}`).join('')}`,
-    "img-src 'self' data:",
+    `img-src 'self' data:${(manifest.csp.img ?? []).map((o) => ` ${o}`).join('')}`,
+    `media-src 'self'${(manifest.csp.media ?? []).map((o) => ` ${o}`).join('')}`,
     `connect-src 'self'${manifest.csp.connect.map((o) => ` ${o}`).join('')}`,
     "base-uri 'none'",
     "form-action 'none'",

@@ -48,6 +48,8 @@
   "csp": {
     "connect": ["https://1click.chaindefuser.com", "https://free.rpc.fastnear.com"],
     "style": ["https://fonts.googleapis.com"],
-    "font": ["https://fonts.gstatic.com"]
+    "font": ["https://fonts.gstatic.com"],
+    "media": ["https://dotx3.net"],
+    "img": ["https://dotx3.net"]
   }
 }
