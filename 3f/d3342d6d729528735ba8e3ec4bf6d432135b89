@@ -1,0 +1,14 @@
+x3-lang/vm/src/trading.rs
+  h_e41068bed968d7 7,2282,2481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3fd3342d6d729528735ba8e3ec4bf6d432135b89",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
