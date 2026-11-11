@@ -2841,11 +2841,16 @@ name = "x3-guard-near-sandbox-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
+ "bs58",
+ "chrono",
+ "ed25519-dalek",
  "futures",
  "near-account-id 3.0.0",
  "near-api",
  "near-sandbox",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
 ]
 
