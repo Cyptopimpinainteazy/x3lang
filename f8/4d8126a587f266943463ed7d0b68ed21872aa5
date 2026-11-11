@@ -1,0 +1,32 @@
+audit-artifacts/agent-key-pin-validation-20261111/verification.json
+  h_e41068bed968d7 1-132
+docs/security/GUARD_SCOPED_STORAGE.md
+  h_e41068bed968d7 46-48,54-103
+x3-lang/near/agent-demo.sh
+  h_e41068bed968d7 49-54,98-102
+x3-lang/near_agent.py
+  h_e41068bed968d7 337-339,342-343,460-463,748,758,780,817-818
+x3-lang/near_agent_key.py
+  h_e41068bed968d7 1-223
+x3-lang/near_intents.py
+  h_e41068bed968d7 1356-1368,1483-1492,1508-1510,1566,2047,2057,2194,2210-2212
+x3-lang/tests/test_agent_demo_status_flow.py
+  h_e41068bed968d7 148-150,159-160,168-196
+x3-lang/tests/test_near_agent.py
+  h_e41068bed968d7 522-524,547-549,555-558,565-567
+x3-lang/tests/test_near_agent_key.py
+  h_e41068bed968d7 1-257
+x3-lang/tests/test_near_mandate.py
+  h_e41068bed968d7 330-332,334,439-441,447-450,460-462,470-473
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f84d8126a587f266943463ed7d0b68ed21872aa5",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
