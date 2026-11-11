@@ -1,0 +1,20 @@
+audit-artifacts/agent-offline-signing-boundary-20261111/verification.json
+  h_e41068bed968d7 1-97
+docs/security/GUARD_SCOPED_STORAGE.md
+  h_e41068bed968d7 75-91,95,97
+x3-lang/near_agent_key.py
+  h_e41068bed968d7 138-185,188,190,202-208,213-214,217,221,223-224,226-263
+x3-lang/tests/test_near_agent_key.py
+  h_e41068bed968d7 3-4,16-23,32-33,82-101,129,132,249,261,263,266-273,276-282,297-440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1ad2982139aedeab9dc1300e79d10ef4bff70731",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
