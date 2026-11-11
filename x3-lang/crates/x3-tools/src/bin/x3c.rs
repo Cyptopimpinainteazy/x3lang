@@ -1807,7 +1807,14 @@ fn cmd_test_fixture(out: &PathBuf) -> Result<ExitCode, String> {
 
 fn cmd_intent(input: &PathBuf, emit_hash: bool, emit_plan: bool, out: Option<&PathBuf>) -> Result<ExitCode, String> {
     let source = read_source(input)?;
-    let program = x3_lang_compiler::parser::parse_source(&source).map_err(|e| format!("parse error: {e}"))?;
+    let (program, _, diagnostics) = x3_lang_compiler::check_source_diagnostics(&source)
+        .map_err(|error| format!("intent admission failed: {error}"))?;
+    if !diagnostics.errors.is_empty() {
+        return Err(format!("intent admission failed: {:?}", diagnostics.errors));
+    }
+    for warning in &diagnostics.warnings {
+        eprintln!("x3c warning: {warning}");
+    }
 
     let intent_decl = program
         .items
@@ -1819,6 +1826,9 @@ fn cmd_intent(input: &PathBuf, emit_hash: bool, emit_plan: bool, out: Option<&Pa
         .ok_or_else(|| "no intent declaration found in source".to_string())?;
 
     let draft = x3_lang_compiler::intent_emit::from_intent_decl(intent_decl);
+    if draft.timeout_secs == 0 {
+        return Err("intent export requires a positive representable timeout".to_string());
+    }
 
     let mut output = serde_json::json!({
         "name": draft.name,
@@ -1826,8 +1836,10 @@ fn cmd_intent(input: &PathBuf, emit_hash: bool, emit_plan: bool, out: Option<&Pa
         "source_asset": draft.source_asset,
         "source_amount": draft.source_amount,
         "source_owner": draft.source_owner,
+        "source_lock_contract": draft.source_lock_contract,
         "dest_chain": draft.dest_chain,
         "dest_asset": draft.dest_asset,
+        "dest_min_amount": draft.dest_min_amount,
         "dest_receiver": draft.dest_receiver,
         "timeout_secs": draft.timeout_secs,
         "mandate_owner": draft.mandate_owner,
