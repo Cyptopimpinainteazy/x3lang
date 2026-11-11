@@ -134,24 +134,32 @@ async fn main() -> Result<()> {
     ensure!(allowed.is_success(), "permitted scoped method was rejected");
     println!("X3_SANDBOX_SCOPED_ALLOWED_METHOD_OK local_only=true guard_method=state_version");
 
+    // Public candidate policy shape, local owner/agent bindings and a relative
+    // Sandbox deadline. This is execution-gas evidence, not a mainnet transaction.
+    let block = near_api::Chain::block().fetch_from(&network).await?;
+    let deadline_ms = block.header.timestamp_nanosec.parse::<u64>()? / 1_000_000 + 3_600_000;
+    let program = "c922179f25423e62f09e037a4d4096cf805420cb752dd29a5154df60b1cb8b21";
+    let origin = "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near";
+    let destination = "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
+    let refund = "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ";
     // Real zero-deposit scoped signer against owner-funded Guard storage.
     let policy = json!({
-        "program_sha256": "a".repeat(64), "origin_asset": "nep141:usdc.near",
-        "destination_asset": "nep141:usdc.near", "amount": "25000000",
-        "min_receive": "24800000", "slippage_bps": 50, "fee_cap_bps": 100,
-        "recipient": "x3-demo.near", "refund_to": "refund.sandbox",
-        "deadline_ms": 3_900_000_000_000u64,
+        "program_sha256": program, "origin_asset": origin,
+        "destination_asset": destination, "amount": "25000000",
+        "min_receive": "24750000", "slippage_bps": 90, "fee_cap_bps": 100,
+        "recipient": "x3lang.near", "refund_to": refund,
+        "deadline_ms": deadline_ms,
     });
     guard
         .call_function(
             "create_mandate",
             json!({"agent": agent_id, "terms": {
-                "program_sha256": "a".repeat(64), "asset": "nep141:usdc.near",
+                "program_sha256": program, "asset": origin,
                 "per_payment_cap": "50000000", "daily_cap": "50000000",
-                "destination_assets": ["nep141:usdc.near"], "recipients": ["x3-demo.near"],
-                "refund_to": "refund.sandbox", "max_slippage_bps": 100, "max_fee_bps": 100,
+                "destination_assets": [destination], "recipients": ["x3lang.near"],
+                "refund_to": refund, "max_slippage_bps": 100, "max_fee_bps": 100,
                 "approval_above": null, "approvers": [], "approval_threshold": 0,
-                "expires_at_ms": 4_000_000_000_000u64,
+                "expires_at_ms": deadline_ms + 3_600_000,
             }}),
         )
         .transaction()
@@ -212,7 +220,7 @@ async fn main() -> Result<()> {
         );
         println!("X3_SANDBOX_STORAGE_UPGRADE_OK local_only=true existing_intent_preserved=true existing_mandate_preserved=true no_migration=true");
     }
-    let args = json!({"owner": guard_id, "nonce": "scoped_storage", "policy": policy});
+    let args = json!({"owner": guard_id, "nonce": "mainnet_demo_nov11_invoice_04", "policy": policy});
     let unfunded = guard
         .call_function("agent_register_intent", args.clone())
         .transaction()
@@ -225,7 +233,10 @@ async fn main() -> Result<()> {
         "unfunded scoped write did not fail at storage budget: {unfunded:?}"
     );
     let missing: serde_json::Value = guard
-        .call_function("get_intent", json!({"owner": guard_id, "nonce": "scoped_storage"}))
+        .call_function(
+            "get_intent",
+            json!({"owner": guard_id, "nonce": "mainnet_demo_nov11_invoice_04"}),
+        )
         .read_only()
         .fetch_from(&network)
         .await?
@@ -253,14 +264,29 @@ async fn main() -> Result<()> {
         funded.parse::<u128>()? > 0 && funded.parse::<u128>()? < 100_000_000_000_000_000_000_000u128,
         "funding did not charge credit-record storage"
     );
-    guard
+    let registration = guard
         .call_function("agent_register_intent", args)
         .transaction()
-        .gas(NearGas::from_tgas(100))
+        // Regression: the reviewed lower-gas registration must execute on real Sandbox.
+        .gas(NearGas::from_tgas(10))
         .with_signer(agent_id.clone(), scope_key.clone())
         .send_to(&network)
         .await?
         .assert_success();
+    let registered: serde_json::Value = guard
+        .call_function(
+            "get_intent",
+            json!({"owner": guard_id, "nonce": "mainnet_demo_nov11_invoice_04"}),
+        )
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(!registered.is_null(), "10 Tgas registration left no intent");
+    println!(
+        "X3_SANDBOX_REGISTRATION_GAS_OK local_only=true prepaid_tgas=10 zero_deposit=true gas_burnt={}",
+        registration.total_gas_burnt.as_gas()
+    );
     let remaining: String = guard
         .call_function(
             "get_agent_storage_balance",

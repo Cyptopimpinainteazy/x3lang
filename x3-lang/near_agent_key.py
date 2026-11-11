@@ -105,6 +105,77 @@ def check_access_key(*, account, public_key, contract, method, max_allowance_yoc
             "account_other_keys": "not_checked; owner recovery keys may remain", "broadcasted": False}
 
 
+def _gas(gas_tgas):
+    if type(gas_tgas) is not int or not 1 <= gas_tgas <= 30:
+        raise AgentKeyError("X3_AGENT_KEY_GAS")
+    return gas_tgas * 10**12
+
+
+def admission_cost(*, runtime_config, gas_price, gas_tgas, method, arguments, sender_is_receiver):
+    """NEAR 2.14 single Ed25519 FunctionCall, zero-deposit upfront purchase.
+
+    This is allowance reservation, NOT the final burnt fee. The receipt price
+    uses min_gas_purchase_price, even when the current block price is lower.
+    """
+    prepaid = _gas(gas_tgas)
+    try:
+        def number(value):
+            if type(value) is int and 0 <= value <= U128_MAX:
+                return value
+            if isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]{0,38}", value) and int(value) <= U128_MAX:
+                return int(value)
+            raise ValueError
+        price = number(gas_price)
+        floor = number(runtime_config["min_gas_purchase_price"])
+        if price <= 0 or not isinstance(method, str) or not isinstance(arguments, str) or type(sender_is_receiver) is not bool:
+            raise ValueError
+        fees = runtime_config["transaction_costs"]
+        receipt = fees["action_receipt_creation_config"]
+        call = fees["action_creation_config"]["function_call_cost"]
+        byte = fees["action_creation_config"]["function_call_cost_per_byte"]
+        size = len(method.encode("utf-8")) + len(arguments.encode("utf-8"))
+        send = "send_sir" if sender_is_receiver else "send_not_sir"
+        send_gas = number(receipt[send]) + number(call[send]) + size * number(byte[send])
+        execution = number(receipt["execution"]) + number(call["execution"]) + size * number(byte["execution"])
+        receipt_price = max(price, floor)
+        required = send_gas * price + (prepaid + execution) * receipt_price
+        if required > U128_MAX or send_gas + prepaid + execution > (1 << 64) - 1:
+            raise ValueError
+        return {"required_allowance_yocto": str(required), "receipt_gas_price_yocto": str(receipt_price),
+                "current_gas_price_yocto": str(price), "send_gas": send_gas,
+                "receipt_execution_overhead_gas": execution, "prepaid_gas": prepaid,
+                "actual_burnt_fee_yocto": None}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise AgentKeyError("X3_AGENT_KEY_COST_CONFIG") from None
+
+
+def check_admission_cost(*, checked, network, method, arguments, gas_tgas, transport=urllib_transport):
+    """Read fees at the same finalized block as the checked access key; fail closed."""
+    def query(method_name):
+        try:
+            payload = {"jsonrpc": "2.0", "id": "x3-agent-cost", "method": method_name,
+                       "params": {"block_id": checked["block_hash"]}}
+            status, raw = transport("POST", RPC_URLS[network], {"Content-Type": "application/json"},
+                                    json.dumps(payload).encode(), 15.0)
+            response = json.loads(raw)
+            if status != 200 or response.get("error") is not None or not isinstance(response.get("result"), dict):
+                raise ValueError
+            return response["result"]
+        except Exception:
+            raise AgentKeyError("X3_AGENT_KEY_COST_RPC") from None
+    config = query("EXPERIMENTAL_protocol_config")
+    price = query("gas_price")
+    try:
+        cost = admission_cost(runtime_config=config["runtime_config"], gas_price=price["gas_price"],
+                              gas_tgas=gas_tgas, method=method, arguments=arguments,
+                              sender_is_receiver=checked["account"] == checked["receiver_id"])
+    except KeyError:
+        raise AgentKeyError("X3_AGENT_KEY_COST_CONFIG") from None
+    if int(cost["required_allowance_yocto"]) > _positive(checked["allowance"]):
+        raise AgentKeyError("X3_AGENT_KEY_INSUFFICIENT_ALLOWANCE")
+    return cost
+
+
 def _credential_snapshot(key_file, account, public_key):
     import os
     import stat
@@ -135,7 +206,7 @@ def _credential_snapshot(key_file, account, public_key):
         raise AgentKeyError("X3_AGENT_KEY_CREDENTIAL") from None
 
 
-def _signed_artifact(output, *, account, public_key, contract, method, arguments, checked):
+def _signed_artifact(output, *, account, public_key, contract, method, arguments, checked, gas_tgas=30):
     """Admit only the exact NEAR V0/single FunctionCall transaction, signed by the pin.
 
     This compares the installed CLI's Borsh output; it does not implement a signer.
@@ -158,7 +229,7 @@ def _signed_artifact(output, *, account, public_key, contract, method, arguments
         expected = (blob(account) + b"\0" + public + (checked["nonce"] + 1).to_bytes(8, "little")
                     + blob(contract) + ed25519.b58decode(checked["block_hash"])
                     + (1).to_bytes(4, "little") + b"\x02" + blob(method) + blob(arguments)
-                    + (30_000_000_000_000).to_bytes(8, "little") + bytes(16))
+                    + (_gas(gas_tgas)).to_bytes(8, "little") + bytes(16))
         if len(raw) != len(expected) + 65 or raw[:len(expected)] != expected or raw[len(expected)] != 0:
             raise ValueError
         digest = hashlib.sha256(expected).digest()
@@ -184,13 +255,14 @@ def _local_cli_error(output):
 
 
 def execute(*, account, public_key, contract, method, max_allowance_yocto, key_file, args,
-            network="mainnet", attached_deposit="0 NEAR", transport=urllib_transport, runner=None, clock=None):
+            network="mainnet", attached_deposit="0 NEAR", gas_tgas=30, transport=urllib_transport, runner=None, clock=None):
     """Offline CLI signing, exact artifact admission, then one fixed-RPC send (no retry)."""
     import os
     import base64
     import subprocess
     import tempfile
     import time
+    _gas(gas_tgas)
     clock = clock or time.monotonic
     if attached_deposit != "0 NEAR" or not isinstance(args, dict):
         raise AgentKeyError("X3_AGENT_KEY_CALL")
@@ -205,13 +277,15 @@ def execute(*, account, public_key, contract, method, max_allowance_yocto, key_f
             raise ValueError
     except (ValueError, TypeError):
         raise AgentKeyError("X3_AGENT_KEY_CALL") from None
+    check_admission_cost(checked=checked, network=network, method=method, arguments=arguments,
+                         gas_tgas=gas_tgas, transport=transport)
     # A private snapshot binds the validated bytes to the CLI input, not OS isolation.
     with tempfile.TemporaryDirectory(prefix="x3-agent-key-") as directory:
         snapshot = os.path.join(directory, "access-key.json")
         with os.fdopen(os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as handle:
             json.dump(credential, handle)
         command = ["near", "--offline", "contract", "call-function", "as-transaction", contract, method,
-                   "base64-args", base64.b64encode(arguments.encode("utf-8")).decode(), "prepaid-gas", "30 Tgas", "attached-deposit", "0 NEAR", "sign-as", account,
+                   "base64-args", base64.b64encode(arguments.encode("utf-8")).decode(), "prepaid-gas", f"{gas_tgas} Tgas", "attached-deposit", "0 NEAR", "sign-as", account,
                    "network-config", network, "sign-with-access-key-file", snapshot,
                    "--nonce", str(checked["nonce"] + 1), "--block-hash", checked["block_hash"],
                    "--block-height", str(checked["block_height"]), "display"]
@@ -226,7 +300,7 @@ def execute(*, account, public_key, contract, method, max_allowance_yocto, key_f
         if result.returncode:
             raise AgentKeyError(_local_cli_error(output))
         encoded, transaction_hash = _signed_artifact(output, account=account, public_key=public_key,
-                     contract=contract, method=method, arguments=arguments, checked=checked)
+                     contract=contract, method=method, arguments=arguments, checked=checked, gas_tgas=gas_tgas)
         if not 0 <= clock() - started <= 60:
             raise AgentKeyError("X3_AGENT_KEY_STALE")
         # Never pass signed bytes back through mutable CLI network configuration.
@@ -274,6 +348,8 @@ def main(argv=None):
     parser.add_argument("--method", required=True, choices=METHODS)
     parser.add_argument("--max-allowance-yocto", required=True)
     parser.add_argument("--network", choices=tuple(RPC_URLS), default="mainnet")
+    parser.add_argument("--gas-tgas", type=int, choices=range(1, 31), default=30,
+                        help="Explicit owner-reviewed prepaid gas, 1..30 Tgas (default: 30); never auto-adjusted")
     parser.add_argument("--key-file")
     parser.add_argument("--args-json")
     options = parser.parse_args(argv)
@@ -291,7 +367,7 @@ def main(argv=None):
             args = json.loads(options.args_json)
         except ValueError:
             raise AgentKeyError("X3_AGENT_KEY_CALL") from None
-        return execute(**common, key_file=options.key_file, args=args)
+        return execute(**common, key_file=options.key_file, args=args, gas_tgas=options.gas_tgas)
     except AgentKeyError as exc:
         print(json.dumps({"error": str(exc), "broadcasted": "unknown" if "OUTCOME_UNKNOWN" in str(exc) else False}),
               file=sys.stderr)

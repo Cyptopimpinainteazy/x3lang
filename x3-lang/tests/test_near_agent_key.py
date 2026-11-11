@@ -31,6 +31,10 @@ class Rpc:
         self.requests.append(request)
         if request["method"] == "send_tx":
             return 200, json.dumps(final_response(request)).encode()
+        if request["method"] == "EXPERIMENTAL_protocol_config":
+            return 200, json.dumps({"result": {"runtime_config": protocol_fees()}}).encode()
+        if request["method"] == "gas_price":
+            return 200, json.dumps({"result": {"gas_price": "100000000"}}).encode()
         result = {"chain_id": "mainnet"} if request["method"] == "status" else {
             "block_height": 123, "block_hash": "11111111111111111111111111111111", "nonce": 1,
             "permission": self.permission,
@@ -129,7 +133,7 @@ def test_send_uses_only_validated_credential_snapshot_then_removes_it(tmp_path):
         return CompletedProcess(command, 0, signed_output(command, value), "")
 
     assert send(path, value, transport, runner) == 0
-    assert len(calls) == 1 and len(rpc.requests) == 3
+    assert len(calls) == 1 and len(rpc.requests) == 5
     assert not snapshots[0].exists()
 
 
@@ -296,9 +300,10 @@ def test_invalid_call_configuration_never_invokes_cli(tmp_path, changes):
         send(path, value, Rpc(restricted()), forbidden, **changes)
 
 
+@pytest.mark.parametrize("gas_tgas", [30, 10])
 @pytest.mark.parametrize("arguments", [{"nonce": "fixture"},
     {"nonce": "fixture", "signed_payload": '{"memo":"synthetic quote"}', "text": "Unicode λ", "nested": [True, 1]}])
-def test_real_cli_offline_display_binds_exact_reviewed_transaction(tmp_path, capsys, arguments):
+def test_real_cli_offline_display_binds_exact_reviewed_transaction(tmp_path, capsys, arguments, gas_tgas):
     """Installed CLI with synthetic key only; RPC send is intercepted, never broadcast."""
     import shutil
     import subprocess
@@ -338,13 +343,13 @@ def test_real_cli_offline_display_binds_exact_reviewed_transaction(tmp_path, cap
         assert number(4) == 1 and number(1) == 2
         assert string() == b"agent_register_intent"
         assert json.loads(string()) == arguments
-        assert number(8) == 30_000_000_000_000 and number(16) == 0
+        assert number(8) == gas_tgas * 10**12 and number(16) == 0
         unsigned = raw[:offset]
         assert number(1) == 0
         Ed25519PublicKey.from_public_bytes(public).verify(take(64), hashlib.sha256(unsigned).digest())
         assert offset == len(raw)
         return 200, json.dumps(final_response(request)).encode()
-    assert send(path, value, transport, offline_only, args=arguments) == 0
+    assert send(path, value, transport, offline_only, args=arguments, gas_tgas=gas_tgas) == 0
     assert len(calls) == 1
     assert value["private_key"] not in capsys.readouterr().out
 
@@ -377,7 +382,7 @@ def test_altered_signed_artifact_never_reaches_broadcast(tmp_path, field):
         return CompletedProcess(command, 0, output, "")
     with pytest.raises(keys.AgentKeyError, match="X3_AGENT_KEY_SIGNED_TRANSACTION_MISMATCH"):
         send(path, value, rpc, runner)
-    assert len(rpc.requests) == 2
+    assert len(rpc.requests) == 4
 
 
 def test_stale_after_signing_never_broadcasts(tmp_path):
@@ -388,7 +393,7 @@ def test_stale_after_signing_never_broadcasts(tmp_path):
     def runner(command, **kwargs): return CompletedProcess(command, 0, signed_output(command, value), "")
     with pytest.raises(keys.AgentKeyError, match="X3_AGENT_KEY_STALE"):
         send(path, value, rpc, runner, clock=lambda: next(ticks))
-    assert len(rpc.requests) == 2
+    assert len(rpc.requests) == 4
 
 
 @pytest.mark.parametrize("failure", ["timeout", "http", "malformed", "rpc_error", "execution_failure", "missing_outcome", "missing_status", "unknown_status", "wrong_hash", "wrong_signer", "wrong_receiver"])
@@ -437,4 +442,86 @@ def test_local_cli_failure_is_sanitized_and_cannot_broadcast(tmp_path, message, 
     with pytest.raises(keys.AgentKeyError) as error:
         send(path, value, rpc, runner)
     assert str(error.value) == code
-    assert len(rpc.requests) == 2
+    assert len(rpc.requests) == 4
+
+@pytest.mark.parametrize('gas_tgas', [0, 31, -1, True, 1.5, '10'])
+def test_invalid_gas_fails_before_credentials_rpc_or_cli(gas_tgas):
+    with pytest.raises(keys.AgentKeyError, match='X3_AGENT_KEY_GAS'):
+        keys.execute(account='agent.near', public_key=PUBLIC, contract='guard.near',
+                     method=METHODS[0], max_allowance_yocto='1', key_file='/nonexistent', args={}, gas_tgas=gas_tgas)
+
+
+def protocol_fees():
+    return {'min_gas_purchase_price': '1000000000', 'transaction_costs': {
+        'action_receipt_creation_config': {'send_not_sir': 108059500000, 'send_sir': 108059500000, 'execution': 108059500000},
+        'action_creation_config': {
+            'function_call_cost': {'send_not_sir': 200000000000, 'send_sir': 200000000000, 'execution': 780000000000},
+            'function_call_cost_per_byte': {'send_not_sir': 47683715, 'send_sir': 2235934, 'execution': 2235934}}}}
+
+
+@pytest.mark.parametrize('gas,expected', [(30, 30922689800803000000000), (10, 10922689800803000000000),
+                                         (5, 5922689800803000000000)])
+def test_admission_uses_purchase_floor_not_current_price_only(gas, expected):
+    cost = keys.admission_cost(runtime_config=protocol_fees(), gas_price='100000000', gas_tgas=gas,
+                               method=METHODS[0], arguments='x' * 525, sender_is_receiver=False)
+    assert cost['required_allowance_yocto'] == str(expected)
+    assert cost['receipt_gas_price_yocto'] == '1000000000'
+    assert cost['actual_burnt_fee_yocto'] is None
+
+
+def test_ten_tgas_signed_artifact_mismatch_cannot_broadcast(tmp_path):
+    from subprocess import CompletedProcess
+    path, value = credential(tmp_path)
+    rpc = Rpc(restricted())
+    def altered(command, **kwargs):
+        assert command[command.index('prepaid-gas') + 1] == '10 Tgas'
+        command[command.index('prepaid-gas') + 1] = '30 Tgas'
+        return CompletedProcess(command, 0, signed_output(command, value), '')
+    with pytest.raises(keys.AgentKeyError, match='SIGNED_TRANSACTION_MISMATCH'):
+        send(path, value, rpc, altered, gas_tgas=10)
+    assert all(r['method'] != 'send_tx' for r in rpc.requests)
+
+
+def test_insufficient_allowance_refuses_before_signing_and_cost_queries_pin_block(tmp_path):
+    path, value = credential(tmp_path)
+    rpc = Rpc(restricted(allowance='20000000000000000000000'))
+    def forbidden(*args, **kwargs):
+        pytest.fail('insufficient allowance must not sign')
+    with pytest.raises(keys.AgentKeyError, match='X3_AGENT_KEY_INSUFFICIENT_ALLOWANCE'):
+        send(path, value, rpc, forbidden)
+    assert [r['method'] for r in rpc.requests] == ['status', 'query', 'EXPERIMENTAL_protocol_config', 'gas_price']
+    assert all(r['params'] == {'block_id': '11111111111111111111111111111111'} for r in rpc.requests[2:])
+
+
+@pytest.mark.parametrize('response', [(503, b'private diagnostic'), (200, b'{}'),
+    (200, b'{"error":{"message":"private diagnostic"}}'),
+    (200, b'{"result":{"runtime_config":{}}}')])
+def test_cost_rpc_and_malformed_config_fail_before_signing(tmp_path, response):
+    path, value = credential(tmp_path)
+    rpc = Rpc(restricted())
+    def transport(method, url, headers, body, timeout):
+        if json.loads(body)['method'] == 'EXPERIMENTAL_protocol_config':
+            return response
+        return rpc(method, url, headers, body, timeout)
+    def forbidden(*args, **kwargs):
+        pytest.fail('invalid cost data must not sign')
+    with pytest.raises(keys.AgentKeyError, match='X3_AGENT_KEY_COST_'):
+        send(path, value, transport, forbidden)
+    assert all(r['method'] != 'send_tx' for r in rpc.requests)
+
+
+@pytest.mark.parametrize('floor', [-1, True, 'invalid', str(2**128)])
+def test_invalid_purchase_floor_is_not_treated_as_zero(floor):
+    config = protocol_fees()
+    config['min_gas_purchase_price'] = floor
+    with pytest.raises(keys.AgentKeyError, match='X3_AGENT_KEY_COST_CONFIG'):
+        keys.admission_cost(runtime_config=config, gas_price='100000000', gas_tgas=10,
+                            method=METHODS[0], arguments='{}', sender_is_receiver=False)
+
+
+def test_current_price_above_floor_and_utf8_bytes_are_counted():
+    result = keys.admission_cost(runtime_config=protocol_fees(), gas_price='2000000000', gas_tgas=10,
+                                method=METHODS[0], arguments='λ', sender_is_receiver=True)
+    send = 108059500000 + 200000000000 + 23 * 2235934
+    execution = 108059500000 + 780000000000 + 23 * 2235934
+    assert result['required_allowance_yocto'] == str((send + execution + 10**13) * 2000000000)
