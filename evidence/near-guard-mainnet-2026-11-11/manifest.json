@@ -1,5 +1,5 @@
 {
-  "schema": "x3.guard.mainnet.deployment-recovery-and-agent-provisioning.v2",
+  "schema": "x3.guard.mainnet.deployment-recovery-agent-and-authorization.v3",
   "network": "mainnet",
   "account": "x3lang.near",
   "runtime_source_commit": "9dcea3cc72ea77532c1f2678e367d09a85c81e6b",
@@ -25,6 +25,15 @@
     },
     "addkey-verification.json": {
       "sha256": "fc585e22a64d000c062b644c4011d89c336b2b5eb989b14071c6f5bb28eaac79"
+    },
+    "registration-admission-observation.json": {
+      "sha256": "6ba3307a38c6c31922d93d85b2e6860fd6d1d644e1d5ab90cdbee541a34dd540"
+    },
+    "registration-verification.json": {
+      "sha256": "7560ac370c05eb01978b9d12123b8e6663c431b507928ade3fdaa6b6bf8d1f62"
+    },
+    "owner-authorization-verification.json": {
+      "sha256": "bc6ece7abf4b9f11c5749e5eecec52e8407f4201d1b36a8e4786e57e964b05bd"
     }
   },
   "limitations": [
@@ -33,12 +42,13 @@
     "Balances, key permissions and available storage credit must be refreshed before future operations.",
     "No private keys, credentials, raw contract state values or signed quote receipts included.",
     "Owner FullAccess recovery key remains on the agent account; this trusted-operator setup does not establish OS/runtime credential isolation.",
-    "The FunctionCall allowance is a spending limit for transaction costs, not a transfer of funds to the agent or a payment approval."
+    "The FunctionCall allowance is a spending limit for transaction costs, not a transfer of funds to the agent or a payment approval.",
+    "Intent registration and owner approval do not prove quote acceptance, a source-chain deposit or cross-chain settlement. Upfront gas reservations differ from finalized charged fees."
   ],
   "storage_funding_transaction": "72QrfNRf131kxnBTmZb8EJjQP6H3MKEWxvSBrMuyB9qw",
   "storage_agent": "x3-agent.x3lang.near",
   "storage_self_allocation_near": "0.03",
-  "unused_agent_storage_credit_near": "0.02891",
+  "unused_agent_storage_credit_near": "0.02392",
   "agent_addkey_transaction": "5NbFPn49edaLsdiy6FtZ2wzb73k4SZfEfDqvg5CQ2MaQ",
   "agent_delegated_public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x",
   "agent_function_call_receiver": "x3lang.near",
@@ -47,9 +57,8 @@
     "agent_accept_quote",
     "agent_record_outcome"
   ],
-  "agent_function_call_allowance_near": "0.02",
+  "agent_function_call_allowance_near": "0.0197154472755193",
   "agent_owner_recovery_full_access_retained": true,
-  "new_payment_registration_quote_or_swap_authorized_or_sent": false,
   "compiler_readiness": {
     "pr": "https://github.com/Cyptopimpinainteazy/x3lang/pull/210",
     "head": "c358f092ededd4ac1c1d58049d16a7db09efe947",
@@ -60,5 +69,30 @@
     "rust_toolchain": "1.90.0",
     "hosted_ci": "not yet complete at documentation observation; external RecurseML ERROR",
     "scope": "local proof only; not payment authorization or mainnet settlement"
+  },
+  "registration_transaction": "EfBwTeb4rHNZzDjXfiJGD2J5SwL4QSayaBLaLJUqWA7k",
+  "owner_authorization_transaction": "6i8ur3A9FtaLnSz6uk1pCUt3TSp4uhHBPkDKQfLs3GYk",
+  "registration_and_owner_authorization_finalized": true,
+  "registered_intent_nonce": "mainnet_demo_nov11_invoice_04",
+  "registered_intent_source_sha256": "c922179f25423e62f09e037a4d4096cf805420cb752dd29a5154df60b1cb8b21",
+  "registered_intent_mandate_version": 3,
+  "registration_gas_tgas": 10,
+  "registration_attached_deposit_yocto": "0",
+  "accepted_quote_present_at_final_observation": false,
+  "outcome_present_at_final_observation": false,
+  "funded_source_deposit_or_official_settlement_proven": false,
+  "last_verified_block": {
+    "height": 224120956,
+    "hash": "wbPdWFmR2iyJuwmK96RzC5xSqz3aHLQB7bkuPNS7rrL"
+  },
+  "agent_function_call_initial_allowance_near": "0.02",
+  "client_readiness": {
+    "offline_pin_pr": 211,
+    "offline_pin_head": "1ad2982139aedeab9dc1300e79d10ef4bff70731",
+    "gas_admission_pr": 212,
+    "gas_admission_head": "4594496a79eda2796eb1670c825e44e00367094f",
+    "merged": false,
+    "local_tests": "passed; see registration-admission-observation.json",
+    "hosted_ci": "not established by local test evidence"
   }
 }
