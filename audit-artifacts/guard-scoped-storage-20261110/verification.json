@@ -1,0 +1,125 @@
+{
+  "environment": "local unit tests and ephemeral NEAR Sandbox; mainnet bytecode read-only",
+  "captured_at_utc": "2026-11-11T03:08:47.872627+00:00",
+  "base_commit": "09510d3fb5bd146dcd86030900fce102612244a8",
+  "tested_state": "uncommitted source hashes below; CI tracked separately on final PR head",
+  "platform": "Linux-6.8.0-147-generic-x86_64-with-glibc2.39",
+  "rust": "1.99.1 (58cf8f9c3 2026-10-13)",
+  "python": "3.12.3",
+  "node": "24.22.1",
+  "mainnet_transactions": [],
+  "old_mainnet_binary": {
+    "code_hash": "GRy6z84ucCR9WMVXyepibVDC34TyKwjWtEi9rteKJtny",
+    "bytes": 551278,
+    "read_only_block_height": 224007346
+  },
+  "proposed_binary": {
+    "wasm_bytes": 572248,
+    "sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+    "expected_new_code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T"
+  },
+  "source_sha256": {
+    "x3-lang/near/x3-guard/src/mandate_tests.rs": "8734550d32a0dedc8edbab75f9545fb5a37f3aba741453793f2d7d8f05377eea",
+    "x3-lang/near/x3-guard/src/tests.rs": "e8b7387412aefd4fca42ff64669a7dcc25d04cb8631039a4c2f064aea5404fb3",
+    "x3-lang/near/x3-guard/src/lib.rs": "4ce783bdec607c2e8beb45b1ad1a2313d497a567c3787d6d355882fb7384064b",
+    "x3-lang/near/x3-guard/src/migration_tests.rs": "05efae3fec40c18e4c34a6c4243797c7662fbaf2c2296ab776fe3cb51731b457",
+    "x3-lang/near/x3-guard/src/mandate.rs": "b550d37042904dd4e878aa0a24bcc685d3ace543a529ecd8e9727afb06a09458",
+    "x3-lang/near/x3-guard/Cargo.toml": "64ef57fd461c0ec3104a1296c4fa4f4c11e8fd75186bd9e31e68d17f09a452e4",
+    "x3-lang/near/x3-guard/Cargo.lock": "d4449be8e84508f4297779dd83fef9f11105b1254945dee2830a716110a51bc7",
+    "x3-lang/near/x3-guard/.cargo/config.toml": "7cbea1c0ca9733f7ed83a51ace1a8fdc3d6d18276f12aff91bf31c55dbbc514f",
+    "x3-lang/near/x3-guard/rust-toolchain.toml": "cb6f6ec20c7ec7ac6500eff0d4d47df936d8312aa4775d51473eddd50a536ba0",
+    "x3-lang/near/guard-sandbox-tests/src/bin/scoped_agent_boundary.rs": "28695e0b712ed03513e75ead42fc6d43fa2d047cc65b7e588fe265c233a43fa6"
+  },
+  "checks": [
+    {
+      "check": "Guard unit tests",
+      "command": "cargo test --offline --locked --quiet",
+      "exit_code": 0,
+      "passed_tests": 68,
+      "log": "x3-scoped-storage-unit.txt",
+      "working_directory": "x3-lang/near/x3-guard"
+    },
+    {
+      "check": "Python regression suite",
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py scripts/hackathon/test_route_probe.py -q",
+      "exit_code": 0,
+      "passed_tests": 689,
+      "log": "x3-scoped-storage-python.txt",
+      "working_directory": "."
+    },
+    {
+      "check": "Node demo tests",
+      "command": "node --test --test-isolation=none --test-reporter=tap x3-lang/near/demo/test/*.test.mjs",
+      "exit_code": 0,
+      "passed_tests": 88,
+      "log": "x3-scoped-storage-node.txt",
+      "working_directory": "."
+    },
+    {
+      "check": "Guard clippy",
+      "command": "cargo clippy --offline --locked --all-targets -- -D warnings",
+      "exit_code": 0,
+      "passed_tests": null,
+      "log": "x3-scoped-storage-clippy.txt",
+      "working_directory": "x3-lang/near/x3-guard"
+    },
+    {
+      "check": "WASM check",
+      "command": "cargo check --offline --locked --target wasm32-unknown-unknown",
+      "exit_code": 0,
+      "passed_tests": null,
+      "log": "x3-scoped-storage-wasm-check.txt",
+      "working_directory": "x3-lang/near/x3-guard"
+    },
+    {
+      "check": "Normalized WASM build",
+      "command": "cargo build --offline --locked --release --target wasm32-unknown-unknown",
+      "exit_code": 0,
+      "passed_tests": null,
+      "log": "x3-scoped-storage-build-canonical.txt",
+      "working_directory": "x3-lang/near/x3-guard"
+    },
+    {
+      "check": "Local scoped-key and upgrade rehearsal",
+      "command": "NEAR_NETWORK_ID=sandbox /tmp/x3-scoped-sandbox-target/debug/scoped_agent_boundary /tmp/x3-mainnet-guard-target/wasm32-unknown-unknown/release/x3_guard.wasm /tmp/x3-guard-mainnet-before-upgrade.wasm",
+      "exit_code": 0,
+      "passed_tests": null,
+      "log": "x3-scoped-storage-upgrade-canonical.txt",
+      "working_directory": "."
+    },
+    {
+      "check": "Existing local Guard integration suite",
+      "command": "NEAR_NETWORK_ID=sandbox /tmp/x3-scoped-sandbox-target/debug/x3-guard-near-sandbox-tests /tmp/x3-mainnet-guard-target/wasm32-unknown-unknown/release/x3_guard.wasm x3-lang/tests/fixtures/x3_guard_args.json",
+      "exit_code": 0,
+      "passed_tests": null,
+      "log": "x3-scoped-storage-full-sandbox.txt",
+      "working_directory": ".",
+      "binary_note": "Executed before path-normalized rebuild; same runtime source. Final normalized binary separately passed upgrade/scoped integration."
+    }
+  ],
+  "additional_checks_passed": [
+    "Guard rustfmt",
+    "Sandbox rustfmt",
+    "bash -n scripts/hackathon/scoped_agent_sandbox_smoke.sh",
+    "bash scripts/check-near-allocator.sh",
+    "git diff --check",
+    "CI workflow YAML parse",
+    "bash -n extracted normalized-build CI step",
+    "Normalized WASM size and SHA-256 match review manifest"
+  ],
+  "independent_review": {
+    "agent": "review_scoped_storage",
+    "blocking_findings": 0,
+    "independently_executed_storage_tests": 7
+  },
+  "limitations": [
+    "Python suite skipped one test.",
+    "Failed native-transfer recovery uses a mocked promise result.",
+    "Accepted-quote storage-exhaustion/replay-ledger rollback was not exercised in Sandbox.",
+    "No public-chain deployment or swap has been performed."
+  ],
+  "build_environment": {
+    "CARGO_TARGET_DIR": "/tmp/x3-mainnet-guard-target",
+    "RUSTFLAGS": "--cfg near --remap-path-prefix=<rustc --print sysroot>/lib/rustlib/src/rust=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67 --remap-path-prefix=<CARGO_HOME>/registry/src=/home/lojak/.cargo/registry/src"
+  }
+}
