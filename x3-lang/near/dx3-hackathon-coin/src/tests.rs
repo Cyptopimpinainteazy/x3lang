@@ -431,16 +431,18 @@ fn purge_with_bound_x3_program_burns_everything() {
     assert!(get_logs().iter().filter(|l| l.contains("ft_burn")).count() == 2);
 }
 
-#[test]
-fn deploy_init_args_are_valid() {
-    let raw = include_str!("../deploy/init-args.json");
+fn check_init_args(raw: &str, suffix: &str) -> near_sdk::serde_json::Value {
     let v: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(raw).unwrap();
     let s = |k: &str| v[k].as_str().unwrap().to_string();
     let n = |k: &str| v[k].as_u64().unwrap();
     assert_eq!(s("burn_program_sha256"), BURN_X3_SHA256);
-    assert_eq!(s("expires_at"), "1795651199000000000"); // 2026-11-25 23:59:59 UTC
-                                                        // The .x3 burn program burns exactly the max supply.
+    // 2026-11-25 23:59:59 UTC, one week after judging ends.
+    assert_eq!(s("expires_at"), "1795651199000000000");
+    // The .x3 burn program burns exactly the max supply.
     assert!(BURN_X3.contains(&format!("amount {} ", s("max_supply"))));
+    for k in ["owner_id", "faucet_operator_id", "holder_parent_id"] {
+        assert!(s(k).ends_with(suffix), "{k} must be a {suffix} account");
+    }
     ctx(&owner(), START, 0);
     let c = Contract::new(
         s("owner_id").parse().unwrap(),
@@ -458,6 +460,21 @@ fn deploy_init_args_are_valid() {
     let cfg = c.hackathon_config();
     assert!(cfg.active);
     assert_eq!(cfg.claim_amount.0, 100_000_000); // 100 DX3HACK
+    v
+}
+
+#[test]
+fn deploy_init_args_are_valid() {
+    let main = check_init_args(include_str!("../deploy/init-args.json"), ".near");
+    let test = check_init_args(include_str!("../deploy/init-args.testnet.json"), ".testnet");
+    // Testnet must rehearse the exact mainnet terms; only account names differ.
+    let obj = main.as_object().unwrap();
+    for (k, val) in obj {
+        if !k.ends_with("_id") {
+            assert_eq!(&test[k], val, "testnet {k} differs from mainnet");
+        }
+    }
+    assert_eq!(obj.len(), test.as_object().unwrap().len());
 }
 
 #[test]

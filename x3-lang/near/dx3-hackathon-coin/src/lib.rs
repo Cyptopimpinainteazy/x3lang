@@ -14,6 +14,14 @@
 //!   presents the exact `.x3` burn program whose SHA-256 was bound at deploy. The contract
 //!   checks the hash on-chain.
 
+// Same rule as x3-guard: without `--cfg near`, near-sdk 5.x discards every refusal message
+// and traps with a bare `unreachable`, so judges would see crashes instead of reasons.
+#[cfg(all(target_arch = "wasm32", not(near)))]
+compile_error!(
+    "dx3-hackathon-coin: WASM must be built with `--cfg near` (cargo-near, or this crate's \
+     .cargo/config.toml). Without it near-sdk drops every refusal reason."
+);
+
 use near_contract_standards::fungible_token::core::FungibleTokenCore;
 use near_contract_standards::fungible_token::events::{FtBurn, FtMint};
 use near_contract_standards::fungible_token::metadata::{

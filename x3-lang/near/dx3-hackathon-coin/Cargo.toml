@@ -13,6 +13,10 @@ crate-type = ["cdylib", "rlib"]
 near-sdk = "5.30.1"
 near-contract-standards = "5.30.1"
 
+# `cfg(near)` is set for wasm32 by .cargo/config.toml (as cargo-near does); see src/lib.rs.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(near)"] }
+
 [dev-dependencies]
 near-sdk = { version = "5.30.1", features = ["unit-testing"] }
 

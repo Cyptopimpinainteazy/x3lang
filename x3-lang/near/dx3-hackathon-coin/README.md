@@ -45,91 +45,71 @@ cargo clippy --all-targets
 
 ## Build
 
+CI builds it: the **DX3HACK Hackathon Coin (Unsigned Build)** workflow
+(`.github/workflows/x3-dx3hack-coin.yml`) runs fmt, clippy and the tests, checks the burn
+program with `x3c` (and that its bytecode matches `x3/dx3hack_burn.x3bc`), builds the wasm
+with `--cfg near`, confirms it imports `env.panic_utf8` so refusal reasons reach the chain,
+and uploads `dx3_hackathon_coin.wasm`, `SHA256SUMS` and `PROVENANCE.txt`. No keys, no chain
+activity. Download that artifact; its `SHA256SUMS` is what you pass to `setup.sh`.
+
+To build locally instead, from this directory (its `.cargo/config.toml` sets `--cfg near`;
+`src/lib.rs` refuses to compile for wasm32 without it):
+
 ```
-cargo install cargo-near            # once
-cargo near build non-reproducible-wasm
-# -> target/near/dx3_hackathon_coin.wasm
-sha256sum target/near/dx3_hackathon_coin.wasm
+cargo build --locked --release --target wasm32-unknown-unknown
+sha256sum target/wasm32-unknown-unknown/release/dx3_hackathon_coin.wasm
 ```
 
-## Deploy (testnet first, then mainnet)
+## Set it up (testnet, then mainnet)
 
-For testnet, replace `.near` with your `.testnet` accounts in the commands and in a copy of
-`deploy/init-args.json`. Keep `expires_at` and `burn_program_sha256` as they are.
+Three owner-run scripts. They need the near CLI (near-cli-rs; commands checked against
+0.31.1) with `x3lang.<network>` in its keychain, plus `jq`, `curl`, `openssl` and
+`python3`. Every signing step prints its cost and waits for you to type `yes`. Every read
+goes straight to NEAR RPC, and each step is verified before the next. Re-running skips
+what's already done.
 
-Accounts:
+```
+deploy/setup.sh testnet ./dx3_hackathon_coin.wasm <sha256 from SHA256SUMS>
+deploy/smoke.sh testnet
+# ...check everything, then the same two on mainnet...
+deploy/lock.sh  mainnet        # permanent; only after the mainnet smoke test passed
+```
+
+**`setup.sh`**
+
+- *Preflight:* the wasm hash matches; the wasm reports refusal reasons; the args file binds `x3/dx3hack_burn.x3`; the burn is in the future; the accounts in the args file are the expected ones.
+- *Accounts it creates:* `dx3hack.x3lang.<network>` (5 NEAR: code storage and up to 500 holders), `faucet.x3lang.<network>` (0.5 NEAR) and `judges.x3lang.<network>` (2 NEAR).
+- *Deploy:* deploys with `init-args.json` (mainnet) or `init-args.testnet.json` (testnet), then reads `hackathon_config` and `ft_metadata` back and compares every field.
+- *Faucet key:* generates the faucet operator key with openssl into `~/.x3/dx3hack/faucet-key.<network>.json` (mode 600, never overwritten), adds it to the faucet account scoped to `add_holder` and `faucet_claim` on the token only, and verifies that scope on chain.
+- *Extra holders:* set `DX3HACK_EXTRA_HOLDERS="merchant.x3lang.near ..."` to allowlist owner-approved accounts.
+
+**`smoke.sh`**
+
+Signs six transactions with the faucet key (the CLI only signs; the script broadcasts with
+`send_tx`, so refused calls still yield a hash):
+
+- *Should pass:* add a judge holder; one faucet claim.
+- *Should be refused:* a second claim inside the cooldown, a lookalike parent account, a nested subaccount, and the Ref Finance DEX account.
+
+Each outcome and refusal reason is checked against RPC, and the hashes go to
+`~/.x3/dx3hack/smoke-<network>.json`, ready to add to the judge site's evidence.
+
+**`lock.sh`** deletes every full-access key on the token account after you type its name.
+After that nobody, including you, can change the code, the burn time or the bound `.x3`
+program. Owner calls from `x3lang.<network>` (pause, `end_now`, `add_holder`, `mint`) keep
+working. There is no undo.
+
+Accounts after setup:
 
 | Account | Role | Keys after setup |
 |---|---|---|
-| `dx3hack.x3lang.near` | The token contract | **None.** The full-access key is deleted, so the code can never change. |
-| `x3lang.near` | Owner (allowlists Guard and merchant, mints seeds, pause, `end_now`) | Yours |
-| `faucet.x3lang.near` | Faucet operator, used by the runner | One function-call key: `add_holder`, `faucet_claim` on `dx3hack.x3lang.near` only |
+| `dx3hack.x3lang.near` | The token contract | None, after `lock.sh` |
+| `x3lang.near` | Owner | Yours |
+| `faucet.x3lang.near` | Faucet operator, used by the runner | Its own key plus one function-call key: `add_holder`, `faucet_claim` on `dx3hack.x3lang.near` only |
 | `judges.x3lang.near` | Parent of every judge holder | Runner creates `j<n>.judges.x3lang.near` under it |
 
-1. Create the accounts (you sign each):
-
-```
-near account create-account fund-myself dx3hack.x3lang.near '5 NEAR' \
-  autogenerate-new-keypair save-to-keychain sign-as x3lang.near network-config mainnet sign-with-keychain send
-near account create-account fund-myself faucet.x3lang.near '0.5 NEAR' \
-  autogenerate-new-keypair save-to-keychain sign-as x3lang.near network-config mainnet sign-with-keychain send
-near account create-account fund-myself judges.x3lang.near '2 NEAR' \
-  autogenerate-new-keypair save-to-keychain sign-as x3lang.near network-config mainnet sign-with-keychain send
-```
-
-The 5 NEAR on `dx3hack.x3lang.near` covers the code's storage stake plus storage for up to
-500 holders, which the contract pays for when it registers them. The 2 NEAR on
-`judges.x3lang.near` funds creating judge subaccounts.
-
-2. Deploy and initialize in one transaction:
-
-```
-near contract deploy dx3hack.x3lang.near use-file target/near/dx3_hackathon_coin.wasm \
-  with-init-call new file-args deploy/init-args.json \
-  prepaid-gas '100 Tgas' attached-deposit '0 NEAR' \
-  network-config mainnet sign-with-keychain send
-```
-
-3. Check the stored terms:
-
-```
-near contract call-function as-read-only dx3hack.x3lang.near hackathon_config json-args '{}' network-config mainnet now
-near contract call-function as-read-only dx3hack.x3lang.near ft_metadata json-args '{}' network-config mainnet now
-```
-
-`burn_program_sha256` must read `220396…0c7e` and `expires_at` must read `1795651199000000000`.
-
-4. Give the runner a faucet key that can do nothing else:
-
-```
-near account add-key faucet.x3lang.near grant-function-call-access \
-  --allowance '0.5 NEAR' --contract-account-id dx3hack.x3lang.near \
-  --function-names 'add_holder, faucet_claim' \
-  autogenerate-new-keypair print-to-terminal network-config mainnet sign-with-keychain send
-```
-
-Put the printed private key on the runner. If it leaks, the attacker can only allowlist
-`*.judges.x3lang.near` accounts and claim within the contract's caps.
-
-5. Lock the contract. List its keys, then delete the full-access key:
-
-```
-near account list-keys dx3hack.x3lang.near network-config mainnet now
-near account delete-keys dx3hack.x3lang.near public-keys <ed25519:KEY> \
-  network-config mainnet sign-with-keychain send
-```
-
-After this, nobody (including you) can change the code, the burn time or the bound `.x3`
-program. The dotx3.net "Who holds which key" panel shows `dx3hack.x3lang.near` with zero keys.
-Do this only after the testnet run has shown every rule working, because there is no undo.
-
-6. Allowlist the contracts that need DX3HACK and seed them (owner):
-
-```
-near contract call-function as-transaction dx3hack.x3lang.near add_holder \
-  json-args '{"account_id":"merchant.x3lang.near"}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' \
-  sign-as x3lang.near network-config mainnet sign-with-keychain send
-```
+If the faucet key leaks, the holder can only allowlist `*.judges.x3lang.near` accounts and
+claim within the contract's caps, from a 0.5 NEAR gas allowance.
 
 ## How judge accounts hold and spend it
 
