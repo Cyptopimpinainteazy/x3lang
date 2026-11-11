@@ -1,0 +1,20 @@
+audit-artifacts/guard-scoped-storage-20261110/verification.json
+  h_e41068bed968d7 98-108
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-mutations.txt
+  h_e41068bed968d7 1-20
+docs/security/RUST_GUARD_MUTATION_GATE.md
+  h_e41068bed968d7 71-75
+scripts/security/guard_rust_mutations.py
+  h_e41068bed968d7 28-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d2f78ba556c5d0f3983546a0ce0be401b14ed91",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
