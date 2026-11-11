@@ -50,6 +50,11 @@ custody/security guarantees, authorize execution, or supply an independent audit
 
 ## Before you start
 
+The [independent testing/review gates](X3_SHIELD_SCOPED_AGENT_VAULT.md) remain open.
+Complete those gates and obtain explicit owner approval of the exact deployment,
+signing and funding plan before executing these commands. Merging this runbook or
+verifying evidence is not execution approval.
+
 * near-cli-rs 0.30 or later (`near --version`), cargo-near, Rust from `rust-toolchain.toml`, Python 3.
 * A testnet owner account (default `x3lang.testnet`) whose key is in `~/.near-credentials/testnet/`.
 * About **6 testnet NEAR** on it; about 0.7 comes back at the end. The storage NEAR in a locked
