@@ -15,3 +15,31 @@ test('generic fee floor, rounding and cap',()=>{
  assert.equal(genericPublicFees(480,false,false).withinCap,false);
  assert.throws(()=>genericPublicFees(1.1,true,false));
 });
+
+test("odd authenticated fees round both halves up before the provider floor", () => {
+  assert.deepEqual(genericPublicFees(3, true, true), {
+    developer: 2, provider: 2, total: 4, withinCap: true,
+  });
+  assert.deepEqual(genericPublicFees(41, true, false), {
+    developer: 21, provider: 21, total: 42, withinCap: true,
+  });
+  for (const appBps of [499, 500]) {
+    assert.equal(genericPublicFees(appBps, true, false).total, 500);
+    assert.equal(genericPublicFees(appBps, true, false).withinCap, true);
+  }
+  assert.equal(genericPublicFees(475, false, false).total, 500);
+  assert.equal(genericPublicFees(475, false, false).withinCap, true);
+  assert.equal(genericPublicFees(476, false, false).total, 501);
+  assert.equal(genericPublicFees(476, false, false).withinCap, false);
+});
+test("runtime callers cannot use truthy values as planning flags", () => {
+  for (const dry of ["false", "true", 0, 1, null, undefined]) {
+    const result = planDeadline({ ...args, dry, estimateSeconds: 300 });
+    assert.equal(result.ok, false);
+    assert.equal(result.deadline, null);
+  }
+  for (const flag of ["false", "true", 0, 1, null, undefined]) {
+    assert.throws(() => genericPublicFees(41, flag, false), /boolean/);
+    assert.throws(() => genericPublicFees(41, true, flag), /boolean/);
+  }
+});

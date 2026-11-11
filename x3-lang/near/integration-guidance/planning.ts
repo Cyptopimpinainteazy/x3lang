@@ -9,6 +9,7 @@ export function planDeadline(input: {
 }) {
   const { dry, nowMs, estimateSeconds, defaultSeconds, maximumSeconds, ownerExpiresMs } = input;
   if (
+    typeof dry !== "boolean" ||
     ![nowMs, defaultSeconds, maximumSeconds, ownerExpiresMs].every(Number.isSafeInteger) ||
     defaultSeconds <= 0 ||
     maximumSeconds < defaultSeconds ||
@@ -36,11 +37,15 @@ export function planDeadline(input: {
   };
 }
 export function genericPublicFees(appBps: number, authenticated: boolean, stableRoute: boolean) {
+  if (typeof authenticated !== "boolean" || typeof stableRoute !== "boolean")
+    throw Error("Fee planning flags must be boolean");
   if (!Number.isSafeInteger(appBps) || appBps < 0 || appBps > 500)
     throw Error("Fee must be an integer from 0 to 500 bps");
   const floor = stableRoute ? 1 : 20;
   const developer = authenticated ? Math.ceil(appBps / 2) : appBps;
-  const provider = authenticated ? Math.max(floor, Math.floor(appBps / 2)) : 25;
+  // Public default split rounds both halves up; the signed quote remains authoritative.
+  // https://docs.near-intents.org/integration/distribution-channels/1click-api/fee-config
+  const provider = authenticated ? Math.max(floor, Math.ceil(appBps / 2)) : 25;
   const total = developer + provider;
   return { developer, provider, total, withinCap: total <= 500 };
 }
