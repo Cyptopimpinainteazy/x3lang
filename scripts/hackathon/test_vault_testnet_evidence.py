@@ -331,7 +331,7 @@ def test_chain_changing_after_collection_fails_verification(tmp_path):
 def test_incomplete_run_is_refused(tmp_path):
     with Chain() as chain:
         run, wasm = play(chain, tmp_path, steps=RUN_STEPS[:2], locked=True)
-        with pytest.raises(EvidenceError, match="complete, unique"):
+        with pytest.raises(EvidenceError, match="complete"):
             v.collect(run, wasm, chain.url)
 
 

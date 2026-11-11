@@ -20,7 +20,7 @@ def test_every_operator_step_is_required(tmp_path, label):
         data = v._load_json(run)
         data["steps"] = [s for s in data["steps"] if s["label"] != label]
         v._write_json(run, data)
-        with pytest.raises(t.EvidenceError, match="complete, unique"):
+        with pytest.raises(t.EvidenceError, match="complete"):
             v.collect(run, wasm, chain.url)
 
 
@@ -161,3 +161,30 @@ def test_final_queries_must_return_the_pinned_block(tmp_path, kind, field, value
         write_rehashed(out, data)
         with pytest.raises(t.EvidenceError, match="pinned"):
             v.verify(out, chain.url, wasm)
+
+
+@pytest.mark.parametrize("value", [None, [], "not an object"])
+@pytest.mark.parametrize("position", ["append", "interleave"])
+@pytest.mark.parametrize("target", ["run_steps", "transaction_records"])
+def test_invalid_list_entries_are_explicitly_refused(tmp_path, value, position, target):
+    with t.Chain() as chain:
+        run, wasm = t.play(chain, tmp_path)
+        if target == "run_steps":
+            data = v._load_json(run)
+            rows = data["steps"]
+        else:
+            data = v.collect(run, wasm, chain.url)
+            rows = data["transactions"]
+        if position == "append":
+            rows.append(value)
+        else:
+            rows[len(rows) // 2] = value
+        if target == "run_steps":
+            v._write_json(run, data)
+            with pytest.raises(t.EvidenceError, match="list of objects"):
+                v.collect(run, wasm, chain.url)
+        else:
+            out = tmp_path / "evidence.json"
+            write_rehashed(out, data)
+            with pytest.raises(t.EvidenceError, match="list of objects"):
+                v.verify(out, chain.url, wasm)

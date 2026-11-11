@@ -425,7 +425,9 @@ def _validate_scenario(run: dict) -> dict[str, dict]:
     if type(terms.get("deadline_ms")) is not int or terms["deadline_ms"] <= 0:
         raise EvidenceError("scenario deadline must be a positive integer")
     steps = run.get("steps")
-    labels = [s.get("label") for s in steps if isinstance(s, dict)] if isinstance(steps, list) else []
+    if not isinstance(steps, list) or len(steps) != len(SCENARIO) or not all(isinstance(step, dict) for step in steps):
+        raise EvidenceError("scenario steps must be a complete list of objects")
+    labels = [step.get("label") for step in steps]
     expected = [row[0] for row in SCENARIO]
     if labels != expected:
         raise EvidenceError("scenario steps must be complete, unique and in operator order")
@@ -760,7 +762,9 @@ def verify(evidence_path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     _verify_manifest_record(data["manifest"], rpc_url, wasm)
     records = data.get("transactions")
     expected_labels = [s["label"] for s in run["steps"] if s["expect"] != "rpc_refused"]
-    labels = [r.get("label") for r in records if isinstance(r, dict)] if isinstance(records, list) else []
+    if not isinstance(records, list) or len(records) != len(expected_labels) or not all(isinstance(record, dict) for record in records):
+        raise EvidenceError("transaction records must be a complete list of objects")
+    labels = [record.get("label") for record in records]
     if labels != expected_labels:
         raise EvidenceError("transaction records must match every non-CLI step exactly once and in order")
     raw = {label: _raw_transaction(by_label[label], rpc_url) for label in expected_labels}
