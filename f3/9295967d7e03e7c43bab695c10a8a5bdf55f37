@@ -1,0 +1,26 @@
+README.md
+  h_e41068bed968d7 35,42-45,359
+docs/hackathon/JUDGE_GUIDE.md
+  h_e41068bed968d7 375
+docs/hackathon/JUDGE_PACKAGE.md
+  h_e41068bed968d7 24-28
+docs/hackathon/MAINNET_GUARD_DEPLOYMENT.md
+  h_e41068bed968d7 1-106
+evidence/near-guard-mainnet-2026-11-11/deployment-verification.json
+  h_e41068bed968d7 1-159
+evidence/near-guard-mainnet-2026-11-11/manifest.json
+  h_e41068bed968d7 1-30
+evidence/near-guard-mainnet-2026-11-11/recovery-verification.json
+  h_e41068bed968d7 1-192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f39295967d7e03e7c43bab695c10a8a5bdf55f37",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
