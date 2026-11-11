@@ -1,0 +1,25 @@
+docs/hackathon/MAINNET_AGENT_PREFLIGHT.md
+  s_adcfcc08d94360::t_f25b0b3004a4a2 49-53,60-61
+scripts/hackathon/mainnet_agent_preflight.py
+  s_adcfcc08d94360::t_4e7babfdcdc7c3 6,23,60-64,112-135,182,212-215
+scripts/hackathon/test_mainnet_agent_preflight.py
+  s_adcfcc08d94360::t_047938913e594f 29,34,45-51,178-194
+scripts/hackathon/verify_mainnet_payment.py
+  s_adcfcc08d94360::t_a17ef9a7bebe14 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e3aea82506a92cbb4aa666d65ac64aeccebab79a",
+  "prompts": {},
+  "sessions": {
+    "s_adcfcc08d94360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c478-6807-7522-9694-3fefaf7cd3c5",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

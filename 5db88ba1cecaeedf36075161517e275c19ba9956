@@ -1,0 +1,33 @@
+docs/hackathon/MAINNET_AGENT_PREFLIGHT.md
+  s_c2349f4ab67c85::t_1738816c824a33 188-192
+x3-lang/near/agent-demo.sh
+  s_adcfcc08d94360::t_001862f578e330 182
+x3-lang/near_intents.py
+  s_adcfcc08d94360::t_2375dfc2befab0 1041-1051,1058,1270-1281,1682-1685,1891,1932-1936,2087-2126,2128-2142
+x3-lang/tests/test_chain_evidence.py
+  s_adcfcc08d94360::t_a5e9335909d9e1 785-829
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5db88ba1cecaeedf36075161517e275c19ba9956",
+  "prompts": {},
+  "sessions": {
+    "s_adcfcc08d94360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c478-6807-7522-9694-3fefaf7cd3c5",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    },
+    "s_c2349f4ab67c85": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c47b-26b1-7b41-b98e-be420323c3a1",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

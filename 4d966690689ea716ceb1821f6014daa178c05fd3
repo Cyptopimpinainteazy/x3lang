@@ -1,0 +1,273 @@
+scripts/hackathon/vault_two_chain_pairing.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-74
+scripts/hackathon/guard_persisted_restart_smoke.sh
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-60
+scripts/hackathon/test_near_delivery_receipt_proof.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-190
+x3-lang/near/agent-vault-sandbox-tests/src/main.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-305
+docs/security/ISSUE141_PATCH_SHA256SUMS.txt
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-13
+x3-lang/bridge/test_near_authenticated.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 7-8,12,26-27,264-345
+  s_772cc60eb618ee::t_84f553b577e38a 346
+evidence/base-vault-local/BASE_VAULT_SHA256SUMS.txt
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-3
+scripts/hackathon/test_base_vault_quote_binding.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-218
+x3-lang/near/demo/robots.txt
+  s_772cc60eb618ee::t_340d133bd6a8d7 1
+x3-lang/vm/tests/production_bridge_init_fails_closed.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-113
+x3-lang/near/guard-sandbox-tests/Cargo.toml
+  s_772cc60eb618ee::t_340d133bd6a8d7 14
+docs/base-stocksmaxxing-2026/VIDEO_STORYBOARD.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-51
+docs/security/X3_VAULT_ORIGIN_FINALITY_REVIEW.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-152
+scripts/hackathon/scoped_agent_sandbox_smoke.sh
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-35
+scripts/proof/x3lang_execution_proof.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 16,45-46,49-52,55,57-59,70-75,135,137,139-147
+.github/workflows/x3guard-rust-source-mutations.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-68
+evidence/base-vault-local/guard-finalized-quorum-20261107.json
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-46
+.github/workflows/x3lang-security-audit.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 95-97
+x3-lang/tests/test_near_mandate_boundaries.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 9,14,22-170
+  s_772cc60eb618ee::t_f75208c8a62f05 171-172
+docs/hackathon/attack-lab-policy.test.mjs
+  s_772cc60eb618ee::t_340d133bd6a8d7 3-6,46-186
+x3-lang/base-agent-vault/foundry.toml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-7
+x3-lang/near/guard-sandbox-tests/src/bin/scoped_agent_boundary.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-213
+x3-lang/tests/test_demo_parity.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 154-156,197-229
+  s_772cc60eb618ee::t_70eab96a611449 230-231
+docs/security/BASE_VAULT_INTERNAL_AUDIT_20261107.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-89
+docs/security/GUARD_PERSISTED_RESTART.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-52
+README.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 9-18,129-134
+docs/hackathon/attack-lab-policy.mjs
+  s_772cc60eb618ee::t_340d133bd6a8d7 6-10,22-32,35-112,114-210
+scripts/hackathon/base_vault_token_preflight.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-198
+docs/security/GUARD_DEPOSIT_ADDRESS_REPLAY.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-36
+x3-lang/base-agent-vault/test/X3ShieldBaseVault.t.sol
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-408
+x3-lang/near/demo/index.html
+  s_772cc60eb618ee::t_340d133bd6a8d7 6-24,191,194,217,230,232-243,248,250
+x3-lang/bridge/near_authenticated.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 86-92
+x3-lang/near/x3-guard/.cargo/config.toml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-10
+scripts/hackathon/test_vault_two_chain_pairing.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-69
+x3-lang/base-agent-vault/README.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-63
+.github/workflows/x3-base-agent-vault.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-74
+x3-lang/near/x3-guard/src/lib.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 13-14,38-51,68-76,97-100,713-722,861-890,1030-1058,1064-1067,1069-1071,1090-1095
+docs/hackathon/GUARD_TESTNET_DEPLOYMENT_READINESS.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 28-36
+scripts/hackathon/near_guard_quorum.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-266
+docs/hackathon/JUDGE_GUIDE.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 3-5,7-60,98-102,108-110,293,295-297,314-315
+evidence/agent-vault-local/verified-sandbox-20261107.json
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-34
+evidence/base-vault-local/finalized-base-sepolia-fork-20261107.json
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-31
+docs/security/ISSUE141_PATCH_HANDOFF.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-90
+docs/security/GUARD_QUOTE_HASH_REPLAY.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-55
+.github/workflows/x3-agent-vault-testnet.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-35
+scripts/hackathon/vault_origin_two_chain_cli.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-144
+scripts/hackathon/verify_guard_wasm_repro.sh
+  s_772cc60eb618ee::t_340d133bd6a8d7 2,4-8,13-20,50-54,56
+scripts/hackathon/base_vault_quote_binding.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-310
+scripts/hackathon/near_delivery_receipt_proof.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-299
+docs/security/BASE_VAULT_SIGNED_QUOTE_HANDOFF.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-143
+.github/workflows/x3-vault-origin-finality-readonly.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-52
+scripts/hackathon/test_check_guard_wasm_host_panics.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-135
+x3-lang/near/x3-guard/src/tests.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 33-35,214-219,458-713,743
+x3-lang/tests/test_judge_evidence.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 140-172,174-176,179-180,182-183
+evidence/base-vault-local/base-sepolia-token-two-rpc-attestation-v2-20261107.json
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-55
+x3-lang/bridge/near_evidence.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 12,307-351,380-388,392-396,829-833,1008-1013,1144-1149,1236-1239
+x3-lang/near/demo/index.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-17
+.github/workflows/x3guard-deployed-byte-reproducibility.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 12,28-29,58-63
+x3-lang/near/x3-agent-vault/src/lib.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-729
+.github/workflows/x3-guard-deployment-readonly-preflight.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 11-12,39-40,42,44-45,47,49-50,52-56
+x3-lang/near/agent-vault-sandbox-tests/Cargo.toml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-14
+docs/security/VM_BRIDGE_PRODUCTION_FAIL_CLOSED.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-28
+x3-lang/near/demo/404.html
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-14
+scripts/judge_evidence.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 50-57,62
+x3-lang/near/demo/test/mandate-numeric.test.mjs
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-119
+docs/hackathon/attack-lab.html
+  s_772cc60eb618ee::t_340d133bd6a8d7 6-9,11-112,114-121,125-130,133-134,136-138,140-254,256,259,261-268,270-349,351-370,372-500,502-522,525
+x3-lang/near/x3-agent-vault/rust-toolchain.toml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-4
+.github/workflows/x3lang-near-evidence-chaos.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-47
+scripts/hackathon/test_vault_origin_base_proof.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-232
+.github/workflows/x3lang-execution-proof.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 12,67-68
+evidence/agent-vault-local/owner-recovery-sandbox-20261107.json
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-28
+scripts/security/mutation_runner.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 70,72,74,76,78,80,83,85,87,89,91,94
+scripts/proof/check_x3lang_mirror.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 19
+x3-lang/base-agent-vault/SECURITY.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-28
+docs/security/GUARD_EIGHT_AGENT_STRESS.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-38
+docs/base-stocksmaxxing-2026/BUILD_PLAN.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-58
+x3-lang/near/demo/README.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 34-46
+x3-lang/bridge/test_near_evidence.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 5-7,11,16,379-581,631-739
+  s_772cc60eb618ee::t_a1f0df0a098cb5 740
+x3-lang/near/demo/x3guard.mjs
+  s_772cc60eb618ee::t_340d133bd6a8d7 761-764,829-832,835-838,855-857,874,890,892
+docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 63-77
+docs/security/RUST_GUARD_MUTATION_GATE.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-70
+x3-lang/near/x3-agent-vault/.cargo/config.toml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-10
+x3-lang/near/x3-agent-vault/.gitignore
+  s_772cc60eb618ee::t_340d133bd6a8d7 1
+scripts/hackathon/vault_origin_base_proof.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-328
+x3-lang/base-agent-vault/test/X3ShieldBaseFork.t.sol
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-103
+scripts/hackathon/vault_sandbox_smoke.sh
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-24
+x3-lang/near/demo/_headers
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-4
+x3-lang/near/x3-guard/Cargo.toml
+  s_772cc60eb618ee::t_340d133bd6a8d7 23-26
+scripts/security/guard_rust_mutations.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-159
+x3-lang/base-agent-vault/src/X3ShieldBaseVault.sol
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-219
+x3-lang/near_mandate.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 51-55,112-125,148-152,157,159-167,186-200,216-217,244-246,251-252,267-276,290
+scripts/hackathon/guard_sandbox_smoke.sh
+  s_772cc60eb618ee::t_340d133bd6a8d7 21-22
+x3-lang/near/demo/sitemap.xml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-5
+x3-lang/near/x3-guard/src/mandate.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 395-397
+  s_772cc60eb618ee::t_d828e7d319c238 394
+.github/workflows/x3-shield-attack-lab.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 43-51,55,57
+x3-lang/base-agent-vault/.gitignore
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-2
+scripts/hackathon/test_near_guard_quorum.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-69
+scripts/proof/x3lang_runtime_equivalence.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 18,41-42,45,55-61,77-82,123-125,127,129-137
+x3-lang/vm/tests/production_bridge_trust_anchor.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-63
+x3-lang/near/agent-vault-sandbox-tests/.gitignore
+  s_772cc60eb618ee::t_340d133bd6a8d7 1
+docs/security/NEAR_EVIDENCE_CHAOS.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-45
+docs/security/OWNER_APPROVAL_PACKET_TEMPLATE.json
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-38
+docs/hackathon/X3_SHIELD_SCOPED_AGENT_VAULT.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-121
+evidence/base-vault-local/GUARD_QUORUM_SHA256SUMS.txt
+  s_772cc60eb618ee::t_340d133bd6a8d7 1
+scripts/hackathon/test_base_vault_token_preflight.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-72
+scripts/hackathon/keccak_min.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-67
+.github/workflows/x3guard-persisted-restart.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-82
+docs/base-stocksmaxxing-2026/APPLICATION_DRAFT.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-70
+docs/security/NEAR_SCOPED_AGENT_SANDBOX.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-41
+.github/workflows/x3guard-real-wasm-sandbox.yml
+  s_772cc60eb618ee::t_340d133bd6a8d7 10-11,43,50-54
+tests/ci/test_proof_source_binding.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-336
+x3-lang/near/x3-agent-vault/Cargo.toml
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-16
+x3-lang/vm/src/bridge.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 3475-3476,3492-3504,3521-3565,3600-3614,3618,3620-3621,3634,3639-3640,3642-3643,3653-3655,3665,3687-3695,3698-3703,4003-4160
+evidence/base-vault-local/base-sepolia-token-two-rpc-preflight-20261107.json
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-55
+x3-lang/near/x3-guard/src/migration_tests.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 180-183,205-208
+x3-lang/near/x3-guard/src/mandate_tests.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 6-11,72-75,300-328,423-450
+  s_772cc60eb618ee::t_597b7a0a6af8da 451-452
+scripts/proof/source_binding.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-175
+x3-lang/near/guard-sandbox-tests/src/bin/persisted_restart.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-270
+x3-lang/near/guard-sandbox-tests/src/main.rs
+  s_772cc60eb618ee::t_340d133bd6a8d7 7,13-36,43-45,103-124,146,250-254,272-322,326-327,388-392,440-445,448-967
+scripts/hackathon/check_guard_wasm_host_panics.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-172
+docs/hackathon/GUARD_TESTNET_EVIDENCE.md
+  s_772cc60eb618ee::t_340d133bd6a8d7 77-97
+scripts/hackathon/test_vault_two_chain_cli.py
+  s_772cc60eb618ee::t_340d133bd6a8d7 1-43
+x3-lang/near/agent-vault-sandbox-tests/Cargo.lock
+  s_772cc60eb618ee::t_f73331e85b66b1 1-2986
+x3-lang/near/guard-sandbox-tests/Cargo.lock
+  s_772cc60eb618ee::t_76562836996ce9 2844
+x3-lang/near/x3-agent-vault/Cargo.lock
+  s_772cc60eb618ee::t_1bbbcd858b67ba 1-2701
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d966690689ea716ceb1821f6014daa178c05fd3",
+  "prompts": {},
+  "sessions": {
+    "s_772cc60eb618ee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bd3a-21df-7721-8ed6-d25b3113f5e8",
+        "model": "deepseek-flash"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
