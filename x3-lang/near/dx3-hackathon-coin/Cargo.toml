@@ -1,0 +1,29 @@
+[package]
+name = "dx3-hackathon-coin"
+version = "1.0.0"
+edition = "2021"
+description = "Dotx3 HACKATHON ONLY COIN: a demo credit for NEAR HACKATHON 2026 judges. Holder allowlist, rate-limited faucet, per-account transfer limit, and an automatic burn at a fixed time."
+license = "MIT"
+repository = "https://github.com/Cyptopimpinainteazy/x3lang"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5.30.1"
+near-contract-standards = "5.30.1"
+
+[dev-dependencies]
+near-sdk = { version = "5.30.1", features = ["unit-testing"] }
+
+# Standalone contract crate, built with cargo-near like x3-guard; not a member of the
+# x3-lang workspace.
+[workspace]
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true
