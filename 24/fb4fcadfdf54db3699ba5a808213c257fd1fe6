@@ -1,0 +1,20 @@
+docs/hackathon/MAINNET_GUARD_DEPLOYMENT.md
+  h_e41068bed968d7 1,3,49-58,77-120,123,129-130,153-158
+evidence/near-guard-mainnet-2026-11-11/addkey-verification.json
+  h_e41068bed968d7 1-124
+evidence/near-guard-mainnet-2026-11-11/manifest.json
+  h_e41068bed968d7 2,22-27,32,34-63
+evidence/near-guard-mainnet-2026-11-11/storage-verification.json
+  h_e41068bed968d7 1-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "24fb4fcadfdf54db3699ba5a808213c257fd1fe6",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
