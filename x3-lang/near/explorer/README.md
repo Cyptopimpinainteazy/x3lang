@@ -32,6 +32,11 @@ lock before contacting the provider, and retains at least five seconds of
 cooldown after completion. HTTP 429 extends cooldown using Retry-After.
 There is no background polling or automatic retry storm.
 
+Cache hits are validated again before the API returns them. The client rebuilds
+the fixed provider-reported evidence fields and cursor, drops unknown fields,
+and refuses malformed records or timestamps. Cached data cannot enable execution
+or claim independent verification.
+
 ## Read history
 
 ```sh

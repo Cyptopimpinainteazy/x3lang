@@ -59,3 +59,44 @@ test('missing config and coordinator failure fail closed',async()=>{
  const s=setup();s.fetchImpl=async()=>{throw Error(s.env.NEAR_INTENTS_EXPLORER_JWT)};
  await assert.rejects(()=>createExplorerClient(s).transactions(),e=>e.message==='EXPLORER_UNAVAILABLE');
 });
+
+function cachedReader(cached) {
+ const s=setup();let requests=0;
+ const client=createExplorerClient({env:s.env,fetchImpl:async(url,options)=>{
+  requests++;
+  assert.equal(url,s.env.X3_EXPLORER_REDIS_URL);
+  assert.equal(JSON.parse(options.body)[0],'GET');
+  return Response.json({result:cached});
+ }});
+ return {client,get requests(){return requests}};
+}
+const cachedPage=()=>normalizeTransactions([row],'2026-11-11T00:00:00.000Z');
+test('cached pages cannot upgrade provider evidence or execution authorization',async()=>{
+ for(const override of [
+  {independentlyVerified:true},{executionAllowed:true},{evidenceState:'live-chain'},{source:'independent verifier'},
+ ]) {
+  const s=cachedReader(JSON.stringify({...cachedPage(),...override}));
+  await assert.rejects(()=>s.client.transactions(),error=>error.code==='INVALID_EXPLORER_CACHE');
+  assert.equal(s.requests,1);
+ }
+});
+test('valid cached pages rebuild cursor and drop unknown envelope and row fields',async()=>{
+ const s=cachedReader(JSON.stringify({...cachedPage(),secret:'drop me',nextCursor:{lastDepositAddress:'forged'},
+  transactions:[{...row,secret:'drop me',independentlyVerified:true}]}));
+ const page=await s.client.transactions();
+ assert.equal(page.cached,true);assert.equal(page.independentlyVerified,false);assert.equal(page.executionAllowed,false);
+ assert.equal(page.evidenceState,'provider-reported');assert.equal(page.observedAt,'2026-11-11T00:00:00.000Z');
+ assert.equal(page.secret,undefined);assert.equal(page.transactions[0].secret,undefined);
+ assert.equal(page.transactions[0].independentlyVerified,undefined);assert.equal(page.nextCursor,null);
+ assert.equal(s.requests,1);
+});
+test('malformed cache fails closed without provider requests or fallback',async()=>{
+ for(const cached of ['', '{', 'null', '[]', JSON.stringify({...cachedPage(),observedAt:'not-a-date'}),
+  JSON.stringify({...cachedPage(),observedAt:'2026-02-30T00:00:00.000Z'}),
+  JSON.stringify({...cachedPage(),transactions:{}}),
+  JSON.stringify({...cachedPage(),transactions:[{...row,status:'INVENTED'}]})]) {
+  const s=cachedReader(cached);
+  await assert.rejects(()=>s.client.transactions(),error=>/^INVALID_EXPLORER_(CACHE|RESPONSE)$/.test(error.code));
+  assert.equal(s.requests,1);
+ }
+});

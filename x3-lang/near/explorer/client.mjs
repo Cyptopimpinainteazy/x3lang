@@ -41,6 +41,20 @@ export function normalizeTransactions(data, observedAt) {
     executionAllowed: false, observedAt, transactions,
     nextCursor: transactions.length === 25 ? { lastDepositAddress: last.depositAddress, lastDepositMemo: last.depositMemo } : null };
 }
+/** Redis is a data boundary too: rebuild cached pages using the same fixed evidence contract. */
+function normalizeCachedPage(cached) {
+  if (typeof cached !== 'string' || cached.length > 1000000) throw new ExplorerError('INVALID_EXPLORER_CACHE',502);
+  let page;
+  try { page = JSON.parse(cached); } catch { throw new ExplorerError('INVALID_EXPLORER_CACHE',502); }
+  if (!page || typeof page !== 'object' || Array.isArray(page) ||
+      page.source !== 'NEAR Intents Explorer' || page.evidenceState !== 'provider-reported' ||
+      page.independentlyVerified !== false || page.executionAllowed !== false ||
+      typeof page.observedAt !== 'string' || !Number.isFinite(Date.parse(page.observedAt)) ||
+      new Date(page.observedAt).toISOString() !== page.observedAt)
+    throw new ExplorerError('INVALID_EXPLORER_CACHE',502);
+  // Ignore supplied cursors and unknown fields. Never spread a cached envelope into the API.
+  return {...normalizeTransactions(page.transactions,page.observedAt),cached:true};
+}
 /** All consumers of a partner credential must use the same Redis deployment. */
 export function createExplorerClient({ env = process.env, fetchImpl = fetch } = {}) {
   async function redis(command) {
@@ -67,7 +81,7 @@ export function createExplorerClient({ env = process.env, fetchImpl = fetch } = 
       const prefix = `x3:explorer:${hash(partner)}`;
       const cacheKey = `${prefix}:cache:${hash(query.toString())}`;
       const cached = await redis(['GET', cacheKey]);
-      if (cached) return { ...JSON.parse(cached), cached: true };
+      if (cached != null) return normalizeCachedPage(cached);
       const lockKey = `${prefix}:lock`; const owner = randomUUID();
       if (await redis(['SET',lockKey,owner,'NX','PX','30000']) !== 'OK') throw new ExplorerError('EXPLORER_RATE_LIMITED',429,5);
       let cooldown = 5000;
