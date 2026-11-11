@@ -86,7 +86,12 @@ class SourceLine:
     text: str
 
 
-def _clean_lines(source: str) -> List[SourceLine]:
+def _clean_lines(path: str) -> List[SourceLine]:
+    with open(path, "r", encoding="utf-8") as source:
+        return _clean_source_lines(source.read())
+
+
+def _clean_source_lines(source: str) -> List[SourceLine]:
     lines: List[SourceLine] = []
     for no, raw in enumerate(source.split("\n"), 1):
         stripped = raw.strip()
@@ -372,7 +377,7 @@ def parse_file(path):
 
 
 def parse_source(source: str):
-    lines = _clean_lines(source.replace("\r\n", "\n").replace("\r", "\n"))
+    lines = _clean_source_lines(source.replace("\r\n", "\n").replace("\r", "\n"))
     if not lines:
         raise X3ParseError("X3_PARSE_EMPTY", "input file is empty")
     start = _intent_line_index(lines)
