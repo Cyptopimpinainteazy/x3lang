@@ -1,0 +1,34 @@
+scripts/proof/check_x3lang_mirror.py
+  h_e41068bed968d7 1-206
+scripts/proof/checkout_integrity.py
+  h_e41068bed968d7 1-60
+scripts/proof/source_binding.py
+  h_e41068bed968d7 1-175
+scripts/proof/x3lang_execution_proof.py
+  h_e41068bed968d7 1-156
+scripts/proof/x3lang_runtime_equivalence.py
+  h_e41068bed968d7 1-147
+x3-lang/near/integration-guidance/README.md
+  h_e41068bed968d7 1-13
+x3-lang/near/integration-guidance/intents-planning.test.mjs
+  h_e41068bed968d7 1-17
+x3-lang/near/integration-guidance/planning.ts
+  h_e41068bed968d7 1-46
+x3-lang/near/integration-guidance/shield-reader.test.mjs
+  h_e41068bed968d7 1-5
+x3-lang/near/integration-guidance/shield.mjs
+  h_e41068bed968d7 1-81
+x3-lang/vm/tests/trading_receipts.rs
+  h_e41068bed968d7 225-250,729-741
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "492ec123a5b6807718c1385ed5e8effc8db7ae76",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
