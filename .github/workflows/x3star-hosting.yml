@@ -41,7 +41,7 @@ jobs:
           # unconfigured access mode must refuse to start
           if X3_DEMOS_PORT=7499 timeout 5 node "$srv"; then echo "server started without Access config"; exit 1; fi
           X3_ACCESS_MODE=public X3_DEMOS_PORT=7411 node "$srv" & PUB=$!
-          X3_ACCESS_TEAM_DOMAIN=https://ci.cloudflareaccess.com X3_ACCESS_AUD=$(printf 'a%.0s' {1..64}) X3_DEMOS_PORT=7413 node "$srv" & ACC=$!
+          X3_OWNER_EMAIL=owner@example.com X3_ACCESS_TEAM_DOMAIN=https://ci.cloudflareaccess.com X3_ACCESS_AUD=$(printf 'a%.0s' {1..64}) X3_DEMOS_PORT=7413 node "$srv" & ACC=$!
           trap 'kill $PUB $ACC' EXIT
           sleep 1
           for h in $(node -e 'console.log(Object.keys(require("./deploy/x3star/sites.json").sites).join(" "))'); do

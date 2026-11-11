@@ -101,14 +101,16 @@ export function loadConfig(env, here = path.dirname(fileURLToPath(import.meta.ur
   const bind = env.X3_DEMOS_BIND || '127.0.0.1';
   const mode = env.X3_ACCESS_MODE || 'access';
   if (mode !== 'access' && mode !== 'public') throw new Error(`X3_ACCESS_MODE must be "access" or "public", got ${JSON.stringify(mode)}`);
+  let ownerEmail = null;
   let teamDomain = null;
   let aud = null;
   if (mode === 'access') {
+    ownerEmail = normalizeOwnerEmail(env.X3_OWNER_EMAIL);
     teamDomain = normalizeTeamDomain(env.X3_ACCESS_TEAM_DOMAIN);
     aud = (env.X3_ACCESS_AUD || '').trim();
     if (!/^[0-9a-f]{32,128}$/i.test(aud)) throw new Error('X3_ACCESS_AUD must be the Access application AUD tag (hex). Run deploy.sh lock, or set X3_ACCESS_MODE=public deliberately.');
   }
-  return {root, manifest: loadManifest(manifestPath), port, bind, mode, teamDomain, aud};
+  return {root, manifest: loadManifest(manifestPath), port, bind, mode, teamDomain, aud, ownerEmail};
 }
 
 export function normalizeTeamDomain(value) {
@@ -125,7 +127,14 @@ export function normalizeTeamDomain(value) {
 
 const b64urlJson = (part) => JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
 
-export function createAccessVerifier({teamDomain, aud, fetchImpl = globalThis.fetch, now = () => Date.now()}) {
+function normalizeOwnerEmail(value) {
+  const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('X3_OWNER_EMAIL is required in Access mode');
+  return email;
+}
+
+export function createAccessVerifier({teamDomain, aud, ownerEmail, fetchImpl = globalThis.fetch, now = () => Date.now()}) {
+  const owner = normalizeOwnerEmail(ownerEmail);
   const certsUrl = `${teamDomain}/cdn-cgi/access/certs`;
   let keys = new Map();
   let fetchedAt = 0;
@@ -177,7 +186,10 @@ export function createAccessVerifier({teamDomain, aud, fetchImpl = globalThis.fe
     if (!audiences.includes(aud)) return {ok: false, reason: 'wrong audience'};
     if (typeof payload.exp !== 'number' || payload.exp + CLOCK_SKEW_SECONDS <= t) return {ok: false, reason: 'expired'};
     if (typeof payload.nbf === 'number' && payload.nbf - CLOCK_SKEW_SECONDS > t) return {ok: false, reason: 'not yet valid'};
-    return {ok: true, email: typeof payload.email === 'string' ? payload.email : null};
+    if (typeof payload.email !== 'string' || payload.email.toLowerCase() !== owner) {
+      return {ok: false, reason: 'wrong owner'};
+    }
+    return {ok: true, email: owner};
   };
 }
 
@@ -309,7 +321,7 @@ export function createHandler({config, files, verifier, log = () => {}}) {
 export function startServer(config, {verifier, log} = {}) {
   const files = loadFiles(config.root, config.manifest);
   const verify = config.mode === 'access'
-    ? (verifier || createAccessVerifier({teamDomain: config.teamDomain, aud: config.aud}))
+    ? (verifier || createAccessVerifier({teamDomain: config.teamDomain, aud: config.aud, ownerEmail: config.ownerEmail}))
     : null;
   const server = http.createServer(createHandler({config, files, verifier: verify, log}));
   server.headersTimeout = 10_000;
