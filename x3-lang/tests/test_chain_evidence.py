@@ -782,3 +782,26 @@ def test_submit_deposit_refuses_another_receipts_address(tmp_path):
     assert ni.main(["submit-deposit", "--deposit-address", "SomeoneElse111111111111111111111111111111111",
                     "--tx-hash", DEPOSIT_SIG, "--receipt", str(path)], client=client) == 1
     assert "tx_hash" not in json.loads(path.read_text())["deposit"]
+
+
+def _shield(body):
+    def transport(method, url, headers, payload, timeout):
+        return 200, json.dumps(body).encode()
+    return ni.ShieldIncidents("t", base_url="https://shield.example", transport=transport)
+
+
+def test_prepare_rechecks_shield_incidents_right_before_the_guard_calls(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    args = dict(receipt_path=str(path), program_path=str(BSC_EXAMPLE))
+
+    unchecked = ni.prepare_handoff(receipt, **args)
+    assert unchecked["incident_check"]["checked"] is False
+
+    clear = ni.prepare_handoff(receipt, shield=_shield({"status": "operational"}), **args)
+    assert clear["incident_check"]["checked"] is True and clear["incident_check"]["guard"]["ok"] is True
+
+    on_deposit = {"status": "incidents", "incidents": [{"scopeType": "address", "scopeValue": BSC_DEPOSIT}]}
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.prepare_handoff(receipt, shield=_shield(on_deposit), **args)
+    assert err.value.code == "X3_NEAR_SHIELD_INCIDENT"
