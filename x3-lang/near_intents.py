@@ -1347,6 +1347,17 @@ GUARD_DEPOSITS = {"register": "0.05 NEAR", "quote": "0.05 NEAR", "outcome": "0.0
 GUARD_GAS = "30 Tgas"
 _STATUS_TO_GUARD = {"SUCCESS": "Settled", "REFUNDED": "Refunded", "FAILED": "Failed"}
 MAX_GUARD_TX_HASHES = 16
+PREPAID_AGENT_STORAGE_HELP = (
+    "use zero attached deposit for the three agent mutation methods only; requires a reviewed "
+    "Guard supporting owner-prepaid storage and sufficient owner-funded credit; verifies neither"
+)
+
+
+def guard_deposit(step: str, *, method: Optional[str] = None, prepaid_agent_storage: bool = False) -> str:
+    """Select storage payment explicitly; never infer support or credit from RPC."""
+    if prepaid_agent_storage and step in GUARD_STEPS and method == AGENT_METHODS[step]:
+        return "0 NEAR"
+    return GUARD_DEPOSITS[step]
 
 
 def _unix_ms(text: str) -> int:
@@ -1455,13 +1466,14 @@ def _guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
 
 
 def guard_command(step: str, args: Dict[str, Any], *, contract: str, signer: str, key_file: str,
-                  network: str = "mainnet", method: Optional[str] = None) -> List[str]:
+                  network: str = "mainnet", method: Optional[str] = None,
+                  prepaid_agent_storage: bool = False) -> List[str]:
     """The near-cli-rs (0.30) command that sends one `x3-guard` call."""
     return [
         "near", "contract", "call-function", "as-transaction", contract, method or GUARD_METHODS[step],
         "json-args", json.dumps(args, separators=(",", ":"), sort_keys=True),
         "prepaid-gas", GUARD_GAS,
-        "attached-deposit", GUARD_DEPOSITS[step],
+        "attached-deposit", guard_deposit(step, method=method, prepaid_agent_storage=prepaid_agent_storage),
         "sign-as", signer,
         "network-config", network,
         "sign-with-access-key-file", key_file,
@@ -1472,7 +1484,7 @@ def guard_command(step: str, args: Dict[str, Any], *, contract: str, signer: str
 def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path: str,
                     contract: Optional[str] = None,
                     signer: Optional[str] = None, key_file: Optional[str] = None,
-                    network: str = "mainnet") -> Dict[str, Any]:
+                    network: str = "mainnet", prepaid_agent_storage: bool = False) -> Dict[str, Any]:
     """Prepare Guard calls and post-deposit evidence commands without signing or broadcasting."""
     _signed_quote(receipt)
     if receipt.get("program_sha256") != _sha256_file(program_path):
@@ -1519,7 +1531,7 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
             "step": step,
             "method": method,
             "args": call_args,
-            "attached_deposit": GUARD_DEPOSITS[step],
+            "attached_deposit": guard_deposit(step, method=method, prepaid_agent_storage=prepaid_agent_storage),
             "gas": GUARD_GAS,
             "command": None,
         }
@@ -1527,7 +1539,7 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
             import shlex
             item["command"] = shlex.join(guard_command(
                 step, call_args, contract=contract, signer=signer, key_file=key_file,
-                network=network, method=method,
+                network=network, method=method, prepaid_agent_storage=prepaid_agent_storage,
             ))
         steps.append(item)
     deposit = receipt.get("deposit") or {}
@@ -2007,6 +2019,7 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_prepare.add_argument("--signer")
     p_prepare.add_argument("--key-file")
     p_prepare.add_argument("--network", default="mainnet")
+    p_prepare.add_argument("--prepaid-agent-storage", action="store_true", help=PREPAID_AGENT_STORAGE_HELP)
 
     p_guard = sub.add_parser("guard-args", help="x3-guard contract call arguments (and command) from a receipt")
     p_guard.add_argument("--receipt", required=True)
@@ -2015,6 +2028,7 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_guard.add_argument("--signer")
     p_guard.add_argument("--key-file")
     p_guard.add_argument("--network", default="mainnet")
+    p_guard.add_argument("--prepaid-agent-storage", action="store_true", help=PREPAID_AGENT_STORAGE_HELP)
 
     p_mandate = sub.add_parser("mandate", help="an owner's mandate for an AI agent, enforced by x3-guard")
     msub = p_mandate.add_subparsers(dest="mandate_command", required=True)
@@ -2150,6 +2164,7 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 signer=args.signer,
                 key_file=args.key_file,
                 network=args.network,
+                prepaid_agent_storage=args.prepaid_agent_storage,
             ))
         if args.command == "guard-args":
             with open(args.receipt, "r", encoding="utf-8") as f:
@@ -2157,12 +2172,15 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
             call_args = guard_args(receipt, args.step)
             method = guard_method(receipt, args.step)
             out: Dict[str, Any] = {"method": method, "args": call_args,
-                                   "attached_deposit": GUARD_DEPOSITS[args.step], "gas": GUARD_GAS}
+                                   "attached_deposit": guard_deposit(args.step, method=method,
+                                                                     prepaid_agent_storage=args.prepaid_agent_storage),
+                                   "gas": GUARD_GAS}
             if args.contract and args.signer and args.key_file:
                 import shlex
                 out["command"] = shlex.join(guard_command(args.step, call_args, contract=args.contract,
                                                           signer=args.signer, key_file=args.key_file,
-                                                          network=args.network, method=method))
+                                                          network=args.network, method=method,
+                                                          prepaid_agent_storage=args.prepaid_agent_storage))
             return _emit(out)
         if args.command == "mandate":
             if args.mandate_command == "check":

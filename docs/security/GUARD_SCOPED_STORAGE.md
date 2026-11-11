@@ -32,6 +32,24 @@ payment cap only counts accepted quotes. Owners choose whether to top up again.
 The fixed credit record remains allocated after withdrawal; its storage charge
 is not returned. Gas comes from the agent account/key allowance separately.
 
+## Explicit client storage mode
+
+After reviewing the deployed Guard's prepaid-storage support and funding the
+owner/agent storage credit, select `--prepaid-agent-storage` on
+`near_intents.py prepare`, `near_intents.py guard-args`,
+`near_agent.py register-args`, or `near_agent.py pay`. The generated JSON and
+commands use `0 NEAR` for `agent_register_intent`, `agent_accept_quote`, and
+`agent_record_outcome`. Live agent reports preserve the option in their next
+commands. For the guided script, export `X3_AGENT_PREPAID_STORAGE=1` for each
+`agent-demo.sh` invocation; its default is `0`, and other values are rejected.
+
+This option selects deposits only. It does not verify deployed code, available
+credit, key permissions, or authorization, and it never funds or raises a budget.
+Insufficient credit still fails on chain. The default retains legacy attached
+deposits. Owner registration, quote, outcome, approval, mandate and revoke
+commands retain their existing deposits even when the option is selected.
+The existing settlement evidence gates and owner confirmations still apply.
+
 ## Upgrade compatibility
 
 The `Contract`, `Mandate`, intent layouts and map prefixes are unchanged.

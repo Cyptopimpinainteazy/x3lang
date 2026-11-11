@@ -1,0 +1,87 @@
+{
+  "schema": "x3.agent_prepaid_storage_client.verification.v1",
+  "base_commit": "8ec3dec1b5b2b8c43ffe6cd3957696bc090730ad",
+  "branch": "fix/agent-prepaid-storage-client-20261111",
+  "tested_tree": "uncommitted scoped diff on base; source hashes below bind tested files",
+  "source_sha256": {
+    "docs/security/GUARD_SCOPED_STORAGE.md": "6827ecdcea45ea57b39a7b92b10a71e4be60642017cf485daf14dee48a8a9cea",
+    "x3-lang/near/agent-demo.sh": "d7230e8c0aae013a2041116262ea5acecc20a432171b8c402723d3b6a020e688",
+    "x3-lang/near_agent.py": "652ce9c9ae58005507f180e2f367efc04c841eb5b4d876ef1640919c4ab3f526",
+    "x3-lang/near_intents.py": "8e20fa5e77517bc292f5a8ca2052498ab59a7fbbd85a414f8578526c46d2b218",
+    "x3-lang/tests/test_agent_demo_status_flow.py": "f5cc7c7b60c7b3de56ddf01630f8b17a7f6853b0272e83a799b24f5125a4d679",
+    "x3-lang/tests/test_near_agent.py": "e379ea8f19f5e1fd418c4ed3f5d7ef34addaeb5793888f589d11c7e9b54a6f43",
+    "x3-lang/tests/test_near_mandate.py": "8b62d205cf35e969e574fae66750162ac9dd0991b8854b6630df37b88570c822"
+  },
+  "environment": {
+    "python": "3.12.3",
+    "node": "v24.22.1",
+    "python_environment": "existing project mainnet-trade/.venv",
+    "shellcheck": "not installed"
+  },
+  "tdd": [
+    {
+      "suite": "test_near_mandate.py -k prepaid_agent_commands",
+      "before": "3 failed: unsupported keyword",
+      "after": "3 passed"
+    },
+    {
+      "suite": "test_near_mandate.py test_near_agent.py -k prepaid",
+      "before": "8 failed, 9 passed: missing CLI flags and run keyword",
+      "after": "17 passed"
+    },
+    {
+      "suite": "test_agent_demo_status_flow.py -k prepaid",
+      "before": "8 failed, 7 passed: mode not forwarded or validated",
+      "after": "15 passed"
+    }
+  ],
+  "checks": [
+    {
+      "command": "PYTHONPATH=x3-lang ../mainnet-trade/.venv/bin/python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py -q",
+      "exit_code": 0,
+      "passed": 701,
+      "skipped": 1,
+      "duration_seconds": 12.84,
+      "skip_reason": "existing unmodified-quote case in test_demo_parity.py is not a tampering case"
+    },
+    {
+      "command": "node --test x3-lang/near/demo/test/*.test.mjs",
+      "exit_code": 0,
+      "passed": 88,
+      "skipped": 0
+    },
+    {
+      "command": "../mainnet-trade/.venv/bin/python scripts/hackathon/demo.py --json",
+      "exit_code": 0,
+      "scope": "offline deterministic source/mandate demo"
+    },
+    {
+      "command": "../mainnet-trade/.venv/bin/python -m compileall -q x3-lang/near_agent.py x3-lang/near_intents.py x3-lang/tests",
+      "exit_code": 0
+    },
+    {
+      "command": "bash -n x3-lang/near/agent-demo.sh",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "repair_during_verification": "Full suite initially found an agent-only argparse attribute passed in owner mandate command; removed that reference, then reran identical full command successfully.",
+  "security_review": {
+    "author": "reviewed exact three-method allowlist, default and owner deposit preservation, explicit opt-in, no RPC inference or credit funding, no new signing path, unchanged approval/settlement gates",
+    "independent": "Parent reported independent read-only reviewer: no findings; 32 focused tests passed plus shell syntax and diff checks. Parent authorized commit and draft PR after local full gates.",
+    "known_separate_gap": "agent-demo does not verify supplied key permission/public-key binding; this change does not claim restricted-key enforcement",
+    "test_limits": "CLI and script tests use synthetic fixtures and intercepted adapters; evidence proves command generation/forwarding, not actual chain authorization or runtime execution"
+  },
+  "production_actions": {
+    "chain_transactions": false,
+    "live_quote_requests": false,
+    "wallet_or_keychain_access": false,
+    "contract_changes": false,
+    "rust_build": false,
+    "budget_increase": false
+  },
+  "ci": "not run for this uncommitted branch; local checks only"
+}

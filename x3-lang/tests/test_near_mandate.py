@@ -319,6 +319,18 @@ def test_a_mandate_for_another_owner_is_refused(tmp_path):
 
 # --- the agent's contract calls ----------------------------------------------------------------
 
+@pytest.mark.parametrize("step,method", [
+    ("register", "agent_register_intent"),
+    ("quote", "agent_accept_quote"),
+    ("outcome", "agent_record_outcome"),
+])
+def test_prepaid_agent_commands_attach_zero_without_changing_legacy_default(step, method):
+    common = dict(contract="guard.sandbox", signer="agent.sandbox", key_file="fixture-only.json", method=method)
+    legacy = ni.guard_command(step, {}, **common)
+    prepaid = ni.guard_command(step, {}, **common, prepaid_agent_storage=True)
+    assert legacy[legacy.index("attached-deposit") + 1] == ni.GUARD_DEPOSITS[step]
+    assert prepaid[prepaid.index("attached-deposit") + 1] == "0 NEAR"
+
 def _agent_receipt(tmp_path):
     agent_quote(tmp_path, live=True, guard_contract="x3-guard.near", near_views=views(chain_mandate()))
     ni.track(ni.OneClickClient(jwt="k", transport=api(statuses=[_status("SUCCESS", amountOut="24950000")])),
@@ -409,3 +421,45 @@ def test_mandate_args_match_the_fixture_the_contract_tests_read(tmp_path):
     if os.environ.get("X3_REGEN_GUARD_FIXTURE") == "1":
         MANDATE_FIXTURE.write_text(json.dumps(fixture, indent=2, sort_keys=True) + "\n")
     assert json.loads(MANDATE_FIXTURE.read_text()) == fixture
+
+
+@pytest.mark.parametrize("prepaid", [False, True])
+@pytest.mark.parametrize("step", ["register", "quote", "outcome", "approve"])
+def test_prepaid_guard_args_cli_matches_command(tmp_path, capsys, prepaid, step):
+    import shlex
+    receipt = _agent_receipt(tmp_path)
+    receipt["status_history"] = [{"terminal": True, "status": "FAILED"}]
+    path = tmp_path / "r.json"
+    path.write_text(json.dumps(receipt))
+    argv = ["guard-args", "--receipt", str(path), "--step", step,
+            "--contract", "guard.sandbox", "--signer", "agent.sandbox", "--key-file", "fixture-only.json"]
+    if prepaid:
+        argv.append("--prepaid-agent-storage")
+    assert ni.main(argv) == 0
+    out = json.loads(capsys.readouterr().out)
+    expected = "0 NEAR" if prepaid and step != "approve" else ni.GUARD_DEPOSITS[step]
+    assert out["attached_deposit"] == expected
+    command = shlex.split(out["command"])
+    assert command[command.index("attached-deposit") + 1] == expected
+
+
+@pytest.mark.parametrize("prepaid", [False, True])
+def test_prepaid_prepare_cli_preserves_owner_funding(tmp_path, capsys, prepaid):
+    import shlex
+    _agent_receipt(tmp_path)
+    argv = ["prepare", "--receipt", str(tmp_path / "r.json"), "--program", str(AGENT_INTENT),
+            "--contract", "guard.sandbox", "--signer", "agent.sandbox", "--key-file", "fixture-only.json"]
+    if prepaid:
+        argv.append("--prepaid-agent-storage")
+    assert ni.main(argv) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["authorization"] == "not_verified" and out["broadcasted"] is False
+    for call in out["guard_steps"]:
+        expected = "0 NEAR" if prepaid else ni.GUARD_DEPOSITS[call["step"]]
+        assert call["attached_deposit"] == expected
+        command = shlex.split(call["command"])
+        assert command[command.index("attached-deposit") + 1] == expected
+    for step, method in ni.GUARD_METHODS.items():
+        assert ni.guard_deposit(step, method=method, prepaid_agent_storage=prepaid) == ni.GUARD_DEPOSITS[step]
+    for step in ("mandate", "revoke", "approve"):
+        assert ni.guard_deposit(step, prepaid_agent_storage=prepaid) == ni.GUARD_DEPOSITS[step]
