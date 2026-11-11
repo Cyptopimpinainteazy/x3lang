@@ -125,7 +125,7 @@
   <header class="top">
     <div class="brand"><h1>X3 Shield Console</h1><span class="by">one X3 mandate, one policy checker, three track views</span></div>
     <p class="lede">An owner writes what an AI agent may spend as an X3 program. The agent writes each payment as an X3 program. Pick a scenario: the same checker approves it, holds it for approval, or refuses it, and says which term decided.</p>
-    <p class="banner" id="banner"><strong>Local policy preview.</strong> The scenarios evaluate locally. The optional mainnet setup check reads finalized NEAR RPC data.</p>
+    <p class="banner" id="banner"><strong>Local policy preview.</strong> The scenarios evaluate locally. The optional mainnet setup check reads finalized NEAR RPC data. This page does not authorize, sign or transfer funds.</p>
     <div class="tools">
       <a class="btn" href="./index.html">X3 Guard: get a real signed 1Click quote</a> <a class="btn" href="./bnb.html">BNB → NEAR live readiness</a>
       <button id="comments" type="button" aria-pressed="false">Show file comments</button>
@@ -148,10 +148,11 @@
       <a href="https://nearblocks.io/txns/7yiTpwktY5ZD1CMk9aLtEHE7VUeJtd1e71r8NSqrxAer">Mandate installation</a></p>
     <button class="btn" id="check-mainnet-setup" type="button">Check mainnet setup</button>
     <p id="mainnet-setup-result" role="status">Live RPC check ready.</p>
-    <p><strong>Mainnet quote accepted by Guard.</strong> On November 10, finalized Guard state
-      showed acceptance of a 25 USDC Solana → NEAR executable quote with a 24.771975 USDC
+    <p><strong>Recorded mainnet quote observation.</strong> The
+      <a href="https://github.com/Cyptopimpinainteazy/x3lang/blob/5dde8c968346ab6fe465e89a6700821db4fda7a2/docs/hackathon/USDC_VAULT_SYSTEM_DESIGN.md">November 10 observation and recheck instructions</a>
+      report Guard acceptance of a 25 USDC Solana → NEAR executable quote with a 24.771975 USDC
       minimum payout. A separate 1Click status read returned <code>PENDING_DEPOSIT</code>
-      with no source or destination transaction hashes.</p>
+      with no source or destination transaction hashes. The setup button does not recheck this quote observation or prove settlement.</p>
     <p><strong>Pending evidence.</strong> Official mainnet swap settlement, a vault-funded payment,
       and an on-chain hostile-model refusal.</p>
   </section>
