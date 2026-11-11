@@ -1,0 +1,28 @@
+audit-artifacts/agent-prepaid-storage-client-20261111/verification.json
+  h_e41068bed968d7 1-87
+docs/security/GUARD_SCOPED_STORAGE.md
+  h_e41068bed968d7 35-52
+x3-lang/near/agent-demo.sh
+  h_e41068bed968d7 18-21,46-52,76,173,202,277,315
+x3-lang/near_agent.py
+  h_e41068bed968d7 300,319-320,337,456,459,463,740,749,763-764,770,807
+x3-lang/near_intents.py
+  h_e41068bed968d7 1350-1360,1469-1470,1476,1487,1534,1542,2022,2031,2167,2175-2177,2182-2183
+x3-lang/tests/test_agent_demo_status_flow.py
+  h_e41068bed968d7 116-163
+x3-lang/tests/test_near_agent.py
+  h_e41068bed968d7 518-519,521-522,536-563
+x3-lang/tests/test_near_mandate.py
+  h_e41068bed968d7 322-333,424-465
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "258813097e76508dbbd5bb68b7f7ab08da1162a4",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
