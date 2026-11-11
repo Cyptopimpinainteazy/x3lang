@@ -135,10 +135,59 @@ def _credential_snapshot(key_file, account, public_key):
         raise AgentKeyError("X3_AGENT_KEY_CREDENTIAL") from None
 
 
+def _signed_artifact(output, *, account, public_key, contract, method, arguments, checked):
+    """Admit only the exact NEAR V0/single FunctionCall transaction, signed by the pin.
+
+    This compares the installed CLI's Borsh output; it does not implement a signer.
+    Unknown transaction/action/signature formats fail closed.
+    """
+    import base64
+    import hashlib
+    try:
+        matches = re.findall(r"(?m)^Signed transaction \(serialized as base64\):\r?\n([A-Za-z0-9+/]+={0,2})\r?$", output)
+        if len(matches) != 1 or len(matches[0]) > 1_400_000:
+            raise ValueError
+        encoded = matches[0]
+        raw = base64.b64decode(encoded, validate=True)
+        if base64.b64encode(raw).decode() != encoded:
+            raise ValueError
+        def blob(value):
+            data = value.encode("utf-8")
+            return len(data).to_bytes(4, "little") + data
+        public = ed25519.b58decode(public_key[8:])
+        expected = (blob(account) + b"\0" + public + (checked["nonce"] + 1).to_bytes(8, "little")
+                    + blob(contract) + ed25519.b58decode(checked["block_hash"])
+                    + (1).to_bytes(4, "little") + b"\x02" + blob(method) + blob(arguments)
+                    + (30_000_000_000_000).to_bytes(8, "little") + bytes(16))
+        if len(raw) != len(expected) + 65 or raw[:len(expected)] != expected or raw[len(expected)] != 0:
+            raise ValueError
+        digest = hashlib.sha256(expected).digest()
+        if not ed25519.verify(public, digest, raw[-64:]):
+            raise ValueError
+        return encoded, ed25519.b58encode(digest)
+    except Exception:
+        raise AgentKeyError("X3_AGENT_KEY_SIGNED_TRANSACTION_MISMATCH") from None
+
+
+def _local_cli_error(output):
+    # Fixed categories only. Never include CLI text, argv, paths or payloads.
+    for marker, code in (
+        ("Access key file not found!", "X3_AGENT_KEY_CLI_CREDENTIAL"),
+        ("Error reading data from file:", "X3_AGENT_KEY_CLI_CREDENTIAL"),
+        ("unexpected argument", "X3_AGENT_KEY_CLI_ARGUMENT"),
+        ("unrecognized subcommand", "X3_AGENT_KEY_CLI_ARGUMENT"),
+        ("Cannot send transaction in offline mode", "X3_AGENT_KEY_CLI_OFFLINE_SEND"),
+    ):
+        if marker in output:
+            return code
+    return "X3_AGENT_KEY_CLI_SIGNING_FAILED"
+
+
 def execute(*, account, public_key, contract, method, max_allowance_yocto, key_file, args,
             network="mainnet", attached_deposit="0 NEAR", transport=urllib_transport, runner=None, clock=None):
-    """Validate once immediately before a single CLI send, using only that credential snapshot."""
+    """Offline CLI signing, exact artifact admission, then one fixed-RPC send (no retry)."""
     import os
+    import base64
     import subprocess
     import tempfile
     import time
@@ -150,38 +199,68 @@ def execute(*, account, public_key, contract, method, max_allowance_yocto, key_f
     started = clock()
     checked = check_access_key(account=account, public_key=public_key, contract=contract, method=method,
                      max_allowance_yocto=max_allowance_yocto, network=network, transport=transport)
-    # A private, short-lived copy binds the validated bytes to the CLI input. This is
-    # protection against replacing the original path, not against a compromised OS/user.
+    try:
+        arguments = json.dumps(args, separators=(",", ":"), sort_keys=True, allow_nan=False)
+        if len(arguments.encode()) > 1_000_000:
+            raise ValueError
+    except (ValueError, TypeError):
+        raise AgentKeyError("X3_AGENT_KEY_CALL") from None
+    # A private snapshot binds the validated bytes to the CLI input, not OS isolation.
     with tempfile.TemporaryDirectory(prefix="x3-agent-key-") as directory:
         snapshot = os.path.join(directory, "access-key.json")
         with os.fdopen(os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as handle:
             json.dump(credential, handle)
-        command = ["near", "contract", "call-function", "as-transaction", contract, method,
-                   "json-args", json.dumps(args, separators=(",", ":"), sort_keys=True),
-                   "prepaid-gas", "30 Tgas", "attached-deposit", "0 NEAR", "sign-as", account,
+        command = ["near", "--offline", "contract", "call-function", "as-transaction", contract, method,
+                   "base64-args", base64.b64encode(arguments.encode("utf-8")).decode(), "prepaid-gas", "30 Tgas", "attached-deposit", "0 NEAR", "sign-as", account,
                    "network-config", network, "sign-with-access-key-file", snapshot,
                    "--nonce", str(checked["nonce"] + 1), "--block-hash", checked["block_hash"],
-                   "--block-height", str(checked["block_height"]), "send"]
+                   "--block-height", str(checked["block_height"]), "display"]
         if not 0 <= clock() - started <= 60:
             raise AgentKeyError("X3_AGENT_KEY_STALE")
         try:
-            result = (runner or subprocess.run)(command, capture_output=True, text=True, timeout=180, check=False)
+            result = (runner or subprocess.run)(command, capture_output=True, text=True, timeout=60, check=False)
         except Exception:
-            raise AgentKeyError("X3_AGENT_KEY_CLI_FAILED_OUTCOME_UNKNOWN") from None
-        # CLI output can contain the full private quote/receipt and arguments. Emit
-        # only a fixed metadata schema; candidates are never settlement/finality proof.
+            # Offline display cannot broadcast, even if signing timed out.
+            raise AgentKeyError("X3_AGENT_KEY_CLI_SIGNING_FAILED") from None
         output = (result.stdout or "") + "\n" + (result.stderr or "")
-        candidates = set()
-        for candidate in re.findall(r"(?m)^\s*Transaction ID: ([1-9A-HJ-NP-Za-km-z]{32,44})\s*$", output):
-            decoded = ed25519.b58decode(candidate)
-            if len(decoded) == 32 and ed25519.b58encode(decoded) == candidate:
-                candidates.add(candidate)
-        known_codes = ("X3_MANDATE_DENIED", "X3_STORAGE_BUDGET_EXHAUSTED", "X3_STORAGE_WITHDRAWAL_PENDING")
-        codes = [code for code in known_codes if re.search(r"(?<![A-Z0-9_])" + code + r"(?![A-Z0-9_])", output)]
-        print(json.dumps({"cli_exit_code": result.returncode,
-                          "transaction_hash_candidate": next(iter(candidates)) if len(candidates) == 1 else None,
-                          "error_code_candidates": codes, "verified": False, "broadcasted": "unknown"}, sort_keys=True))
-        return result.returncode
+        if result.returncode:
+            raise AgentKeyError(_local_cli_error(output))
+        encoded, transaction_hash = _signed_artifact(output, account=account, public_key=public_key,
+                     contract=contract, method=method, arguments=arguments, checked=checked)
+        if not 0 <= clock() - started <= 60:
+            raise AgentKeyError("X3_AGENT_KEY_STALE")
+        # Never pass signed bytes back through mutable CLI network configuration.
+        # An ambiguous response is reconciled externally by hash, never retried here.
+        payload = {"jsonrpc": "2.0", "id": "x3-agent-send", "method": "send_tx",
+                   "params": {"signed_tx_base64": encoded, "wait_until": "FINAL"}}
+        print(json.dumps({"stage": "signed", "transaction_hash_candidate": transaction_hash,
+                          "verified": False, "broadcasted": False}, sort_keys=True), flush=True)
+        try:
+            status, raw = transport("POST", RPC_URLS[network], {"Content-Type": "application/json"},
+                                    json.dumps(payload).encode(), 180.0)
+            response = json.loads(raw)
+            rpc_result = response.get("result") if isinstance(response, dict) else None
+            # nearcore RpcTransactionResponse flattens FinalExecutionOutcomeView.
+            outcome = rpc_result if isinstance(rpc_result, dict) else None
+            outcome_status = outcome.get("status") if isinstance(outcome, dict) else None
+            transaction = outcome.get("transaction") if isinstance(outcome, dict) else None
+            explicit_success = (isinstance(outcome_status, dict) and len(outcome_status) == 1
+                                and any(isinstance(outcome_status.get(key), str)
+                                        for key in ("SuccessValue", "SuccessReceiptId")))
+            success = (status == 200 and isinstance(response, dict) and response.get("error") is None
+                       and isinstance(rpc_result, dict) and rpc_result.get("final_execution_status") == "FINAL"
+                       and explicit_success and isinstance(transaction, dict)
+                       and transaction.get("hash") == transaction_hash
+                       and transaction.get("signer_id") == account and transaction.get("receiver_id") == contract)
+            known_codes = ("X3_MANDATE_DENIED", "X3_STORAGE_BUDGET_EXHAUSTED", "X3_STORAGE_WITHDRAWAL_PENDING")
+            safe_text = json.dumps(response)
+            codes = [code for code in known_codes if re.search(r"(?<![A-Z0-9_])" + code + r"(?![A-Z0-9_])", safe_text)]
+        except Exception:
+            success, codes = False, []
+        print(json.dumps({"cli_exit_code": 0, "transaction_hash_candidate": transaction_hash,
+                          "error_code_candidates": codes, "verified": False, "broadcasted": "unknown",
+                          "send_status": "rpc_final_response_unverified" if success else "outcome_unknown"}, sort_keys=True))
+        return 0 if success else 1
 
 
 def main(argv=None):

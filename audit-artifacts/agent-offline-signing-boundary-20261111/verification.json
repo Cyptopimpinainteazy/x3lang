@@ -1,0 +1,97 @@
+{
+  "schema": "x3.agent_offline_signing_boundary.verification.v1",
+  "observed_at_utc": "2026-11-11T21:17:48.838746+00:00",
+  "base_commit": "c358f092ededd4ac1c1d58049d16a7db09efe947",
+  "branch": "fix/agent-offline-signing-boundary-20261111",
+  "tested_tree": "uncommitted scoped changes; hashes bind tested bytes",
+  "source_sha256": {
+    "x3-lang/near_agent_key.py": "e64502be80272840293d1308228b3feca4021e59841372b3c2b017c385529718",
+    "x3-lang/tests/test_near_agent_key.py": "c6ee259080513afdf469565c17364ee8bd4395bb6c55d0418b922f80a24a79ea",
+    "docs/security/GUARD_SCOPED_STORAGE.md": "3ebe6cbe9b2c12177916805385c58b545f3c0a04c3a2e31840ecf90b6a868d2f"
+  },
+  "near_cli_version": "near-cli-rs 0.30.1",
+  "diagnosis": {
+    "official_signer_source": "https://github.com/near/near-cli-rs/blob/v0.30.1/src/transaction_signature_options/sign_with_access_key_file/mod.rs#L60-L85",
+    "official_send_source": "https://github.com/near/near-cli-rs/blob/v0.30.1/src/transaction_signature_options/send/mod.rs",
+    "rpc_schema_source": "https://github.com/near/nearcore/blob/2.14.0/chain/jsonrpc-primitives/src/types/transactions.rs",
+    "online_flags": "online signing ignores explicit nonce/block flags",
+    "offline_send": "offline send refuses; display signs without broadcast",
+    "first_real_failed_attempt": "Original suppressed CLI error cannot be reconstructed; no specific cause claimed. Independent synthetic online display reproduces nonce lookup failure, not proof of original cause."
+  },
+  "tdd": [
+    {
+      "case": "actual installed CLI offline artifact",
+      "red": "wrapper used online send, assertion prevented execution",
+      "green": "two actual offline display cases pass, including nested Unicode and synthetic quote-shaped args; independent Borsh decoding and signature verification"
+    },
+    {
+      "case": "explicit final response identity",
+      "red": "six malformed or mismatched response cases wrongly returned success",
+      "green": "missing status/outcome,unknown status,wrong hash/signer/receiver all return outcome_unknown"
+    },
+    {
+      "case": "exact Unicode argument bytes",
+      "red": "CLI json-args normalized Unicode escapes; strict artifact check refused",
+      "green": "base64-args transports the exact once-serialized bytes"
+    }
+  ],
+  "checks": [
+    {
+      "command": "PYTHONPATH=x3-lang ../mainnet-trade/.venv/bin/python -m pytest x3-lang/tests/test_near_agent_key.py -q",
+      "exit_code": 0,
+      "passed": 70
+    },
+    {
+      "command": "PYTHONPATH=x3-lang ../mainnet-trade/.venv/bin/python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py -q",
+      "exit_code": 0,
+      "passed": 774,
+      "skipped": 1
+    },
+    {
+      "command": "node --test x3-lang/near/demo/test/*.test.mjs",
+      "exit_code": 0,
+      "passed": 88
+    },
+    {
+      "command": "../mainnet-trade/.venv/bin/python -m compileall -q x3-lang scripts/hackathon",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "readonly_rpc_shape_observation": {
+    "transaction_hash": "72QrfNRf131kxnBTmZb8EJjQP6H3MKEWxvSBrMuyB9qw",
+    "network": "mainnet",
+    "result_keys": [
+      "final_execution_status",
+      "receipts_outcome",
+      "status",
+      "transaction",
+      "transaction_outcome"
+    ],
+    "nested_final_execution_outcome": false,
+    "status_keys": [
+      "SuccessValue"
+    ],
+    "final_execution_status": "FINAL",
+    "raw_response_or_signatures_retained": false
+  },
+  "boundary": [
+    "Only synthetic test credentials used by author/reviewer; actual installed CLI ran offline display only.",
+    "No author transaction signing with user credentials, mainnet broadcast, registration retry or quote request.",
+    "One fixed RPC send per explicit invocation; no retries; deterministic hash flushed before send and returned on unknown outcome.",
+    "RPC success remains unverified until independent finalized reconciliation; neither return code nor hash proves settlement.",
+    "Fresh approval-specific expected nonce must be pinned by trusted caller when reconciling a previously uncertain attempt.",
+    "Retains owner recovery access; this operator harness is not OS isolation."
+  ],
+  "independent_review": {
+    "agent": "/root/review",
+    "status": "clear",
+    "findings": [],
+    "focused_tests_passed": 70,
+    "scope": "Read-only final diff/docs review and independent synthetic offline CLI test execution; no user credentials or broadcast",
+    "diff_check": "passed"
+  }
+}
