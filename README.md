@@ -324,7 +324,9 @@ outcomes.
 ## Trust boundaries
 
 A holder of an unrestricted wallet key can bypass Guard and transfer funds directly.
-The deployed contract checks Guard-mediated actions and does not custody tokens.
+The deployed contract checks Guard-mediated actions and does not custody swap tokens.
+The scoped-storage source adds bounded owner-funded native NEAR credit for contract
+storage and owner withdrawal; deployment of this source is a separate approval gate.
 Separate custody work is tracked in a NEAR FunctionCall-only agent vault
 ([#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125), local Sandbox),
 an EIP-712 Base ERC-20 vault
