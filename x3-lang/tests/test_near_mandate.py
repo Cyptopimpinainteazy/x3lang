@@ -327,9 +327,11 @@ def test_a_mandate_for_another_owner_is_refused(tmp_path):
 def test_prepaid_agent_commands_attach_zero_without_changing_legacy_default(step, method):
     common = dict(contract="guard.sandbox", signer="agent.sandbox", key_file="fixture-only.json", method=method)
     legacy = ni.guard_command(step, {}, **common)
-    prepaid = ni.guard_command(step, {}, **common, prepaid_agent_storage=True)
+    prepaid = ni.guard_command(step, {}, **common, prepaid_agent_storage=True,
+                               agent_public_key="ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+                               agent_max_allowance_yocto="100000000000000000000000")
     assert legacy[legacy.index("attached-deposit") + 1] == ni.GUARD_DEPOSITS[step]
-    assert prepaid[prepaid.index("attached-deposit") + 1] == "0 NEAR"
+    assert prepaid[2] == "send" and prepaid[prepaid.index("--method") + 1] == method
 
 def _agent_receipt(tmp_path):
     agent_quote(tmp_path, live=True, guard_contract="x3-guard.near", near_views=views(chain_mandate()))
@@ -434,13 +436,18 @@ def test_prepaid_guard_args_cli_matches_command(tmp_path, capsys, prepaid, step)
     argv = ["guard-args", "--receipt", str(path), "--step", step,
             "--contract", "guard.sandbox", "--signer", "agent.sandbox", "--key-file", "fixture-only.json"]
     if prepaid:
-        argv.append("--prepaid-agent-storage")
+        argv.extend(["--prepaid-agent-storage",
+                     "--agent-public-key", "ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+                     "--agent-max-allowance-yocto", "100000000000000000000000"])
     assert ni.main(argv) == 0
     out = json.loads(capsys.readouterr().out)
     expected = "0 NEAR" if prepaid and step != "approve" else ni.GUARD_DEPOSITS[step]
     assert out["attached_deposit"] == expected
     command = shlex.split(out["command"])
-    assert command[command.index("attached-deposit") + 1] == expected
+    if prepaid and step != "approve":
+        assert command[2] == "send"
+    else:
+        assert command[command.index("attached-deposit") + 1] == expected
 
 
 @pytest.mark.parametrize("prepaid", [False, True])
@@ -450,7 +457,9 @@ def test_prepaid_prepare_cli_preserves_owner_funding(tmp_path, capsys, prepaid):
     argv = ["prepare", "--receipt", str(tmp_path / "r.json"), "--program", str(AGENT_INTENT),
             "--contract", "guard.sandbox", "--signer", "agent.sandbox", "--key-file", "fixture-only.json"]
     if prepaid:
-        argv.append("--prepaid-agent-storage")
+        argv.extend(["--prepaid-agent-storage",
+                     "--agent-public-key", "ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+                     "--agent-max-allowance-yocto", "100000000000000000000000"])
     assert ni.main(argv) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["authorization"] == "not_verified" and out["broadcasted"] is False
@@ -458,7 +467,10 @@ def test_prepaid_prepare_cli_preserves_owner_funding(tmp_path, capsys, prepaid):
         expected = "0 NEAR" if prepaid else ni.GUARD_DEPOSITS[call["step"]]
         assert call["attached_deposit"] == expected
         command = shlex.split(call["command"])
-        assert command[command.index("attached-deposit") + 1] == expected
+        if prepaid:
+            assert command[2] == "send"
+        else:
+            assert command[command.index("attached-deposit") + 1] == expected
     for step, method in ni.GUARD_METHODS.items():
         assert ni.guard_deposit(step, method=method, prepaid_agent_storage=prepaid) == ni.GUARD_DEPOSITS[step]
     for step in ("mandate", "revoke", "approve"):
