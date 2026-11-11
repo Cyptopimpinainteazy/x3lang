@@ -63,9 +63,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: x3-lang
-      - name: Test Rust VM with archived proofs
+      - name: Test compiler, CLI corpus, and VM with archived proofs
         working-directory: x3-lang
-        run: cargo test -p x3-lang-vm --locked --quiet
+        run: cargo test -p x3-lang-compiler -p x3-tools -p x3-lang-vm --locked --quiet
       - name: Formatting
         working-directory: x3-lang
         run: cargo fmt --all -- --check
