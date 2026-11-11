@@ -43,12 +43,63 @@ commands use `0 NEAR` for `agent_register_intent`, `agent_accept_quote`, and
 commands. For the guided script, export `X3_AGENT_PREPAID_STORAGE=1` for each
 `agent-demo.sh` invocation; its default is `0`, and other values are rejected.
 
-This option selects deposits only. It does not verify deployed code, available
-credit, key permissions, or authorization, and it never funds or raises a budget.
+This option does not verify deployed code, available credit, or mandate authorization,
+and it never funds or raises a budget. Generated agent sends require the pinned-key
+boundary described below.
 Insufficient credit still fails on chain. The default retains legacy attached
 deposits. Owner registration, quote, outcome, approval, mandate and revoke
 commands retain their existing deposits even when the option is selected.
 The existing settlement evidence gates and owner confirmations still apply.
+
+## Pinned delegated signing key
+
+For prepaid agent commands, also provide `--agent-public-key` and
+`--agent-max-allowance-yocto`. The public key and positive allowance ceiling are
+reviewed operator configuration; the model and receipt do not choose them. In
+`agent-demo.sh`, export `X3_AGENT_PUBLIC_KEY` and
+`X3_AGENT_MAX_ALLOWANCE_YOCTO` alongside `X3_AGENT_PREPAID_STORAGE=1`.
+The allowance ceiling is a refusal threshold, not funding or a budget increase.
+
+Generated prepaid commands invoke `near_agent_key.py send`, which reads one
+regular, owner-readable-only credential file, derives its Ed25519 public key
+using the existing `cryptography` dependency, and matches its account, declared
+public key and embedded public-key suffix to the reviewed pin. Immediately
+before each send it queries the selected network's fixed RPC for its chain ID
+and the exact key at `final` finality. It refuses FullAccess, unlimited or zero
+allowance, allowance above the reviewed ceiling, the wrong Guard receiver,
+empty/wildcard method lists, any method outside the three agent mutations, and
+a requested method absent from that list. RPC failures fail closed.
+
+Only a validated snapshot is passed to the existing NEAR CLI, using a temporary
+0600 file in a private directory, zero attached deposit, and the queried nonce
+plus one, block hash and block height. Verification older than 60 seconds is
+refused before invoking the CLI. The snapshot is removed on normal success or
+failure; a CLI timeout is an unknown outcome and is never retried automatically.
+An abrupt process kill can leave a temporary file, so this remains an operator
+credential-handling process. No private credential is included in command lines
+or returned diagnostics. Raw CLI output is suppressed because it can include the
+private quote and receipt. Only the exit code, a strictly parsed transaction-hash
+candidate and fixed recognized error-code candidates are emitted. These are
+explicitly unverified; even a zero CLI exit is not finality or settlement proof.
+
+The `check` command needs only public configuration and never opens a key file
+or signs. For example, replace the placeholders with reviewed public values:
+
+```bash
+python3 x3-lang/near_agent_key.py check --account AGENT_ACCOUNT \
+  --public-key REVIEWED_PUBLIC_KEY --contract GUARD_ACCOUNT \
+  --method agent_register_intent --max-allowance-yocto REVIEWED_CEILING
+```
+
+This is a trusted operator harness: the model proposes `.x3` source and the owner
+reviews and confirms actions. An owner recovery FullAccess key may remain on the
+account and host; the checker admits only the specifically supplied delegated
+key. File modes and snapshots are not OS isolation or protection against host
+compromise. Never delete the owner's last recovery key for this workflow. The
+RPC observations are a preflight check, not a cryptographic state proof; NEAR
+still enforces the actual signing key's permission when executing the transaction.
+Legacy non-prepaid commands remain direct operator commands and make no delegated
+key claim. This change does not authorize a mainnet transaction.
 
 ## Upgrade compatibility
 

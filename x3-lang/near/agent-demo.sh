@@ -46,7 +46,12 @@ die()  { printf '\n\033[31mStopped: %s\033[0m\n' "$*" >&2; exit 1; }
 AGENT_STORAGE_ARGS=()
 case "${X3_AGENT_PREPAID_STORAGE:-0}" in
   0) ;;
-  1) AGENT_STORAGE_ARGS=(--prepaid-agent-storage) ;;
+  1)
+    [[ -n "${X3_AGENT_PUBLIC_KEY:-}" ]] || die "X3_AGENT_PUBLIC_KEY must pin the reviewed delegated signing key."
+    [[ -n "${X3_AGENT_MAX_ALLOWANCE_YOCTO:-}" ]] || die "X3_AGENT_MAX_ALLOWANCE_YOCTO must set the reviewed gas allowance ceiling."
+    AGENT_STORAGE_ARGS=(--prepaid-agent-storage --agent-public-key "$X3_AGENT_PUBLIC_KEY"
+                        --agent-max-allowance-yocto "$X3_AGENT_MAX_ALLOWANCE_YOCTO")
+    ;;
   *) die "X3_AGENT_PREPAID_STORAGE must be 0 or 1; support and owner credit are not auto-detected." ;;
 esac
 
@@ -90,7 +95,11 @@ send_expected_refusal() {
     tail -80 "$log" >&2
     die "$label failed without the expected X3_MANDATE_DENIED evidence."
   }
-  info "Confirmed: x3-guard refused the transaction with X3_MANDATE_DENIED."
+  if (( ${#AGENT_STORAGE_ARGS[@]} > 0 )); then
+    info "CLI reported an unverified X3_MANDATE_DENIED candidate; verify the finalized transaction before claiming on-chain refusal."
+  else
+    info "Confirmed: x3-guard refused the transaction with X3_MANDATE_DENIED."
+  fi
   info "Transaction output: $log"
 }
 

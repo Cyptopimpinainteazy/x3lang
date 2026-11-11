@@ -334,9 +334,13 @@ def run(request: str, mandate_path: str, *, model=None, client, tokens_path: Opt
         quote: bool = False, live: bool = False, approve: Optional[str] = None,
         confirm: Optional[Callable[[str], str]] = None, nonce: Optional[str] = None,
         nonce_store: Optional[Any] = None, receipt_path: Optional[str] = None,
-        now: Optional[datetime] = None, prepaid_agent_storage: bool = False) -> Tuple[Dict[str, Any], int]:
+        now: Optional[datetime] = None, prepaid_agent_storage: bool = False,
+        agent_public_key: Optional[str] = None,
+        agent_max_allowance_yocto: Optional[str] = None) -> Tuple[Dict[str, Any], int]:
     """Run one request end to end. Returns (report, exit code). Raises only for errors that are
     not a verdict (a provider outage, a missing file)."""
+    if prepaid_agent_storage:
+        ni.validate_agent_key_pin(agent_public_key, agent_max_allowance_yocto)
     now = now or datetime.now(timezone.utc)
     if not request.strip() or len(request.encode("utf-8")) > MAX_REQUEST_BYTES:
         raise NearIntentsError("X3_AGENT_REQUEST", f"the request must be 1..{MAX_REQUEST_BYTES} bytes", "request")
@@ -453,7 +457,10 @@ def run(request: str, mandate_path: str, *, model=None, client, tokens_path: Opt
     _stage(stages, "quote", True, mode=result["mode"], guards=[g["guard"] for g in result["guards"]])
     report["quote"] = {k: result.get(k) for k in ("mode", "eligible_for_wallet_authorization", "deposit", "receipt_path")}
     if live:
-        storage_option = " --prepaid-agent-storage" if prepaid_agent_storage else ""
+        import shlex
+        storage_option = (" " + shlex.join(["--prepaid-agent-storage", "--agent-public-key", agent_public_key,
+                                           "--agent-max-allowance-yocto", agent_max_allowance_yocto])
+                          if prepaid_agent_storage else "")
         report["next"] = [
             f"near_intents.py guard-args --receipt {result['receipt_path']} --step register --contract <x3-guard> "
             f"--signer {brief['agent']} --key-file <agent key>{storage_option}",
@@ -738,6 +745,7 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
     p_pay.add_argument("--receipt")
     p_pay.add_argument("--nonce-store")
     p_pay.add_argument("--prepaid-agent-storage", action="store_true", help=ni.PREPAID_AGENT_STORAGE_HELP)
+    ni.agent_key_options(p_pay)
     p_reg = sub.add_parser("register-args", help="agent_register_intent arguments for a program, without a quote")
     p_reg.add_argument("program")
     p_reg.add_argument("--mandate", required=True)
@@ -747,6 +755,7 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
     p_reg.add_argument("--key-file")
     p_reg.add_argument("--network", default="mainnet")
     p_reg.add_argument("--prepaid-agent-storage", action="store_true", help=ni.PREPAID_AGENT_STORAGE_HELP)
+    ni.agent_key_options(p_reg)
     p_red = sub.add_parser("redteam", help="run adversarial requests through the real model and record the outcome")
     p_red.add_argument("--mandate", required=True)
     p_red.add_argument("--tokens")
@@ -768,6 +777,7 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
                     "register", out["args"], contract=args.contract, signer=args.signer,
                     key_file=args.key_file, network=args.network, method="agent_register_intent",
                     prepaid_agent_storage=args.prepaid_agent_storage,
+                    agent_public_key=args.agent_public_key, agent_max_allowance_yocto=args.agent_max_allowance_yocto,
                 ))
             return ni._emit(out, 0)
         if args.command == "pay":
@@ -804,7 +814,8 @@ def main(argv: Optional[List[str]] = None, *, model=None, client=None, rpc=None,
                            near_views=near_views, rpc=rpc, quote=args.quote, live=args.live, approve=args.approve,
                            confirm=confirm, nonce=args.issued_nonce,
                            nonce_store=ni.NonceStore(args.nonce_store) if args.live else None,
-                           receipt_path=args.receipt, prepaid_agent_storage=args.prepaid_agent_storage)
+                           receipt_path=args.receipt, prepaid_agent_storage=args.prepaid_agent_storage,
+                           agent_public_key=args.agent_public_key, agent_max_allowance_yocto=args.agent_max_allowance_yocto)
         return ni._emit(report, code)
     except NearIntentsError as exc:
         print(json.dumps({"status": "error", "errors": [exc.to_dict()]}, indent=2, sort_keys=True), file=sys.stderr)

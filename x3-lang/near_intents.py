@@ -1353,6 +1353,19 @@ PREPAID_AGENT_STORAGE_HELP = (
 )
 
 
+def validate_agent_key_pin(public_key, max_allowance_yocto):
+    import near_agent_key
+    try:
+        near_agent_key.validate_pin(public_key, max_allowance_yocto)
+    except near_agent_key.AgentKeyError as exc:
+        raise NearIntentsError(str(exc), "scoped agent commands require a reviewed public key and allowance ceiling") from None
+
+
+def agent_key_options(parser):
+    parser.add_argument("--agent-public-key", help="reviewed signing public key; required for prepaid agent commands")
+    parser.add_argument("--agent-max-allowance-yocto", help="explicit reviewed positive gas allowance ceiling in yoctoNEAR")
+
+
 def guard_deposit(step: str, *, method: Optional[str] = None, prepaid_agent_storage: bool = False) -> str:
     """Select storage payment explicitly; never infer support or credit from RPC."""
     if prepaid_agent_storage and step in GUARD_STEPS and method == AGENT_METHODS[step]:
@@ -1467,8 +1480,16 @@ def _guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
 
 def guard_command(step: str, args: Dict[str, Any], *, contract: str, signer: str, key_file: str,
                   network: str = "mainnet", method: Optional[str] = None,
-                  prepaid_agent_storage: bool = False) -> List[str]:
-    """The near-cli-rs (0.30) command that sends one `x3-guard` call."""
+                  prepaid_agent_storage: bool = False, agent_public_key: Optional[str] = None,
+                  agent_max_allowance_yocto: Optional[str] = None) -> List[str]:
+    """Generate an operator command; scoped calls validate again immediately before sending."""
+    if prepaid_agent_storage and step in GUARD_STEPS and method == AGENT_METHODS[step]:
+        validate_agent_key_pin(agent_public_key, agent_max_allowance_yocto)
+        return [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "near_agent_key.py"),
+                "send", "--account", signer, "--public-key", agent_public_key,
+                "--contract", contract, "--method", method, "--max-allowance-yocto", agent_max_allowance_yocto,
+                "--network", network, "--key-file", key_file,
+                "--args-json", json.dumps(args, separators=(",", ":"), sort_keys=True)]
     return [
         "near", "contract", "call-function", "as-transaction", contract, method or GUARD_METHODS[step],
         "json-args", json.dumps(args, separators=(",", ":"), sort_keys=True),
@@ -1484,7 +1505,9 @@ def guard_command(step: str, args: Dict[str, Any], *, contract: str, signer: str
 def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path: str,
                     contract: Optional[str] = None,
                     signer: Optional[str] = None, key_file: Optional[str] = None,
-                    network: str = "mainnet", prepaid_agent_storage: bool = False) -> Dict[str, Any]:
+                    network: str = "mainnet", prepaid_agent_storage: bool = False,
+                    agent_public_key: Optional[str] = None,
+                    agent_max_allowance_yocto: Optional[str] = None) -> Dict[str, Any]:
     """Prepare Guard calls and post-deposit evidence commands without signing or broadcasting."""
     _signed_quote(receipt)
     if receipt.get("program_sha256") != _sha256_file(program_path):
@@ -1540,6 +1563,7 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
             item["command"] = shlex.join(guard_command(
                 step, call_args, contract=contract, signer=signer, key_file=key_file,
                 network=network, method=method, prepaid_agent_storage=prepaid_agent_storage,
+                agent_public_key=agent_public_key, agent_max_allowance_yocto=agent_max_allowance_yocto,
             ))
         steps.append(item)
     deposit = receipt.get("deposit") or {}
@@ -2020,6 +2044,7 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_prepare.add_argument("--key-file")
     p_prepare.add_argument("--network", default="mainnet")
     p_prepare.add_argument("--prepaid-agent-storage", action="store_true", help=PREPAID_AGENT_STORAGE_HELP)
+    agent_key_options(p_prepare)
 
     p_guard = sub.add_parser("guard-args", help="x3-guard contract call arguments (and command) from a receipt")
     p_guard.add_argument("--receipt", required=True)
@@ -2029,6 +2054,7 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_guard.add_argument("--key-file")
     p_guard.add_argument("--network", default="mainnet")
     p_guard.add_argument("--prepaid-agent-storage", action="store_true", help=PREPAID_AGENT_STORAGE_HELP)
+    agent_key_options(p_guard)
 
     p_mandate = sub.add_parser("mandate", help="an owner's mandate for an AI agent, enforced by x3-guard")
     msub = p_mandate.add_subparsers(dest="mandate_command", required=True)
@@ -2165,6 +2191,7 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 key_file=args.key_file,
                 network=args.network,
                 prepaid_agent_storage=args.prepaid_agent_storage,
+                agent_public_key=args.agent_public_key, agent_max_allowance_yocto=args.agent_max_allowance_yocto,
             ))
         if args.command == "guard-args":
             with open(args.receipt, "r", encoding="utf-8") as f:
@@ -2180,7 +2207,9 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 out["command"] = shlex.join(guard_command(args.step, call_args, contract=args.contract,
                                                           signer=args.signer, key_file=args.key_file,
                                                           network=args.network, method=method,
-                                                          prepaid_agent_storage=args.prepaid_agent_storage))
+                                                          prepaid_agent_storage=args.prepaid_agent_storage,
+                                                          agent_public_key=args.agent_public_key,
+                                                          agent_max_allowance_yocto=args.agent_max_allowance_yocto))
             return _emit(out)
         if args.command == "mandate":
             if args.mandate_command == "check":
