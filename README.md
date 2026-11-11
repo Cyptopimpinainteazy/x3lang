@@ -18,8 +18,13 @@ in X3, a small typed language for cross-chain payment intents. The agent writes 
 as an `.x3` program. A deterministic compiler and a NEAR contract (`x3-guard`) compare the
 two. Model output never authorizes anything.
 
-Built at NEAR HACKATHON 2026. Tracks: **AI Security & Defense** (`security`, primary),
-**Agent Economy** (`agents`), **Unstoppable DeFi** (`defi`).
+Built at NEAR HACKATHON 2026. The documented submission scope is
+**AI Security & Defense** (`security`, primary) and **Agent Economy** (`agents`).
+**Unstoppable DeFi** (`defi`) is a proposed third-track perspective, not a
+confirmed submitted track. The three project perspectives below do not establish
+which tracks the organizer has accepted; confirm the owner-approved submission
+record before changing that scope. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
+and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md).
 
 [Why X3 Shield stands out](docs/hackathon/WHY_X3_SHIELD.md) connects each distinguishing claim to its evidence and limits.
 
@@ -243,17 +248,22 @@ Needs Linux x86_64, Python 3.12, Node 22+ and Rust (same toolchain download as s
 It makes no blockchain transactions and uses no wallet. Longer walkthrough:
 [judge guide](docs/hackathon/JUDGE_GUIDE.md).
 
-## What each track gets
+## Three project perspectives
 
 | Track | What X3 Shield shows | Steps |
 |---|---|---|
 | **AI Security & Defense** | A policy engine for agent spending: recipient and asset allowlists, per-payment and 24-hour caps, slippage and fee ceilings, approval thresholds, expiry, one-use nonces. Enforced off-chain by the compiler and on-chain by `x3-guard`, which reads terms from the signed quote bytes. | 3, 4, 5, 6, 9, [testnet refusals](#proof-on-near-testnet) |
 | **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. The official live quote was accepted only up to deposit authorization. | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet) |
-| **Unstoppable DeFi** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
+| **Unstoppable DeFi (proposed)** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
 
-The DeFi entry is the narrowest of the three. An official 1Click testnet settlement route has not been confirmed for this demonstration. The finalized testnet trade used Tidepool, a 1Click-compatible community testnet, with a trusted relay. The
-official 1Click quote flow was exercised up to deposit authorization and stopped before
-funding. `demo.py` and `track_control.py` print the first two track names only.
+The proposed DeFi perspective uses historical trusted Tidepool community-testnet
+delivery, not official 1Click settlement. The official 1Click quote flow was
+exercised up to deposit authorization and stopped before funding. The
+[official 1Click quickstart](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/introduction)
+states that NEAR Intents has no testnet version.
+`demo.py` and `track_control.py` print the two documented submission categories
+only. Their offline results do not establish deposit or settlement; the separate
+historical Tidepool evidence records actual source funding and destination delivery.
 
 ## NEAR features used
 
