@@ -54,7 +54,7 @@ create() {
     sign-as "$OWNER" network-config "$NETWORK" sign-with-keychain send
   account_exists "$account" || die "$account still doesn't exist"
 }
-create "$TOKEN" '5 NEAR' 'the token contract; pays code storage and up to 500 holders'
+create "$TOKEN" '7 NEAR' 'the token contract; ~4.1 NEAR locks the 412 KB code, the rest stores up to 500 holders'
 create "$FAUCET" '0.5 NEAR' 'faucet operator; gas for add_holder and faucet_claim'
 create "$JUDGES" '2 NEAR' 'parent of every judge holder account'
 
@@ -62,7 +62,7 @@ say "Deploy and initialize"
 if has_contract "$TOKEN"; then
   echo "$TOKEN already has code; skipping deploy"
 else
-  confirm "deploy $WASM to $TOKEN and call new with $ARGS_FILE" "storage stake from $TOKEN's 5 NEAR, plus gas"
+  confirm "deploy $WASM to $TOKEN and call new with $ARGS_FILE" "storage stake from $TOKEN's 7 NEAR, plus gas"
   near contract deploy "$TOKEN" use-file "$WASM" \
     with-init-call new file-args "$ARGS_FILE" \
     prepaid-gas '100 Tgas' attached-deposit '0 NEAR' \

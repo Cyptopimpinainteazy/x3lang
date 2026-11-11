@@ -78,7 +78,7 @@ deploy/lock.sh  mainnet        # permanent; only after the mainnet smoke test pa
 **`setup.sh`**
 
 - *Preflight:* the wasm hash matches; the wasm reports refusal reasons; the args file binds `x3/dx3hack_burn.x3`; the burn is in the future; the accounts in the args file are the expected ones.
-- *Accounts it creates:* `dx3hack.x3lang.<network>` (5 NEAR: code storage and up to 500 holders), `faucet.x3lang.<network>` (0.5 NEAR) and `judges.x3lang.<network>` (2 NEAR).
+- *Accounts it creates:* `dx3hack.x3lang.<network>` (7 NEAR: about 4.1 locks the 412 KB code, the rest stores up to 500 holders), `faucet.x3lang.<network>` (0.5 NEAR) and `judges.x3lang.<network>` (2 NEAR).
 - *Deploy:* deploys with `init-args.json` (mainnet) or `init-args.testnet.json` (testnet), then reads `hackathon_config` and `ft_metadata` back and compares every field.
 - *Faucet key:* generates the faucet operator key with openssl into `~/.x3/dx3hack/faucet-key.<network>.json` (mode 600, never overwritten), adds it to the faucet account scoped to `add_holder` and `faucet_claim` on the token only, and verifies that scope on chain.
 - *Extra holders:* set `DX3HACK_EXTRA_HOLDERS="merchant.x3lang.near ..."` to allowlist owner-approved accounts.
