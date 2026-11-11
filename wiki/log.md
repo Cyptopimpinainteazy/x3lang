@@ -7,3 +7,5 @@ History of wiki ingestion and synchronization.
 - Initialized the project wiki and linked the authoritative repository docs.
 - Added ShipFrame release profile, active skill stack, and agent role contracts.
 - No source-code behavior changed.
+
+- Recorded standalone source admission and explicit read-only peer parity; normal CI does not assert cross-repository equality.

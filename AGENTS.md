@@ -15,6 +15,9 @@ NEAR Guard, independently verified transaction evidence, and the judge demo.
 - Write only to this repository's isolated feature branches/worktrees.
 - `Cyptopimpinainteazy/xxxstar` is **read-only context** for this sprint.
   No experimental cross-VM, liquidity, or agent-firewall code imports.
+- Follow `docs/security/STANDALONE_CI_POLICY.md`: ordinary PRs bind and execute
+  this repository's source; private peer parity is an explicit manual audit.
+  Standalone CI success must never be described as cross-repository parity.
 - Mission Control and orchestration live in separate local repositories.
 - Unrelated projects are out of scope.
 
