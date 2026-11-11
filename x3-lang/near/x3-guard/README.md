@@ -80,8 +80,10 @@ key from sending funds directly, so give the agent a NEAR account and never the 
 - The outcome is the owner's attestation of `GET /v0/status`. 1Click does not sign status
   responses, and the contract does not observe the destination chain. It does record whether a
   settlement met the *signed* guaranteed minimum.
-- Every write's storage is paid by the caller from the attached deposit, and the excess is
-  refunded in the same call.
+- Writes are paid by the caller from the attached deposit, with excess refunded.
+  Zero-deposit agent calls may instead use bounded storage credit prepaid by their
+  mandate owner. See [the scoped-key storage API](../../../docs/security/GUARD_SCOPED_STORAGE.md)
+  for funding, withdrawal, upgrade and budget-exhaustion behavior.
 
 ## Test
 

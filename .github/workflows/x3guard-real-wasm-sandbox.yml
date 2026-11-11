@@ -9,6 +9,8 @@ on:
       - 'scripts/hackathon/guard_sandbox_smoke.sh'
       - 'scripts/hackathon/scoped_agent_sandbox_smoke.sh'
       - 'docs/security/NEAR_SCOPED_AGENT_SANDBOX.md'
+      - 'docs/security/GUARD_SCOPED_STORAGE.md'
+      - 'audit-artifacts/guard-scoped-storage-20261110/**'
       - '.github/workflows/x3guard-real-wasm-sandbox.yml'
   workflow_dispatch:
 
@@ -29,7 +31,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.99.1'
-          components: rustfmt
+          components: rustfmt, rust-src
           targets: wasm32-unknown-unknown
       - name: Cache separate sandbox test and Guard compilation
         uses: Swatinem/rust-cache@v2
@@ -52,3 +54,20 @@ jobs:
           NEAR_NETWORK_ID: sandbox
           NEAR_RPC_TIMEOUT_SECS: '60'
         run: bash scripts/hackathon/scoped_agent_sandbox_smoke.sh
+      - name: Reproduce reviewed scoped-storage upgrade bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd x3-lang/near/x3-guard
+          export RUSTFLAGS="--cfg near --remap-path-prefix=$(rustc --print sysroot)/lib/rustlib/src/rust=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67 --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}/registry/src=/home/lojak/.cargo/registry/src"
+          cargo build --locked --release --target wasm32-unknown-unknown
+          cd ../../..
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          expected = json.loads(Path('audit-artifacts/guard-scoped-storage-20261110/verification.json').read_text())['proposed_binary']
+          wasm = Path('x3-lang/near/x3-guard/target/wasm32-unknown-unknown/release/x3_guard.wasm').read_bytes()
+          assert len(wasm) == expected['wasm_bytes'], 'reviewed WASM size mismatch'
+          assert hashlib.sha256(wasm).hexdigest() == expected['sha256'], 'reviewed WASM hash mismatch'
+          print('Reviewed scoped-storage WASM SHA-256 matches')
+          PY
