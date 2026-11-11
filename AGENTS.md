@@ -15,6 +15,9 @@ NEAR Guard, independently verified transaction evidence, and the judge demo.
 - Write only to this repository's isolated feature branches/worktrees.
 - `Cyptopimpinainteazy/xxxstar` is **read-only context** for this sprint.
   No experimental cross-VM, liquidity, or agent-firewall code imports.
+- Follow `docs/security/STANDALONE_CI_POLICY.md`: ordinary PRs bind and execute
+  this repository's source; private peer parity is an explicit manual audit.
+  Standalone CI success must never be described as cross-repository parity.
 - Mission Control and orchestration live in separate local repositories.
 - Unrelated projects are out of scope.
 
@@ -39,7 +42,8 @@ and dependencies. Another agent may already be handling your proposed task.
   untrusted. The compiler and deterministic mandate decide admissibility.
 - Validate chain, asset, recipient, amount, nonce, expiry, approval requirements
   and refund destination through a trusted execution/signing boundary.
-- **NEAR Guard does not custody wallet funds.** Guard-level rejection is not
+- **NEAR Guard does not custody swap assets.** Native NEAR storage credit pays
+  for contract storage and is separate from the swapped tokens. Guard-level rejection is not
   protection against an independent wallet keyholder transferring directly.
 - A signed NEAR 1Click quote proves signed terms, **not** completion of a trade.
   Local test fixtures, RPC status strings, receipts with self-reported outcome,

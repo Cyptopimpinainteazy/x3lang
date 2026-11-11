@@ -12,3 +12,5 @@ History of wiki ingestion and synchronization.
 
 - Linked the reviewed scoped-agent storage API and local upgrade limitations.
 - Public-chain deployment and cross-chain settlement remain separate owner-approved gates.
+
+- Recorded the owner-authorized standalone source-admission policy; automatic peer parity is no longer asserted, and strict peer comparison remains manual/read-only.

@@ -42,6 +42,7 @@ not duplicate source code or evidence.
 |---|---|---|
 | X3 Shield threat model | Wallet, policy, migration, storage, and settlement risks | `docs/security/X3_SHIELD_THREAT_MODEL.md` |
 | Security policy | Disclosure and security handling | `SECURITY.md` |
+| Standalone source admission | Exact local source identity, execution proofs and manual peer parity | `docs/security/STANDALONE_CI_POLICY.md` |
 | Restricted-agent storage | Bounded owner-funded zero-deposit Guard calls and upgrade limits | `docs/security/GUARD_SCOPED_STORAGE.md` |
 | Evidence boundaries | What local, CI, on-chain, and cross-chain evidence proves | `.shipframe/profile.md`, `README.md` |
 

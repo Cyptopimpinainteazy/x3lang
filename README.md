@@ -2,7 +2,11 @@
 
 X3 Shield checks AI-agent payment requests against rules written by the owner.
 Its NEAR Guard contract checks signed quote terms before authorizing a deposit
-address. Guard does not hold funds or control transfers made outside its methods.
+address. Guard does not custody swap assets or control transfers made outside its methods.
+
+[Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks
+bind this repository's exact source and execute its proofs. Equality with the
+private parent repository is checked only by an explicitly requested parity audit.
 
 Prepared for the NEAR HACKATHON 2026 across AI Security & Defense, Agent Economy,
 and Unstoppable DeFi. The [three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md)
