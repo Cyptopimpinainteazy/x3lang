@@ -114,6 +114,20 @@ its verdict with Python, guard by guard. A hosted read-only quote checker is at
 [x3-guard.pages.dev](https://x3-guard.pages.dev/). It verifies a real 1Click quote; it is not
 a wallet or a settlement.
 
+For authenticated 1Click access, configure `NEAR_INTENTS_API_KEY` in the process
+secret environment; the adapter and route probe send it as `X-API-Key`. The legacy
+`NEAR_INTENTS_JWT` setting still sends a Bearer header if the API key is absent or
+empty. Use a 1Click partner credential, never an Explorer or user-session JWT.
+Neither credential is written to the quote report. `authenticated` means a
+credential was configured, not that 1Click accepted it.
+
+Python callers can pass keyword-only `api_key=`. Credential precedence is explicit
+`api_key` → explicit `jwt` → nonempty `NEAR_INTENTS_API_KEY` → `NEAR_INTENTS_JWT`.
+An explicit empty string disables authentication and environment fallback;
+`jwt=""` preserves anonymous behavior unless `api_key` is also explicitly supplied.
+The original four positional constructor arguments remain supported. Only one
+credential header is sent. See the [1Click authentication documentation](https://docs.agentsonintents.com/integration/distribution-channels/1click-api/authentication).
+
 ## Proof on NEAR testnet
 
 **Agent mandate**, on Guard contract `x3lang.testnet` (owner `x3lang.testnet`, test agent

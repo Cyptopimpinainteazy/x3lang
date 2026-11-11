@@ -69,8 +69,11 @@ because that is the moment a deposit address exists for it. Dry quotes never con
 
 ## Configuration
 
-- `NEAR_INTENTS_JWT` — 1Click API key. Without it the unauthenticated fee schedule applies
-  (an extra 0.25% per the 1Click docs), which `require fees` will see.
+- `NEAR_INTENTS_API_KEY` — 1Click partner credential, sent as `X-API-Key`.
+- `NEAR_INTENTS_JWT` — legacy partner credential, sent as `Authorization: Bearer` when
+  `NEAR_INTENTS_API_KEY` is absent or empty. Never use an Explorer/user-session JWT here.
+  Without either credential the unauthenticated fee schedule applies, which `require fees`
+  will see. See https://docs.agentsonintents.com/integration/distribution-channels/1click-api/authentication.
 - `NEAR_INTENTS_BASE_URL` — defaults to `https://1click.chaindefuser.com`.
 - `NEAR_INTENTS_REFERRAL` — optional lowercase `referral` identifier.
 - `NEAR_RPC_URL` — NEAR JSON-RPC used to check that NEAR receivers exist before quoting;
@@ -894,24 +897,68 @@ def urllib_transport(method: str, url: str, headers: Dict[str, str], body: Optio
 
 
 class OneClickClient:
+    """1Click client with one selected authentication scheme.
+
+    Precedence: explicit ``api_key`` > explicit ``jwt`` > nonempty
+    ``NEAR_INTENTS_API_KEY`` > ``NEAR_INTENTS_JWT``. ``None`` means unspecified;
+    an explicit empty string disables authentication and environment fallback.
+    Thus existing ``jwt=""`` callers remain anonymous unless they also explicitly
+    supply ``api_key``. The four original positional arguments are unchanged.
+    """
+
     def __init__(self, base_url: Optional[str] = None, jwt: Optional[str] = None,
-                 transport: Transport = urllib_transport, timeout: float = 30.0):
+                 transport: Transport = urllib_transport, timeout: float = 30.0, *,
+                 api_key: Optional[str] = None):
         self.base_url = (base_url or os.environ.get("NEAR_INTENTS_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
-        self.jwt = jwt if jwt is not None else os.environ.get("NEAR_INTENTS_JWT")
+        # Explicit credentials (including an empty anonymous opt-out) suppress
+        # environment discovery. Select one scheme; never send both headers.
+        if api_key is not None:
+            self.api_key, self.jwt = api_key, None
+        elif jwt is not None:
+            self.api_key, self.jwt = None, jwt
+        else:
+            self.api_key = os.environ.get("NEAR_INTENTS_API_KEY")
+            self.jwt = None if self.api_key else os.environ.get("NEAR_INTENTS_JWT")
         self.transport = transport
         self.timeout = timeout
 
     @property
     def authenticated(self) -> bool:
-        return bool(self.jwt)
+        """Whether a credential is configured, not proof of provider acceptance."""
+        return bool(self.api_key or self.jwt)
+
+    def _redact_credential(self, value: Any) -> Any:
+        credential = self.api_key or self.jwt
+        if not credential:
+            return value
+        if isinstance(value, str):
+            return value.replace(credential, "[REDACTED]")
+        if isinstance(value, dict):
+            return {self._redact_credential(k): self._redact_credential(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._redact_credential(v) for v in value]
+        return value
 
     def _call(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
+        try:
+            return self._request(method, path, payload)
+        except NearIntentsError as exc:
+            # Providers and transport errors can echo a credential. Preserve useful
+            # diagnostics without exposing it in output, reports or chained traces.
+            raise NearIntentsError(
+                self._redact_credential(exc.code), self._redact_credential(exc.message),
+                self._redact_credential(exc.field), self._redact_credential(exc.detail),
+            ) from None
+
+    def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
         headers = {"Accept": "application/json", "User-Agent": "x3-lang-near-intents/1"}
         body = None
         if payload is not None:
             headers["Content-Type"] = "application/json"
             body = json.dumps(payload).encode("utf-8")
-        if self.jwt:
+        if self.api_key:
+            headers["X-API-Key"] = self.api_key
+        elif self.jwt:
             headers["Authorization"] = f"Bearer {self.jwt}"
         status, raw = self.transport(method, f"{self.base_url}{path}", headers, body, self.timeout)
         try:
@@ -941,7 +988,7 @@ class OneClickClient:
                 )
             raise NearIntentsError(
                 "X3_NEAR_HTTP",
-                f"{method} {path} returned {status}: {message or raw[:300].decode('utf-8', 'replace')}",
+                f"{method} {path} returned {status}: {message or self._redact_credential(raw.decode('utf-8', 'replace'))[:300]}",
                 path,
                 detail,
             )
@@ -1210,7 +1257,7 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     if mandate_check:
         result["mandate"] = mandate_check
     if not client.authenticated:
-        result["note"] = "no NEAR_INTENTS_JWT: the unauthenticated 1Click fee schedule applies"
+        result["note"] = "no 1Click credential configured: the unauthenticated 1Click fee schedule applies"
     # Reaching this line means the signature verified, the echoed request matched, every policy
     # guard passed, the destination account exists and the quote is fresh. Only a live quote's
     # deposit address and deadline are signed, so only a live quote can be eligible.
