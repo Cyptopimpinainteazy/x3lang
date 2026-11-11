@@ -70,6 +70,22 @@ allowance, allowance above the reviewed ceiling, the wrong Guard receiver,
 empty/wildcard method lists, any method outside the three agent mutations, and
 a requested method absent from that list. RPC failures fail closed.
 
+The signing boundary defaults to 30 Tgas. An explicit operator-reviewed
+`--gas-tgas` integer from 1 through 30 selects the exact prepaid gas encoded in
+both the CLI command and signed-artifact verification; it is never automatically
+lowered, retried or selected from model/receipt data. A changed transaction gas
+setting requires the owner's approval of that exact transaction.
+
+Before signing, it reads protocol fees and gas price at the checked key's finalized
+block. For this single zero-deposit Ed25519 FunctionCall, the allowance admission
+cost is send gas at the current price plus prepaid and receipt execution gas at
+`max(current_gas_price, min_gas_purchase_price)`. Missing or malformed cost data
+and insufficient allowance fail closed. This upfront gas purchase is distinct
+from the ultimately burnt network fee: unused gas and gas-price differences may
+be refunded. The check neither raises the key allowance nor proves that the
+selected gas is sufficient for contract execution. The formula follows
+[nearcore 2.14 transaction cost calculation](https://github.com/near/nearcore/blob/2.14.0/runtime/runtime/src/config.rs#L449-L513).
+
 Only a validated snapshot is passed to the existing NEAR CLI, using a temporary
 0600 file in a private directory, zero attached deposit, and the queried nonce
 plus one, block hash and block height. Signing uses `--offline ... display`:
