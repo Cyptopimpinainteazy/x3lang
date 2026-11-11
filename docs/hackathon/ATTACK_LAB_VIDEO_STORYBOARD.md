@@ -1,6 +1,19 @@
 # X3 Shield — two-minute judge video storyboard (pre-publication)
 
-**Status:** private recording plan; NOT a completed or published video. Do not expose the private repository or testnet signing credentials before the approved submission reveal.
+## Competition framing
+
+**.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
+
+An intent states the desired outcome. The owner’s `.x3` mandate sets the limits.
+The compiler rejects invalid programs; deterministic mandate checks and NEAR Guard
+refuse prohibited terms. NEAR Intents / 1Click supplies the supported execution route.
+Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
+for compile-time versus runtime checks and the evidence boundaries.
+
+**Opening narration:** “Intents express what an agent wants to achieve. .x3 makes the outcome and the owner’s rules explicit in a typed program. Compiler checks reject invalid programs, and Guard checks the signed quote against policy before authorizing a deposit address.”
+
+
+**Status:** recording plan; NOT a completed or published video. Never show testnet signing credentials, wallet keys or `.env` files on screen.
 
 ## 0:00–0:20 — The problem
 

@@ -420,7 +420,7 @@ def test_verify_deposit_dispatches_bsc_native_bnb(tmp_path):
     assert evidence["verified"] is True
     assert evidence["kind"] == "bsc_native_transfer"
     assert evidence["purpose"] == "deposit"
-    assert receipt["verification"]["missing"] == ["settlement or refund"]
+    assert receipt["verification"]["missing"] == ["payout transaction bound to quote (unsupported), or refund"]
 
 
 def test_deposit_evidence_refuses_a_tampered_saved_request_before_rpc(tmp_path):
@@ -562,7 +562,7 @@ def test_bsc_refund_requires_and_reuses_finalized_deposit_evidence(tmp_path):
     assert receipt["verified_outcome"] == "refunded"
 
 
-def test_settled_end_to_end_through_the_cli(tmp_path, capsys):
+def test_balance_observation_through_cli_stays_unverified(tmp_path, capsys):
     path, chain, rpc = live_receipt(tmp_path)
     client = ni.OneClickClient(jwt="k", transport=api(statuses=[_status("SUCCESS", amountOut="24950000")]))
     sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
@@ -580,18 +580,20 @@ def test_settled_end_to_end_through_the_cli(tmp_path, capsys):
 
     chain.balances[(NEAR_USDC_CONTRACT, "x3-demo.near")] = 1_000_000 + 24_950_000
     ni.track(client, DEPOSIT, receipt_path=str(path))
-    assert ni.main(["verify-settlement", "--receipt", str(path)], near_views=views) == 0
+    assert ni.main(["verify-settlement", "--receipt", str(path)], near_views=views) == ni.EXIT_UNVERIFIED
     capsys.readouterr()
 
     receipt = json.loads(path.read_text())
-    assert receipt["verified_outcome"] == "settled"
-    assert receipt["verification"] == {"status": "verified", "outcome": "settled", "missing": [],
-                                       "1click_reported": "settled", "1click_agrees": True}
+    assert "verified_outcome" not in receipt
+    assert receipt["verification"]["status"] == "unverified"
+    assert receipt["verification"]["outcome"] is None
+    assert receipt["verification"]["1click_reported"] == "settled"
     assert receipt["evidence"]["settlement"]["delivered"] == "24950000"
-    # The contract records the amount the chain proved, not 1Click's unsigned status.
+    # A later rise remains an observation; no settled contract call is generated.
     chain.balances[(NEAR_USDC_CONTRACT, "x3-demo.near")] = 1_000_000 + 24_960_000
     assert ni.verify_settlement(receipt, near_views=views)["delivered"] == "24960000"
-    assert ni.guard_args(receipt, "outcome")["amount_out"] == "24960000"
+    with pytest.raises(ni.NearIntentsError, match="payout transaction verifier"):
+        ni.guard_args(receipt, "outcome")
 
 
 def test_refunded_end_to_end(tmp_path):
@@ -744,9 +746,12 @@ def test_settlement_without_a_proven_deposit_is_not_an_outcome(tmp_path):
     path, chain, rpc = live_receipt(tmp_path)
     receipt = json.loads(path.read_text())
     chain.balances[(NEAR_USDC_CONTRACT, "x3-demo.near")] = 1_000_000 + 24_950_000
-    assert ni.verify_settlement(receipt, near_views=ni.near_views_for(rpc))["verified"]
+    observation = ni.verify_settlement(receipt, near_views=ni.near_views_for(rpc))
+    assert not observation["verified"]
+    assert observation["balance_delta_observed"]
     assert receipt["verification"]["status"] == "unverified"
-    assert receipt["verification"]["missing"] == ["deposit"]
+    assert receipt["verification"]["missing"] == [
+        "deposit", "payout transaction bound to quote (unsupported), or refund"]
 
 
 def test_an_rpc_failure_is_recorded_as_unverified_evidence(tmp_path):

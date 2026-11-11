@@ -1,8 +1,8 @@
 /**
  * Non-authoritative OFFLINE judge preview. This module makes no blockchain calls,
  * does not sign transactions, and must never be treated as enforcement.
- * The real testnet-only Rust vault is in draft PR #125 and its local Sandbox
- * receipts have a separate, explicitly classified evidence artifact.
+ * The real testnet-only Rust vault is x3-lang/near/x3-agent-vault (merged in PR #125);
+ * its local Sandbox receipts have a separate, explicitly classified evidence artifact.
  *
  * One implementation serves the page, the scripted attack scenarios and the
  * tests: `tracePreviewRequest` evaluates the rules in a fixed order and stops at
