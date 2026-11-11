@@ -1,0 +1,30 @@
+{
+  "schema": "x3.guard.mainnet.deployment-and-native-recovery.v1",
+  "network": "mainnet",
+  "account": "x3lang.near",
+  "runtime_source_commit": "9dcea3cc72ea77532c1f2678e367d09a85c81e6b",
+  "reviewed_candidate_commit": "8ec3dec1b5b2b8c43ffe6cd3957696bc090730ad",
+  "candidate_pr": "https://github.com/Cyptopimpinainteazy/x3lang/pull/189",
+  "candidate_integrated_into_canonical_master": false,
+  "wasm_bytes": 572248,
+  "wasm_sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+  "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+  "deployment_transaction": "BVXX3hJEmThWVZNpUknZv9HCpGezisiN8SQKsZgA3faF",
+  "recovery_transaction": "81DFPVN9hTa9WE5fvQFgD91hdp6KiJ49W1ookf4J7YxV",
+  "native_recovery_amount_near": "0.3",
+  "native_recovery_recipient": "dotx3.near",
+  "observations": {
+    "deployment-verification.json": {
+      "sha256": "95e6655ced7fa41f27bdaa005c1c5c5d2d42469645bf4f7cf0d4111d4ed95213"
+    },
+    "recovery-verification.json": {
+      "sha256": "27dad4b7d9ba62bbf936f382a2946e73144067950bbd07fa2fb73010c2c3920f"
+    }
+  },
+  "limitations": [
+    "Public RPC observations, not independently authenticated light-client finality.",
+    "Deployment and native-account recovery do not prove funded agent commerce or official 1Click settlement.",
+    "Balances, key permissions and available storage credit must be refreshed before future operations.",
+    "No private keys, credentials, raw contract state values or signed quote receipts included."
+  ]
+}

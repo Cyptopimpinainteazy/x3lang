@@ -372,7 +372,7 @@ enforcement is independently proven.
 
 | Claim | Required real artifact | Current status |
 | --- | --- | --- |
-| Mainnet Guard deployment | Contract address and deployment transaction | PENDING |
+| Mainnet Guard deployment | Contract address, approved WASM hash and finalized deployment transaction | [VERIFIED: `x3lang.near`, 572248 bytes, `9a614640…a632`, transaction `BVXX3h…3faF`](MAINNET_GUARD_DEPLOYMENT.md); state preserved, funded agent payment still unproven |
 | Testnet Guard deployment | Contract account, WASM/code hashes, finalized deploy tx | VERIFIED: `x3lang-guard-20261106.testnet`, `ac44fa…`, `FJ5vo…` |
 | Owner mandate and revocation | NEAR contract transaction hashes | VERIFIED TESTNET: `J4Wrx…`, `7aVon…` |
 | Allowed official-live quote acceptance | NEAR tx + nonce + quote guard result | VERIFIED TESTNET OWNER PATH: `6B6k…`; no deposit |
