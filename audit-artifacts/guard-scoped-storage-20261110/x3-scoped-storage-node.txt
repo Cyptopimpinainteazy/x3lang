@@ -1,0 +1,538 @@
+TAP version 13
+# Subtest: authorized: the browser reaches Python's decision through the same guards
+ok 1 - authorized: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 18.942432
+  type: 'test'
+  ...
+# Subtest: authorized: the program is the checked-in example plus its stated edits
+ok 2 - authorized: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.202116
+  type: 'test'
+  ...
+# Subtest: needs-approval: the browser reaches Python's decision through the same guards
+ok 3 - needs-approval: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 1.913084
+  type: 'test'
+  ...
+# Subtest: needs-approval: the program is the checked-in example plus its stated edits
+ok 4 - needs-approval: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.142929
+  type: 'test'
+  ...
+# Subtest: over-limit: the browser reaches Python's decision through the same guards
+ok 5 - over-limit: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 1.14341
+  type: 'test'
+  ...
+# Subtest: over-limit: the program is the checked-in example plus its stated edits
+ok 6 - over-limit: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.136596
+  type: 'test'
+  ...
+# Subtest: wrong-recipient: the browser reaches Python's decision through the same guards
+ok 7 - wrong-recipient: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 1.015966
+  type: 'test'
+  ...
+# Subtest: wrong-recipient: the program is the checked-in example plus its stated edits
+ok 8 - wrong-recipient: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.152814
+  type: 'test'
+  ...
+# Subtest: prompt-injection-recipient: the browser reaches Python's decision through the same guards
+ok 9 - prompt-injection-recipient: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 0.975363
+  type: 'test'
+  ...
+# Subtest: prompt-injection-recipient: the program is the checked-in example plus its stated edits
+ok 10 - prompt-injection-recipient: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.204223
+  type: 'test'
+  ...
+# Subtest: refund-redirect: the browser reaches Python's decision through the same guards
+ok 11 - refund-redirect: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 0.880702
+  type: 'test'
+  ...
+# Subtest: refund-redirect: the program is the checked-in example plus its stated edits
+ok 12 - refund-redirect: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.133163
+  type: 'test'
+  ...
+# Subtest: fee-too-high: the browser reaches Python's decision through the same guards
+ok 13 - fee-too-high: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 0.860956
+  type: 'test'
+  ...
+# Subtest: fee-too-high: the program is the checked-in example plus its stated edits
+ok 14 - fee-too-high: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.12126
+  type: 'test'
+  ...
+# Subtest: daily-cap: the browser reaches Python's decision through the same guards
+ok 15 - daily-cap: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 1.74465
+  type: 'test'
+  ...
+# Subtest: daily-cap: the program is the checked-in example plus its stated edits
+ok 16 - daily-cap: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.105477
+  type: 'test'
+  ...
+# Subtest: revoked: the browser reaches Python's decision through the same guards
+ok 17 - revoked: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 0.803897
+  type: 'test'
+  ...
+# Subtest: revoked: the program is the checked-in example plus its stated edits
+ok 18 - revoked: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.092367
+  type: 'test'
+  ...
+# Subtest: nonce-reuse: the browser reaches Python's decision through the same guards
+ok 19 - nonce-reuse: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 0.701034
+  type: 'test'
+  ...
+# Subtest: nonce-reuse: the program is the checked-in example plus its stated edits
+ok 20 - nonce-reuse: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.090797
+  type: 'test'
+  ...
+# Subtest: wrong-owner: the browser reaches Python's decision through the same guards
+ok 21 - wrong-owner: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 0.528157
+  type: 'test'
+  ...
+# Subtest: wrong-owner: the program is the checked-in example plus its stated edits
+ok 22 - wrong-owner: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.092751
+  type: 'test'
+  ...
+# Subtest: slippage-too-high: the browser reaches Python's decision through the same guards
+ok 23 - slippage-too-high: the browser reaches Python's decision through the same guards
+  ---
+  duration_ms: 0.594702
+  type: 'test'
+  ...
+# Subtest: slippage-too-high: the program is the checked-in example plus its stated edits
+ok 24 - slippage-too-high: the program is the checked-in example plus its stated edits
+  ---
+  duration_ms: 0.093052
+  type: 'test'
+  ...
+# Subtest: the mandate and token list are the checked-in files
+ok 25 - the mandate and token list are the checked-in files
+  ---
+  duration_ms: 0.201684
+  type: 'test'
+  ...
+# Subtest: every forbidden action in group B is refused, by the contract when the checker can't see it
+ok 26 - every forbidden action in group B is refused, by the contract when the checker can't see it
+  ---
+  duration_ms: 3.294488
+  type: 'test'
+  ...
+# Subtest: a contract-only case never shows as passed, even though the local check passes it
+ok 27 - a contract-only case never shows as passed, even though the local check passes it
+  ---
+  duration_ms: 1.062542
+  type: 'test'
+  ...
+# Subtest: agreement fails when Python and the browser differ on one guard
+ok 28 - agreement fails when Python and the browser differ on one guard
+  ---
+  duration_ms: 0.603648
+  type: 'test'
+  ...
+# Subtest: a mandate owned by someone else is refused before any term is checked
+ok 29 - a mandate owned by someone else is refused before any term is checked
+  ---
+  duration_ms: 0.634296
+  type: 'test'
+  ...
+# Subtest: prompt-injection-recipient: the browser refuses the injected recipient and agrees with Python
+ok 30 - prompt-injection-recipient: the browser refuses the injected recipient and agrees with Python
+  ---
+  duration_ms: 0.525732
+  type: 'test'
+  ...
+# Subtest: prompt-injection-recipient and wrong-recipient evaluate the same checked-in DENIED payload
+ok 31 - prompt-injection-recipient and wrong-recipient evaluate the same checked-in DENIED payload
+  ---
+  duration_ms: 0.118988
+  type: 'test'
+  ...
+# Subtest: only the local policy level is claimed as proven
+ok 32 - only the local policy level is claimed as proven
+  ---
+  duration_ms: 0.111652
+  type: 'test'
+  ...
+# Subtest: judge evidence panel labels valid test-key signed-quote refusal as local, not on-chain
+ok 33 - judge evidence panel labels valid test-key signed-quote refusal as local, not on-chain
+  ---
+  duration_ms: 0.224209
+  type: 'test'
+  ...
+# Subtest: mandate caps retain every digit at u128 max, and approval can be one unit below
+ok 34 - mandate caps retain every digit at u128 max, and approval can be one unit below
+  ---
+  duration_ms: 0.206943
+  type: 'test'
+  ...
+# Subtest: mandate caps preserve leading zeros and underscores at u128 max
+ok 35 - mandate caps preserve leading zeros and underscores at u128 max
+  ---
+  duration_ms: 0.262504
+  type: 'test'
+  ...
+# Subtest: mandate u128 payment overflow is refused with its source line
+ok 36 - mandate u128 payment overflow is refused with its source line
+  ---
+  duration_ms: 0.50238
+  type: 'test'
+  ...
+# Subtest: mandate u128 daily overflow is refused with its source line
+ok 37 - mandate u128 daily overflow is refused with its source line
+  ---
+  duration_ms: 0.150883
+  type: 'test'
+  ...
+# Subtest: mandate payment digit limit is refused with its source line
+ok 38 - mandate payment digit limit is refused with its source line
+  ---
+  duration_ms: 0.239381
+  type: 'test'
+  ...
+# Subtest: mandate daily digit limit is refused with its source line
+ok 39 - mandate daily digit limit is refused with its source line
+  ---
+  duration_ms: 0.236265
+  type: 'test'
+  ...
+# Subtest: approval u128 overflow is refused with its source line
+ok 40 - approval u128 overflow is refused with its source line
+  ---
+  duration_ms: 0.215931
+  type: 'test'
+  ...
+# Subtest: approval integer digit limit is refused with its source line
+ok 41 - approval integer digit limit is refused with its source line
+  ---
+  duration_ms: 0.269346
+  type: 'test'
+  ...
+# Subtest: oversized approval threshold is refused with its source line
+ok 42 - oversized approval threshold is refused with its source line
+  ---
+  duration_ms: 0.310424
+  type: 'test'
+  ...
+# Subtest: approval preserves leading zeros and underscores below the payment cap
+ok 43 - approval preserves leading zeros and underscores below the payment cap
+  ---
+  duration_ms: 0.164978
+  type: 'test'
+  ...
+# Subtest: mandate slippage refuses <= 10001bps
+ok 44 - mandate slippage refuses <= 10001bps
+  ---
+  duration_ms: 0.174227
+  type: 'test'
+  ...
+# Subtest: mandate slippage refuses <= 100.01%
+ok 45 - mandate slippage refuses <= 100.01%
+  ---
+  duration_ms: 0.148013
+  type: 'test'
+  ...
+# Subtest: mandate slippage refuses < 10002bps
+ok 46 - mandate slippage refuses < 10002bps
+  ---
+  duration_ms: 0.155156
+  type: 'test'
+  ...
+# Subtest: mandate slippage preserves <= 0bps as 0 bps
+ok 47 - mandate slippage preserves <= 0bps as 0 bps
+  ---
+  duration_ms: 0.142564
+  type: 'test'
+  ...
+# Subtest: mandate slippage preserves <= 10000bps as 10000 bps
+ok 48 - mandate slippage preserves <= 10000bps as 10000 bps
+  ---
+  duration_ms: 0.101057
+  type: 'test'
+  ...
+# Subtest: mandate slippage preserves < 10001bps as 10000 bps
+ok 49 - mandate slippage preserves < 10001bps as 10000 bps
+  ---
+  duration_ms: 0.095098
+  type: 'test'
+  ...
+# Subtest: mandate slippage preserves <= 10000.9bps as 10000 bps
+ok 50 - mandate slippage preserves <= 10000.9bps as 10000 bps
+  ---
+  duration_ms: 0.092919
+  type: 'test'
+  ...
+# Subtest: mandate slippage preserves < 10000bps as 9999 bps
+ok 51 - mandate slippage preserves < 10000bps as 9999 bps
+  ---
+  duration_ms: 0.094178
+  type: 'test'
+  ...
+# Subtest: mandate slippage preserves <= 100% as 10000 bps
+ok 52 - mandate slippage preserves <= 100% as 10000 bps
+  ---
+  duration_ms: 0.115776
+  type: 'test'
+  ...
+# Subtest: mandate slippage uses the strictest clause before range validation
+ok 53 - mandate slippage uses the strictest clause before range validation
+  ---
+  duration_ms: 0.153769
+  type: 'test'
+  ...
+# Subtest: mandate fees refuses <= 10001bps
+ok 54 - mandate fees refuses <= 10001bps
+  ---
+  duration_ms: 0.127746
+  type: 'test'
+  ...
+# Subtest: mandate fees refuses <= 100.01%
+ok 55 - mandate fees refuses <= 100.01%
+  ---
+  duration_ms: 0.157258
+  type: 'test'
+  ...
+# Subtest: mandate fees refuses < 10002bps
+ok 56 - mandate fees refuses < 10002bps
+  ---
+  duration_ms: 0.146881
+  type: 'test'
+  ...
+# Subtest: mandate fees preserves <= 0bps as 0 bps
+ok 57 - mandate fees preserves <= 0bps as 0 bps
+  ---
+  duration_ms: 0.120571
+  type: 'test'
+  ...
+# Subtest: mandate fees preserves <= 10000bps as 10000 bps
+ok 58 - mandate fees preserves <= 10000bps as 10000 bps
+  ---
+  duration_ms: 0.123641
+  type: 'test'
+  ...
+# Subtest: mandate fees preserves < 10001bps as 10000 bps
+ok 59 - mandate fees preserves < 10001bps as 10000 bps
+  ---
+  duration_ms: 0.114775
+  type: 'test'
+  ...
+# Subtest: mandate fees preserves <= 10000.9bps as 10000 bps
+ok 60 - mandate fees preserves <= 10000.9bps as 10000 bps
+  ---
+  duration_ms: 0.117397
+  type: 'test'
+  ...
+# Subtest: mandate fees preserves < 10000bps as 9999 bps
+ok 61 - mandate fees preserves < 10000bps as 9999 bps
+  ---
+  duration_ms: 0.115219
+  type: 'test'
+  ...
+# Subtest: mandate fees preserves <= 100% as 10000 bps
+ok 62 - mandate fees preserves <= 100% as 10000 bps
+  ---
+  duration_ms: 0.570654
+  type: 'test'
+  ...
+# Subtest: mandate fees uses the strictest clause before range validation
+ok 63 - mandate fees uses the strictest clause before range validation
+  ---
+  duration_ms: 0.203435
+  type: 'test'
+  ...
+# Subtest: mandate expiry refuses timedelta overflow with a structured error
+ok 64 - mandate expiry refuses timedelta overflow with a structured error
+  ---
+  duration_ms: 0.284291
+  type: 'test'
+  ...
+# Subtest: mandate expiry refuses year 10000 with a structured error
+ok 65 - mandate expiry refuses year 10000 with a structured error
+  ---
+  duration_ms: 0.13583
+  type: 'test'
+  ...
+# Subtest: mandate expiry refuses last UTC millisecond plus one with a structured error
+ok 66 - mandate expiry refuses last UTC millisecond plus one with a structured error
+  ---
+  duration_ms: 0.185543
+  type: 'test'
+  ...
+# Subtest: mandate expiry refuses u64 overflow with a structured error
+ok 67 - mandate expiry refuses u64 overflow with a structured error
+  ---
+  duration_ms: 0.131796
+  type: 'test'
+  ...
+# Subtest: mandate expiry refuses infinite Number with a structured error
+ok 68 - mandate expiry refuses infinite Number with a structured error
+  ---
+  duration_ms: 0.133768
+  type: 'test'
+  ...
+# Subtest: mandate expiry refuses integer digit limit with a structured error
+ok 69 - mandate expiry refuses integer digit limit with a structured error
+  ---
+  duration_ms: 0.310824
+  type: 'test'
+  ...
+# Subtest: the last four-digit UTC millisecond compiles exactly
+ok 70 - the last four-digit UTC millisecond compiles exactly
+  ---
+  duration_ms: 0.138926
+  type: 'test'
+  ...
+# Subtest: mandate expiry parser rejects unrepresentable durations directly
+ok 71 - mandate expiry parser rejects unrepresentable durations directly
+  ---
+  duration_ms: 0.327085
+  type: 'test'
+  ...
+# Subtest: mandate expiry preserves all duration units and ordinary timestamps
+ok 72 - mandate expiry preserves all duration units and ordinary timestamps
+  ---
+  duration_ms: 0.327844
+  type: 'test'
+  ...
+# Subtest: expiry addition refuses invalid clocks and timestamps outside the common range
+ok 73 - expiry addition refuses invalid clocks and timestamps outside the common range
+  ---
+  duration_ms: 0.432069
+  type: 'test'
+  ...
+# Subtest: real 1Click quote near_intents_quote_dry_live_capture.json verifies, with the SDK's hash
+ok 74 - real 1Click quote near_intents_quote_dry_live_capture.json verifies, with the SDK's hash
+  ---
+  duration_ms: 8.386464
+  type: 'test'
+  ...
+# Subtest: tampering with near_intents_quote_dry_live_capture.json breaks the signature
+ok 75 - tampering with near_intents_quote_dry_live_capture.json breaks the signature
+  ---
+  duration_ms: 2.215926
+  type: 'test'
+  ...
+# Subtest: real 1Click quote near_intents_quote_dry_implicit_capture.json verifies, with the SDK's hash
+ok 76 - real 1Click quote near_intents_quote_dry_implicit_capture.json verifies, with the SDK's hash
+  ---
+  duration_ms: 0.95528
+  type: 'test'
+  ...
+# Subtest: tampering with near_intents_quote_dry_implicit_capture.json breaks the signature
+ok 77 - tampering with near_intents_quote_dry_implicit_capture.json breaks the signature
+  ---
+  duration_ms: 2.066279
+  type: 'test'
+  ...
+# Subtest: unsigned echo fields do not change the signature
+ok 78 - unsigned echo fields do not change the signature
+  ---
+  duration_ms: 0.744372
+  type: 'test'
+  ...
+# Subtest: the example lowers to the request the Python adapter builds
+ok 79 - the example lowers to the request the Python adapter builds
+  ---
+  duration_ms: 0.201769
+  type: 'test'
+  ...
+# Subtest: slippage bounds round toward the stricter side, exactly
+ok 80 - slippage bounds round toward the stricter side, exactly
+  ---
+  duration_ms: 0.277494
+  type: 'test'
+  ...
+# Subtest: BNB Chain aliases resolve and refunds require a complete EVM address
+ok 81 - BNB Chain aliases resolve and refunds require a complete EVM address
+  ---
+  duration_ms: 0.145015
+  type: 'test'
+  ...
+# Subtest: BSC BNB lowers with the live provider asset IDs
+ok 82 - BSC BNB lowers with the live provider asset IDs
+  ---
+  duration_ms: 0.162577
+  type: 'test'
+  ...
+# Subtest: refusals carry the adapter's codes and the offending line
+ok 83 - refusals carry the adapter's codes and the offending line
+  ---
+  duration_ms: 0.415207
+  type: 'test'
+  ...
+# Subtest: guards on a real quote match the adapter's numbers
+ok 84 - guards on a real quote match the adapter's numbers
+  ---
+  duration_ms: 2.745371
+  type: 'test'
+  ...
+# Subtest: a forged quote stops at the signature and nothing else is read
+ok 85 - a forged quote stops at the signature and nothing else is read
+  ---
+  duration_ms: 0.778079
+  type: 'test'
+  ...
+# Subtest: an agent's intent is checked against its owner's mandate, term by term
+ok 86 - an agent's intent is checked against its owner's mandate, term by term
+  ---
+  duration_ms: 0.834272
+  type: 'test'
+  ...
+# Subtest: a page without WebCrypto is told why, not that the quote is forged
+ok 87 - a page without WebCrypto is told why, not that the quote is forged
+  ---
+  duration_ms: 0.136784
+  type: 'test'
+  ...
+# Subtest: without WebCrypto a real quote still fails closed, with the real reason
+ok 88 - without WebCrypto a real quote still fails closed, with the real reason
+  ---
+  duration_ms: 0.754386
+  type: 'test'
+  ...
+1..88
+# tests 88
+# suites 0
+# pass 88
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 103.231896

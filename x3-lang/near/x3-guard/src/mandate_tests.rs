@@ -543,6 +543,110 @@ fn a_mandate_pays_for_its_storage() {
     c.create_mandate(agent(), terms());
 }
 
+#[test]
+fn owner_funded_agent_registers_with_zero_deposit() {
+    let mut c = with_mandate(terms());
+    ctx(owner(), NOW_MS, NearToken::from_millinear(100));
+    let funded = c.fund_agent_storage(agent());
+    assert!(funded.0 > 0);
+    ctx(agent(), NOW_MS, NearToken::from_yoctonear(0));
+    c.agent_register_intent(owner(), "scoped_001".into(), policy());
+    assert!(c.get_agent_storage_balance(owner(), agent()).0 < funded.0);
+}
+
+#[test]
+fn owner_funded_agent_accepts_and_records_with_zero_deposit() {
+    let mut c = with_mandate(terms());
+    ctx(owner(), NOW_MS, NearToken::from_millinear(100));
+    c.fund_agent_storage(agent());
+    let (p, text, sig) = quote_at(NOW_MS, 25 * USDC);
+    ctx(agent(), NOW_MS, NearToken::from_yoctonear(0));
+    c.agent_register_intent(owner(), "scoped_flow".into(), p);
+    let registered = c.get_agent_storage_balance(owner(), agent());
+    ctx(agent(), NOW_MS, NearToken::from_yoctonear(0));
+    assert!(c
+        .agent_accept_quote(owner(), "scoped_flow".into(), text, sig)
+        .iter()
+        .all(|r| r.ok));
+    assert!(c.get_agent_storage_balance(owner(), agent()).0 < registered.0);
+    let accepted = c.get_agent_storage_balance(owner(), agent());
+    ctx(agent(), NOW_MS, NearToken::from_yoctonear(0));
+    c.agent_record_outcome(owner(), "scoped_flow".into(), Status::Failed, None, None, vec![]);
+    assert!(c.get_agent_storage_balance(owner(), agent()).0 < accepted.0);
+}
+
+#[test]
+fn unspent_agent_storage_is_withdrawable_after_revocation() {
+    let mut c = with_mandate(terms());
+    ctx(owner(), NOW_MS, NearToken::from_millinear(100));
+    let balance = c.fund_agent_storage(agent());
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    c.revoke_mandate(agent());
+    c.withdraw_agent_storage(agent()).detach();
+    assert!(panics(|| c.withdraw_agent_storage(agent())).contains("X3_STORAGE_WITHDRAWAL_PENDING"));
+    let mut context = VMContextBuilder::new();
+    context.predecessor_account_id(env::current_account_id());
+    testing_env!(
+        context.build(),
+        near_sdk::test_vm_config(),
+        near_sdk::RuntimeFeesConfig::test(),
+        Default::default(),
+        vec![near_sdk::PromiseResult::Successful(vec![])]
+    );
+    assert_eq!(c.resolve_agent_storage_withdrawal(owner(), agent()), balance);
+    assert_eq!(c.get_agent_storage_balance(owner(), agent()), U128(0));
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    assert!(panics(|| c.withdraw_agent_storage(agent())).contains("no unspent"));
+}
+
+#[test]
+fn agent_storage_credit_is_bounded_and_cannot_be_spent_by_another_owner() {
+    let mut c = with_mandate(terms());
+    ctx(owner(), NOW_MS, one_near());
+    let balance = c.fund_agent_storage(agent());
+    ctx(owner(), NOW_MS, one_near());
+    assert!(panics(|| c.fund_agent_storage(agent())).contains("must not exceed 1 NEAR"));
+    ctx(accounts(4), NOW_MS, NearToken::from_yoctonear(0));
+    assert!(panics(|| c.withdraw_agent_storage(agent())).contains("no unspent"));
+    assert_eq!(c.get_agent_storage_balance(owner(), agent()), balance);
+    assert_eq!(c.get_agent_storage_balance(accounts(4), agent()), U128(0));
+}
+
+#[test]
+fn agent_without_storage_credit_fails_closed() {
+    let mut c = with_mandate(terms());
+    ctx(agent(), NOW_MS, NearToken::from_yoctonear(0));
+    assert!(panics(|| c.agent_register_intent(owner(), "unfunded".into(), policy()))
+        .contains("X3_STORAGE_BUDGET_EXHAUSTED"));
+    // Mocked host panics do not roll back storage; the Sandbox test covers rollback.
+}
+
+#[test]
+fn failed_storage_withdrawal_restores_owner_credit_and_blocks_races() {
+    let mut c = with_mandate(terms());
+    ctx(owner(), NOW_MS, NearToken::from_millinear(100));
+    let balance = c.fund_agent_storage(agent());
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    c.withdraw_agent_storage(agent()).detach();
+    ctx(owner(), NOW_MS, NearToken::from_millinear(1));
+    assert!(panics(|| c.fund_agent_storage(agent())).contains("X3_STORAGE_WITHDRAWAL_PENDING"));
+    ctx(agent(), NOW_MS, NearToken::from_yoctonear(0));
+    assert!(panics(|| c.agent_register_intent(owner(), "pending".into(), policy()))
+        .contains("X3_STORAGE_WITHDRAWAL_PENDING"));
+    let mut context = VMContextBuilder::new();
+    context.predecessor_account_id(env::current_account_id());
+    testing_env!(
+        context.build(),
+        near_sdk::test_vm_config(),
+        near_sdk::RuntimeFeesConfig::test(),
+        Default::default(),
+        vec![near_sdk::PromiseResult::Failed]
+    );
+    assert_eq!(c.resolve_agent_storage_withdrawal(owner(), agent()), U128(0));
+    assert_eq!(c.get_agent_storage_balance(owner(), agent()), balance);
+    assert!(panics(|| c.resolve_agent_storage_withdrawal(owner(), agent())).contains("no pending"));
+}
+
 // --- the adapter's own output -------------------------------------------------------------
 
 #[derive(near_sdk::serde::Deserialize)]

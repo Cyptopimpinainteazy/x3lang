@@ -39,7 +39,8 @@ and dependencies. Another agent may already be handling your proposed task.
   untrusted. The compiler and deterministic mandate decide admissibility.
 - Validate chain, asset, recipient, amount, nonce, expiry, approval requirements
   and refund destination through a trusted execution/signing boundary.
-- **NEAR Guard does not custody wallet funds.** Guard-level rejection is not
+- **NEAR Guard does not custody swap assets.** Native NEAR storage credit pays
+  for contract storage and is separate from swapped tokens. Guard-level rejection is not
   protection against an independent wallet keyholder transferring directly.
 - A signed NEAR 1Click quote proves signed terms, **not** completion of a trade.
   Local test fixtures, RPC status strings, receipts with self-reported outcome,
