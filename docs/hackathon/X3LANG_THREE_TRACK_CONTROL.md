@@ -11,10 +11,14 @@ Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-ch
 for compile-time versus runtime checks and the evidence boundaries.
 
 
-**Scope:** submitted tracks are AI Security & Defense and Agent Economy. DeFi lowering is
-roadmap context, not submitted evidence. One `.x3` owner mandate and one `.x3` payment policy
-supply both track demonstrations; there is no new language syntax,
+**Scope:** the documented submission categories are AI Security & Defense and
+Agent Economy. Unstoppable DeFi is a proposed third project perspective, not a
+confirmed submitted track. Confirm the owner-approved submission record before
+changing that scope. One `.x3` owner mandate and one `.x3` payment policy supply
+the local security and agent demonstrations; there is no new language syntax,
 second policy authority, or separate track-specific transaction engine.
+Historical Tidepool testnet delivery is assessed separately in
+[DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
 
 ## Reproduce the local policy preview
 
@@ -48,17 +52,22 @@ sends money, or consumes a nonce.
    forbidden recipient, amount, fee, slippage and expired mandate in the existing test suite.
 2. **Agent Economy:** the agent's `.x3` payment references the owner's `.x3` spending mandate;
    amounts above the approval threshold are reported as `approval_required`, never authorized.
-3. **DeFi roadmap, not a submitted track:** the intent lowers to one NEAR Intents leg with source/destination
-   assets, minimum receipt, slippage, refund address and timeout preserved.
+3. **DeFi perspective, proposed:** the local intent lowers to one NEAR Intents leg
+   with source/destination assets, minimum receipt, slippage, refund address and
+   timeout preserved. This preview does not reproduce the separate historical
+   Base Sepolia → NEAR Tidepool transfer or establish official 1Click settlement.
 
 This document describes the local policy slice only. Separately, the committed
 testnet evidence contains finalized deployment, registration, refusal,
 revocation and an allowed `accept_quote`; that acceptance authorizes a deposit
 address only. The live `agent_register_intent` request to a forbidden recipient
 is now recorded as a `mandate_recipient` refusal. A fresh live manager-signed
-quote refused at final `agent_accept_quote`, a deposit, settlement and
-cross-chain causality remain unproven. Do not promote local preflight evidence
-into those claims.
+quote refused at final `agent_accept_quote` and funded official 1Click settlement
+remain unproven. Separately, the [first-swap walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md)
+records a historical funded Base Sepolia transfer and finalized NEAR testnet
+delivery through the trusted Tidepool relay. That evidence does not establish
+provider-independent cryptographic cross-chain causality or atomicity. Do not
+promote local preflight results or official quote acceptance into those claims.
 
 ## Change isolation
 
