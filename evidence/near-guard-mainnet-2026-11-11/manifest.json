@@ -71,7 +71,7 @@
     "scope": "local proof only; not payment authorization or mainnet settlement"
   },
   "registration_transaction": "EfBwTeb4rHNZzDjXfiJGD2J5SwL4QSayaBLaLJUqWA7k",
-  "owner_authorization_transaction": "6i8ur3A9FtaLnSz6uk1pCUt3TSp4uhHBPkDKQfLs3GYk",
+  "owner_approval_transaction_hash": "6i8ur3A9FtaLnSz6uk1pCUt3TSp4uhHBPkDKQfLs3GYk",
   "registration_and_owner_authorization_finalized": true,
   "registered_intent_nonce": "mainnet_demo_nov11_invoice_04",
   "registered_intent_source_sha256": "c922179f25423e62f09e037a4d4096cf805420cb752dd29a5154df60b1cb8b21",
