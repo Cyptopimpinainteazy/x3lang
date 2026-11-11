@@ -1,6 +1,6 @@
-# NEAR mainnet Guard upgrade and native recovery
+# NEAR mainnet Guard upgrade, recovery and agent provisioning
 
-Observed November 11, 2026. This records two separately owner-approved operations
+Observed November 11, 2026. This records four separately owner-approved operations
 on NEAR mainnet. It does not authorize another transaction or establish official
 1Click settlement. [Machine-readable manifest](../../evidence/near-guard-mainnet-2026-11-11/manifest.json).
 
@@ -46,6 +46,16 @@ acceptance or public-chain settlement evidence. The [exact-head Sandbox CI run](
 also reproduced the reviewed WASM. All nine Actions checks and GitGuardian passed;
 the separate RecurseML provider returned an analysis error, not a review finding.
 
+[PR #210](https://github.com/Cyptopimpinainteazy/x3lang/pull/210), head
+`c358f092ededd4ac1c1d58049d16a7db09efe947`, fixes named-nonce parsing and intent
+export fidelity, and makes the generic dry-run VM refuse an external mandate
+before effects. Independent focused review passed 22 tests. At that exact head,
+the unchanged local source-admission gate, 57 boundary regressions and 46 compiler/VM
+proof cases passed under Rust 1.90.0. This branch is not merged; hosted CI was
+still incomplete at this observation, with an external RecurseML error. Two broad
+CLI corpus failures involving a Base Sepolia example were reproduced on its exact
+base commit. These local checks neither authorize a payment nor establish settlement.
+
 ## Native account-surplus recovery
 
 A separately approved, single native `Transfer` moved **0.3 NEAR** from
@@ -64,14 +74,60 @@ This was recovery of native account surplus. It was not a refund of swapped
 tokens, a storage-credit withdrawal, or release of the contract's storage reserve.
 No account was deleted. These historical balances may change with later activity.
 
+## Owner-prepaid agent storage
+
+The owner approved one `fund_agent_storage` self-call on `x3lang.near` for
+`x3-agent.x3lang.near`, attaching **0.03 NEAR**:
+[`72QrfNRf131kxnBTmZb8EJjQP6H3MKEWxvSBrMuyB9qw`](https://nearblocks.io/txns/72QrfNRf131kxnBTmZb8EJjQP6H3MKEWxvSBrMuyB9qw).
+The transaction and all receipts finalized successfully. The call created
+**0.02891 NEAR** unused agent storage credit after reserving **0.00109 NEAR** for
+**109 bytes** of additional account storage. The charged fee was
+**0.0002515973317774 NEAR**.
+
+Because this was a same-account call, the deposit earmarked existing native
+balance; it did not transfer 0.03 NEAR off-account. At block **224116857**, the
+account held **5.8512138520198669 NEAR**, including **5.75647 NEAR** storage reserve
+and **0.02891 NEAR** unused-credit liability, leaving **0.0658338520198669 NEAR**
+unencumbered surplus. The prior seven records, deployed WASM and keys were
+preserved apart from the expected owner signing-key nonce. One credit record was
+added. All **28 independent read-only checks** passed; see the
+[storage observation](../../evidence/near-guard-mainnet-2026-11-11/storage-verification.json).
+
+## Delegated agent key
+
+The owner separately approved one `AddKey` action on `x3-agent.x3lang.near`:
+[`5NbFPn49edaLsdiy6FtZ2wzb73k4SZfEfDqvg5CQ2MaQ`](https://nearblocks.io/txns/5NbFPn49edaLsdiy6FtZ2wzb73k4SZfEfDqvg5CQ2MaQ).
+It finalized successfully with the following public permissions:
+
+| Field | Verified value |
+| --- | --- |
+| Delegated key | `ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x` |
+| Permission | `FunctionCall` |
+| Receiver | `x3lang.near` |
+| Exact allowed methods | `agent_register_intent`, `agent_accept_quote`, `agent_record_outcome` |
+| Initial allowance | 0.02 NEAR |
+| Retained owner recovery key | `ed25519:8teaXGYFELKQN5QA7gQqeA4B7URrcMQqaczZ5D68c23u` — `FullAccess` |
+| Storage increase | 189 bytes |
+| Charged fee | 0.0000420792991044 NEAR |
+
+The allowance limits transaction costs; it is not a transfer of 0.02 NEAR or a
+payment approval. At block **224117358**, the agent account had exactly these two
+keys. Guard code, account fields, all eight state records and the **0.02891 NEAR**
+credit were unchanged. All **25 independent read-only checks** passed; see the
+[AddKey observation](../../evidence/near-guard-mainnet-2026-11-11/addkey-verification.json).
+The owner retains account administration and recovery. This is a trusted-operator
+harness; key restriction does not establish OS/runtime credential isolation.
+
 ## Read-only verification
 
-With `near-cli-rs` 0.30.1, inspect both finalized transactions and the account at a
+With `near-cli-rs` 0.30.1, inspect the finalized transactions and the account at a
 recorded post-upgrade block. These commands do not sign or send transactions:
 
 ```bash
 near transaction view-status BVXX3hJEmThWVZNpUknZv9HCpGezisiN8SQKsZgA3faF network-config mainnet
 near transaction view-status 81DFPVN9hTa9WE5fvQFgD91hdp6KiJ49W1ookf4J7YxV network-config mainnet
+near transaction view-status 72QrfNRf131kxnBTmZb8EJjQP6H3MKEWxvSBrMuyB9qw network-config mainnet
+near transaction view-status 5NbFPn49edaLsdiy6FtZ2wzb73k4SZfEfDqvg5CQ2MaQ network-config mainnet
 near account view-account-summary x3lang.near network-config mainnet at-block-height 224111627
 ```
 
@@ -94,11 +150,12 @@ authenticated NEAR light-client checkpoint.
 
 ## Remaining release boundaries
 
-The upgraded contract supports owner-prepaid agent storage, but deployment alone
-does not provision credit, restrict agent keys, refresh mandates, approve a new
-payment or fund a source-chain deposit. Those actions need their own reviewed
-inputs and authorization. A funded agent purchase and official 1Click mainnet
-settlement remain unproven by this evidence. Track registration and judging
+Owner-prepaid storage credit and the restricted delegated key are now provisioned.
+No new payment registration, live quote or swap was approved or sent as part of
+these four operations. They do not refresh the mandate, approve a payment or fund
+a source-chain deposit. Those actions need their own reviewed inputs and
+authorization. A funded agent purchase and official 1Click mainnet settlement
+remain unproven by this evidence. Track registration and judging
 eligibility are separate from deploying a contract.
 
 A code rollback requires another explicitly approved deployment. Any new scoped

@@ -1,0 +1,124 @@
+{
+  "schema": "x3.agent-addkey.independent-verification.v1",
+  "observed_at_utc": "2026-11-11T21:03:50.925431+00:00",
+  "network": "mainnet",
+  "rpc_url": "https://free.rpc.fastnear.com",
+  "transaction_hash": "5NbFPn49edaLsdiy6FtZ2wzb73k4SZfEfDqvg5CQ2MaQ",
+  "transaction_url": "https://nearblocks.io/txns/5NbFPn49edaLsdiy6FtZ2wzb73k4SZfEfDqvg5CQ2MaQ",
+  "final_execution_status": "FINAL",
+  "before_block": {
+    "hash": "2Ufojfie3Ve45kEs6wfmnUCvXfpztq4Xz3np2AJdQR2d",
+    "height": 224117191
+  },
+  "after_block": {
+    "hash": "3DQEnmdsmqmqsP6UwBPLqWtXV75d6c4T2qnyvYyuU82C",
+    "height": 224117358
+  },
+  "transaction": {
+    "signer": "x3-agent.x3lang.near",
+    "receiver": "x3-agent.x3lang.near",
+    "public_key": "ed25519:8teaXGYFELKQN5QA7gQqeA4B7URrcMQqaczZ5D68c23u",
+    "nonce": 223937786000003,
+    "actions": [
+      {
+        "AddKey": {
+          "access_key": {
+            "nonce": 0,
+            "permission": {
+              "FunctionCall": {
+                "allowance": "20000000000000000000000",
+                "method_names": [
+                  "agent_register_intent",
+                  "agent_accept_quote",
+                  "agent_record_outcome"
+                ],
+                "receiver_id": "x3lang.near"
+              }
+            }
+          },
+          "public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x"
+        }
+      }
+    ]
+  },
+  "accounting": {
+    "actual_fee_near": "0.0000420792991044",
+    "actual_fee_yocto": "42079299104400000000",
+    "agent_storage_delta_bytes": 189,
+    "agent_storage_reserve_near": "0.00371",
+    "agent_balance_after_near": "0.0757388192651502",
+    "agent_surplus_after_near": "0.0720288192651502",
+    "new_functioncall_allowance_near": "0.02",
+    "allowance_is_not_fund_transfer": true
+  },
+  "checks": {
+    "tx_identity": true,
+    "final": true,
+    "transaction_success": true,
+    "all_outcomes_success": true,
+    "exact_single_addkey_action": true,
+    "signer_receiver": true,
+    "admin_signer_publickey": true,
+    "admin_signer_nonce": true,
+    "new_key_previously_absent": true,
+    "exact_two_keys_after": true,
+    "admin_fullaccess_retained": true,
+    "admin_nonce_expected": true,
+    "restricted_permission_exact": true,
+    "new_nonce_protocol_initialized": true,
+    "fee_matches_preflight": true,
+    "fee_within_budget": true,
+    "agent_balance_decrease_equals_fee": true,
+    "agent_storage_delta": true,
+    "agent_code_and_stake_unchanged": true,
+    "agent_minimum_surplus": true,
+    "guard_account_all_fields_unchanged": true,
+    "guard_all_eight_records_unchanged": true,
+    "guard_state_digest_matches": true,
+    "guard_keys_unchanged": true,
+    "guard_credit_unchanged": true
+  },
+  "check_count": 25,
+  "all_checks_passed": true,
+  "scope": "Independent public-RPC verification of exactly the approved AddKey. Retained FullAccess provides owner administration; safe agent use requires reviewed trusted-operator signer pinning and per-send scope checks. No OS isolation or swap settlement claim.",
+  "execution_receipt_block": {
+    "hash": "76Yp8v7BxB8tGyLrcUv2JKXw888y3Fq8mP7SsWTzEpUV",
+    "height": 224117215
+  },
+  "agent_keys_after": [
+    {
+      "access_key": {
+        "nonce": 223937786000003,
+        "permission": "FullAccess"
+      },
+      "public_key": "ed25519:8teaXGYFELKQN5QA7gQqeA4B7URrcMQqaczZ5D68c23u"
+    },
+    {
+      "access_key": {
+        "nonce": 224117214000000,
+        "permission": {
+          "FunctionCall": {
+            "allowance": "20000000000000000000000",
+            "method_names": [
+              "agent_register_intent",
+              "agent_accept_quote",
+              "agent_record_outcome"
+            ],
+            "receiver_id": "x3lang.near"
+          }
+        }
+      },
+      "public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x"
+    }
+  ],
+  "guard_state": {
+    "before_entries": 8,
+    "after_entries": 8,
+    "before_sha256": "cfca91bd29fca7181b44e06131ef25eaeb04685c8f88431165d191219fb55c05",
+    "after_sha256": "cfca91bd29fca7181b44e06131ef25eaeb04685c8f88431165d191219fb55c05",
+    "direct_raw_equality": true,
+    "values_not_retained": true,
+    "unused_agent_credit_yocto": "28910000000000000000000"
+  },
+  "sanitization": "Public account, transaction, key permission, accounting and state-digest observations only; no credentials, signatures, raw state values or quote receipts."
+}
