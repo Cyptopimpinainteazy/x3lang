@@ -26,6 +26,7 @@ PAY_1, PAY_2, PAY_3, OVER = (str(n * 10**23) for n in (1, 2, 2, 3))
 SCOPED_PK = "ed25519:" + "A" * 44
 FULL_PK = "ed25519:" + "B" * 44
 FINAL = {"hash": "F" * 44, "height": 5000}
+BEFORE = {"hash": "B" * 44, "height": 4999}
 WASM = b"\x00asm\x01\x00\x00\x00vault-test-code"
 TRUE = base64.b64encode(b"true").decode()
 
@@ -42,9 +43,9 @@ def tx_hash(i: int) -> str:
     return b58(hashlib.sha256(f"tx{i}".encode()).digest())
 
 
-def fn_action(method: str, args: dict) -> dict:
+def fn_action(method: str, args: dict, deposit="0") -> dict:
     return {"FunctionCall": {"method_name": method, "args": base64.b64encode(json.dumps(args).encode()).decode(),
-                             "gas": 100_000_000_000_000, "deposit": "0"}}
+                             "gas": 100_000_000_000_000, "deposit": deposit}}
 
 
 def denied(reason: str) -> dict:
@@ -59,6 +60,7 @@ class Chain:
         self.code_hash = b58(hashlib.sha256(WASM).digest())
         self.balances = {VENDOR: str(10**23), STRANGER: str(10**23), VAULT: str(5 * 10**24),
                          OWNER: str(50 * 10**24), AGENT: str(5 * 10**23)}
+        self.before_balances = dict(self.balances)
         self.keys = {
             AGENT: [{"public_key": SCOPED_PK, "access_key": {"nonce": 9, "permission": {"FunctionCall": {
                 "allowance": "240000000000000000000000", "receiver_id": VAULT, "method_names": ["request_payment"]}}}}],
@@ -74,7 +76,8 @@ class Chain:
         failure = "Failure" in status
         self.txs[h] = {
             "final_execution_status": "FINAL", "status": status,
-            "transaction": {"signer_id": signer, "receiver_id": receiver, "actions": actions, "hash": h},
+            "transaction": {"signer_id": signer, "receiver_id": receiver, "actions": actions, "hash": h,
+                            "public_key": SCOPED_PK if signer == AGENT else FULL_PK},
             "transaction_outcome": {"id": h, "block_hash": FINAL["hash"], "outcome": {}},
             "receipts_outcome": [{"id": "R" * 43, "outcome": {"status": status if failure else {"SuccessValue": ""}}}],
         }
@@ -86,15 +89,17 @@ class Chain:
         if method == "status":
             return {"chain_id": "testnet", "genesis_hash": EXPECTED_TESTNET_GENESIS}, None
         if method == "block":
-            return {"header": dict(FINAL)}, None
+            before = params.get("block_id") == BEFORE["hash"] or not self.txs
+            return {"header": dict(BEFORE if before else FINAL)}, None
         if method == "tx":
             found = self.txs.get(params[0])
             return (found, None) if found else (None, {"message": "UNKNOWN_TRANSACTION"})
         if method == "query":
-            at = {"block_hash": FINAL["hash"], "block_height": FINAL["height"]}
+            block = BEFORE if params.get("block_id") == BEFORE["hash"] else FINAL
+            at = {"block_hash": block["hash"], "block_height": block["height"]}
             kind, account = params["request_type"], params["account_id"]
             if kind == "view_account":
-                return {**at, "amount": self.balances[account], "code_hash": self.code_hash if account == VAULT else "1" * 32}, None
+                return {**at, "amount": (self.before_balances if block == BEFORE else self.balances)[account], "code_hash": self.code_hash if account == VAULT else "1" * 32}, None
             if kind == "view_access_key_list":
                 return {**at, "keys": copy.deepcopy(self.keys.get(account, []))}, None
             if kind == "call_function":
@@ -135,12 +140,18 @@ def pay_args(nonce, recipient, amount):
     return {"nonce": nonce, "recipient": recipient, "amount": amount}
 
 
+def add_key(public_key=FULL_PK, permission="FullAccess"):
+    return {"AddKey": {"public_key": public_key, "access_key": {"nonce": 0, "permission": permission}}}
+
+
+# First twelve transaction hashes remain stable for existing mutation tests.
+# The run itself is ordered according to the complete operator scenario.
 # label, signer, receiver, actions, status, expect, payment
 RUN_STEPS = [
-    ("create_vault", OWNER, VAULT, ["CreateAccount", {"Transfer": {"deposit": "1"}}], {"SuccessValue": ""}, "success", None),
-    ("vault_deployed", VAULT, VAULT, [{"DeployContract": {"code": "x"}}, fn_action("new", {"owner": OWNER})], {"SuccessValue": ""}, "success", None),
+    ("create_vault", OWNER, VAULT, ["CreateAccount", {"Transfer": {"deposit": str(2 * 10**24)}}, add_key()], {"SuccessValue": ""}, "success", None),
+    ("vault_deployed", VAULT, VAULT, [{"DeployContract": {"code": base64.b64encode(WASM).decode()}}, fn_action("new", {"owner": OWNER, "agent": AGENT, "recipient": VENDOR, "cap": CAP, "budget": BUDGET, "deadline_ms": 4_000_000_000_000})], {"SuccessValue": ""}, "success", None),
     ("vault_locked", VAULT, VAULT, [{"DeleteKey": {"public_key": FULL_PK}}], {"SuccessValue": ""}, "success", None),
-    ("owner_funds", OWNER, VAULT, [fn_action("fund", {})], {"SuccessValue": ""}, "success", None),
+    ("owner_funds", OWNER, VAULT, [fn_action("fund", {}, FUND)], {"SuccessValue": ""}, "success", None),
     ("agent_pays_vendor", AGENT, VAULT, None, {"SuccessValue": TRUE}, "returns_true", ("pay-1", VENDOR, PAY_1)),
     ("agent_over_cap", AGENT, VAULT, None, denied("per-payment cap exceeded"), "denied:per-payment cap exceeded", ("over-cap", VENDOR, OVER)),
     ("agent_pays_stranger", AGENT, VAULT, None, denied("recipient not allowlisted"), "denied:recipient not allowlisted", ("to-stranger", STRANGER, PAY_1)),
@@ -148,7 +159,14 @@ RUN_STEPS = [
     ("agent_pays_vendor_again", AGENT, VAULT, None, {"SuccessValue": TRUE}, "returns_true", ("pay-2", VENDOR, PAY_2)),
     ("agent_over_budget", AGENT, VAULT, None, denied("cumulative budget exceeded"), "denied:cumulative budget exceeded", ("pay-3", VENDOR, PAY_3)),
     ("owner_revokes", OWNER, VAULT, [fn_action("revoke", {})], {"SuccessValue": ""}, "success", None),
-    ("owner_recovers", OWNER, VAULT, [fn_action("recover_available", {"amount": "1"})], {"SuccessValue": TRUE}, "returns_true", None),
+    ("owner_recovers", OWNER, VAULT, [fn_action("recover_available", {"amount": str(7 * 10**23)})], {"SuccessValue": TRUE}, "returns_true", None),
+    ("create_agent", OWNER, AGENT, ["CreateAccount", {"Transfer": {"deposit": str(5 * 10**23)}}, add_key()], {"SuccessValue": ""}, "success", None),
+    ("create_vendor", OWNER, VENDOR, ["CreateAccount", {"Transfer": {"deposit": str(10**23)}}, add_key()], {"SuccessValue": ""}, "success", None),
+    ("create_stranger", OWNER, STRANGER, ["CreateAccount", {"Transfer": {"deposit": str(10**23)}}, add_key()], {"SuccessValue": ""}, "success", None),
+    ("agent_key_scoped", AGENT, AGENT, [add_key(SCOPED_PK, {"FunctionCall": {"allowance": str(25 * 10**22), "receiver_id": VAULT, "method_names": ["request_payment"]}})], {"SuccessValue": ""}, "success", None),
+    ("agent_full_key_deleted", AGENT, AGENT, [{"DeleteKey": {"public_key": FULL_PK}}], {"SuccessValue": ""}, "success", None),
+    ("owner_recovers_while_active", OWNER, VAULT, [fn_action("recover_available", {"amount": PAY_1})], denied("revoke or expire mandate before recovery"), "denied:revoke or expire mandate before recovery", None),
+    ("agent_after_revoke", AGENT, VAULT, None, denied("owner revoked mandate"), "denied:owner revoked mandate", ("after-revoke", VENDOR, str(5 * 10**22))),
 ]
 
 
@@ -166,6 +184,12 @@ def play(chain: Chain, tmp: Path, steps=RUN_STEPS, *, locked=True) -> tuple[Path
         v.add_step(run, label=label, expect=expect, signer=signer, tx_hash=h, **extra)
     v.add_step(run, label="agent_raw_transfer", expect="rpc_refused:requires_full_access", signer=AGENT, tx_hash=None,
                cli_exit=1, log_text="\x1b[31mError: Transaction requires a full permission access key.\x1b[0m\n")
+    v.add_step(run, label="agent_calls_revoke", expect="rpc_refused:method_not_allowed", signer=AGENT, tx_hash=None,
+               cli_exit=1, log_text="Error: Transaction method name <revoke> isn't allowed by the access key.")
+    data = v._load_json(run)
+    order = {row[0]: i for i, row in enumerate(v.SCENARIO)}
+    data["steps"].sort(key=lambda step: order[step["label"]])
+    v._write_json(run, data)
     chain.balances[VENDOR] = str(vendor_before + int(PAY_1) + int(PAY_2))
     wasm = tmp / "vault.wasm"
     wasm.write_bytes(WASM)
@@ -183,8 +207,8 @@ def test_full_run_collects_and_reverifies(tmp_path):
     verdicts = {x["label"]: x["verdict"] for x in evidence["verdicts"]}
     assert verdicts["agent_over_cap"] == "refused: X3_VAULT_DENIED: per-payment cap exceeded"
     assert verdicts["agent_pays_vendor"] == "succeeded_and_vault_returned_true"
-    assert verdicts["agent_raw_transfer"] == ("never included on chain: Error: Transaction requires a full permission "
-                                              "access key. (CLI exit 1)")
+    assert verdicts["agent_raw_transfer"] == ("local CLI reported: Error: Transaction requires a full permission "
+                                              "access key. (exit 1)")
     assert evidence["keys"]["vault_has_no_keys"] is True
     assert evidence["balances"]["stranger_received"] == "0"
     assert evidence["balances"]["vendor_received"] == str(int(PAY_1) + int(PAY_2))
@@ -270,7 +294,7 @@ def test_deployed_code_that_is_not_the_wasm_fails(tmp_path):
 def test_payment_with_different_arguments_fails(tmp_path):
     def redirect(chain):
         chain.txs[tx_hash(4)]["transaction"]["actions"] = [fn_action("request_payment", pay_args("pay-1", STRANGER, PAY_1))]
-    _mutate_and_expect(tmp_path, redirect, "on-chain arguments differ")
+    _mutate_and_expect(tmp_path, redirect, "method, arguments or attached deposit mismatch")
 
 
 def test_wrong_signer_fails(tmp_path):
@@ -306,8 +330,8 @@ def test_chain_changing_after_collection_fails_verification(tmp_path):
 
 def test_incomplete_run_is_refused(tmp_path):
     with Chain() as chain:
-        run, wasm = play(chain, tmp_path, steps=RUN_STEPS[:2], locked=False)
-        with pytest.raises(EvidenceError, match="no agent_pays_vendor"):
+        run, wasm = play(chain, tmp_path, steps=RUN_STEPS[:2], locked=True)
+        with pytest.raises(EvidenceError, match="complete, unique"):
             v.collect(run, wasm, chain.url)
 
 

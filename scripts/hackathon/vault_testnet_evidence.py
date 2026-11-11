@@ -7,7 +7,7 @@ reads NEAR testnet RPC, records what a run did and judges it, failing closed:
 * the deployed code hash equals the locally built WASM;
 * the agent account holds exactly one key, FunctionCall-only, scoped to
   ``<vault>::request_payment``;
-* the vault account holds no access keys when the run locked it;
+* the complete bounded scenario locked the vault and it holds no access keys;
 * every recorded transaction ended exactly as the run said it would: paid,
   refused with a specific ``X3_VAULT_DENIED`` reason, or plain success;
 * the vault's own ledger (spent, reserved, revoked, per-nonce payments)
@@ -15,11 +15,10 @@ reads NEAR testnet RPC, records what a run did and judges it, failing closed:
 * the vendor received exactly the paid amounts and the stranger received
   nothing.
 
-Two attacks never reach the chain: a raw NEAR transfer and a call to a method
-outside the key's scope, both signed with the agent's FunctionCall key. NEAR
-RPC refuses such transactions before inclusion, so there is no transaction
-hash. They are recorded as ``rpc_refused`` with the CLI's exit code, and are
-corroborated on chain by the agent's key list and the stranger's balance.
+Two attempted attacks are represented only by local CLI refusal reports. They
+have no included transaction to re-query and are never classified as independently
+verified attempts or protocol refusals. The separately queried access-key list
+and balances are observations at a pinned block, not an audited custody guarantee.
 
 It also locates the legacy-keychain key file that holds a given on-chain
 public key. It reads only the ``public_key`` field and never prints, copies
@@ -29,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -58,7 +58,8 @@ from testnet_guard_evidence import (  # noqa: E402
 )
 
 SCHEMA_RUN = "x3.shield.agent_vault.testnet.run.v1"
-SCHEMA_EVIDENCE = "x3.shield.agent_vault.testnet.evidence.v1"
+SCHEMA_EVIDENCE = "x3.shield.agent_vault.testnet.evidence.v2"
+CLASSIFICATION = "PUBLIC_NEAR_TESTNET_OBSERVED_VAULT_SCENARIO_NOT_AUDITED"
 AGENT_METHOD = "request_payment"
 TRUE_B64 = base64.b64encode(b"true").decode("ascii")
 _HASH_RE = re.compile(r"[1-9A-HJ-NP-Za-km-z]{43,44}\Z")
@@ -181,12 +182,14 @@ def account_balance(rpc_url: str, account: str, block_hash: str | None = None) -
     return {"account_id": account, "amount": amount, "block_hash": result.get("block_hash"), "block_height": result.get("block_height")}
 
 
-def view_call(rpc_url: str, contract: str, method: str, args: dict, block_hash: str | None = None) -> object:
+def view_call(rpc_url: str, contract: str, method: str, args: dict, block_hash: str | None = None, block_height: int | None = None) -> object:
     encoded = base64.b64encode(json.dumps(args, separators=(",", ":"), sort_keys=True).encode("utf-8")).decode("ascii")
     result = _rpc(rpc_url, "query", {
         "request_type": "call_function", "account_id": contract, "method_name": method,
         "args_base64": encoded, **_block_ref(block_hash),
     })
+    if block_hash is not None and (result.get("block_hash") != block_hash or (block_height is not None and result.get("block_height") != block_height)):
+        raise EvidenceError(f"{contract}.{method}: returned block differs from pinned view")
     raw = result.get("result")
     if not isinstance(raw, list) or not all(isinstance(b, int) and 0 <= b <= 255 for b in raw):
         raise EvidenceError(f"{contract}.{method} returned no result bytes")
@@ -370,6 +373,192 @@ def chain_signer(rpc_url: str, tx_hash: str, signer: str) -> str:
     return actual
 
 
+# This verifier accepts the complete bounded operator scenario, not arbitrary
+# caller-selected successes. Local CLI reports remain a separate evidence level.
+SCENARIO = (
+    ("create_vault", "owner", "success"),
+    ("create_agent", "owner", "success"),
+    ("create_vendor", "owner", "success"),
+    ("create_stranger", "owner", "success"),
+    ("vault_deployed", "vault", "success"),
+    ("vault_locked", "vault", "success"),
+    ("owner_funds", "owner", "success"),
+    ("agent_key_scoped", "agent", "success"),
+    ("agent_full_key_deleted", "agent", "success"),
+    ("agent_pays_vendor", "agent", "returns_true"),
+    ("agent_over_cap", "agent", "denied:per-payment cap exceeded"),
+    ("agent_pays_stranger", "agent", "denied:recipient not allowlisted"),
+    ("agent_replays_nonce", "agent", "denied:nonce already used"),
+    ("agent_pays_vendor_again", "agent", "returns_true"),
+    ("agent_over_budget", "agent", "denied:cumulative budget exceeded"),
+    ("agent_raw_transfer", "agent", "rpc_refused:requires_full_access"),
+    ("agent_calls_revoke", "agent", "rpc_refused:method_not_allowed"),
+    ("owner_recovers_while_active", "owner", "denied:revoke or expire mandate before recovery"),
+    ("owner_revokes", "owner", "success"),
+    ("agent_after_revoke", "agent", "denied:owner revoked mandate"),
+    ("owner_recovers", "owner", "returns_true"),
+)
+PAYMENTS = {
+    "agent_pays_vendor": ("pay-1", "vendor", 10**23),
+    "agent_over_cap": ("over-cap", "vendor", 3 * 10**23),
+    "agent_pays_stranger": ("to-stranger", "stranger", 10**23),
+    "agent_replays_nonce": ("pay-1", "vendor", 10**23),
+    "agent_pays_vendor_again": ("pay-2", "vendor", 2 * 10**23),
+    "agent_over_budget": ("pay-3", "vendor", 2 * 10**23),
+    "agent_after_revoke": ("after-revoke", "vendor", 5 * 10**22),
+}
+
+
+def _validate_scenario(run: dict) -> dict[str, dict]:
+    if run.get("schema") != SCHEMA_RUN or run.get("network") != "testnet":
+        raise EvidenceError("not a testnet vault run")
+    if run.get("locked") is not True:
+        raise EvidenceError("observed vault scenario requires locked=true")
+    roles = run.get("accounts", {})
+    if set(roles) != set(ROLES) or len(set(roles.values())) != len(ROLES):
+        raise EvidenceError("scenario requires five distinct account roles")
+    for role in ROLES:
+        _account(roles[role], role)
+    terms = run.get("terms", {})
+    if any(terms.get(k) != str(v) for k, v in (("cap", 2 * 10**23), ("budget", 4 * 10**23), ("fund", 10**24))):
+        raise EvidenceError("scenario terms differ from bounded operator profile")
+    if type(terms.get("deadline_ms")) is not int or terms["deadline_ms"] <= 0:
+        raise EvidenceError("scenario deadline must be a positive integer")
+    steps = run.get("steps")
+    labels = [s.get("label") for s in steps if isinstance(s, dict)] if isinstance(steps, list) else []
+    expected = [row[0] for row in SCENARIO]
+    if labels != expected:
+        raise EvidenceError("scenario steps must be complete, unique and in operator order")
+    by_label = dict(zip(labels, steps))
+    hashes = set()
+    for label, role, expect in SCENARIO:
+        step = by_label[label]
+        kind, reason = parse_expect(expect)
+        if step.get("signer") != roles[role] or step.get("expect") != kind or step.get("reason") != reason:
+            raise EvidenceError(f"{label}: unexpected signer or expected outcome")
+        if label in PAYMENTS:
+            nonce, recipient, amount = PAYMENTS[label]
+            if (step.get("nonce"), step.get("recipient"), step.get("amount")) != (nonce, roles[recipient], str(amount)):
+                raise EvidenceError(f"{label}: payment terms differ from operator scenario")
+        elif any(k in step for k in ("nonce", "recipient", "amount")):
+            raise EvidenceError(f"{label}: unexpected payment fields")
+        if kind == "rpc_refused":
+            _local_refusal_verdict(step)
+        else:
+            tx_hash = step.get("tx_hash")
+            if not isinstance(tx_hash, str) or not _HASH_RE.fullmatch(tx_hash) or tx_hash in hashes:
+                raise EvidenceError(f"{label}: missing or duplicate transaction hash")
+            hashes.add(tx_hash)
+    return by_label
+
+
+def _local_refusal_verdict(step: dict) -> dict:
+    message = step.get("cli_message")
+    if (step.get("tx_hash") is not None or type(step.get("cli_exit")) is not int or step["cli_exit"] == 0
+            or not isinstance(message, str) or len(message) > 300
+            or RPC_REFUSALS.get(step.get("reason"), "__invalid__") not in message
+            or extract_tx_hash(message) is not None):
+        raise EvidenceError(f"{step.get('label')}: invalid local CLI refusal report")
+    return {"label": step["label"], "verdict": f"local CLI reported: {message} (exit {step['cli_exit']})",
+            "tx_hash": None, "evidence_level": "local_cli_report_not_independently_verified"}
+
+
+def _check_manifest_binding(manifest: dict, vault: str) -> None:
+    if (manifest.get("account_id") != vault or manifest.get("code_hash") in (None, "", "1" * 32)
+            or type(manifest.get("wasm_bytes")) is not int or manifest["wasm_bytes"] < 8):
+        raise EvidenceError("manifest must identify the run vault and nonempty deployed WASM")
+
+
+def _raw_transaction(step: dict, rpc_url: str) -> dict:
+    raw = _rpc(rpc_url, "tx", [step["tx_hash"], step["signer"]])
+    tx = raw.get("transaction")
+    if not isinstance(tx, dict) or tx.get("hash") != step["tx_hash"] or tx.get("signer_id") != step["signer"]:
+        raise EvidenceError(f"{step['label']}: raw transaction hash/signer mismatch")
+    return tx
+
+
+def _check_transaction_actions(step: dict, tx: dict, run: dict, manifest: dict,
+                               raw_by_label: dict, scoped_key: str) -> None:
+    label = step["label"]
+    roles, terms = run["accounts"], run["terms"]
+    actions = tx.get("actions")
+    if not isinstance(actions, list):
+        raise EvidenceError(f"{label}: missing transaction actions")
+    receiver = roles[label.removeprefix("create_")] if label.startswith("create_") else (
+        roles["agent"] if label in ("agent_key_scoped", "agent_full_key_deleted") else roles["vault"])
+    if tx.get("receiver_id") != receiver:
+        raise EvidenceError(f"{label}: wrong receiver")
+
+    def key_action(action, permission):
+        if not isinstance(action, dict) or set(action) != {"AddKey"}:
+            raise EvidenceError(f"{label}: expected AddKey action")
+        key = action["AddKey"]
+        if (not isinstance(key, dict) or not _PUBKEY_RE.fullmatch(str(key.get("public_key", "")))
+                or key.get("access_key", {}).get("permission") != permission):
+            raise EvidenceError(f"{label}: wrong added-key permission")
+        return key["public_key"]
+
+    if label.startswith("create_"):
+        role = label.removeprefix("create_")
+        deposits = {"agent": 5 * 10**23, "vendor": 10**23, "stranger": 10**23,
+                    "vault": ((2 * manifest["wasm_bytes"] + 499999) // 200000) * 10**24}
+        if (len(actions) != 3 or actions[0] != "CreateAccount"
+                or actions[1] != {"Transfer": {"deposit": str(deposits[role])}}):
+            raise EvidenceError(f"{label}: wrong create-account actions or deposit")
+        key_action(actions[2], "FullAccess")
+        return
+    if label == "agent_key_scoped":
+        permission = {"FunctionCall": {"allowance": str(25 * 10**22), "receiver_id": roles["vault"],
+                                      "method_names": [AGENT_METHOD]}}
+        if len(actions) != 1 or key_action(actions[0], permission) != scoped_key:
+            raise EvidenceError(f"{label}: wrong scoped public key")
+        return
+    if label in ("vault_locked", "agent_full_key_deleted"):
+        role = "vault" if label == "vault_locked" else "agent"
+        created = raw_by_label["create_" + role]["actions"][2]["AddKey"]["public_key"]
+        if actions != [{"DeleteKey": {"public_key": created}}]:
+            raise EvidenceError(f"{label}: wrong deleted key action")
+        return
+    if label == "vault_deployed":
+        if len(actions) != 2 or not isinstance(actions[0], dict) or set(actions[0]) != {"DeployContract"}:
+            raise EvidenceError("vault_deployed: expected atomic deploy and initialization")
+        try:
+            code = base64.b64decode(actions[0]["DeployContract"]["code"], validate=True)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EvidenceError("vault_deployed: invalid deployed code") from exc
+        if len(code) != manifest["wasm_bytes"] or hashlib.sha256(code).hexdigest() != manifest["wasm_sha256"]:
+            raise EvidenceError("vault_deployed: code differs from manifest")
+        method = "new"
+        args = {"owner": roles["owner"], "agent": roles["agent"], "recipient": roles["vendor"], **terms}
+        args.pop("fund")
+        call = actions[1]
+    else:
+        if len(actions) != 1:
+            raise EvidenceError(f"{label}: expected exactly one function call")
+        call = actions[0]
+        if label in PAYMENTS:
+            method, args = AGENT_METHOD, {k: step[k] for k in ("nonce", "recipient", "amount")}
+            if tx.get("public_key") != scoped_key:
+                raise EvidenceError(f"{label}: payment was not signed by the scoped key")
+        elif label == "owner_funds":
+            method, args = "fund", {}
+        elif label == "owner_revokes":
+            method, args = "revoke", {}
+        else:
+            method = "recover_available"
+            args = {"amount": str(10**23 if label == "owner_recovers_while_active" else 7 * 10**23)}
+    if not isinstance(call, dict) or set(call) != {"FunctionCall"} or not isinstance(call["FunctionCall"], dict):
+        raise EvidenceError(f"{label}: expected function call")
+    fc = call["FunctionCall"]
+    try:
+        actual_args = json.loads(base64.b64decode(fc["args"], validate=True))
+    except (KeyError, ValueError, TypeError) as exc:
+        raise EvidenceError(f"{label}: invalid function arguments") from exc
+    deposit = terms["fund"] if label == "owner_funds" else "0"
+    if fc.get("method_name") != method or actual_args != args or fc.get("deposit") != deposit:
+        raise EvidenceError(f"{label}: method, arguments or attached deposit mismatch")
+
+
 def judge_step(step: dict, record: dict, vault: str, signed_by: str) -> dict:
     """Does the recorded on-chain outcome match what the run said would happen?"""
     label = step["label"]
@@ -402,18 +591,20 @@ def judge_step(step: dict, record: dict, vault: str, signed_by: str) -> dict:
     return {"label": label, "verdict": verdict, "tx_hash": record["tx_hash"]}
 
 
-def _check_ledger(run: dict, rpc_url: str, block_hash: str) -> dict:
+def _check_ledger(run: dict, rpc_url: str, block_hash: str, block_height: int) -> dict:
     vault = run["accounts"]["vault"]
     steps = run["steps"]
     paid = [s for s in steps if s.get("nonce") and s["expect"] == "returns_true"]
     paid_nonces = {s["nonce"] for s in paid}
     paid_total = sum(int(s["amount"]) for s in paid)
-    spent = int(view_call(rpc_url, vault, "spent", {}, block_hash))
-    reserved = int(view_call(rpc_url, vault, "reserved", {}, block_hash))
-    revoked = view_call(rpc_url, vault, "is_revoked", {}, block_hash)
-    available = int(view_call(rpc_url, vault, "available", {}, block_hash))
+    spent = int(view_call(rpc_url, vault, "spent", {}, block_hash, block_height))
+    reserved = int(view_call(rpc_url, vault, "reserved", {}, block_hash, block_height))
+    revoked = view_call(rpc_url, vault, "is_revoked", {}, block_hash, block_height)
+    available = int(view_call(rpc_url, vault, "available", {}, block_hash, block_height))
     if spent != paid_total:
         raise EvidenceError(f"vault spent {spent} but the run paid {paid_total}")
+    if available != 0:
+        raise EvidenceError("vault retains available escrow after required recovery")
     if reserved != 0:
         raise EvidenceError(f"vault still reserves {reserved}: a payout has not settled")
     expect_revoked = any(s["label"] == "owner_revokes" for s in steps)
@@ -421,7 +612,7 @@ def _check_ledger(run: dict, rpc_url: str, block_hash: str) -> dict:
         raise EvidenceError(f"vault is_revoked={revoked}, run expects {expect_revoked}")
     payments = {}
     for nonce in sorted({s["nonce"] for s in steps if s.get("nonce")}):
-        record = view_call(rpc_url, vault, "payment", {"nonce": nonce}, block_hash)
+        record = view_call(rpc_url, vault, "payment", {"nonce": nonce}, block_hash, block_height)
         if nonce in paid_nonces:
             match = next(s for s in paid if s["nonce"] == nonce)
             want = {"amount": match["amount"], "recipient": match["recipient"], "state": "Paid"}
@@ -434,28 +625,49 @@ def _check_ledger(run: dict, rpc_url: str, block_hash: str) -> dict:
             "is_revoked": revoked, "payments": payments}
 
 
-def _check_keys(run: dict, rpc_url: str, block_hash: str) -> dict:
+def _check_keys(run: dict, rpc_url: str, block_hash: str, block_height: int) -> dict:
     vault, agent = run["accounts"]["vault"], run["accounts"]["agent"]
     agent_keys = access_keys(rpc_url, agent, block_hash)
     want = {"FunctionCall": {"receiver_id": vault, "method_names": [AGENT_METHOD]}}
     if len(agent_keys["keys"]) != 1 or agent_keys["keys"][0]["permission"] != want:
         raise EvidenceError(f"agent {agent} keys are not exactly one {vault}::{AGENT_METHOD} FunctionCall key: {agent_keys['keys']}")
     vault_keys = access_keys(rpc_url, vault, block_hash)
-    if run["locked"] and vault_keys["keys"]:
+    for observed in (agent_keys, vault_keys):
+        if observed["block_hash"] != block_hash or observed["block_height"] != block_height:
+            raise EvidenceError("access-key response differs from pinned final block")
+    if vault_keys["keys"]:
         raise EvidenceError(f"run says the vault is locked but {vault} still has keys: {vault_keys['keys']}")
     return {"agent": agent_keys["keys"], "vault": vault_keys["keys"], "vault_has_no_keys": not vault_keys["keys"]}
 
 
-def _check_balances(run: dict, rpc_url: str, block_hash: str) -> dict:
+def _check_balances(run: dict, rpc_url: str, block_hash: str, block_height: int) -> dict:
     before = run["snapshots"].get("before_attacks")
     if not before:
         raise EvidenceError("missing the before_attacks balance snapshot")
     vendor, stranger = run["accounts"]["vendor"], run["accounts"]["stranger"]
     paid_total = sum(int(s["amount"]) for s in run["steps"] if s.get("nonce") and s["expect"] == "returns_true")
-    vendor_after = int(account_balance(rpc_url, vendor, block_hash)["amount"])
-    stranger_after = int(account_balance(rpc_url, stranger, block_hash)["amount"])
-    vendor_before = int(before["balances"][vendor])
-    stranger_before = int(before["balances"][stranger])
+    final_balances = {}
+    for account in (vendor, stranger):
+        observed = account_balance(rpc_url, account, block_hash)
+        if observed["block_hash"] != block_hash or observed["block_height"] != block_height:
+            raise EvidenceError("balance response differs from pinned final block")
+        final_balances[account] = int(observed["amount"])
+    vendor_after, stranger_after = final_balances[vendor], final_balances[stranger]
+    before_hash, before_height = before.get("block_hash"), before.get("block_height")
+    header = _rpc(rpc_url, "block", {"block_id": before_hash}).get("header", {})
+    if (not isinstance(before_hash, str) or type(before_height) is not int
+            or header.get("hash") != before_hash or header.get("height") != before_height):
+        raise EvidenceError("before_attacks block identity mismatch")
+    fresh_before = {}
+    for account in (vendor, stranger):
+        observed = account_balance(rpc_url, account, before_hash)
+        if observed["block_hash"] != before_hash or observed["block_height"] != before_height:
+            raise EvidenceError("before_attacks balance block mismatch")
+        fresh_before[account] = observed["amount"]
+    if fresh_before != before.get("balances"):
+        raise EvidenceError("before_attacks balances differ from historical RPC")
+    vendor_before = int(fresh_before[vendor])
+    stranger_before = int(fresh_before[stranger])
     if vendor_after != vendor_before + paid_total:
         raise EvidenceError(f"vendor balance moved by {vendor_after - vendor_before}, the vault paid {paid_total}")
     if stranger_after != stranger_before:
@@ -464,45 +676,64 @@ def _check_balances(run: dict, rpc_url: str, block_hash: str) -> dict:
             "vendor_received": str(paid_total), "stranger_received": "0"}
 
 
+def _check_final_block(rpc_url: str, block: dict) -> None:
+    if (not isinstance(block.get("block_hash"), str) or not _HASH_RE.fullmatch(block["block_hash"])
+            or type(block.get("block_height")) is not int or block["block_height"] <= 0):
+        raise EvidenceError("invalid recorded final block")
+    header = _rpc(rpc_url, "block", {"block_id": block["block_hash"]}).get("header", {})
+    if header.get("hash") != block["block_hash"] or header.get("height") != block["block_height"]:
+        raise EvidenceError("recorded final block differs from RPC header")
+
+
+def _check_transaction_blocks(run: dict, records: list[dict], final: dict) -> None:
+    heights = [r.get("block_height") for r in records]
+    before = run.get("snapshots", {}).get("before_attacks", {}).get("block_height")
+    if (not heights or any(type(h) is not int or h <= 0 for h in heights)
+            or type(final.get("block_height")) is not int or max(heights) > final["block_height"]
+            or heights != sorted(heights) or type(before) is not int):
+        raise EvidenceError("transaction/final block chronology is invalid")
+    first_payment = next(r["block_height"] for r in records if r["label"] == "agent_pays_vendor")
+    if before >= first_payment:
+        raise EvidenceError("before_attacks must precede the first payment block")
+
+
 def collect(run_path: Path, wasm: Path, rpc_url: str) -> dict:
     run = _load_json(run_path)
-    if run.get("schema") != SCHEMA_RUN:
-        raise EvidenceError("not a vault run file")
-    labels = [s["label"] for s in run["steps"]]
-    for required in ("vault_deployed", "agent_pays_vendor"):
-        if required not in labels:
-            raise EvidenceError(f"run is incomplete: no {required} step")
-    if run["locked"] and "vault_locked" not in labels:
-        raise EvidenceError("run says the vault is locked but has no vault_locked step")
+    by_label = _validate_scenario(run)
     chain_id, genesis, _ = _require_testnet_identity(rpc_url)
     vault = run["accounts"]["vault"]
     manifest = record_manifest(vault, wasm, rpc_url)
+    _check_manifest_binding(manifest, vault)
+    block = final_block(rpc_url)
+    _check_final_block(rpc_url, block)
+    keys = _check_keys(run, rpc_url, block["block_hash"], block["block_height"])
+    raw = {label: _raw_transaction(step, rpc_url) for label, step in by_label.items() if step["expect"] != "rpc_refused"}
     transactions, verdicts = [], []
     for step in run["steps"]:
         if step["expect"] == "rpc_refused":
-            verdicts.append({"label": step["label"],
-                             "verdict": f"never included on chain: {step['cli_message']} (CLI exit {step['cli_exit']})",
-                             "tx_hash": None, "on_chain_corroboration": "agent key list and stranger balance below"})
+            verdicts.append(_local_refusal_verdict(step))
             continue
         record = record_transaction(step["tx_hash"], rpc_url, sender_id=step["signer"])
-        verdicts.append(judge_step(step, record, vault, chain_signer(rpc_url, step["tx_hash"], step["signer"])))
+        _check_transaction_actions(step, raw[step["label"]], run, manifest, raw, keys["agent"][0]["public_key"])
+        verdicts.append(judge_step(step, record, vault, raw[step["label"]]["signer_id"]))
         record["label"] = step["label"]
         record["record_hash"] = _canonical_hash({k: v for k, v in record.items() if k != "record_hash"})
         transactions.append(record)
-    block = final_block(rpc_url)
+    _check_transaction_blocks(run, transactions, block)
     evidence = {
         "schema": SCHEMA_EVIDENCE, "chain_id": chain_id, "genesis_hash": genesis,
-        "classification": "PUBLIC_NEAR_TESTNET_CUSTODY_VAULT_NOT_MAINNET_NOT_AUDITED",
+        "classification": CLASSIFICATION,
         "run": run, "manifest": manifest, "transactions": transactions, "verdicts": verdicts,
         "final_block": block,
-        "keys": _check_keys(run, rpc_url, block["block_hash"]),
-        "ledger": _check_ledger(run, rpc_url, block["block_hash"]),
-        "balances": _check_balances(run, rpc_url, block["block_hash"]),
+        "keys": keys,
+        "ledger": _check_ledger(run, rpc_url, block["block_hash"], block["block_height"]),
+        "balances": _check_balances(run, rpc_url, block["block_hash"], block["block_height"]),
         "limits": [
             "testnet only; the contract refuses to initialize on any other network",
             "native NEAR to one allowlisted recipient; it does not pay NEAR Intents deposit addresses",
             "the owner account's own full-access key is trusted and outside this vault",
-            "rpc_refused attacks have no transaction hash by NEAR design; see keys and balances",
+            "CLI refusal reports are local evidence, not independently verified attempts or protocol refusals",
+            "RPC observations do not authenticate finality or establish an audited custody/security guarantee",
             "not independently audited",
         ],
         "collected_at_utc": _utc_now(), "rpc_url": _validate_url(rpc_url),
@@ -521,25 +752,47 @@ def verify(evidence_path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     if data.get("chain_id") != "testnet" or data.get("genesis_hash") != EXPECTED_TESTNET_GENESIS:
         raise EvidenceError("evidence is not pinned to NEAR testnet")
     _require_testnet_identity(rpc_url)
-    _verify_manifest_record(data["manifest"], rpc_url, wasm)
     run, vault = data["run"], data["run"]["accounts"]["vault"]
-    by_label = {s["label"]: s for s in run["steps"]}
-    for record in data["transactions"]:
+    by_label = _validate_scenario(run)
+    if data.get("classification") != CLASSIFICATION:
+        raise EvidenceError("unexpected evidence classification")
+    _check_manifest_binding(data["manifest"], vault)
+    _verify_manifest_record(data["manifest"], rpc_url, wasm)
+    records = data.get("transactions")
+    expected_labels = [s["label"] for s in run["steps"] if s["expect"] != "rpc_refused"]
+    labels = [r.get("label") for r in records if isinstance(r, dict)] if isinstance(records, list) else []
+    if labels != expected_labels:
+        raise EvidenceError("transaction records must match every non-CLI step exactly once and in order")
+    raw = {label: _raw_transaction(by_label[label], rpc_url) for label in expected_labels}
+    by_record = dict(zip(labels, records))
+    verdicts = []
+    for step in run["steps"]:
+        if step["expect"] == "rpc_refused":
+            verdicts.append(_local_refusal_verdict(step))
+            continue
+        record = by_record[step["label"]]
+        if record.get("tx_hash") != step["tx_hash"] or record.get("transaction_hash") != step["tx_hash"]:
+            raise EvidenceError(f"{step['label']}: record transaction hash differs from run step")
         _check_record_hash(record, f"transaction {record.get('label')}")
         _verify_transaction_record(record, rpc_url)
-        step = by_label[record["label"]]
-        judge_step(step, record, vault, chain_signer(rpc_url, step["tx_hash"], step["signer"]))
+        _check_transaction_actions(step, raw[step["label"]], run, data["manifest"], raw, data["keys"]["agent"][0]["public_key"])
+        verdicts.append(judge_step(step, record, vault, raw[step["label"]]["signer_id"]))
+    if verdicts != data.get("verdicts"):
+        raise EvidenceError("verdicts differ from recomputed transaction/local-report outcomes")
+    _check_final_block(rpc_url, data["final_block"])
+    _check_transaction_blocks(run, records, data["final_block"])
     block_hash = data["final_block"]["block_hash"]
     try:
-        keys = _check_keys(run, rpc_url, block_hash)
-        ledger = _check_ledger(run, rpc_url, block_hash)
-        balances = _check_balances(run, rpc_url, block_hash)
+        keys = _check_keys(run, rpc_url, block_hash, data["final_block"]["block_height"])
+        ledger = _check_ledger(run, rpc_url, block_hash, data["final_block"]["block_height"])
+        balances = _check_balances(run, rpc_url, block_hash, data["final_block"]["block_height"])
     except EvidenceError as exc:
         raise EvidenceError(f"{exc} (re-reading block {block_hash}; older blocks need an archival testnet RPC)") from exc
     for name, fresh in (("keys", keys), ("ledger", ledger), ("balances", balances)):
         if fresh != data[name]:
             raise EvidenceError(f"{name} differ from the recorded evidence")
-    return {"verified": True, "kind": "agent_vault_testnet", "vault": vault,
+    return {"verified": True, "kind": "observed_agent_vault_testnet_scenario", "vault": vault,
+            "classification": CLASSIFICATION, "local_cli_reports_independently_verified": False,
             "transactions": len(data["transactions"]), "record_hash": data["record_hash"]}
 
 
