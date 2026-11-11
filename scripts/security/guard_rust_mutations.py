@@ -25,7 +25,14 @@ MUTANTS = [
      "!record.approvals.contains(&approver)", "true",
      "payments_above_the_threshold_need_n_of_m_approvals"),
     ("expired_approval_bypass", "src/mandate.rs",
-     "env::block_timestamp_ms() < m.terms.expires_at_ms", "true",
+     # Anchor to the following approval check: funding independently checks
+     # expiry too, and must not become this approval-specific mutation's target.
+     'env::block_timestamp_ms() < m.terms.expires_at_ms,\n'
+     '            "X3_MANDATE_DENIED: the mandate is expired"\n'
+     '        );\n        require!(\n            m.approvals_needed',
+     'true,\n'
+     '            "X3_MANDATE_DENIED: the mandate is expired"\n'
+     '        );\n        require!(\n            m.approvals_needed',
      "expired_mandate_cannot_record_late_approvals"),
     ("recipient_allowlist_bypass", "src/mandate.rs",
      "t.recipients.contains(&policy.recipient)", "true",

@@ -1,0 +1,20 @@
+BASELINE a_nonce_registers_once: PASS
+BASELINE differently_signed_quotes_cannot_reuse_a_deposit_address_across_owners: PASS
+BASELINE every_term_refuses_an_intent_that_breaks_it: PASS
+BASELINE existing_state_without_a_fresh_quote_ledger_marker_refuses_new_quotes: PASS
+BASELINE expired_mandate_cannot_record_late_approvals: PASS
+BASELINE missing_deposit_history_marker_fails_closed_before_quote_authorization: PASS
+BASELINE payments_above_the_threshold_need_n_of_m_approvals: PASS
+BASELINE quote_hash_registry_still_blocks_replay_when_deposit_registry_is_corrupted: PASS
+BASELINE tampering_with_any_signed_byte_fails_verification: PASS
+MUTANT signature_bypass: KILLED
+MUTANT nonce_replay_bypass: KILLED
+MUTANT duplicate_approval_bypass: KILLED
+MUTANT expired_approval_bypass: KILLED
+MUTANT recipient_allowlist_bypass: KILLED
+MUTANT payment_cap_bypass: KILLED
+MUTANT quote_hash_replay_bypass: KILLED
+MUTANT legacy_upgrade_replay_bypass: KILLED
+MUTANT deposit_address_replay_bypass: KILLED
+MUTANT legacy_deposit_marker_bypass: KILLED
+RESULTS {"total": 10, "counts": {"KILLED": 10, "SURVIVED": 0, "INVALID": 0, "TIMEOUT": 0}, "score": 100.0, "scope": "native Rust Guard unit assertions only", "base_commit": "9dcea3cc72ea77532c1f2678e367d09a85c81e6b"}; report=/tmp/x3-scoped-storage-mutations-fixed.json

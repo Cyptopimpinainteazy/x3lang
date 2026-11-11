@@ -59,7 +59,7 @@ authorized. A refunded swap is not credited back, so the counter errs toward spe
 The owner cannot accept an agent's intent with `accept_quote`, so the counter cannot be
 bypassed from either side.
 
-**What a mandate does not do.** The contract holds no funds. The deposit is sent from the
+**What a mandate does not do.** The contract does not custody swap assets. The deposit is sent from the
 owner's wallet on the origin chain. A mandate binds any wallet or runtime that deposits only to
 an address x3-guard accepted, which is what `near_intents.py` reports as
 `eligible_for_wallet_authorization`. It cannot stop someone who holds the origin-chain wallet
@@ -72,7 +72,8 @@ key from sending funds directly, so give the agent a NEAR account and never the 
   official SDK (`@defuse-protocol/one-click-sdk-typescript` 0.1.26) pins. The signed message is
   `base58(sha256(payload))` as UTF-8, exactly as the SDK's `verifyQuoteSignature` checks it. A
   caller cannot change an amount, receiver, deposit address or deadline without the
-  signature failing. The tests verify two real 1Click-signed quotes on chain under this key.
+  signature failing. The unit tests verify two real 1Click-signed quotes under this key in
+  near-sdk's mocked runtime. This is local test evidence, not deployed-chain execution.
 - The key is set by `new()` and has no setter. The contract has no owner or admin, so a key
   rotation means deploying new code.
 - Only a live quote is accepted. A dry quote does not sign a deposit address, deadline, time
@@ -80,14 +81,16 @@ key from sending funds directly, so give the agent a NEAR account and never the 
 - The outcome is the owner's attestation of `GET /v0/status`. 1Click does not sign status
   responses, and the contract does not observe the destination chain. It does record whether a
   settlement met the *signed* guaranteed minimum.
-- Every write's storage is paid by the caller from the attached deposit, and the excess is
-  refunded in the same call.
+- Writes are paid by the caller from the attached deposit, with excess refunded.
+  Zero-deposit agent calls may instead use bounded storage credit prepaid by their
+  mandate owner. See [the scoped-key storage API](../../../docs/security/GUARD_SCOPED_STORAGE.md)
+  for funding, withdrawal, upgrade and budget-exhaustion behavior.
 
 ## Test
 
 ```bash
 cd x3-lang/near/x3-guard
-cargo test          # 52 unit tests on near-sdk's mocked chain
+cargo test          # unit tests on near-sdk's mocked runtime
 cargo clippy --all-targets -- -D warnings
 ```
 

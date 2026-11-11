@@ -1,5 +1,41 @@
 # What the X3 language does in X3 Shield
 
+## .x3: intents with compiler checks and Guard enforcement
+
+**.x3 is an owner-controlled, typed intent language for AI-agent payments.**
+An intent describes the desired outcome; an owner mandate defines the permitted
+recipients, assets, amounts and execution bounds. X3 Shield combines compiler
+checks with deterministic authorization of signed quote terms.
+
+| Stage | What it does | Evidence boundary |
+|---|---|---|
+| Intent and mandate source | Express the payment outcome and the owner's constraints in `.x3` | Inspect the checked-in programs; an English task is not authorization |
+| Python compiler frontend and type checker | Reject invalid programs and required-safety-field violations | Run `python3 scripts/hackathon/x3_wont_compile.py`; its nine mutations exercise compile-time checks |
+| Mandate evaluation | Compare a proposed intent with owner policy | Run `python3 scripts/hackathon/demo.py`; policy refusal is separate from a compiler error |
+| NEAR Guard | Verify signed quote bytes and enforce stored intent/policy terms on Guard-mediated calls | Inspect the separately labeled testnet refusal and allowed-control evidence |
+| NEAR Intents / 1Click | Supply the supported quote and execution route | Quote authorization is not deposit or settlement proof |
+
+The integration uses NEAR Intents as its execution infrastructure. .x3 adds a
+typed source language and an inspectable compiler-to-policy workflow around
+the owner's intent. This is complementary to NEAR Intents; it does not claim
+NEAR lacks constraints or that X3 invented outcome-based execution.
+
+**Three-track story:** Agent Economy supplies the agent's payment job;
+AI Security & Defense shows compiler rejection and policy refusal;
+Unstoppable DeFi shows the separately evidenced cross-chain route.
+The historical Base Sepolia → NEAR testnet transfer used a trusted Tidepool
+relay. It is separate from the official 1Click quote demonstration, which
+stopped before funding.
+
+The compiler cannot enforce external chain behavior by itself. Guard does not
+custody funds, and an unrestricted wallet key can bypass it. The historical
+trade used the Python frontend, not Rust X3VM bytecode execution on-chain.
+Timeout, refund and rollback syntax alone does not prove cross-chain rollback.
+
+**Judge takeaway:** “The agent proposes an intent. .x3 compiles the rules.
+Guard checks the signed terms. The execution route carries out the payment.”
+
+
 X3 is a typed language for cross-chain payment intents. A `.x3` program says what moves,
 from which chain to which recipient, within which bounds (slippage, fees, timeout, refund,
 one-use nonce). In this submission `.x3` does three jobs. Each has a check you can run.

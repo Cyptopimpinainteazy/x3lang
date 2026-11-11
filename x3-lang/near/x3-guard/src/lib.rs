@@ -33,8 +33,8 @@
 //!
 //! ## Storage
 //!
-//! Every write is paid by the caller: attach NEAR to cover the bytes added, and the excess is
-//! refunded in the same call.
+//! Writes are paid by the caller, with excess deposits refunded. Zero-deposit agent calls
+//! can instead charge storage growth to bounded credit prepaid by their mandate owner.
 //!
 //! ## Build mode
 //!
