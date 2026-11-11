@@ -22,3 +22,9 @@ Start with the local judge demonstration after dependency provisioning:
 ```bash
 python3 scripts/hackathon/demo.py
 ```
+
+## Optional historical 1Click observations
+
+[Explorer client and evidence boundaries](../../x3-lang/near/explorer/README.md)
+provides read-only historical records with shared partner rate limiting. These
+are provider-reported observations, not independently verified settlement.
