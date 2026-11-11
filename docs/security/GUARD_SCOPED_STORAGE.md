@@ -72,15 +72,29 @@ a requested method absent from that list. RPC failures fail closed.
 
 Only a validated snapshot is passed to the existing NEAR CLI, using a temporary
 0600 file in a private directory, zero attached deposit, and the queried nonce
-plus one, block hash and block height. Verification older than 60 seconds is
-refused before invoking the CLI. The snapshot is removed on normal success or
-failure; a CLI timeout is an unknown outcome and is never retried automatically.
+plus one, block hash and block height. Signing uses `--offline ... display`:
+[near-cli-rs 0.30.1 ignores those nonce/block flags in online signing](https://github.com/near/near-cli-rs/blob/v0.30.1/src/transaction_signature_options/sign_with_access_key_file/mod.rs#L60-L85).
+Arguments are serialized once and passed as `base64-args` so CLI JSON normalization
+cannot change the reviewed bytes. Captured signed bytes must match the exact V0
+transaction, signer/public key, receiver, nonce, block hash and single FunctionCall
+method/arguments/gas/deposit; its Ed25519 signature must verify against the pin.
+Unknown formats or mismatches are refused before broadcast.
+
+Verification older than 60 seconds is refused both before signing and before
+broadcast. After printing only the deterministic transaction-hash candidate, the
+wrapper makes one `send_tx` request to the same fixed network RPC, with no retry.
+It accepts a successful response only with explicit success status, `FINAL` and
+matching transaction identity in NEAR's flattened outcome schema. Independent
+finalized transaction verification is still required. Offline CLI failures cannot
+broadcast; RPC timeout, malformed response or failure remains an unknown outcome
+with the hash available for reconciliation. The snapshot is removed on normal success or
+failure.
 An abrupt process kill can leave a temporary file, so this remains an operator
 credential-handling process. No private credential is included in command lines
 or returned diagnostics. Raw CLI output is suppressed because it can include the
-private quote and receipt. Only the exit code, a strictly parsed transaction-hash
+private quote and receipt. Only stage/exit metadata, the computed transaction-hash
 candidate and fixed recognized error-code candidates are emitted. These are
-explicitly unverified; even a zero CLI exit is not finality or settlement proof.
+explicitly unverified; a zero return code is not independent finality or settlement proof.
 
 The `check` command needs only public configuration and never opens a key file
 or signs. For example, replace the placeholders with reviewed public values:
