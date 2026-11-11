@@ -1,0 +1,14 @@
+evidence/near-guard-mainnet-2026-11-11/manifest.json
+  h_e41068bed968d7 74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "10608e8c5698aecc10d64bcb13c9612f7bd04a67",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
