@@ -1,0 +1,23 @@
+x3-lang/near/agent-vault-sandbox-tests/Cargo.lock
+  s_a682023dabf919::t_7799224803377c 1-2990
+x3-lang/near/agent-vault-sandbox-tests/Cargo.toml
+  s_a682023dabf919::t_efa04e8b9c49d6 1-18
+x3-lang/near/agent-vault-sandbox-tests/src/main.rs
+  s_a682023dabf919::t_7e41b02ac51b4a 1-481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "47950c02341e3be397182c80776b93ae0187c0e5",
+  "prompts": {},
+  "sessions": {
+    "s_a682023dabf919": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bcfc-37bf-7c31-9cd6-f78c4074c19b",
+        "model": "deepseek-flash"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

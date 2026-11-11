@@ -1,0 +1,21 @@
+docs/hackathon/X3_SHIELD_EXECUTION_PROGRESS_2026-11-08.md
+  s_a682023dabf919::t_a20591e803d6f2 71
+docs/hackathon/X3_SHIELD_RPC_REFUSAL_PROGRESS_2026-11-08.md
+  s_a682023dabf919::t_d81fbd63c2656c 11-19,135-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a70970754e1058d88db9f365467010d419c70d37",
+  "prompts": {},
+  "sessions": {
+    "s_a682023dabf919": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bcfc-37bf-7c31-9cd6-f78c4074c19b",
+        "model": "deepseek-flash"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
