@@ -28,7 +28,7 @@ and dependencies. Another agent may already be handling your proposed task.
 2. **Stop if Git resolves to the user's home folder or another repository.**
    Never run `git add -A` from an unverified directory.
 3. Use one task, one dedicated worktree, one branch, and one owner.
-4. Never write directly to `main`, force-push, rewrite history, delete
+4. Never write directly to `master`, force-push, rewrite history, delete
    another worker's checkout, or run destructive global cleanup.
 5. Changes require a focused draft PR, tests and independent review.
    Never merge financial or security changes without owner approval.
