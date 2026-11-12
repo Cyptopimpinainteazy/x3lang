@@ -66,6 +66,7 @@ to its evidence and limits.
 
 | Result | Network | Check it |
 |---|---|---|
+| Guard on `x3lang.near` was upgraded to the reviewed WASM; all seven stored records were preserved. A separately approved native transfer recovered 0.3 NEAR to `dotx3.near`. | NEAR mainnet | [Deployment and recovery receipts](docs/hackathon/MAINNET_GUARD_DEPLOYMENT.md) |
 | An `.x3` program specified a cross-chain trade that finalized: **1.000000 test USDC left Base Sepolia, 0.997400 arrived on NEAR testnet**. The program's SHA-256 was bound on a NEAR Guard contract before the source transfer. | Base Sepolia + NEAR testnet | [Step 1](#1-the-x3-program-behind-the-cross-chain-trade), [Step 2](#2-verify-the-finalized-two-chain-trade) |
 | The deployed Guard refused an agent intent to `attacker.near` and accepted a permitted intent. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
 | Guard verified an official 1Click dry quote's signature and refused it; the archived checks include a recipient mismatch and dry-quote failures. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
@@ -73,9 +74,10 @@ to its evidence and limits.
 | Both steps of the May 2026 AI-wallet drain (limit-lifting token, Morse-encoded order), replayed with a model that falls for them: 3 of 3 attack programs refused, owner payment allowed. | Local | [Step 5b](#5b-replay-a-real-wallet-drain) |
 | 9 unsafe edits to an agent payment fail to compile. | Local | [Step 3](#3-unsafe-payments-do-not-compile) |
 
-Everything is testnet or local. Nothing here ran on mainnet. The two-chain trade relied on a
-trusted testnet relay, so it does not prove atomic settlement. [Limits](#trust-boundaries) are
-stated in full below.
+The Guard upgrade and native account-surplus recovery have finalized mainnet
+receipts. They do not establish a funded agent payment or official 1Click settlement.
+The two-chain trade above relied on a trusted testnet relay, so it does not prove
+atomic settlement. [Limits](#trust-boundaries) are stated in full below.
 
 ## The language in 20 lines
 
@@ -411,7 +413,7 @@ client in step 10 verifies validator approvals from a trusted checkpoint.
 <a id="not-claimed"></a>
 ## Not claimed
 
-Mainnet deployment, public Base/NEAR vault deployment, audited smart-account
+Public Base/NEAR vault deployment, audited smart-account
 custody, a funded official 1Click settlement, a permissionless native X3 BSC-to-NEAR
 bridge, cryptographic atomic cross-chain causality and native Rust X3VM execution
 on-chain. See the [threat model](docs/security/X3_SHIELD_THREAT_MODEL.md) for the

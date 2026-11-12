@@ -1,0 +1,93 @@
+{
+  "schema": "x3.storage-funding.independent-verification.v1",
+  "observed_at_utc": "2026-11-11T20:59:00.131410+00:00",
+  "network": "mainnet",
+  "rpc_url": "https://free.rpc.fastnear.com",
+  "transaction_hash": "72QrfNRf131kxnBTmZb8EJjQP6H3MKEWxvSBrMuyB9qw",
+  "transaction_url": "https://nearblocks.io/txns/72QrfNRf131kxnBTmZb8EJjQP6H3MKEWxvSBrMuyB9qw",
+  "final_execution_status": "FINAL",
+  "before_block": {
+    "hash": "L4CGnWQVWWKVHdbfdEAV1Q38eDpnSjmuUc6mk4fcGtL",
+    "height": 224116627
+  },
+  "after_block": {
+    "hash": "GoBTa2xwjnkZAorSf1QQFeCwxdKVX7VnYWo1hwDq3m2v",
+    "height": 224116857
+  },
+  "transaction": {
+    "signer": "x3lang.near",
+    "receiver": "x3lang.near",
+    "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe",
+    "nonce": 223154312000011,
+    "action_count": 1,
+    "method": "fund_agent_storage",
+    "arguments": {
+      "agent": "x3-agent.x3lang.near"
+    },
+    "gas": 30000000000000,
+    "deposit_yocto": "30000000000000000000000",
+    "returned_credit_yocto": "28910000000000000000000"
+  },
+  "accounting": {
+    "self_call_attached_deposit_near": "0.03",
+    "actual_fee_near": "0.0002515973317774",
+    "actual_fee_yocto": "251597331777400000000",
+    "source_native_balance_after_near": "5.8512138520198669",
+    "storage_delta_bytes": 109,
+    "storage_reserve_after_near": "5.75647",
+    "unused_credit_liability_near": "0.02891",
+    "unencumbered_surplus_after_storage_and_credit_near": "0.0658338520198669",
+    "explanation": "Same-account deposit earmarks native balance rather than sending it off-account. Native balance declined only by fees; storage reserve and unused withdrawable credit are both excluded from available surplus."
+  },
+  "checks": {
+    "transaction_identity": true,
+    "final": true,
+    "transaction_success": true,
+    "all_outcomes_success": true,
+    "single_function_call": true,
+    "exact_method": true,
+    "exact_agent_arguments": true,
+    "exact_deposit": true,
+    "exact_gas": true,
+    "self_call_signer_receiver": true,
+    "signer_public_key": true,
+    "nonce": true,
+    "fee_under_budget": true,
+    "fee_matches_parent_observation": true,
+    "self_call_balance_decrease_equals_fee": true,
+    "returned_credit": true,
+    "view_credit": true,
+    "credit_equals_deposit_less_new_storage": true,
+    "raw_credit_record_correct": true,
+    "storage_delta": true,
+    "prior_seven_records_directly_preserved": true,
+    "prior_seven_digest_preserved": true,
+    "exactly_one_expected_credit_record_added": true,
+    "code_hash_preserved": true,
+    "full_wasm_preserved": true,
+    "owner_keys_preserved_except_expected_nonce": true,
+    "agent_keys_unchanged_no_addkey": true,
+    "unencumbered_surplus_preserved": true
+  },
+  "check_count": 28,
+  "all_checks_passed": true,
+  "scope": "Independent read-only verification of approved storage allocation only. No key was added; no swap deposit, payment, refund or settlement is proven.",
+  "state": {
+    "before_entries": 7,
+    "after_entries": 8,
+    "before_seven_records_sha256": "950bfc8ba0f81da80928548ef9ab5ff7781b5039718a829862c6ddac7a39c297",
+    "preserved_seven_records_sha256": "950bfc8ba0f81da80928548ef9ab5ff7781b5039718a829862c6ddac7a39c297",
+    "full_after_state_sha256": "cfca91bd29fca7181b44e06131ef25eaeb04685c8f88431165d191219fb55c05",
+    "new_record_key_sha256": "2a3d11ca0412d9aaf047d6e0d3298a345544df149b44bb0aed3e0bac3728b4a7",
+    "new_record_value_sha256": "9ee6dbf14a9b3a95efa40fe9837b44f64dfa7f34fca73be85bf43eb07dea725e",
+    "new_record_bytes": 17,
+    "raw_private_values_retained": false,
+    "comparison": "Fresh public RPC values fetched independently at archived preflight block and current final block, compared directly; only digests are retained."
+  },
+  "code": {
+    "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+    "full_wasm_sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+    "full_wasm_bytes": 572248
+  },
+  "sanitization": "Public account, transaction, key permission, accounting and state-digest observations only; no credentials, signatures, raw state values or quote receipts."
+}

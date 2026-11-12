@@ -1,0 +1,169 @@
+{
+  "schema": "x3.guard.mainnet.registration-refusal-and-admission.v1",
+  "network": "mainnet",
+  "observed_at_utc": "2026-11-11T21:28:56.257199+00:00",
+  "scope": "Historical refusal and read-only reconciliation before the revised 10 Tgas submission; not a current registration status or settlement result.",
+  "refused_submission": {
+    "transaction_hash": "32csQESKgA7Ux7Dy7dG4ZEvPvUv6fmZ5GwrvDYvCRa38",
+    "signer": "x3-agent.x3lang.near",
+    "receiver": "x3lang.near",
+    "method": "agent_register_intent",
+    "gas": 30000000000000,
+    "deposit_yocto": "0",
+    "transaction_nonce": 224117214000001,
+    "args_sha256": "63cf95cc264a61efb2ee244e852ad25180271d5cd637b1c07584504ca42dd9cf",
+    "http_status": 200,
+    "rpc_error_code": -32000,
+    "rpc_error_name": "HANDLER_ERROR",
+    "rpc_cause_name": "INVALID_TRANSACTION",
+    "invalid_transaction_variants": [
+      "InvalidAccessKeyError",
+      "NotEnoughAllowance"
+    ]
+  },
+  "snapshots": [
+    {
+      "rpc": "https://rpc.mainnet.near.org",
+      "block": {
+        "height": 224119953,
+        "hash": "BicX3kJEQzUQFqnAJ28gzpUin4rS4FQW7VSPcGwohmY2"
+      },
+      "protocol_version": 88,
+      "delegated_key_nonce": 224117214000000,
+      "delegated_key_allowance_yocto": "20000000000000000000000",
+      "agent_balance_yocto": "75738819265150200000000",
+      "guard_balance_yocto": "5851213852019866900000000",
+      "guard_storage_bytes": 575647,
+      "guard_code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+      "unused_credit_yocto": "28910000000000000000000",
+      "intent": {
+        "nonce": "mainnet_demo_nov11_invoice_04",
+        "exists": false
+      },
+      "state_record_count": 8,
+      "state_digest": "cfca91bd29fca7181b44e06131ef25eaeb04685c8f88431165d191219fb55c05",
+      "unchanged_checks_passed": 9,
+      "all_unchanged_checks_passed": true,
+      "transaction_status_queries": [
+        {
+          "hash": "ARuphoQiTAwDqAkWbNVuCpRNgt3XXLimvjzWGsif4gFu",
+          "method": "tx",
+          "wait_until": "NONE",
+          "rpc_cause": "UNKNOWN_TRANSACTION"
+        },
+        {
+          "hash": "32csQESKgA7Ux7Dy7dG4ZEvPvUv6fmZ5GwrvDYvCRa38",
+          "method": "tx",
+          "wait_until": "NONE",
+          "rpc_cause": "UNKNOWN_TRANSACTION"
+        }
+      ]
+    },
+    {
+      "rpc": "https://archival-rpc.mainnet.fastnear.com",
+      "block": {
+        "height": 224119949,
+        "hash": "7jpJoYgVNkf5r7astZtVAX8rvL9oJK9SvtEhVirEFMA6"
+      },
+      "protocol_version": 88,
+      "delegated_key_nonce": 224117214000000,
+      "delegated_key_allowance_yocto": "20000000000000000000000",
+      "agent_balance_yocto": "75738819265150200000000",
+      "guard_balance_yocto": "5851213852019866900000000",
+      "guard_storage_bytes": 575647,
+      "guard_code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+      "unused_credit_yocto": "28910000000000000000000",
+      "intent": {
+        "nonce": "mainnet_demo_nov11_invoice_04",
+        "exists": false
+      },
+      "state_record_count": 8,
+      "state_digest": "cfca91bd29fca7181b44e06131ef25eaeb04685c8f88431165d191219fb55c05",
+      "unchanged_checks_passed": 9,
+      "all_unchanged_checks_passed": true,
+      "transaction_status_queries": [
+        {
+          "hash": "ARuphoQiTAwDqAkWbNVuCpRNgt3XXLimvjzWGsif4gFu",
+          "method": "tx",
+          "wait_until": "NONE",
+          "rpc_cause": "UNKNOWN_TRANSACTION"
+        },
+        {
+          "hash": "32csQESKgA7Ux7Dy7dG4ZEvPvUv6fmZ5GwrvDYvCRa38",
+          "method": "tx",
+          "wait_until": "NONE",
+          "rpc_cause": "UNKNOWN_TRANSACTION"
+        }
+      ]
+    }
+  ],
+  "protocol_purchase": {
+    "current_gas_price_yocto_per_gas": "100000000",
+    "minimum_receipt_purchase_price_yocto_per_gas": "1000000000",
+    "receipt_purchase_formula": "max(current_gas_price, min_gas_purchase_price)",
+    "transaction_cost_formula": "send_gas*current_gas_price + (prepaid_gas+receipt_execution_overhead_gas)*max(current_gas_price,min_gas_purchase_price) + attached_deposit; ED25519 signature surcharge zero",
+    "method_and_args_bytes": 546,
+    "send_gas": 334094808390,
+    "receipt_execution_overhead_gas": 889280319964,
+    "registration_30_tgas_upfront_near": "0.030922689800803",
+    "registration_10_tgas_upfront_near": "0.010922689800803",
+    "existing_allowance_near": "0.02",
+    "registration_10_tgas_all_gas_burn_at_observed_price_near": "0.0011223375128354",
+    "owner_30_tgas_gas_purchase_near": "0.0309190548336098",
+    "owner_attached_deposit_near": "0.02",
+    "owner_total_upfront_near": "0.0509190548336098",
+    "owner_unencumbered_surplus_near": "0.0658338520198669",
+    "owner_remaining_after_full_upfront_near": "0.0149147971862571",
+    "source": "https://github.com/near/nearcore/blob/2.14.0/runtime/runtime/src/config.rs#L451-L513"
+  },
+  "local_client_validation": {
+    "offline_pin": {
+      "pr": 211,
+      "head": "1ad2982139aedeab9dc1300e79d10ef4bff70731",
+      "merged": false,
+      "local_python_passed": 774,
+      "local_python_skipped": 1,
+      "local_node_passed": 88,
+      "synthetic_cli_offline_only": true,
+      "evidence_url": "https://github.com/Cyptopimpinainteazy/x3lang/blob/1ad2982139aedeab9dc1300e79d10ef4bff70731/audit-artifacts/agent-offline-signing-boundary-20261111/verification.json"
+    },
+    "gas_admission": {
+      "pr": 212,
+      "head": "4594496a79eda2796eb1670c825e44e00367094f",
+      "merged": false,
+      "local_focused_python_passed": 92,
+      "local_python_passed": 796,
+      "local_python_skipped": 1,
+      "local_node_passed": 88,
+      "gas_defaults_tgas": 30,
+      "explicit_gas_range_tgas": [
+        1,
+        30
+      ],
+      "automatic_gas_adjustment_allowance_increase_or_retry": false,
+      "evidence_url": "https://github.com/Cyptopimpinainteazy/x3lang/blob/4594496a79eda2796eb1670c825e44e00367094f/audit-artifacts/agent-gas-admission-20261111/verification.json"
+    },
+    "sandbox": {
+      "exit_code": 0,
+      "wasm_sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+      "wasm_bytes": 572248,
+      "registration_prepaid_tgas": 10,
+      "registration_gas_burnt": 3001220252593,
+      "intent_persisted": true,
+      "zero_attached_deposit": true,
+      "credit_debited": true,
+      "candidate_fields": "public sourcehash, nonce, longasset IDs, refund, recipient and financialterms preserved",
+      "differences": "disposable Sandbox owner/agent, deadline relativeSandbox+1h, existing testmandate50USDC caps/100bpsmaximum, synthetic key allowance5NEAR; not a mainnetstate clone"
+    },
+    "tested_file_hashes_match_committed_heads": true,
+    "hosted_ci": "Not asserted by these local test observations."
+  },
+  "limits": [
+    "The refusal log establishes admission rejection for attempt 3. Unknown transaction responses and unchanged finalized state do not establish global mempool absence.",
+    "Upfront gas purchase is a temporary reservation; unused gas and price differences can be refunded. Final charged fees require finalized outcomes.",
+    "The original 0.005 NEAR network-fee budget differs from upfront gas reservation. Burning all gas at the observed price is a scenario, not a future-price guarantee.",
+    "The local Sandbox test uses disposable accounts, a relative deadline, a simpler test mandate and synthetic allowance; it is not an exact mainnet-state clone.",
+    "No private credentials, local credential paths, transaction signatures, raw state or private quotes are included.",
+    "These observations do not establish funded agent commerce or official 1Click settlement."
+  ]
+}
