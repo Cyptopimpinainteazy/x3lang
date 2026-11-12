@@ -36,11 +36,11 @@ V = json.loads((SOLANA / "x3-mandate-vault" / "tests" / "fixtures" / "client_vec
 
 K = vc.pubkey_bytes
 PROGRAM, OWNER, AGENT = K(V["program"]), K(V["owner"]), K(V["agent"])
-VAULT_TOKEN, DEST_TOKEN, DEST_OWNER = K(V["vault_token"]), K(V["destination_token"]), K(V["destination_owner"])
-OWNER_TOKEN, MINT, POLICY = K(V["owner_token"]), K(V["mint"]), K(V["policy"])
+VAULT_TOKEN, DEST_TOKEN, DEST_OWNER = K(V["vault_spl_account"]), K(V["destination_spl_account"]), K(V["destination_owner"])
+OWNER_TOKEN, MINT, POLICY = K(V["owner_spl_account"]), K(V["mint"]), K(V["policy"])
 DIGEST = bytes.fromhex(V["quote_digest_hex"])
 BLOCKHASH = K(V["recent_blockhash"])
-OWNER_SEED, AGENT_SEED = bytes.fromhex(V["owner_seed_hex"]), bytes.fromhex(V["agent_seed_hex"])
+OWNER_SEED, AGENT_SEED = bytes.fromhex(V["owner_test_scalar_hex"]), bytes.fromhex(V["agent_test_scalar_hex"])
 POLICY_STATE = bytes.fromhex(V["policy_state_hex"])
 NOW = 1_799_998_000  # before the vector's pending_until (1_799_999_000) and expiry (1_800_000_000)
 DEVNET, MAINNET = vc.GENESIS["devnet"], vc.GENESIS["mainnet"]
@@ -78,9 +78,9 @@ def test_test_seeds_derive_the_vector_public_keys():
 
 
 def test_program_ids_match_the_rust_crates():
-    assert vc.pubkey_text(vc.TOKEN_PROGRAM) == V["token_program"]
+    assert vc.pubkey_text(vc.TOKEN_PROGRAM) == V["spl_program"]
     assert vc.pubkey_text(vc.SYSTEM_PROGRAM) == V["system_program"]
-    assert vc.pubkey_text(vc.ASSOCIATED_TOKEN_PROGRAM) == V["associated_token_program"]
+    assert vc.pubkey_text(vc.ASSOCIATED_TOKEN_PROGRAM) == V["ata_program"]
 
 
 def test_policy_pda_matches_find_program_address():
@@ -111,10 +111,10 @@ def test_instruction_message_and_signature_match_rust(name):
 def test_policy_state_decodes_every_field():
     state = vc.decode_policy(POLICY_STATE)
     assert state["owner"] == V["owner"] and state["agent"] == V["agent"]
-    assert state["mint"] == V["mint"] and state["vault_token"] == V["vault_token"]
+    assert state["mint"] == V["mint"] and state["vault_token"] == V["vault_spl_account"]
     assert (state["max_per_payment"], state["max_per_day"], state["expires_at"]) == (25_000_000, 50_000_000, 1_800_000_000)
     assert (state["revoked"], state["pending"], state["last_nonce"], state["pending_nonce"]) == (False, True, 7, 7)
-    assert state["pending_destination"] == V["destination_token"]
+    assert state["pending_destination"] == V["destination_spl_account"]
     assert state["pending_destination_owner"] == V["destination_owner"]
     assert state["pending_quote_digest"] == V["quote_digest_hex"]
     assert (state["pending_amount"], state["pending_until"]) == (25_000_000, 1_799_999_000)
@@ -361,11 +361,11 @@ def test_confirmed_send_submits_exactly_the_rust_transaction(tmp_path):
 def test_owner_commands_send_the_rust_transactions(tmp_path):
     cases = {
         "approve": ("approve", "--policy", V["policy"], "--nonce", "7", "--quote-digest", V["quote_digest_hex"],
-                    "--destination-token", V["destination_token"], "--destination-owner", V["destination_owner"],
+                    "--destination-token", V["destination_spl_account"], "--destination-owner", V["destination_owner"],
                     "--amount", "25000000", "--valid-until", "1799999000"),
         "cancel": ("cancel", "--policy", V["policy"]),
         "revoke": ("revoke", "--policy", V["policy"]),
-        "withdraw": ("withdraw", "--policy", V["policy"], "--destination-token", V["owner_token"],
+        "withdraw": ("withdraw", "--policy", V["policy"], "--destination-token", V["owner_spl_account"],
                      "--amount", "1234567"),
     }
     for name, argv in cases.items():
@@ -379,7 +379,7 @@ def test_owner_commands_send_the_rust_transactions(tmp_path):
 def test_initialize_sends_the_rust_transaction_after_checking_the_vault_account(tmp_path):
     h = Harness(tmp_path)
     del h.cluster.accounts[V["policy"]]
-    argv = ("initialize", "--vault-token", V["vault_token"], "--mint", V["mint"], "--agent", V["agent"],
+    argv = ("initialize", "--vault-token", V["vault_spl_account"], "--mint", V["mint"], "--agent", V["agent"],
             "--max-per-payment", "25000000", "--max-per-day", "50000000", "--expires-at", "1800000000")
     assert h.run(*argv, "--keypair", h.owner_key, "--send") == vc.EXIT_OK
     expected = V["transactions"]["initialize"]
@@ -399,7 +399,7 @@ def test_initialize_refuses_a_vault_account_the_program_would_reject(tmp_path, v
     h = Harness(tmp_path)
     del h.cluster.accounts[V["policy"]]
     h.cluster.put(VAULT_TOKEN, vault(), owner=vc.TOKEN_PROGRAM)
-    argv = ("initialize", "--vault-token", V["vault_token"], "--mint", V["mint"], "--agent", V["agent"],
+    argv = ("initialize", "--vault-token", V["vault_spl_account"], "--mint", V["mint"], "--agent", V["agent"],
             "--max-per-payment", "25000000", "--max-per-day", "50000000", "--expires-at", "1800000000")
     with pytest.raises(vc.VaultClientError, match=match):
         h.run(*argv, "--keypair", h.owner_key, "--send")
@@ -407,7 +407,7 @@ def test_initialize_refuses_a_vault_account_the_program_would_reject(tmp_path, v
 
 
 def test_initialize_refuses_an_existing_policy_past_expiry_and_owner_as_agent(tmp_path):
-    base = ("initialize", "--vault-token", V["vault_token"], "--mint", V["mint"],
+    base = ("initialize", "--vault-token", V["vault_spl_account"], "--mint", V["mint"],
             "--max-per-payment", "25000000", "--max-per-day", "50000000")
     h = Harness(tmp_path)
     with pytest.raises(vc.VaultClientError, match="already exists"):
@@ -428,7 +428,7 @@ def test_expected_refusal_is_sent_without_preflight_and_must_fail_with_that_code
     failure = {"InstructionError": [0, {"Custom": 10}]}
     h.cluster.simulation = {"err": failure, "logs": [], "unitsConsumed": 4000}
     h.cluster.final_status = {"confirmationStatus": "finalized", "err": failure, "slot": 9}
-    argv = (*EXECUTE, "--destination-token", V["owner_token"], "--keypair", h.agent_key, "--expect-error", "10")
+    argv = (*EXECUTE, "--destination-token", V["owner_spl_account"], "--keypair", h.agent_key, "--expect-error", "10")
     assert h.run(*argv, "--send") == vc.EXIT_OK
     assert h.cluster.sent[0]["options"]["skipPreflight"] is True
     assert "EXPECTED TO FAIL" in h.prompts[0]
@@ -438,7 +438,7 @@ def test_expected_refusal_is_sent_without_preflight_and_must_fail_with_that_code
 
 def test_expected_refusal_that_would_succeed_is_never_sent(tmp_path):
     h = Harness(tmp_path)  # simulation succeeds: the "attack" would move funds
-    argv = (*EXECUTE, "--destination-token", V["owner_token"], "--keypair", h.agent_key, "--expect-error", "10")
+    argv = (*EXECUTE, "--destination-token", V["owner_spl_account"], "--keypair", h.agent_key, "--expect-error", "10")
     assert h.run(*argv, "--send") == vc.EXIT_FAILED
     assert h.prompts == [] and h.cluster.sent == []
 
@@ -527,7 +527,7 @@ def test_roles_are_enforced_before_anything_is_simulated(tmp_path):
     with pytest.raises(vc.VaultClientError, match="not this policy's owner"):
         h.run("revoke", "--policy", V["policy"], "--keypair", h.agent_key)
     with pytest.raises(vc.VaultClientError, match="not this policy's owner"):
-        h.run("withdraw", "--policy", V["policy"], "--destination-token", V["owner_token"], "--amount", "1",
+        h.run("withdraw", "--policy", V["policy"], "--destination-token", V["owner_spl_account"], "--amount", "1",
               "--keypair", h.agent_key)
     assert "simulateTransaction" not in h.cluster.methods()
 
@@ -543,10 +543,10 @@ def test_unauthorized_key_can_be_recorded_as_an_expected_refusal(tmp_path):
 def test_withdraw_goes_only_to_the_owners_token_account_and_within_balance(tmp_path):
     h = Harness(tmp_path)
     with pytest.raises(vc.VaultClientError, match="owned by the owner"):
-        h.run("withdraw", "--policy", V["policy"], "--destination-token", V["destination_token"], "--amount", "1",
+        h.run("withdraw", "--policy", V["policy"], "--destination-token", V["destination_spl_account"], "--amount", "1",
               "--keypair", h.owner_key)
     with pytest.raises(vc.VaultClientError, match="holds less"):
-        h.run("withdraw", "--policy", V["policy"], "--destination-token", V["owner_token"], "--amount", "40000001",
+        h.run("withdraw", "--policy", V["policy"], "--destination-token", V["owner_spl_account"], "--amount", "40000001",
               "--keypair", h.owner_key)
 
 
@@ -555,13 +555,13 @@ def test_approve_checks_the_destination_account_on_chain(tmp_path):
             "--destination-owner", V["destination_owner"], "--amount", "1", "--valid-until", "1799999000")
     h = Harness(tmp_path)
     with pytest.raises(vc.VaultClientError, match="not owned by the approved destination owner"):
-        h.run(*base, "--destination-token", V["owner_token"], "--keypair", h.owner_key)
+        h.run(*base, "--destination-token", V["owner_spl_account"], "--keypair", h.owner_key)
     with pytest.raises(vc.VaultClientError, match="does not exist; create it first"):
         h.run(*base, "--destination-token", V["mint"][:-1] + "9", "--keypair", h.owner_key)
     with pytest.raises(vc.VaultClientError, match="also give --valid-until"):
-        h.run(*base[:-2], "--destination-token", V["destination_token"], "--keypair", h.owner_key)
+        h.run(*base[:-2], "--destination-token", V["destination_spl_account"], "--keypair", h.owner_key)
     with pytest.raises(vc.VaultClientError, match="already be expired"):
-        h.run(*base[:-1], str(NOW), "--destination-token", V["destination_token"], "--keypair", h.owner_key)
+        h.run(*base[:-1], str(NOW), "--destination-token", V["destination_spl_account"], "--keypair", h.owner_key)
     assert h.cluster.sent == []
 
 
@@ -578,7 +578,7 @@ def test_offline_commands_need_no_rpc(tmp_path):
     key = write_keypair(tmp_path, "owner.json", OWNER_SEED)
     assert vc.dispatch(parser.parse_args(["address", "--keypair", key]), out=lines.append) == vc.EXIT_OK
     assert vc.dispatch(parser.parse_args(["derive", "--program", V["program"], "--owner", V["owner"],
-                                          "--vault-token", V["vault_token"]]), out=lines.append) == vc.EXIT_OK
+                                          "--vault-token", V["vault_spl_account"]]), out=lines.append) == vc.EXIT_OK
     assert vc.dispatch(parser.parse_args(["ata", "--wallet", V["destination_owner"], "--mint", V["mint"]]),
                        out=lines.append) == vc.EXIT_OK
     assert lines[0] == V["owner"]

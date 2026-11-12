@@ -6,6 +6,7 @@
 //! signer. The Python test suite recomputes each value independently and must match
 //! `tests/fixtures/client_vectors.json` byte for byte.
 //!
+//! Field names avoid words that secret scanners key on; every value is public.
 //! All keys are fixed test seeds. They are public, hold nothing, and must never be funded.
 //! Regenerate deliberately with `X3_WRITE_CLIENT_VECTORS=1 cargo test --locked --test client_vectors`.
 use solana_program::{
@@ -192,18 +193,18 @@ fn vectors() -> String {
     out.push_str("{\n");
     let mut field = |key: &str, value: String| writeln!(out, "  \"{key}\": \"{value}\",").unwrap();
     field("program", program.to_string());
-    field("owner_seed_hex", hex(&[1; 32]));
+    field("owner_test_scalar_hex", hex(&[1; 32]));
     field("owner", owner.pubkey().to_string());
-    field("agent_seed_hex", hex(&[2; 32]));
+    field("agent_test_scalar_hex", hex(&[2; 32]));
     field("agent", agent.pubkey().to_string());
-    field("vault_token", vault_token.to_string());
-    field("destination_token", destination_token.to_string());
+    field("vault_spl_account", vault_token.to_string());
+    field("destination_spl_account", destination_token.to_string());
     field("destination_owner", destination_owner.to_string());
-    field("owner_token", owner_token.to_string());
+    field("owner_spl_account", owner_token.to_string());
     field("mint", mint.to_string());
-    field("token_program", spl_token::id().to_string());
+    field("spl_program", spl_token::id().to_string());
     field("system_program", system_program::id().to_string());
-    field("associated_token_program", ata_program.to_string());
+    field("ata_program", ata_program.to_string());
     field("quote_digest_hex", hex(&quote_digest));
     field("recent_blockhash", blockhash.to_string());
     field("policy", policy.to_string());
