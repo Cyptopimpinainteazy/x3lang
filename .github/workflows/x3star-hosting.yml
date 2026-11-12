@@ -1,0 +1,60 @@
+name: x3star.net demo hosting
+on:
+  pull_request:
+    paths:
+      - 'deploy/x3star/**'
+      - 'docs/hackathon/attack-lab*'
+      - 'docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md'
+      - 'evidence/tidepool-testnet/**'
+      - 'x3-lang/near/demo/**'
+      - '.github/workflows/x3star-hosting.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'deploy/x3star/**'
+      - 'x3-lang/near/demo/**'
+      - 'docs/hackathon/attack-lab*'
+permissions:
+  contents: read
+jobs:
+  hosting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Unit tests (server, Access JWT, Cloudflare Access helper)
+        run: node --test deploy/x3star/server.test.mjs deploy/x3star/cf-access.test.mjs
+      - name: Shellcheck deploy.sh
+        run: shellcheck -S style deploy/x3star/deploy.sh
+      - name: Build a release from this exact commit and probe the server
+        run: |
+          set -euo pipefail
+          export X3_DEMOS_HOME="$RUNNER_TEMP/x3state"
+          deploy/x3star/deploy.sh release --ref "$GITHUB_SHA"
+          listed=$(node -e 'console.log(require("./deploy/x3star/sites.json").files.length)')
+          shipped=$(find "$X3_DEMOS_HOME/current/" -type f ! -name RELEASE ! -path '*/deploy/x3star/server.mjs' ! -path '*/deploy/x3star/cf-access.mjs' ! -path '*/deploy/x3star/sites.json' | wc -l)
+          test "$listed" = "$shipped" || { echo "release has $shipped files, sites.json lists $listed"; exit 1; }
+          srv="$X3_DEMOS_HOME/current/deploy/x3star/server.mjs"
+          # unconfigured access mode must refuse to start
+          if X3_DEMOS_PORT=7499 timeout 5 node "$srv"; then echo "server started without Access config"; exit 1; fi
+          X3_ACCESS_MODE=public X3_DEMOS_PORT=7411 node "$srv" & PUB=$!
+          X3_OWNER_EMAIL=owner@example.com X3_ACCESS_TEAM_DOMAIN=https://ci.cloudflareaccess.com X3_ACCESS_AUD=$(printf 'a%.0s' {1..64}) X3_DEMOS_PORT=7413 node "$srv" & ACC=$!
+          trap 'kill $PUB $ACC' EXIT
+          sleep 1
+          for h in $(node -e 'console.log(Object.keys(require("./deploy/x3star/sites.json").sites).join(" "))'); do
+            case "$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $h" http://127.0.0.1:7411/)" in 200|302) ;; *) echo "$h root"; exit 1;; esac
+            test "$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $h" http://127.0.0.1:7413/)" = 403
+          done
+          for p in x3-lang/near/demo/judge/evidence.json deploy/x3star/sites.json RELEASE .env; do
+            test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: judge.x3star.net' "http://127.0.0.1:7411/$p")" = 404
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' --path-as-is -H 'Host: judge.x3star.net' 'http://127.0.0.1:7411/x3-lang/../../etc/passwd')" = 404
+          # the Cloudflare Pages contract from x3-lang/near/demo/README.md, on the mounted hosts
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: guard.x3star.net' http://127.0.0.1:7411/judge)" = 200
+          curl -s -H 'Host: guard.x3star.net' http://127.0.0.1:7411/judge/scenarios.json | node -e 'JSON.parse(require("fs").readFileSync(0,"utf8"))'
+          test "$(curl -s -o /dev/null -w '%{content_type}' -H 'Host: guard.x3star.net' http://127.0.0.1:7411/index.md)" = 'text/markdown; charset=utf-8'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: guard.x3star.net' http://127.0.0.1:7411/unused-url)" = 404
+          echo X3STAR_HOSTING_OK

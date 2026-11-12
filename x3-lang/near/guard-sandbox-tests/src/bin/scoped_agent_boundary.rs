@@ -39,6 +39,7 @@ fn require_protocol_denial<T: std::fmt::Debug, E: std::fmt::Debug>(
 async fn main() -> Result<()> {
     let wasm_path = std::env::args().nth(1).context("pass exact local Guard WASM path")?;
     let wasm = std::fs::read(&wasm_path)?;
+    let upgrade_from = std::env::args().nth(2).map(std::fs::read).transpose()?;
     ensure!(wasm.starts_with(b"\0asm"), "invalid compiled Guard WASM");
     let sandbox = near_sandbox::Sandbox::start_sandbox().await?;
     let network = NetworkConfig::from_rpc_url("sandbox", sandbox.rpc_addr.parse()?);
@@ -59,7 +60,7 @@ async fn main() -> Result<()> {
     let administrator = Signer::from_secret_key(near_sandbox::config::DEFAULT_GENESIS_ACCOUNT_PRIVATE_KEY.parse()?)?;
 
     Contract::deploy(guard_id.clone())
-        .use_code(wasm)
+        .use_code(upgrade_from.clone().unwrap_or_else(|| wasm.clone()))
         .without_init_call()
         .with_signer(administrator.clone())
         .send_to(&network)
@@ -80,7 +81,14 @@ async fn main() -> Result<()> {
     let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
         allowance: Some(NearToken::from_near(5)),
         receiver_id: guard_id.to_string(),
-        method_names: vec!["state_version".to_owned()],
+        method_names: [
+            "state_version",
+            "agent_register_intent",
+            "agent_accept_quote",
+            "agent_record_outcome",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
     });
     Account(agent_id.clone())
         .add_key(permission, public_key)
@@ -99,7 +107,16 @@ async fn main() -> Result<()> {
     match installed.permission {
         AccessKeyPermission::FunctionCall(p) => {
             ensure!(p.receiver_id == guard_id.as_str(), "incorrect receiver");
-            ensure!(p.method_names == ["state_version"], "method scope not enforced");
+            ensure!(
+                p.method_names
+                    == [
+                        "state_version",
+                        "agent_register_intent",
+                        "agent_accept_quote",
+                        "agent_record_outcome"
+                    ],
+                "method scope not enforced"
+            );
             ensure!(p.allowance == Some(NearToken::from_near(5)), "unbounded gas allowance");
         }
         _ => bail!("agent key unexpectedly has full access"),
@@ -116,6 +133,213 @@ async fn main() -> Result<()> {
         .await?;
     ensure!(allowed.is_success(), "permitted scoped method was rejected");
     println!("X3_SANDBOX_SCOPED_ALLOWED_METHOD_OK local_only=true guard_method=state_version");
+
+    // Real zero-deposit scoped signer against owner-funded Guard storage.
+    let policy = json!({
+        "program_sha256": "a".repeat(64), "origin_asset": "nep141:usdc.near",
+        "destination_asset": "nep141:usdc.near", "amount": "25000000",
+        "min_receive": "24800000", "slippage_bps": 50, "fee_cap_bps": 100,
+        "recipient": "x3-demo.near", "refund_to": "refund.sandbox",
+        "deadline_ms": 3_900_000_000_000u64,
+    });
+    guard
+        .call_function(
+            "create_mandate",
+            json!({"agent": agent_id, "terms": {
+                "program_sha256": "a".repeat(64), "asset": "nep141:usdc.near",
+                "per_payment_cap": "50000000", "daily_cap": "50000000",
+                "destination_assets": ["nep141:usdc.near"], "recipients": ["x3-demo.near"],
+                "refund_to": "refund.sandbox", "max_slippage_bps": 100, "max_fee_bps": 100,
+                "approval_above": null, "approvers": [], "approval_threshold": 0,
+                "expires_at_ms": 4_000_000_000_000u64,
+            }}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_near(1))
+        .with_signer(guard_id.clone(), administrator.clone())
+        .send_to(&network)
+        .await?
+        .assert_success();
+    if upgrade_from.is_some() {
+        // Rehearse deployment over the pinned public binary, preserving records.
+        guard
+            .call_function(
+                "agent_register_intent",
+                json!({"owner": guard_id, "nonce": "before_upgrade", "policy": policy}),
+            )
+            .transaction()
+            .gas(NearGas::from_tgas(100))
+            .deposit(NearToken::from_near(1))
+            .with_signer(agent_id.clone(), administrator.clone())
+            .send_to(&network)
+            .await?
+            .assert_success();
+        let before: serde_json::Value = guard
+            .call_function("get_intent", json!({"owner": guard_id, "nonce": "before_upgrade"}))
+            .read_only()
+            .fetch_from(&network)
+            .await?
+            .data;
+        let mandate_before: serde_json::Value = guard
+            .call_function("get_mandate", json!({"owner": guard_id, "agent": agent_id}))
+            .read_only()
+            .fetch_from(&network)
+            .await?
+            .data;
+        Contract::deploy(guard_id.clone())
+            .use_code(wasm)
+            .without_init_call()
+            .with_signer(administrator.clone())
+            .send_to(&network)
+            .await?
+            .assert_success();
+        let after: serde_json::Value = guard
+            .call_function("get_intent", json!({"owner": guard_id, "nonce": "before_upgrade"}))
+            .read_only()
+            .fetch_from(&network)
+            .await?
+            .data;
+        let mandate_after: serde_json::Value = guard
+            .call_function("get_mandate", json!({"owner": guard_id, "agent": agent_id}))
+            .read_only()
+            .fetch_from(&network)
+            .await?
+            .data;
+        ensure!(
+            before == after && !after.is_null() && mandate_before == mandate_after && !mandate_after.is_null(),
+            "upgrade changed existing intent or mandate"
+        );
+        println!("X3_SANDBOX_STORAGE_UPGRADE_OK local_only=true existing_intent_preserved=true existing_mandate_preserved=true no_migration=true");
+    }
+    let args = json!({"owner": guard_id, "nonce": "scoped_storage", "policy": policy});
+    let unfunded = guard
+        .call_function("agent_register_intent", args.clone())
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(agent_id.clone(), scope_key.clone())
+        .send_to(&network)
+        .await?;
+    ensure!(
+        !unfunded.is_success() && format!("{unfunded:?}").contains("X3_STORAGE_BUDGET_EXHAUSTED"),
+        "unfunded scoped write did not fail at storage budget: {unfunded:?}"
+    );
+    let missing: serde_json::Value = guard
+        .call_function("get_intent", json!({"owner": guard_id, "nonce": "scoped_storage"}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(missing.is_null(), "unfunded failed receipt left an intent");
+    guard
+        .call_function("fund_agent_storage", json!({"agent": agent_id}))
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .deposit(NearToken::from_millinear(100))
+        .with_signer(guard_id.clone(), administrator.clone())
+        .send_to(&network)
+        .await?
+        .assert_success();
+    let funded: String = guard
+        .call_function(
+            "get_agent_storage_balance",
+            json!({"owner": guard_id, "agent": agent_id}),
+        )
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(
+        funded.parse::<u128>()? > 0 && funded.parse::<u128>()? < 100_000_000_000_000_000_000_000u128,
+        "funding did not charge credit-record storage"
+    );
+    guard
+        .call_function("agent_register_intent", args)
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(agent_id.clone(), scope_key.clone())
+        .send_to(&network)
+        .await?
+        .assert_success();
+    let remaining: String = guard
+        .call_function(
+            "get_agent_storage_balance",
+            json!({"owner": guard_id, "agent": agent_id}),
+        )
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(
+        remaining.parse::<u128>()? < funded.parse::<u128>()?,
+        "registration did not debit owner credit"
+    );
+    let mut forbidden = policy.clone();
+    forbidden["recipient"] = json!("attacker.sandbox");
+    let refused = guard
+        .call_function(
+            "agent_register_intent",
+            json!({"owner": guard_id, "nonce": "scoped_denied", "policy": forbidden}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(agent_id.clone(), scope_key.clone())
+        .send_to(&network)
+        .await?;
+    ensure!(
+        !refused.is_success() && format!("{refused:?}").contains("X3_MANDATE_DENIED"),
+        "mandate bypass: {refused:?}"
+    );
+    let unchanged: String = guard
+        .call_function(
+            "get_agent_storage_balance",
+            json!({"owner": guard_id, "agent": agent_id}),
+        )
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(unchanged == remaining, "refusal debited storage credit");
+    guard
+        .call_function("withdraw_agent_storage", json!({"agent": agent_id}))
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(guard_id.clone(), administrator.clone())
+        .send_to(&network)
+        .await?
+        .assert_success();
+    let zero: String = guard
+        .call_function(
+            "get_agent_storage_balance",
+            json!({"owner": guard_id, "agent": agent_id}),
+        )
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(zero == "0", "withdrawal did not settle credit");
+    let exhausted = guard
+        .call_function(
+            "agent_register_intent",
+            json!({"owner": guard_id, "nonce": "scoped_exhausted", "policy": policy}),
+        )
+        .transaction()
+        .gas(NearGas::from_tgas(100))
+        .with_signer(agent_id.clone(), scope_key.clone())
+        .send_to(&network)
+        .await?;
+    ensure!(
+        !exhausted.is_success() && format!("{exhausted:?}").contains("X3_STORAGE_BUDGET_EXHAUSTED"),
+        "exhausted budget accepted: {exhausted:?}"
+    );
+    let missing: serde_json::Value = guard
+        .call_function("get_intent", json!({"owner": guard_id, "nonce": "scoped_exhausted"}))
+        .read_only()
+        .fetch_from(&network)
+        .await?
+        .data;
+    ensure!(missing.is_null(), "budget-exhausted receipt left an intent");
+    println!("X3_SANDBOX_OWNER_FUNDED_STORAGE_OK local_only=true scoped_zero_deposit_registration=true exhausted_receipt_rollback=true mandate_refusal=true withdrawal_callback=true");
 
     let before = Account(attacker_id.clone())
         .view()

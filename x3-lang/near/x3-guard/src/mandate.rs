@@ -30,7 +30,7 @@
 
 use near_sdk::json_types::U128;
 use near_sdk::serde_json::json;
-use near_sdk::{env, near, require, AccountId};
+use near_sdk::{env, near, require, AccountId, Gas};
 
 use crate::*;
 
@@ -40,6 +40,33 @@ pub const WINDOW_MS: u64 = 86_400_000;
 pub const MAX_PAYMENTS_PER_WINDOW: usize = 64;
 const MAX_LIST: usize = 16;
 const MAX_APPROVERS: usize = 8;
+/// Maximum unspent storage credit per owner/agent pair: 1 NEAR.
+const MAX_AGENT_STORAGE_CREDIT: u128 = 1_000_000_000_000_000_000_000_000;
+
+// Separate, versioned raw-storage namespace preserves the deployed Contract and
+// Mandate Borsh layouts. Balances are fixed-width so charging never adds storage.
+fn storage_credit_key(owner: &AccountId, agent: &AccountId) -> Vec<u8> {
+    format!("X3_AGENT_STORAGE_V1:{owner}/{agent}").into_bytes()
+}
+
+fn credit_record(owner: &AccountId, agent: &AccountId) -> (u128, bool) {
+    env::storage_read(&storage_credit_key(owner, agent)).map_or((0, false), |bytes| {
+        require!(bytes.len() == 17 && bytes[16] <= 1, "invalid agent storage credit");
+        (u128::from_le_bytes(bytes[..16].try_into().unwrap()), bytes[16] == 1)
+    })
+}
+
+fn write_credit(owner: &AccountId, agent: &AccountId, balance: u128, pending: bool) {
+    let mut bytes = balance.to_le_bytes().to_vec();
+    bytes.push(u8::from(pending));
+    env::storage_write(&storage_credit_key(owner, agent), &bytes);
+}
+
+fn storage_credit(owner: &AccountId, agent: &AccountId) -> u128 {
+    let (balance, pending) = credit_record(owner, agent);
+    require!(!pending, "X3_STORAGE_WITHDRAWAL_PENDING");
+    balance
+}
 
 /// What the owner allows. Every amount is in base units of `asset`.
 #[near(serializers = [borsh, json])]
@@ -268,6 +295,25 @@ fn refuse_failed(results: &[GuardResult], what: &str) {
 }
 
 impl Contract {
+    fn settle_agent_storage(&self, initial: u64, owner: &AccountId, agent: &AccountId) {
+        // Preserve the existing caller-paid API for full-access owner workflows.
+        if !env::attached_deposit().is_zero() {
+            settle_storage(initial);
+            return;
+        }
+        let cost = env::storage_byte_cost()
+            .as_yoctonear()
+            .checked_mul(env::storage_usage().saturating_sub(initial) as u128)
+            .unwrap_or_else(|| env::panic_str("storage cost overflow"));
+        if cost == 0 {
+            return;
+        }
+        let remaining = storage_credit(owner, agent)
+            .checked_sub(cost)
+            .unwrap_or_else(|| env::panic_str("X3_STORAGE_BUDGET_EXHAUSTED: owner must fund agent storage"));
+        write_credit(owner, agent, remaining, false);
+    }
+
     fn load_mandate(&self, owner: &AccountId, agent: &AccountId) -> Mandate {
         self.mandates
             .get(&mandate_key(owner, agent))
@@ -370,8 +416,8 @@ impl Contract {
         let agent = env::predecessor_account_id();
         let m = self.load_mandate(&owner, &agent);
         refuse_failed(&check_mandate(&m, &policy, env::block_timestamp_ms()), "intent");
-        let record = self.insert_intent(owner, nonce, policy, Some((agent, m.version)));
-        settle_storage(initial);
+        let record = self.insert_intent(owner.clone(), nonce, policy, Some((agent.clone(), m.version)));
+        self.settle_agent_storage(initial, &owner, &agent);
         record
     }
 
@@ -457,7 +503,7 @@ impl Contract {
         let (spent, _) = m.spent_in_window(now);
         results.extend(self.accept_verified(record, signed_payload, signature, Some(spent)));
         self.store_mandate(m);
-        settle_storage(initial);
+        self.settle_agent_storage(initial, &owner, &env::predecessor_account_id());
         results
     }
 
@@ -480,8 +526,85 @@ impl Contract {
             format!("X3_MANDATE_DENIED: intent {nonce:?} was not registered by {agent}")
         );
         let outcome = self.record_outcome_for(record, status, amount_out, refunded_amount, tx_hashes);
-        settle_storage(initial);
+        self.settle_agent_storage(initial, &owner, &agent);
         outcome
+    }
+
+    /// Owner prepays only this pair's storage. The first deposit also pays for
+    /// the fixed credit record; there is no automatic subsidy from Guard funds.
+    #[payable]
+    pub fn fund_agent_storage(&mut self, agent: AccountId) -> U128 {
+        let owner = env::predecessor_account_id();
+        let m = self.load_mandate(&owner, &agent);
+        require!(!m.revoked, "X3_MANDATE_DENIED: the mandate is revoked");
+        require!(
+            env::block_timestamp_ms() < m.terms.expires_at_ms,
+            "X3_MANDATE_DENIED: the mandate is expired"
+        );
+        let deposit = env::attached_deposit().as_yoctonear();
+        require!(
+            deposit > 0 && deposit <= MAX_AGENT_STORAGE_CREDIT,
+            "storage funding must be positive and at most 1 NEAR"
+        );
+        let initial = env::storage_usage();
+        let old = storage_credit(&owner, &agent);
+        write_credit(&owner, &agent, old, false);
+        let cost = env::storage_byte_cost()
+            .as_yoctonear()
+            .checked_mul(env::storage_usage().saturating_sub(initial) as u128)
+            .unwrap_or_else(|| env::panic_str("storage cost overflow"));
+        let added = deposit
+            .checked_sub(cost)
+            .filter(|amount| *amount > 0)
+            .unwrap_or_else(|| env::panic_str("storage funding must exceed credit record cost"));
+        let remaining = old
+            .checked_add(added)
+            .filter(|amount| *amount <= MAX_AGENT_STORAGE_CREDIT)
+            .unwrap_or_else(|| env::panic_str("unspent storage credit must not exceed 1 NEAR"));
+        write_credit(&owner, &agent, remaining, false);
+        emit(
+            "agent_storage_funded",
+            json!({"owner": owner, "agent": agent, "balance": U128(remaining)}),
+        );
+        U128(remaining)
+    }
+
+    pub fn get_agent_storage_balance(&self, owner: AccountId, agent: AccountId) -> U128 {
+        U128(storage_credit(&owner, &agent))
+    }
+
+    /// Return unspent credit to its owner, including after revocation/expiry.
+    /// The fixed record stays allocated; consumed storage is never refunded here.
+    pub fn withdraw_agent_storage(&mut self, agent: AccountId) -> Promise {
+        let owner = env::predecessor_account_id();
+        let remaining = storage_credit(&owner, &agent);
+        require!(remaining > 0, "no unspent agent storage credit");
+        // Reserve in place until the transfer resolves. No sponsored growth, funding
+        // or second withdrawal can race the callback; record size never changes.
+        write_credit(&owner, &agent, remaining, true);
+        Promise::new(owner.clone())
+            .transfer(NearToken::from_yoctonear(remaining))
+            .then(
+                Self::ext(env::current_account_id())
+                    .with_static_gas(Gas::from_tgas(10))
+                    .resolve_agent_storage_withdrawal(owner, agent),
+            )
+    }
+
+    #[private]
+    pub fn resolve_agent_storage_withdrawal(&mut self, owner: AccountId, agent: AccountId) -> U128 {
+        let (remaining, pending) = credit_record(&owner, &agent);
+        require!(
+            pending && env::promise_results_count() == 1,
+            "no pending storage withdrawal"
+        );
+        let paid = env::promise_result_checked(0, 0).is_ok();
+        write_credit(&owner, &agent, if paid { 0 } else { remaining }, false);
+        emit(
+            "agent_storage_withdrawal_resolved",
+            json!({"owner": owner, "agent": agent, "amount": U128(remaining), "paid": paid}),
+        );
+        U128(if paid { remaining } else { 0 })
     }
 
     pub fn get_mandate(&self, owner: AccountId, agent: AccountId) -> Option<Mandate> {
