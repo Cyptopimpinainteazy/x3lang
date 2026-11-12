@@ -375,6 +375,56 @@ def test_echoed_deadline_with_different_precision_still_matches():
     ni.verify_quote(leg, req, sign(response), now=NOW)
 
 
+@pytest.mark.parametrize("live", [False, True])
+def test_signed_quote_kind_must_match_the_requested_kind(live):
+    leg, req = _leg_and_request(live=live)
+    response = good_quote({**req, "dry": not req["dry"]})
+    # On a signed dry response these fields are unsigned; adding them must
+    # never turn the response into an authorization for the live request.
+    response["quote"].update(depositAddress=SOL_ADDR, deadline=req["deadline"],
+                             refundFee="1", timeEstimate=1)
+    if not response["quoteRequest"]["dry"]:
+        sign(response)
+    assert ni.verify_oneclick_quote_signature(response, TEST_KEY)
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_quote(leg, req, response, now=NOW)
+    assert err.value.code == "X3_NEAR_GUARD_FAILED"
+    assert any(g["guard"] == "quote_request_echo" and "dry" in g["mismatched"]
+               for g in err.value.detail)
+
+
+@pytest.mark.parametrize("side", ["request", "response"])
+@pytest.mark.parametrize("bad_dry", [None, 0, 1, "", "false", "true"])
+def test_quote_kind_requires_actual_booleans(side, bad_dry):
+    leg, req = _leg_and_request(live=True)
+    response = good_quote(req)
+    target = req if side == "request" else response["quoteRequest"]
+    target["dry"] = bad_dry
+    sign(response)
+    assert ni.verify_oneclick_quote_signature(response, TEST_KEY)
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_quote(leg, req, response, now=NOW)
+    assert any(g["guard"] == "quote_request_echo" and "dry" in g["mismatched"]
+               for g in err.value.detail)
+
+
+def test_signed_dry_quote_cannot_create_a_live_receipt_or_consume_a_nonce(tmp_path):
+    def downgrade(request):
+        response = good_quote({**request, "dry": True})
+        response["quote"].update(depositAddress=SOL_ADDR, deadline=request["deadline"],
+                                 refundFee="1", timeEstimate=1)
+        return response
+
+    nonce_path, receipt_path = tmp_path / "nonces.json", tmp_path / "receipt.json"
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="", transport=api(downgrade)),
+                 live=True, nonce_store=ni.NonceStore(str(nonce_path)),
+                 receipt_path=str(receipt_path), rpc=near_rpc()[0], now=NOW)
+    assert err.value.code == "X3_NEAR_GUARD_FAILED"
+    assert not nonce_path.exists()
+    assert not receipt_path.exists()
+
+
 # --- client --------------------------------------------------------------------------------
 
 def test_client_sends_bearer_jwt_and_surfaces_http_errors():
