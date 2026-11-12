@@ -44,6 +44,8 @@ NEAR_TXS = [
 SOL_DEPOSIT = "4zhGYyWNabYQ5gixTUzoVHVbgFKWAsQssSpCv3B1J1LjCRisEJW6wm3zuS2GVuDotAT93S8wm1qezHwsKX2RkXo5"
 SOL_FUNDER = "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ"
 SOL_DEPOSIT_ADDRESS = "C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN"
+#: Further Solana transactions the owner pointed to; recorded as context, not as swap legs.
+SOL_CONTEXT = ["2BsJuqvqrY2pz9avVf4ix24kA8pUhBWgRjP7qJC4h3rP2o4JqZdjAt5ePEsDqqpjtPc5bNrYmdQhhk1Fgp286Hp7"]
 
 
 def rpc(urls, method: str, params: Any) -> Dict[str, Any]:
@@ -134,7 +136,10 @@ def sol_tx(sig: str) -> Dict[str, Any]:
             "err": r["meta"]["err"], "signers": signers, "fee_lamports": r["meta"]["fee"],
             "pre_token_balances": bal(r["meta"].get("preTokenBalances")),
             "post_token_balances": bal(r["meta"].get("postTokenBalances")),
-            "log_messages": r["meta"].get("logMessages")}
+            "log_messages": r["meta"].get("logMessages"),
+            "account_keys": [k["pubkey"] for k in keys],
+            "pre_balances_lamports": r["meta"].get("preBalances"),
+            "post_balances_lamports": r["meta"].get("postBalances")}
 
 
 def token_delta(sol: Dict[str, Any], owner: str) -> Optional[int]:
@@ -151,6 +156,16 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     txs = {name: near_tx(name, h, s) for name, h, s in NEAR_TXS}
     sol = sol_tx(SOL_DEPOSIT)
+    sol_context = [sol_tx(sig) for sig in SOL_CONTEXT]
+    for c in sol_context:
+        if c.get("found"):
+            deltas = {k: post - pre for k, pre, post in zip(c["account_keys"], c["pre_balances_lamports"],
+                                                             c["post_balances_lamports"]) if post != pre}
+            print("context", c["signature"][:12], "slot", c["slot"], "time", c["block_time"], "err", c["err"],
+                  "signers", c["signers"], "lamport_deltas", json.dumps(deltas),
+                  "token_pre", json.dumps(c["pre_token_balances"]), "token_post", json.dumps(c["post_token_balances"]))
+        else:
+            print("context", c["signature"][:12], "not found", json.dumps(c.get("errors"))[:300])
     guard_account = rpc(NEAR_RPCS, "query", {"request_type": "view_account", "finality": "final", "account_id": GUARD})
     agent_keys = rpc(NEAR_RPCS, "query", {"request_type": "view_access_key_list", "finality": "final", "account_id": AGENT})
     intent = near_view("get_intent", {"owner": GUARD, "nonce": NONCE})
@@ -209,7 +224,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     report = {"schema": "x3.mainnet.invoice06.public-rpc-observation.v1", "observed_at_unix": int(time.time()),
               "scope": "read-only public RPC; no signing, no keys, no state changes",
-              "near_transactions": txs, "solana_deposit": sol, "guard_account": guard_account,
+              "near_transactions": txs, "solana_deposit": sol, "solana_context": sol_context, "guard_account": guard_account,
               "agent_access_keys": agent_keys, "intent": intent, "mandate": mandate,
               "manager_public_key": manager, "guard_near_usdc_balance": balance, "checks": checks}
     with open(args.out, "w", encoding="utf-8") as f:
