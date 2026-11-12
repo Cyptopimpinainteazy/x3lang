@@ -52,7 +52,6 @@ Limits: one ~$25 mainnet trade; the rest is testnet. Guard does not custody fund
   `0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9`
 - Two-chain trade, NEAR testnet payout:
   `EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d`
-
 - Mainnet invoice_06, owner approval: `GFdQLrzT5tnPPdZwKLtmwpNvSwrxVHDvVg2C3WX5fsK6`
 - Mainnet invoice_06, agent `agent_accept_quote` (restricted key):
   `Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153`
