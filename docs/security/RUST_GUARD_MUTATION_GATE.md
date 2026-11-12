@@ -68,3 +68,8 @@ A cross-owner namespace test then creates a second owner, registers its own mand
 **Boundaries:** This finite matrix does not establish resistance to arbitrary concurrency levels, real RPC reordering, chain reorgs, or cross-chain settlement. Tests use ephemeral accounts and a disconnected NEAR Sandbox. Every incorrect receipt or persisted-state mismatch fails the smoke command; no required case is skipped.
 
 Reproduce from the repo root with `bash scripts/hackathon/guard_sandbox_smoke.sh`. The initial local extended run completed exit 0 against real locally deployed Guard WASM. Exact-head CI and independent review are still required before any merge.
+
+The approval-expiry mutation anchors to the following approval-threshold check,
+so a separate expiry check in storage funding cannot make the target ambiguous.
+It still requires exactly one source match and changes only the approval expiry
+predicate to `true`; invalid matches remain release failures.

@@ -73,6 +73,12 @@ because that is the moment a deposit address exists for it. Dry quotes never con
   (an extra 0.25% per the 1Click docs), which `require fees` will see.
 - `NEAR_INTENTS_BASE_URL` — defaults to `https://1click.chaindefuser.com`.
 - `NEAR_INTENTS_REFERRAL` — optional lowercase `referral` identifier.
+- `NEAR_INTENTS_SHIELD_JWT` — partner token with `key_type: SHIELD` from
+  partners.near-intents.org/api-keys. When set, every quote first reads NEAR Intents Shield's
+  active incidents and refuses a route an incident touches (see "Shield incidents").
+- `NEAR_INTENTS_SHIELD_URL` — defaults to `https://shield.chaindefuser.com`.
+- `X3_REQUIRE_INCIDENT_CHECK=1` (or `quote --require-incident-check`) — refuse a live quote
+  when the incident check cannot run because no Shield token is configured.
 - `NEAR_RPC_URL` — NEAR JSON-RPC used to check that NEAR receivers exist before quoting;
   defaults to FastNEAR's free endpoint (`rpc.mainnet.near.org` is deprecated).
 - `BSC_RPC_URLS` — comma-separated BSC JSON-RPC endpoints used to verify native-BNB deposits
@@ -81,6 +87,26 @@ because that is the moment a deposit address exists for it. Dry quotes never con
 This module never signs or sends the deposit. `quote --live` returns the deposit address and
 the exact amount; the deposit is made from the sender's wallet, after which `submit-deposit`
 and `status` track the swap to a terminal X3 outcome.
+
+## Shield incidents
+
+NEAR Intents Shield publishes active incidents (`GET /incident`), each scoped to a `chain`,
+`bridge`, `token` or `address`. With a Shield token configured, `quote` reads them **before**
+1Click is asked for a quote, so no deposit address is created for a route under an incident,
+and checks the signed deposit address against the same list after the quote. A match refuses
+with `X3_NEAR_SHIELD_INCIDENT`. Matching is deliberately conservative:
+
+- `chain`: the origin or destination asset's 1Click `blockchain`.
+- `token`: the origin or destination asset ID (`nep141:…`).
+- `address`: the recipient, the refund address, or the deposit address.
+- `bridge`: any cross-chain route, because a bridge name cannot be mapped to a route reliably.
+- `direction` is not used to narrow a match.
+
+An unreachable endpoint, a non-200 answer, or a body that is not one of the two documented
+shapes refuses the quote (`X3_NEAR_SHIELD_UNREACHABLE`, `X3_NEAR_SHIELD_HTTP`,
+`X3_NEAR_SHIELD_MALFORMED`); so does an incident with an unknown `scopeType`. Without a token
+the quote still runs and says so: the result and receipt carry
+`incident_check: {"checked": false, ...}`. Set `X3_REQUIRE_INCIDENT_CHECK=1` to refuse instead.
 
 ## Proving the outcome from the chains (`chain_evidence.py`)
 
@@ -92,11 +118,14 @@ and `status` track the swap to a terminal X3 outcome.
   of the origin mint reached the signed deposit address before the signed deadline. For BSC,
   it proves a successful native-BNB transfer from the transaction and receipt and requires
   the transaction block to be at or below the endpoint's `finalized` block.
-- `verify-settlement` proves the recipient's balance rose by at least the signed
-  `minAmountOut`, or, with `--refund-tx`, that `amountIn - refundFee` came back to the refund
-  address on the origin chain after the deposit.
-- The receipt's `verified_outcome` is set only when the deposit and its end are both proven.
-  It records whether 1Click's reported status agrees. Every check records its RPC endpoints,
+- `verify-settlement` records a limited balance comparison against the locally saved
+  baseline. It cannot authenticate that baseline or link a payout transaction to the quote,
+  so it never declares a settled outcome and exits unverified even if the balance rises.
+  With `--refund-tx`, it checks a later incoming origin-chain transfer to the signed refund
+  address for at least `amountIn - refundFee`; that observation does not prove solver causality.
+- `verified_outcome=settled` and settled Guard outcome arguments are disabled until
+  payout transaction verification is implemented. Refund observations retain the existing
+  behavior, including whether 1Click's reported status agrees. Every check records its RPC endpoints,
   slot or block, and a SHA-256 of each raw result. `SOLANA_RPC_URLS` / `BSC_RPC_URLS` /
   `NEAR_RPC_URLS`
   (comma-separated) add endpoints that must all agree.
@@ -731,12 +760,16 @@ def verify_oneclick_quote_signature(response: Dict[str, Any], manager_public_key
 
 
 _ECHO_FIELDS = (
-    "swapType", "slippageTolerance", "originAsset", "depositType", "destinationAsset",
+    "dry", "swapType", "slippageTolerance", "originAsset", "depositType", "destinationAsset",
     "amount", "refundTo", "refundType", "recipient", "recipientType", "deadline",
 )
 
 
 def _same(field: str, sent: Any, echoed: Any) -> bool:
+    if field == "dry":
+        # Dry quotes do not sign deposit fields. Never let truthiness or
+        # Python's False == 0 coerce a different quote kind into authorization.
+        return type(sent) is bool and type(echoed) is bool and sent is echoed
     if field == "deadline":
         try:
             return parse_timestamp(sent) == parse_timestamp(echoed)
@@ -964,6 +997,121 @@ class OneClickClient:
 
 
 # --------------------------------------------------------------------------------------------
+# NEAR Intents Shield incidents
+# --------------------------------------------------------------------------------------------
+
+DEFAULT_SHIELD_URL = "https://shield.chaindefuser.com"
+SHIELD_SCOPE_TYPES = ("chain", "bridge", "token", "address")
+
+
+def incident_check_required() -> bool:
+    return os.environ.get("X3_REQUIRE_INCIDENT_CHECK", "").strip().lower() in ("1", "true", "yes")
+
+
+class ShieldIncidents:
+    """Reads NEAR Intents Shield's active incidents. Every failure refuses; nothing is assumed."""
+
+    def __init__(self, token: str, base_url: Optional[str] = None,
+                 transport: Transport = urllib_transport, timeout: float = 15.0):
+        if not token:
+            raise NearIntentsError("X3_NEAR_SHIELD_UNCONFIGURED", "a Shield partner token is required", "shield")
+        self.token = token
+        self.base_url = (base_url or os.environ.get("NEAR_INTENTS_SHIELD_URL") or DEFAULT_SHIELD_URL).rstrip("/")
+        self.transport = transport
+        self.timeout = timeout
+
+    @classmethod
+    def from_env(cls, transport: Transport = urllib_transport) -> Optional["ShieldIncidents"]:
+        token = os.environ.get("NEAR_INTENTS_SHIELD_JWT", "").strip()
+        return cls(token, transport=transport) if token else None
+
+    def active(self) -> List[Dict[str, Any]]:
+        url = f"{self.base_url}/incident"
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {self.token}",
+                   "User-Agent": "x3-lang-near-intents/1"}
+        try:
+            status, raw = self.transport("GET", url, headers, None, self.timeout)
+        except NearIntentsError as exc:
+            raise NearIntentsError("X3_NEAR_SHIELD_UNREACHABLE",
+                                   f"cannot read Shield incidents: {exc.message}; no quote is requested", "shield")
+        if status != 200:
+            raise NearIntentsError("X3_NEAR_SHIELD_HTTP",
+                                   f"GET /incident returned {status}; no quote is requested", "shield",
+                                   {"status": status})
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise NearIntentsError("X3_NEAR_SHIELD_MALFORMED", "GET /incident did not return JSON", "shield")
+        return parse_shield_incidents(data)
+
+
+def parse_shield_incidents(data: Any) -> List[Dict[str, Any]]:
+    """The active incidents in a `GET /incident` body. Anything but the two documented shapes refuses."""
+    def malformed(why: str) -> NearIntentsError:
+        return NearIntentsError("X3_NEAR_SHIELD_MALFORMED", f"Shield incident response {why}", "shield")
+
+    if not isinstance(data, dict):
+        raise malformed("is not an object")
+    state = data.get("status")
+    incidents = data.get("incidents")
+    if state == "operational":
+        if incidents not in (None, []):
+            raise malformed("says operational but lists incidents")
+        return []
+    if state != "incidents":
+        raise malformed(f"has unknown status {state!r}")
+    if not isinstance(incidents, list) or not incidents:
+        raise malformed("says incidents but lists none")
+    out = []
+    for item in incidents:
+        if not isinstance(item, dict):
+            raise malformed("lists an incident that is not an object")
+        scope_type, scope_value = item.get("scopeType"), item.get("scopeValue")
+        if scope_type not in SHIELD_SCOPE_TYPES:
+            raise malformed(f"lists an incident with unknown scopeType {scope_type!r}")
+        if not isinstance(scope_value, str) or not scope_value.strip():
+            raise malformed("lists an incident without a scopeValue")
+        out.append({
+            "scopeType": scope_type,
+            "scopeValue": scope_value.strip(),
+            "direction": item.get("direction"),
+            "description": item.get("publicDescription") or item.get("description"),
+        })
+    return out
+
+
+def shield_incident_matches(incidents: List[Dict[str, Any]], *, tokens: Dict[str, Dict[str, Any]],
+                            request: Dict[str, Any], deposit_address: Optional[str] = None) -> List[Dict[str, Any]]:
+    """The incidents that touch this route. `tokens` is `plan()`'s origin/destination summary."""
+    chains = {str((tokens.get(side) or {}).get("blockchain") or "").lower() for side in ("origin", "destination")}
+    chains.discard("")
+    assets = {str(request.get(k) or "").lower() for k in ("originAsset", "destinationAsset")}
+    assets.discard("")
+    addresses = {str(a).lower() for a in (request.get("recipient"), request.get("refundTo"), deposit_address) if a}
+    cross_chain = len(chains) > 1
+    hits = []
+    for incident in incidents:
+        kind, value = incident["scopeType"], incident["scopeValue"].lower()
+        if ((kind == "chain" and value in chains) or (kind == "token" and value in assets)
+                or (kind == "address" and value in addresses) or (kind == "bridge" and cross_chain)):
+            hits.append(incident)
+    return hits
+
+
+def check_shield_incidents(incidents: List[Dict[str, Any]], *, tokens: Dict[str, Dict[str, Any]],
+                           request: Dict[str, Any], deposit_address: Optional[str] = None) -> Dict[str, Any]:
+    """A `shield_incidents` guard result; raises `X3_NEAR_SHIELD_INCIDENT` on any match."""
+    hits = shield_incident_matches(incidents, tokens=tokens, request=request, deposit_address=deposit_address)
+    result = {"guard": "shield_incidents", "ok": not hits, "active": len(incidents), "matching": hits}
+    if hits:
+        scopes = ", ".join(f"{h['scopeType']}:{h['scopeValue']}" for h in hits)
+        raise NearIntentsError("X3_NEAR_SHIELD_INCIDENT",
+                               f"NEAR Intents Shield has an active incident on this route ({scopes}); do not deposit",
+                               "shield", [result])
+    return result
+
+
+# --------------------------------------------------------------------------------------------
 # NEAR account preflight
 # --------------------------------------------------------------------------------------------
 
@@ -1146,9 +1294,17 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
           nonce_store: Optional[NonceStore] = None, receipt_path: Optional[str] = None,
           rpc: Optional[NearRpc] = None, now: Optional[datetime] = None,
           manager_public_key: Optional[str] = None, near_views: Optional[Any] = None,
-          mandate_path: Optional[str] = None, guard_contract: Optional[str] = None) -> Dict[str, Any]:
+          mandate_path: Optional[str] = None, guard_contract: Optional[str] = None,
+          shield: Optional[ShieldIncidents] = None, require_incident_check: Optional[bool] = None) -> Dict[str, Any]:
     planned = plan(path, client=client, tokens_path=tokens_path, live=live, now=now)
     leg, request = planned["leg"], planned["quote_request"]
+    shield = shield if shield is not None else ShieldIncidents.from_env()
+    if require_incident_check is None:
+        require_incident_check = incident_check_required()
+    if shield is None and live and require_incident_check:
+        raise NearIntentsError("X3_NEAR_SHIELD_UNCONFIGURED",
+                               "the incident check is required but NEAR_INTENTS_SHIELD_JWT is not set; "
+                               "no quote is requested", "shield")
     store = nonce_store or NonceStore()
     if live and leg["nonce"]:
         store.check_unused(leg["nonce"])
@@ -1180,6 +1336,16 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
                 tokens=load_tokens(client, tokens_path), guard_contract=guard_contract,
                 near_views=near_views or (near_views_for(rpc) if guard_contract else None), now=now)
     account_checks = preflight_accounts(leg, rpc)
+    # Shield incidents are read before 1Click is asked, so a route under an incident never gets
+    # a deposit address. The same list is checked against the signed deposit address below.
+    incidents: Optional[List[Dict[str, Any]]] = None
+    incident_checks: List[Dict[str, Any]] = []
+    if shield is not None:
+        incidents = shield.active()
+        incident_checks.append(check_shield_incidents(incidents, tokens=planned["tokens"], request=request))
+        incident_check = {"checked": True, "source": shield.base_url, "active": len(incidents)}
+    else:
+        incident_check = {"checked": False, "reason": "NEAR_INTENTS_SHIELD_JWT is not set"}
 
     try:
         response = client.quote(request)
@@ -1188,8 +1354,12 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
             exc.detail.setdefault("quote_request", request)
             exc.detail["account_checks"] = account_checks
         raise
-    guards = (mandate_check["checks"] if mandate_check else []) + account_checks + verify_quote(
+    guards = (mandate_check["checks"] if mandate_check else []) + account_checks + incident_checks + verify_quote(
         leg, request, response, now=now, manager_public_key=manager_public_key)
+    if incidents is not None and live:
+        deposit_address = (response.get("quote") or {}).get("depositAddress")
+        guards.append(check_shield_incidents(incidents, tokens=planned["tokens"], request=request,
+                                             deposit_address=deposit_address))
 
     result: Dict[str, Any] = {
         "status": "quoted" if not live else "awaiting_deposit",
@@ -1199,6 +1369,7 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
         "quote_request": request,
         "quote_response": response,
         "guards": guards,
+        "incident_check": incident_check,
     }
     if mandate_check:
         result["mandate"] = mandate_check
@@ -1246,6 +1417,7 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
         "quote_hash": oneclick_quote_hash(response),
         "signed_payload": signed_quote_payload(response),
         "guards": guards,
+        "incident_check": incident_check,
         "deposit": {
             "address": quote_obj.get("depositAddress"),
             "memo": quote_obj.get("depositMemo"),
@@ -1412,10 +1584,15 @@ def _guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
             "the receipt records no terminal status yet; run `status --wait --receipt` first",
         )
     last = terminal[-1]
+    if last["status"] == "SUCCESS":
+        # No payout-transaction/quote linkage verifier is implemented here.
+        # Neither unsigned status nor editable receipt flags can unlock this.
+        raise NearIntentsError(
+            "X3_EVIDENCE_UNSUPPORTED",
+            "settled outcome recording requires a payout transaction verifier; "
+            "provider SUCCESS and a balance increase are not settlement proof",
+        )
     hashes = [h for h in (last.get("origin_tx") or []) + (last.get("destination_tx") or []) + (last.get("near_tx") or []) if h]
-    # The amount the chain proved delivered, when there is one: 1Click's status is unsigned.
-    settlement = (receipt.get("evidence") or {}).get("settlement") or {}
-    proven_out = settlement.get("delivered") if settlement.get("verified") else None
     refund = (receipt.get("evidence") or {}).get("refund") or {}
     verified_refund_amount = None
     if last["status"] == "REFUNDED":
@@ -1432,8 +1609,7 @@ def _guard_args(receipt: Dict[str, Any], step: str) -> Dict[str, Any]:
     return {
         "nonce": nonce,
         "status": _STATUS_TO_GUARD[last["status"]],
-        "amount_out": (_u128(proven_out) if proven_out is not None else _u128(last.get("amount_out")))
-        if last["status"] == "SUCCESS" else None,
+        "amount_out": None,
         "refunded_amount": verified_refund_amount if last["status"] == "REFUNDED" else None,
         "tx_hashes": hashes[:MAX_GUARD_TX_HASHES],
     }
@@ -1457,7 +1633,7 @@ def guard_command(step: str, args: Dict[str, Any], *, contract: str, signer: str
 def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path: str,
                     contract: Optional[str] = None,
                     signer: Optional[str] = None, key_file: Optional[str] = None,
-                    network: str = "mainnet") -> Dict[str, Any]:
+                    network: str = "mainnet", shield: Optional[ShieldIncidents] = None) -> Dict[str, Any]:
     """Prepare Guard calls and post-deposit evidence commands without signing or broadcasting."""
     _signed_quote(receipt)
     if receipt.get("program_sha256") != _sha256_file(program_path):
@@ -1496,6 +1672,18 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
             f"receipt leg differs from the compiled program: {', '.join(changed)}",
             "leg",
         )
+    # Incidents can open between the quote and the Guard call. With a Shield token configured,
+    # read them again right before the Guard steps are prepared, deposit address included.
+    shield = shield if shield is not None else ShieldIncidents.from_env()
+    if shield is not None:
+        incidents = shield.active()
+        incident_guard = check_shield_incidents(
+            incidents, tokens=receipt.get("tokens") or {}, request=saved_request,
+            deposit_address=(receipt.get("deposit") or {}).get("address"))
+        incident_check = {"checked": True, "source": shield.base_url, "active": len(incidents),
+                          "guard": incident_guard}
+    else:
+        incident_check = {"checked": False, "reason": "NEAR_INTENTS_SHIELD_JWT is not set"}
     steps = []
     for step in ("register", "quote"):
         call_args = guard_args(receipt, step)
@@ -1519,6 +1707,7 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
     return {
         "schema": "x3.near_intents.handoff.v1",
         "status": "prepared_not_authorized",
+        "incident_check": incident_check,
         "broadcasted": False,
         "wallet_signature_required": True,
         "authorization": "not_verified",
@@ -1628,9 +1817,23 @@ def _solana_mint(receipt: Dict[str, Any]) -> str:
     leg, origin = receipt["leg"], (receipt.get("tokens") or {}).get("origin") or {}
     if leg["origin"]["chain"] != "solana":
         raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"deposit evidence is implemented for Solana origins, not {leg['origin']['chain']}")
-    mint = origin.get("contractAddress")
-    if not mint:
-        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"{origin.get('assetId')} has no SPL mint; native SOL transfers are not verified here")
+    # The provider signature covers the asset ID, not editable token metadata.
+    # Keep this deliberately narrow: additional assets need a reviewed binding.
+    # USDC binding: the existing mainnet registry mint and the archived 1Click
+    # asset ID; never accept a replacement mint from a receipt or token listing.
+    pinned = {
+        "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near":
+            registry.TOKEN_ADDRESSES["solana"]["USDC"],
+    }
+    signed_asset = receipt["quote_response"]["quoteRequest"].get("originAsset")
+    mint = pinned.get(signed_asset)
+    if mint is None:
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED",
+                               "no independently pinned Solana mint for this signed asset")
+    if (origin.get("contractAddress") != mint or origin.get("blockchain") != "sol"
+            or origin.get("assetId") != signed_asset):
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "receipt Solana token metadata differs from the pinned signed-asset mint")
     return mint
 
 
@@ -1685,7 +1888,7 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
 
 def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None,
                       solana=None, bsc=None) -> Dict[str, Any]:
-    """Delivery on NEAR (signed minAmountOut rise), or a refund back on the origin chain."""
+    """Observe NEAR balance movement (not settlement proof), or an origin-chain refund."""
     quote_obj = _signed_quote(receipt)
     leg = receipt["leg"]
     if refund_tx:
@@ -1795,23 +1998,45 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
     baseline = (receipt.get("evidence") or {}).get("settlement_baseline")
     if not baseline:
         raise NearIntentsError("X3_EVIDENCE_BASELINE", "the receipt has no starting balance, so a delivery cannot be measured")
+    signed_request = receipt["quote_response"]["quoteRequest"]
+    token = nep141_contract(signed_request["destinationAsset"])
+    account = signed_request["recipient"]
+    if (baseline.get("token") != token or baseline.get("account") != account):
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "balance baseline target differs from the signed destination")
     views = near_views or near_views_for(NearRpc())
-    return _record_evidence(receipt, "settlement", lambda: chain_evidence.judge_near_delivery(
-        baseline, views.ft_balance(baseline["token"], baseline["account"]), min_amount=int(quote_obj["minAmountOut"])))
+
+    def observe_balance():
+        observation = chain_evidence.judge_near_delivery(
+            baseline, views.ft_balance(token, account), min_amount=int(quote_obj["minAmountOut"]))
+        # Preserve the limited balance observation without promoting it to a
+        # verified payout. The saved starting balance is not authenticated,
+        # and even a genuine rise could be an unrelated incoming transfer.
+        observation["balance_delta_observed"] = observation["verified"]
+        observation["verified"] = False
+        observation["baseline_authenticated"] = False
+        observation["cross_chain_causality_proven"] = False
+        observation["limitation"] = (
+            "comparison against a locally saved baseline only; no authenticated "
+            "baseline or payout transaction bound to this quote"
+        )
+        return observation
+
+    return _record_evidence(receipt, "settlement", observe_balance)
 
 
 def conclude(receipt: Dict[str, Any]) -> Dict[str, Any]:
-    """A verified outcome exists only when the chains prove both the deposit and its end."""
+    """Summarize available observations; no settled outcome verifier exists yet."""
     ev = receipt.get("evidence") or {}
     ok = lambda k: bool((ev.get(k) or {}).get("verified"))
     outcome = None
-    if ok("deposit") and ok("settlement"):
-        outcome = "settled"
-    elif ok("deposit") and ok("refund"):
+    # There is no payout transaction verifier in this adapter. In particular,
+    # legacy or fabricated saved settlement.verified flags cannot prove it.
+    if ok("deposit") and ok("refund"):
         outcome = "refunded"
     missing = [k for k in ("deposit",) if not ok(k)]
-    if not (ok("settlement") or ok("refund")):
-        missing.append("settlement or refund")
+    if not ok("refund"):
+        missing.append("payout transaction bound to quote (unsupported), or refund")
     reported = next((s["outcome"] for s in reversed(receipt.get("status_history") or []) if s.get("terminal")), None)
     verification = {"status": "verified" if outcome else "unverified", "outcome": outcome, "missing": missing,
                     "1click_reported": reported}
@@ -1933,6 +2158,9 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_quote.add_argument("--nonce-store", help="nonce store path (default $X3_NEAR_NONCE_STORE or ~/.x3/...)")
     p_quote.add_argument("--mandate", help="the owner's mandate file, for an intent `under mandate <owner>`")
     p_quote.add_argument("--guard-contract", help="read the mandate's live state from this x3-guard account")
+    p_quote.add_argument("--require-incident-check", action="store_true",
+                         help="refuse a live quote unless NEAR Intents Shield incidents can be checked "
+                              "(also X3_REQUIRE_INCIDENT_CHECK=1)")
     p_quote.add_argument("--out", help="write the quote result, or structured failure evidence, to this private file")
 
     p_submit = sub.add_parser("submit-deposit", help="tell 1Click the deposit transaction hash")
@@ -2001,7 +2229,8 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
             try:
                 result = quote(args.input, client=client, tokens_path=args.tokens, live=args.live,
                                nonce_store=NonceStore(args.nonce_store), receipt_path=args.receipt, rpc=rpc,
-                               near_views=near_views, mandate_path=args.mandate, guard_contract=args.guard_contract)
+                               near_views=near_views, mandate_path=args.mandate, guard_contract=args.guard_contract,
+                               require_incident_check=args.require_incident_check or None)
             except NearIntentsError as exc:
                 if args.out:
                     request = (exc.detail or {}).get("quote_request") if isinstance(exc.detail, dict) else None

@@ -1,0 +1,84 @@
+name: DX3HACK Hackathon Coin (Unsigned Build)
+
+# Tests the Dotx3 HACKATHON ONLY COIN contract, checks its .x3 burn program with x3c,
+# and builds the unsigned wasm with its SHA-256. Builds only: no keys, no RPC, no chain activity.
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near/dx3-hackathon-coin/**'
+      - '.github/workflows/x3-dx3hack-coin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-unsigned:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust and WASM target
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
+      - name: Format, lint and unit tests
+        working-directory: x3-lang/near/dx3-hackathon-coin
+        run: |
+          set -euo pipefail
+          rustc --version --verbose
+          cargo fmt -- --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+      - name: Check the .x3 burn program with x3c
+        working-directory: x3-lang
+        env:
+          RUSTUP_TOOLCHAIN: 1.99.1
+        run: |
+          set -euo pipefail
+          prog=near/dx3-hackathon-coin/x3/dx3hack_burn.x3
+          echo '220396425eadf9036b33ba15ebe4497687048bd385f523538d750dc0411e0c7e  '"$prog" | sha256sum -c -
+          cargo build --locked --quiet -p x3-tools --bin x3c
+          ./target/debug/x3c check "$prog"
+          ./target/debug/x3c build --out /tmp/dx3hack_burn.x3bc "$prog"
+          cmp /tmp/dx3hack_burn.x3bc near/dx3-hackathon-coin/x3/dx3hack_burn.x3bc
+          python3 -I cli.py "$prog" > /dev/null
+      - name: Build release wasm
+        working-directory: x3-lang/near/dx3-hackathon-coin
+        run: |
+          set -euo pipefail
+          test -z "${RUSTFLAGS:-}"
+          cargo build --locked --release --target wasm32-unknown-unknown
+      - name: Verify refusal reasons reach the chain, record provenance
+        run: |
+          set -euo pipefail
+          wasm=x3-lang/near/dx3-hackathon-coin/target/wasm32-unknown-unknown/release/dx3_hackathon_coin.wasm
+          python3 scripts/hackathon/check_guard_wasm_host_panics.py --expect present "$wasm"
+          mkdir -p candidate
+          cp "$wasm" candidate/dx3_hackathon_coin.wasm
+          cp x3-lang/near/dx3-hackathon-coin/deploy/init-args.json candidate/
+          cp x3-lang/near/dx3-hackathon-coin/x3/dx3hack_burn.x3 candidate/
+          (cd candidate && sha256sum dx3_hackathon_coin.wasm init-args.json dx3hack_burn.x3 > SHA256SUMS)
+          {
+            printf 'source_commit=%s\n' "$(git rev-parse HEAD)"
+            printf 'lockfile_sha256=%s\n' "$(sha256sum x3-lang/near/dx3-hackathon-coin/Cargo.lock | cut -d ' ' -f 1)"
+            printf 'wasm_sha256=%s\n' "$(sha256sum "$wasm" | cut -d ' ' -f 1)"
+            printf 'wasm_bytes=%s\n' "$(wc -c < "$wasm")"
+            rustc --version --verbose
+            cargo --version
+            printf '%s\n' 'unsigned=true' 'deployment_authorized=false' 'chain_activity=false'
+          } > candidate/PROVENANCE.txt
+          cat candidate/PROVENANCE.txt candidate/SHA256SUMS
+          {
+            echo '### DX3HACK unsigned build'
+            echo '```'
+            cat candidate/PROVENANCE.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain unsigned build and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: dx3hack-unsigned-${{ github.sha }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 14

@@ -225,7 +225,7 @@ cmd_deposited() {
   case "$code" in
     0) info "1Click reports: settled" ;;
     2) info "1Click reports: refunded" ;;
-    3) info "1Click reports: failed" ;;
+    3) die "1Click reports failure; no outcome will be recorded." ;;
     *) die "the swap has not finished yet. Run '$0 deposited $sig' again later; nothing is lost by waiting." ;;
   esac
 
@@ -245,9 +245,12 @@ cmd_deposited() {
   else
     adapter verify-settlement --receipt "$RECEIPT" || vcode=$?
   fi
+  if [[ "$code" == 0 ]]; then
+    die "1Click reports success, but this adapter only observes a balance delta. Payout transaction verification is not implemented; no settled outcome will be recorded."
+  fi
   case "$vcode" in
-    0) info "VERIFIED: settled, proven from Solana and NEAR." ;;
-    2) info "VERIFIED: refunded, proven from Solana." ;;
+    0) die "the reported outcome and available proof disagree." ;;
+    2) info "Source-chain refund-sized transfer verified; solver causality is not proven." ;;
     *) die "not proven from the chains yet; the receipt says what is missing. Rerun this step in a minute." ;;
   esac
 

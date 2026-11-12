@@ -1,0 +1,17 @@
+// dx3hack_burn.x3: the burn bound into Dotx3 HACKATHON ONLY COIN (DX3HACK).
+//
+// The DX3HACK contract stores this file's SHA-256 at deploy and can never change it.
+// At 2026-11-25 23:59:59 UTC every balance and the total supply read as zero on their own.
+// After that, anyone may call `purge` with this exact file to delete the balances from
+// contract storage. The contract hashes the text on-chain and refuses any other program.
+//
+// Amounts are base units at six decimals: the whole 1,000,000,000 DX3HACK max supply.
+intent dx3hack_burn_all {
+    from Near.DX3HACK amount 1000000000000000 receiver dx3hack.x3lang.near
+    to Near.DX3HACK receiver dx3hack.x3lang.near
+    route {
+        burn Near.DX3HACK amount 1000000000000000 from judges.x3lang.near
+    }
+    require nonce unused dx3hack_burn_2026_11_25
+    on_fail refund Near.DX3HACK to sender
+}

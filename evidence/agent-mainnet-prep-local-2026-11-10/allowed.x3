@@ -1,0 +1,13 @@
+intent pay_x3_demo_near {
+    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24750000;
+    }
+    under mandate x3-owner.near
+    require slippage <= 1%
+    require fees <= 100 bps
+    require nonce unused agent_20261110T073155_67b901bb
+    timeout 10m refund Solana.USDC
+    on_fail rollback
+}
