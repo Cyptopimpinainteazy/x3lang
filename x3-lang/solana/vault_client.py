@@ -11,8 +11,12 @@ Safety model
 - The cluster is identified by its genesis hash, not by the RPC URL. Mainnet additionally
   requires `--allow-mainnet`.
 - Keypair files are read by path. Secret bytes are never printed, logged or written.
-- A signature is printed before the transaction is submitted. If anything fails afterwards,
-  look that signature up before retrying; never resend blindly.
+- A signature is printed before the transaction is submitted. Any failure after signing is
+  reported as `sent: unknown` (or `sent: true, finalized: unknown`) with that signature and
+  exit code 5, never as `sent: false`. Look the signature up before retrying.
+- The RPC URL is parsed: https:// to any host, or http:// to a literal loopback host only.
+  User information is refused and redirects are not followed.
+- With `--receipt`, the approval expiry comes from the signed quote and can only be shortened.
 
 The byte layout of every instruction, the policy PDA derivation and the signed legacy
 message are pinned to the Rust program by
@@ -32,6 +36,9 @@ import os
 import stat
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -467,24 +474,77 @@ def load_keypair(path: str) -> Keypair:
 # RPC
 # --------------------------------------------------------------------------------------------
 
-def _default_transport() -> chain_evidence.Transport:
-    import near_intents
-    return near_intents.urllib_transport
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def validate_rpc_url(url: Any) -> str:
+    """Accept https:// to any host, or http:// to a literal loopback host. Nothing else.
+
+    The authority is parsed, never prefix-matched: `http://localhost.example`,
+    `http://127.0.0.1.example` and `http://localhost@example` are remote plaintext hosts.
+    """
+    refusal = "RPC URL must be https://, or http:// on a literal loopback host (localhost, 127.0.0.1, [::1])"
+    if not isinstance(url, str) or not url or url != url.strip():
+        raise VaultClientError(refusal)
+    if any(ord(ch) < 0x21 or ord(ch) == 0x7F for ch in url) or "\\" in url:
+        raise VaultClientError(refusal)
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+        parts.port  # raises ValueError on a malformed port
+    except ValueError:
+        raise VaultClientError(refusal)
+    if parts.scheme not in ("https", "http") or not parts.netloc or not host:
+        raise VaultClientError(refusal)
+    if "@" in parts.netloc or parts.username is not None or parts.password is not None:
+        raise VaultClientError("RPC URL must not contain user information")
+    if parts.fragment:
+        raise VaultClientError(refusal)
+    if parts.scheme == "http" and host not in LOOPBACK_HOSTS:
+        raise VaultClientError(refusal)
+    return url
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None  # urllib then raises HTTPError for the 3xx response
+
+
+def http_transport(method: str, url: str, headers: Dict[str, str], body: Optional[bytes],
+                   timeout: float) -> Tuple[int, bytes]:
+    """POST to the validated RPC URL. Redirects are refused so they cannot leave that policy."""
+    validate_rpc_url(url)
+    handlers: List[Any] = [_RefuseRedirects()]
+    if urllib.parse.urlsplit(url).scheme == "http":
+        handlers.append(urllib.request.ProxyHandler({}))  # loopback is always reached directly
+    opener = urllib.request.build_opener(*handlers)
+    request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as exc:
+        if 300 <= exc.code < 400:
+            raise VaultClientError(f"RPC endpoint answered with a redirect (HTTP {exc.code}); refused")
+        return exc.code, exc.read()
+    except (urllib.error.URLError, OSError) as exc:
+        raise VaultClientError(f"cannot reach the RPC endpoint: {getattr(exc, 'reason', exc)}")
 
 
 class Rpc:
     def __init__(self, url: str, transport: Optional[chain_evidence.Transport] = None, timeout: float = 30.0):
-        if not isinstance(url, str) or not url.startswith(("https://", "http://127.0.0.1", "http://localhost")):
-            raise VaultClientError("RPC URL must be https:// (or http:// on localhost)")
-        self.url = url
-        self._transport = transport or _default_transport()
+        self.url = validate_rpc_url(url)
+        self._transport = transport or http_transport
         self._timeout = timeout
 
     def call(self, method: str, params: Any) -> Any:
         try:
             return chain_evidence.json_rpc(self._transport, self.url, method, params, self._timeout)
+        except VaultClientError as exc:
+            raise VaultClientError(f"RPC {method} failed: {exc}")
         except chain_evidence.ChainEvidenceError as exc:
             raise VaultClientError(f"RPC {method} failed: {exc}")
+        except Exception as exc:  # a transport fault must never surface as an unclassified crash
+            raise VaultClientError(f"RPC {method} failed: {type(exc).__name__}")
 
     def genesis_hash(self) -> str:
         value = self.call("getGenesisHash", [])
@@ -699,6 +759,8 @@ def run(ctx: Context, instruction: Instruction, signer: Keypair, *, send: bool, 
         ctx.out(json.dumps({"sent": False, "note": "not confirmed; nothing was signed or sent."}, sort_keys=True))
         return EXIT_NOT_CONFIRMED
 
+    # A failure up to and including signing happens before any submission, so the
+    # caller's `sent: false` is accurate for it.
     message = compile_message(payer, instruction, ctx.rpc.latest_blockhash())
     signature = signer.sign(message)
     signature_text = ed25519.b58encode(signature)
@@ -711,20 +773,48 @@ def run(ctx: Context, instruction: Instruction, signer: Keypair, *, send: bool, 
         "note": "if anything below fails, look this signature up before retrying; never resend blindly.",
     }
     ctx.out(json.dumps(result, sort_keys=True))
-    returned = ctx.rpc.send(wire_transaction(signature, message), skip_preflight=expect_error is not None)
+
+    # From here on a transaction has been signed. Nothing below may report `sent: false`:
+    # a failed or odd submission is reported as unknown, with the signature to look up.
+    do_not_resend = "Do NOT resend. Look this signature up on the cluster before doing anything else."
+
+    def uncertain(sent: Any, stage: str, error: str, **extra: Any) -> int:
+        record: Dict[str, Any] = {"sent": sent, "finalized": "unknown", "signature": signature_text,
+                                  "stage": stage, "error": error, "note": do_not_resend}
+        record.update(extra)
+        ctx.out(json.dumps(record, sort_keys=True))
+        return EXIT_UNCONFIRMED
+
+    try:
+        returned = ctx.rpc.send(wire_transaction(signature, message), skip_preflight=expect_error is not None)
+    except VaultClientError as exc:
+        return uncertain("unknown", "submit", str(exc))
+    except Exception as exc:
+        return uncertain("unknown", "submit", f"unexpected {type(exc).__name__}")
     if returned != signature_text:
-        raise VaultClientError("RPC acknowledged a different signature than the one that was signed")
+        return uncertain("unknown", "submit",
+                         "RPC acknowledged a different signature than the one that was signed",
+                         acknowledged_signature=returned)
 
     deadline = ctx.clock() + wait_seconds
     status: Optional[Dict[str, Any]] = None
+    status_error: Optional[str] = None
     while True:
-        status = ctx.rpc.status(signature_text)
-        if status is not None and status.get("confirmationStatus") == "finalized":
+        try:
+            status = ctx.rpc.status(signature_text)
+            status_error = None
+        except VaultClientError as exc:
+            status_error = str(exc)
+        except Exception as exc:
+            status_error = f"unexpected {type(exc).__name__}"
+        if status_error is None and status is not None and status.get("confirmationStatus") == "finalized":
             break
         if ctx.clock() >= deadline:
             break
         ctx.sleep(2.0)
 
+    if status_error is not None:
+        return uncertain(True, "status", status_error)
     final: Dict[str, Any] = {"sent": True, "signature": signature_text}
     if status is None or status.get("confirmationStatus") != "finalized":
         final.update({"finalized": False, "confirmation_status": (status or {}).get("confirmationStatus"),
@@ -840,7 +930,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--destination-token")
     p.add_argument("--destination-owner")
     p.add_argument("--amount", type=_positive)
-    p.add_argument("--valid-until", type=int, help="unix seconds; defaults to the quote deadline with --receipt")
+    p.add_argument("--valid-until", type=int,
+                   help="unix seconds; with --receipt it defaults to the signed quote deadline and may only shorten it")
 
     p = online("execute", "agent executes the pending approval", signs=True)
     p.add_argument("--policy", required=True)
@@ -965,7 +1056,22 @@ def dispatch(args: argparse.Namespace, *, out: Callable[[str], None], transport=
                      "destination_owner": pubkey_bytes(args.destination_owner, "--destination-owner"),
                      "amount": args.amount, "valid_until": args.valid_until}
             checks["quote_source"] = "operator-supplied digest; NOT authenticated by this client"
-        valid_until = args.valid_until if args.valid_until is not None else terms["valid_until"]
+        if args.receipt:
+            # The program cannot verify the signed quote, so this expiry is the only thing that
+            # stops a stale quote from being approved. It may be shortened, never extended.
+            quote_deadline = terms["valid_until"]
+            if quote_deadline <= now:
+                raise VaultClientError("the signed quote has already expired")
+            valid_until = quote_deadline if args.valid_until is None else args.valid_until
+            if valid_until > quote_deadline:
+                raise VaultClientError("--valid-until may shorten the signed quote's deadline but never extend it")
+            if valid_until <= now:
+                raise VaultClientError("the approval would already be expired")
+            checks["quote_deadline"] = quote_deadline
+            checks["valid_until_source"] = ("signed quote deadline" if valid_until == quote_deadline
+                                            else "operator-shortened, within the signed quote deadline")
+        else:
+            valid_until = args.valid_until
         if args.expect_error is None:
             destination = read_token(ctx, terms["destination_token"], "destination token account")
             if destination["owner"] != pubkey_text(terms["destination_owner"]):
@@ -1028,6 +1134,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         return dispatch(args, out=print)
     except VaultClientError as exc:
+        # `run` converts every failure after signing into an explicit uncertain outcome and
+        # returns, so an error that reaches this handler was raised before any submission.
         print(json.dumps({"error": str(exc), "sent": False}, sort_keys=True), file=sys.stderr)
         return EXIT_USAGE
 

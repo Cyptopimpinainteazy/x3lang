@@ -18,10 +18,11 @@ here is evidence of a deployment or a transfer.
 | No unattended signing | `--send` prints the full plan, then reads a typed `yes` from the terminal. No bypass flag exists |
 | Right cluster | Identified by genesis hash, not URL. Mainnet also needs `--allow-mainnet` |
 | Right program bytes on the wire | Instruction data, the policy PDA, the signed message and the signature equal what the Rust program types and `solana-sdk` produce (`tests/fixtures/client_vectors.json`) |
-| Quote binding | `approve --receipt` takes the digest, deposit owner, amount and expiry from a live 1Click receipt whose signature verifies against the pinned manager key |
+| Quote binding | `approve --receipt` takes the digest, deposit owner, amount and expiry from a live 1Click receipt whose signature verifies against the pinned manager key. `--valid-until` may shorten that signed deadline, never extend it; an expired quote is refused |
+| RPC endpoint | The URL is parsed, not prefix-matched: `https://` to any host, or `http://` to a literal loopback host. User information is refused and redirects are not followed |
 | Expected refusals | `--expect-error N` sends only if the simulation fails with that vault error, skips preflight so the failure lands on-chain, and exits 0 only if the finalized error matches |
 | Keys | Read by path; refused if group- or world-readable, a symlink, or internally inconsistent; never printed |
-| No blind retry | The signature is printed before submission; an unfinalized send exits 5 and says not to resend |
+| No blind retry | The signature is printed before submission. Any failure after signing exits 5 with `sent: unknown` (submission unclear) or `sent: true, finalized: unknown` (status unclear), the signature, and a do-not-resend note. `sent: false` is reported only for failures before signing. A preflight rejection is also reported as `unknown`; look the signature up to confirm it never landed |
 
 The quote digest the vault stores is the raw SHA-256 of the signed 1Click payload. `x3-guard`
 on NEAR stores the same 32 bytes as base58 (`quote_hash`).

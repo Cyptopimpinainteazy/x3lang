@@ -460,25 +460,6 @@ def test_unfinalized_transaction_is_reported_and_not_resent(tmp_path):
     assert final["finalized"] is False and "Do NOT resend" in final["note"]
 
 
-def test_rpc_acknowledging_another_signature_is_refused(tmp_path):
-    h = Harness(tmp_path)
-    original = h.cluster.__call__
-
-    def lying(method, url, headers, body, timeout):
-        status, raw = original(method, url, headers, body, timeout)
-        call = json.loads(body)
-        if call["method"] == "sendTransaction":
-            raw = json.dumps({"jsonrpc": "2.0", "id": call["id"], "result": vc.ed25519.b58encode(bytes([7] * 64))}).encode()
-        return status, raw
-
-    args = vc.build_parser().parse_args([
-        "execute", "--rpc-url", "https://rpc.example.invalid", "--cluster", "devnet", "--program", V["program"],
-        "--policy", V["policy"], "--keypair", h.agent_key, "--send"])
-    with pytest.raises(vc.VaultClientError, match="different signature"):
-        vc.dispatch(args, out=h.lines.append, transport=lying, confirm=lambda _p: True,
-                    sleep=lambda _s: None, clock=lambda: 0.0, wall_clock=lambda: NOW)
-
-
 # --------------------------------------------------------------------------------------------
 # Cluster, program and role checks
 # --------------------------------------------------------------------------------------------
@@ -586,13 +567,6 @@ def test_offline_commands_need_no_rpc(tmp_path):
     assert json.loads(lines[2])["associated_token_account"] == V["destination_owner_ata"]
 
 
-def test_rpc_url_must_be_https_or_localhost():
-    for bad in ("http://rpc.example.invalid", "ftp://x", ""):
-        with pytest.raises(vc.VaultClientError):
-            vc.Rpc(bad, transport=lambda *a: (200, b"{}"))
-    vc.Rpc("http://127.0.0.1:8899", transport=lambda *a: (200, b"{}"))
-
-
 # --------------------------------------------------------------------------------------------
 # Approve bound to an authenticated live 1Click quote
 # --------------------------------------------------------------------------------------------
@@ -667,3 +641,318 @@ def test_approve_from_receipt_refuses_a_policy_for_another_mint_and_mixed_inputs
     with pytest.raises(vc.VaultClientError, match="cannot read receipt"):
         h.run("approve", "--policy", V["policy"], "--nonce", "8", "--receipt", str(tmp_path / "absent.json"),
               "--keypair", h.owner_key)
+
+
+# --------------------------------------------------------------------------------------------
+# Review findings on PR #214: regression coverage
+# --------------------------------------------------------------------------------------------
+
+OK_TRANSPORT = lambda *a: (200, b"{}")  # noqa: E731
+USERINFO = ":".join(("user", "pw"))  # assembled so the test URL is not a credential-shaped literal
+
+
+@pytest.mark.parametrize("url", [
+    "https://rpc.example.invalid", "https://rpc.example.invalid:8443/path?x=1",
+    "http://localhost:8899", "http://127.0.0.1:8899", "http://[::1]:8899", "http://localhost",
+])
+def test_rpc_url_accepts_https_and_literal_loopback(url):
+    assert vc.Rpc(url, transport=OK_TRANSPORT).url == url
+
+
+@pytest.mark.parametrize("url", [
+    # Finding: prefix checks accepted these remote plaintext hosts as "localhost".
+    "http://localhost.attacker.invalid", "http://127.0.0.1.attacker.invalid",
+    "http://localhost@attacker.invalid", "http://127.0.0.1@attacker.invalid",
+    "http://localhost:8899@attacker.invalid", "http://localhost.attacker.invalid:8899/",
+    # User information is refused on every scheme.
+    "https://user@rpc.example.invalid", "https://" + USERINFO + "@rpc.example.invalid", "http://user@localhost:8899",
+    # Not loopback, or not exactly a loopback literal.
+    "http://rpc.example.invalid", "http://0.0.0.0:8899", "http://127.0.0.2:8899", "http://localhost.:8899",
+    "http://[::2]:8899", "http://2130706433", "http://127.1",
+    # Malformed or disguised.
+    "", " https://rpc.example.invalid", "https://rpc.example.invalid ", "https://", "http://", "https:///x",
+    "ftp://localhost", "localhost:8899", "//localhost:8899", "https://rpc.example.invalid#frag",
+    "http://localhost:notaport", "http://localhost:99999", "https://rpc.example.invalid\\@localhost",
+    "http://localhost\\.attacker.invalid", "https://rpc.example\t.invalid", "http://[::1", None, 7,
+])
+def test_rpc_url_refuses_deceptive_and_malformed_authorities(url):
+    with pytest.raises(vc.VaultClientError):
+        vc.Rpc(url, transport=OK_TRANSPORT)
+    with pytest.raises(vc.VaultClientError):
+        vc.http_transport("POST", url, {}, b"{}", 1.0)
+
+
+def test_deceptive_rpc_url_is_refused_before_any_rpc_call_or_key_read(tmp_path):
+    cluster = FakeCluster()
+    args = vc.build_parser().parse_args([
+        "execute", "--rpc-url", "http://localhost@attacker.invalid", "--cluster", "devnet",
+        "--program", V["program"], "--policy", V["policy"], "--keypair", str(tmp_path / "absent.json"), "--send"])
+    with pytest.raises(vc.VaultClientError, match="user information"):
+        vc.dispatch(args, out=lambda _line: None, transport=cluster, confirm=lambda _p: True)
+    assert cluster.calls == []
+
+
+class _LoopbackServer:
+    """A real HTTP server on 127.0.0.1 for the transport's redirect policy. No external network."""
+
+    def __init__(self, status, location=None):
+        import http.server
+        import threading
+        outer = self
+        self.requests = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                outer.requests.append(self.path)
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                self.send_response(status)
+                if location:
+                    self.send_header("Location", location)
+                payload = b'{"jsonrpc":"2.0","id":"x3-evidence","result":"ok"}'
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            do_GET = do_POST
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def test_transport_talks_to_a_loopback_rpc():
+    with _LoopbackServer(200) as server:
+        assert vc.Rpc(server.url).call("getHealth", []) == "ok"
+        assert server.requests == ["/"]
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_transport_refuses_redirects_instead_of_following_them(status):
+    # The redirect points at a second loopback server, so a followed redirect would be observable.
+    with _LoopbackServer(200) as target:
+        with _LoopbackServer(status, location=target.url + "/elsewhere") as source:
+            with pytest.raises(vc.VaultClientError, match="redirect"):
+                vc.Rpc(source.url).call("sendTransaction", ["AA=="])
+            assert source.requests == ["/"]
+        assert target.requests == []  # the redirect was never followed
+
+
+def _receipt_harness(tmp_path, monkeypatch):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    monkeypatch.setattr(vc, "_vault_evidence", lambda: ve)
+    terms = vc.approval_from_receipt(receipt, evidence=ve)
+    usdc = K(USDC_MINT)
+    mint_offset = 2 + 64
+    h = Harness(tmp_path)
+    h.cluster.put(POLICY, POLICY_STATE[:mint_offset] + usdc + POLICY_STATE[mint_offset + 32:], owner=PROGRAM)
+    h.cluster.put(usdc, mint_account(), owner=vc.TOKEN_PROGRAM)
+    h.cluster.put(terms["destination_token"], token_account(usdc, terms["destination_owner"], 0), owner=vc.TOKEN_PROGRAM)
+
+    def approve(*extra, now):
+        args = vc.build_parser().parse_args([
+            "approve", "--rpc-url", "https://rpc.example.invalid", "--cluster", "devnet", "--program", V["program"],
+            "--policy", V["policy"], "--nonce", "8", "--receipt", str(path), "--keypair", h.owner_key, *extra])
+        return vc.dispatch(args, out=h.lines.append, transport=h.cluster, confirm=lambda _p: True,
+                           sleep=lambda _s: None, clock=lambda: 0.0, wall_clock=lambda: now)
+
+    return h, terms["valid_until"], approve
+
+
+@pytest.mark.parametrize("extension", [1, 3600, 10 ** 9])
+def test_signed_quote_deadline_cannot_be_extended(tmp_path, monkeypatch, extension):
+    h, deadline, approve = _receipt_harness(tmp_path, monkeypatch)
+    for send in ((), ("--send",)):
+        with pytest.raises(vc.VaultClientError, match="never extend"):
+            approve("--valid-until", str(deadline + extension), *send, now=deadline - 300)
+    assert h.cluster.sent == [] and "simulateTransaction" not in h.cluster.methods()
+
+
+def test_signed_quote_deadline_may_be_shortened_and_is_disclosed(tmp_path, monkeypatch):
+    h, deadline, approve = _receipt_harness(tmp_path, monkeypatch)
+    assert approve("--valid-until", str(deadline - 60), now=deadline - 300) == vc.EXIT_OK
+    plan = h.json()
+    assert plan["args"]["valid_until"] == deadline - 60
+    assert plan["checks"]["quote_deadline"] == deadline
+    assert plan["checks"]["valid_until_source"].startswith("operator-shortened")
+    assert plan["checks"]["valid_for_seconds"] == 240
+
+
+def test_signed_quote_deadline_is_the_default_and_the_exact_bound(tmp_path, monkeypatch):
+    h, deadline, approve = _receipt_harness(tmp_path, monkeypatch)
+    assert approve(now=deadline - 300) == vc.EXIT_OK
+    assert h.json()["args"]["valid_until"] == deadline
+    assert h.json()["checks"]["valid_until_source"] == "signed quote deadline"
+    h.lines.clear()
+    assert approve("--valid-until", str(deadline), now=deadline - 300) == vc.EXIT_OK
+    assert h.json()["args"]["valid_until"] == deadline
+
+
+@pytest.mark.parametrize("late", [0, 1, 86400])
+def test_expired_signed_quote_is_refused_even_as_an_expected_failure(tmp_path, monkeypatch, late):
+    h, deadline, approve = _receipt_harness(tmp_path, monkeypatch)
+    for extra in ((), ("--send",), ("--expect-error", "12"), ("--valid-until", str(deadline + late + 600))):
+        with pytest.raises(vc.VaultClientError, match="already expired|never extend"):
+            approve(*extra, now=deadline + late)
+    assert h.cluster.sent == [] and "simulateTransaction" not in h.cluster.methods()
+
+
+def test_shortened_expiry_already_in_the_past_is_refused(tmp_path, monkeypatch):
+    h, deadline, approve = _receipt_harness(tmp_path, monkeypatch)
+    with pytest.raises(vc.VaultClientError, match="already be expired"):
+        approve("--valid-until", str(deadline - 400), now=deadline - 300)
+    assert h.cluster.sent == []
+
+
+class _Faulty:
+    """Wrap the RPC double and fail chosen methods after recording that they were attempted."""
+
+    def __init__(self, cluster, *, fail=(), rpc_error=(), lie_about_signature=False, status_failures=None):
+        self.cluster, self.fail, self.rpc_error = cluster, set(fail), set(rpc_error)
+        self.lie = lie_about_signature
+        self.status_failures = status_failures  # None = fail forever when in `fail`
+        self.attempts = []
+
+    def __call__(self, method, url, headers, body, timeout):
+        call = json.loads(body)
+        name = call["method"]
+        self.attempts.append(name)
+        if name == "getSignatureStatuses" and self.status_failures is not None:
+            if self.status_failures > 0:
+                self.status_failures -= 1
+                raise ConnectionResetError("status connection reset")
+            return self.cluster(method, url, headers, body, timeout)
+        status, raw = self.cluster(method, url, headers, body, timeout)  # the cluster records sends
+        if name in self.fail:
+            raise TimeoutError(f"{name} timed out after the request was written")
+        if name in self.rpc_error:
+            raw = json.dumps({"jsonrpc": "2.0", "id": call["id"],
+                              "error": {"code": -32005, "message": "node is behind"}}).encode()
+        if name == "sendTransaction" and self.lie:
+            raw = json.dumps({"jsonrpc": "2.0", "id": call["id"],
+                              "result": vc.ed25519.b58encode(bytes([7] * 64))}).encode()
+        return status, raw
+
+
+def _send_through(h, transport, *extra):
+    args = vc.build_parser().parse_args([
+        "execute", "--rpc-url", "https://rpc.example.invalid", "--cluster", "devnet", "--program", V["program"],
+        "--policy", V["policy"], "--keypair", h.agent_key, "--send", "--wait-seconds", "6", *extra])
+    ticks = [0.0]
+
+    def clock():
+        ticks[0] += 1.0
+        return ticks[0]
+
+    return vc.dispatch(args, out=h.lines.append, transport=transport, confirm=lambda _p: True,
+                       sleep=lambda _s: None, clock=clock, wall_clock=lambda: NOW)
+
+
+def _records_after_signing(h):
+    records = [json.loads(line) for line in h.lines]
+    signed_at = next(i for i, r in enumerate(records) if "message_sha256" in r)
+    return records[signed_at], records[signed_at + 1:]
+
+
+def test_status_failure_after_an_accepted_send_reports_sent_true_not_false(tmp_path):
+    h = Harness(tmp_path)
+    faulty = _Faulty(h.cluster, fail={"getSignatureStatuses"})
+    assert _send_through(h, faulty) == vc.EXIT_UNCONFIRMED
+    announced, after = _records_after_signing(h)
+    assert len(h.cluster.sent) == 1 and faulty.attempts.count("sendTransaction") == 1
+    assert after == [{
+        "sent": True, "finalized": "unknown", "signature": announced["signature"], "stage": "status",
+        "error": "RPC getSignatureStatuses failed: TimeoutError",
+        "note": "Do NOT resend. Look this signature up on the cluster before doing anything else."}]
+    assert all(record.get("sent") is not False for record in after)
+
+
+@pytest.mark.parametrize("fault", [{"fail": {"sendTransaction"}}, {"rpc_error": {"sendTransaction"}}])
+def test_ambiguous_send_failure_reports_unknown_and_is_not_retried(tmp_path, fault):
+    h = Harness(tmp_path)
+    faulty = _Faulty(h.cluster, **fault)
+    assert _send_through(h, faulty) == vc.EXIT_UNCONFIRMED
+    announced, after = _records_after_signing(h)
+    assert faulty.attempts.count("sendTransaction") == 1  # one attempt, never an automatic retry
+    assert "getSignatureStatuses" not in faulty.attempts
+    assert len(after) == 1
+    final = after[0]
+    assert final["sent"] == "unknown" and final["finalized"] == "unknown" and final["stage"] == "submit"
+    assert final["signature"] == announced["signature"] and "Do NOT resend" in final["note"]
+    assert final["error"].startswith("RPC sendTransaction failed")
+
+
+def test_mismatched_acknowledgement_reports_unknown_with_both_signatures(tmp_path):
+    h = Harness(tmp_path)
+    faulty = _Faulty(h.cluster, lie_about_signature=True)
+    assert _send_through(h, faulty) == vc.EXIT_UNCONFIRMED
+    announced, after = _records_after_signing(h)
+    assert len(after) == 1 and after[0]["sent"] == "unknown" and after[0]["stage"] == "submit"
+    assert after[0]["signature"] == announced["signature"]
+    assert after[0]["acknowledged_signature"] == vc.ed25519.b58encode(bytes([7] * 64))
+    assert "different signature" in after[0]["error"] and "Do NOT resend" in after[0]["note"]
+    assert "getSignatureStatuses" not in faulty.attempts
+
+
+def test_transient_status_errors_do_not_hide_a_finalized_result(tmp_path):
+    h = Harness(tmp_path)
+    h.cluster.statuses_before_final = 0
+    faulty = _Faulty(h.cluster, status_failures=2)
+    assert _send_through(h, faulty) == vc.EXIT_OK
+    _, after = _records_after_signing(h)
+    assert after[-1]["sent"] is True and after[-1]["finalized"] is True and after[-1]["as_expected"] is True
+    assert len(h.cluster.sent) == 1
+
+
+def test_failure_before_signing_is_still_reported_as_not_sent(tmp_path):
+    h = Harness(tmp_path)
+    faulty = _Faulty(h.cluster, fail={"getLatestBlockhash"})
+    with pytest.raises(vc.VaultClientError, match="getLatestBlockhash"):
+        _send_through(h, faulty)
+    assert h.cluster.sent == [] and "sendTransaction" not in faulty.attempts
+    assert not any("message_sha256" in json.loads(line) for line in h.lines)
+
+
+@pytest.mark.parametrize("fault, sent, stage", [
+    ({"fail": {"getSignatureStatuses"}}, True, "status"),
+    ({"fail": {"sendTransaction"}}, "unknown", "submit"),
+    ({"lie_about_signature": True}, "unknown", "submit"),
+])
+def test_main_never_prints_sent_false_after_a_submission_attempt(tmp_path, monkeypatch, capsys, fault, sent, stage):
+    h = Harness(tmp_path)
+    faulty = _Faulty(h.cluster, **fault)
+    monkeypatch.setattr(vc, "http_transport", faulty)
+    monkeypatch.setattr(vc, "tty_confirm", lambda _prompt: True)
+    monkeypatch.setattr(vc.time, "sleep", lambda _seconds: None)
+    code = vc.main(["execute", "--rpc-url", "https://rpc.example.invalid", "--cluster", "devnet",
+                    "--program", V["program"], "--policy", V["policy"], "--keypair", h.agent_key,
+                    "--send", "--wait-seconds", "0.01"])
+    captured = capsys.readouterr()
+    assert code == vc.EXIT_UNCONFIRMED and code != vc.EXIT_USAGE
+    assert captured.err == ""
+    final = json.loads(captured.out.strip().splitlines()[-1])
+    assert final["sent"] == sent and final["stage"] == stage and "Do NOT resend" in final["note"]
+    assert '"sent": false' not in captured.out.split('"message_sha256"', 1)[1]
+    assert len(h.cluster.sent) == 1
+
+
+def test_main_reports_not_sent_only_for_failures_before_submission(tmp_path, monkeypatch, capsys):
+    h = Harness(tmp_path)
+    monkeypatch.setattr(vc, "http_transport", h.cluster)
+    code = vc.main(["revoke", "--rpc-url", "https://rpc.example.invalid", "--cluster", "devnet",
+                    "--program", V["program"], "--policy", V["policy"], "--keypair", h.agent_key, "--send"])
+    captured = capsys.readouterr()
+    assert code == vc.EXIT_USAGE and json.loads(captured.err)["sent"] is False
+    assert h.cluster.sent == []
