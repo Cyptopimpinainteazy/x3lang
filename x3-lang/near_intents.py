@@ -885,12 +885,24 @@ def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[st
 Transport = Callable[[str, str, Dict[str, str], Optional[bytes], float], Tuple[int, bytes]]
 
 
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # urllib raises HTTPError without contacting the redirect target.
+
+
 def urllib_transport(method: str, url: str, headers: Dict[str, str], body: Optional[bytes], timeout: float) -> Tuple[int, bytes]:
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    opener = urllib.request.build_opener(_RefuseRedirects())
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             return resp.status, resp.read()
     except urllib.error.HTTPError as exc:
+        if 300 <= exc.code < 400:
+            exc.close()
+            raise NearIntentsError(
+                "X3_NEAR_REDIRECT", f"provider returned HTTP {exc.code}; redirects are refused",
+                detail={"status": exc.code, "retryable": False},
+            ) from None
         return exc.code, exc.read()
     except urllib.error.URLError as exc:
         raise NearIntentsError("X3_NEAR_UNREACHABLE", f"cannot reach {url}: {exc.reason}")
@@ -961,6 +973,11 @@ class OneClickClient:
         elif self.jwt:
             headers["Authorization"] = f"Bearer {self.jwt}"
         status, raw = self.transport(method, f"{self.base_url}{path}", headers, body, self.timeout)
+        if 300 <= status < 400:
+            raise NearIntentsError(
+                "X3_NEAR_REDIRECT", f"{method} {path} returned HTTP {status}; redirects are refused",
+                path, {"status": status, "retryable": False},
+            )
         try:
             data = json.loads(raw.decode("utf-8")) if raw else None
         except (UnicodeDecodeError, json.JSONDecodeError):
