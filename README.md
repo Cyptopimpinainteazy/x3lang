@@ -95,7 +95,8 @@ More on what `.x3` does here: [X3 in X3 Shield](docs/hackathon/X3_LANGUAGE.md).
 
 All steps run from the repository root. Steps 1 to 8 are offline, need no wallet, no API key
 and no network after install, and sign or send nothing. Each was run on Linux x86_64 with
-Python 3.13 and Node 22 at commit `c5a4e39`.
+Python 3.13 and Node 22 at commit `48f650a`. Test counts grow as regressions are added;
+the pass condition is zero failures, not an exact count.
 
 Setup for steps 2 to 8 (Python 3.11+):
 
@@ -188,7 +189,7 @@ list containing `"guard": "mandate_recipient", "ok": false` with detail
 node --test x3-lang/near/demo/test/*.test.mjs
 ```
 
-**See:** `# pass 88` and `# fail 0`. To look at it, run
+**See:** `# fail 0` (at `48f650a`: `# pass 92`). To look at it, run
 `python3 -m http.server 8000 --directory x3-lang/near/demo` and open
 `http://localhost:8000/judge.html`. The [Attack Lab](docs/hackathon/attack-lab.html) page
 evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases in the browser.
@@ -199,7 +200,7 @@ evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases in
 PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 ```
 
-**See:** a final line with no failures; at this commit it reads `594 passed, 1 skipped`
+**See:** a final line with no failures; at `48f650a` it reads `636 passed, 1 skipped`
 (about 12 seconds).
 
 ### 9. NEAR contract tests (Rust)
