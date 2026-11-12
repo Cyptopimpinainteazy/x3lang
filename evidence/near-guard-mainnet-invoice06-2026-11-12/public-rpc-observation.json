@@ -1,0 +1,917 @@
+{
+  "agent_access_keys": {
+    "result": {
+      "block_hash": "3G18UWqYcEivhK9tDh3R6duNpiehxM7cwiWTquEZmyCP",
+      "block_height": 224267821,
+      "keys": [
+        {
+          "access_key": {
+            "nonce": 223937786000003,
+            "permission": "FullAccess"
+          },
+          "public_key": "ed25519:8teaXGYFELKQN5QA7gQqeA4B7URrcMQqaczZ5D68c23u"
+        },
+        {
+          "access_key": {
+            "nonce": 224117214000004,
+            "permission": {
+              "FunctionCall": {
+                "allowance": "18709637730349300000000",
+                "method_names": [
+                  "agent_register_intent",
+                  "agent_accept_quote",
+                  "agent_record_outcome"
+                ],
+                "receiver_id": "x3lang.near"
+              }
+            }
+          },
+          "public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x"
+        }
+      ]
+    },
+    "url": "https://free.rpc.fastnear.com"
+  },
+  "checks": [
+    {
+      "check": "owner_approval_final_success",
+      "detail": {
+        "errors": null,
+        "final": "FINAL",
+        "status": {
+          "SuccessValue": "eyJvd25lciI6IngzbGFuZy5uZWFyIiwibm9uY2UiOiJtYWlubmV0X2RlbW9fbm92MTFfaW52b2ljZV8wNiIsInBvbGljeSI6eyJwcm9ncmFtX3NoYTI1NiI6IjllZTI5YTU2MDNjZmExZTdkOWZkYmQ4NjZjZjMzMGNlMzVlNmI1ZjA5MDdjNjg0NGRkMmVmMWEyMTM3NjhiYTAiLCJvcmlnaW5fYXNzZXQiOiJuZXAxNDE6c29sLTVjZTNiZjNhMzFhZjE4YmU0MGJhMzBmNzIxMTAxYjQzNDE2OTAxODYub21mdC5uZWFyIiwiZGVzdGluYXRpb25fYXNzZXQiOiJuZXAxNDE6MTcyMDg2MjhmODRmNWQ2YWQzM2YwZGEzYmJiZWIyN2ZmY2IzOThlYWM1MDFhMzFiZDZhZDIwMTFlMzYxMzNhMSIsImFtb3VudCI6IjI1MDAwMDAwIiwibWluX3JlY2VpdmUiOiIyNDc1MDAwMCIsInNsaXBwYWdlX2JwcyI6OTAsImZlZV9jYXBfYnBzIjoxMDAsInJlY2lwaWVudCI6IngzbGFuZy5uZWFyIiwicmVmdW5kX3RvIjoiNTh0Yk1mYWRtaThIV3pVbmRMcWtYM3ByQmJraVpNRWFZTVREWVN6aEIzY1EiLCJkZWFkbGluZV9tcyI6MTc5NDcxNDU2MTE1Mn0sInJlZ2lzdGVyZWRfYXRfbXMiOjE3OTQ0NDkxNjcxNjksInF1b3RlIjpudWxsLCJvdXRjb21lIjpudWxsLCJhZ2VudCI6IngzLWFnZW50LngzbGFuZy5uZWFyIiwibWFuZGF0ZV92ZXJzaW9uIjo0LCJhcHByb3ZhbHMiOlsieDNsYW5nLm5lYXIiXX0="
+        }
+      },
+      "result": "pass"
+    },
+    {
+      "check": "agent_storage_final_success",
+      "detail": {
+        "errors": null,
+        "final": "FINAL",
+        "status": {
+          "SuccessValue": "IjQzOTQwMDAwMDAwMDAwMDAwMDAwMDAwIg=="
+        }
+      },
+      "result": "pass"
+    },
+    {
+      "check": "agent_accept_quote_final_success",
+      "detail": {
+        "errors": null,
+        "final": "FINAL",
+        "status": {
+          "SuccessValue": "W3siZ3VhcmQiOiJtYW5kYXRlX2FjdGl2ZSIsIm9rIjp0cnVlLCJkZXRhaWwiOiJ2ZXJzaW9uIDQsIHJldm9rZWQgZmFsc2UsIGV4cGlyZXMgMTc5NDcxNDU2MTE1Miwgbm93IDE3OTQ0NDk0Mjg3NzIifSx7Imd1YXJkIjoibWFuZGF0ZV9hc3NldCIsIm9rIjp0cnVlLCJkZXRhaWwiOiJzcGVuZHMgbmVwMTQxOnNvbC01Y2UzYmYzYTMxYWYxOGJlNDBiYTMwZjcyMTEwMWI0MzQxNjkwMTg2Lm9tZnQubmVhciwgbWFuZGF0ZSBhbGxvd3MgbmVwMTQxOnNvbC01Y2UzYmYzYTMxYWYxOGJlNDBiYTMwZjcyMTEwMWI0MzQxNjkwMTg2Lm9tZnQubmVhciJ9LHsiZ3VhcmQiOiJtYW5kYXRlX2Rlc3RpbmF0aW9uX2Fzc2V0Iiwib2siOnRydWUsImRldGFpbCI6Im5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExLCBhbGxvd2VkIFtcIm5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExXCJdIn0seyJndWFyZCI6Im1hbmRhdGVfcmVjaXBpZW50Iiwib2siOnRydWUsImRldGFpbCI6IngzbGFuZy5uZWFyLCBhbGxvd2VkIFtcIngzbGFuZy5uZWFyXCJdIn0seyJndWFyZCI6Im1hbmRhdGVfcmVmdW5kX3RvIiwib2siOnRydWUsImRldGFpbCI6InJlZnVuZHMgdG8gNTh0Yk1mYWRtaThIV3pVbmRMcWtYM3ByQmJraVpNRWFZTVREWVN6aEIzY1EsIG1hbmRhdGUgcGlucyA1OHRiTWZhZG1pOEhXelVuZExxa1gzcHJCYmtpWk1FYVlNVERZU3poQjNjUSJ9LHsiZ3VhcmQiOiJtYW5kYXRlX3Blcl9wYXltZW50Iiwib2siOnRydWUsImRldGFpbCI6IjI1MDAwMDAwIG9mIGF0IG1vc3QgMjUwMDAwMDAifSx7Imd1YXJkIjoibWFuZGF0ZV9kYWlseSIsIm9rIjp0cnVlLCJkZXRhaWwiOiIwIHNwZW50IGluIDAgcGF5bWVudHMgb3ZlciAyNGgsIHBsdXMgMjUwMDAwMDAsIGNhcCAyNTAwMDAwMCJ9LHsiZ3VhcmQiOiJtYW5kYXRlX3NsaXBwYWdlIiwib2siOnRydWUsImRldGFpbCI6IjkwIGJwcyBvZiBhdCBtb3N0IDEwMCJ9LHsiZ3VhcmQiOiJtYW5kYXRlX2ZlZXMiLCJvayI6dHJ1ZSwiZGV0YWlsIjoiZmVlIGNhcCBTb21lKDEwMCkgYnBzLCBtYW5kYXRlIHJlcXVpcmVzIGF0IG1vc3QgMTAwIn0seyJndWFyZCI6Im1hbmRhdGVfZGVhZGxpbmUiLCJvayI6dHJ1ZSwiZGV0YWlsIjoiaW50ZW50IGRlYWRsaW5lIDE3OTQ3MTQ1NjExNTIsIG1hbmRhdGUgZXhwaXJlcyAxNzk0NzE0NTYxMTUyIn0seyJndWFyZCI6Im1hbmRhdGVfYXBwcm92YWxzIiwib2siOnRydWUsImRldGFpbCI6IjEgb2YgMSBhcHByb3ZhbHMifSx7Imd1YXJkIjoicXVvdGVfa2luZCIsIm9rIjp0cnVlLCJkZXRhaWwiOiJkcnkgZmFsc2UsIEVYQUNUX0lOUFVUIC8gT1JJR0lOX0NIQUlOIC8gT1JJR0lOX0NIQUlOIC8gREVTVElOQVRJT05fQ0hBSU46IGEgZGVwb3NpdCBuZWVkcyBhIGxpdmUgRVhBQ1RfSU5QVVQgT1JJR0lOX0NIQUlOIHF1b3RlIn0seyJndWFyZCI6InF1b3RlX2ZyZXNobmVzcyIsIm9rIjp0cnVlLCJkZXRhaWwiOiJpc3N1ZWQgMTc5NDQ0OTI3MTkwMSwgbm93IDE3OTQ0NDk0Mjg3NzIifSx7Imd1YXJkIjoicXVvdGVfcmVxdWVzdF9lY2hvIiwib2siOnRydWUsImRldGFpbCI6Im1pc21hdGNoZWQ6IFtdIn0seyJndWFyZCI6ImFtb3VudF9pbiIsIm9rIjp0cnVlLCJkZXRhaWwiOiJleHBlY3RlZCAyNTAwMDAwMCwgcXVvdGVkIDI1MDAwMDAwIn0seyJndWFyZCI6Im1pbl9yZWNlaXZlIiwib2siOnRydWUsImRldGFpbCI6ImZsb29yIDI0NzUwMDAwLCBndWFyYW50ZWVkIDI0NzcwMjQzIn0seyJndWFyZCI6InNsaXBwYWdlIiwib2siOnRydWUsImRldGFpbCI6InNwcmVhZCAyMjQ5NTcgb2YgMjQ5OTUyMDAsIGJvdW5kIDkwIGJwcyJ9LHsiZ3VhcmQiOiJmZWVzIiwib2siOnRydWUsImRldGFpbCI6ImNvc3QgNDc5Nzc4MjQwMDAwMDAwMCBvZiAyNDk4ODQ1MDAwMDAwMDAwMDAwMCAoMWUtMTggVVNEKSwgY2FwIDEwMCBicHMifSx7Imd1YXJkIjoicmVmdW5kX2ZlZSIsIm9rIjp0cnVlLCJkZXRhaWwiOiJyZWZ1bmQgZmVlIDEwMDA1IG9mIDI1MDAwMDAwLCBjYXAgMTAwIGJwcyJ9LHsiZ3VhcmQiOiJkZXBvc2l0X2FkZHJlc3MiLCJvayI6dHJ1ZSwiZGV0YWlsIjoiQzY5NzhBVHRNMzNBY3c3OURoM3k2SzVzeWZ6SnR3Y3ZvNnQ2YjYyVWRrTiJ9LHsiZ3VhcmQiOiJkZWFkbGluZSIsIm9rIjp0cnVlLCJkZXRhaWwiOiJub3cgMTc5NDQ0OTQyODc3MiwgcXVvdGUgZGVhZGxpbmUgMTc5NDcwOTY3MDkxOCwgcG9saWN5IGRlYWRsaW5lIDE3OTQ3MTQ1NjExNTIsIG5lZWRzIDIwMDAwIG1zIn1d"
+        }
+      },
+      "result": "pass"
+    },
+    {
+      "check": "payout_final_success",
+      "detail": {
+        "errors": null,
+        "final": "FINAL",
+        "status": {
+          "SuccessValue": ""
+        }
+      },
+      "result": "pass"
+    },
+    {
+      "check": "deployment_final_success",
+      "detail": {
+        "errors": null,
+        "final": "FINAL",
+        "status": {
+          "SuccessValue": ""
+        }
+      },
+      "result": "pass"
+    },
+    {
+      "check": "agent_call_signer_is_agent",
+      "detail": "x3-agent.x3lang.near",
+      "result": "pass"
+    },
+    {
+      "check": "agent_call_method",
+      "detail": "agent_accept_quote",
+      "result": "pass"
+    },
+    {
+      "check": "agent_call_used_restricted_function_call_key",
+      "detail": {
+        "owner_full_access_key": "ed25519:8teaXGYFELKQN5QA7gQqeA4B7URrcMQqaczZ5D68c23u",
+        "public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x",
+        "restricted_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x"
+      },
+      "result": "pass"
+    },
+    {
+      "check": "agent_call_nonce",
+      "detail": "mainnet_demo_nov11_invoice_06",
+      "result": "pass"
+    },
+    {
+      "check": "approval_nonce",
+      "detail": "mainnet_demo_nov11_invoice_06",
+      "result": "pass"
+    },
+    {
+      "check": "approval_before_accept_before_payout",
+      "detail": [
+        224148959,
+        224149400,
+        224150052
+      ],
+      "result": "pass"
+    },
+    {
+      "check": "guard_code_hash_is_reviewed_deployment",
+      "detail": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+      "result": "pass"
+    },
+    {
+      "check": "intent_registered_by_agent",
+      "detail": {
+        "agent": "x3-agent.x3lang.near",
+        "approvals": [
+          "x3lang.near"
+        ],
+        "mandate_version": 4
+      },
+      "result": "pass"
+    },
+    {
+      "check": "intent_has_accepted_quote",
+      "detail": true,
+      "result": "pass"
+    },
+    {
+      "check": "sol_deposit_finalized_no_error",
+      "detail": {
+        "err": null,
+        "found": true,
+        "slot": 468354078
+      },
+      "result": "pass"
+    },
+    {
+      "check": "sol_signer_is_funder",
+      "detail": [
+        "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ"
+      ],
+      "result": "pass"
+    },
+    {
+      "check": "sol_25_usdc_funder_to_deposit_address",
+      "detail": {
+        "deposit_address_delta": 25000000,
+        "funder_delta": -25000000
+      },
+      "result": "pass"
+    },
+    {
+      "check": "payout_logs_name_recipient_and_amount",
+      "detail": [
+        "EVENT_JSON:{\"standard\":\"dip4\",\"version\":\"0.4.3\",\"event\":\"ft_withdraw\",\"data\":[{\"intent_hash\":\"6BXjXqSE5xGXUeFC1e3z4okzJsAQPAkp79WMUjfEv4Qq\",\"account_id\":\"70c8bbbd270bf90793d90a76635f68a6829d61799cb16054099c6a1859a162f4\",\"token\":\"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"receiver_id\":\"x3lang.near\",\"amount\":\"24995200\",\"min_gas\":\"17050000000000\"}]}",
+        "EVENT_JSON:{\"standard\":\"nep245\",\"version\":\"1.0.0\",\"event\":\"mt_burn\",\"data\":[{\"owner_id\":\"70c8bbbd270bf90793d90a76635f68a6829d61799cb16054099c6a1859a162f4\",\"token_ids\":[\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\"],\"amounts\":[\"24995200\"],\"memo\":\"withdraw\"}]}",
+        "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"intents.near\",\"new_owner_id\":\"x3lang.near\",\"amount\":\"24995200\"}]}"
+      ],
+      "result": "pass"
+    },
+    {
+      "check": "controller_of_funding_wallet",
+      "detail": "not readable on-chain; owner must state who controls 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+      "result": "not_checked"
+    }
+  ],
+  "ci_run": "https://github.com/Cyptopimpinainteazy/x3lang/actions/runs/43307893891",
+  "guard_account": {
+    "result": {
+      "amount": "5936048160353559099800000",
+      "block_hash": "CjRXVxTjJcVMUBSgtrRxWHjz87Er1CzjMRyGU8uCh8A5",
+      "block_height": 224267820,
+      "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+      "locked": "0",
+      "storage_paid_at": 0,
+      "storage_usage": 578972
+    },
+    "url": "https://free.rpc.fastnear.com"
+  },
+  "guard_near_usdc_balance": {
+    "result": {
+      "block_hash": "8PJV7as6uboi7ujLS5yHaKpVHBVHrA62s6M6Y6Mw1gVJ",
+      "block_height": 224267822,
+      "logs": []
+    },
+    "url": "https://free.rpc.fastnear.com",
+    "value": "24995200"
+  },
+  "intent": {
+    "result": {
+      "block_hash": "3G18UWqYcEivhK9tDh3R6duNpiehxM7cwiWTquEZmyCP",
+      "block_height": 224267821,
+      "logs": []
+    },
+    "url": "https://free.rpc.fastnear.com",
+    "value": {
+      "agent": "x3-agent.x3lang.near",
+      "approvals": [
+        "x3lang.near"
+      ],
+      "mandate_version": 4,
+      "nonce": "mainnet_demo_nov11_invoice_06",
+      "outcome": null,
+      "owner": "x3lang.near",
+      "policy": {
+        "amount": "25000000",
+        "deadline_ms": 1794714561152,
+        "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "fee_cap_bps": 100,
+        "min_receive": "24750000",
+        "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "program_sha256": "9ee29a5603cfa1e7d9fdbd866cf330ce35e6b5f0907c6844dd2ef1a213768ba0",
+        "recipient": "x3lang.near",
+        "refund_to": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+        "slippage_bps": 90
+      },
+      "quote": {
+        "accepted_at_ms": 1794449428772,
+        "facts": {
+          "amount": "25000000",
+          "amount_in": "25000000",
+          "amount_in_usd": "24.988450000000",
+          "amount_out": "24995200",
+          "amount_out_usd": "24.983652217600",
+          "deposit_address": "C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN",
+          "deposit_type": "ORIGIN_CHAIN",
+          "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+          "dry": false,
+          "issued_at_ms": 1794449271901,
+          "min_amount_out": "24770243",
+          "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+          "quote_deadline_ms": 1794709670918,
+          "quote_hash": "8ynPgyqDugkyL2gicfUuTtymMjTPQzcRMBjj4RKgKeSD",
+          "recipient": "x3lang.near",
+          "recipient_type": "DESTINATION_CHAIN",
+          "refund_fee": "10005",
+          "refund_to": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+          "refund_type": "ORIGIN_CHAIN",
+          "signature": "ed25519:38pJWi4WkTYFCunBZ1Bdvd6vFCfovgeknfZgkMNxhStYCdZUk1LKrEQd3a7cJZZMmLDE7wWCM7GHuVLSkRV4ok88",
+          "slippage_tolerance_bps": 90,
+          "swap_type": "EXACT_INPUT",
+          "time_estimate_s": 20
+        },
+        "signed_payload": "{\"amount\":\"25000000\",\"amountIn\":\"25000000\",\"amountInFormatted\":\"25.0\",\"amountInUsd\":\"24.988450000000\",\"amountOut\":\"24995200\",\"amountOutFormatted\":\"24.9952\",\"amountOutUsd\":\"24.983652217600\",\"deadline\":\"2026-11-15T02:27:50.918Z\",\"depositAddress\":\"C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"dry\":false,\"minAmountIn\":\"25000000\",\"minAmountOut\":\"24770243\",\"originAsset\":\"nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near\",\"recipient\":\"x3lang.near\",\"recipientType\":\"DESTINATION_CHAIN\",\"refundFee\":\"10005\",\"refundTo\":\"58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ\",\"refundType\":\"ORIGIN_CHAIN\",\"slippageTolerance\":90,\"swapType\":\"EXACT_INPUT\",\"timeEstimate\":20,\"timeWhenInactive\":\"2026-11-15T02:27:50.918Z\",\"timestamp\":\"2026-11-12T02:07:51.901Z\",\"withdrawFee\":\"0\"}"
+      },
+      "registered_at_ms": 1794449167169
+    }
+  },
+  "manager_public_key": {
+    "result": {
+      "block_hash": "3G18UWqYcEivhK9tDh3R6duNpiehxM7cwiWTquEZmyCP",
+      "block_height": 224267821,
+      "logs": []
+    },
+    "url": "https://free.rpc.fastnear.com",
+    "value": "ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc"
+  },
+  "mandate": {
+    "result": {
+      "block_hash": "3G18UWqYcEivhK9tDh3R6duNpiehxM7cwiWTquEZmyCP",
+      "block_height": 224267821,
+      "logs": []
+    },
+    "url": "https://free.rpc.fastnear.com",
+    "value": {
+      "agent": "x3-agent.x3lang.near",
+      "created_at_ms": 1794448232878,
+      "owner": "x3lang.near",
+      "revoked": false,
+      "spends": [
+        {
+          "amount": "25000000",
+          "at_ms": 1794449428772,
+          "nonce": "mainnet_demo_nov11_invoice_06"
+        }
+      ],
+      "terms": {
+        "approval_above": "24999999",
+        "approval_threshold": 1,
+        "approvers": [
+          "x3lang.near"
+        ],
+        "asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "daily_cap": "25000000",
+        "destination_assets": [
+          "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
+        ],
+        "expires_at_ms": 1794714561152,
+        "max_fee_bps": 100,
+        "max_slippage_bps": 100,
+        "per_payment_cap": "25000000",
+        "program_sha256": "eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515",
+        "recipients": [
+          "x3lang.near"
+        ],
+        "refund_to": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ"
+      },
+      "version": 4
+    }
+  },
+  "near_transactions": {
+    "agent_accept_quote": {
+      "actions": [
+        {
+          "FunctionCall": {
+            "args": {
+              "nonce": "mainnet_demo_nov11_invoice_06",
+              "owner": "x3lang.near",
+              "signature": "ed25519:38pJWi4WkTYFCunBZ1Bdvd6vFCfovgeknfZgkMNxhStYCdZUk1LKrEQd3a7cJZZMmLDE7wWCM7GHuVLSkRV4ok88",
+              "signed_payload": "{\"amount\":\"25000000\",\"amountIn\":\"25000000\",\"amountInFormatted\":\"25.0\",\"amountInUsd\":\"24.988450000000\",\"amountOut\":\"24995200\",\"amountOutFormatted\":\"24.9952\",\"amountOutUsd\":\"24.983652217600\",\"deadline\":\"2026-11-15T02:27:50.918Z\",\"depositAddress\":\"C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"dry\":false,\"minAmountIn\":\"25000000\",\"minAmountOut\":\"24770243\",\"originAsset\":\"nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near\",\"recipient\":\"x3lang.near\",\"recipientType\":\"DESTINATION_CHAIN\",\"refundFee\":\"10005\",\"refundTo\":\"58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ\",\"refundType\":\"ORIGIN_CHAIN\",\"slippageTolerance\":90,\"swapType\":\"EXACT_INPUT\",\"timeEstimate\":20,\"timeWhenInactive\":\"2026-11-15T02:27:50.918Z\",\"timestamp\":\"2026-11-12T02:07:51.901Z\",\"withdrawFee\":\"0\"}"
+            },
+            "deposit": "0",
+            "gas": 10000000000000,
+            "method_name": "agent_accept_quote"
+          }
+        }
+      ],
+      "final_execution_status": "FINAL",
+      "hash": "Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153",
+      "included_block_hash": "FyasquFD4ZncHw4vQn9ssYdVfQaoqDFkn4rUATWnv6x3",
+      "included_block_height": 224149400,
+      "included_block_timestamp_ns": 1794449428197291087,
+      "name": "agent_accept_quote",
+      "nonce": 224117214000004,
+      "public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x",
+      "receipts": [
+        {
+          "block_hash": "3f2jdSrw7kVvMWuVMhA7ueMXHT5HyXszRd7fjBZCw1iH",
+          "executor": "x3lang.near",
+          "id": "9HPCAGNPDoNKojQ126w2P45Dojz2wiALRh2nP1YoEse7",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"x3guard\",\"version\":\"1.3.0\",\"event\":\"quote_accepted\",\"data\":[{\"owner\":\"x3lang.near\",\"nonce\":\"mainnet_demo_nov11_invoice_06\",\"quote_hash\":\"8ynPgyqDugkyL2gicfUuTtymMjTPQzcRMBjj4RKgKeSD\",\"deposit_address\":\"C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN\",\"min_amount_out\":\"24770243\",\"agent\":\"x3-agent.x3lang.near\",\"agent_spent_24h\":\"25000000\"}]}"
+          ],
+          "status": {
+            "SuccessValue": [
+              {
+                "detail": "version 4, revoked false, expires 1794714561152, now 1794449428772",
+                "guard": "mandate_active",
+                "ok": true
+              },
+              {
+                "detail": "spends nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near, mandate allows nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+                "guard": "mandate_asset",
+                "ok": true
+              },
+              {
+                "detail": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1, allowed [\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\"]",
+                "guard": "mandate_destination_asset",
+                "ok": true
+              },
+              {
+                "detail": "x3lang.near, allowed [\"x3lang.near\"]",
+                "guard": "mandate_recipient",
+                "ok": true
+              },
+              {
+                "detail": "refunds to 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ, mandate pins 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+                "guard": "mandate_refund_to",
+                "ok": true
+              },
+              {
+                "detail": "25000000 of at most 25000000",
+                "guard": "mandate_per_payment",
+                "ok": true
+              },
+              {
+                "detail": "0 spent in 0 payments over 24h, plus 25000000, cap 25000000",
+                "guard": "mandate_daily",
+                "ok": true
+              },
+              {
+                "detail": "90 bps of at most 100",
+                "guard": "mandate_slippage",
+                "ok": true
+              },
+              {
+                "detail": "fee cap Some(100) bps, mandate requires at most 100",
+                "guard": "mandate_fees",
+                "ok": true
+              },
+              {
+                "detail": "intent deadline 1794714561152, mandate expires 1794714561152",
+                "guard": "mandate_deadline",
+                "ok": true
+              },
+              {
+                "detail": "1 of 1 approvals",
+                "guard": "mandate_approvals",
+                "ok": true
+              },
+              {
+                "detail": "dry false, EXACT_INPUT / ORIGIN_CHAIN / ORIGIN_CHAIN / DESTINATION_CHAIN: a deposit needs a live EXACT_INPUT ORIGIN_CHAIN quote",
+                "guard": "quote_kind",
+                "ok": true
+              },
+              {
+                "detail": "issued 1794449271901, now 1794449428772",
+                "guard": "quote_freshness",
+                "ok": true
+              },
+              {
+                "detail": "mismatched: []",
+                "guard": "quote_request_echo",
+                "ok": true
+              },
+              {
+                "detail": "expected 25000000, quoted 25000000",
+                "guard": "amount_in",
+                "ok": true
+              },
+              {
+                "detail": "floor 24750000, guaranteed 24770243",
+                "guard": "min_receive",
+                "ok": true
+              },
+              {
+                "detail": "spread 224957 of 24995200, bound 90 bps",
+                "guard": "slippage",
+                "ok": true
+              },
+              {
+                "detail": "cost 4797782400000000 of 24988450000000000000 (1e-18 USD), cap 100 bps",
+                "guard": "fees",
+                "ok": true
+              },
+              {
+                "detail": "refund fee 10005 of 25000000, cap 100 bps",
+                "guard": "refund_fee",
+                "ok": true
+              },
+              {
+                "detail": "C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN",
+                "guard": "deposit_address",
+                "ok": true
+              },
+              {
+                "detail": "now 1794449428772, quote deadline 1794709670918, policy deadline 1794714561152, needs 20000 ms",
+                "guard": "deadline",
+                "ok": true
+              }
+            ]
+          }
+        },
+        {
+          "block_hash": "7MciDq9g7ubjBmXRSVvv42poozTQrBYpCXpqTZR9yS7N",
+          "executor": "x3-agent.x3lang.near",
+          "id": "Euc6cKfPRMwNcjDw6AkbFemWdtLVCmN9E8q8bMgH8hJ3",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang.near",
+      "rpc": "https://free.rpc.fastnear.com",
+      "signer_id": "x3-agent.x3lang.near",
+      "status": {
+        "SuccessValue": "W3siZ3VhcmQiOiJtYW5kYXRlX2FjdGl2ZSIsIm9rIjp0cnVlLCJkZXRhaWwiOiJ2ZXJzaW9uIDQsIHJldm9rZWQgZmFsc2UsIGV4cGlyZXMgMTc5NDcxNDU2MTE1Miwgbm93IDE3OTQ0NDk0Mjg3NzIifSx7Imd1YXJkIjoibWFuZGF0ZV9hc3NldCIsIm9rIjp0cnVlLCJkZXRhaWwiOiJzcGVuZHMgbmVwMTQxOnNvbC01Y2UzYmYzYTMxYWYxOGJlNDBiYTMwZjcyMTEwMWI0MzQxNjkwMTg2Lm9tZnQubmVhciwgbWFuZGF0ZSBhbGxvd3MgbmVwMTQxOnNvbC01Y2UzYmYzYTMxYWYxOGJlNDBiYTMwZjcyMTEwMWI0MzQxNjkwMTg2Lm9tZnQubmVhciJ9LHsiZ3VhcmQiOiJtYW5kYXRlX2Rlc3RpbmF0aW9uX2Fzc2V0Iiwib2siOnRydWUsImRldGFpbCI6Im5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExLCBhbGxvd2VkIFtcIm5lcDE0MToxNzIwODYyOGY4NGY1ZDZhZDMzZjBkYTNiYmJlYjI3ZmZjYjM5OGVhYzUwMWEzMWJkNmFkMjAxMWUzNjEzM2ExXCJdIn0seyJndWFyZCI6Im1hbmRhdGVfcmVjaXBpZW50Iiwib2siOnRydWUsImRldGFpbCI6IngzbGFuZy5uZWFyLCBhbGxvd2VkIFtcIngzbGFuZy5uZWFyXCJdIn0seyJndWFyZCI6Im1hbmRhdGVfcmVmdW5kX3RvIiwib2siOnRydWUsImRldGFpbCI6InJlZnVuZHMgdG8gNTh0Yk1mYWRtaThIV3pVbmRMcWtYM3ByQmJraVpNRWFZTVREWVN6aEIzY1EsIG1hbmRhdGUgcGlucyA1OHRiTWZhZG1pOEhXelVuZExxa1gzcHJCYmtpWk1FYVlNVERZU3poQjNjUSJ9LHsiZ3VhcmQiOiJtYW5kYXRlX3Blcl9wYXltZW50Iiwib2siOnRydWUsImRldGFpbCI6IjI1MDAwMDAwIG9mIGF0IG1vc3QgMjUwMDAwMDAifSx7Imd1YXJkIjoibWFuZGF0ZV9kYWlseSIsIm9rIjp0cnVlLCJkZXRhaWwiOiIwIHNwZW50IGluIDAgcGF5bWVudHMgb3ZlciAyNGgsIHBsdXMgMjUwMDAwMDAsIGNhcCAyNTAwMDAwMCJ9LHsiZ3VhcmQiOiJtYW5kYXRlX3NsaXBwYWdlIiwib2siOnRydWUsImRldGFpbCI6IjkwIGJwcyBvZiBhdCBtb3N0IDEwMCJ9LHsiZ3VhcmQiOiJtYW5kYXRlX2ZlZXMiLCJvayI6dHJ1ZSwiZGV0YWlsIjoiZmVlIGNhcCBTb21lKDEwMCkgYnBzLCBtYW5kYXRlIHJlcXVpcmVzIGF0IG1vc3QgMTAwIn0seyJndWFyZCI6Im1hbmRhdGVfZGVhZGxpbmUiLCJvayI6dHJ1ZSwiZGV0YWlsIjoiaW50ZW50IGRlYWRsaW5lIDE3OTQ3MTQ1NjExNTIsIG1hbmRhdGUgZXhwaXJlcyAxNzk0NzE0NTYxMTUyIn0seyJndWFyZCI6Im1hbmRhdGVfYXBwcm92YWxzIiwib2siOnRydWUsImRldGFpbCI6IjEgb2YgMSBhcHByb3ZhbHMifSx7Imd1YXJkIjoicXVvdGVfa2luZCIsIm9rIjp0cnVlLCJkZXRhaWwiOiJkcnkgZmFsc2UsIEVYQUNUX0lOUFVUIC8gT1JJR0lOX0NIQUlOIC8gT1JJR0lOX0NIQUlOIC8gREVTVElOQVRJT05fQ0hBSU46IGEgZGVwb3NpdCBuZWVkcyBhIGxpdmUgRVhBQ1RfSU5QVVQgT1JJR0lOX0NIQUlOIHF1b3RlIn0seyJndWFyZCI6InF1b3RlX2ZyZXNobmVzcyIsIm9rIjp0cnVlLCJkZXRhaWwiOiJpc3N1ZWQgMTc5NDQ0OTI3MTkwMSwgbm93IDE3OTQ0NDk0Mjg3NzIifSx7Imd1YXJkIjoicXVvdGVfcmVxdWVzdF9lY2hvIiwib2siOnRydWUsImRldGFpbCI6Im1pc21hdGNoZWQ6IFtdIn0seyJndWFyZCI6ImFtb3VudF9pbiIsIm9rIjp0cnVlLCJkZXRhaWwiOiJleHBlY3RlZCAyNTAwMDAwMCwgcXVvdGVkIDI1MDAwMDAwIn0seyJndWFyZCI6Im1pbl9yZWNlaXZlIiwib2siOnRydWUsImRldGFpbCI6ImZsb29yIDI0NzUwMDAwLCBndWFyYW50ZWVkIDI0NzcwMjQzIn0seyJndWFyZCI6InNsaXBwYWdlIiwib2siOnRydWUsImRldGFpbCI6InNwcmVhZCAyMjQ5NTcgb2YgMjQ5OTUyMDAsIGJvdW5kIDkwIGJwcyJ9LHsiZ3VhcmQiOiJmZWVzIiwib2siOnRydWUsImRldGFpbCI6ImNvc3QgNDc5Nzc4MjQwMDAwMDAwMCBvZiAyNDk4ODQ1MDAwMDAwMDAwMDAwMCAoMWUtMTggVVNEKSwgY2FwIDEwMCBicHMifSx7Imd1YXJkIjoicmVmdW5kX2ZlZSIsIm9rIjp0cnVlLCJkZXRhaWwiOiJyZWZ1bmQgZmVlIDEwMDA1IG9mIDI1MDAwMDAwLCBjYXAgMTAwIGJwcyJ9LHsiZ3VhcmQiOiJkZXBvc2l0X2FkZHJlc3MiLCJvayI6dHJ1ZSwiZGV0YWlsIjoiQzY5NzhBVHRNMzNBY3c3OURoM3k2SzVzeWZ6SnR3Y3ZvNnQ2YjYyVWRrTiJ9LHsiZ3VhcmQiOiJkZWFkbGluZSIsIm9rIjp0cnVlLCJkZXRhaWwiOiJub3cgMTc5NDQ0OTQyODc3MiwgcXVvdGUgZGVhZGxpbmUgMTc5NDcwOTY3MDkxOCwgcG9saWN5IGRlYWRsaW5lIDE3OTQ3MTQ1NjExNTIsIG5lZWRzIDIwMDAwIG1zIn1d"
+      }
+    },
+    "agent_storage": {
+      "actions": [
+        {
+          "FunctionCall": {
+            "args": {
+              "agent": "x3-agent.x3lang.near"
+            },
+            "deposit": "30000000000000000000000",
+            "gas": 30000000000000,
+            "method_name": "fund_agent_storage"
+          }
+        }
+      ],
+      "final_execution_status": "FINAL",
+      "hash": "Ax9yNKUicGoyR3fcStygFQypUQkmfSKEFYDmRxbK9ZA",
+      "included_block_hash": "AhY9gfWxf46xomWpQLjfnyxg8XCYjWg8BHqURJXKYHHJ",
+      "included_block_height": 224149317,
+      "included_block_timestamp_ns": 1794449382562891268,
+      "name": "agent_storage",
+      "nonce": 223154312000016,
+      "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe",
+      "receipts": [
+        {
+          "block_hash": "AhY9gfWxf46xomWpQLjfnyxg8XCYjWg8BHqURJXKYHHJ",
+          "executor": "x3lang.near",
+          "id": "7CTytFjFo1v9QjwJfzA9UkjbNtG7fjBt4D2pCUj6xc4K",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"x3guard\",\"version\":\"1.3.0\",\"event\":\"agent_storage_funded\",\"data\":[{\"owner\":\"x3lang.near\",\"agent\":\"x3-agent.x3lang.near\",\"balance\":\"43940000000000000000000\"}]}"
+          ],
+          "status": {
+            "SuccessValue": "43940000000000000000000"
+          }
+        },
+        {
+          "block_hash": "BJpz3c4y1Zuw6UMGK685wQossb8upEAEVd91hTB5P9ps",
+          "executor": "x3lang.near",
+          "id": "GpAshE5NjRL2nvZsoddw3P3omWZ1Xtj26pKDmzFqD9LV",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang.near",
+      "rpc": "https://free.rpc.fastnear.com",
+      "signer_id": "x3lang.near",
+      "status": {
+        "SuccessValue": "IjQzOTQwMDAwMDAwMDAwMDAwMDAwMDAwIg=="
+      }
+    },
+    "deployment": {
+      "actions": [
+        {
+          "DeployContract": {
+            "code": "mmFGQKyLw5u7yxZ0zg9P4vUWEKx7qCjJxFdL6ScSpjI="
+          }
+        }
+      ],
+      "final_execution_status": "FINAL",
+      "hash": "BVXX3hJEmThWVZNpUknZv9HCpGezisiN8SQKsZgA3faF",
+      "included_block_hash": "5SrKCYG78zFme1ePFATMaHDxAdxhFADWfmALRCBKNqCT",
+      "included_block_height": 224111432,
+      "included_block_timestamp_ns": 1794427479207638874,
+      "name": "deployment",
+      "nonce": 223154312000009,
+      "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe",
+      "receipts": [
+        {
+          "block_hash": "5SrKCYG78zFme1ePFATMaHDxAdxhFADWfmALRCBKNqCT",
+          "executor": "x3lang.near",
+          "id": "ADtzRCbLTSERuZf6d8PJRUnEHD2VWeNg6wB1WCfUYPTr",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "block_hash": "BLJvtyfD1zHFyGNkYiAX6TRwMociAEiAZXyNY6gLaRtr",
+          "executor": "x3lang.near",
+          "id": "F5og7K91Tc8DBWEc37w2xfpKzeKcWXa6jnciU2xWTki3",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang.near",
+      "rpc": "https://archival-rpc.mainnet.fastnear.com",
+      "signer_id": "x3lang.near",
+      "status": {
+        "SuccessValue": ""
+      }
+    },
+    "owner_approval": {
+      "actions": [
+        {
+          "FunctionCall": {
+            "args": {
+              "nonce": "mainnet_demo_nov11_invoice_06",
+              "owner": "x3lang.near"
+            },
+            "deposit": "20000000000000000000000",
+            "gas": 30000000000000,
+            "method_name": "approve_intent"
+          }
+        }
+      ],
+      "final_execution_status": "FINAL",
+      "hash": "GFdQLrzT5tnPPdZwKLtmwpNvSwrxVHDvVg2C3WX5fsK6",
+      "included_block_hash": "4xBq1jhZH78i1mK7NqT9vbe5rzT313W6Kk21jGAf1mY4",
+      "included_block_height": 224148959,
+      "included_block_timestamp_ns": 1794449179378496678,
+      "name": "owner_approval",
+      "nonce": 223154312000015,
+      "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe",
+      "receipts": [
+        {
+          "block_hash": "4xBq1jhZH78i1mK7NqT9vbe5rzT313W6Kk21jGAf1mY4",
+          "executor": "x3lang.near",
+          "id": "6xhQL9KorkmBNWyj4juswWfmAespfoTRifAHSyj5EoiK",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"x3guard\",\"version\":\"1.3.0\",\"event\":\"intent_approved\",\"data\":[{\"owner\":\"x3lang.near\",\"nonce\":\"mainnet_demo_nov11_invoice_06\",\"approver\":\"x3lang.near\",\"approvals\":1,\"needed\":1}]}"
+          ],
+          "status": {
+            "SuccessValue": {
+              "agent": "x3-agent.x3lang.near",
+              "approvals": [
+                "x3lang.near"
+              ],
+              "mandate_version": 4,
+              "nonce": "mainnet_demo_nov11_invoice_06",
+              "outcome": null,
+              "owner": "x3lang.near",
+              "policy": {
+                "amount": "25000000",
+                "deadline_ms": 1794714561152,
+                "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+                "fee_cap_bps": 100,
+                "min_receive": "24750000",
+                "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+                "program_sha256": "9ee29a5603cfa1e7d9fdbd866cf330ce35e6b5f0907c6844dd2ef1a213768ba0",
+                "recipient": "x3lang.near",
+                "refund_to": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+                "slippage_bps": 90
+              },
+              "quote": null,
+              "registered_at_ms": 1794449167169
+            }
+          }
+        },
+        {
+          "block_hash": "dyMr7KmCgA97czY18MPs6xaXGhro8LSNUWuaNWwxnYd",
+          "executor": "x3lang.near",
+          "id": "DZe8FdnuNjTR2GouZ5YQS4boHSSwhU8WasidedVJ2p42",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "block_hash": "14pjpm1vRhsLfoDcJagG5rAjKy6eMGc17EXuDXq6npVV",
+          "executor": "x3lang.near",
+          "id": "3Q67uLSjZyusHcSZ3phdxabH8uvRKkASGLmG4stWKWV5",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "block_hash": "dyMr7KmCgA97czY18MPs6xaXGhro8LSNUWuaNWwxnYd",
+          "executor": "x3lang.near",
+          "id": "4izzcSxGYdQdNL1EaQ5LBRLt4tkgvPbWbsD6PQiMgWoH",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "x3lang.near",
+      "rpc": "https://free.rpc.fastnear.com",
+      "signer_id": "x3lang.near",
+      "status": {
+        "SuccessValue": "eyJvd25lciI6IngzbGFuZy5uZWFyIiwibm9uY2UiOiJtYWlubmV0X2RlbW9fbm92MTFfaW52b2ljZV8wNiIsInBvbGljeSI6eyJwcm9ncmFtX3NoYTI1NiI6IjllZTI5YTU2MDNjZmExZTdkOWZkYmQ4NjZjZjMzMGNlMzVlNmI1ZjA5MDdjNjg0NGRkMmVmMWEyMTM3NjhiYTAiLCJvcmlnaW5fYXNzZXQiOiJuZXAxNDE6c29sLTVjZTNiZjNhMzFhZjE4YmU0MGJhMzBmNzIxMTAxYjQzNDE2OTAxODYub21mdC5uZWFyIiwiZGVzdGluYXRpb25fYXNzZXQiOiJuZXAxNDE6MTcyMDg2MjhmODRmNWQ2YWQzM2YwZGEzYmJiZWIyN2ZmY2IzOThlYWM1MDFhMzFiZDZhZDIwMTFlMzYxMzNhMSIsImFtb3VudCI6IjI1MDAwMDAwIiwibWluX3JlY2VpdmUiOiIyNDc1MDAwMCIsInNsaXBwYWdlX2JwcyI6OTAsImZlZV9jYXBfYnBzIjoxMDAsInJlY2lwaWVudCI6IngzbGFuZy5uZWFyIiwicmVmdW5kX3RvIjoiNTh0Yk1mYWRtaThIV3pVbmRMcWtYM3ByQmJraVpNRWFZTVREWVN6aEIzY1EiLCJkZWFkbGluZV9tcyI6MTc5NDcxNDU2MTE1Mn0sInJlZ2lzdGVyZWRfYXRfbXMiOjE3OTQ0NDkxNjcxNjksInF1b3RlIjpudWxsLCJvdXRjb21lIjpudWxsLCJhZ2VudCI6IngzLWFnZW50LngzbGFuZy5uZWFyIiwibWFuZGF0ZV92ZXJzaW9uIjo0LCJhcHByb3ZhbHMiOlsieDNsYW5nLm5lYXIiXX0="
+      }
+    },
+    "payout": {
+      "actions": [
+        {
+          "FunctionCall": {
+            "args": {
+              "signed": [
+                {
+                  "payload": {
+                    "message": "{\"deadline\":\"2026-12-12T02:27:50.918Z\",\"intents\":[{\"intent\":\"ft_withdraw\",\"token\":\"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"receiver_id\":\"x3lang.near\",\"amount\":\"24995200\",\"min_gas\":\"17050000000000\"}],\"signer_id\":\"70c8bbbd270bf90793d90a76635f68a6829d61799cb16054099c6a1859a162f4\"}",
+                    "nonce": "Vij2xgAlKBKzgI1bLZtg8Bjo3O1U/rj7BJMDZO+N70A=",
+                    "recipient": "intents.near"
+                  },
+                  "public_key": "ed25519:8bGC82wuHuRAYbnEiNKV2DWS5QCjFB9bQjCqPci2ovJ7",
+                  "signature": "ed25519:mTFVjgEM4JJeFNBv2gTeirVFiGqbkuWDm1ygKYz4DwHWBUB83BgaMPqzRNGxA5XR4AxHseF562rTxge6sswj5Fa",
+                  "standard": "nep413"
+                }
+              ]
+            },
+            "deposit": "0",
+            "gas": 300000000000000,
+            "method_name": "execute_intents"
+          }
+        }
+      ],
+      "final_execution_status": "FINAL",
+      "hash": "8jfbACLSxrzi3fnajfAVGc4Fgo6XLCWA1mpiJWXPw43P",
+      "included_block_hash": "5sstgSJ6KRdyCSgX4pTtfY3UJvtdRuKaEEi46JZmvFMK",
+      "included_block_height": 224150052,
+      "included_block_timestamp_ns": 1794449797428118428,
+      "name": "payout",
+      "nonce": 151978851899698,
+      "public_key": "ed25519:4vq3dbhcG3A1fJufpgMZwa1UKQcnWf3aprFFp916J82Z",
+      "receipts": [
+        {
+          "block_hash": "5sstgSJ6KRdyCSgX4pTtfY3UJvtdRuKaEEi46JZmvFMK",
+          "executor": "intents.near",
+          "id": "APF2RxFRnjPQsnKqtcaAgBozuDwjVDDqmnMHuAFr4iCQ",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"dip4\",\"version\":\"0.4.3\",\"event\":\"ft_withdraw\",\"data\":[{\"intent_hash\":\"6BXjXqSE5xGXUeFC1e3z4okzJsAQPAkp79WMUjfEv4Qq\",\"account_id\":\"70c8bbbd270bf90793d90a76635f68a6829d61799cb16054099c6a1859a162f4\",\"token\":\"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"receiver_id\":\"x3lang.near\",\"amount\":\"24995200\",\"min_gas\":\"17050000000000\"}]}",
+            "EVENT_JSON:{\"standard\":\"dip4\",\"version\":\"0.4.3\",\"event\":\"intents_executed\",\"data\":[{\"intent_hash\":\"6BXjXqSE5xGXUeFC1e3z4okzJsAQPAkp79WMUjfEv4Qq\",\"account_id\":\"70c8bbbd270bf90793d90a76635f68a6829d61799cb16054099c6a1859a162f4\",\"nonce\":\"Vij2xgAlKBKzgI1bLZtg8Bjo3O1U/rj7BJMDZO+N70A=\"}]}",
+            "EVENT_JSON:{\"standard\":\"nep245\",\"version\":\"1.0.0\",\"event\":\"mt_burn\",\"data\":[{\"owner_id\":\"70c8bbbd270bf90793d90a76635f68a6829d61799cb16054099c6a1859a162f4\",\"token_ids\":[\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\"],\"amounts\":[\"24995200\"],\"memo\":\"withdraw\"}]}"
+          ],
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "block_hash": "CfjtL6bSFX82FEA7dsVn1CFTTggSJr62pd6BHhXU7rGf",
+          "executor": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+          "id": "6K3cKmAYCXbT6TgMygU6HA6HoiTPvdXDrrTdroJemGcR",
+          "logs": [
+            "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"intents.near\",\"new_owner_id\":\"x3lang.near\",\"amount\":\"24995200\"}]}"
+          ],
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "block_hash": "8gP5TkL92Zv3dEJmrnWqJrsEtPh4H2Lc15St9Rpkhsn9",
+          "executor": "intents.near",
+          "id": "GipMsyFormbN8apNrQMfqpUfgU1XetpMEh1Z5XrEvjMy",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "block_hash": "8gP5TkL92Zv3dEJmrnWqJrsEtPh4H2Lc15St9Rpkhsn9",
+          "executor": "intents.near",
+          "id": "Ftf8A38wkU1LA6BaqDUqxKhqPYjHjkCTwWXY2WLXUZpp",
+          "logs": [],
+          "status": {
+            "SuccessValue": "24995200"
+          }
+        },
+        {
+          "block_hash": "5dRXvMQ81YcEpQBBwGvq3dDduw4jSCTahGGfVEtGzsFM",
+          "executor": "intents.near",
+          "id": "Dmf4tk4viPh8WkUJsUN5WDmuX6nx1PUGqsozmrFoQPWZ",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        },
+        {
+          "block_hash": "CfjtL6bSFX82FEA7dsVn1CFTTggSJr62pd6BHhXU7rGf",
+          "executor": "intents.near",
+          "id": "8LQp7tNa2R8mNbgttY3Ztaz3ujyqwLW7chB4KTXbZ5nP",
+          "logs": [],
+          "status": {
+            "SuccessValue": ""
+          }
+        }
+      ],
+      "receiver_id": "intents.near",
+      "rpc": "https://free.rpc.fastnear.com",
+      "signer_id": "intents.near",
+      "status": {
+        "SuccessValue": ""
+      }
+    }
+  },
+  "observed_at_unix": 1794518150,
+  "schema": "x3.mainnet.invoice06.public-rpc-observation.v1",
+  "scope": "read-only public RPC; no signing, no keys, no state changes",
+  "solana_context": [
+    {
+      "account_keys": [
+        "BzyMJz2jRNDU1Q1GNExPSzbnnnPS3QSgGHZ3ag5pH5Rf",
+        "EbsUZEFAU23Z2SgAymFtU2hADLiyNLzaPLKiJfvpKnE7",
+        "DkLUMXNmiygzAH7ag8qkL6gyVb4s1UuSnKAGT8tRA2TM",
+        "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+        "SysvarRecentB1ockHashes11111111111111111111",
+        "11111111111111111111111111111111",
+        "ComputeBudget111111111111111111111111111111"
+      ],
+      "block_time": 1794447935,
+      "err": null,
+      "fee_lamports": 10035,
+      "found": true,
+      "log_messages": [
+        "Program 11111111111111111111111111111111 invoke [1]",
+        "Program 11111111111111111111111111111111 success",
+        "Program 11111111111111111111111111111111 invoke [1]",
+        "Program 11111111111111111111111111111111 success",
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success"
+      ],
+      "post_balances_lamports": [
+        30685052411,
+        15889250470,
+        1447681,
+        582100569,
+        42706560,
+        1,
+        1
+      ],
+      "post_token_balances": [],
+      "pre_balances_lamports": [
+        30882062446,
+        15889250470,
+        1447681,
+        385100569,
+        42706560,
+        1,
+        1
+      ],
+      "pre_token_balances": [],
+      "rpc": "https://api.mainnet-beta.solana.com",
+      "signature": "2BsJuqvqrY2pz9avVf4ix24kA8pUhBWgRjP7qJC4h3rP2o4JqZdjAt5ePEsDqqpjtPc5bNrYmdQhhk1Fgp286Hp7",
+      "signers": [
+        "BzyMJz2jRNDU1Q1GNExPSzbnnnPS3QSgGHZ3ag5pH5Rf",
+        "EbsUZEFAU23Z2SgAymFtU2hADLiyNLzaPLKiJfvpKnE7"
+      ],
+      "slot": 468345798
+    }
+  ],
+  "solana_deposit": {
+    "account_keys": [
+      "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+      "6fsuLuFu8xbPAdMQWhuqm7dCBDzHkGn4Y9yvoThokJJG",
+      "fUp1BE9Cp8RqCyjibPzUGBxn7A63EMCy76Uq9Ap2JC6",
+      "11111111111111111111111111111111",
+      "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+      "C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN",
+      "ComputeBudget111111111111111111111111111111",
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    ],
+    "block_time": 1794449713,
+    "err": null,
+    "fee_lamports": 23878,
+    "found": true,
+    "log_messages": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL invoke [1]",
+      "Program log: Create",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 179 of 11906 compute units",
+      "Program return: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA pQAAAAAAAAA=",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+      "Program 11111111111111111111111111111111 invoke [2]",
+      "Program 11111111111111111111111111111111 success",
+      "Program log: Initialize the associated token account",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 37 of 6817 compute units",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 233 of 4354 compute units",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success",
+      "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL consumed 19480 of 23297 compute units",
+      "Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL success",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 105 of 3817 compute units",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
+    ],
+    "post_balances_lamports": [
+      580588251,
+      1488440,
+      1488440,
+      1,
+      3388612899,
+      0,
+      1,
+      560116764991,
+      240130698
+    ],
+    "post_token_balances": [
+      {
+        "amount": "6074779",
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "owner": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ"
+      },
+      {
+        "amount": "25000000",
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "owner": "C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN"
+      }
+    ],
+    "pre_balances_lamports": [
+      582100569,
+      1488440,
+      0,
+      1,
+      3388612899,
+      0,
+      1,
+      560116764991,
+      240130698
+    ],
+    "pre_token_balances": [
+      {
+        "amount": "31074779",
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "owner": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ"
+      }
+    ],
+    "rpc": "https://api.mainnet-beta.solana.com",
+    "signature": "4zhGYyWNabYQ5gixTUzoVHVbgFKWAsQssSpCv3B1J1LjCRisEJW6wm3zuS2GVuDotAT93S8wm1qezHwsKX2RkXo5",
+    "signers": [
+      "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ"
+    ],
+    "slot": 468354078
+  }
+}
