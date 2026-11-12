@@ -76,7 +76,8 @@ def signed_payload(response: dict) -> str:
     return json.dumps({k:v for k,v in response.items() if k!='signature'},separators=(',',':'),ensure_ascii=False,allow_nan=False)
 
 
-def check_quote(response: dict, now: datetime) -> dict:
+def verify_signed_quote(response: dict) -> dict:
+    """Verify signature and static quote terms without asserting current freshness."""
     payload=signed_payload(response)
     try:
         signature=_decode_ed25519(response['signature'],64)
@@ -101,11 +102,16 @@ def check_quote(response: dict, now: datetime) -> dict:
     dest=q.get('depositAddress')
     reject(isinstance(dest,str) and len(dest)==42 and dest.startswith('0x') and all(c in '0123456789abcdefABCDEF' for c in dest[2:]),'DEPOSIT_ADDRESS_INVALID')
     issued=parse_time(response['timestamp']);deadline=parse_time(q['deadline']); req_deadline=parse_time(r['deadline'])
-    reject(-30 <= (now-issued).total_seconds() <= 300,'QUOTE_EXPIRED_OR_FUTURE')
-    reject(60 <= (deadline-now).total_seconds() <= 3600,'QUOTE_DEADLINE_UNSAFE')
     reject(req_deadline>=deadline,'SIGNED_DEADLINE_MISMATCH')
     return {'quote_sha256':hashlib.sha256(payload.encode()).hexdigest(),'deposit_address':dest,'deadline':deadline,
             'amount_out':output,'minimum_out':minimum,'issued_at':issued,'payload':payload}
+
+
+def check_quote(response: dict, now: datetime) -> dict:
+    quote = verify_signed_quote(response)
+    reject(-30 <= (now-quote['issued_at']).total_seconds() <= 300,'QUOTE_EXPIRED_OR_FUTURE')
+    reject(60 <= (quote['deadline']-now).total_seconds() <= 3600,'QUOTE_DEADLINE_UNSAFE')
+    return quote
 
 
 def check_guard_policy(quote: dict, row: dict, *, owner: str, nonce: str, now: datetime, program_sha: str) -> None:
