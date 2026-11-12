@@ -1,0 +1,18 @@
+name: Intents guidance
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near/integration-guidance/**'
+      - '.github/workflows/intents-guidance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guidance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test x3-lang/near/integration-guidance/*.test.mjs

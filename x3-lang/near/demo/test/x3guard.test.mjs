@@ -128,6 +128,34 @@ test("a forged quote stops at the signature and nothing else is read", async () 
   assert.deepEqual(results.map((g) => g.guard), ["quote_signature"]);
 });
 
+test("a signed dry quote cannot authorize a live request with unsigned deposit fields", async () => {
+  const response = capture("near_intents_quote_dry_live_capture.json");
+  const request = { ...response.quoteRequest, dry: false };
+  Object.assign(response.quote, {
+    depositAddress: "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+    deadline: request.deadline, refundFee: "1", timeEstimate: 1,
+  });
+  assert.equal((await x3.checkQuoteSignature(response)).valid, true);
+  const leg = { amount: "25000000", min_receive: "24800000", slippage_bps: 50, fee_cap_bps: 100, deadline: request.deadline };
+  const result = await x3.verifyQuote(leg, request, response, { nowMs: x3.parseTimestampMs(response.timestamp) });
+  assert.equal(result.verdict, "refused");
+  assert.deepEqual(result.failed, ["quote_request_echo"]);
+  assert.deepEqual(result.results.find((g) => g.guard === "quote_request_echo").mismatched, ["dry"]);
+});
+
+for (const dry of [undefined, null, 0, 1, "", "false", "true"]) {
+  test(`quote kind requires boolean request dry, rejects ${String(dry)}`, async () => {
+    const response = capture("near_intents_quote_dry_live_capture.json");
+    const request = { ...response.quoteRequest, dry };
+    Object.assign(response.quote, { depositAddress: "unsigned", deadline: request.deadline, refundFee: "1", timeEstimate: 1 });
+    assert.equal((await x3.checkQuoteSignature(response)).valid, true);
+    const leg = { amount: "25000000", min_receive: "24800000", slippage_bps: 50, fee_cap_bps: 100, deadline: request.deadline };
+    const result = await x3.verifyQuote(leg, request, response, { nowMs: x3.parseTimestampMs(response.timestamp) });
+    assert.equal(result.verdict, "refused");
+    assert.ok(result.results.some((g) => g.guard === "quote_request_echo" && g.mismatched.includes("dry")));
+  });
+}
+
 test("an agent's intent is checked against its owner's mandate, term by term", async () => {
   const tokens = JSON.parse(readFileSync(new URL("../../../tests/fixtures/near_intents_tokens.json", import.meta.url), "utf8"));
   const mandateSource = readFileSync(new URL("../../../examples/near_mandate_agent.x3", import.meta.url), "utf8");
@@ -158,14 +186,9 @@ test("a page without WebCrypto is told why, not that the quote is forged", () =>
 
 test("without WebCrypto a real quote still fails closed, with the real reason", async () => {
   const r = capture("near_intents_quote_dry_live_capture.json");
-  const saved = Object.getOwnPropertyDescriptor(globalThis, "crypto");
-  Object.defineProperty(globalThis, "crypto", { value: {}, configurable: true });
-  try {
-    const check = await x3.checkQuoteSignature(r);
-    assert.equal(check.valid, false);
-    assert.match(check.reason, /turned off WebCrypto/);
-  } finally {
-    Object.defineProperty(globalThis, "crypto", saved);
-  }
+  const noWebCrypto = { isSecureContext: true, crypto: {} };
+  const check = await x3.checkQuoteSignature(r, x3.ONE_CLICK_MANAGER_PUBLIC_KEY, noWebCrypto);
+  assert.equal(check.valid, false);
+  assert.match(check.reason, /turned off WebCrypto/);
   assert.equal((await x3.checkQuoteSignature(r)).valid, true);
 });

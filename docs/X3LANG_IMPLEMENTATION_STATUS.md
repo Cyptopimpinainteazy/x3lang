@@ -37,7 +37,7 @@ authorities. Any future synchronization must preserve these boundaries.
 | P0 | Guard holds no origin-chain funds; direct wallet-key spending bypasses policy | Guard README and mandate audit | Wallet or smart-account enforcement must be proven |
 | P0 | There is no current seven-validator, finalized execution evidence | Repository/infrastructure audit | Run the seven-validator and endurance suite |
 | P0 | No live NEAR authorized settlement and refusal evidence is public | Judge guide marks it pending | Owner-authorized deployment, payment and refusal run |
-| P0 | Live cross-VM settlement and finality remain unproven | Only archived fixtures/local tests | Real source/destination evidence with causality caveat |
+| P0 | Trustless (atomic or cryptographic) cross-VM settlement remains unproven | 2026-11-07: an `.x3`-specified 1 test USDC transfer from Base Sepolia (EVM) to NEAR testnet finalized on both chains, with the program hash bound on NEAR first ([evidence](hackathon/FIRST_FINALIZED_SWAP_EVIDENCE.md)); the two chains were linked by a trusted Tidepool relay | Trust-minimized bridge proof; X3VM bytecode execution |
 | P1 | Real-model Anthropic evidence and 10-request benign accuracy are missing | `ANTHROPIC_API_KEY` unavailable | Run and commit provider/model/response/session evidence |
 | P1 | Register/stack-depth verifier coverage is incomplete | `verifier.rs` currently validates structure and branch boundaries | Add typed register/stack verification |
 | P1 | Repository mirror gate is an active PR | PR #16 | Validate after merge from both repositories |

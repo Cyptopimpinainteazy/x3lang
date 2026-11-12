@@ -175,10 +175,10 @@ pub fn lower_program_with_mode(
             Item::IntentDecl(intent) => {
                 let mut constraints: Vec<String> = intent.constraints.iter().map(expression_to_string).collect();
                 if let Some(owner) = &intent.mandate {
-                    // Preserve the binding for a host that can enforce it. The
-                    // dry-run and default external backends reject non-empty
-                    // intent constraints, so the generic VM does not silently
-                    // present this as locally authorized.
+                    // Preserve the binding for a host that can enforce it.
+                    // ProductionBridgeAdapter rejects unresolved constraints;
+                    // the explicit dry-run backend only simulates resolution.
+                    // A dry-run result is not evidence of mandate authorization.
                     constraints.push(format!("under mandate {}", owner.as_str()));
                 }
                 ir.push(Operation::IntentResolve {

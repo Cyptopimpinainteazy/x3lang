@@ -1,0 +1,25 @@
+{
+  "observed_date_utc": "2026-11-08",
+  "master_sha": "038e82d73a522642ae755af48eb6acb838902329",
+  "open_pr_count": 1,
+  "prs": [
+    {
+      "number": 159,
+      "title": "test(shield): live byte-bound RPC refusals and evidence-first execution plan",
+      "headRefName": "fix/shield-harness-evidence-20261108",
+      "headRefOid": "7129cafb77cdbeb41275baf7371239940a34cde2",
+      "baseRefName": "master",
+      "isDraft": true,
+      "reviewDecision": "",
+      "mergeStateStatus": "UNSTABLE",
+      "url": "https://github.com/Cyptopimpinainteazy/x3lang/pull/159",
+      "failed_or_pending_checks": [
+        {
+          "name": "Verify identical proof code in both GitHub repos",
+          "result": "FAILURE",
+          "url": "https://github.com/Cyptopimpinainteazy/x3lang/actions/runs/42529449545/job/128880175787"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "comment": "x3star.net hosting for the X3Lang judge demos. Only the exact files listed here are packaged into a release and served; anything else returns 404. Each site serves its mount folder at '/'. judge/evidence.json is a local, untracked record and is deliberately absent.",
+  "sites": {
+    "x3lang.x3star.net": {
+      "title": "X3Lang demos",
+      "mount": "deploy/x3star/site",
+      "entry": "index.html"
+    },
+    "controlroom.x3star.net": {
+      "title": "X3 Shield control room",
+      "mount": "",
+      "entry": "docs/hackathon/attack-lab.html"
+    },
+    "guard.x3star.net": {
+      "title": "X3 Guard live quote check",
+      "mount": "x3-lang/near/demo",
+      "entry": "index.html",
+      "notFound": "404.html"
+    },
+    "judge.x3star.net": {
+      "title": "X3 Shield judge console",
+      "mount": "x3-lang/near/demo",
+      "entry": "judge.html",
+      "notFound": "404.html"
+    }
+  },
+  "files": [
+    "deploy/x3star/site/index.html",
+    "docs/hackathon/attack-lab.html",
+    "docs/hackathon/attack-lab-policy.mjs",
+    "docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md",
+    "evidence/tidepool-testnet/FIRST_SWAP_SHA256SUMS.txt",
+    "evidence/tidepool-testnet/first-swap-signed-live-quote-20261107.json",
+    "evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json",
+    "evidence/tidepool-testnet/local-guard-adversarial-review-20261107.json",
+    "evidence/tidepool-testnet/pretrade-finalized-baseline-20261107.json",
+    "x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3",
+    "x3-lang/near/demo/index.html",
+    "x3-lang/near/demo/index.md",
+    "x3-lang/near/demo/judge.html",
+    "x3-lang/near/demo/bnb.html",
+    "x3-lang/near/demo/404.html",
+    "x3-lang/near/demo/x3guard.mjs",
+    "x3-lang/near/demo/judge/judge.mjs",
+    "x3-lang/near/demo/judge/scenarios.json",
+    "x3-lang/near/demo/judge/bnb-readiness.json"
+  ],
+  "csp": {
+    "connect": ["https://1click.chaindefuser.com", "https://free.rpc.fastnear.com"],
+    "style": ["https://fonts.googleapis.com"],
+    "font": ["https://fonts.gstatic.com"],
+    "media": ["https://dotx3.net"],
+    "img": ["https://dotx3.net"]
+  }
+}

@@ -22,7 +22,7 @@ else
   }
 fi
 (cd "$CONTRACT" && cargo build --locked --release --target wasm32-unknown-unknown)
-cargo build --locked --manifest-path "$HARNESS/Cargo.toml"
+(cd "$HARNESS" && cargo build --locked)
 WASM="$CONTRACT/target/wasm32-unknown-unknown/release/x3_agent_vault_testnet.wasm"
 EXEC="$HARNESS/target/debug/x3-agent-vault-sandbox-test"
 sha256sum "$WASM"

@@ -1,0 +1,2 @@
+    Checking x3-guard v0.1.0 (/home/lojak/Documents/ChatGPT/x3langnearhackathon/mainnet-trade/x3-lang/near/x3-guard)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.31s

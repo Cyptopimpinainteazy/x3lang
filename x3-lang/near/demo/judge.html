@@ -117,21 +117,63 @@
   table.runs th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); font-weight: 600; }
   table.runs code { font: 400 0.72rem var(--mono); overflow-wrap: anywhere; }
   .runs-wrap { overflow-x: auto; }
+  .panel.film { margin: 0 0 clamp(14px, 2vw, 22px); }
+  .panel.film h2 { margin: 0; font-size: 1rem; font-weight: 700; }
+  .panel.film video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #0a1018; border-radius: 8px; }
   footer { padding: 0 0 40px; color: var(--ink-soft); font-size: 0.85rem; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand"><h1>X3 Shield Console</h1><span class="by">one X3 mandate, one policy checker, two submitted tracks</span></div>
+    <div class="brand"><h1>X3 Shield Console</h1><span class="by">one X3 mandate, one policy checker, three track views</span></div>
     <p class="lede">An owner writes what an AI agent may spend as an X3 program. The agent writes each payment as an X3 program. Pick a scenario: the same checker approves it, holds it for approval, or refuses it, and says which term decided.</p>
-    <p class="banner" id="banner"><strong>Local policy preview.</strong> Nothing on this page authorizes, signs, quotes, deposits or settles. Each claim below says what level of evidence backs it.</p>
+    <p class="banner" id="banner"><strong>Local policy preview.</strong> The scenarios evaluate locally. The optional mainnet setup check reads finalized NEAR RPC data. This page does not authorize, sign or transfer funds.</p>
     <div class="tools">
       <a class="btn" href="./index.html">X3 Guard: get a real signed 1Click quote</a> <a class="btn" href="./bnb.html">BNB → NEAR live readiness</a>
       <button id="comments" type="button" aria-pressed="false">Show file comments</button>
       <button id="theme" type="button">Theme: system</button>
     </div>
   </header>
+
+  <section class="panel film" aria-labelledby="film-heading">
+    <header><h2 id="film-heading">Watch: Who gets paid? (2:56)</h2><span class="file">music video · dramatization and real receipts</span></header>
+    <div class="body">
+      <video controls playsinline preload="none"
+        poster="https://dotx3.net/media/x3-shield-who-gets-paid-poster.jpg"
+        src="https://dotx3.net/media/x3-shield-who-gets-paid.mp4"
+        aria-describedby="film-note"></video>
+      <p class="sub" id="film-note">Scenes marked DRAMATIZATION are AI-generated. Explorer cards show testnet
+        transactions; terminal shots are local runs of this repository at commit 470d61a. Nothing in the video
+        is a mainnet settlement. <a href="https://github.com/Cyptopimpinainteazy/x3lang/blob/master/docs/hackathon/media/x3-shield-who-gets-paid.mp4">1080p
+        file in the repository</a>.</p>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="chain-evidence-heading">
+    <header><h2 id="chain-evidence-heading">Cross-chain trade and mainnet setup</h2></header>
+    <p><strong>Completed on testnet.</strong> An <code>.x3</code> program specified a trusted Tidepool relay trade.
+      It sent 1.000000 test USDC from Base Sepolia and delivered 0.997400 test USDC on NEAR testnet.</p>
+    <p><a href="https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9">Base Sepolia transfer</a> ·
+      <a href="https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d">NEAR testnet payout</a> ·
+      <a href="https://github.com/Cyptopimpinainteazy/x3lang/blob/470d61a3b77689bb5e0c7e36fc7814d28e761dad/x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3">Exact .x3 source</a></p>
+    <p class="file">Program SHA-256 <code style="overflow-wrap:anywhere">1398f64e7e208d3796883aa59cb169187c1042ac1af3781bd6efc014755df860</code></p>
+    <p><strong>Mainnet setup.</strong> The setup transactions created an agent account and installed a
+      Solana USDC mandate with 25 USDC caps per payment and per 24 hours. The installed terms required
+      owner approval at the 25 USDC cap.</p>
+    <p><a href="https://nearblocks.io/txns/Cvx9yj7bfL4TV1VfVsgyUbcYpQjQQCDrnTWxpPXiAi3d">Agent creation</a> ·
+      <a href="https://nearblocks.io/txns/7yiTpwktY5ZD1CMk9aLtEHE7VUeJtd1e71r8NSqrxAer">Mandate installation</a></p>
+    <button class="btn" id="check-mainnet-setup" type="button">Check mainnet setup</button>
+    <p id="mainnet-setup-result" role="status">Live RPC check ready.</p>
+    <p><strong>Recorded mainnet quote observation.</strong> The
+      <a href="https://github.com/Cyptopimpinainteazy/x3lang/blob/5dde8c968346ab6fe465e89a6700821db4fda7a2/docs/hackathon/USDC_VAULT_SYSTEM_DESIGN.md">November 10 observation and recheck instructions</a>
+      report Guard acceptance of a 25 USDC Solana → NEAR executable quote with a 24.771975 USDC
+      minimum payout. A separate 1Click status read returned <code>PENDING_DEPOSIT</code>
+      with no source or destination transaction hashes. The setup button does not recheck this quote observation or prove settlement.</p>
+    <p><strong>Pending evidence.</strong> Official mainnet swap settlement, a vault-funded payment,
+      and an on-chain hostile-model refusal.</p>
+  </section>
+  <script type="module" src="./judge/mainnet-setup.mjs"></script>
 
   <div class="layout">
     <nav class="rail" aria-label="Scenarios">

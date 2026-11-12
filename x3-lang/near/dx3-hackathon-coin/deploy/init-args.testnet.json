@@ -1,0 +1,13 @@
+{
+  "owner_id": "x3lang.testnet",
+  "faucet_operator_id": "faucet.x3lang.testnet",
+  "holder_parent_id": "judges.x3lang.testnet",
+  "expires_at": "1795651199000000000",
+  "burn_program_sha256": "220396425eadf9036b33ba15ebe4497687048bd385f523538d750dc0411e0c7e",
+  "max_supply": "1000000000000000",
+  "claim_amount": "100000000",
+  "claim_cooldown_sec": 3600,
+  "faucet_daily_cap": "100000000000",
+  "max_transfers_per_day": 20,
+  "max_holders": 500
+}

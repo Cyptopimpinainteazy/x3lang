@@ -1,0 +1,80 @@
+{
+  "network": "mainnet",
+  "apiBase": "/api",
+  "feedFallbackUrl": "evidence/mainnet/feed.json",
+  "explorer": "https://nearblocks.io",
+  "rpcEndpoints": [
+    "https://rpc.mainnet.fastnear.com",
+    "https://rpc.mainnet.near.org"
+  ],
+  "turnstileSiteKey": "",
+  "pollIntervalMs": 1200,
+  "attemptTimeoutMs": 120000,
+  "feedRefreshMs": 15000,
+  "accounts": [
+    {
+      "role": "Owner and Guard contract",
+      "id": "x3lang.near",
+      "expectContract": true
+    },
+    {
+      "role": "Agent",
+      "id": "x3-agent.x3lang.near",
+      "expectContract": false,
+      "isAgent": true
+    },
+    {
+      "role": "Vault",
+      "id": "vault.x3lang.near",
+      "expectContract": true
+    },
+    {
+      "role": "Merchant",
+      "id": "merchant.x3lang.near",
+      "expectContract": false
+    },
+    {
+      "role": "DX3HACK hackathon coin",
+      "id": "dx3hack.x3lang.near",
+      "expectContract": true
+    }
+  ],
+  "setupTxs": [
+    {
+      "label": "Agent account created and funded with 0.10 NEAR",
+      "hash": "Cvx9yj7bfL4TV1VfVsgyUbcYpQjQQCDrnTWxpPXiAi3d",
+      "sender": "x3lang.near"
+    },
+    {
+      "label": "Owner installed the mandate on Guard (create_mandate)",
+      "hash": "7yiTpwktY5ZD1CMk9aLtEHE7VUeJtd1e71r8NSqrxAer",
+      "sender": "x3lang.near"
+    }
+  ],
+  "featuredProgram": {
+    "title": "The .x3 program behind the cross-chain trade",
+    "summary": "1.000000 test USDC left Base Sepolia and 0.997400 arrived on NEAR testnet. The program's SHA-256 was bound on a NEAR Guard contract before the source transfer. The settlement used a trusted testnet relay, so it does not prove atomic settlement.",
+    "path": "programs/base_sepolia_to_near_testnet_1usdc.x3",
+    "sha256": "1398f64e7e208d3796883aa59cb169187c1042ac1af3781bd6efc014755df860",
+    "txs": [
+      {
+        "label": "Source transfer: 1.000000 test USDC",
+        "chain": "Base Sepolia",
+        "hash": "0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9",
+        "url": "https://sepolia.basescan.org/tx/0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9"
+      },
+      {
+        "label": "Guard approval block, before the source transfer (x3guardlaunch2026.testnet)",
+        "chain": "NEAR testnet",
+        "hash": "9uNGKrtSN8dDQS9HYbVNZ7SmYasF52Vm1o8Bxt5kbbYq",
+        "url": "https://testnet.nearblocks.io/blocks/9uNGKrtSN8dDQS9HYbVNZ7SmYasF52Vm1o8Bxt5kbbYq"
+      },
+      {
+        "label": "Settlement: 0.997400 test USDC to x3lang.testnet (maker-signed)",
+        "chain": "NEAR testnet",
+        "hash": "EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d",
+        "url": "https://testnet.nearblocks.io/txns/EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d"
+      }
+    ]
+  }
+}

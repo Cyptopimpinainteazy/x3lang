@@ -375,6 +375,56 @@ def test_echoed_deadline_with_different_precision_still_matches():
     ni.verify_quote(leg, req, sign(response), now=NOW)
 
 
+@pytest.mark.parametrize("live", [False, True])
+def test_signed_quote_kind_must_match_the_requested_kind(live):
+    leg, req = _leg_and_request(live=live)
+    response = good_quote({**req, "dry": not req["dry"]})
+    # On a signed dry response these fields are unsigned; adding them must
+    # never turn the response into an authorization for the live request.
+    response["quote"].update(depositAddress=SOL_ADDR, deadline=req["deadline"],
+                             refundFee="1", timeEstimate=1)
+    if not response["quoteRequest"]["dry"]:
+        sign(response)
+    assert ni.verify_oneclick_quote_signature(response, TEST_KEY)
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_quote(leg, req, response, now=NOW)
+    assert err.value.code == "X3_NEAR_GUARD_FAILED"
+    assert any(g["guard"] == "quote_request_echo" and "dry" in g["mismatched"]
+               for g in err.value.detail)
+
+
+@pytest.mark.parametrize("side", ["request", "response"])
+@pytest.mark.parametrize("bad_dry", [None, 0, 1, "", "false", "true"])
+def test_quote_kind_requires_actual_booleans(side, bad_dry):
+    leg, req = _leg_and_request(live=True)
+    response = good_quote(req)
+    target = req if side == "request" else response["quoteRequest"]
+    target["dry"] = bad_dry
+    sign(response)
+    assert ni.verify_oneclick_quote_signature(response, TEST_KEY)
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_quote(leg, req, response, now=NOW)
+    assert any(g["guard"] == "quote_request_echo" and "dry" in g["mismatched"]
+               for g in err.value.detail)
+
+
+def test_signed_dry_quote_cannot_create_a_live_receipt_or_consume_a_nonce(tmp_path):
+    def downgrade(request):
+        response = good_quote({**request, "dry": True})
+        response["quote"].update(depositAddress=SOL_ADDR, deadline=request["deadline"],
+                                 refundFee="1", timeEstimate=1)
+        return response
+
+    nonce_path, receipt_path = tmp_path / "nonces.json", tmp_path / "receipt.json"
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="", transport=api(downgrade)),
+                 live=True, nonce_store=ni.NonceStore(str(nonce_path)),
+                 receipt_path=str(receipt_path), rpc=near_rpc()[0], now=NOW)
+    assert err.value.code == "X3_NEAR_GUARD_FAILED"
+    assert not nonce_path.exists()
+    assert not receipt_path.exists()
+
+
 # --- client --------------------------------------------------------------------------------
 
 def test_client_sends_bearer_jwt_and_surfaces_http_errors():
@@ -745,7 +795,13 @@ def _settled_receipt(tmp_path):
 
 
 def _all_guard_args(receipt):
-    args = {step: ni.guard_args(receipt, step) for step in ni.GUARD_STEPS}
+    args = {step: ni.guard_args(receipt, step) for step in ni.GUARD_STEPS if step != "outcome"}
+    with pytest.raises(ni.NearIntentsError, match="payout transaction verifier"):
+        ni.guard_args(receipt, "outcome")
+    # Preserve the historical contract-unit-test ABI fixture, not a claim that
+    # this adapter can prove or generate a settled outcome from provider status.
+    args["outcome"] = {"nonce": "n_001", "status": "Settled", "amount_out": "24950000",
+                       "refunded_amount": None, "tx_hashes": ["o1", "n1"]}
     # Real quotes signed by 1Click's key: the contract must verify these exactly as the SDK does.
     args["real_1click_dry_quotes"] = [
         {"signed_payload": ni.signed_quote_payload(r), "signature": r["signature"], "quote_hash": ni.oneclick_quote_hash(r)}
@@ -1005,3 +1061,159 @@ def test_only_a_fully_verified_live_quote_is_eligible_for_wallet_authorization(t
                     receipt_path=str(tmp_path / "r.json"), **common)
     assert live["eligible_for_wallet_authorization"] is True
     assert "wallet signature" in live["authorization_note"]
+
+
+# ---- NEAR Intents Shield incidents ---------------------------------------------------------
+
+DEPOSIT = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+
+
+def shield_with(body, status=200, raw=None):
+    """A ShieldIncidents client whose transport answers `body` and records each call."""
+    calls = []
+
+    def transport(method, url, headers, payload, timeout):
+        calls.append({"method": method, "url": url, "headers": headers})
+        return status, raw if raw is not None else json.dumps(body).encode()
+
+    shield = ni.ShieldIncidents("shield-token", base_url="https://shield.example", transport=transport)
+    shield.calls = calls
+    return shield
+
+
+def incident(scope_type, scope_value, **extra):
+    return {"status": "incidents", "incidents": [{"scopeType": scope_type, "scopeValue": scope_value,
+                                                  "direction": "withdraw", "publicDescription": "test", **extra}]}
+
+
+OPERATIONAL = {"status": "operational"}
+
+
+def _live(tmp_path, shield, transport=None, **kwargs):
+    return ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=transport or api()), live=True,
+                    nonce_store=ni.NonceStore(str(tmp_path / "nonces.json")), receipt_path=str(tmp_path / "r.json"),
+                    rpc=near_rpc()[0], now=NOW, shield=shield, **kwargs)
+
+
+def test_shield_parses_both_documented_shapes():
+    assert ni.parse_shield_incidents(OPERATIONAL) == []
+    parsed = ni.parse_shield_incidents(incident("chain", " eth "))
+    assert parsed == [{"scopeType": "chain", "scopeValue": "eth", "direction": "withdraw", "description": "test"}]
+
+
+@pytest.mark.parametrize("body", [
+    [], "operational", {"status": "degraded"}, {"status": "operational", "incidents": [{"scopeType": "chain"}]},
+    {"status": "incidents"}, {"status": "incidents", "incidents": []},
+    {"status": "incidents", "incidents": ["eth"]},
+    incident("validator", "x"), incident("chain", ""), incident("chain", None),
+])
+def test_any_other_shield_answer_refuses(body):
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.parse_shield_incidents(body)
+    assert err.value.code == "X3_NEAR_SHIELD_MALFORMED"
+
+
+def test_shield_client_sends_the_partner_token_and_fails_closed():
+    shield = shield_with(OPERATIONAL)
+    assert shield.active() == []
+    call = shield.calls[0]
+    assert (call["method"], call["url"]) == ("GET", "https://shield.example/incident")
+    assert call["headers"]["Authorization"] == "Bearer shield-token"
+
+    for client, code in ((shield_with({"message": "nope"}, status=401), "X3_NEAR_SHIELD_HTTP"),
+                         (shield_with(None, raw=b"<html>"), "X3_NEAR_SHIELD_MALFORMED")):
+        with pytest.raises(ni.NearIntentsError) as err:
+            client.active()
+        assert err.value.code == code
+        assert "shield-token" not in err.value.message
+
+    def down(*_):
+        raise ni.NearIntentsError("X3_NEAR_UNREACHABLE", "cannot reach https://shield.example/incident: timed out")
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.ShieldIncidents("t", base_url="https://shield.example", transport=down).active()
+    assert err.value.code == "X3_NEAR_SHIELD_UNREACHABLE"
+
+
+def test_shield_is_configured_only_by_a_token(monkeypatch):
+    assert ni.ShieldIncidents.from_env() is None
+    monkeypatch.setenv("NEAR_INTENTS_SHIELD_JWT", "abc")
+    monkeypatch.setenv("NEAR_INTENTS_SHIELD_URL", "https://shield.example/")
+    shield = ni.ShieldIncidents.from_env()
+    assert (shield.token, shield.base_url) == ("abc", "https://shield.example")
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.ShieldIncidents("")
+    assert err.value.code == "X3_NEAR_SHIELD_UNCONFIGURED"
+
+
+@pytest.mark.parametrize("scope_type, scope_value", [
+    ("chain", "sol"), ("chain", "NEAR"), ("token", NEAR_USDC), ("token", SOL_USDC.upper()),
+    ("address", "x3-demo.near"), ("address", SOL_ADDR), ("bridge", "poa"),
+])
+def test_an_incident_on_the_route_refuses_before_any_quote_is_requested(tmp_path, scope_type, scope_value):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, shield_with(incident(scope_type, scope_value)), transport=transport)
+    assert err.value.code == "X3_NEAR_SHIELD_INCIDENT"
+    assert err.value.detail[0]["matching"][0]["scopeType"] == scope_type
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls), "no deposit address may be created"
+    assert not (tmp_path / "nonces.json").exists()
+    assert not (tmp_path / "r.json").exists()
+
+
+def test_an_incident_on_the_signed_deposit_address_refuses_after_the_quote(tmp_path):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, shield_with(incident("address", DEPOSIT)), transport=transport)
+    assert err.value.code == "X3_NEAR_SHIELD_INCIDENT"
+    assert any(c["url"].endswith("/v0/quote") for c in transport.calls)
+    assert not (tmp_path / "nonces.json").exists(), "a refused quote consumes no nonce"
+    assert not (tmp_path / "r.json").exists(), "and leaves no receipt to deposit from"
+
+
+def test_an_unrelated_incident_is_recorded_and_the_quote_proceeds(tmp_path):
+    result = _live(tmp_path, shield_with(incident("chain", "eth")))
+    assert result["status"] == "awaiting_deposit"
+    assert result["incident_check"] == {"checked": True, "source": "https://shield.example", "active": 1}
+    shield_guards = [g for g in result["guards"] if g["guard"] == "shield_incidents"]
+    assert len(shield_guards) == 2 and all(g["ok"] and g["matching"] == [] for g in shield_guards)
+    receipt = json.loads((tmp_path / "r.json").read_text())
+    assert receipt["incident_check"]["checked"] is True
+
+
+def test_a_shield_outage_refuses_the_quote(tmp_path):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, shield_with(None, status=503), transport=transport)
+    assert err.value.code == "X3_NEAR_SHIELD_HTTP"
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
+
+
+def test_without_a_token_the_quote_says_it_was_not_checked(tmp_path):
+    result = _live(tmp_path, None)
+    assert result["incident_check"] == {"checked": False, "reason": "NEAR_INTENTS_SHIELD_JWT is not set"}
+    assert not any(g["guard"] == "shield_incidents" for g in result["guards"])
+
+
+def test_a_required_check_without_a_token_refuses_live_but_not_dry_quotes(tmp_path, monkeypatch):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, None, transport=transport, require_incident_check=True)
+    assert err.value.code == "X3_NEAR_SHIELD_UNCONFIGURED"
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
+
+    monkeypatch.setenv("X3_REQUIRE_INCIDENT_CHECK", "1")
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, None)
+    assert err.value.code == "X3_NEAR_SHIELD_UNCONFIGURED"
+
+    dry = ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api()), live=False,
+                   nonce_store=ni.NonceStore(str(tmp_path / "n2.json")), rpc=near_rpc()[0], now=NOW)
+    assert dry["incident_check"]["checked"] is False
+
+
+def test_cli_require_incident_check_flag_refuses_without_a_token(tmp_path, capsys):
+    code = ni.main(["quote", str(EXAMPLE), "--tokens", str(TOKENS), "--live", "--require-incident-check",
+                    "--nonce-store", str(tmp_path / "n.json"), "--receipt", str(tmp_path / "r.json")],
+                   client=ni.OneClickClient(jwt="k", transport=api()))
+    assert code != 0
+    assert "X3_NEAR_SHIELD_UNCONFIGURED" in capsys.readouterr().err

@@ -1,5 +1,16 @@
 # X3 Shield — Judge Guide
 
+## Competition framing
+
+**.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
+
+An intent states the desired outcome. The owner’s `.x3` mandate sets the limits.
+The compiler rejects invalid programs; deterministic mandate checks and NEAR Guard
+refuse prohibited terms. NEAR Intents / 1Click supplies the supported execution route.
+Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
+for compile-time versus runtime checks and the evidence boundaries.
+
+
 Start with the evidence for the claim you want to verify. The three checks
 below can be completed without a wallet. They cover the AI Security & Defense
 and Agent Economy submission.
@@ -18,6 +29,26 @@ returns `denied_by_policy` with `mandate_recipient`. This is a local policy
 evaluation over a fixture. If you cannot run Python, the
 [README example](../../README.md#what-a-prompt-injection-looks-like) shows
 the request, the owner’s allowlist, and the expected result.
+
+### 1b. Make the model the attacker
+
+The fixture above shows one refusal. To check that the model is not what stops attacks, run
+the eight red-team cases with a scripted model that complies with every one of them:
+
+```bash
+python3 scripts/hackathon/compromised_agent_redteam.py
+```
+
+The model writes the X3 program each attack asks for (`attacker.near`, 75 and 400 USDC,
+a redirected refund, a Cyrillic look-alike account, wNEAR instead of USDC). Expect
+`Model complied with 8/8 attacks; deterministic checks refused 8/8`, each row naming the
+check that refused it (`mandate_recipient`, `mandate_per_payment`, `mandate_refund_to`,
+`mandate_destination_asset`, or `X3_INVALID_RECEIVER` from the type checker), and under each
+row the payment that program would have submitted with no policy layer. A control request
+for the sanctioned 5 USDC payment runs through the same harness and must be allowed; the
+command exits non-zero otherwise. It is offline and runs the off-chain compiler and mandate
+checks, not the Guard contract. Contrast the [local `qwen3:8b` run](../../evidence/agent-redteam-local-2026-11-06/README.md),
+where the model refused seven of eight attacks itself.
 
 ## 2. Inspect the testnet Guard decisions
 
@@ -44,6 +75,12 @@ credited **0.997400 test USDC** to `x3lang.testnet`. The
 [certificate and receipt details](FIRST_FINALIZED_SWAP_EVIDENCE.md) record
 historical Guard approval, finalized chain observations, and the recipient’s
 balance change.
+
+The transfer was specified by the X3 program
+[`base_sepolia_to_near_testnet_1usdc.x3`](../../x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3).
+`sha256sum` of that file gives `1398f64e…f860`, the program hash the owner bound on the
+Guard before the Base transfer. See [X3 in X3 Shield](X3_LANGUAGE.md) for the offline
+checks and what the record does not prove.
 
 From the repo root, replay the archived evidence offline:
 
@@ -75,11 +112,34 @@ than merely an invalid signature or a wallet allowance violation.
 
 | Mechanism | Security question | Scope and limitation |
 | --- | --- | --- |
-| Agent API policy-bound wallet | Can this agent use the wallet within its limits? | Provider/wallet authorization; not X3's invention |
-| NEAR function-call access key | Can this key call a scoped method with its allowance? | On-chain account-key capability, not signed quote semantics |
+| Agent API policy-bound wallet, e.g. [OutLayer Agent Custody](https://outlayer.fastnear.com/docs/agent-custody) | Can this agent use the wallet within its limits? | Its docs describe an owner policy stored encrypted on NEAR and evaluated inside an Intel TDX enclave (per-transaction, hourly, daily and monthly limits, address allow/deny lists, approvals, freeze), with swaps via NEAR Intents. It holds the funds, which Guard does not. We found no description of checks on a signed 1Click quote's recipient, refund address or slippage, and enforcement trusts the enclave operator rather than a public contract. Not X3's invention |
+| [NEAR function-call access key](https://docs.near.org/protocol/access-keys) | Can this key call a scoped method with its allowance? | On-chain account-key capability scoped to one receiver contract and optional method names; it cannot see call arguments, so not signed quote semantics |
 | X3 intent / mandate policy | Are these recipient, asset, refund, fee, amount, deadline, nonce and approval terms allowed? | Local adapter and Guard checks; Rust compiler currently preserves adapter metadata but does **not** run the mandate guard inside general X3VM |
 | X3 Guard signed-quote gate | Is the exact 1Click manager-signed quote allowed under the stored policy? | Deployed to NEAR testnet; official manager-signed dry quote with a recipient mismatch is refused after signature verification. An allowed live quote authorizes a deposit address only. No live forbidden-quote refusal or deposit is claimed |
 | X3 NEAR proof work | Does real receipt evidence match block and Merkle commitments? | Genuine archived evidence and read-only VM refusal in experimental draft #72; still lacks an independently trusted checkpoint |
+
+### Run the comparison on the real quotes
+
+```bash
+python3 scripts/hackathon/baseline_comparison.py
+```
+
+It takes the two genuine 1Click manager-signed quotes this Guard saw on testnet and first
+proves they are the bytes sent on-chain: each reconstructed `signed_payload` and signature
+hashes to the value archived for its `accept_quote` call. Then it checks each quote three ways:
+
+| Quote | Signature check | Function-call key (`x3lang-guard-20261106.testnet` / `accept_quote`) | X3 Guard terms | On-chain `accept_quote` |
+|---|---|---|---|---|
+| Live, recipient `defuse.near`, policy `defuse.near` | allows | allows | allows | [`6B6k…`](https://testnet.nearblocks.io/txns/6B6k5kre4mFoBq7RuJNadQgrhEvmgb9WDLepX22CxzUZ) succeeded |
+| Dry, recipient `wrap.near`, policy `x3lang-guard-20261106.testnet` | allows | allows | **refuses**: `quote_request_echo` (recipient), `quote_kind` (dry) | [`3Q7q…`](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q) failed |
+
+Both baselines accept both quotes: each signature is valid, and both calls have the same
+receiver and method. Only the X3 term check, using the policy decoded from Guard's own
+archived `register_intent` result, separates them, and it agrees with each on-chain outcome. The
+refused quote has two independent reasons (wrong recipient, dry quote); a live quote with only
+the recipient wrong is the pending live proof. A third, local-only row edits that quote's
+recipient without re-signing it, and the signature check refuses it, so both layers are needed.
+Offline, archived evidence only.
 
 **What now exists:** contract account `x3lang-guard-20261106.testnet`,
 deployed WASM SHA-256
@@ -119,6 +179,33 @@ for the recorded testnet transfer.
 ## Deterministic Guard-level signed-quote refusal (local mock chain)
 
 [Reproduce the scoped contract test and see it in the browser](X3_SHIELD_SIGNED_QUOTE_REFUSAL_DEMO.md): a correctly signed quote using the repo's deliberately **test-only** Ed25519 signer tries to pay `attacker.near`. `agent_accept_quote` rejects it after verification, records no accepted quote and no spend, while an allowed signed quote succeeds. The judge console's evidence panel runs and labels this test separately with `--with-contract`. This is **not** a genuine 1Click production-manager-signed live quote or a testnet transaction. Issue #73 still tracks that milestone.
+
+### How Guard binds a signed quote to the mandate
+
+A forbidden signed quote on the agent path is refused by `quote_request_echo`, not by a
+`mandate_*` guard, and that is the binding working as designed. `agent_accept_quote`
+re-runs every mandate check against the agent's **registered intent** (which was itself
+mandate-checked at registration), then requires the signed quote to equal that intent on
+`originAsset`, `destinationAsset`, `recipient`, `refundTo`, `slippageTolerance` and `amount`,
+and checks quoted fees against the intent's cap. Those are the fields the mandate restricts,
+so signed terms can only be accepted inside it: quote ⊆ intent ⊆ mandate. A quote naming
+`attacker.near` against an intent for `x3-demo.near` fails with `mismatched: ["recipient"]`.
+An intent naming `attacker.near` never registers (`mandate_recipient`, testnet `AhVBD…`).
+
+### Known Guard limits
+
+These are open in the [threat model](../security/X3_SHIELD_THREAT_MODEL.md) and are scheduled after
+the testnet proof, so the proof is made against the reviewed contract bytes:
+
+- **Asset and recipient are allowed independently, not as pairs.** A mandate allowing
+  recipients {A, B} and destination assets {USDC, wNEAR} accepts any combination, such as
+  wNEAR to A even if the owner only meant USDC to A.
+- **Active intents per owner are unbounded.** An agent can register many unaccepted intents;
+  the agent pays the storage, but there is no cap per owner yet.
+- **Guard does not hold funds.** It authorizes Guard-mediated deposits; a holder of an
+  unrestricted wallet key can still transfer directly. Custody vault work is separate.
+- **The historical testnet deployment traps without a reason string.** Its explorer view shows
+  a generic `unreachable`; the archived `check_agent_intent` view gives the reason.
 
 ## Actual Guard WASM in a local NEAR Sandbox (separate from Testnet)
 
@@ -285,17 +372,18 @@ enforcement is independently proven.
 
 | Claim | Required real artifact | Current status |
 | --- | --- | --- |
-| Mainnet Guard deployment | Contract address and deployment transaction | PENDING |
+| Mainnet Guard deployment | Contract address, approved WASM hash and finalized deployment transaction | [VERIFIED: `x3lang.near`, 572248 bytes, `9a614640…a632`, transaction `BVXX3h…3faF`](MAINNET_GUARD_DEPLOYMENT.md); state preserved, funded agent payment still unproven |
 | Testnet Guard deployment | Contract account, WASM/code hashes, finalized deploy tx | VERIFIED: `x3lang-guard-20261106.testnet`, `ac44fa…`, `FJ5vo…` |
 | Owner mandate and revocation | NEAR contract transaction hashes | VERIFIED TESTNET: `J4Wrx…`, `7aVon…` |
 | Allowed official-live quote acceptance | NEAR tx + nonce + quote guard result | VERIFIED TESTNET OWNER PATH: `6B6k…`; no deposit |
 | Official dry quote with forbidden recipient refused | Manager signature check + failure tx | VERIFIED TESTNET: `check_quote` signature ok, recipient mismatch, `3Q7q…` failure |
 | Agent intent to `attacker.near` refused by recipient mandate | Finalized failure tx + `check_agent_intent` | VERIFIED TESTNET: `mandate_recipient`, `AhVBD…`; allowed control `DPJfc…` |
-| Live forbidden quote refused by agent mandate | Live manager-signed failure tx and `mandate_recipient` result | PENDING |
+| Live forbidden quote refused on the agent path | Live manager-signed quote; finalized `agent_accept_quote` failure with `quote_signature` ok, mandate checks on the registered intent ok, and `quote_request_echo` failed on `recipient`; no `quote_accepted` event or spend | PENDING ([why `quote_request_echo`](#how-guard-binds-a-signed-quote-to-the-mandate)) |
 | 1Click Solana USDC deposit | Finalized source transfer tx + mint and amount | PENDING |
 | 1Click NEAR USDC receipt | Destination tx / balance observation, with attribution caveat | PENDING |
 | Tidepool Base Sepolia → NEAR testnet delivery | Finalized source transfer, historical Guard approval, NEAR token receipt and balance change | [RECORDED: 1.000000 sent, 0.997400 delivered](#3-verify-the-archived-tidepool-delivery) via the trusted Tidepool relay |
 | Real local model red team | Model/provider, actual output, compiled artifact | VERIFIED LOCAL: `qwen3:8b`, 8 cases; 7 model refusals and one safe real-recipient program neutralized by effect checks |
+| Compromised model stopped by deterministic checks | Scripted model that writes every attack; per-case refusing check; allowed control | VERIFIED LOCAL OFF-CHAIN: [`compromised_agent_redteam.py`](#1b-make-the-model-the-attacker), 8/8 complied, 8/8 refused for the attack's own reason, control allowed; not a Guard contract refusal |
 | Cryptographic solver causality | Independent cross-chain attribution proof | NOT PROVEN |
 
 Never treat mock signatures or bundled test fixtures as mainnet evidence.
