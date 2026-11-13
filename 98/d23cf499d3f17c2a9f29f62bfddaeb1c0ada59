@@ -1,0 +1,27 @@
+x3-lang/agent_runtime.py
+  s_31fd028fa06438::t_c0b3473c332a51 367-374
+x3-lang/agent_runtime_court.py
+  s_31fd028fa06438::t_8f53aa9613418e 80
+x3-lang/tests/test_agent_runtime_court.py
+  s_31fd028fa06438::t_b9da75a19faf98 72-81
+audit-artifacts/agent-law-local-20261113/python-tests.txt
+  s_31fd028fa06438::t_15b273554a78d3 1-4,15-16
+audit-artifacts/agent-law-local-20261113/verification.json
+  s_31fd028fa06438::t_522be1fc7a7ecf 4,9-11,20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "98d23cf499d3f17c2a9f29f62bfddaeb1c0ada59",
+  "prompts": {},
+  "sessions": {
+    "s_31fd028fa06438": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69bd2b58-7f31-4914-aa3b-33a64ae821c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
