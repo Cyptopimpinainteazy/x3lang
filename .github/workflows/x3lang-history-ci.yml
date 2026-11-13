@@ -48,6 +48,8 @@ jobs:
         run: python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py scripts/hackathon/test_route_probe.py -q
       - name: Browser demo
         run: node --test x3-lang/near/demo/test/*.test.mjs
+      - name: Judge transaction lookup boundaries
+        run: node --test x3-lang/near/judge-live/test/*.test.mjs
       - name: Offline three-track judge demo
         run: python scripts/hackathon/demo.py
 

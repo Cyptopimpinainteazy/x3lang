@@ -5,9 +5,14 @@ endpoints below, served under `config.json` → `apiBase` (default `/api`, same 
 reverse-proxied to the runner). Same origin means no CORS setup is needed. If you
 serve the API on another origin, allow `GET, POST` from the site's origin.
 
-The site does not trust the runner. For every finalized attempt it fetches the
-transaction from NEAR RPC itself, recomputes the SHA-256 of the returned `.x3`
-source in the browser, and flags any mismatch to the judge. Return real values only.
+For a reported finalized attempt the site fetches the transaction from NEAR RPC,
+requires an explicit final success or failure, and compares the requested hash,
+configured agent signer and reported receiver. It flags contradictory outcomes.
+It also recomputes the SHA-256 of the returned `.x3` source. These are basic
+consistency checks: they do not bind that source, nonce, payment terms or reported
+mandate to the transaction, establish its Guard rejection reason, verify token
+transfers or authenticate RPC finality. Results and feed entries remain explicitly
+runner-reported; matching hashes do not establish execution or payment. Return real values only.
 
 All bodies are JSON. All amounts are decimal strings in token units (USDC has 6
 decimals: `"0.10"`, `"24.769995"`). All timestamps are ISO 8601 UTC.
