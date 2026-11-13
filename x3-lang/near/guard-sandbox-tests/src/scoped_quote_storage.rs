@@ -81,7 +81,26 @@ async fn patch_local_manager(
     anyhow::bail!("Sandbox synthetic manager fixture did not become visible")
 }
 
-fn signed_quote(now_ms: u64, key: &SigningKey) -> Result<(String, String, String)> {
+/// Build a synthetic signed quote whose request echo matches the registered
+/// `policy`, so the scenario keeps testing storage rollback, not a stale fixture.
+fn signed_quote(now_ms: u64, key: &SigningKey, policy: &Value) -> Result<(String, String, String)> {
+    let field = |name: &str| -> Result<&str> {
+        policy[name]
+            .as_str()
+            .with_context(|| format!("policy.{name} must be a string"))
+    };
+    let amount = field("amount")?;
+    let amount_units: u128 = amount.parse().context("policy.amount")?;
+    let min_receive: u128 = field("min_receive")?.parse().context("policy.min_receive")?;
+    // Quote a minimum strictly above the registered floor and no greater than the input.
+    let min_amount_out = (min_receive + 100_000).min(amount_units);
+    ensure!(
+        min_amount_out >= min_receive,
+        "fixture minimum must meet policy.min_receive"
+    );
+    let slippage = policy["slippage_bps"]
+        .as_u64()
+        .context("policy.slippage_bps must be an integer")?;
     let utc = |ms| -> Result<String> {
         Ok(DateTime::<Utc>::from_timestamp_millis(ms)
             .context("fixture timestamp")?
@@ -90,10 +109,10 @@ fn signed_quote(now_ms: u64, key: &SigningKey) -> Result<(String, String, String
     let payload = json!({
         "dry": false, "swapType": "EXACT_INPUT", "depositType": "ORIGIN_CHAIN",
         "refundType": "ORIGIN_CHAIN", "recipientType": "DESTINATION_CHAIN",
-        "slippageTolerance": 50, "originAsset": "nep141:usdc.near",
-        "destinationAsset": "nep141:usdc.near", "amount": "25000000",
-        "refundTo": "refund.sandbox", "recipient": "x3-demo.near",
-        "amountIn": "25000000", "amountOut": "25000000", "minAmountOut": "24900000",
+        "slippageTolerance": slippage, "originAsset": field("origin_asset")?,
+        "destinationAsset": field("destination_asset")?, "amount": amount,
+        "refundTo": field("refund_to")?, "recipient": field("recipient")?,
+        "amountIn": amount, "amountOut": amount, "minAmountOut": min_amount_out.to_string(),
         "amountInUsd": "25.0", "amountOutUsd": "25.0", "refundFee": "0",
         "depositAddress": DEPOSIT, "deadline": utc((now_ms + 600_000).try_into()?)?,
         "timestamp": utc(now_ms.try_into()?)?, "timeEstimate": 1
@@ -157,7 +176,7 @@ pub async fn verify(
         .timestamp_nanosec
         .parse::<u64>()?
         / 1_000_000;
-    let (payload, signature, hash) = signed_quote(now_ms, &synthetic_key)?;
+    let (payload, signature, hash) = signed_quote(now_ms, &synthetic_key, &policy)?;
     for nonce in [NONCE, REPLAY_NONCE] {
         guard
             .call_function(
