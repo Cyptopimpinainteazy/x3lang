@@ -35,7 +35,18 @@ def units(value):
 
 
 def success_value(status):
-    return isinstance(status, dict) and set(status) == {"SuccessValue"}
+    if not isinstance(status, dict) or set(status) != {"SuccessValue"}:
+        return False
+    value = status["SuccessValue"]
+    if not isinstance(value, str):
+        return False
+    try:
+        # NEAR encodes successful return bytes as base64, including "" for void.
+        # Reject malformed/noncanonical encodings rather than trusting a key name.
+        decoded = base64.b64decode(value, validate=True)
+        return base64.b64encode(decoded).decode("ascii") == value
+    except ValueError:
+        return False
 
 
 def source_transfer(tx, signature, funding_owner, destination, amount, start, deadline):
