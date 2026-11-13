@@ -364,6 +364,14 @@ CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payloa
                 keys.add(bytes(row["public_key"]))
         return identities, keys
 
+    def check_reviewer(self, public_key):
+        """Refuse halted registered reviewers, including configured key aliases."""
+        _key(public_key)
+        with self._connection() as db:
+            row = db.execute("SELECT * FROM agents WHERE public_key=?", (public_key,)).fetchone()
+            if row is not None:
+                self._active(db, row, self._now())
+
     def review_exclusions(self, agent_id):
         """Trusted court helper: subject, ancestors, descendants, and their keys."""
         with self._connection() as db:

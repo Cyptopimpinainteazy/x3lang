@@ -69,3 +69,13 @@ class CourtTests(unittest.TestCase):
                       self.agent.sign(finding_payload(case,"alias","violation","Self acquittal attempt",40)))
         with self.assertRaisesRegex(ValueError,"ineligible"):
             court.review(self.rt,self.action_id,[alias],now=10)
+
+    def test_revoked_registered_juror_cannot_review_under_alias(self):
+        key = self.jurors["j1"]
+        manifest = AgentManifest("registered-reviewer", None, frozenset({"read"}),
+                                 frozenset({"local"}), 10, 100, (), 0)
+        payload = self.rt.genesis_payload(manifest, raw(key), "reviewer-birth")
+        self.rt.genesis(manifest, raw(key), "reviewer-birth", self.owner.sign(payload))
+        self.rt.revoke("registered-reviewer", "reviewer revoked")
+        with self.assertRaisesRegex(ValueError, "inactive"):
+            self.court.review(self.rt, self.action_id, self.findings(), now=10)

@@ -77,6 +77,7 @@ class IncidentCourt:
                 raise ValueError("ineligible or duplicate juror")
             if f.expires_at <= now:
                 raise ValueError("expired finding")
+            runtime.check_reviewer(eligible[f.juror_id])
             payload = finding_payload(case_hash, f.juror_id, f.decision, f.reason, f.expires_at)
             try:
                 Ed25519PublicKey.from_public_bytes(eligible[f.juror_id]).verify(f.signature, payload)
