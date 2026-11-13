@@ -309,12 +309,10 @@ It makes no blockchain transactions and uses no wallet. Longer walkthrough:
 
 ## Three project perspectives
 
-Built at NEAR HACKATHON 2026. The documented submission scope is
-**AI Security & Defense** (`security`, primary) and **Agent Economy** (`agents`).
-**Unstoppable DeFi** (`defi`) is a proposed third-track perspective, not a
-confirmed submitted track. The three project perspectives below do not establish
-which tracks the organizer has accepted; confirm the owner-approved submission
-record before changing that scope. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
+Built at NEAR HACKATHON 2026. Submitted tracks: **AI Security & Defense**
+(`security`, primary), **Agent Economy** (`agents`) and **Unstoppable DeFi** (`defi`).
+For DeFi, X3 Shield is an authorization layer over NEAR Intents / 1Click, not a new
+bridge or atomic settlement protocol. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
 and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md). The
 [three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md) separates local policy,
 historical testnet evidence, and the official 1Click mainnet settlement path, completed once
@@ -325,9 +323,9 @@ proposes and the owner signs; a Solana wallet keyholder can still transfer direc
 |---|---|---|
 | **AI Security & Defense** | A policy engine for agent spending: recipient and asset allowlists, per-payment and 24-hour caps, slippage and fee ceilings, approval thresholds, expiry, one-use nonces. Enforced off-chain by the compiler and on-chain by `x3-guard`, which reads terms from the signed quote bytes. | 3, 4, 5, 6, 9, [testnet refusals](#proof-on-near-testnet) |
 | **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. On mainnet, the agent's restricted key accepted an official live quote under the mandate and the trade settled ([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet), [mainnet invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md) |
-| **Unstoppable DeFi (proposed)** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
+| **Unstoppable DeFi** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
 
-The proposed DeFi perspective uses historical trusted Tidepool community-testnet
+The DeFi testnet trade used historical trusted Tidepool community-testnet
 delivery, not official 1Click settlement. On testnet the official 1Click quote flow was
 exercised up to deposit authorization and stopped before funding; one official 1Click
 settlement then completed on mainnet
