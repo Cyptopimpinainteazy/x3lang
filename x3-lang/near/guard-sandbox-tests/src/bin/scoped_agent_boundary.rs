@@ -15,6 +15,9 @@ use near_api::{
 };
 use serde_json::json;
 
+#[path = "../scoped_quote_storage.rs"]
+mod scoped_quote_storage;
+
 // Never accept success or a generic transport error as an authorization refusal.
 // Require a typed node transaction-rejection, not arbitrary RPC timeout.
 // near-api 0.8.6 currently suppresses the specific InvalidAccessKey subtype.
@@ -340,6 +343,17 @@ async fn main() -> Result<()> {
         .data;
     ensure!(missing.is_null(), "budget-exhausted receipt left an intent");
     println!("X3_SANDBOX_OWNER_FUNDED_STORAGE_OK local_only=true scoped_zero_deposit_registration=true exhausted_receipt_rollback=true mandate_refusal=true withdrawal_callback=true");
+
+    scoped_quote_storage::verify(
+        &sandbox,
+        &network,
+        &guard_id,
+        &agent_id,
+        administrator.clone(),
+        scope_key.clone(),
+        policy,
+    )
+    .await?;
 
     let before = Account(attacker_id.clone())
         .view()
