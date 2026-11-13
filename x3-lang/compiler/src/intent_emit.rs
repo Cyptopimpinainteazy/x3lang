@@ -18,7 +18,9 @@
 use serde::{Deserialize, Serialize};
 
 /// AST types for building the intent draft from parsed source.
-use x3_lang_ast::ast::{Expression, IntentDecl, LiteralExpr, RequireKind as AstRequireKind};
+use x3_lang_ast::ast::{
+    ComparisonOp, Expression, FailureAction, IntentDecl, LiteralExpr, RequireKind as AstRequireKind, Statement,
+};
 
 /// A single source-level constraint emitted by the x3-lang parser.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -138,9 +140,9 @@ impl IntentSpecDraft {
     pub fn timeout_from_arg(arg: &str) -> Option<u64> {
         let arg = arg.trim();
         if let Some(rest) = arg.strip_suffix('m') {
-            rest.parse::<u64>().ok().map(|n| n * 60)
+            rest.parse::<u64>().ok().and_then(|n| n.checked_mul(60))
         } else if let Some(rest) = arg.strip_suffix('h') {
-            rest.parse::<u64>().ok().map(|n| n * 3600)
+            rest.parse::<u64>().ok().and_then(|n| n.checked_mul(3600))
         } else if let Some(rest) = arg.strip_suffix('s') {
             rest.parse::<u64>().ok()
         } else {
@@ -161,9 +163,9 @@ impl IntentSpecDraft {
 /// - `Require { kind: Finality, subject: Some("eth"), value: >= 12 }`
 /// - `Require { kind: Slippage, value: <= 50 bps }`
 ///
-/// Returns `None` if the intent body cannot be parsed into a valid draft
-/// (e.g., no source lock operation found). The intent compiler downstream
-/// will also run its own 13 safety checks on whatever this produces.
+/// This is a draft, not an authorization or settlement proof. Callers must
+/// validate source semantics before export; downstream adapters must enforce
+/// the constraints against their actual execution context.
 pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
     let name = intent.name.as_str().to_string();
     let mut draft = IntentSpecDraft::new(
@@ -237,19 +239,41 @@ pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
                             .map(|s| s.as_str().to_string())
                             .unwrap_or_else(|| "x3".to_string());
                         let val_str = guard_value_string(guard);
-                        draft = draft.with_constraint("finality", format!("{chain_str} >= {val_str}"));
+                        draft = draft.with_constraint("finality", format!("{chain_str} {val_str}"));
                         continue;
                     }
                     AstRequireKind::Slippage => "slippage",
+                    AstRequireKind::Fees => "fees",
                     AstRequireKind::CanonicalSupply => {
-                        draft = draft.with_constraint("require_canonical_supply", "");
+                        draft = draft.with_constraint("require_canonical_supply", guard_value_string(guard));
                         continue;
                     }
-                    AstRequireKind::Nonce => "require_receiver_owner",
-                    _ => continue,
+                    AstRequireKind::Nonce => {
+                        let status = subject.as_ref().map(|s| s.as_str()).unwrap_or("unused");
+                        draft = draft.with_constraint("nonce", format!("{status} {}", guard_value_string(guard)));
+                        continue;
+                    }
+                    _ => {
+                        let value = guard_value_string(guard);
+                        let argument = match (&guard.subject, &guard.value) {
+                            (Some(subject), Some(_)) => format!("{} {value}", subject.as_str()),
+                            _ => value,
+                        };
+                        draft = draft.with_constraint(guard.kind.as_str(), argument);
+                        continue;
+                    }
                 };
                 let val_str = guard_value_string(guard);
                 draft = draft.with_constraint(constraint_str, val_str);
+            }
+            Statement::OnTimeout { duration, action } => {
+                // An explicit unsupported/overflowing duration is invalid (zero),
+                // never the unrelated builder default. The CLI checks diagnostics
+                // before exporting any draft.
+                draft.timeout_secs = timeout_seconds(duration).unwrap_or(0);
+                if let FailureAction::Refund(receiver) = action {
+                    draft = draft.with_constraint("refund_path", string_from_expr(receiver));
+                }
             }
             x3_lang_ast::ast::Statement::Atomic(x3_lang_ast::ast::AtomicBlock {
                 meta: Some(expr),
@@ -266,7 +290,62 @@ pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
         }
     }
 
+    collect_destination_floor(&intent.body.stmts, &mut draft);
+    for constraint in &mut draft.constraints {
+        if constraint.kind == "refund_path" {
+            if let Some(asset) = constraint.arg.strip_suffix(":sender") {
+                constraint.arg = format!("{asset}:{}", draft.source_owner);
+            }
+        }
+    }
     draft
+}
+
+fn collect_destination_floor(statements: &[Statement], draft: &mut IntentSpecDraft) {
+    fn terminal(statement: &Statement) -> Option<&Statement> {
+        match statement {
+            Statement::Atomic(block) => block.body.stmts.last().and_then(terminal),
+            other => Some(other),
+        }
+    }
+    // A route may visit the destination asset and leave it again. Only its
+    // terminal bridge can describe the final payout; intermediate floors do not.
+    let last = statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Atomic(_) => terminal(statement),
+            _ => None,
+        })
+        .next_back();
+    if let Some(Statement::Bridge {
+        to,
+        min_receive: Some(Expression::Literal(LiteralExpr::Int { value, .. })),
+        ..
+    }) = last
+    {
+        if to.chain.as_str().eq_ignore_ascii_case(&draft.dest_chain) && to.name.as_str() == draft.dest_asset {
+            draft.dest_min_amount = Some(*value);
+        }
+    }
+}
+
+fn timeout_seconds(expression: &Expression) -> Option<u64> {
+    use x3_lang_common::DurationUnit;
+    match expression {
+        Expression::Literal(LiteralExpr::Int { value, .. }) => u64::try_from(*value)
+            .ok()?
+            .checked_mul(crate::lowering::SECONDS_PER_BLOCK),
+        Expression::Literal(LiteralExpr::Duration { value, unit }) => match unit {
+            DurationUnit::Nanoseconds => Some(value.div_ceil(1_000_000_000)),
+            DurationUnit::Microseconds => Some(value.div_ceil(1_000_000)),
+            DurationUnit::Milliseconds => Some(value.div_ceil(1_000)),
+            DurationUnit::Seconds => Some(*value),
+            DurationUnit::Minutes => value.checked_mul(60),
+            DurationUnit::Hours => value.checked_mul(3600),
+            DurationUnit::Days => value.checked_mul(86400),
+        },
+        _ => None,
+    }
 }
 
 /// Attempt to extract a (kind, value) pair from an expression
@@ -301,7 +380,26 @@ fn expression_to_keyword_value(expr: &Expression) -> Option<(String, String)> {
 /// emitted constraint carries.
 fn guard_value_string(guard: &x3_lang_ast::ast::RequireGuard) -> String {
     if let Some(value) = &guard.value {
-        return value_string_from_expr(value);
+        let mut rendered = value_string_from_expr(value);
+        if matches!(guard.kind, AstRequireKind::Fees | AstRequireKind::Slippage)
+            && matches!(value, Expression::Literal(LiteralExpr::Int { .. }))
+        {
+            rendered.push_str(" bps");
+        }
+        let comparison = match guard.comparison {
+            Some(ComparisonOp::GreaterOrEqual) => ">=",
+            Some(ComparisonOp::Greater) => ">",
+            Some(ComparisonOp::LessOrEqual) => "<=",
+            Some(ComparisonOp::Less) => "<",
+            Some(ComparisonOp::Equal) => "==",
+            Some(ComparisonOp::NotEqual) => "!=",
+            None => "",
+        };
+        return if comparison.is_empty() {
+            rendered
+        } else {
+            format!("{comparison} {rendered}")
+        };
     }
     guard
         .subject

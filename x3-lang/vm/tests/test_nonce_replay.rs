@@ -100,3 +100,21 @@ fn distinct_nonces_do_not_interfere() {
         "and both are recorded, in the order they were tested"
     );
 }
+
+#[test]
+fn named_nonce_alias_enforces_the_same_runtime_replay_guard() {
+    // This unbound VM probe tests replay, not NEAR mandate authorization.
+    let alias = compiled(&intent("    require nonce probe_alias_001"));
+    let canonical = compiled(&intent("    require nonce unused probe_alias_001"));
+    assert_eq!(alias, canonical, "the alias must preserve the canonical bytecode guard");
+    assert!(alias
+        .windows(b"probe_alias_001".len())
+        .any(|bytes| bytes == b"probe_alias_001"));
+    let error = vm_with(alias.clone(), &["probe_alias_001"])
+        .execute()
+        .expect_err("the exact alias nonce was already used");
+    assert!(format!("{error:?}").contains("X3_REQUIRE_FAILED"));
+    let mut fresh = vm_with(alias, &["another_nonce"]);
+    fresh.execute().expect("a different used nonce does not block this one");
+    assert!(fresh.state.used_nonces.iter().any(|nonce| nonce == "probe_alias_001"));
+}

@@ -3727,9 +3727,10 @@ const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
 /// Their own Python suites check them (test_surface_drift.py, test_native_vault_binding.py).
 const PYTHON_ONLY_MANDATES: [&str; 2] = ["near_mandate_agent.x3", "near_native_vault_supplier.x3"];
 
-/// This historical testnet source can be emitted as a draft, while the generic
-/// production compiler must continue to refuse its unsupported chain. Neither outcome is
-/// evidence that a quote was authorized or a transaction was executed.
+/// This historical testnet source is compiled only by the Python Base Sepolia frontend
+/// (scripts/hackathon/base_sepolia_x3_intent.py). Every generic production entry point
+/// (`intent`, `check` and `build`) must refuse its unsupported chain and emit nothing.
+/// None of these outcomes is evidence that a quote was authorized or a transaction executed.
 fn assert_testnet_draft_and_generic_refusal(file: &std::path::Path) {
     let draft_path = unique_temp("testnet-adapter.intent.json");
     let draft = x3c()
@@ -3739,16 +3740,25 @@ fn assert_testnet_draft_and_generic_refusal(file: &std::path::Path) {
         .arg(&draft_path)
         .output()
         .expect("x3c intent");
-    assert!(
-        draft.status.success(),
-        "the testnet adapter draft must be emitted: {}{}",
+    let draft_diagnostic = format!(
+        "{}{}",
         String::from_utf8_lossy(&draft.stdout),
         String::from_utf8_lossy(&draft.stderr)
     );
-    let value: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&draft_path).expect("draft file")).expect("draft JSON");
-    assert_eq!(value["source_chain"], "BaseSepolia");
-    assert_eq!(value["dest_chain"], "Near");
+    assert!(
+        !draft.status.success(),
+        "fail-closed intent admission must refuse the unsupported testnet chain: {draft_diagnostic}"
+    );
+    // `intent` reports admission errors in Debug form, which escapes the quotes.
+    assert!(
+        draft_diagnostic.contains("intent admission failed")
+            && draft_diagnostic.contains(r#"X3E0501: source chain \"basesepolia\" is not a known production chain"#),
+        "intent must name the chain boundary, not fail for an unrelated reason: {draft_diagnostic}"
+    );
+    assert!(
+        !draft_path.exists(),
+        "refused testnet source must not produce an adapter draft"
+    );
 
     let artifact = unique_temp("testnet-adapter.x3b");
     for operation in ["check", "build"] {
