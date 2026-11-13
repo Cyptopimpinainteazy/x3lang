@@ -28,6 +28,10 @@ steps of that incident with a model that falls for every one. All three attack p
 refused for their own reason, and the owner's ordinary payment still goes through
 ([step 5b](#5b-replay-a-real-wallet-drain)).
 
+**Hosted demo:** [dotx3.net](https://dotx3.net) has the judge console, the
+[proof page](https://dotx3.net/proof) with the evidence and its limits, the Attack Lab and
+the video. The [Try it](#try-it-do-x-see-y) steps below need only this repository.
+
 ## What is new here
 
 - **Policy is a program, not a settings page.** The mandate is typed source that compiles, has a
@@ -139,9 +143,9 @@ More on what `.x3` does here: [X3 in X3 Shield](docs/hackathon/X3_LANGUAGE.md).
 ## Try it: do X, see Y
 
 All steps run from the repository root. Steps 1 to 8 are offline, need no wallet, no API key
-and no network after install, and sign or send nothing. Each was run on Linux x86_64 with
-Python 3.13 and Node 22 at commit `48f650a`. Test counts grow as regressions are added;
-the pass condition is zero failures, not an exact count.
+and no network after install, and sign or send nothing. Each was re-run from a fresh clone
+of commit `efb514f` on Linux x86_64 with Python 3.12 and Node 24. Test counts grow as
+regressions are added; the pass condition is zero failures, not an exact count.
 
 Setup for steps 2 to 8 (Python 3.11+):
 
@@ -247,7 +251,8 @@ list containing `"guard": "mandate_recipient", "ok": false` with detail
 node --test x3-lang/near/demo/test/*.test.mjs
 ```
 
-**See:** `# fail 0` (at `48f650a`: `# pass 92`). To look at it, run
+**See:** `fail 0`. Node 23 and later print `ℹ fail 0`; Node 22 prints `# fail 0`
+(at `efb514f`: 101 tests pass). To look at it, run
 `python3 -m http.server 8000 --directory x3-lang/near/demo` and open
 `http://localhost:8000/judge.html`. The [Attack Lab](docs/hackathon/attack-lab.html) page
 evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases in the browser.
@@ -258,8 +263,8 @@ evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases in
 PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 ```
 
-**See:** a final line with no failures; at `48f650a` it reads `636 passed, 1 skipped`
-(about 12 seconds).
+**See:** a final line with no failures; at `efb514f` it reads
+`986 passed, 1 skipped, 102 subtests passed` (about 25 seconds).
 
 ### 9. NEAR contract tests (Rust)
 
@@ -267,7 +272,7 @@ PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 (cd x3-lang/near/x3-guard && cargo test --locked --quiet)
 ```
 
-**See:** `test result: ok. 62 passed; 0 failed`. The folder pins Rust 1.99.1 with the
+**See:** `test result: ok. 68 passed; 0 failed` (at `efb514f`). The folder pins Rust 1.99.1 with the
 `wasm32-unknown-unknown` target, so `rustup` downloads that toolchain on first run. In a
 sandbox that blocks `static.rust-lang.org` this step fails with a download error before any
 test runs; steps 1 to 8 are unaffected.
@@ -463,7 +468,9 @@ controls and open risks.
   `baseline` tag (last commit before 2026-10-19 00:00 UTC):
   [`baseline...master`](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...master).
   PRIOR_WORK.md lists six pre-cutoff commits that appear in that diff because they were
-  merged later.
+  merged later. Following the organizer's naming, the same commit is also tagged
+  `pre-hackathon`, and `hackathon-submission` marks the submitted commit:
+  [`pre-hackathon...hackathon-submission`](https://github.com/Cyptopimpinainteazy/x3lang/compare/pre-hackathon...hackathon-submission).
 - **Libraries.** `near-sdk` 5.30 (contracts); `pycryptodome` and `cryptography` (Python);
   `pytest` (tests); Node.js 22 built-in test runner (browser parity tests).
 - **AI-generated code.** Hackathon-window code and documentation were written with AI coding
