@@ -177,7 +177,7 @@
 
   <div class="layout">
     <nav class="rail" aria-label="Scenarios">
-      <div><h2>A · Authorized agent payment</h2><ol id="rail-A"></ol></div>
+      <div><h2>A · Payment and approval checks</h2><ol id="rail-A"></ol></div>
       <div><h2>B · Forbidden actions</h2><ol id="rail-B"></ol></div>
       <p class="sub" id="tracks"></p>
     </nav>
@@ -210,11 +210,12 @@
       </section>
 
       <section class="panel">
-        <header><h3><span class="n">4</span>The cross-chain transaction</h3><span class="file">one NEAR Intents leg</span></header>
+        <header><h3><span class="n">4</span>The cross-chain request preview</h3><span class="file">one NEAR Intents leg</span></header>
         <div class="body">
           <div class="route" id="route"></div>
           <dl class="facts" id="facts"></dl>
-          <p class="none"><strong>Transactions: none.</strong> This console asks neither 1Click nor NEAR for anything, so it has no quote, deposit address, or transaction hash to show. No atomic rollback across Solana and NEAR is claimed: a failed swap is refunded by 1Click to the refund address above.</p>
+          <p class="none"><strong>Transactions: none.</strong> This console asks neither 1Click nor NEAR for anything, so it has no quote, deposit address, or transaction hash to show. Official 1Click mainnet settlement evidence is outstanding.</p>
+          <p class="sub"><strong>The agent proposes. The owner signs.</strong> Guard does not custody the Solana wallet. Its keyholder can transfer outside Guard.</p>
           <div class="tools"><button id="open-guard" type="button">Open this payment in X3 Guard for a signed dry quote</button></div>
         </div>
       </section>

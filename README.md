@@ -1,5 +1,7 @@
 # X3 Shield
 
+[Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks bind this repository's exact source and execute its proofs. Equality with the private parent repository is checked only by an explicitly requested parity audit.
+
 **AI agents are getting wallets. Their spending limits should not live inside the model.**
 
 On May 4, 2026, an attacker drained about $150,000 from Grok's AI-agent wallet in two moves.
@@ -307,7 +309,10 @@ Built at NEAR HACKATHON 2026. The documented submission scope is
 confirmed submitted track. The three project perspectives below do not establish
 which tracks the organizer has accepted; confirm the owner-approved submission
 record before changing that scope. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
-and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md).
+and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md). The
+[three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md) separates local policy,
+historical testnet evidence, and outstanding official 1Click mainnet settlement. The agent
+proposes and the owner signs; a Solana wallet keyholder can still transfer directly outside Guard.
 
 | Track | What X3 Shield shows | Steps |
 |---|---|---|

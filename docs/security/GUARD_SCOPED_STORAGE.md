@@ -32,6 +32,24 @@ payment cap only counts accepted quotes. Owners choose whether to top up again.
 The fixed credit record remains allocated after withdrawal; its storage charge
 is not returned. Gas comes from the agent account/key allowance separately.
 
+## Explicit client storage mode
+
+After reviewing the deployed Guard's prepaid-storage support and funding the
+owner/agent storage credit, select `--prepaid-agent-storage` on
+`near_intents.py prepare`, `near_intents.py guard-args`,
+`near_agent.py register-args`, or `near_agent.py pay`. The generated JSON and
+commands use `0 NEAR` for `agent_register_intent`, `agent_accept_quote`, and
+`agent_record_outcome`. Live agent reports preserve the option in their next
+commands. For the guided script, export `X3_AGENT_PREPAID_STORAGE=1` for each
+`agent-demo.sh` invocation; its default is `0`, and other values are rejected.
+
+This option selects deposits only. It does not verify deployed code, available
+credit, key permissions, or authorization, and it never funds or raises a budget.
+Insufficient credit still fails on chain. The default retains legacy attached
+deposits. Owner registration, quote, outcome, approval, mandate and revoke
+commands retain their existing deposits even when the option is selected.
+The existing settlement evidence gates and owner confirmations still apply.
+
 ## Upgrade compatibility
 
 The `Contract`, `Mandate`, intent layouts and map prefixes are unchanged.
@@ -54,10 +72,19 @@ Run `cargo test --locked` from `x3-lang/near/x3-guard`, and
 `bash scripts/hackathon/scoped_agent_sandbox_smoke.sh` from the repository root.
 The Sandbox exercises the compiled production WASM with a real function-call
 signer, storage debit, mandate refusal, withdrawal and failed-registration
-rollback. Unit tests cover acceptance/outcome charging, credit isolation/caps,
+rollback. It also exercises quote acceptance with exhausted storage credit:
+the failed receipt must preserve both replay ledgers, both intent records,
+the mandate's spending history, credit and storage usage. Funding credit then
+allows the identical quote once; a cross-nonce replay must fail without changes.
+This uses synthetic signatures and a manager public key patched only into the
+ephemeral Sandbox's state. The production manager first refuses the synthetic
+quote, the exact production WASM remains unchanged, and the manager is restored
+afterward. This proves runtime rollback, not official 1Click acceptance or
+cross-chain settlement. See the [execution evidence](../../audit-artifacts/guard-quote-storage-rollback-20261111/verification.json).
+
+Unit tests cover acceptance/outcome charging, credit isolation/caps,
 and failed-transfer callback restoration. Mocked promise outcomes do not prove
-real failed-transfer execution. The Sandbox does not claim accepted-quote
-storage-exhaustion/replay-ledger rollback or a cross-chain settlement.
+real failed-transfer execution.
 
 Dependency reference: `near-sdk 5.30.0`, pinned in Cargo.lock. Its
 [generated self-call and private-method documentation](https://docs.rs/near-sdk/5.30.0/near_sdk/attr.near.html)

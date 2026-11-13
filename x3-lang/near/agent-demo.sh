@@ -15,7 +15,10 @@
 #   x3-lang/near/agent-demo.sh show                    state, hashes and explorer links
 #
 # Set X3_AGENT_PROVIDER / ANTHROPIC_API_KEY (or an OpenAI-compatible provider) before
-# pay-dry. Keys and state stay in $X3_AGENT_RUN_DIR (default ~/.x3/agent-demo), modes 700/600.
+# pay-dry. Set X3_AGENT_PREPAID_STORAGE=1 explicitly for a reviewed Guard with
+# owner-prepaid storage support and sufficient owner-funded credit (neither is verified here).
+# This selects zero deposits for agent calls; owner funding and approval calls are unchanged.
+# Keys and state stay in $X3_AGENT_RUN_DIR (default ~/.x3/agent-demo), modes 700/600.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,6 +43,13 @@ say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
 die()  { printf '\n\033[31mStopped: %s\033[0m\n' "$*" >&2; exit 1; }
 
+AGENT_STORAGE_ARGS=()
+case "${X3_AGENT_PREPAID_STORAGE:-0}" in
+  0) ;;
+  1) AGENT_STORAGE_ARGS=(--prepaid-agent-storage) ;;
+  *) die "X3_AGENT_PREPAID_STORAGE must be 0 or 1; support and owner credit are not auto-detected." ;;
+esac
+
 confirm() {
   local answer
   read -rp "  $1 Type yes to continue: " answer
@@ -63,7 +73,7 @@ print(d)' "$1" "$2"
 
 guard_cmd() {
   adapter guard-args --receipt "$RECEIPT" --step "$1" --contract "$CONTRACT" --signer "$AGENT_ACCOUNT" \
-    --key-file "$AGENT_KEY" --network "$NETWORK" \
+    --key-file "$AGENT_KEY" --network "$NETWORK" "${AGENT_STORAGE_ARGS[@]}" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["command"])'
 }
 
@@ -160,7 +170,7 @@ cmd_pay_dry() {
   load_state
   say "Real model: English request -> X3 intent -> deterministic checks"
   agent pay "Pay ${RECIPIENT} ${AMOUNT} USDC for invoice 4411." --mandate "$MANDATE" \
-    --out "$ALLOWED" --quote >"$DRY_REPORT"
+    --out "$ALLOWED" --quote "${AGENT_STORAGE_ARGS[@]}" >"$DRY_REPORT"
   chmod 600 "$ALLOWED" "$DRY_REPORT"
   local sha provider model response_id
   sha="$(json_get "$DRY_REPORT" program.sha256)"
@@ -179,6 +189,7 @@ cmd_pay_dry() {
 cmd_pay_live() {
   load_state
   local sha="${1:-}" dry_sha issued_nonce
+  [[ ! -e "$RECEIPT" ]] || die "this run already has a live receipt. Review the existing quote and deposit before starting another run."
   [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || die "give the program SHA-256 from pay-dry."
   [[ -f "$DRY_REPORT" && -f "$ALLOWED" ]] || die "run '$0 pay-dry' first."
   dry_sha="$(json_get "$DRY_REPORT" program.sha256)"
@@ -188,7 +199,7 @@ cmd_pay_live() {
   info "Reusing the exact dry-run program and issued nonce; the model is not called again."
   agent pay --program "$ALLOWED" --issued-nonce "$issued_nonce" --mandate "$MANDATE" \
     --guard-contract "$CONTRACT" --live --approve "$sha" \
-    --nonce-store "$RUN_DIR/nonces.json" --receipt "$RECEIPT" >"$RUN_DIR/live-quote.json"
+    --nonce-store "$RUN_DIR/nonces.json" --receipt "$RECEIPT" "${AGENT_STORAGE_ARGS[@]}" >"$RUN_DIR/live-quote.json"
   chmod 600 "$RECEIPT" "$RUN_DIR/live-quote.json"
   info "Live quote written. Next: $0 register"
 }
@@ -206,37 +217,36 @@ cmd_register() {
 
 cmd_deposit() {
   load_state
-  local sig="${1:-}" refund_sig="${2:-}" address status_code=0 verify_code=0
+  local sig="${1:-}" refund_sig="${2:-}" address recorded status_code=0 verify_code=0
   [[ -f "$RECEIPT" ]] || die "run '$0 pay-live <sha>' and '$0 register' first."
   [[ "$sig" =~ ^[1-9A-HJ-NP-Za-km-z]{64,90}$ ]] || die "give the owner's Solana transaction signature."
   address="$(json_get "$RECEIPT" deposit.address)"
-  adapter submit-deposit --deposit-address "$address" --tx-hash "$sig" --receipt "$RECEIPT"
+  recorded="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["deposit"].get("tx_hash") or "")' "$RECEIPT")"
+  if [[ -z "$recorded" ]]; then
+    adapter submit-deposit --deposit-address "$address" --tx-hash "$sig" --receipt "$RECEIPT"
+  elif [[ "$recorded" != "$sig" ]]; then
+    die "this receipt is already tracking a different signature; check the original transfer."
+  fi
   say "Waiting for 1Click's terminal status"
   adapter status --deposit-address "$address" --wait --interval 10 --max-wait 1800 --receipt "$RECEIPT" \
     || status_code=$?
   case "$status_code" in
-    0) info "1Click reports: settled" ;;
+    0) info "1Click reports SUCCESS; independent chain verification is required." ;;
     2) info "1Click reports: refunded" ;;
     3) die "1Click reports: failed. Do not record an outcome." ;;
-    *) die "the swap has no terminal outcome yet. Rerun the same command later." ;;
+    *) die "the swap has no confirmed terminal outcome. Resume with the same signature. Do not deposit again." ;;
   esac
 
   adapter verify-deposit --receipt "$RECEIPT" || die "the deposit is not proven yet; wait and rerun."
-  if [[ "$status_code" == "2" ]]; then
-    if [[ -z "$refund_sig" ]]; then
-      read -rp "  Solana signature of the refund transaction: " refund_sig
-    fi
-    adapter verify-settlement --receipt "$RECEIPT" --refund-tx "$refund_sig" || verify_code=$?
-  else
-    adapter verify-settlement --receipt "$RECEIPT" || verify_code=$?
-  fi
   if [[ "$status_code" == "0" ]]; then
-    die "1Click reports success, but this adapter only observes a balance delta. Payout transaction verification is not implemented; no settled outcome will be recorded."
-  elif [[ "$status_code" == "2" && "$verify_code" == "2" ]]; then
-    info "Source-chain refund-sized transfer verified; solver causality is not proven."
-  else
-    die "the chain proof does not match the terminal status; refusing to record an outcome."
+    die "Run scripts/hackathon/verify_mainnet_payment.py with the reviewed quote hash and public wallet and payout signer. This script cannot record a settled Guard outcome."
   fi
+  if [[ -z "$refund_sig" ]]; then
+    read -rp "  Solana signature of the refund transaction: " refund_sig
+  fi
+  adapter verify-settlement --receipt "$RECEIPT" --refund-tx "$refund_sig" || verify_code=$?
+  [[ "$verify_code" == "2" ]] || die "the chain proof does not match the refund status."
+  info "Source-chain refund-sized transfer verified; solver causality is not proven."
 
   say "Record the verified outcome on x3-guard"
   confirm "One agent transaction to $CONTRACT."
@@ -264,7 +274,7 @@ cmd_refuse() {
   chmod 600 "$REFUSED"
   say "Submit an out-of-mandate program; x3-guard must refuse it on chain"
   agent register-args "$REFUSED" --mandate "$MANDATE" --contract "$CONTRACT" \
-    --signer "$AGENT_ACCOUNT" --key-file "$AGENT_KEY" --network "$NETWORK" >"$REFUSED_ARGS"
+    --signer "$AGENT_ACCOUNT" --key-file "$AGENT_KEY" --network "$NETWORK" "${AGENT_STORAGE_ARGS[@]}" >"$REFUSED_ARGS"
   chmod 600 "$REFUSED_ARGS"
   info "Expected policy failure: mandate_recipient (attacker.near is not allowed)."
   send_expected_refusal "$(json_get "$REFUSED_ARGS" command)" "$REFUSED_LOG" "Refused-payment call."
@@ -302,7 +312,7 @@ cmd_post_revoke() {
   chmod 600 "$POST_REVOKED"
   say "Show that a previously valid agent is refused after owner revocation"
   agent register-args "$POST_REVOKED" --mandate "$MANDATE" --contract "$CONTRACT" \
-    --signer "$AGENT_ACCOUNT" --key-file "$AGENT_KEY" --network "$NETWORK" >"$POST_REVOKED_ARGS"
+    --signer "$AGENT_ACCOUNT" --key-file "$AGENT_KEY" --network "$NETWORK" "${AGENT_STORAGE_ARGS[@]}" >"$POST_REVOKED_ARGS"
   chmod 600 "$POST_REVOKED_ARGS"
   info "Expected policy failure: mandate_active."
   send_expected_refusal "$(json_get "$POST_REVOKED_ARGS" command)" "$POST_REVOKED_LOG" "Post-revocation call."
