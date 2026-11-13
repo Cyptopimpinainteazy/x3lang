@@ -1,0 +1,35 @@
+{
+  "status": "matching_finalized_transfers",
+  "quote_signature_verified": true,
+  "quote_hash": "8ynPgyqDugkyL2gicfUuTtymMjTPQzcRMBjj4RKgKeSD",
+  "provider_status_sha256": "296ffea0f8f57b25430ee583ee4c60a083e14815a9f73209b9c34a3b38b043b8",
+  "provider_linkage": "unsigned_status_association",
+  "cross_chain_causality_proven": false,
+  "guard_authorization_proven": false,
+  "source": {
+    "signature": "4zhGYyWNabYQ5gixTUzoVHVbgFKWAsQssSpCv3B1J1LjCRisEJW6wm3zuS2GVuDotAT93S8wm1qezHwsKX2RkXo5",
+    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "source_owner": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+    "destination_owner": "C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN",
+    "source_token_account": "6fsuLuFu8xbPAdMQWhuqm7dCBDzHkGn4Y9yvoThokJJG",
+    "destination_token_account": "fUp1BE9Cp8RqCyjibPzUGBxn7A63EMCy76Uq9Ap2JC6",
+    "amount_units": 25000000,
+    "slot": 468354078,
+    "timestamp": 1794449713,
+    "rpc_result_sha256": "67f6b2173008afb08b8e05b7d3ff1d649d39da17787818dbeec91ba09ff4e4ca"
+  },
+  "payout": {
+    "transaction_hash": "8jfbACLSxrzi3fnajfAVGc4Fgo6XLCWA1mpiJWXPw43P",
+    "receipt_id": "6K3cKmAYCXbT6TgMygU6HA6HoiTPvdXDrrTdroJemGcR",
+    "token": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+    "recipient": "x3lang.near",
+    "amount_units": 24995200,
+    "block_hash": "CfjtL6bSFX82FEA7dsVn1CFTTggSJr62pd6BHhXU7rGf",
+    "block_height": 224150053,
+    "rpc_result_sha256": "c8eeb4e24a1746ee1e154e822d442d84b5f4b4661e4bfda21191ead88c3633ff"
+  },
+  "rpc_endpoints": {
+    "solana": "https://api.mainnet-beta.solana.com",
+    "near": "operator_configured_https"
+  }
+}

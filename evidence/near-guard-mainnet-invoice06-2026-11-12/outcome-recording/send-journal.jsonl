@@ -1,0 +1,2 @@
+{"broadcasted": false, "stage": "signed", "transaction_hash_candidate": "9sTn9pJ1ZbCVazBm9Wz9oEDh6aWw4FUVMoAJEKCCzuqE", "verified": false}
+{"broadcasted": "unknown", "cli_exit_code": 0, "error_code_candidates": [], "send_status": "rpc_final_response_unverified", "transaction_hash_candidate": "9sTn9pJ1ZbCVazBm9Wz9oEDh6aWw4FUVMoAJEKCCzuqE", "verified": false}

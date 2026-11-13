@@ -77,5 +77,6 @@ Local provenance checked on `x3gpu1` (private files intentionally not copied):
   broadcasting. This bounded search cannot establish the absence of all copies
   of a wallet key.
 
-At this verification, Guard's `get_intent.outcome` is still null. Recovery and
-verification did not sign or broadcast `agent_record_outcome` or any other call.
+At the source-recovery observation, Guard's `get_intent.outcome` was null. The
+source recovery itself signed no calls. The [subsequently authorized outcome
+recording](../outcome-recording/README.md) now establishes finalized `Settled` state.

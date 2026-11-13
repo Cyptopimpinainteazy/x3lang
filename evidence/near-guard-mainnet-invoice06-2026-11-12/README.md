@@ -49,6 +49,10 @@ source is byte-identical to `x3-lang/near/x3-guard/` on `master`
 - **Stored terms.** `get_intent` returns the agent-registered policy with
   `program_sha256 = 9ee29a56…68ba0` and the accepted quote's facts; `get_mandate` returns
   mandate `program_sha256 = eea021d5…d515`.
+- **Recorded outcome.** The restricted agent subsequently called `agent_record_outcome`;
+  [finalized readback](outcome-recording/README.md) shows `Settled`, `24995200`,
+  `floor_met: true` and both settlement hashes. The original RPC observation is
+  historical; the linked later evidence records this state change.
 - **Source-byte link.** Both [original `.x3` files](source-recovery/README.md) were recovered
   verbatim and SHA-256 verified against fresh finalized `get_intent` and `get_mandate`
   responses for mandate v4.
@@ -68,7 +72,9 @@ source is byte-identical to `x3-lang/near/x3-guard/` on `master`
 - **Compilation and authorship.** The [recovered original `.x3` files](source-recovery/README.md)
   match both stored hashes in fresh finalized Guard reads. Hash identity does not prove
   on-chain compilation or how the source was authored.
-- **Outcome on Guard.** `agent_record_outcome` has not been called; `get_intent` shows no outcome.
+- **Outcome verification boundary.** The [later outcome call](outcome-recording/README.md)
+  records the agent's settlement report after independent transfer verification. Guard
+  does not authenticate the supplied cross-chain transaction hashes itself.
 - **Scale.** One small trade, labelled `demo` in its nonce.
 - **The `agent_register_intent` transaction** is not listed; its stored result is read via `get_intent`.
 

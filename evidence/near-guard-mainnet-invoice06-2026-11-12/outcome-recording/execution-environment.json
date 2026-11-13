@@ -1,0 +1,18 @@
+{
+  "schema": "x3.invoice06.outcome-execution-environment.v1",
+  "observed_at_utc": "2026-11-13T05:32:20.312443+00:00",
+  "machine": "x3gpu1",
+  "base_commit": "e91d01bf6b76d6c1e4a901a1fcd7baf677afcc2d",
+  "branch": "codex/invoice06-source-recovery-20261112",
+  "python_version": "Python 3.12.3",
+  "near_cli_version": "near-cli-rs 0.30.1",
+  "signing_helper": "x3-lang/near_agent_key.py",
+  "signing_helper_sha256": "868248cb0efea6209f10660d2db89959508566628bb255d2bfc2a409cc825296",
+  "user_authorization": "Explicit request to reverify invoice_06 settlement, record outcome with restricted agent key, confirm finalized readback and add repository evidence.",
+  "send_count": 1,
+  "attached_deposit_yocto": "0",
+  "prepaid_gas_tgas": 10,
+  "rollback": "Outcome is write-once under the deployed contract; no rollback, second send or corrective overwrite was attempted.",
+  "settlement_reverification_command": "X3_NEAR_ARCHIVAL_RPC_URL=https://archival-rpc.mainnet.fastnear.com python3 scripts/hackathon/verify_mainnet_payment.py --receipt <original-private-invoice06-funded-receipt.json> --approved-quote-hash 8ynPgyqDugkyL2gicfUuTtymMjTPQzcRMBjj4RKgKeSD --funding-owner 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ --payout-signer intents.near",
+  "send_implementation": "near_agent_key.execute with the exact call saved in fresh-send-preflight.json; offline signed artifact admitted and sent once through its fixed mainnet RPC; no owner key, attached deposit or token transfer."
+}
