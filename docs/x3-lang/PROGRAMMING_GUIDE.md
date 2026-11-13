@@ -114,6 +114,18 @@ require slippage <= 50      // 50 bps = 0.5%
 require slippage <= 0.5%    // the same bound
 ```
 
+**NEAR Intents programs (`near_intents.py`, the path Guard enforces) read units differently.**
+Write the bound as a percentage there:
+
+```text
+require slippage <= 0.5%    // 50 bps: use this form on the NEAR path
+```
+
+On the NEAR path a bare whole number such as `50` is refused (`X3_NEAR_BOUND_UNIT`), and a
+bare value below 1 is read as a *fraction*: `0.005` is 50 bps, but `0.5` is **5000 bps (50%)**.
+The refusal message also suggests `50 bps`, but the parser currently drops the unit and
+refuses that spelling too, so use the percentage form.
+
 Fee ceilings accept the unit-bearing spelling:
 
 ```text
