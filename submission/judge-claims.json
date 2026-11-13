@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "kind": "claim_navigation_index",
+  "project": "X3 Force Field",
+  "scope": "Evidence-backed differentiators; no first/only or market-exclusivity claim. This index is navigation, not new execution evidence.",
+  "path_base": "repository root",
+  "reproduce": {
+    "command": "python3 scripts/hackathon/invoice06_chain.py --json",
+    "network": "offline after dependency setup",
+    "expected": "5/5 links hold in text mode; inspect compiler, guard, payment and outcome sections in JSON"
+  },
+  "claims": [
+    {
+      "id": "typed-policy",
+      "title": "Typed, reviewable owner policy",
+      "claim": "Owners express authority in a separate .x3 mandate that can be reviewed and hashed.",
+      "evidence_level": "local compilation + archived mainnet hash match",
+      "evidence_paths": [
+        "evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/mandate-proposed.x3",
+        "evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/payment-proposed.x3",
+        "evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/guard-source-verification.json"
+      ],
+      "limitation": "Source hashes identify bytes; Guard does not compile or run .x3 on-chain."
+    },
+    {
+      "id": "model-independent-checks",
+      "title": "Checks outside the model",
+      "claim": "Compiler and deterministic mandate checks refuse unsafe programs even when a scripted model follows an attack.",
+      "evidence_level": "local tests",
+      "evidence_paths": [
+        "scripts/hackathon/invoice06_chain.py",
+        "scripts/hackathon/replay_grok_wallet_drain.py",
+        "scripts/hackathon/compromised_agent_redteam.py"
+      ],
+      "limitation": "Scripted attacks are not proof of universal prompt-injection resistance or mainnet attack refusals."
+    },
+    {
+      "id": "signed-terms",
+      "title": "Policy checks on authenticated quote terms",
+      "claim": "Guard verifies the 1Click signature and checks quote terms against stored policy before authorizing a deposit address.",
+      "evidence_level": "archived NEAR mainnet acceptance + historical testnet controls",
+      "evidence_paths": [
+        "evidence/near-guard-mainnet-invoice06-2026-11-12/public-rpc-observation.json",
+        "docs/hackathon/GUARD_TESTNET_EVIDENCE.md"
+      ],
+      "limitation": "Acceptance is not funding or settlement. The forbidden official quote control is a dry quote and also fails dry-quote checks."
+    },
+    {
+      "id": "source-to-payment",
+      "title": "Source-to-payment traceability",
+      "claim": "One verifier follows source identity, compiled fields, Guard acceptance, executed transfers and recorded outcome.",
+      "evidence_level": "local verifier over archived mainnet evidence",
+      "evidence_paths": [
+        "scripts/hackathon/invoice06_chain.py",
+        "evidence/near-guard-mainnet-invoice06-2026-11-12/public-rpc-observation.json",
+        "evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/finalized-outcome-verification.json"
+      ],
+      "limitation": "The owner manually funded; provider association is not cryptographic cross-chain atomicity; Guard does not authenticate outcome hashes."
+    },
+    {
+      "id": "restricted-key",
+      "title": "Restricted agent authority",
+      "claim": "The demonstrated signing key is limited to three Guard methods on x3lang.near.",
+      "evidence_level": "archived NEAR mainnet key and signer observations",
+      "evidence_paths": [
+        "evidence/near-guard-mainnet-invoice06-2026-11-12/public-rpc-observation.json",
+        "PROOF_CARD.md"
+      ],
+      "limitation": "The agent account retains an owner FullAccess recovery key; this is not autonomous custody or control over the Solana funding wallet."
+    },
+    {
+      "id": "reproducibility",
+      "title": "Reproducible evidence with explicit boundaries",
+      "claim": "Judges can rerun local checks, inspect structured receipts and compare original source hashes.",
+      "evidence_level": "local replay + archived chain records",
+      "evidence_paths": [
+        "scripts/hackathon/invoice06_chain.py",
+        "scripts/hackathon/test_invoice06_chain.py",
+        "evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/SHA256SUMS",
+        "PROOF_CARD.md"
+      ],
+      "limitation": "Offline replay does not refresh chain state, establish production reliability or constitute an independent security audit."
+    }
+  ],
+  "source_sha256": {
+    "mandate-proposed.x3": "eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515",
+    "payment-proposed.x3": "9ee29a5603cfa1e7d9fdbd866cf330ce35e6b5f0907c6844dd2ef1a213768ba0"
+  }
+}

@@ -1,5 +1,7 @@
 # X3 Force Field — Judge Guide
 
+**Judges: [start here — payment, limits, proof and reproduction](../../JUDGES.md).**
+
 **Historical name:** X3 Shield. The `.x3` language, compiler and verified Guard authorization mechanism are unchanged; historic file paths and contract names remain as recorded.
 
 **Start here for the complete judge story:** [five-stage, three-minute evidence walkthrough](VIDEO_WALKTHROUGH.md) and [one-page mainnet proof card](../../PROOF_CARD.md). The workflow deliberately separates LOCAL compile/type-check refusal, real NEAR Guard quote authorization, manually funded Solana deposit, NEAR payout, and the agent-reported Guard outcome.

@@ -1,5 +1,7 @@
 # X3 Force Field
 
+**Judges: [start here — payment, limits, proof and reproduction](JUDGES.md).**
+
 **Formerly X3 Shield.** The name changes; deployed `x3-guard`, `.x3` source files, evidence paths, wallet permissions and historical transaction records do not.
 
 **Judges: start with the one-page [proof card](PROOF_CARD.md)** — the five mainnet invoice_06 transactions, the accounts and keys, the matching `.x3` hashes, and the seven limits.
