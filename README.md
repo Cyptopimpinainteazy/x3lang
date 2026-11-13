@@ -2,6 +2,8 @@
 
 **Formerly X3 Shield.** The name changes; deployed `x3-guard`, `.x3` source files, evidence paths, wallet permissions and historical transaction records do not.
 
+**Judges: start with the one-page [proof card](PROOF_CARD.md)** — the five mainnet invoice_06 transactions, the accounts and keys, the matching `.x3` hashes, and the seven limits.
+
 [Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks bind this repository's exact source and execute its proofs. Equality with the private parent repository is checked only by an explicitly requested parity audit.
 
 **AI agents are getting wallets. Their spending limits should not live inside the model.**
