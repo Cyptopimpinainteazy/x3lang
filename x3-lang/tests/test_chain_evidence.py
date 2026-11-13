@@ -782,3 +782,71 @@ def test_submit_deposit_refuses_another_receipts_address(tmp_path):
     assert ni.main(["submit-deposit", "--deposit-address", "SomeoneElse111111111111111111111111111111111",
                     "--tx-hash", DEPOSIT_SIG, "--receipt", str(path)], client=client) == 1
     assert "tx_hash" not in json.loads(path.read_text())["deposit"]
+
+
+def test_deposit_notification_timeout_preserves_verified_signature(tmp_path, capsys):
+    path, _, _ = live_receipt(tmp_path)
+    sol, _ = solana({DEPOSIT_SIG: spl_tx(DEPOSIT_SIG, to=DEPOSIT, amount=25_000_000)})
+    client = ni.OneClickClient(jwt="k", transport=api())
+    attempts = []
+
+    def lost_response(address, signature):
+        assert json.loads(path.read_text())["deposit"]["tx_hash"] == signature
+        attempts.append((address, signature))
+        raise ni.NearIntentsError("X3_NEAR_UNREACHABLE", "fixture lost notification response")
+
+    client.submit_deposit = lost_response
+    args = ["submit-deposit", "--deposit-address", DEPOSIT, "--tx-hash", DEPOSIT_SIG,
+            "--receipt", str(path)]
+    assert ni.main(args, client=client, solana=sol) == 1
+    assert json.loads(path.read_text())["deposit"]["tx_hash"] == DEPOSIT_SIG
+    assert path.stat().st_mode & 0o777 == 0o600
+    capsys.readouterr()
+
+    assert ni.main(args, client=client, solana=sol) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "already_tracking"
+    assert attempts == [(DEPOSIT, DEPOSIT_SIG)]
+
+
+def test_live_quote_cannot_replace_an_existing_receipt(tmp_path):
+    path, _, rpc = live_receipt(tmp_path)
+    before = path.read_bytes()
+    unused_store = tmp_path / "unused-nonces.json"
+    with pytest.raises(ni.NearIntentsError, match="fresh receipt path"):
+        ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api()), live=True,
+                 nonce_store=ni.NonceStore(str(unused_store)), receipt_path=str(path), rpc=rpc, now=NOW)
+    assert path.read_bytes() == before
+    assert not unused_store.exists()
+
+
+def test_verify_deposit_refuses_to_replace_bound_signature(tmp_path):
+    path, _, _ = live_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    receipt["deposit"]["tx_hash"] = DEPOSIT_SIG
+    ni.write_receipt(str(path), receipt)
+    before = path.read_bytes()
+    assert ni.main(["verify-deposit", "--receipt", str(path), "--tx", "8" * 88]) == 1
+    assert path.read_bytes() == before
+
+
+def _shield(body):
+    def transport(method, url, headers, payload, timeout):
+        return 200, json.dumps(body).encode()
+    return ni.ShieldIncidents("t", base_url="https://shield.example", transport=transport)
+
+
+def test_prepare_rechecks_shield_incidents_right_before_the_guard_calls(tmp_path):
+    path, _, _ = live_bsc_receipt(tmp_path)
+    receipt = json.loads(path.read_text())
+    args = dict(receipt_path=str(path), program_path=str(BSC_EXAMPLE))
+
+    unchecked = ni.prepare_handoff(receipt, **args)
+    assert unchecked["incident_check"]["checked"] is False
+
+    clear = ni.prepare_handoff(receipt, shield=_shield({"status": "operational"}), **args)
+    assert clear["incident_check"]["checked"] is True and clear["incident_check"]["guard"]["ok"] is True
+
+    on_deposit = {"status": "incidents", "incidents": [{"scopeType": "address", "scopeValue": BSC_DEPOSIT}]}
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.prepare_handoff(receipt, shield=_shield(on_deposit), **args)
+    assert err.value.code == "X3_NEAR_SHIELD_INCIDENT"

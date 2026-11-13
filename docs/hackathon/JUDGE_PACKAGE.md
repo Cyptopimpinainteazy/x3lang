@@ -21,6 +21,11 @@ package does not certify organizer acceptance or add a track.
 
 **NEW REAL-CHAIN EVIDENCE:** [X3Lang first two-chain testnet swap — judge walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) has a successful strict independent finalized Base Sepolia + NEAR receipt proof and immutable signed quote. It is a **separate** owner-authorized Tidepool community testnet execution, not a native X3 bridge, and not an official 1Click mainnet trade. The old offline demo below remains valid as an offline demo.
 
+**NEAR mainnet deployment:** The [November 11 Guard upgrade and native recovery](MAINNET_GUARD_DEPLOYMENT.md)
+have finalized transaction receipts, an exact deployed-WASM match and unchanged
+contract storage. These operations do not prove a funded agent purchase or a
+1Click swap. The native 0.3 NEAR recovery is account surplus, not a swap refund.
+
 This package reproduces the current offline policy demonstration. It deliberately separates what
 the repository proves locally from wallet authorization, on-chain enforcement, signed quotes,
 transactions and settlement.

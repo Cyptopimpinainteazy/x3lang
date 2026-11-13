@@ -1,0 +1,54 @@
+{
+  "base_commit": "4d2f78ba556c5d0f3983546a0ce0be401b14ed91",
+  "environment": "local real Git fixtures; no public chain transactions",
+  "owner_authorization": "Authorize reviewed CI policy replacement",
+  "automatic_peer_parity": "not_checked",
+  "manual_peer_parity": "available, strict, read-only, not_run",
+  "checks": [
+    {
+      "name": "CI/source-admission regressions",
+      "command": ".venv/bin/python -m unittest discover -s tests/ci -p 'test_*.py' -v",
+      "exit_code": 0,
+      "passed_tests": 40,
+      "log": "x3-standalone-policy-final-ci-tests.txt"
+    },
+    {
+      "name": "Proof and mirror failure boundaries",
+      "command": ".venv/bin/python -m unittest discover -s tests/proof -p 'test_*.py' -v",
+      "exit_code": 0,
+      "passed_tests": 32,
+      "log": "x3-standalone-policy-final-proof-tests.txt"
+    },
+    {
+      "name": "Python/mainnet preparation regressions",
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py scripts/hackathon/test_route_probe.py -q",
+      "exit_code": 0,
+      "passed_tests": 689,
+      "log": "x3-standalone-policy-python.txt"
+    }
+  ],
+  "other_checks_passed": [
+    "compileall scripts/proof tests/ci",
+    "workflow YAML parsing",
+    "inline shell bash -n",
+    "git diff --check",
+    "existing Guard runtime/harness source hashes unchanged"
+  ],
+  "source_sha256": {
+    ".github/workflows/x3lang-execution-proof.yml": "b2dca27905380ce8177436e140f44f63302fb28de603aa51cebd07053b0b0ca7",
+    ".github/workflows/x3lang-peer-parity.yml": "fe9ba598a842595fceb55f646bba75b023b5f531816350438221aff3ed711039",
+    "scripts/proof/check_x3lang_checkout.py": "f6076a11c6f2f95492750bccdc3ed15a543ed1d125be5d4ee674277477667efa",
+    "tests/ci/test_private_peer_checkout.py": "d7d720c0b1725395e1552f13a238ad4f167c8b6d72b8456ab47ccb5f7d3f4dad",
+    "tests/ci/test_standalone_checkout.py": "89de08f81086bd35b5b38768d333803098f30919c0a8843c73c022943b72ac79"
+  },
+  "independent_review": "no blocking findings; reviewer independently ran 13 checkout tests",
+  "branch_protection_readonly_observation": "master required contexts do not include retired mirror status; no settings changed",
+  "exact_head_ci": "pending",
+  "mainnet_transactions": [],
+  "limitations": [
+    "Python skipped one test.",
+    "Admission fixtures do not run Cargo. Actual execution proof is retained in CI.",
+    "Automatic CI no longer establishes cross-repository parity.",
+    "Trusted checkout/host and review remain necessary; source binding is not a hermetic toolchain proof."
+  ]
+}

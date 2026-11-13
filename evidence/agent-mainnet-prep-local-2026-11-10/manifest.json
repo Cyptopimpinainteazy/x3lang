@@ -1,0 +1,13 @@
+{
+  "schema": "x3.judge-evidence-manifest.v1",
+  "source_commit": "610fe726fb012f06b9789d81721564a6d5ea0aaa",
+  "evidence_level": "archived real-model and local compiler/policy rehearsal",
+  "official_mainnet_settlement": "outstanding",
+  "artifacts": {
+    "evidence/agent-mainnet-prep-local-2026-11-10/README.md": "09733ada5b2cd164ef873210df5e484ba5cb0d895b1f774446c1a2e2fab8fd2b",
+    "evidence/agent-mainnet-prep-local-2026-11-10/allowed.x3": "53faefbf355ac61f815884ed6d8600a7b795d3617b1afdc4083d377085699d65",
+    "evidence/agent-mainnet-prep-local-2026-11-10/tampered-recipient.x3": "27a8eee7021085ccf198ee94a01bd8eeebef10bff1d77248e1bfe7213642fe9b",
+    "evidence/agent-mainnet-prep-local-2026-11-10/rehearsal.json": "7fa3d1c8ea2decc53e5d8800f0920fce1d3f1eff73e7f11b082817e29e7958e9",
+    "x3-lang/examples/near_mandate_agent.x3": "629c008639c5fea35c1f2f9f1e9e3c67717860f72b1b7e14450db042f17012d4"
+  }
+}

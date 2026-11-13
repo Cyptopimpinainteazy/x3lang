@@ -515,8 +515,13 @@ def test_cli_register_args_needs_no_model_or_api_key(tmp_path, capsys, monkeypat
     assert out["args"]["owner"] == "x3-owner.near"
 
 
-def test_cli_pay_prints_the_report_and_exits_by_verdict(tmp_path, capsys):
+@pytest.mark.parametrize("prepaid", [False, True])
+def test_cli_pay_prints_the_report_and_exits_by_verdict(tmp_path, capsys, prepaid):
     common = ["--mandate", str(MANDATE), "--tokens", str(TOKENS), "--out", str(tmp_path / "p.x3")]
+    if prepaid:
+        common.extend(["--prepaid-agent-storage",
+                       "--agent-public-key", "ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+                       "--agent-max-allowance-yocto", "100000000000000000000000"])
     code = agent.main(["pay", "Pay x3-demo.near 5 USDC.", *common], model=Scripted(program(nonce="will-not-match")),
                       client=client())
     assert code == agent.EXIT_AGENT_REFUSED
@@ -530,3 +535,38 @@ def test_cli_pay_prints_the_report_and_exits_by_verdict(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert (code, out["status"]) == (0, "allowed")
     assert out["nonce"].startswith("agent_")
+
+
+@pytest.mark.parametrize("prepaid", [False, True])
+def test_prepaid_register_args_cli_matches_command(capsys, prepaid):
+    import shlex
+    argv = ["register-args", str(ROOT / "examples" / "near_intents_agent_payment.x3"),
+            "--mandate", str(MANDATE), "--tokens", str(TOKENS), "--contract", "guard.sandbox",
+            "--signer", "agent.sandbox", "--key-file", "fixture-only.json"]
+    if prepaid:
+        argv.extend(["--prepaid-agent-storage",
+                     "--agent-public-key", "ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+                     "--agent-max-allowance-yocto", "100000000000000000000000"])
+    assert agent.main(argv, client=client()) == 0
+    out = json.loads(capsys.readouterr().out)
+    expected = "0 NEAR" if prepaid else agent.ni.GUARD_DEPOSITS["register"]
+    assert out["attached_deposit"] == expected
+    command = shlex.split(out["command"])
+    if prepaid:
+        assert command[2] == "send"
+    else:
+        assert command[command.index("attached-deposit") + 1] == expected
+
+
+@pytest.mark.parametrize("prepaid", [False, True])
+def test_prepaid_live_report_preserves_mode_without_changing_approvals(tmp_path, prepaid):
+    source = agent.extract_program(program(amount=25_000_000))[1]
+    sha = hashlib.sha256(source.encode()).hexdigest()
+    report, code, _ = _live(tmp_path, approve=sha, prepaid_agent_storage=prepaid,
+                             agent_public_key="ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+                             agent_max_allowance_yocto="100000000000000000000000")
+    assert (report["status"], code) == ("live_quote_written", 0)
+    calls = [step for step in report["next"] if "guard-args" in step]
+    assert len(calls) >= 2
+    for call in calls:
+        assert ("--prepaid-agent-storage" in call) == (prepaid and "--step approve" not in call)

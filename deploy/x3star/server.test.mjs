@@ -129,6 +129,24 @@ describe('configuration fails closed', () => {
     assert.equal(loadManifest(write({sites: {'a.x3star.net': {mount: 'd', entry: 'a.html'}}, files: ['d/a.html']})).sites['a.x3star.net'].mount, 'd');
     rmSync(dir, {recursive: true});
   });
+  test('manifest media and image origins must be bare https origins', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'x3m-'));
+    const write = (m) => { const p = path.join(dir, 'm.json'); writeFileSync(p, JSON.stringify(m)); return p; };
+    const base = {sites: {'a.x3star.net': {entry: 'a.html'}}, files: ['a.html']};
+    assert.throws(() => loadManifest(write({...base, csp: {media: ['http://x.com']}})), /bare https origin/);
+    assert.throws(() => loadManifest(write({...base, csp: {media: ['https://x.com/video.mp4']}})), /bare https origin/);
+    assert.throws(() => loadManifest(write({...base, csp: {img: ['https://x.com/?q=1']}})), /bare https origin/);
+    const m = loadManifest(write({...base, csp: {media: ['https://x.com'], img: ['https://x.com']}}));
+    assert.deepEqual(m.csp.media, ['https://x.com']);
+    assert.deepEqual(m.csp.img, ['https://x.com']);
+    assert.deepEqual(loadManifest(write(base)).csp.media, []);
+    rmSync(dir, {recursive: true});
+  });
+  test('the real manifest allows judge media only from dotx3.net', () => {
+    const m = loadManifest(manifest);
+    assert.deepEqual(m.csp.media, ['https://dotx3.net']);
+    assert.deepEqual(m.csp.img, ['https://dotx3.net']);
+  });
   test('the real manifest: every site entry exists and judge/evidence.json is never listed', () => {
     const m = loadManifest(manifest);
     assert.ok(!m.files.has('x3-lang/near/demo/judge/evidence.json'));
@@ -298,4 +316,14 @@ test('buildCsp lists only declared origins', () => {
   assert.ok(csp.startsWith("default-src 'none'"));
   assert.ok(csp.includes("script-src 'self';"));
   assert.ok(csp.includes("connect-src 'self' https://a.example"));
+  assert.ok(csp.includes("media-src 'self';"), 'media defaults to same origin only');
+  assert.ok(csp.includes("img-src 'self' data:;"), 'images default to same origin and data: only');
+});
+
+test('buildCsp adds declared media and image origins and nothing else', () => {
+  const csp = buildCsp({csp: {connect: [], style: [], font: [], media: ['https://dotx3.net'], img: ['https://dotx3.net']}}, []);
+  assert.ok(csp.includes("media-src 'self' https://dotx3.net;"), csp);
+  assert.ok(csp.includes("img-src 'self' data: https://dotx3.net;"), csp);
+  assert.ok(csp.includes("connect-src 'self';"), 'media origins do not widen connect-src');
+  assert.ok(csp.startsWith("default-src 'none'"));
 });

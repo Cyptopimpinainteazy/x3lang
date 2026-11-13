@@ -32,6 +32,105 @@ payment cap only counts accepted quotes. Owners choose whether to top up again.
 The fixed credit record remains allocated after withdrawal; its storage charge
 is not returned. Gas comes from the agent account/key allowance separately.
 
+## Explicit client storage mode
+
+After reviewing the deployed Guard's prepaid-storage support and funding the
+owner/agent storage credit, select `--prepaid-agent-storage` on
+`near_intents.py prepare`, `near_intents.py guard-args`,
+`near_agent.py register-args`, or `near_agent.py pay`. The generated JSON and
+commands use `0 NEAR` for `agent_register_intent`, `agent_accept_quote`, and
+`agent_record_outcome`. Live agent reports preserve the option in their next
+commands. For the guided script, export `X3_AGENT_PREPAID_STORAGE=1` for each
+`agent-demo.sh` invocation; its default is `0`, and other values are rejected.
+
+This option does not verify deployed code, available credit, or mandate authorization,
+and it never funds or raises a budget. Generated agent sends require the pinned-key
+boundary described below.
+Insufficient credit still fails on chain. The default retains legacy attached
+deposits. Owner registration, quote, outcome, approval, mandate and revoke
+commands retain their existing deposits even when the option is selected.
+The existing settlement evidence gates and owner confirmations still apply.
+
+## Pinned delegated signing key
+
+For prepaid agent commands, also provide `--agent-public-key` and
+`--agent-max-allowance-yocto`. The public key and positive allowance ceiling are
+reviewed operator configuration; the model and receipt do not choose them. In
+`agent-demo.sh`, export `X3_AGENT_PUBLIC_KEY` and
+`X3_AGENT_MAX_ALLOWANCE_YOCTO` alongside `X3_AGENT_PREPAID_STORAGE=1`.
+The allowance ceiling is a refusal threshold, not funding or a budget increase.
+
+Generated prepaid commands invoke `near_agent_key.py send`, which reads one
+regular, owner-readable-only credential file, derives its Ed25519 public key
+using the existing `cryptography` dependency, and matches its account, declared
+public key and embedded public-key suffix to the reviewed pin. Immediately
+before each send it queries the selected network's fixed RPC for its chain ID
+and the exact key at `final` finality. It refuses FullAccess, unlimited or zero
+allowance, allowance above the reviewed ceiling, the wrong Guard receiver,
+empty/wildcard method lists, any method outside the three agent mutations, and
+a requested method absent from that list. RPC failures fail closed.
+
+The signing boundary defaults to 30 Tgas. An explicit operator-reviewed
+`--gas-tgas` integer from 1 through 30 selects the exact prepaid gas encoded in
+both the CLI command and signed-artifact verification; it is never automatically
+lowered, retried or selected from model/receipt data. A changed transaction gas
+setting requires the owner's approval of that exact transaction.
+
+Before signing, it reads protocol fees and gas price at the checked key's finalized
+block. For this single zero-deposit Ed25519 FunctionCall, the allowance admission
+cost is send gas at the current price plus prepaid and receipt execution gas at
+`max(current_gas_price, min_gas_purchase_price)`. Missing or malformed cost data
+and insufficient allowance fail closed. This upfront gas purchase is distinct
+from the ultimately burnt network fee: unused gas and gas-price differences may
+be refunded. The check neither raises the key allowance nor proves that the
+selected gas is sufficient for contract execution. The formula follows
+[nearcore 2.14 transaction cost calculation](https://github.com/near/nearcore/blob/2.14.0/runtime/runtime/src/config.rs#L449-L513).
+
+Only a validated snapshot is passed to the existing NEAR CLI, using a temporary
+0600 file in a private directory, zero attached deposit, and the queried nonce
+plus one, block hash and block height. Signing uses `--offline ... display`:
+[near-cli-rs 0.30.1 ignores those nonce/block flags in online signing](https://github.com/near/near-cli-rs/blob/v0.30.1/src/transaction_signature_options/sign_with_access_key_file/mod.rs#L60-L85).
+Arguments are serialized once and passed as `base64-args` so CLI JSON normalization
+cannot change the reviewed bytes. Captured signed bytes must match the exact V0
+transaction, signer/public key, receiver, nonce, block hash and single FunctionCall
+method/arguments/gas/deposit; its Ed25519 signature must verify against the pin.
+Unknown formats or mismatches are refused before broadcast.
+
+Verification older than 60 seconds is refused both before signing and before
+broadcast. After printing only the deterministic transaction-hash candidate, the
+wrapper makes one `send_tx` request to the same fixed network RPC, with no retry.
+It accepts a successful response only with explicit success status, `FINAL` and
+matching transaction identity in NEAR's flattened outcome schema. Independent
+finalized transaction verification is still required. Offline CLI failures cannot
+broadcast; RPC timeout, malformed response or failure remains an unknown outcome
+with the hash available for reconciliation. The snapshot is removed on normal success or
+failure.
+An abrupt process kill can leave a temporary file, so this remains an operator
+credential-handling process. No private credential is included in command lines
+or returned diagnostics. Raw CLI output is suppressed because it can include the
+private quote and receipt. Only stage/exit metadata, the computed transaction-hash
+candidate and fixed recognized error-code candidates are emitted. These are
+explicitly unverified; a zero return code is not independent finality or settlement proof.
+
+The `check` command needs only public configuration and never opens a key file
+or signs. For example, replace the placeholders with reviewed public values:
+
+```bash
+python3 x3-lang/near_agent_key.py check --account AGENT_ACCOUNT \
+  --public-key REVIEWED_PUBLIC_KEY --contract GUARD_ACCOUNT \
+  --method agent_register_intent --max-allowance-yocto REVIEWED_CEILING
+```
+
+This is a trusted operator harness: the model proposes `.x3` source and the owner
+reviews and confirms actions. An owner recovery FullAccess key may remain on the
+account and host; the checker admits only the specifically supplied delegated
+key. File modes and snapshots are not OS isolation or protection against host
+compromise. Never delete the owner's last recovery key for this workflow. The
+RPC observations are a preflight check, not a cryptographic state proof; NEAR
+still enforces the actual signing key's permission when executing the transaction.
+Legacy non-prepaid commands remain direct operator commands and make no delegated
+key claim. This change does not authorize a mainnet transaction.
+
 ## Upgrade compatibility
 
 The `Contract`, `Mandate`, intent layouts and map prefixes are unchanged.
@@ -54,10 +153,19 @@ Run `cargo test --locked` from `x3-lang/near/x3-guard`, and
 `bash scripts/hackathon/scoped_agent_sandbox_smoke.sh` from the repository root.
 The Sandbox exercises the compiled production WASM with a real function-call
 signer, storage debit, mandate refusal, withdrawal and failed-registration
-rollback. Unit tests cover acceptance/outcome charging, credit isolation/caps,
+rollback. It also exercises quote acceptance with exhausted storage credit:
+the failed receipt must preserve both replay ledgers, both intent records,
+the mandate's spending history, credit and storage usage. Funding credit then
+allows the identical quote once; a cross-nonce replay must fail without changes.
+This uses synthetic signatures and a manager public key patched only into the
+ephemeral Sandbox's state. The production manager first refuses the synthetic
+quote, the exact production WASM remains unchanged, and the manager is restored
+afterward. This proves runtime rollback, not official 1Click acceptance or
+cross-chain settlement. See the [execution evidence](../../audit-artifacts/guard-quote-storage-rollback-20261111/verification.json).
+
+Unit tests cover acceptance/outcome charging, credit isolation/caps,
 and failed-transfer callback restoration. Mocked promise outcomes do not prove
-real failed-transfer execution. The Sandbox does not claim accepted-quote
-storage-exhaustion/replay-ledger rollback or a cross-chain settlement.
+real failed-transfer execution.
 
 Dependency reference: `near-sdk 5.30.0`, pinned in Cargo.lock. Its
 [generated self-call and private-method documentation](https://docs.rs/near-sdk/5.30.0/near_sdk/attr.near.html)

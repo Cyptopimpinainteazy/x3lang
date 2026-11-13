@@ -16,7 +16,7 @@ separately:
 3. exact-head GitHub Actions green
 4. independently reviewed
 5. approved to merge
-6. merged to `main`
+6. merged to `master`
 7. deployed and observable in the target environment
 8. verified on-chain, where applicable
 
@@ -33,11 +33,13 @@ separately:
 
 ## Branch and merge rules
 
-- Canonical base: `origin/main`.
+- Canonical base: `origin/master` (the repository default branch).
 - Integration branch: `release/x3lang-submission-20261106`.
 - One task gets one branch, one worktree, and one writing agent.
-- Never write directly to `main`.
+- Never write directly to `master`.
 - Never force-push or rewrite history.
+- Follow `docs/security/STANDALONE_CI_POLICY.md` for source admission and manual
+  read-only peer parity. Automatic CI does not assert equality with `xxxstar`.
 - Merging financial, contract, cryptographic, or CI-policy changes requires
   explicit owner approval.
 - Build a PR dependency graph before selecting merge order.

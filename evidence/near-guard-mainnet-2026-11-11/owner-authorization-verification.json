@@ -1,0 +1,158 @@
+{
+  "schema": "x3.mainnet-owner-authorization.independent-verification.v1",
+  "observed_at_utc": "2026-11-11T21:38:36.886859+00:00",
+  "rpc": "https://archival-rpc.mainnet.fastnear.com",
+  "network": "mainnet",
+  "transaction_hash": "6i8ur3A9FtaLnSz6uk1pCUt3TSp4uhHBPkDKQfLs3GYk",
+  "final_execution_status": "FINAL",
+  "transaction_metadata": {
+    "signer": "x3lang.near",
+    "receiver": "x3lang.near",
+    "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe",
+    "nonce": 223154312000012,
+    "method": "approve_intent",
+    "gas": 30000000000000,
+    "deposit_yocto": "20000000000000000000000",
+    "args_sha256": "35c9fc8e7914d3b5066720ec632a33f4037ebbc3d992b66615d6305aed86b5cf"
+  },
+  "before_block": {
+    "hash": "H1MMVhU6rkFzhyYpSHQzuHdYSmGemC1RusBznnfNjY9N",
+    "height": 224120827
+  },
+  "after_block": {
+    "height": 224120956,
+    "hash": "wbPdWFmR2iyJuwmK96RzC5xSqz3aHLQB7bkuPNS7rrL"
+  },
+  "receipt_statuses": [
+    {
+      "id": "6i8ur3A9FtaLnSz6uk1pCUt3TSp4uhHBPkDKQfLs3GYk",
+      "status_type": "SuccessReceiptId",
+      "tokens_burnt_yocto": "30823166691800000000"
+    },
+    {
+      "id": "9qedmxBwq4wCjR7fP6QZXsufvpAkfJTKD74c8HTi5XGv",
+      "status_type": "SuccessValue",
+      "tokens_burnt_yocto": "254628797831700000000"
+    },
+    {
+      "id": "6c75DVih7AWEmjWtp1j9Di4KJ18rPTUs2Ehc5WqLf8Hr",
+      "status_type": "SuccessValue",
+      "tokens_burnt_yocto": "22318256250000000000"
+    },
+    {
+      "id": "GBUjyK5F9PPUGJERje4V3EDaexCPk9f42a4g6h6FrB9e",
+      "status_type": "SuccessValue",
+      "tokens_burnt_yocto": "0"
+    },
+    {
+      "id": "8Zrc1qJju86KPXdbnAjRvokn4ZnuuUYUxtZyUihd2sYr",
+      "status_type": "SuccessValue",
+      "tokens_burnt_yocto": "0"
+    }
+  ],
+  "actual_fee_yocto": "307770220773500000000",
+  "actual_fee_near": "0.0003077702207735",
+  "guard_account_after": {
+    "amount": "5850906081799093400000000",
+    "block_hash": "wbPdWFmR2iyJuwmK96RzC5xSqz3aHLQB7bkuPNS7rrL",
+    "block_height": 224120956,
+    "code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 576161
+  },
+  "guard_keys_after": [
+    {
+      "access_key": {
+        "nonce": 223154312000012,
+        "permission": "FullAccess"
+      },
+      "public_key": "ed25519:8rvxHz4A6A7MswYcqcYsyMusJY57kN2RvjGqt9WAegRe"
+    }
+  ],
+  "agent_account_after": {
+    "amount": "75454266540669500000000",
+    "block_hash": "wbPdWFmR2iyJuwmK96RzC5xSqz3aHLQB7bkuPNS7rrL",
+    "block_height": 224120956,
+    "code_hash": "11111111111111111111111111111111",
+    "locked": "0",
+    "storage_paid_at": 0,
+    "storage_usage": 371
+  },
+  "agent_keys_after": [
+    {
+      "access_key": {
+        "nonce": 223937786000003,
+        "permission": "FullAccess"
+      },
+      "public_key": "ed25519:8teaXGYFELKQN5QA7gQqeA4B7URrcMQqaczZ5D68c23u"
+    },
+    {
+      "access_key": {
+        "nonce": 224117214000001,
+        "permission": {
+          "FunctionCall": {
+            "allowance": "19715447275519300000000",
+            "method_names": [
+              "agent_register_intent",
+              "agent_accept_quote",
+              "agent_record_outcome"
+            ],
+            "receiver_id": "x3lang.near"
+          }
+        }
+      },
+      "public_key": "ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x"
+    }
+  ],
+  "credit_after_yocto": "23920000000000000000000",
+  "storage_growth_bytes": 15,
+  "prior_records_preserved": 8,
+  "state_records_after": 9,
+  "state_digest_before": "c06716517b68c07b9792059622dac94ecdd41e17bfa6b5743e582b1b5db450a2",
+  "state_digest_after": "13664e939f8b1afba150be35421955a1a1d4add0cbe7b399975f20c79187e984",
+  "unencumbered_surplus_yocto": "65376081799093400000000",
+  "unencumbered_surplus_near": "0.0653760817990934",
+  "intent_summary": {
+    "nonce": "mainnet_demo_nov11_invoice_04",
+    "source_sha256": "c922179f25423e62f09e037a4d4096cf805420cb752dd29a5154df60b1cb8b21",
+    "mandate_version": 3,
+    "approvals": [
+      "x3lang.near"
+    ],
+    "quote_present": false,
+    "outcome_present": false
+  },
+  "checks": {
+    "FINAL_success": true,
+    "all_receipts_successful": true,
+    "transaction_identity": true,
+    "admin_key_exact": true,
+    "transaction_nonce_exact": true,
+    "single_function_call": true,
+    "method_exact": true,
+    "gas_30T": true,
+    "deposit_exact": true,
+    "raw_args_exact": true,
+    "only_owner_approval_changed": true,
+    "returned_record_matches": true,
+    "no_quote_or_outcome": true,
+    "mandate_unchanged": true,
+    "guard_code_preserved": true,
+    "owner_key_preserved_expected_nonce": true,
+    "15_storage_bytes": true,
+    "credit_unchanged": true,
+    "self_call_balance_debit_equals_fee": true,
+    "fee_within_budget": true,
+    "nine_records_eight_preserved": true,
+    "surplus_minimum_preserved": true,
+    "agent_account_unchanged": true,
+    "agent_keys_unchanged": true
+  },
+  "limits": [
+    "Read-only public RPC observations, not authenticated light-client proof.",
+    "Owner approval is not a quote, source-chain deposit or cross-chain settlement.",
+    "The self-call deposit was a temporary reservation; final account balance reduction equals fees."
+  ],
+  "private_state_signatures_or_credentials_recorded": false
+}

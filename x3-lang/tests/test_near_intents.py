@@ -2,7 +2,7 @@
 
 The 1Click API is reached through `OneClickClient`'s injectable transport; these tests supply a
 recording transport so every request the adapter would send is asserted on, and nothing here
-touches the network.
+contacts an external network. One transport test uses only a loopback HTTP server.
 """
 import importlib.util
 import json
@@ -10,6 +10,8 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 
 import pytest
 
@@ -375,7 +377,196 @@ def test_echoed_deadline_with_different_precision_still_matches():
     ni.verify_quote(leg, req, sign(response), now=NOW)
 
 
+@pytest.mark.parametrize("live", [False, True])
+def test_signed_quote_kind_must_match_the_requested_kind(live):
+    leg, req = _leg_and_request(live=live)
+    response = good_quote({**req, "dry": not req["dry"]})
+    # On a signed dry response these fields are unsigned; adding them must
+    # never turn the response into an authorization for the live request.
+    response["quote"].update(depositAddress=SOL_ADDR, deadline=req["deadline"],
+                             refundFee="1", timeEstimate=1)
+    if not response["quoteRequest"]["dry"]:
+        sign(response)
+    assert ni.verify_oneclick_quote_signature(response, TEST_KEY)
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_quote(leg, req, response, now=NOW)
+    assert err.value.code == "X3_NEAR_GUARD_FAILED"
+    assert any(g["guard"] == "quote_request_echo" and "dry" in g["mismatched"]
+               for g in err.value.detail)
+
+
+@pytest.mark.parametrize("side", ["request", "response"])
+@pytest.mark.parametrize("bad_dry", [None, 0, 1, "", "false", "true"])
+def test_quote_kind_requires_actual_booleans(side, bad_dry):
+    leg, req = _leg_and_request(live=True)
+    response = good_quote(req)
+    target = req if side == "request" else response["quoteRequest"]
+    target["dry"] = bad_dry
+    sign(response)
+    assert ni.verify_oneclick_quote_signature(response, TEST_KEY)
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.verify_quote(leg, req, response, now=NOW)
+    assert any(g["guard"] == "quote_request_echo" and "dry" in g["mismatched"]
+               for g in err.value.detail)
+
+
+def test_signed_dry_quote_cannot_create_a_live_receipt_or_consume_a_nonce(tmp_path):
+    def downgrade(request):
+        response = good_quote({**request, "dry": True})
+        response["quote"].update(depositAddress=SOL_ADDR, deadline=request["deadline"],
+                                 refundFee="1", timeEstimate=1)
+        return response
+
+    nonce_path, receipt_path = tmp_path / "nonces.json", tmp_path / "receipt.json"
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="", transport=api(downgrade)),
+                 live=True, nonce_store=ni.NonceStore(str(nonce_path)),
+                 receipt_path=str(receipt_path), rpc=near_rpc()[0], now=NOW)
+    assert err.value.code == "X3_NEAR_GUARD_FAILED"
+    assert not nonce_path.exists()
+    assert not receipt_path.exists()
+
+
 # --- client --------------------------------------------------------------------------------
+
+def test_client_uses_api_key_environment(monkeypatch):
+    monkeypatch.delenv("NEAR_INTENTS_JWT", raising=False)
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "synthetic-api-key")
+    transport = api()
+    client = ni.OneClickClient(transport=transport)
+    client.tokens()
+    assert transport.calls[0]["headers"].get("X-API-Key") == "synthetic-api-key"
+    assert "Authorization" not in transport.calls[0]["headers"]
+    assert client.authenticated is True
+
+
+@pytest.mark.parametrize("env_key,env_jwt,kwargs,expected", [
+    (None, None, {}, {}),
+    ("", "", {}, {}),
+    (None, "env-jwt", {}, {"Authorization": "Bearer env-jwt"}),
+    ("", "env-jwt", {}, {"Authorization": "Bearer env-jwt"}),
+    ("env-key", "env-jwt", {}, {"X-API-Key": "env-key"}),
+    ("env-key", "env-jwt", {"jwt": "explicit-jwt"}, {"Authorization": "Bearer explicit-jwt"}),
+    ("env-key", "env-jwt", {"jwt": ""}, {}),
+    ("env-key", "env-jwt", {"api_key": "explicit-key"}, {"X-API-Key": "explicit-key"}),
+    ("env-key", "env-jwt", {"api_key": ""}, {}),
+    ("env-key", "env-jwt", {"api_key": "explicit-key", "jwt": "explicit-jwt"}, {"X-API-Key": "explicit-key"}),
+    ("env-key", "env-jwt", {"api_key": "explicit-key", "jwt": ""}, {"X-API-Key": "explicit-key"}),
+    ("env-key", "env-jwt", {"api_key": "", "jwt": "explicit-jwt"}, {}),
+    ("env-key", "env-jwt", {"api_key": None, "jwt": None}, {"X-API-Key": "env-key"}),
+])
+def test_client_auth_precedence(monkeypatch, env_key, env_jwt, kwargs, expected):
+    for name, value in (("NEAR_INTENTS_API_KEY", env_key), ("NEAR_INTENTS_JWT", env_jwt)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    transport = api()
+    client = ni.OneClickClient(transport=transport, **kwargs)
+    client.tokens()
+    headers = transport.calls[0]["headers"]
+    assert {k: v for k, v in headers.items() if k in ("X-API-Key", "Authorization")} == expected
+    assert client.authenticated is bool(expected)
+
+
+def test_client_preserves_positional_constructor(monkeypatch):
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "env-key")
+    transport = api()
+    client = ni.OneClickClient("https://example.invalid/", "positional-jwt", transport, 7)
+    client.tokens()
+    assert client.timeout == 7
+    assert transport.calls[0]["url"] == "https://example.invalid/v0/tokens"
+    assert transport.calls[0]["headers"]["Authorization"] == "Bearer positional-jwt"
+    assert "X-API-Key" not in transport.calls[0]["headers"]
+
+
+def test_client_does_not_discover_explorer_jwt(monkeypatch):
+    monkeypatch.delenv("NEAR_INTENTS_API_KEY", raising=False)
+    monkeypatch.delenv("NEAR_INTENTS_JWT", raising=False)
+    monkeypatch.setenv("NEAR_INTENTS_EXPLORER_JWT", "synthetic-explorer-jwt")
+    transport = api()
+    client = ni.OneClickClient(transport=transport)
+    client.tokens()
+    assert client.authenticated is False
+    assert "Authorization" not in transport.calls[0]["headers"]
+    assert "X-API-Key" not in transport.calls[0]["headers"]
+
+
+@pytest.mark.parametrize("status", [200, 401])
+def test_api_key_through_real_http_transport(monkeypatch, status):
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "synthetic-http-key")
+    monkeypatch.setenv("NEAR_INTENTS_JWT", "synthetic-unused-jwt")
+    # Keep loopback traffic independent of the test runner's proxy settings.
+    monkeypatch.setenv("no_proxy", "127.0.0.1")
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append((self.path, dict(self.headers)))
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b"[]" if status == 200 else b'{"message":"invalid token"}')
+
+        def log_message(self, *args):
+            pass
+
+    with HTTPServer(("127.0.0.1", 0), Handler) as server:
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            client = ni.OneClickClient(base_url=f"http://127.0.0.1:{server.server_port}", timeout=2)
+            if status == 200:
+                assert client.tokens() == []
+            else:
+                with pytest.raises(ni.NearIntentsError) as err:
+                    client.tokens()
+                assert err.value.code == "X3_NEAR_HTTP"
+                assert err.value.detail["status"] == 401
+                assert "synthetic-http-key" not in str(err.value)
+                assert "synthetic-unused-jwt" not in str(err.value)
+        finally:
+            server.shutdown()
+            worker.join(timeout=2)
+    assert len(seen) == 1  # A rejection must not retry with a different credential.
+    assert seen[0][0] == "/v0/tokens"
+    headers = {key.lower(): value for key, value in seen[0][1].items()}
+    assert headers["x-api-key"] == "synthetic-http-key"
+    assert "authorization" not in headers
+
+
+@pytest.mark.parametrize("credential_arg", ["api_key", "jwt"])
+@pytest.mark.parametrize("failure", ["json", "raw", "raw-long-key", "unreachable"])
+def test_client_redacts_echoed_credentials_from_errors(credential_arg, failure):
+    credential = "synthetic-selected-credential"
+    if failure == "raw-long-key":
+        credential += "x" * 400
+
+    def transport(method, url, headers, body, timeout):
+        if failure == "unreachable":
+            raise ni.NearIntentsError("X3_NEAR_UNREACHABLE", f"cannot reach {url}: {credential}",
+                                      detail={"nested": [f"support trace: {credential}"]})
+        if failure in ("raw", "raw-long-key"):
+            return 401, f"invalid API key: {credential}; contact support".encode()
+        return 401, json.dumps({"message": f"invalid API key: {credential}; contact support",
+                                "correlationId": f"support-{credential}"}).encode()
+
+    client = ni.OneClickClient(base_url="https://example.invalid", transport=transport,
+                               **{credential_arg: credential})
+    with pytest.raises(ni.NearIntentsError) as err:
+        client.tokens()
+    assert "synthetic-selected-credential" not in str(err.value)
+    assert credential not in json.dumps(err.value.to_dict())
+    assert "[REDACTED]" in err.value.message
+    if failure == "unreachable":
+        assert err.value.code == "X3_NEAR_UNREACHABLE"
+        assert err.value.detail["nested"] == ["support trace: [REDACTED]"]
+    else:
+        assert err.value.detail["status"] == 401
+        assert "contact support" in err.value.message
+        if failure == "json":
+            assert err.value.detail["correlationId"] == "support-[REDACTED]"
+
 
 def test_client_sends_bearer_jwt_and_surfaces_http_errors():
     transport = RecordingTransport(lambda m, u, p: (401, {"message": "invalid token"}))
@@ -481,6 +672,29 @@ def test_dry_quote_checks_guards_and_consumes_nothing(tmp_path):
     assert "note" in result  # unauthenticated fee schedule is called out
     assert not (tmp_path / "nonces.json").exists()
     assert not (tmp_path / "r.json").exists()
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_api_key_quote_report_and_receipt_exclude_credentials(monkeypatch, tmp_path, live):
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "synthetic-report-key")
+    monkeypatch.setenv("NEAR_INTENTS_JWT", "synthetic-unused-jwt")
+    transport = api()
+    receipt_path = tmp_path / "receipt.json"
+    result = ni.quote(str(EXAMPLE), client=ni.OneClickClient(transport=transport), live=live,
+                      nonce_store=ni.NonceStore(str(tmp_path / "nonces.json")),
+                      receipt_path=str(receipt_path), rpc=near_rpc()[0], now=NOW)
+    assert result["authenticated"] is True
+    assert "note" not in result
+    for call in transport.calls:
+        assert call["headers"]["X-API-Key"] == "synthetic-report-key"
+        assert "Authorization" not in call["headers"]
+    serialized = json.dumps(result)
+    if live:
+        serialized += receipt_path.read_text()
+    else:
+        assert not receipt_path.exists()
+    assert "synthetic-report-key" not in serialized
+    assert "synthetic-unused-jwt" not in serialized
 
 
 def test_live_quote_writes_receipt_consumes_nonce_and_refuses_replay(tmp_path):
@@ -1011,3 +1225,159 @@ def test_only_a_fully_verified_live_quote_is_eligible_for_wallet_authorization(t
                     receipt_path=str(tmp_path / "r.json"), **common)
     assert live["eligible_for_wallet_authorization"] is True
     assert "wallet signature" in live["authorization_note"]
+
+
+# ---- NEAR Intents Shield incidents ---------------------------------------------------------
+
+DEPOSIT = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+
+
+def shield_with(body, status=200, raw=None):
+    """A ShieldIncidents client whose transport answers `body` and records each call."""
+    calls = []
+
+    def transport(method, url, headers, payload, timeout):
+        calls.append({"method": method, "url": url, "headers": headers})
+        return status, raw if raw is not None else json.dumps(body).encode()
+
+    shield = ni.ShieldIncidents("shield-token", base_url="https://shield.example", transport=transport)
+    shield.calls = calls
+    return shield
+
+
+def incident(scope_type, scope_value, **extra):
+    return {"status": "incidents", "incidents": [{"scopeType": scope_type, "scopeValue": scope_value,
+                                                  "direction": "withdraw", "publicDescription": "test", **extra}]}
+
+
+OPERATIONAL = {"status": "operational"}
+
+
+def _live(tmp_path, shield, transport=None, **kwargs):
+    return ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=transport or api()), live=True,
+                    nonce_store=ni.NonceStore(str(tmp_path / "nonces.json")), receipt_path=str(tmp_path / "r.json"),
+                    rpc=near_rpc()[0], now=NOW, shield=shield, **kwargs)
+
+
+def test_shield_parses_both_documented_shapes():
+    assert ni.parse_shield_incidents(OPERATIONAL) == []
+    parsed = ni.parse_shield_incidents(incident("chain", " eth "))
+    assert parsed == [{"scopeType": "chain", "scopeValue": "eth", "direction": "withdraw", "description": "test"}]
+
+
+@pytest.mark.parametrize("body", [
+    [], "operational", {"status": "degraded"}, {"status": "operational", "incidents": [{"scopeType": "chain"}]},
+    {"status": "incidents"}, {"status": "incidents", "incidents": []},
+    {"status": "incidents", "incidents": ["eth"]},
+    incident("validator", "x"), incident("chain", ""), incident("chain", None),
+])
+def test_any_other_shield_answer_refuses(body):
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.parse_shield_incidents(body)
+    assert err.value.code == "X3_NEAR_SHIELD_MALFORMED"
+
+
+def test_shield_client_sends_the_partner_token_and_fails_closed():
+    shield = shield_with(OPERATIONAL)
+    assert shield.active() == []
+    call = shield.calls[0]
+    assert (call["method"], call["url"]) == ("GET", "https://shield.example/incident")
+    assert call["headers"]["Authorization"] == "Bearer shield-token"
+
+    for client, code in ((shield_with({"message": "nope"}, status=401), "X3_NEAR_SHIELD_HTTP"),
+                         (shield_with(None, raw=b"<html>"), "X3_NEAR_SHIELD_MALFORMED")):
+        with pytest.raises(ni.NearIntentsError) as err:
+            client.active()
+        assert err.value.code == code
+        assert "shield-token" not in err.value.message
+
+    def down(*_):
+        raise ni.NearIntentsError("X3_NEAR_UNREACHABLE", "cannot reach https://shield.example/incident: timed out")
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.ShieldIncidents("t", base_url="https://shield.example", transport=down).active()
+    assert err.value.code == "X3_NEAR_SHIELD_UNREACHABLE"
+
+
+def test_shield_is_configured_only_by_a_token(monkeypatch):
+    assert ni.ShieldIncidents.from_env() is None
+    monkeypatch.setenv("NEAR_INTENTS_SHIELD_JWT", "abc")
+    monkeypatch.setenv("NEAR_INTENTS_SHIELD_URL", "https://shield.example/")
+    shield = ni.ShieldIncidents.from_env()
+    assert (shield.token, shield.base_url) == ("abc", "https://shield.example")
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.ShieldIncidents("")
+    assert err.value.code == "X3_NEAR_SHIELD_UNCONFIGURED"
+
+
+@pytest.mark.parametrize("scope_type, scope_value", [
+    ("chain", "sol"), ("chain", "NEAR"), ("token", NEAR_USDC), ("token", SOL_USDC.upper()),
+    ("address", "x3-demo.near"), ("address", SOL_ADDR), ("bridge", "poa"),
+])
+def test_an_incident_on_the_route_refuses_before_any_quote_is_requested(tmp_path, scope_type, scope_value):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, shield_with(incident(scope_type, scope_value)), transport=transport)
+    assert err.value.code == "X3_NEAR_SHIELD_INCIDENT"
+    assert err.value.detail[0]["matching"][0]["scopeType"] == scope_type
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls), "no deposit address may be created"
+    assert not (tmp_path / "nonces.json").exists()
+    assert not (tmp_path / "r.json").exists()
+
+
+def test_an_incident_on_the_signed_deposit_address_refuses_after_the_quote(tmp_path):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, shield_with(incident("address", DEPOSIT)), transport=transport)
+    assert err.value.code == "X3_NEAR_SHIELD_INCIDENT"
+    assert any(c["url"].endswith("/v0/quote") for c in transport.calls)
+    assert not (tmp_path / "nonces.json").exists(), "a refused quote consumes no nonce"
+    assert not (tmp_path / "r.json").exists(), "and leaves no receipt to deposit from"
+
+
+def test_an_unrelated_incident_is_recorded_and_the_quote_proceeds(tmp_path):
+    result = _live(tmp_path, shield_with(incident("chain", "eth")))
+    assert result["status"] == "awaiting_deposit"
+    assert result["incident_check"] == {"checked": True, "source": "https://shield.example", "active": 1}
+    shield_guards = [g for g in result["guards"] if g["guard"] == "shield_incidents"]
+    assert len(shield_guards) == 2 and all(g["ok"] and g["matching"] == [] for g in shield_guards)
+    receipt = json.loads((tmp_path / "r.json").read_text())
+    assert receipt["incident_check"]["checked"] is True
+
+
+def test_a_shield_outage_refuses_the_quote(tmp_path):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, shield_with(None, status=503), transport=transport)
+    assert err.value.code == "X3_NEAR_SHIELD_HTTP"
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
+
+
+def test_without_a_token_the_quote_says_it_was_not_checked(tmp_path):
+    result = _live(tmp_path, None)
+    assert result["incident_check"] == {"checked": False, "reason": "NEAR_INTENTS_SHIELD_JWT is not set"}
+    assert not any(g["guard"] == "shield_incidents" for g in result["guards"])
+
+
+def test_a_required_check_without_a_token_refuses_live_but_not_dry_quotes(tmp_path, monkeypatch):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, None, transport=transport, require_incident_check=True)
+    assert err.value.code == "X3_NEAR_SHIELD_UNCONFIGURED"
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
+
+    monkeypatch.setenv("X3_REQUIRE_INCIDENT_CHECK", "1")
+    with pytest.raises(ni.NearIntentsError) as err:
+        _live(tmp_path, None)
+    assert err.value.code == "X3_NEAR_SHIELD_UNCONFIGURED"
+
+    dry = ni.quote(str(EXAMPLE), client=ni.OneClickClient(jwt="k", transport=api()), live=False,
+                   nonce_store=ni.NonceStore(str(tmp_path / "n2.json")), rpc=near_rpc()[0], now=NOW)
+    assert dry["incident_check"]["checked"] is False
+
+
+def test_cli_require_incident_check_flag_refuses_without_a_token(tmp_path, capsys):
+    code = ni.main(["quote", str(EXAMPLE), "--tokens", str(TOKENS), "--live", "--require-incident-check",
+                    "--nonce-store", str(tmp_path / "n.json"), "--receipt", str(tmp_path / "r.json")],
+                   client=ni.OneClickClient(jwt="k", transport=api()))
+    assert code != 0
+    assert "X3_NEAR_SHIELD_UNCONFIGURED" in capsys.readouterr().err

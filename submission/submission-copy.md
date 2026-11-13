@@ -6,19 +6,23 @@
 
 ## 20–2,000 character description
 
-X3 Shield is a policy layer for AI-agent payments on NEAR. The owner writes spending rules in X3, a small typed language: who may be paid, in which asset, how much per payment and per day, slippage and fee ceilings, approval thresholds, expiry. The agent writes each payment as an .x3 program. A deterministic compiler and a NEAR contract (x3-guard) compare the two. Model output never authorizes anything.
+In May 2026 an attacker drained ~$150K from Grok's AI-agent wallet: a gifted NFT lifted its limits, then a Morse-coded order made the agent send funds. The model's output was the authorization. X3 Shield moves authorization out of the model.
 
-What runs today, all on testnet or locally:
+The owner writes spending rules in .x3, a small typed language: recipients, asset, per-payment and daily caps, slippage and fee ceilings, refund address, approvals, expiry. The agent can only propose: each payment is an .x3 program. A deterministic compiler and a NEAR contract (x3-guard) check it, and the signed 1Click quote, against the mandate. Nothing the agent holds, reads or decodes changes the rules.
 
-1. A cross-chain trade specified by one .x3 program. Its source hash was bound on a NEAR Guard contract first; then 1.000000 test USDC left Base Sepolia and 0.997400 arrived at x3lang.testnet on NEAR. Both transactions are finalized and public, and an offline verifier in the repo checks the archive. The link between the legs is a trusted Tidepool testnet relay, not atomic settlement.
+What runs today, on testnet or locally:
 
-2. On-chain refusals. The deployed Guard refused an agent intent to attacker.near (mandate_recipient) and accepted the permitted control. It also verified an official 1Click dry quote's Ed25519 signature; the quote was refused with recipient mismatch and separate dry-quote failures. A matching live quote was accepted and stopped before deposit.
+1. Replay of that drain with a model that falls for every step: 3/3 attack programs refused, owner's payment allowed. Separately, 8/8 scripted attacks refused; 9 unsafe edits fail to compile.
 
-3. The model is not the defence. A scripted model that complies with all 8 attacks gets 8 of 8 refused by deterministic checks. Nine unsafe edits to an agent payment fail to compile.
+2. On-chain refusals: the deployed Guard refused an agent intent to attacker.near and accepted the permitted control. It verified an official 1Click quote's Ed25519 signature and refused it on recipient mismatch; a matching live quote was accepted and stopped before deposit.
 
-The README has ten "do X, see Y" steps; eight run offline with Python and Node, no wallet or key.
+3. One .x3 program specified a cross-chain trade: its hash was bound on Guard, then 1.000000 test USDC left Base Sepolia and 0.997400 arrived on NEAR testnet, both finalized. The link is a trusted testnet relay, not atomic settlement.
 
 Mainnet: an agent key that can call only three Guard methods accepted a signed 1Click quote after 21 mandate checks passed; 25 USDC left Solana and 24.9952 USDC reached NEAR 84 s later.
+
+Who it's for: teams shipping paying agents, wallets and Intents integrators, and owners delegating spend who need limits they can audit and revoke.
+
+The README has "do X, see Y" steps; most run offline with Python and Node, no wallet or key.
 
 Limits: one ~$25 mainnet trade; the rest is testnet. Guard does not custody funds, so an unrestricted wallet key can bypass it. No cryptographic cross-chain atomicity. The X3 compiler and VM predate the hackathon and are disclosed as baseline; the NEAR integration is the hackathon work.
 
