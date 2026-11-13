@@ -123,6 +123,34 @@ def test_near_payout(case):
             proof.destination_transfer(*args)
 
 
+@pytest.mark.parametrize("status", [
+    {"SuccessValue": None}, {"SuccessValue": False}, {"SuccessValue": 0},
+    {"SuccessValue": []}, {"SuccessValue": {}}, {"SuccessValue": "!not-base64!"},
+    {"SuccessValue": "Zg"}, {"SuccessValue": "Zh=="},
+    {"SuccessValue": "", "Failure": {}}, {"SuccessReceiptId": "pending"},
+])
+@pytest.mark.parametrize("target", ["transaction", "transfer_receipt"])
+def test_malformed_success_never_proves_a_payment(status, target):
+    responses = near_responses()
+    if target == "transaction":
+        responses["result"]["status"] = status
+    else:
+        responses["result"]["receipts_outcome"][0]["outcome"]["status"] = status
+    with pytest.raises(proof.ProofRejected):
+        proof.destination_transfer(near_rpc(responses), TX_HASH, SIGNER, RECIPIENT, 8, 9, 200)
+
+
+@pytest.mark.parametrize("value", ["", "bnVsbA==", "AAECA/8="])
+@pytest.mark.parametrize("target", ["transaction", "transfer_receipt"])
+def test_canonical_success_return_bytes_remain_valid(value, target):
+    responses = near_responses()
+    if target == "transaction":
+        responses["result"]["status"] = {"SuccessValue": value}
+    else:
+        responses["result"]["receipts_outcome"][0]["outcome"]["status"] = {"SuccessValue": value}
+    assert proof.destination_transfer(near_rpc(responses), TX_HASH, SIGNER, RECIPIENT, 8, 9, 200)["amount_units"] == 9
+
+
 @pytest.mark.parametrize("case", ["ok", "quote_changed", "bad_echo", "unsigned_success_only", "wrong_origin",
                                   "duplicate", "memo_required", "not_settled"])
 def test_provider_linkage(monkeypatch, case):
