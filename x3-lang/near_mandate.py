@@ -330,6 +330,26 @@ def spent_in_window(spends: List[Dict[str, Any]], now_ms: int):
     return sum(int(s["amount"]) for s in inside), len(inside)
 
 
+def check_program_pin(pin: Optional[Dict[str, Any]], mandate: Dict[str, Any],
+                      policy: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The contract's `check_program_pin`: the `mandate_program` guard, or None when the owner
+    has not pinned programs (`get_mandate_programs` returned null). A pin made under another
+    mandate version fails closed. Like the contract, this checks the policy's declared
+    `program_sha256`, not the source that produced it."""
+    if pin is None:
+        return None
+    programs = list(pin.get("programs") or [])
+    pinned_version = pin.get("mandate_version")
+    current = pinned_version == mandate.get("version")
+    allowed = policy.get("program_sha256") in programs
+    if current:
+        detail = f"program {policy.get('program_sha256')}, pinned {programs}"
+    else:
+        detail = (f"programs were pinned under mandate version {pinned_version}; the mandate is now "
+                  f"version {mandate.get('version')}; the owner must pin again")
+    return {"guard": "mandate_program", "ok": bool(current and allowed), "detail": detail}
+
+
 def check_mandate(mandate: Dict[str, Any], policy: Dict[str, Any], now_ms: int) -> List[Dict[str, Any]]:
     """The contract's `check_mandate`, check for check. `mandate` is a compiled mandate (no
     spends, never revoked) or a chain view from `mandate_from_chain`."""

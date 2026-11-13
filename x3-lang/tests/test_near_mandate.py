@@ -5,6 +5,7 @@ generates, so the terms and policies built here are the ones the contract is tes
 contract's checks must give the verdicts recorded here.
 """
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -222,28 +223,56 @@ def test_the_daily_cap_counts_a_rolling_24_hours(tmp_path):
 
 # --- quoting as the agent ------------------------------------------------------------------
 
-class GuardViews:
-    """NEAR `call_function` views: x3-guard's `get_mandate`, and `ft_balance_of` for the baseline."""
+METHOD_NOT_FOUND = "wasm execution failed with error: MethodResolveError(MethodNotFound)"
 
-    def __init__(self, mandate):
+
+class GuardViews:
+    """NEAR `call_function` views: x3-guard's `get_mandate` and `get_mandate_programs`, and
+    `ft_balance_of` for the baseline.
+
+    `pin` is what `get_mandate_programs` returns. `pins` selects how the contract answers it:
+    "view" (it has the method), "result_error" or "rpc_error" (a Guard built before program
+    pins, as nodes report a missing method in the query result or as a JSON-RPC error), or
+    "unreachable" (any other failure)."""
+
+    def __init__(self, mandate, pin=None, pins="view"):
         self.mandate = mandate
+        self.pin = pin
+        self.pins = pins
         self.height = 180_000_000
 
     def __call__(self, method, url, payload):
         params = payload["params"]
         args = json.loads(base64.b64decode(params["args_base64"]))
+        self.height += 1
+        if params["method_name"] == "get_mandate_programs" and self.pins != "view":
+            if self.pins == "result_error":
+                return 200, {"jsonrpc": "2.0", "id": payload["id"], "result": {
+                    "error": METHOD_NOT_FOUND, "logs": [], "block_height": self.height, "block_hash": "h"}}
+            if self.pins == "rpc_error":
+                return 200, {"jsonrpc": "2.0", "id": payload["id"], "error": {
+                    "name": "HANDLER_ERROR", "cause": {"name": "CONTRACT_EXECUTION_ERROR",
+                                                       "info": {"vm_error": METHOD_NOT_FOUND}}}}
+            return 200, {"jsonrpc": "2.0", "id": payload["id"], "error": {
+                "name": "HANDLER_ERROR", "cause": {"name": "UNKNOWN_BLOCK"}}}
         if params["method_name"] == "get_mandate":
             value = self.mandate if self.mandate and (args["owner"], args["agent"]) == (
                 self.mandate["owner"], self.mandate["agent"]) else None
+        elif params["method_name"] == "get_mandate_programs":
+            value = self.pin
         else:
             value = "0"
-        self.height += 1
         return 200, {"jsonrpc": "2.0", "id": payload["id"], "result": {
             "result": list(json.dumps(value).encode()), "logs": [], "block_height": self.height, "block_hash": "h"}}
 
 
-def views(mandate):
-    return ni.chain_evidence.NearViews(transport=RecordingTransport(GuardViews(mandate)), urls=["https://rpc.invalid"])
+def views(mandate, **pin):
+    return ni.chain_evidence.NearViews(transport=RecordingTransport(GuardViews(mandate, **pin)),
+                                       urls=["https://rpc.invalid"])
+
+
+AGENT_PROGRAM = hashlib.sha256(AGENT_INTENT.read_bytes()).hexdigest()
+OTHER_PROGRAM = "f" * 64
 
 
 def chain_mandate(**changes):
@@ -290,6 +319,53 @@ def test_no_mandate_on_chain_is_a_denial(tmp_path):
     with pytest.raises(ni.NearIntentsError) as err:
         agent_quote(tmp_path, live=True, guard_contract="x3-guard.near", near_views=views(None))
     assert err.value.code == "X3_MANDATE_DENIED" and "holds no mandate" in err.value.message
+
+
+def test_a_pinned_program_passes_the_preflight_pin_check(tmp_path):
+    result = agent_quote(tmp_path, live=True, guard_contract="x3-guard.near",
+                         near_views=views(chain_mandate(), pin={"mandate_version": 3, "programs": [AGENT_PROGRAM]}))
+    pin_check = [g for g in result["guards"] if g["guard"] == "mandate_program"]
+    assert pin_check and pin_check[0]["ok"]
+    receipt = json.loads((tmp_path / "r.json").read_text())
+    assert receipt["mandate"]["program_pin"]["pin"]["programs"] == [AGENT_PROGRAM]
+
+
+@pytest.mark.parametrize("pin,why", [
+    ({"mandate_version": 3, "programs": [OTHER_PROGRAM]}, "pinned ['" + OTHER_PROGRAM),
+    ({"mandate_version": 2, "programs": [AGENT_PROGRAM]}, "pinned under mandate version 2"),
+])
+def test_preflight_refuses_what_the_pin_refuses_before_1click(tmp_path, pin, why):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        agent_quote(tmp_path, live=True, guard_contract="x3-guard.near",
+                    near_views=views(chain_mandate(), pin=pin), transport=transport)
+    assert err.value.code == "X3_MANDATE_DENIED" and "mandate_program" in err.value.message
+    failed = [c for c in err.value.detail["checks"] if not c["ok"]]
+    assert [c["guard"] for c in failed] == ["mandate_program"] and why in failed[0]["detail"]
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
+
+
+def test_no_pin_on_chain_adds_no_program_check(tmp_path):
+    result = agent_quote(tmp_path, live=True, guard_contract="x3-guard.near", near_views=views(chain_mandate()))
+    assert not [g for g in result["guards"] if g["guard"] == "mandate_program"]
+
+
+@pytest.mark.parametrize("pins", ["result_error", "rpc_error"])
+def test_a_guard_without_program_pins_is_treated_as_unpinned(tmp_path, pins):
+    result = agent_quote(tmp_path, live=True, guard_contract="x3-guard.near",
+                         near_views=views(chain_mandate(), pins=pins))
+    assert not [g for g in result["guards"] if g["guard"] == "mandate_program"]
+    receipt = json.loads((tmp_path / "r.json").read_text())
+    assert "predates program pins" in receipt["mandate"]["program_pin"]["source"]
+
+
+def test_an_unreadable_pin_fails_closed(tmp_path):
+    transport = api()
+    with pytest.raises(ni.NearIntentsError) as err:
+        agent_quote(tmp_path, live=True, guard_contract="x3-guard.near",
+                    near_views=views(chain_mandate(), pins="unreachable"), transport=transport)
+    assert err.value.code == "X3_MANDATE_CHAIN" and "program pin" in err.value.message
+    assert not any(c["url"].endswith("/v0/quote") for c in transport.calls)
 
 
 def test_a_live_agent_quote_needs_its_mandate(tmp_path):

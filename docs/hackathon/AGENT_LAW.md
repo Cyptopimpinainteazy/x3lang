@@ -50,7 +50,7 @@ These hold on `x3lang.near` today, with no change:
 
 ## Built, not deployed
 
-[PR #202](https://github.com/Cyptopimpinainteazy/x3lang/pull/202) lets an owner pin the exact `.x3` payment programs an agent may run (`pin_mandate_programs`), so an agent cannot rewrite a payment and stay inside the caps. It changes the contract and is not deployed; the mainnet Guard is frozen until results.
+[PR #202](https://github.com/Cyptopimpinainteazy/x3lang/pull/202) lets an owner pin the `.x3` payment programs an agent may declare (`pin_mandate_programs`). Guard checks the declared program hash, not the source that produced the payment, so the pin keeps an honest agent host on owner-approved programs and leaves an on-chain record to audit; it does not stop a compromised agent from declaring an allowed hash, and the mandate's term checks remain the boundary. It changes the contract and is not deployed; the mainnet Guard is frozen until results.
 
 ## Provenance
 

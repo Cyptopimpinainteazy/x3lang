@@ -15,7 +15,7 @@
 //! | `approval_above`: N of the listed `approvers` must call [`Contract::approve_intent`] | accept |
 //! | `expires_at_ms`, and the intent's deadline must not outlive it | register and accept |
 //! | revocation ([`Contract::revoke_mandate`]) or replacement (a new `version`) | immediately, for every intent not yet accepted |
-//! | pinned programs ([`Contract::pin_mandate_programs`]): the intent's `program_sha256` must be one the owner pinned under the current mandate version | register and accept, once the owner pins |
+//! | pinned programs ([`Contract::pin_mandate_programs`]): the intent's declared `program_sha256` must be one the owner pinned under the current mandate version (a declared-identity check, see [`check_program_pin`]) | register and accept, once the owner pins |
 //!
 //! Pinning is opt-in so mandates created before it keep working unchanged. Once an owner pins,
 //! the agent can only run the exact `.x3` programs the owner saw. A pin belongs to the mandate
@@ -112,6 +112,30 @@ fn read_program_pin(owner: &AccountId, agent: &AccountId) -> Option<ProgramPin> 
     })
 }
 
+/// Settle the caller's storage after a program-pin write or removal, returning the refund for
+/// freed bytes. Growth is charged to the attached deposit exactly as `settle_storage` does.
+/// When the pin shrinks or is removed, the freed bytes are refunded with the whole attached
+/// deposit: only the owner writes its pin, and always through this caller-paid path, so the
+/// freed bytes are ones the owner paid for.
+fn settle_pin_storage(initial_usage: u64) -> u128 {
+    let now = env::storage_usage();
+    if now >= initial_usage {
+        settle_storage(initial_usage);
+        return 0;
+    }
+    let freed = env::storage_byte_cost()
+        .as_yoctonear()
+        .checked_mul(u128::from(initial_usage - now))
+        .unwrap_or_else(|| env::panic_str("storage refund overflow"));
+    let refund = freed
+        .checked_add(env::attached_deposit().as_yoctonear())
+        .unwrap_or_else(|| env::panic_str("storage refund overflow"));
+    Promise::new(env::predecessor_account_id())
+        .transfer(NearToken::from_yoctonear(refund))
+        .detach();
+    freed
+}
+
 fn write_program_pin(owner: &AccountId, agent: &AccountId, pin: &ProgramPin) {
     let mut bytes = pin.mandate_version.to_le_bytes().to_vec();
     for hash in &pin.programs {
@@ -123,6 +147,12 @@ fn write_program_pin(owner: &AccountId, agent: &AccountId, pin: &ProgramPin) {
 /// The `mandate_program` guard for one policy, or `None` when the owner has not pinned
 /// programs for this agent (the legacy, unpinned behavior). A pin made under another mandate
 /// version fails closed.
+///
+/// `policy.program_sha256` is declared by the agent: Guard never sees or runs the `.x3`
+/// source, so this checks the declared program identity, not the code that produced the
+/// policy. It stops an honest host from using an unpinned program and leaves an on-chain record
+/// to audit against published source. A compromised agent can still declare an allowed hash;
+/// the term checks in `check_mandate` remain the enforcement boundary.
 pub fn check_program_pin(pin: Option<&ProgramPin>, m: &Mandate, policy: &Policy) -> Option<GuardResult> {
     let pin = pin?;
     let current = pin.mandate_version == m.version;
@@ -487,10 +517,13 @@ impl Contract {
         m
     }
 
-    /// Pin the `.x3` programs the agent may run under the caller's current mandate for `agent`.
-    /// Replaces any earlier pin. From now on an intent whose `program_sha256` is not pinned is
-    /// refused at registration and again at acceptance. The pin is tied to the current mandate
-    /// version: after `create_mandate` replaces the mandate, the owner pins again.
+    /// Pin the `.x3` programs the agent may declare under the caller's current mandate for
+    /// `agent`. Replaces any earlier pin. From now on an intent whose declared `program_sha256`
+    /// is not pinned is refused at registration and again at acceptance; see
+    /// [`check_program_pin`] for what this does and does not prove. The pin is tied to the
+    /// current mandate version: after `create_mandate` replaces the mandate, intents are refused
+    /// until the owner pins again or unpins. Growth is charged to the attached deposit; bytes a
+    /// smaller pin frees are refunded.
     #[payable]
     pub fn pin_mandate_programs(&mut self, agent: AccountId, programs: Vec<String>) -> ProgramPin {
         let initial = env::storage_usage();
@@ -516,6 +549,7 @@ impl Contract {
             programs,
         };
         write_program_pin(&owner, &agent, &pin);
+        let refunded = settle_pin_storage(initial);
         emit(
             "mandate_programs_pinned",
             json!({
@@ -523,19 +557,24 @@ impl Contract {
                 "agent": agent,
                 "mandate_version": pin.mandate_version,
                 "programs": pin.programs,
+                "storage_refund": U128(refunded),
             }),
         );
-        settle_storage(initial);
         pin
     }
 
-    /// Remove the caller's program pin for `agent`, returning to unpinned behavior. Returns
-    /// whether a pin existed.
+    /// Remove the caller's program pin for `agent`, returning to unpinned behavior and refunding
+    /// the pin's storage to the owner. Returns whether a pin existed.
     pub fn unpin_mandate_programs(&mut self, agent: AccountId) -> bool {
+        let initial = env::storage_usage();
         let owner = env::predecessor_account_id();
         let removed = env::storage_remove(&program_pin_key(&owner, &agent));
         if removed {
-            emit("mandate_programs_unpinned", json!({ "owner": owner, "agent": agent }));
+            let refunded = settle_pin_storage(initial);
+            emit(
+                "mandate_programs_unpinned",
+                json!({ "owner": owner, "agent": agent, "storage_refund": U128(refunded) }),
+            );
         }
         removed
     }

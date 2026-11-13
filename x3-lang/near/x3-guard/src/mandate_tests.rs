@@ -1077,3 +1077,73 @@ fn pinning_costs_storage_paid_by_the_owner() {
     let err = panics(|| c.pin_mandate_programs(agent(), vec![PROGRAM.into()]));
     assert!(err.contains("attach at least"), "{err}");
 }
+
+/// Every transfer the last call created to `to`, in yoctoNEAR.
+fn transfers_to(to: &AccountId) -> Vec<u128> {
+    near_sdk::test_utils::get_created_receipts()
+        .into_iter()
+        .filter(|r| &r.receiver_id == to)
+        .flat_map(|r| r.actions)
+        .filter_map(|a| match a {
+            near_sdk::mock::MockAction::Transfer { deposit, .. } => Some(deposit.as_yoctonear()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn byte_cost() -> u128 {
+    env::storage_byte_cost().as_yoctonear()
+}
+
+#[test]
+fn unpinning_refunds_the_pins_storage_to_the_owner() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[PROGRAM, OTHER_PROGRAM]);
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    let before = env::storage_usage();
+    assert!(c.unpin_mandate_programs(agent()));
+    let freed = u128::from(before - env::storage_usage());
+    assert!(freed > 0, "removing a pin frees storage");
+    assert_eq!(transfers_to(&owner()), vec![freed * byte_cost()]);
+}
+
+#[test]
+fn unpinning_with_no_pin_refunds_nothing() {
+    let mut c = with_mandate(terms());
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    assert!(!c.unpin_mandate_programs(agent()));
+    assert!(transfers_to(&owner()).is_empty());
+}
+
+#[test]
+fn a_smaller_pin_refunds_freed_storage_and_the_whole_deposit() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[PROGRAM, OTHER_PROGRAM]);
+    let deposit = NearToken::from_millinear(5).as_yoctonear();
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(deposit));
+    let before = env::storage_usage();
+    let pinned = c.pin_mandate_programs(agent(), vec![PROGRAM.into()]);
+    assert_eq!(pinned.programs, vec![PROGRAM.to_string()]);
+    let freed = u128::from(before - env::storage_usage());
+    assert_eq!(freed, 64, "one fewer 64-byte program hash");
+    assert_eq!(transfers_to(&owner()), vec![freed * byte_cost() + deposit]);
+}
+
+#[test]
+fn a_same_size_repin_charges_nothing_and_returns_the_deposit() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[PROGRAM]);
+    let deposit = NearToken::from_millinear(5).as_yoctonear();
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(deposit));
+    c.pin_mandate_programs(agent(), vec![OTHER_PROGRAM.into()]);
+    assert_eq!(transfers_to(&owner()), vec![deposit]);
+}
+
+#[test]
+fn a_larger_pin_is_still_charged_to_the_attached_deposit() {
+    let mut c = with_mandate(terms());
+    pin(&mut c, &[PROGRAM]);
+    ctx(owner(), NOW_MS, NearToken::from_yoctonear(0));
+    let err = panics(|| c.pin_mandate_programs(agent(), vec![PROGRAM.into(), OTHER_PROGRAM.into()]));
+    assert!(err.contains("attach at least"), "{err}");
+}

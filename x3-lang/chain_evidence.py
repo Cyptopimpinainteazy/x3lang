@@ -406,6 +406,9 @@ class NearViews:
 
         def decode(result: Dict[str, Any]) -> Any:
             raw = result.get("result")
+            if raw is None and isinstance(result.get("error"), str):
+                raise ChainEvidenceError("X3_EVIDENCE_VIEW_FAILED", f"{contract}.{method} failed: {result['error']}",
+                                         {"error": result["error"]})
             if not isinstance(raw, list) or not all(isinstance(b, int) and 0 <= b < 256 for b in raw):
                 raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{method} returned no result bytes")
             try:

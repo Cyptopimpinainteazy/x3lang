@@ -1517,6 +1517,23 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     return result
 
 
+def _read_program_pin(near_views: Any, guard_contract: str, owner: str,
+                      agent: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """The owner's program pin for `agent` as `guard_contract` holds it, and where it came from.
+
+    A Guard built before program pins has no `get_mandate_programs`; it cannot check pins at
+    registration either, so that contract is reported as unpinned. Any other read failure is
+    refused, as for the mandate itself."""
+    try:
+        view = near_views.view_json(guard_contract, "get_mandate_programs", {"owner": owner, "agent": agent})
+    except chain_evidence.ChainEvidenceError as exc:
+        if "MethodNotFound" in f"{exc.message} {exc.detail}":
+            return None, f"{guard_contract} predates program pins (no get_mandate_programs)"
+        raise NearIntentsError("X3_MANDATE_CHAIN", f"could not read the program pin from {guard_contract}: {exc.message}",
+                               "mandate", exc.detail)
+    return view["value"], f"{guard_contract} at block {view['block_height']}"
+
+
 def check_against_mandate(leg: Dict[str, Any], request: Dict[str, Any], program_sha256: str, mandate_path: str, *,
                           tokens: List[Dict[str, Any]], guard_contract: Optional[str] = None,
                           near_views: Optional[Any] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
@@ -1550,10 +1567,17 @@ def check_against_mandate(leg: Dict[str, Any], request: Dict[str, Any], program_
         mandate = m.mandate_from_chain(view["value"])
         source = {"kind": "chain", "contract": guard_contract, "block_height": view["block_height"],
                   "block_hash": view["block_hash"], "path": mandate_path}
+    pin, pin_source = (None, "not read: no Guard contract given")
+    if guard_contract:
+        pin, pin_source = _read_program_pin(near_views, guard_contract, mandate["owner"], mandate["agent"])
     policy = policy_for(leg, request, program_sha256)
     now_ms = int((now or datetime.now(timezone.utc)).timestamp() * 1000)
     checks = m.check_mandate(mandate, policy, now_ms)
+    pin_check = m.check_program_pin(pin, mandate, policy)
+    if pin_check is not None:
+        checks.append(pin_check)
     out = {"owner": mandate["owner"], "agent": mandate["agent"], "version": mandate["version"], "source": source,
+           "program_pin": {"source": pin_source, "pin": pin},
            "checks": checks, "approvals_needed": m.approvals_needed(mandate, int(policy["amount"]))}
     failed = [c["guard"] for c in checks if not c["ok"]]
     if failed:
