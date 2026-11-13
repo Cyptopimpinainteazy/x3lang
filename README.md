@@ -68,6 +68,10 @@ for compile-time versus runtime checks and the evidence boundaries.
 [Why X3 Force Field stands out](docs/hackathon/WHY_X3_SHIELD.md) connects each distinguishing claim
 to its evidence and limits.
 
+## Local agent-law lifecycle
+
+A separate [local runtime prototype](docs/security/AGENT_LAW_RUNTIME.md) now binds signed birth records, delegated budgets, capability-scoped actions, durable revocation and independent signed review proposals. Run `python3 scripts/hackathon/agent_law_local_demo.py` in the configured virtual environment. It compiles actual .x3 intent plans; it does not hold or move funds, implement anonymous voting, or establish full ten-commandment enforcement.
+
 ## What exists today
 
 | Result | Network | Check it |
