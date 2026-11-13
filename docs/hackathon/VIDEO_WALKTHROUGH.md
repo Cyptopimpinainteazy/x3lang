@@ -19,6 +19,25 @@ From a clean checkout of the exact commit you intend to submit, show `git rev-pa
 | 02:30–02:48 | Seven limits on the [proof card](../../PROOF_CARD.md#seven-limits). | TRUST BOUNDARIES | “One owner-assisted ~$25 run, noncustodial Guard, owner's FullAccess recovery key on agent account, unsigned provider association, no atomicity and no native X3VM on-chain.” |
 | 02:48–03:00 | Public repository, `git rev-parse HEAD`, [README reproduction steps](../../README.md#try-it-do-x-see-y), and proof-card link | REPRODUCIBILITY | “Inspect the exact source, independently rerun compiler refusals and follow every transaction.” |
 
+## The limits behind this payment
+
+Show these values beside the original sources, rather than a different example mandate:
+
+| Rule | invoice_06 value | Evidence to show |
+| --- | --- | --- |
+| Spend caps | 25 USDC per payment and per 24 hours | Original mandate; local 250-USDC edit refused at both cap checks |
+| Recipient and assets | `x3lang.near`; Solana.USDC → Near.USDC | Original sources; local attacker-recipient edit refused |
+| Owner approval | One approval above 24.999999 USDC; this 25-USDC intent required it | Finalized owner approval before quote acceptance |
+| Slippage and fees | Mandate slippage ≤1%; payment ≤0.9%; fees ≤100 bps | Original sources; local 5% slippage edit refused |
+| Minimum received | Policy floor 24.75 USDC; signed quote minimum 24.770243; actual payout 24.9952 | Guard receipt, transfer event and outcome readback |
+| Refund and replay | Pinned Solana refund wallet; `mainnet_demo_nov11_invoice_06` nonce; 74-hour source timeout | Original sources and stored policy; local refund redirect and missing nonce/timeout refused |
+
+These are historical terms, not permission to repeat the payment or reuse its nonce.
+The eight edited payments are tested **locally**. The mainnet acceptance receipt
+shows the allowed quote passed 21 checks; it does not show those eight attacks
+being broadcast and refused on mainnet. Guard expiry and stored timestamps are
+checked at runtime; the source duration alone is not a fresh authorization.
+
 ## Commands for the LOCAL panel
 
 Run from the public repository root after setting up the documented environment:
@@ -26,9 +45,14 @@ Run from the public repository root after setting up the documented environment:
 ```bash
 git rev-parse HEAD
 sha256sum evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/{mandate-proposed,payment-proposed}.x3
+python3 scripts/hackathon/invoice06_chain.py
 python3 scripts/hackathon/x3_wont_compile.py
 python3 scripts/hackathon/replay_grok_wallet_drain.py
 ```
+
+The invoice verifier must report **5/5 links hold** and **8/8 edited payments refused**,
+with 10/10 compiled policy fields and 13/13 mandate terms matching stored state.
+It uses archived evidence, not a fresh chain query.
 
 Expected results as documented in the [README](../../README.md#3-unsafe-payments-do-not-compile): **9/9 unsafe edits refused** and **3/3 local attack programs refused**, with the authorized control allowed. Check actual terminal output while recording and do not paste a fabricated pass result.
 

@@ -4,13 +4,13 @@
 
 **Tracks to select on submission form:** AI Security & Defense (`security`, primary), Agent Economy (`agents`); Unstoppable DeFi (`defi`) if selected as third track. Not a claim of organizer acceptance.
 
-## 20–2,000 character description (1594 characters, LF)
+## 20–2,000 character description (1846 characters, LF)
 
 X3 Force Field (formerly X3 Shield) is a programmable security boundary for AI-agent payments, powered by X3Lang, a typed .x3 language and compiler—not a wallet settings page.
 
 Owners write reviewable .x3 mandates defining recipients, assets, per-payment and daily caps, approvals, fees, slippage, refunds and expiry. Agents propose .x3 payment programs; deterministic compiler/policy checks and the NEAR x3-guard contract enforce the rules against signed NEAR Intents / 1Click quote terms. The model cannot grant itself permission.
 
-Mainnet invoice_06: the agent's restricted NEAR key accepted a signed quote after 21 Guard checks, following owner approval. The owner manually deposited 25 USDC from Solflare on Solana; 24.9952 USDC reached x3lang.near about 84 seconds later. The agent recorded Settled and floor_met on NEAR. Both original .x3 source files match the SHA-256 hashes stored by Guard.
+Mainnet invoice_06: the agent's restricted NEAR key accepted a signed quote after 21 Guard checks, following owner approval. Its mandate capped spend at 25 USDC per payment and per 24h, restricted the recipient to x3lang.near, pinned refunds, and bounded slippage/fees. The policy floor was 24.75 USDC. The owner manually deposited 25 USDC from Solflare on Solana; 24.9952 USDC reached x3lang.near about 84 seconds later. The agent recorded Settled and floor_met on NEAR. The offline invoice verifier rejects 8 unsafe edits of that same payment. Both original .x3 source files match the SHA-256 hashes stored by Guard.
 
 Security evidence: 3/3 Grok-drain replay attacks refused locally while the authorized control passed; 8/8 scripted attacks refused; 9 unsafe payment edits failed compilation. Testnet Guard refused attacker.near; a separate Base Sepolia-to-NEAR testnet transfer delivered 0.9974 of 1 test USDC via a trusted relay.
 
@@ -22,6 +22,9 @@ The public video and X post are owner-published. Replace the placeholders only a
 
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang
 - Testnet evidence: `docs/hackathon/GUARD_TESTNET_EVIDENCE.md`
+- Judge proof card: [payment, limits and transaction receipts](../PROOF_CARD.md)
+- Demo script: [three-minute walkthrough](../docs/hackathon/VIDEO_WALKTHROUGH.md)
+- Offline payment-to-proof verifier: `python3 scripts/hackathon/invoice06_chain.py`
 - Mainnet evidence: `evidence/near-guard-mainnet-invoice06-2026-11-12/README.md`
 - Exact `.x3` sources: `evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md`
 - Guard outcome: `evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md`
