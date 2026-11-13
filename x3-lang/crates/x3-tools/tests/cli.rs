@@ -4051,7 +4051,7 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
 
     let mut failures = Vec::new();
     let mut adapter_intents = 0usize;
-    let mut testnet_drafts = 0usize;
+    let mut testnet_drafts: Vec<std::path::PathBuf> = Vec::new();
     let mut python_only = 0usize;
     for file in &found {
         let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -4068,7 +4068,7 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
             continue;
         }
         if name == TESTNET_DRAFT_ONLY {
-            testnet_drafts += 1;
+            testnet_drafts.push(file.clone());
             assert_testnet_draft_and_generic_refusal(file);
             continue;
         }
@@ -4083,10 +4083,24 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         }
     }
 
-    assert_eq!(
-        testnet_drafts, 1,
-        "the corpus walk must check the testnet draft's named refusal"
+    // The canonical draft lives in examples/. Published copies (the judge-live site serves one)
+    // are allowed only as byte-identical mirrors, and each one is checked for the named refusal.
+    let canonical = root.join("examples").join(TESTNET_DRAFT_ONLY);
+    assert!(
+        testnet_drafts.contains(&canonical),
+        "the corpus walk must check the testnet draft's named refusal at {}",
+        canonical.display()
     );
+    let canonical_bytes = std::fs::read(&canonical).expect("read the canonical testnet draft");
+    for copy in &testnet_drafts {
+        assert_eq!(
+            std::fs::read(copy).expect("read a testnet draft copy"),
+            canonical_bytes,
+            "{} must stay byte-identical to the canonical testnet draft {}",
+            copy.display(),
+            canonical.display()
+        );
+    }
     assert_eq!(
         adapter_intents,
         ADAPTER_INTENTS.len(),
