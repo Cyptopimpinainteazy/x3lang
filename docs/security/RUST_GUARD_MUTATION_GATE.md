@@ -57,7 +57,7 @@ A subsequent local run with the contract-wide quote-consumption patch added the 
 - Native Rust tests use NEAR SDK simulated context; this is **not** node-level evidence. Local NEAR Sandbox tests provide actual node execution, **not public testnet or authenticated finality**.
 - The Sandbox fixture's authentic 1Click-manager signature proves signed quote terms only; its archived dry quote neither authorizes a deposit nor demonstrates settlement.
 - The patched WASM bytes differ from the public testnet deployment; source mutation test success does **not** update production code identity.
-- PR #94 and this stacked test PR must remain **draft** pending independent review and existing exact-head security gates, including private `xxxstar` peer checkout and deployed-byte proof. No mainnet assertions or unattended wallet operations.
+- PR #94 and this stacked test PR must remain **draft** pending independent review and existing exact-head security gates and deployed-byte proof. Under the owner-authorized [standalone CI policy](STANDALONE_CI_POLICY.md), private `xxxstar` parity is a separate manual audit; normal CI does not assert peer equality. No mainnet assertions or unattended wallet operations.
 
 ## Extended nonce-race stress cases (stacked test-only follow-up)
 

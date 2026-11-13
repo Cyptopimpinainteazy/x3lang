@@ -1,0 +1,155 @@
+{
+  "schema": "x3.intent_compiler_parity.verification.v1",
+  "base_commit": "f84d8126a587f266943463ed7d0b68ed21872aa5",
+  "branch": "fix/intent-nonce-parser-parity-20261111",
+  "tested_tree": "uncommitted scoped changes; source hashes bind tested contents",
+  "source_sha256": {
+    "x3-lang/README.md": "8a9f23013e40c49afb5369585fdd8995ec12f6c8ef63edf99cdc344567fc3fd4",
+    "x3-lang/compiler/src/intent_emit.rs": "e91fabb29ac39877215bd2258f76221c532457c8f0b3425e041c9170e4bb2c94",
+    "x3-lang/compiler/src/lowering.rs": "9bd1f53fb7c8f3355cbfe05bc1048b82ab543dcd3b1edb49595e10affbeddcc3",
+    "x3-lang/compiler/src/parser.rs": "ffa1032b65bbc623dde81cc5df8bf50bf78aff48cd914c85669398819c1cc653",
+    "x3-lang/compiler/tests/test_intent_mandate.rs": "2ab5fb7f85b98c8ea0838de309bf14a7ecb44a5cbd8b09ab31c66ff3c971c222",
+    "x3-lang/crates/x3-tools/src/bin/x3c.rs": "10740b67e495cc1abe6129d950998cbb444a53193ad82967ef15f5f7993ef8e4",
+    "x3-lang/vm/src/bridge.rs": "9b6fa18ad4f941a977637e9d27c2fc5611cd6a943446ad20ef5785c721712113",
+    "x3-lang/vm/tests/test_nonce_replay.rs": "f335b470359d1c2facdfb756602f45becc07db0467da3863e983c314402dfc67",
+    "x3-lang/crates/x3-tools/tests/intent_export_parity.rs": "89c11bb6fd7f5ded7a3dd1a26670b2846f822e5ea6c7ff01e303a58f319906d2",
+    "x3-lang/tests/fixtures/near_intents_named_nonce_payment.x3": "c922179f25423e62f09e037a4d4096cf805420cb752dd29a5154df60b1cb8b21",
+    "x3-lang/vm/tests/test_mandate_resolution.rs": "111ba7b8ac72a78c8fa7de52a45c8a39e0be70370666a593304050e9c4d0edea"
+  },
+  "environment": {
+    "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo_target": "external shared codex-pr777-rust-target; preserved"
+  },
+  "tdd": [
+    {
+      "slice": "named nonce parser alias",
+      "red": "compiler two failures and VM one failure",
+      "green": "normalized canonical replay metadata/op and bytecode equality; malformed/duplicate guards refused"
+    },
+    {
+      "slice": "financial intent export",
+      "red": "timeout incorrectly1800; fees/refund/minimum missing; nonce mislabeled receiver owner",
+      "green": "actual CLI/Python parity for supported payment terms"
+    },
+    {
+      "slice": "export terminal floor and guard subject",
+      "red": "intermediate route maximum and missing guard subject",
+      "green": "terminal route floor; exact subject/comparison/units"
+    },
+    {
+      "slice": "mandate dry-run boundary",
+      "red": "both new tests failed: adapter and exact source returned success",
+      "green": "both pass; before asset/bridge/receipt/nonce effects"
+    }
+  ],
+  "actual_source": {
+    "base": "f84d8126a587f266943463ed7d0b68ed21872aa5",
+    "source_sha256": "c922179f25423e62f09e037a4d4096cf805420cb752dd29a5154df60b1cb8b21",
+    "artifact_sha256": "214294cf9a454094ca33383700e7fe355182a830969a1dee33467d5fc7144952",
+    "artifact_bytes": 372,
+    "commands": [
+      {
+        "command": [
+          "/media/lojak/64a55477-2213-4479-8beb-3f56b4082d0b/codex-pr777-rust-target/debug/x3c",
+          "intent",
+          "/home/lojak/Documents/ChatGPT/x3langnearhackathon/release-evidence/mainnet-v3-payment-candidate-20261111/payment-proposal.x3",
+          "--emit-hash",
+          "--emit-plan",
+          "--out",
+          "/home/lojak/Documents/ChatGPT/x3langnearhackathon/release-evidence/intent-nonce-parser-parity-20261111/payment-intent.json"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "/media/lojak/64a55477-2213-4479-8beb-3f56b4082d0b/codex-pr777-rust-target/debug/x3c",
+          "build",
+          "/home/lojak/Documents/ChatGPT/x3langnearhackathon/release-evidence/mainnet-v3-payment-candidate-20261111/payment-proposal.x3",
+          "--out",
+          "/home/lojak/Documents/ChatGPT/x3langnearhackathon/release-evidence/intent-nonce-parser-parity-20261111/payment-proposal.x3b"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "/media/lojak/64a55477-2213-4479-8beb-3f56b4082d0b/codex-pr777-rust-target/debug/x3c",
+          "run",
+          "/home/lojak/Documents/ChatGPT/x3langnearhackathon/release-evidence/intent-nonce-parser-parity-20261111/payment-proposal.x3b",
+          "--measured-slippage-bps",
+          "90"
+        ],
+        "exit_code": 1
+      }
+    ],
+    "scope": "local compilation/export and generic dry-run refusal; no chain transaction or mandate authorization"
+  },
+  "checks": [
+    {
+      "command": "cargo +stable test --manifest-path x3-lang/Cargo.toml --locked --offline -p x3-lang-compiler -p x3-lang-vm -p x3-tools",
+      "exit_code": 101,
+      "passed": 1408,
+      "failed": 2,
+      "failures": [
+        "every_example_checks_and_builds",
+        "every_x3_file_the_tooling_walks_is_a_program"
+      ],
+      "cause": "Pre-existing BaseSepolia fixture rejected by production chain admission; reproduced at exact clean base f84d812"
+    },
+    {
+      "command": "cargo +stable test --manifest-path x3-lang/Cargo.toml --locked --offline -p x3-tools --no-fail-fast",
+      "exit_code": 101,
+      "passed": 109,
+      "failed": 2,
+      "note": "same corpus failures; all remaining tools targets including actual Rust/Python CLI parity pass; counts overlap previous run"
+    },
+    {
+      "command": "cargo +stable check --manifest-path x3-lang/Cargo.toml --locked --offline -p x3-lang-compiler -p x3-lang-vm -p x3-tools",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo +stable clippy --manifest-path x3-lang/Cargo.toml --locked --offline -p x3-lang-compiler -p x3-lang-vm -p x3-tools --all-targets --all-features -- -D warnings",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo +stable fmt --manifest-path x3-lang/Cargo.toml --all -- --check",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "limits": [
+    "No chain transaction, signing, quote, deposit, mainnet authorization or settlement execution.",
+    "Missing source-lock and destination-fill proof warnings retained.",
+    "Generic dry-run refuses mandate-bound execution; actual enforcing host and Guard remain authority boundaries.",
+    "Rust export parity covers the supported source financial terms; it does not prove an external consumer enforces them."
+  ],
+  "independent_review": {
+    "agent": "/root/review",
+    "scope": "Read-only final implementation/tests/README/evidence inspection plus independently executed focused Rust and actual CLI/Python tests",
+    "findings": [],
+    "tests": {
+      "compiler_intent_mandate": 14,
+      "vm_mandate_resolution": 2,
+      "vm_nonce_replay": 5,
+      "actual_cli_python_parity": 1
+    },
+    "total_passed": 22,
+    "verified_source_and_artifact_hashes": true
+  },
+  "baseline": {
+    "commit": "f84d8126a587f266943463ed7d0b68ed21872aa5",
+    "clean_worktree": true,
+    "command": "cargo +stable test --manifest-path x3-lang/Cargo.toml --locked --offline -p x3-tools --test cli every_",
+    "exit_code": 101,
+    "passed": 1,
+    "failed": 2,
+    "same_failures": [
+      "every_example_checks_and_builds",
+      "every_x3_file_the_tooling_walks_is_a_program"
+    ],
+    "direct_check_exit": 1,
+    "cause": "X3E0501 unknown production chain basesepolia; missing source-lock/destination-fill proof warnings under deny-warnings"
+  }
+}

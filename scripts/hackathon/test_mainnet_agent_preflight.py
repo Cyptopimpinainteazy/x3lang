@@ -26,11 +26,12 @@ def complete(*extra):
 
 class FixtureTransport:
     """Test-only remote responses; no network or real signatures."""
-    def __init__(self, tokens=None, chain="mainnet", code_hash=HASH):
+    def __init__(self, tokens=None, chain="mainnet", code_hash=HASH, registered=True):
         self.calls = []
         self.tokens = copy.deepcopy(tokens if tokens is not None else list(p.PINS))
         self.chain = chain
         self.code_hash = code_hash
+        self.registered = registered
 
     def __call__(self, method, url, headers, body, timeout):
         payload = json.loads(body) if body else None
@@ -41,7 +42,13 @@ class FixtureTransport:
             assert payload["dry"] is True
             result = {"quoteRequest": payload, "quote": {}, "signature": "synthetic-invalid"}
         elif url == p.RPC and payload["method"] == "status":
-            result = {"result": {"chain_id": self.chain}}
+            result = {"result": {"chain_id": self.chain, "genesis_hash": p.NEAR_GENESIS}}
+        elif url == p.RPC and payload["method"] == "query" and payload["params"]["request_type"] == "call_function":
+            assert payload["params"]["account_id"] == p.NEAR_USDC
+            assert payload["params"]["method_name"] == "storage_balance_of"
+            balance = {"total": "1250000000000000000000", "available": "0"} if self.registered else None
+            result = {"result": {"result": list(json.dumps(balance).encode()),
+                                 "block_hash": HASH, "block_height": 123}}
         elif url == p.RPC and payload["method"] == "query":
             result = {"result": {"amount": "1", "code_hash": self.code_hash,
                                  "block_hash": HASH, "block_height": 123}}
@@ -168,3 +175,20 @@ def test_report_refuses_repository_or_symlink(tmp_path):
     link.symlink_to(tmp_path / "other.json")
     with pytest.raises(FileExistsError):
         p.save_report(link, {})
+
+
+def test_unregistered_usdc_recipient_cannot_reach_quote():
+    transport = FixtureTransport(registered=False)
+    report = p.run(complete(), transport=transport)
+    assert report["checks"]["recipient_storage"]["registered"] is False
+    assert report["error"]["code"] == "NEAR_USDC_RECIPIENT_UNREGISTERED"
+    assert not any(url.endswith("/quote") for _, url, _ in transport.calls)
+
+
+@pytest.mark.parametrize("account,method", [("wrap.near", "storage_balance_of"),
+                                            (p.NEAR_USDC, "storage_deposit")])
+def test_storage_view_cannot_query_other_contracts_or_methods(account, method):
+    payload = {"method": "query", "params": {"request_type": "call_function", "finality": "final",
+               "account_id": account, "method_name": method, "args_base64": "e30="}}
+    with pytest.raises(p.PreflightError, match="NETWORK_OPERATION_REFUSED"):
+        p.readonly_transport("POST", p.RPC, {}, json.dumps(payload).encode(), 1)

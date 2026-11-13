@@ -6050,6 +6050,12 @@ impl<'a> Parser<'a> {
                         let value = self.parse_expr()?;
                         subject = Some(name);
                         Some(value)
+                    } else if kind == RequireKind::Nonce && name.as_str() != "unused" {
+                        // The Python NEAR adapter also accepts `require nonce <id>`.
+                        // Normalize that exact alias to the canonical replay guard;
+                        // `require nonce unused` still lacks its required identifier.
+                        subject = Some(Symbol::new("unused"));
+                        Some(Expression::Ident(name))
                     } else {
                         subject = Some(name);
                         None

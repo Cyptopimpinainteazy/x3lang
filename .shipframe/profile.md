@@ -38,6 +38,8 @@ separately:
 - One task gets one branch, one worktree, and one writing agent.
 - Never write directly to `master`.
 - Never force-push or rewrite history.
+- Follow `docs/security/STANDALONE_CI_POLICY.md` for source admission and manual
+  read-only peer parity. Automatic CI does not assert equality with `xxxstar`.
 - Merging financial, contract, cryptographic, or CI-policy changes requires
   explicit owner approval.
 - Build a PR dependency graph before selecting merge order.

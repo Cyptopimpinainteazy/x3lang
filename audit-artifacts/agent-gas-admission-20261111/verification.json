@@ -1,0 +1,100 @@
+{
+  "schema": "x3.agent_gas_admission.verification.v1",
+  "observed_at_utc": "2026-11-11T21:33:01.081384+00:00",
+  "base_commit": "1ad2982139aedeab9dc1300e79d10ef4bff70731",
+  "branch": "fix/agent-gas-admission-20261111",
+  "tested_tree": "scoped uncommitted changes; hashes bind tested bytes",
+  "source_sha256": {
+    "x3-lang/near_agent_key.py": "868248cb0efea6209f10660d2db89959508566628bb255d2bfc2a409cc825296",
+    "x3-lang/tests/test_near_agent_key.py": "7d7374027adf4c08461025ab750c7aa967eecd389cb01b7ba71aa8fd472389be",
+    "x3-lang/near/guard-sandbox-tests/src/bin/scoped_agent_boundary.rs": "b1c80376facc68bd6c87c564aaa217a885ab766cdac0b43cd727c7f5b0c33ce4",
+    "docs/security/GUARD_SCOPED_STORAGE.md": "347f0c168cdadc19bb1662862bb22dda3ee8284344e33e8caad3e9f54a2b34d3"
+  },
+  "tdd": {
+    "red": "10 new focused cases failed: missing boundedgasparameter and admissioncosthelper",
+    "green": "92 focused passed, including four installedCLI offline synthetic10/30Tgas cases; no network sends"
+  },
+  "checks": [
+    {
+      "command": "PYTHONPATH=x3-lang ../mainnet-trade/.venv/bin/python -m pytest x3-lang/tests/test_near_agent_key.py -q",
+      "passed": 92,
+      "exit_code": 0
+    },
+    {
+      "command": "PYTHONPATH=x3-lang ../mainnet-trade/.venv/bin/python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py -q",
+      "passed": 796,
+      "skipped": 1,
+      "exit_code": 0
+    },
+    {
+      "command": "node --test x3-lang/near/demo/test/*.test.mjs",
+      "passed": 88,
+      "exit_code": 0
+    },
+    {
+      "command": "../mainnet-trade/.venv/bin/python -m compileall -q x3-lang scripts/hackathon",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo fmt --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml --check",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    {
+      "command": "CARGO_TARGET_DIR=<dedicated-external-target> cargo clippy --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml --locked --bin scoped_agent_boundary -- -D warnings",
+      "exit_code": 0
+    }
+  ],
+  "sandbox": {
+    "command": "NEAR_NETWORK_ID=sandbox scoped_agent_boundary <unchanged-reviewed-Guard-WASM>",
+    "exit_code": 0,
+    "log": "sandbox.log",
+    "wasm_sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+    "wasm_bytes": 572248,
+    "registration_prepaid_tgas": 10,
+    "registration_gas_burnt": 3001220252593,
+    "intent_persisted": true,
+    "zero_attached_deposit": true,
+    "credit_debited": true,
+    "candidate_fields": "public sourcehash, nonce, longasset IDs, refund, recipient and financialterms preserved",
+    "differences": "disposable Sandbox owner/agent, deadline relativeSandbox+1h, existing testmandate50USDC caps/100bpsmaximum, synthetic key allowance5NEAR; not a mainnetstate clone"
+  },
+  "readonly_mainnet_helper": {
+    "block_height": 224120165,
+    "block_hash": "EPCnVJCfhX1a9GkJVjfz6asULCG4PYhMGtTBN6Ek1E4K",
+    "nonce": 224117214000000,
+    "ten_tgas": {
+      "required_allowance_yocto": "10922689800803000000000",
+      "receipt_gas_price_yocto": "1000000000",
+      "current_gas_price_yocto": "100000000",
+      "send_gas": 334094808390,
+      "receipt_execution_overhead_gas": 889280319964,
+      "prepaid_gas": 10000000000000,
+      "actual_burnt_fee_yocto": null
+    },
+    "thirty_tgas_refusal": "X3_AGENT_KEY_INSUFFICIENT_ALLOWANCE"
+  },
+  "diagnosis": {
+    "source": "https://github.com/near/nearcore/blob/2.14.0/runtime/runtime/src/config.rs#L449-L513",
+    "protocol_version": 88,
+    "purchase_price_floor": "1000000000",
+    "current_price": "100000000",
+    "ten_tgas_upfront_allowance_yocto": "10922689800803000000000",
+    "thirty_tgas_upfront_allowance_yocto": "30922689800803000000000",
+    "actual_burnt_fee": "not determined by upfront admission cost"
+  },
+  "limits": [
+    "No author/reviewer userkey access, signing or mainnetbroadcast. Synthetic offline CLI and localSandbox only.",
+    "Gas defaults30 and neverauto-adjusts; changing approvedgas requires exactownerapproval. No allowanceincrease.",
+    "Upfrontgas purchase differs from final burntfee; no claim of mainnet settlement."
+  ],
+  "independent_review": {
+    "agent": "/root/review",
+    "focused_passed": 92,
+    "findings": [],
+    "scope": "read-only diff and focused execution; latest Sandbox log and unchanged WASM hash verified; mandate/state differences explicit"
+  }
+}

@@ -46,16 +46,22 @@ python3 scripts/hackathon/mainnet_agent_preflight.py \
 ```
 
 With program, mandate and cap present, the tool compiles and checks the payment
-locally, checks it against the budget, confirms the NEAR RPC reports mainnet,
-checks destination account existence, and requests only a signed **dry** quote.
+locally, checks it against the budget, verifies the NEAR mainnet genesis,
+and checks destination account existence and native USDC storage registration
+before requesting a signed **dry** quote. An unregistered recipient stops the
+preflight. Review any registration and its cost separately.
+[NEP-145 storage registration](https://github.com/near/NEPs/blob/master/neps/nep-0145.md)
 When a Guard account is supplied it observes its account at `final` and compares
 the code hash if supplied. A mismatch blocks the quote.
 
 Endpoints are fixed to `https://1click.chaindefuser.com` and
 `https://free.rpc.fastnear.com`; environment endpoint overrides are ignored and
 redirects refused. Only token-list reads, dry quote requests, RPC status and
-final account reads are allowed. An optional existing `NEAR_INTENTS_JWT` is sent
-only to the official API and is never included in output.
+final account reads and the pinned USDC `storage_balance_of` view are allowed.
+An optional existing `NEAR_INTENTS_API_KEY` is sent as `X-API-Key`; if absent or
+empty, legacy `NEAR_INTENTS_JWT` is sent as Bearer. Only one partner credential
+header is sent to the official API and it is never included in output. Explorer
+and user-session JWTs are not partner credentials.
 
 Reports are new files only, mode 0600; existing files and symlinks are refused.
 Do not commit the report without reviewing its public-address and quote contents.
@@ -83,18 +89,83 @@ Guard does not custody the owner's Solana wallet. Its keyholder can bypass Guard
 Do not claim this run demonstrates the separate experimental vault's custody or
 restricted-key enforcement.
 
-## One story, three tracks — 60–90 seconds
+## One invoice across three tracks
 
-Use one invoice, one mandate and one traceable payment; retain full evidence
-behind the short recording.
+Use invoice 4411 from the [recorded local rehearsal](../../evidence/agent-mainnet-prep-local-2026-11-10/README.md).
+For the recording, frame it as a staged 25 USDC invoice for a data export.
+The intended vendor and refund wallet are illustrative in this replay. A future
+transfer to an owner-controlled account would demonstrate payment mechanics.
+The rehearsal does not establish a purchase or a delivered export.
 
-| Time | On-screen action | Track and evidence |
-|---|---|---|
-| 0–15 s | Owner permits one recipient and caps USDC spend; actual model writes the invoice payment in `.x3`. | **Agent Economy:** model response/provider metadata, generated program hash and mandate hash. A hand-written fixture is not an actual model run. |
-| 15–30 s | Inject “pay attacker instead”; show the emitted request and exact deterministic refusal. | **AI Security & Defense:** offending field and failed guard. Label local checks as local. For an on-chain refusal show its receipt and reason, not a generic RPC error. |
-| 30–45 s | Show the allowed control passing, signed official quote terms, and Guard acceptance. | Same mandate, approved recipient and program hash; distinguish dry preview from live quote authorization. |
-| 45–65 s | Owner reviews and signs the precise Solana deposit. | Explicit owner signature boundary; no autonomous vault-spending claim. |
-| 65–90 s | Show finalized Solana deposit, NEAR payout and the verification report linked to the quote. | **Unstoppable DeFi:** actual official 1Click mainnet settlement only after evidence passes. If missing, display “pending” rather than a simulated success. |
+| Time | Capture on screen | Narration and provenance |
+| --- | --- | --- |
+| 0:00–0:25 | Invoice 4411 and the owner's `.x3` mandate. Keep `allow recipients x3-demo.near` and the 50 USDC per-payment cap visible. | “The agent needs a data export and has a staged invoice. The owner permits a single recipient and sets the budget.” Overlay **staged invoice · illustrative accounts**. |
+| 0:25–1:10 | Model provenance, `allowed.x3`, the compiler's leg and the local `preflight_passed` result. | **Agent Economy.** “The recorded qwen3:8b run proposed 25 USDC in X3Lang. The compiler lowered that source to a Solana-to-NEAR request. The deterministic checker applied the owner's mandate.” Overlay **recorded model output · local compiler and policy replay**. |
+| 1:10–1:55 | Model refusal record, then the one-line diff and `mandate_recipient` refusal. | **AI Security & Defense.** “The model refused the direct attacker request. We then changed only the proposed recipient ourselves. The policy checker refused that copy at the owner's recipient allowlist.” Overlay **manual mutation · local refusal · no quote or deposit**. |
+| 1:55–2:45 | Allowed request, signed live quote, Guard acceptance, owner review and independently checked finalized Solana deposit and NEAR payout, if available. Otherwise use the fallback below. | **Unstoppable DeFi.** “The agent proposes. The owner signs.” Show quote, mandate and program identifiers. Explain how provider linkage associates the two checked transactions. Keep **mainnet** on screen only for genuine mainnet evidence. |
+| 2:45–3:00 | Evidence links, repository and prior-work disclosure. | “Guard checks payment terms. The Solana wallet keyholder can transfer outside Guard.” Overlay the exact status of the one reviewed trade. |
+
+### Commands for the local replay
+
+Run from the repository root with the project Python environment active.
+The compile command builds a dry request using the archived token list without
+contacting 1Click. The policy commands use a fixed replay time.
+
+```bash
+rehearsal=evidence/agent-mainnet-prep-local-2026-11-10
+mandate=x3-lang/examples/near_mandate_agent.x3
+tokens=x3-lang/tests/fixtures/near_intents_tokens.json
+at=2026-11-10T08:00:00Z
+cat "$mandate" "$rehearsal/allowed.x3"
+python3 x3-lang/near_intents.py plan "$rehearsal/allowed.x3" --tokens "$tokens"
+python3 x3-lang/track_control.py --mandate "$mandate" \
+  --intent "$rehearsal/allowed.x3" --tokens "$tokens" --at "$at"
+diff -u "$rehearsal/allowed.x3" "$rehearsal/tampered-recipient.x3"
+python3 x3-lang/track_control.py --mandate "$mandate" \
+  --intent "$rehearsal/tampered-recipient.x3" --tokens "$tokens" --at "$at"
+```
+
+Expected exits are 0 for the allowed policy check, 1 for the source diff, and 6
+for the denied policy check. Capture screenshots of the mandate and proposal,
+the compile output, the recipient diff and refusal, and the evidence status.
+For a verified funded run, capture the approved quote and both finalized
+transaction details. Keep secrets and unrelated wallet activity out of frame.
+
+### Fallback narration when proof is outstanding
+
+Show the compiled route and say, “This is our proposed Solana-to-NEAR route.
+The local policy accepted the original recipient and refused the changed one.
+Official 1Click mainnet settlement is still unverified.” If a deposit already
+exists, show only its verified facts and say whether the payout is pending,
+refunded, failed or inconclusive. Keep the original deposit under review.
+
+The [archived Tidepool delivery](FIRST_FINALIZED_SWAP_EVIDENCE.md) can appear
+after the main story with a **Base Sepolia → NEAR testnet · community relay**
+label. Its source and payout records are separate from official 1Click mainnet.
+
+### Public demo and submission copy for owner review
+
+The [organizer instructions](https://nearhackathon.com/HACKATHON.md) allow one
+submission with every applicable track. Publish the repository and link it
+with the public X post by **November 14, 2026, 23:59 UTC**. Use a video for a
+local-only demo. Hosting is optional. Keep any hosted demo online through
+November 18, ideally November 25. The three-minute cut is our recording target.
+
+**X post draft, local evidence version**
+
+> Can an AI agent pay an invoice under an owner’s rules? We built X3 Shield at NEAR HACKATHON. Watch a model write a USDC proposal in X3Lang and the policy refuse a recipient change. Mainnet settlement is unverified. @NEARProtocol #NEARHackathon
+
+Attach the recorded video and the public
+[repository](https://github.com/Cyptopimpinainteazy/x3lang).
+
+**Submission description draft**
+
+> X3 Shield uses X3Lang to check agent payment proposals against an owner-defined recipient allowlist, budget and execution limits. In our staged invoice rehearsal a real model wrote a Solana-to-NEAR USDC proposal. The local compiler and policy checker accepted the allowed proposal and refused a separately mutated recipient. NEAR Guard verifies signed quote terms and applies policy before authorizing a deposit address. The Solana wallet owner signs and retains control of the wallet. Official 1Click mainnet settlement remains unverified.
+
+Review track choices against the evidence in the final recording. Use
+`agents` and `security` for the demonstrated work. Confirm `defi` against
+the final settlement evidence before claiming the intended mainnet path.
+The owner publishes the post and confirms the exact submission separately.
 
 ## Official references and tests
 
@@ -115,3 +186,108 @@ The [November 10 local rehearsal](../../evidence/agent-mainnet-prep-local-2026-1
 records actual model generation, model refusal, and a separately labeled explicit
 tamper refused by the local mandate check. It used illustrative accounts and
 made no quote requests or wallet transactions; it is not mainnet trade evidence.
+
+## Verify the one funded payment after owner signing
+
+Use the quote hash from the separate owner review. Save the Solana signature
+with the live receipt. If tracking is interrupted, resume with that same
+signature and quote. The tracker saves the finalized signature before notifying
+1Click. If the notification response is lost, resume status polling for that
+deposit. The [1Click deposit notification](https://docs.near-intents.org/api-reference/oneclick/submit-deposit-transaction-hash)
+is optional. A timeout leaves the outcome uncertain. Check the original transfer
+before taking any further action.
+
+```bash
+python3 scripts/hackathon/verify_mainnet_payment.py \
+  --receipt "$PRIVATE_LIVE_RECEIPT" --approved-quote-hash "$REVIEWED_QUOTE_HASH" \
+  --funding-owner "$PUBLIC_SOLANA_FUNDING_ADDRESS" --payout-signer "$PUBLIC_NEAR_TX_SIGNER"
+```
+
+Get the payout signer from the candidate NEAR transaction in an explorer.
+The command checks the authenticated live quote, the exact finalized standard
+SPL transfer signed by the funding owner, and the canonical finalized USDC
+`ft_transfer` receipt from `intents.near`. It queries a NEAR archival RPC for finalized transaction and receipt history.
+The default public endpoint is severely rate limited and has returned a
+deprecation warning. For a funded run, configure a supported archival endpoint
+in the operator's private environment as `X3_NEAR_ARCHIVAL_RPC_URL`. The
+verifier checks mainnet genesis and omits the configured URL from reports.
+If a lookup is rate limited, retain the same deposit signature and resume with
+a working archival endpoint.
+[NEAR RPC providers](https://docs.near.org/api/rpc/providers)
+
+A read-only mainnet negative control retrieved an unrelated finalized
+`execute_intents` transaction and refused it for missing a direct USDC payout.
+The other probed endpoints timed out on that lookup. This checks the live
+RPC response shape and rejection path. The positive control still uses
+fixtures and the demo payout is outstanding.
+[Public negative-control transaction](https://nearblocks.io/txns/5JSgayEDDtkPnCyXTeJzKTRxwLy76N6S9FvqHnof9BQb).
+
+It supports the direct, no-memo
+native USDC route with no custom recipient message. It stops on multiple
+origin or destination hashes or when an RPC cannot serve the final receipt.
+
+Exit 0 reports matching finalized transfers. The association between the
+chains comes from the unsigned 1Click status response. Guard authorization and
+the policy/program identifiers must be evidenced separately. Exit 5 leaves
+proof unverified, including pending, failed, refunded or unsupported cases.
+Retain the status and receipt separately for diagnosis. The verifier makes
+read-only requests and cannot record a Guard outcome. The hosted judge
+page remains a public dry-quote checker with a separate deployment.
+
+## November 10 dry route observation
+
+An unauthenticated API call for a dry 1 USDC input returned signed quote
+terms. The pinned manager key verified the covered fields. The preview
+showed 0.989800 USDC minimum output and an unsigned 0.228633 USDC refund fee.
+That displayed fee is 22.8633% of the input and exceeds the rehearsal
+mandate's 1% fee cap. The 5 and 25 USDC dry requests returned HTTP 400
+with “No liquidity available.” These samples establish neither a provider
+minimum nor the terms for the owner's addresses. The 1 USDC probe used a
+public fixture recipient and returned no deposit address.
+
+A finalized account lookup for the example `x3guard.near` returned unknown
+account. An independently reviewed mainnet Guard deployment is still required.
+[Sanitized observation](../../evidence/agent-mainnet-route-probe-2026-11-10/observation.json)
+and [SHA-256 checksum](../../evidence/agent-mainnet-route-probe-2026-11-10/SHA256SUMS).
+
+## Separate owner decision for mainnet Guard
+
+**Status: hold.** The documented deployment authorization is for
+`x3lang-guard-20261106.testnet`. The example `x3guard.near` does not exist
+on mainnet. If an existing mainnet Guard is available, review its account,
+deployment transaction, code hash, initialization, manager key, access
+keys and mandate methods before building a payment around it.
+
+If a new deployment is needed, prepare a separate review using the proposed
+mainnet account, exact reviewed source and reproducible WASM hash and size,
+initializer, owner and agent permissions, available storage balance, gas and
+a maximum owner-approved NEAR spend. Verify the resulting deployment and
+initialization before authorizing a payment quote. Keep any deployment
+costs out of the USDC trade amount and require the owner to sign separately.
+
+On November 10, both `free.rpc.fastnear.com` and
+`archival-rpc.mainnet.near.org` reported mainnet protocol version 88 and
+`10000000000000000000` yoctoNEAR per byte at finality. At that observed rate,
+the historical testnet binary (544,944 bytes) would require 5.44944 NEAR for
+code storage alone. This is a scale reference. Recalculate from the exact
+mainnet candidate. Existing state, mandate and receipt storage, account
+creation and gas require a separate budget. A storage stake and a gas fee
+are different costs.
+[Deployment authorization and Guard methods](../../x3-lang/near/x3-guard/README.md)
+· [Historical binary identity](GUARD_TESTNET_EVIDENCE.md).
+
+## Release status
+
+- [ ] Obtain reviewed public addresses and spending caps. Read the actual
+  route terms before deciding what to fund. The legacy guided script's 25 USDC
+  floor is a local refund-fee assumption.
+- [ ] Verify the mainnet Guard deployment hash, initialization, roles, pinned
+  signer, mandate, approval and nonce. Review any deployment cost separately.
+- [ ] Review an authenticated, fresh live quote with the owner and capture the
+  exact mandate, program, quote and Guard authorization identifiers.
+- [ ] Track the one owner-signed transfer and save the finalized evidence or an
+  explicit pending, refunded, failed or inconclusive result.
+- [ ] Record and review the public video and submission payload. A local-only
+  demo requires a video. Target Thursday morning, November 12, Mountain time.
+  The organizer deadline is November 14 at 23:59 UTC.
+  [Organizer instructions](https://nearhackathon.com/HACKATHON.md)

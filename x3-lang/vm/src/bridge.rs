@@ -3234,7 +3234,8 @@ impl BridgeAdapter for UnconfiguredBridge {
 
 /// The dry-run adapter, optionally told what the market did.
 ///
-/// It answers every call with an echo, which is honest for a dry run: no prices were
+/// It simulates calls with an echo, except external mandate authorization, which
+/// requires a host with the actual authority state. No prices were
 /// consulted, so nothing was measured. When a caller *states* a measurement —
 /// `x3c run --measured-profit-bps 120 --measured-slippage-bps 5` — trade calls answer
 /// with it in the tagged form, and a measured guard is then enforced against a number
@@ -3311,6 +3312,15 @@ impl BridgeAdapter for DryRunBridge {
         Ok([format!("dry-run-scheduled_dispatch:{period}:").as_bytes(), entry].concat())
     }
     fn intent_resolve(&self, constraints: &[u8]) -> BridgeResult {
+        if constraints
+            .split(|byte| *byte == 0)
+            .any(|constraint| constraint.starts_with(b"under mandate "))
+        {
+            return Err(Box::new(BridgeError {
+                code: "X3_FEATURE_NOT_AVAILABLE",
+                message: "mandate authorization requires an enforcing host; a dry run cannot authorize it".to_string(),
+            }));
+        }
         dry_run("intent_resolve", constraints)
     }
     fn crdt_op(&self, kind: u8, key: &[u8], value: &[u8]) -> BridgeResult {

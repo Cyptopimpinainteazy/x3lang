@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ import near_intents as ni  # noqa: E402
 
 API = "https://1click.chaindefuser.com"
 RPC = "https://free.rpc.fastnear.com"
+NEAR_GENESIS = "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"
 SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 NEAR_USDC = "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
 SOL_ASSET = "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near"
@@ -55,6 +57,11 @@ def readonly_transport(method, url, headers, body, timeout):
             and set(params) == {"request_type", "finality", "account_id"}
             and params.get("request_type") == "view_account"
             and params.get("finality") == "final"
+        ) or (
+            payload.get("method") == "query" and isinstance(params, dict)
+            and set(params) == {"request_type", "finality", "account_id", "method_name", "args_base64"}
+            and params["request_type"] == "call_function" and params["finality"] == "final"
+            and params["account_id"] == NEAR_USDC and params["method_name"] == "storage_balance_of"
         )
     if not allowed:
         raise PreflightError("NETWORK_OPERATION_REFUSED")
@@ -100,6 +107,30 @@ def rpc_read(method, params, transport):
     if status != 200 or not isinstance(data, dict) or not isinstance(data.get("result"), dict):
         raise PreflightError("MAINNET_RPC_OBSERVATION_FAILED")
     return data["result"]
+
+
+def recipient_storage(account, transport):
+    """Read the native NEAR USDC contract's NEP-145 registration view."""
+    args = base64.b64encode(json.dumps({"account_id": account}).encode()).decode()
+    view = rpc_read("query", {"request_type": "call_function", "finality": "final",
+                            "account_id": NEAR_USDC, "method_name": "storage_balance_of",
+                            "args_base64": args}, transport)
+    try:
+        raw = view["result"]
+        if not isinstance(raw, list) or any(type(n) is not int or not 0 <= n <= 255 for n in raw):
+            raise ValueError("invalid byte array")
+        balance = json.loads(bytes(raw))
+        if balance is not None:
+            total, available = balance["total"], balance["available"]
+            if (not re.fullmatch(r"[0-9]{1,39}", total)
+                    or not re.fullmatch(r"[0-9]{1,39}", available)
+                    or not 0 <= int(available) <= int(total) < 2**128
+                    or int(total) == 0):
+                raise ValueError("invalid balance")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PreflightError("NEAR_USDC_STORAGE_RESPONSE_INVALID") from exc
+    return {"account": account, "token_contract": NEAR_USDC, "registered": balance is not None,
+            "block_hash": view.get("block_hash"), "block_height": view.get("block_height")}
 
 
 def guard_observation(account, expected, transport):
@@ -148,7 +179,7 @@ def run(args, *, transport=readonly_transport, now=None):
         # Token discovery is useful even before public owner parameters are supplied.
         if args.guard or (args.program and args.mandate and args.max_input_usdc):
             identity = rpc_read("status", [], transport)
-            if identity.get("chain_id") != "mainnet":
+            if identity.get("chain_id") != "mainnet" or identity.get("genesis_hash") != NEAR_GENESIS:
                 raise PreflightError("NEAR_NETWORK_IS_NOT_MAINNET")
             report["checks"]["network"] = {"ok": True, "chain_id": "mainnet", "rpc": RPC}
         if args.guard:
@@ -178,6 +209,10 @@ def run(args, *, transport=readonly_transport, now=None):
             "approvals_needed": local_mandate["approvals_needed"],
         }
         account_checks = ni.preflight_accounts(leg, ni.NearRpc(url=RPC, transport=transport))
+        storage = recipient_storage(request["recipient"], transport)
+        report["checks"]["recipient_storage"] = storage
+        if not storage["registered"]:
+            raise PreflightError("NEAR_USDC_RECIPIENT_UNREGISTERED")
         response = client.quote(request)
         guards = ni.verify_quote(leg, request, response, now=now)
         report["checks"]["dry_quote"] = {

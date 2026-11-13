@@ -17,12 +17,12 @@ def evaluate(path):
     return tc.evaluate(str(MANDATE), str(path), json.loads(TOKENS.read_text()), now=NOW)
 
 
-def test_one_x3_policy_passes_two_track_preflight_without_authorization():
+def test_one_x3_policy_passes_three_track_preflight_without_authorization():
     result = evaluate(ALLOWED)
     assert result["decision"] == "preflight_passed"
     assert result["denied_guards"] == []
     assert result["approvals_needed"] == 0
-    assert result["tracks"] == list(tc.TRACKS)
+    assert result["tracks"] == ["Agent Economy", "AI Security & Defense", "Unstoppable DeFi"]
     assert result["authorization"] == "not_verified"
     assert result["wallet_enforced"] is False
     assert result["quote_verified"] is False

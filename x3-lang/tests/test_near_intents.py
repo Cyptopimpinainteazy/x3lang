@@ -2,7 +2,7 @@
 
 The 1Click API is reached through `OneClickClient`'s injectable transport; these tests supply a
 recording transport so every request the adapter would send is asserted on, and nothing here
-touches the network.
+contacts an external network. One transport test uses only a loopback HTTP server.
 """
 import importlib.util
 import json
@@ -10,6 +10,8 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 
 import pytest
 
@@ -427,6 +429,145 @@ def test_signed_dry_quote_cannot_create_a_live_receipt_or_consume_a_nonce(tmp_pa
 
 # --- client --------------------------------------------------------------------------------
 
+def test_client_uses_api_key_environment(monkeypatch):
+    monkeypatch.delenv("NEAR_INTENTS_JWT", raising=False)
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "synthetic-api-key")
+    transport = api()
+    client = ni.OneClickClient(transport=transport)
+    client.tokens()
+    assert transport.calls[0]["headers"].get("X-API-Key") == "synthetic-api-key"
+    assert "Authorization" not in transport.calls[0]["headers"]
+    assert client.authenticated is True
+
+
+@pytest.mark.parametrize("env_key,env_jwt,kwargs,expected", [
+    (None, None, {}, {}),
+    ("", "", {}, {}),
+    (None, "env-jwt", {}, {"Authorization": "Bearer env-jwt"}),
+    ("", "env-jwt", {}, {"Authorization": "Bearer env-jwt"}),
+    ("env-key", "env-jwt", {}, {"X-API-Key": "env-key"}),
+    ("env-key", "env-jwt", {"jwt": "explicit-jwt"}, {"Authorization": "Bearer explicit-jwt"}),
+    ("env-key", "env-jwt", {"jwt": ""}, {}),
+    ("env-key", "env-jwt", {"api_key": "explicit-key"}, {"X-API-Key": "explicit-key"}),
+    ("env-key", "env-jwt", {"api_key": ""}, {}),
+    ("env-key", "env-jwt", {"api_key": "explicit-key", "jwt": "explicit-jwt"}, {"X-API-Key": "explicit-key"}),
+    ("env-key", "env-jwt", {"api_key": "explicit-key", "jwt": ""}, {"X-API-Key": "explicit-key"}),
+    ("env-key", "env-jwt", {"api_key": "", "jwt": "explicit-jwt"}, {}),
+    ("env-key", "env-jwt", {"api_key": None, "jwt": None}, {"X-API-Key": "env-key"}),
+])
+def test_client_auth_precedence(monkeypatch, env_key, env_jwt, kwargs, expected):
+    for name, value in (("NEAR_INTENTS_API_KEY", env_key), ("NEAR_INTENTS_JWT", env_jwt)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    transport = api()
+    client = ni.OneClickClient(transport=transport, **kwargs)
+    client.tokens()
+    headers = transport.calls[0]["headers"]
+    assert {k: v for k, v in headers.items() if k in ("X-API-Key", "Authorization")} == expected
+    assert client.authenticated is bool(expected)
+
+
+def test_client_preserves_positional_constructor(monkeypatch):
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "env-key")
+    transport = api()
+    client = ni.OneClickClient("https://example.invalid/", "positional-jwt", transport, 7)
+    client.tokens()
+    assert client.timeout == 7
+    assert transport.calls[0]["url"] == "https://example.invalid/v0/tokens"
+    assert transport.calls[0]["headers"]["Authorization"] == "Bearer positional-jwt"
+    assert "X-API-Key" not in transport.calls[0]["headers"]
+
+
+def test_client_does_not_discover_explorer_jwt(monkeypatch):
+    monkeypatch.delenv("NEAR_INTENTS_API_KEY", raising=False)
+    monkeypatch.delenv("NEAR_INTENTS_JWT", raising=False)
+    monkeypatch.setenv("NEAR_INTENTS_EXPLORER_JWT", "synthetic-explorer-jwt")
+    transport = api()
+    client = ni.OneClickClient(transport=transport)
+    client.tokens()
+    assert client.authenticated is False
+    assert "Authorization" not in transport.calls[0]["headers"]
+    assert "X-API-Key" not in transport.calls[0]["headers"]
+
+
+@pytest.mark.parametrize("status", [200, 401])
+def test_api_key_through_real_http_transport(monkeypatch, status):
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "synthetic-http-key")
+    monkeypatch.setenv("NEAR_INTENTS_JWT", "synthetic-unused-jwt")
+    # Keep loopback traffic independent of the test runner's proxy settings.
+    monkeypatch.setenv("no_proxy", "127.0.0.1")
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append((self.path, dict(self.headers)))
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b"[]" if status == 200 else b'{"message":"invalid token"}')
+
+        def log_message(self, *args):
+            pass
+
+    with HTTPServer(("127.0.0.1", 0), Handler) as server:
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            client = ni.OneClickClient(base_url=f"http://127.0.0.1:{server.server_port}", timeout=2)
+            if status == 200:
+                assert client.tokens() == []
+            else:
+                with pytest.raises(ni.NearIntentsError) as err:
+                    client.tokens()
+                assert err.value.code == "X3_NEAR_HTTP"
+                assert err.value.detail["status"] == 401
+                assert "synthetic-http-key" not in str(err.value)
+                assert "synthetic-unused-jwt" not in str(err.value)
+        finally:
+            server.shutdown()
+            worker.join(timeout=2)
+    assert len(seen) == 1  # A rejection must not retry with a different credential.
+    assert seen[0][0] == "/v0/tokens"
+    headers = {key.lower(): value for key, value in seen[0][1].items()}
+    assert headers["x-api-key"] == "synthetic-http-key"
+    assert "authorization" not in headers
+
+
+@pytest.mark.parametrize("credential_arg", ["api_key", "jwt"])
+@pytest.mark.parametrize("failure", ["json", "raw", "raw-long-key", "unreachable"])
+def test_client_redacts_echoed_credentials_from_errors(credential_arg, failure):
+    credential = "synthetic-selected-credential"
+    if failure == "raw-long-key":
+        credential += "x" * 400
+
+    def transport(method, url, headers, body, timeout):
+        if failure == "unreachable":
+            raise ni.NearIntentsError("X3_NEAR_UNREACHABLE", f"cannot reach {url}: {credential}",
+                                      detail={"nested": [f"support trace: {credential}"]})
+        if failure in ("raw", "raw-long-key"):
+            return 401, f"invalid API key: {credential}; contact support".encode()
+        return 401, json.dumps({"message": f"invalid API key: {credential}; contact support",
+                                "correlationId": f"support-{credential}"}).encode()
+
+    client = ni.OneClickClient(base_url="https://example.invalid", transport=transport,
+                               **{credential_arg: credential})
+    with pytest.raises(ni.NearIntentsError) as err:
+        client.tokens()
+    assert "synthetic-selected-credential" not in str(err.value)
+    assert credential not in json.dumps(err.value.to_dict())
+    assert "[REDACTED]" in err.value.message
+    if failure == "unreachable":
+        assert err.value.code == "X3_NEAR_UNREACHABLE"
+        assert err.value.detail["nested"] == ["support trace: [REDACTED]"]
+    else:
+        assert err.value.detail["status"] == 401
+        assert "contact support" in err.value.message
+        if failure == "json":
+            assert err.value.detail["correlationId"] == "support-[REDACTED]"
+
+
 def test_client_sends_bearer_jwt_and_surfaces_http_errors():
     transport = RecordingTransport(lambda m, u, p: (401, {"message": "invalid token"}))
     client = ni.OneClickClient(base_url="https://example.invalid/", jwt="secret", transport=transport)
@@ -531,6 +672,29 @@ def test_dry_quote_checks_guards_and_consumes_nothing(tmp_path):
     assert "note" in result  # unauthenticated fee schedule is called out
     assert not (tmp_path / "nonces.json").exists()
     assert not (tmp_path / "r.json").exists()
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_api_key_quote_report_and_receipt_exclude_credentials(monkeypatch, tmp_path, live):
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "synthetic-report-key")
+    monkeypatch.setenv("NEAR_INTENTS_JWT", "synthetic-unused-jwt")
+    transport = api()
+    receipt_path = tmp_path / "receipt.json"
+    result = ni.quote(str(EXAMPLE), client=ni.OneClickClient(transport=transport), live=live,
+                      nonce_store=ni.NonceStore(str(tmp_path / "nonces.json")),
+                      receipt_path=str(receipt_path), rpc=near_rpc()[0], now=NOW)
+    assert result["authenticated"] is True
+    assert "note" not in result
+    for call in transport.calls:
+        assert call["headers"]["X-API-Key"] == "synthetic-report-key"
+        assert "Authorization" not in call["headers"]
+    serialized = json.dumps(result)
+    if live:
+        serialized += receipt_path.read_text()
+    else:
+        assert not receipt_path.exists()
+    assert "synthetic-report-key" not in serialized
+    assert "synthetic-unused-jwt" not in serialized
 
 
 def test_live_quote_writes_receipt_consumes_nonce_and_refuses_replay(tmp_path):

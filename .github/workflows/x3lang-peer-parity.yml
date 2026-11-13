@@ -1,0 +1,53 @@
+name: X3Lang Explicit Read-Only Peer Parity Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      peer_commit:
+        description: Full reviewed xxxstar commit SHA; this audit never writes to the peer
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mirrored-proof-files:
+    name: Explicit cross-repository parity audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate pinned peer revision
+        shell: bash
+        env:
+          PEER_COMMIT: ${{ inputs.peer_commit }}
+        run: |
+          if [[ ! "$PEER_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::peer_commit must be a full lowercase commit SHA"
+            exit 2
+          fi
+      - name: Require private peer read credential
+        shell: bash
+        env:
+          X3LANG_PEER_READ_SSH_KEY: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}
+        run: |
+          if [[ -z "${X3LANG_PEER_READ_SSH_KEY:-}" ]]; then
+            echo "::error::Missing X3LANG_PEER_READ_SSH_KEY (read-only SSH deploy key on private xxxstar repository)"
+            exit 2
+          fi
+      - name: Checkout pinned peer revision
+        uses: actions/checkout@v4
+        with:
+          repository: Cyptopimpinainteazy/xxxstar
+          ssh-key: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}
+          ref: ${{ inputs.peer_commit }}
+          path: peer-checkout
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Reject mirrored-file drift
+        run: python3 scripts/proof/check_x3lang_mirror.py --peer-repo peer-checkout --base-ref origin/master --peer-base-ref origin/master
