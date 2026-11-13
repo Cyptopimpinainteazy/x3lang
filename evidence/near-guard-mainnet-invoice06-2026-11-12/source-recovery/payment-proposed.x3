@@ -1,0 +1,13 @@
+intent pay_x3_demo_near {
+    from Solana.USDC amount 25000000 receiver 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ
+    to Near.USDC receiver x3lang.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24750000;
+    }
+    under mandate x3lang.near
+    require slippage <= 0.9%
+    require fees <= 100 bps
+    require nonce mainnet_demo_nov11_invoice_06
+    timeout 74h refund Solana.USDC
+    on_fail rollback
+}

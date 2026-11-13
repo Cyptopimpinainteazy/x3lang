@@ -1,0 +1,14 @@
+mandate x3_mainnet_owner_reviewed {
+    owner x3lang.near
+    agent x3-agent.x3lang.near
+    spend Solana.USDC
+    per_payment 25000000
+    per_24h 25000000
+    allow recipients x3lang.near
+    allow assets Near.USDC
+    refund_to 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ
+    require slippage <= 1%
+    require fees <= 100 bps
+    approve above 24999999 by 1 of x3lang.near
+    expires 74h
+}
