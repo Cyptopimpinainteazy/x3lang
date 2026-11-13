@@ -223,10 +223,12 @@ that is given a NEAR account but never the wallet key.
 Before quoting, NEAR receivers are checked on chain (`X3_NEAR_ACCOUNT_UNKNOWN`); 1Click itself
 answers a missing NEAR account with an unexplained HTTP 400.
 
-Environment: `NEAR_INTENTS_JWT` (API key; without it the unauthenticated fee schedule applies),
+Environment: `NEAR_INTENTS_API_KEY` (partner credential sent as `X-API-Key`),
+`NEAR_INTENTS_JWT` (legacy Bearer fallback if the API key is absent or empty),
 `NEAR_INTENTS_BASE_URL`, `NEAR_INTENTS_REFERRAL`, `NEAR_RPC_URL` (default FastNEAR),
 `BSC_RPC_URLS` (two public BSC endpoints by default; used for finalized native-BNB evidence),
-`X3_NEAR_NONCE_STORE`. The adapter never signs
+`X3_NEAR_NONCE_STORE`. Without a partner credential the unauthenticated fee schedule applies.
+See the [client configuration and precedence](../README.md#try-it). The adapter never signs
 or sends the deposit; that is made from the sender's wallet. 1Click has no testnet, so live runs
 use real funds — start small.
 
