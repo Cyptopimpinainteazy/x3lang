@@ -41,6 +41,9 @@ Official instructions were checked against
 
 - [x] Release consolidation PR #83 was merged to the canonical `master` branch.
 - [ ] Confirm the **exact submission commit SHA** is still reachable from `master` (do not submit a stale release branch).
+- [ ] Push the annotated tag `hackathon-submission` on that exact commit, once (never move a
+      pushed tag), and confirm the README link `pre-hackathon...hackathon-submission` opens.
+      `pre-hackathon` points at the same commit as `baseline`.
 - [ ] Confirm no unreviewed changes are required for the submitted demo; keep non-production settlement gates closed.
 - [ ] `PRIOR_WORK.md` and the baseline comparison remain intact.
 - [ ] No API keys, key files, seed phrases, `.env` files or private receipts are tracked.
@@ -65,7 +68,8 @@ Official instructions were checked against
       separately labeled NEAR testnet evidence at its own limited level.
 - [ ] Re-verify both commands in `GUARD_TESTNET_EVIDENCE.md`; distinguish
       official dry-quote refusal and live allowed acceptance from an unproven live
-      forbidden-quote refusal and funded official 1Click settlement.
+      forbidden-quote refusal. Funded official 1Click settlement appears only in the
+      separate mainnet invoice_06 evidence, not in the testnet record.
 - [ ] Reproduce the separately labeled historical Tidepool archive using
       `verify_first_swap_archive.py`; retain the exact commit and result. Keep
       archived observations, any fresh RPC recheck and trusted-relay assumptions
@@ -83,12 +87,14 @@ Official instructions were checked against
       linked archived quote, Guard transaction and Tidepool delivery evidence
       separately labeled.
 - [ ] If a hosted page is used, verify it serves this exact commit and keep it available through
-      judging.
+      judging: HACKATHON.md asks for at least 2026-11-18, ideally 2026-11-25. The README links
+      https://dotx3.net.
 
 ## Video and X post
 
 - [ ] Use [`VIDEO_WALKTHROUGH.md`](VIDEO_WALKTHROUGH.md) and keep the recording under three
-      minutes.
+      minutes. Check the posting account's X upload limit first; see the note in
+      [`x-post-draft.md`](../../submission/x-post-draft.md).
 - [ ] Show the local one-command judge path after its documented dependency
       provisioning and show the exact decision labels.
 - [ ] Use the exact transactions and code hashes for each evidence path. State
@@ -123,6 +129,9 @@ payload for the human and wait for explicit approval before sending anything.
 ## Submission gate
 
 - [ ] Official rules re-opened immediately before submission.
+- [ ] `PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_submission_copy.py -q` passes
+      on the submitted commit: description within 2,000 characters by LF, UTF-16 and CRLF
+      counts, the same tracks in every document, X posts within 280 characters.
 - [ ] Human confirmed the exact JSON payload.
 - [ ] Human confirmed the public repository and X post links.
 - [ ] No secret or personal browser state appears in screenshots.
