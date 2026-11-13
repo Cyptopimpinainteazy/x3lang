@@ -1,0 +1,38 @@
+JUDGES.md
+  h_e41068bed968d7 36-69
+README.md
+  h_e41068bed968d7 323
+audit-artifacts/submission-reconciliation-20261113/verification.json
+  h_e41068bed968d7 1-47
+docs/hackathon/AGENT_LAW.md
+  h_e41068bed968d7 11,15-24,31,36-37,66
+docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md
+  h_e41068bed968d7 3-25,43,46,48
+docs/hackathon/JUDGE_GUIDE.md
+  h_e41068bed968d7 22
+docs/hackathon/JUDGE_PACKAGE.md
+  h_e41068bed968d7 18
+docs/hackathon/README.md
+  h_e41068bed968d7 16
+docs/hackathon/SUBMISSION_CHECKLIST.md
+  h_e41068bed968d7 37-39,127-129
+docs/hackathon/X3LANG_THREE_TRACK_CONTROL.md
+  h_e41068bed968d7 14
+submission/judge-claims.json
+  h_e41068bed968d7 83-121,127-132
+submission/submission-copy.md
+  h_e41068bed968d7 7,52-60
+x3-lang/tests/test_submission_copy.py
+  h_e41068bed968d7 1-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "55351534598e8d06b63dcb9013e1bacd55e9f501",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
