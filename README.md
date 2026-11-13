@@ -1,4 +1,6 @@
-# X3 Shield
+# X3 Force Field
+
+**Formerly X3 Shield.** The name changes; deployed `x3-guard`, `.x3` source files, evidence paths, wallet permissions and historical transaction records do not.
 
 [Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks bind this repository's exact source and execute its proofs. Equality with the private parent repository is checked only by an explicitly requested parity audit.
 
@@ -13,7 +15,7 @@ in fourteen months ([Giskard analysis](https://giskard.ai/knowledge/how-grok-got
 was exploited: the model's output *was* the authorization, and something the agent held could
 change its limits.
 
-X3 Shield takes authorization out of the model:
+X3 Force Field takes authorization out of the model:
 
 - **The owner writes the rules** as an `.x3` mandate, a small typed language: who may be paid,
   in which asset, how much per payment and per day, slippage and fee ceilings, refund address,
@@ -28,7 +30,7 @@ steps of that incident with a model that falls for every one. All three attack p
 refused for their own reason, and the owner's ordinary payment still goes through
 ([step 5b](#5b-replay-a-real-wallet-drain)).
 
-## What is new here
+## What makes the language and compiler different
 
 - **Policy is a program, not a settings page.** The mandate is typed source that compiles, has a
   hash, and can be diffed and reviewed like code. An auditor can see exactly what an agent was
@@ -52,7 +54,7 @@ refused for their own reason, and the owner's ordinary payment still goes throug
 - **Owners and DAOs delegating spend to agents** who want limits that are auditable, versioned
   and revocable without trusting the model.
 
-Status: hackathon prototype on testnet; no production users yet.
+Status: hackathon prototype with one bounded mainnet 1Click settlement and historical testnet evidence; no production users yet.
 [Commercial model](docs/business/COMMERCIAL_MODEL.md) describes the proposed opt-in services.
 
 ### In one line
@@ -61,14 +63,14 @@ Status: hackathon prototype on testnet; no production users yet.
 checks with Guard enforcement of signed quote terms.** NEAR Intents / 1Click supplies the
 execution route. Read [the stage-by-stage explanation](docs/hackathon/X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
 for compile-time versus runtime checks and the evidence boundaries.
-[Why X3 Shield stands out](docs/hackathon/WHY_X3_SHIELD.md) connects each distinguishing claim
+[Why X3 Force Field stands out](docs/hackathon/WHY_X3_SHIELD.md) connects each distinguishing claim
 to its evidence and limits.
 
 ## What exists today
 
 | Result | Network | Check it |
 |---|---|---|
-| **On mainnet**, a restricted agent key accepted a signed 1Click quote on the X3 Guard after 21 mandate and quote checks passed; the owner's wallet then sent **25 USDC on Solana** and **24.9952 USDC arrived on NEAR** 84 seconds later. The agent key can call only three Guard methods; the owner's key did not sign. | NEAR + Solana mainnet | [invoice_06 evidence](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md), [agent call](https://nearblocks.io/txns/Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153) |
+| **On mainnet**, a restricted agent key accepted a signed 1Click quote on the X3 Guard after 21 mandate and quote checks passed; the owner's wallet then sent **25 USDC on Solana** and **24.9952 USDC arrived on NEAR** 84 seconds later. The agent key can call only three Guard methods; the owner's key did not sign. | NEAR + Solana mainnet | [invoice_06 evidence](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md), [agent call](https://nearblocks.io/txns/Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153), [recorded outcome](https://nearblocks.io/txns/9sTn9pJ1ZbCVazBm9Wz9oEDh6aWw4FUVMoAJEKCCzuqE), [hash-matched `.x3` sources](evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md) |
 | Guard on `x3lang.near` was upgraded to the reviewed WASM; all seven stored records were preserved. A separately approved native transfer recovered 0.3 NEAR to `dotx3.near`. | NEAR mainnet | [Deployment and recovery receipts](docs/hackathon/MAINNET_GUARD_DEPLOYMENT.md) |
 | An `.x3` program specified a cross-chain trade that finalized: **1.000000 test USDC left Base Sepolia, 0.997400 arrived on NEAR testnet**. The program's SHA-256 was bound on a NEAR Guard contract before the source transfer. | Base Sepolia + NEAR testnet | [Step 1](#1-the-x3-program-behind-the-cross-chain-trade), [Step 2](#2-verify-the-finalized-two-chain-trade) |
 | The deployed Guard refused an agent intent to `attacker.near` and accepted a permitted intent. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
@@ -78,7 +80,8 @@ to its evidence and limits.
 | 9 unsafe edits to an agent payment fail to compile. | Local | [Step 3](#3-unsafe-payments-do-not-compile) |
 
 One small mainnet settlement (about $25) is recorded above, read back from public RPC on
-both chains. Guard authorized its deposit address but did not hold the funds, and the link
+both chains. The restricted agent then recorded `Settled` on NEAR; the original payment
+and mandate `.x3` source bytes match the program hashes Guard stored. Guard authorized its deposit address but did not hold the funds, and the link
 between the Solana deposit and the NEAR payout comes from the 1Click status record, not a
 proof. The Guard upgrade and native account-surplus recovery also have finalized mainnet
 receipts; they are operational records, not agent payments. Everything else is testnet or
@@ -132,7 +135,7 @@ flowchart LR
     G -->|any rule fails| R[refused, nothing stored]
 ```
 
-More on what `.x3` does here: [X3 in X3 Shield](docs/hackathon/X3_LANGUAGE.md).
+More on what `.x3` does here: [X3 in X3 Force Field](docs/hackathon/X3_LANGUAGE.md).
 
 ## Try it: do X, see Y
 
@@ -309,20 +312,20 @@ It makes no blockchain transactions and uses no wallet. Longer walkthrough:
 
 Built at NEAR HACKATHON 2026. The documented submission scope is
 **AI Security & Defense** (`security`, primary) and **Agent Economy** (`agents`).
-**Unstoppable DeFi** (`defi`) is a proposed third-track perspective, not a
-confirmed submitted track. The three project perspectives below do not establish
+**Unstoppable DeFi** (`defi`) is the intended third-track perspective if selected
+by the owner in the submission form; no submission receipt is confirmed. The three project perspectives below do not establish
 which tracks the organizer has accepted; confirm the owner-approved submission
 record before changing that scope. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
 and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md). The
 [three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md) separates local policy,
-historical testnet evidence, and outstanding official 1Click mainnet settlement. The agent
+historical testnet evidence, and one completed official 1Click mainnet settlement. The agent
 proposes and the owner signs; a Solana wallet keyholder can still transfer directly outside Guard.
 
-| Track | What X3 Shield shows | Steps |
+| Track | What X3 Force Field shows | Steps |
 |---|---|---|
 | **AI Security & Defense** | A policy engine for agent spending: recipient and asset allowlists, per-payment and 24-hour caps, slippage and fee ceilings, approval thresholds, expiry, one-use nonces. Enforced off-chain by the compiler and on-chain by `x3-guard`, which reads terms from the signed quote bytes. | 3, 4, 5, 6, 9, [testnet refusals](#proof-on-near-testnet) |
 | **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. On mainnet, the agent's restricted key accepted an official live quote under the mandate and the trade settled ([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet), [mainnet invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md) |
-| **Unstoppable DeFi (proposed)** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
+| **Unstoppable DeFi (candidate third track)** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
 
 The proposed DeFi perspective uses historical trusted Tidepool community-testnet
 delivery, not official 1Click settlement. On testnet the official 1Click quote flow was
@@ -423,7 +426,7 @@ trade. They do not constrain an unrelated funded EOA. Owner keys remain trusted.
 separately approved testnet procedure and its observed-scenario verifier. It has not been
 run; merging the procedure does not authorize signing, funding or deployment.
 
-X3 Shield compares signed quote terms with a typed program: recipient, asset,
+X3 Force Field compares signed quote terms with a typed program: recipient, asset,
 minimum output, deadline and refund address. Key restrictions and custody controls
 must enforce which actions an agent can take outside that check.
 
