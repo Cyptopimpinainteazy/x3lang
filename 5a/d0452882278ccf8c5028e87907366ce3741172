@@ -1,0 +1,24 @@
+JUDGES.md
+  h_e41068bed968d7 1-59
+README.md
+  h_e41068bed968d7 3-4
+docs/hackathon/JUDGE_GUIDE.md
+  h_e41068bed968d7 3-4
+docs/hackathon/JUDGE_PACKAGE.md
+  h_e41068bed968d7 3-4,24-26
+docs/hackathon/README.md
+  h_e41068bed968d7 3-4
+submission/submission-copy.md
+  h_e41068bed968d7 3-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5ad0452882278ccf8c5028e87907366ce3741172",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
