@@ -1,0 +1,6 @@
+# Same pin as x3-guard: this contract is built separately with cargo-near, which needs the
+# wasm32 target. The unit tests also pass on stable 1.97 (`RUSTUP_TOOLCHAIN=stable cargo test`).
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

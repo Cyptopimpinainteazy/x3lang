@@ -1,0 +1,10 @@
+# On-chain builds of this contract must use near-sdk's host functions.
+# `--cfg near` is what `cargo near build` sets. Without it near-sdk 5.x falls back to
+# off-chain code: refusal messages are discarded and every panic becomes a bare
+# `unreachable` trap. src/lib.rs refuses to compile for wasm32 without it.
+#
+# Cargo reads this file only when invoked from this directory (or below). Builds from the
+# repository root must `cd` here first. An ambient RUSTFLAGS overrides this setting, so a
+# build that sets RUSTFLAGS must include `--cfg near` itself.
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "near"]
