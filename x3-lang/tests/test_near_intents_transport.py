@@ -26,7 +26,7 @@ finally:
 
 class CredentialTransportTests(unittest.TestCase):
     def test_refuses_redirects_before_forwarding_credentials(self):
-        for credential_arg in ("api_key", "jwt"):
+        for credential_arg in ("api_key", "jwt", "shield"):
             for status in (301, 302, 303, 307, 308):
                 with self.subTest(credential_arg=credential_arg, status=status):
                     self._check_redirect(credential_arg, status)
@@ -72,14 +72,18 @@ class CredentialTransportTests(unittest.TestCase):
                 try:
                     # Never consult proxy settings or ambient credentials for this test.
                     with patch.dict(os.environ, {"no_proxy": "127.0.0.1"}):
-                        client = ni.OneClickClient(
-                            base_url=f"http://127.0.0.1:{origin.server_port}",
-                            timeout=2, **{credential_arg: credential},
-                        )
+                        options = {"base_url": f"http://127.0.0.1:{origin.server_port}", "timeout": 2}
+                        if credential_arg == "shield":
+                            operation = ni.ShieldIncidents(token=credential, **options).active
+                            expected_code, expected_detail = "X3_NEAR_SHIELD_UNREACHABLE", None
+                        else:
+                            operation = ni.OneClickClient(**options, **{credential_arg: credential}).tokens
+                            expected_code = "X3_NEAR_REDIRECT"
+                            expected_detail = {"status": status, "retryable": False}
                         with self.assertRaises(ni.NearIntentsError) as err:
-                            client.tokens()
-                    self.assertEqual(err.exception.code, "X3_NEAR_REDIRECT")
-                    self.assertEqual(err.exception.detail, {"status": status, "retryable": False})
+                            operation()
+                    self.assertEqual(err.exception.code, expected_code)
+                    self.assertEqual(err.exception.detail, expected_detail)
                     self.assertNotIn(credential, json.dumps(err.exception.to_dict()))
                 finally:
                     for server in servers:
@@ -108,6 +112,22 @@ class CredentialTransportTests(unittest.TestCase):
                     client.tokens()
                 self.assertEqual(err.exception.code, "X3_NEAR_REDIRECT")
                 self.assertEqual(err.exception.detail, {"status": status, "retryable": False})
+                self.assertEqual(len(calls), 1)
+
+    def test_shield_refuses_injected_redirect_even_with_operational_body(self):
+        for status in (300, 301, 302, 303, 304, 305, 306, 307, 308, 399):
+            with self.subTest(status=status):
+                calls = []
+
+                def transport(method, url, headers, body, timeout):
+                    calls.append((method, url))
+                    return status, b'{"status":"operational","incidents":[]}'
+
+                client = ni.ShieldIncidents(token="synthetic-shield-credential", transport=transport)
+                with self.assertRaises(ni.NearIntentsError) as err:
+                    client.active()
+                self.assertEqual(err.exception.code, "X3_NEAR_SHIELD_HTTP")
+                self.assertEqual(err.exception.detail, {"status": status})
                 self.assertEqual(len(calls), 1)
 
 
