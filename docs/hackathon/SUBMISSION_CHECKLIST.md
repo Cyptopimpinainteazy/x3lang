@@ -34,12 +34,9 @@ Official instructions were checked against
 **Differentiator to show judges:** typed owner-written `.x3` mandate → compile/type-check and reject unsafe edits → deterministic quote/policy checks → NEAR Guard signed-quote enforcement → archived `invoice_06` authorization, settlement and recorded outcome. Do not imply native X3VM executed on NEAR.
 
 
-- Owner-selected tracks: `security` (primary), `agents` and `defi`, as selected on the
-  submission form. This checklist does not certify organizer acceptance.
-- `defi` frames X3 Force Field as an authorization layer over NEAR Intents / 1Click, not a
-  new bridge. Historical funded Tidepool community-testnet delivery exists; one official
-  funded 1Click mainnet settlement is recorded as `invoice_06`. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
-  Preserve the submission receipt.
+Owner-selected tracks: AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). Selection is confirmed by the owner; this checklist does not certify organizer acceptance or a saved submission receipt.
+
+Historical Tidepool testnet delivery and the official mainnet invoice_06 settlement remain separate evidence. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
 
 ## Repository
 
@@ -127,6 +124,9 @@ payload for the human and wait for explicit approval before sending anything.
 ## Submission gate
 
 - [ ] Official rules re-opened immediately before submission.
+- [ ] `PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_submission_copy.py -q` passes (description LF/UTF-16/CRLF, all three tracks, X post lengths and tags).
+- [ ] Final exact-commit tag `hackathon-submission` is created once and never moved; preserve `pre-hackathon`/`baseline` provenance.
+- [ ] Hosted demo remains available through judging (at least November 18, ideally November 25 per organizer guidance).
 - [ ] Human confirmed the exact JSON payload.
 - [ ] Human confirmed the public repository and X post links.
 - [ ] No secret or personal browser state appears in screenshots.

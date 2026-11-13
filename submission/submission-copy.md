@@ -4,7 +4,7 @@
 
 **Project:** X3 Force Field (X3Lang; formerly X3 Shield)
 
-**Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`), Unstoppable DeFi (`defi`). Selected on the submission form; not a claim of organizer acceptance.
+**Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). Owner-confirmed selection; not a claim of organizer acceptance or a submission receipt.
 
 ## 20–2,000 character description (1923 characters, LF)
 
@@ -48,6 +48,15 @@ for why each capability matters, direct proof and its limits. The
 hashes. Run `python3 scripts/hackathon/invoice06_chain.py --json` after the
 [judge-page setup](../JUDGES.md#reproduce-the-same-payments-checks--offline-after-setup).
 These supporting links are outside the form-description character count.
+
+## Additional implemented innovations
+
+Beyond the six main payment differentiators, the [additional-innovation matrix](../JUDGES.md#additional-innovations--separate-local-evidence)
+links proof for signed child admission and budget reservations, durable retirement
+and signed incident review, and real local NEAR Sandbox vault execution.
+All three also appear in [judge-claims.json](judge-claims.json). These are local
+capabilities; no public-chain custody, independent AI jury or automatic policy
+rewrite is claimed. They are separate from invoice_06.
 
 ## Exact transaction anchors
 

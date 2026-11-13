@@ -33,6 +33,40 @@ project differentiators, not claims to be the first or only implementation.
 | **Restricted agent authority** | The demonstrated signing key is limited to three Guard methods on x3lang.near. | [public-rpc-observation.json](evidence/near-guard-mainnet-invoice06-2026-11-12/public-rpc-observation.json); [PROOF_CARD.md](PROOF_CARD.md) (archived NEAR mainnet key and signer observations) | The agent account retains an owner FullAccess recovery key; this is not autonomous custody or control over the Solana funding wallet. |
 | **Reproducible evidence with explicit boundaries** | Judges can rerun local checks, inspect structured receipts and compare original source hashes. | [invoice06_chain.py](scripts/hackathon/invoice06_chain.py); [test_invoice06_chain.py](scripts/hackathon/test_invoice06_chain.py); [SHA256SUMS](evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/SHA256SUMS); [PROOF_CARD.md](PROOF_CARD.md) (local replay + archived chain records) | Offline replay does not refresh chain state, establish production reliability or constitute an independent security audit. |
 
+## Additional innovations — separate local evidence
+
+These three capabilities were merged after the original six-claim overview.
+They do not change the invoice_06 mainnet proof or its trust boundaries.
+
+| Capability | Proof and reproduction | What is not established |
+| --- | --- | --- |
+| **Signed agent birth and constrained delegation** | [Runtime](x3-lang/agent_runtime.py), [signed admission](x3-lang/agent_admission_signed.py), [runtime tests](x3-lang/tests/test_agent_runtime.py): real Ed25519 signatures bind identities and grants; SQLite transactions enforce nonces and reserve child budgets. | Trusted local host, not OS isolation, a public registry or chain custody. |
+| **Durable retirement and signed incident review** | [Lifecycle demo](scripts/hackathon/agent_law_local_demo.py), [court tests](x3-lang/tests/test_agent_runtime_court.py), [archived lifecycle](audit-artifacts/agent-law-local-20261113/lifecycle.json): replay refused, policy violation retires agent across restart, signed majority findings export a regression proposal. | Scripted jury identities, not independent AI judgments. No automatic reactivation or policy rewrite; local event history is not externally anchored. |
+| **Scoped vault complete-path execution** | [Sandbox report](evidence/agent-vault-local/complete-path-sandbox-20261113.json), [execution log](evidence/agent-vault-local/complete-path-sandbox-20261113.txt), [archive tests](x3-lang/tests/test_vault_complete_path_evidence.py), [node runner](scripts/hackathon/vault_sandbox_smoke.sh): allowed payment, typed bypass refusals, revocation, expiry and owner recovery. | Real local NEAR Sandbox, not public-chain deployment or invoice_06. Owner FullAccess remains trusted; archive tests do not rerun the node. |
+
+After installing [runtime dependencies](x3-lang/requirements-agent-security.txt)
+and pytest in the project environment, reproduce the local lifecycle:
+
+```bash
+python3 scripts/hackathon/agent_law_local_demo.py
+PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_agent_runtime*.py x3-lang/tests/test_agent_constitution.py x3-lang/tests/test_agent_admission_signed.py x3-lang/tests/test_vault_complete_path_evidence.py -q
+```
+
+Expected demo fields: `replay_blocked`, `retired_after_policy_violation` and
+`retirement_survives_restart` are true. The focused suite passed 72 tests at the
+reconciliation base; require zero failures on the commit you review. Full runtime
+setup and limits: [local runtime guide](docs/security/AGENT_LAW_RUNTIME.md).
+The [claim index](submission/judge-claims.json) now covers all nine capabilities.
+
+## Three selected tracks
+
+Owner-confirmed selection: **AI Security & Defense** (`security`, primary),
+**Agent Economy** (`agents`) and **Unstoppable DeFi** (`defi`). This is not a saved
+submission receipt or organizer acceptance. Security maps to compiler/Guard
+restrictions; agents to scoped authority and local signed lifecycle; DeFi to
+signed quote authorization and the archived 25-USDC mainnet route. See the
+[track evidence table](README.md#three-project-perspectives).
+
 ## Structured route for human and automated reviewers
 
 The [claim index](submission/judge-claims.json) maps stable claim IDs to evidence

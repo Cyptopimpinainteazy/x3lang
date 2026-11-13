@@ -84,6 +84,7 @@ def test_tracks_are_organizer_ids_and_every_document_names_the_same_set():
     assert submitted, "no track IDs on the **Tracks:** line"
     assert len(submitted) == len(set(submitted)), f"duplicate track IDs: {submitted}"
     assert set(submitted) <= ORGANIZER_TRACKS, set(submitted) - ORGANIZER_TRACKS
+    assert set(submitted) == {"security", "agents", "defi"}, "owner confirmed all three tracks"
 
     readme = _track_ids_in_sentence(README.read_text(encoding="utf-8"), "Submitted tracks:")
     checklist = _track_ids_in_sentence(
@@ -115,3 +116,13 @@ def test_x_length_counts_links_as_23_characters():
     assert _x_length(f"see {REPOSITORY_URL}") == len("see ") + X_URL_WEIGHT
     assert _x_length("pay x3lang.near") == len("pay x3lang.near")
     assert _x_length("open dotx3.net") == len("open ") + X_URL_WEIGHT
+
+
+def test_judge_track_surfaces_name_all_owner_selected_tracks():
+    surfaces = [
+        ("JUDGES.md", "Owner-confirmed selection:"),
+        ("docs/hackathon/JUDGE_PACKAGE.md", "**Owner-selected tracks:**"),
+        ("docs/hackathon/X3LANG_THREE_TRACK_CONTROL.md", "**Scope:**"),
+    ]
+    for path, lead in surfaces:
+        assert _track_ids_in_sentence((ROOT / path).read_text(), lead) == {"security", "agents", "defi"}, path

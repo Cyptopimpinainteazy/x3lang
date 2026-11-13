@@ -320,10 +320,7 @@ It makes no blockchain transactions and uses no wallet. Longer walkthrough:
 
 ## Three project perspectives
 
-Built at NEAR HACKATHON 2026. Submitted tracks: **AI Security & Defense**
-(`security`, primary), **Agent Economy** (`agents`) and **Unstoppable DeFi** (`defi`),
-as selected by the owner on the submission form. The three project perspectives below
-do not establish which tracks the organizer has accepted. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
+Built at NEAR HACKATHON 2026. Submitted tracks: AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). These are the owner-confirmed selections; organizer acceptance and a saved submission receipt are not established here. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
 and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md). The
 [three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md) separates local policy,
 historical testnet evidence, and one completed official 1Click mainnet settlement. The agent

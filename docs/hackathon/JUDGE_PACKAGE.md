@@ -15,11 +15,7 @@ for compile-time versus runtime checks and the evidence boundaries.
 
 **Project:** X3Lang — the programmable trust layer for AI agents and cross-chain finance.
 
-**Documented submission scope:** `security`, `agents`. The project also presents
-an Unstoppable DeFi perspective (`defi`), assessed in
-[DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md), but its submission is
-not confirmed here. Confirm the actual owner-approved submission record; this
-package does not certify organizer acceptance or add a track.
+**Owner-selected tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). Not a claim of organizer acceptance. See [DeFi evidence](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
 
 **Mainnet payment evidence:** [invoice_06 proof card](../../PROOF_CARD.md) covers the 25-USDC Solana deposit, 24.9952-USDC NEAR payout and restricted-agent outcome. The deployment/recovery operations below are separate from this payment.
 
