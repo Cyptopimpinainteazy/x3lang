@@ -449,6 +449,8 @@ Where protection ends (the proof card's [seven limits](PROOF_CARD.md#seven-limit
 | Holds the funding wallet's key | **Not stopped.** Guard does not hold or move the funds, so that key can pay anyone without Guard. |
 | Holds the owner's keys | **Not stopped.** The owner is trusted: the FullAccess key on `x3lang.near` can rewrite the mandate, approve and redeploy Guard, and the FullAccess recovery key on `x3-agent.x3lang.near` controls the agent account. |
 
+Where this goes next, with each stage of the agent lifecycle labeled enforced on mainnet, offline, check-only or design: [agent law](docs/hackathon/AGENT_LAW.md).
+
 ### Custody, quotes and evidence
 
 A holder of an unrestricted wallet key can bypass Guard and transfer funds directly.

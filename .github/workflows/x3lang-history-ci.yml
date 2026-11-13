@@ -45,7 +45,7 @@ jobs:
       - name: X3Lang Python and NEAR adapter tests
         env:
           PYTHONPATH: x3-lang
-        run: python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py scripts/hackathon/test_route_probe.py scripts/hackathon/test_invoice06_chain.py -q
+        run: python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py scripts/hackathon/test_route_probe.py scripts/hackathon/test_invoice06_chain.py scripts/hackathon/test_agent_law_doc.py -q
       - name: Browser demo
         run: node --test x3-lang/near/demo/test/*.test.mjs
       - name: Judge transaction lookup boundaries
