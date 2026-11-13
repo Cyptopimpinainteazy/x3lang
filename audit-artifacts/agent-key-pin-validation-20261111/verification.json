@@ -1,0 +1,132 @@
+{
+  "schema": "x3.agent_key_pin_boundary.verification.v1",
+  "base_commit": "258813097e76508dbbd5bb68b7f7ab08da1162a4",
+  "branch": "fix/agent-key-pin-validation-20261111",
+  "tested_tree": "scoped uncommitted changes; tested source hashes below",
+  "source_sha256": {
+    "docs/security/GUARD_SCOPED_STORAGE.md": "34feae069b69cc91a9c7b5a018e14db894bff6bbba8803287dbe3a687a9fa570",
+    "x3-lang/near/agent-demo.sh": "8f9cfa267f1a4201f5bee872bdba1c4a236a4e2e59e542ef0c1110d5f782811f",
+    "x3-lang/near_agent.py": "3f4527e8c13ce35de47c49230d5c78ededd915b0bfad1842a85256c88b6a5b23",
+    "x3-lang/near_intents.py": "36174e8b789db011ba387b4e1a3b465b4cda8e1dabcc4510e48615ce633009ed",
+    "x3-lang/tests/test_agent_demo_status_flow.py": "606fc41a09ca6420f06bef8426ba0360f58c047b7784cc58e9f589e1a58e9e65",
+    "x3-lang/tests/test_near_agent.py": "967aed2a39be048945ccb542b1bea4e63c3e6af31439f49606852472578d69cf",
+    "x3-lang/tests/test_near_mandate.py": "050715a01d0b17d2a5abfc08133a471a671c369f7180b5c23fcc925f0ca25307",
+    "x3-lang/near_agent_key.py": "50a81f399046ac137d5cd296ab3a236c0490191818e2a00a67843c7a97b2b403",
+    "x3-lang/tests/test_near_agent_key.py": "7c78c7d5dd12a23aaa27086b04338126190b0d2c494c878150142c0655d61caf"
+  },
+  "environment": {
+    "python": "3.12.3",
+    "node": "v24.22.1",
+    "shellcheck": "not installed",
+    "cryptography": "existing project requirements; no dependency added"
+  },
+  "tdd": [
+    {
+      "slice": "read-only pinned-key admission",
+      "red": "module absent",
+      "green": "2 passed"
+    },
+    {
+      "slice": "execution boundary and credential snapshot",
+      "red": "10 failed: execute absent",
+      "green": "12 passed"
+    },
+    {
+      "slice": "generated prepaid command must use wrapper and pin",
+      "red": "missing pin did not raise",
+      "green": "13 passed"
+    },
+    {
+      "slice": "guided demo operator pin and allowance required",
+      "red": "2 failed: no pin requirement",
+      "green": "31 shell cases passed"
+    },
+    {
+      "slice": "actual RPC nested missing-key error",
+      "red": "misclassified as permission failure",
+      "green": "38 wrapper cases passed"
+    },
+    {
+      "slice": "private CLI output suppression",
+      "red": "raw stderr/escaped quote output exposed",
+      "green": "38 wrapper cases passed; only fixed unverified metadata emitted"
+    },
+    {
+      "slice": "prepaid demo refusal wording",
+      "red": "unverified CLI error printed Confirmed",
+      "green": "32 shell cases passed; scoped output explicitly unverified"
+    }
+  ],
+  "checks": [
+    {
+      "command": "PYTHONPATH=x3-lang ../mainnet-trade/.venv/bin/python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py -q",
+      "exit_code": 0,
+      "passed": 742,
+      "skipped": 1,
+      "duration_seconds": 12.35,
+      "skip_reason": "existing unmodified-quote case is not a tampering case"
+    },
+    {
+      "command": "node --test x3-lang/near/demo/test/*.test.mjs",
+      "exit_code": 0,
+      "passed": 88
+    },
+    {
+      "command": "../mainnet-trade/.venv/bin/python scripts/hackathon/demo.py --json",
+      "exit_code": 0,
+      "scope": "offline"
+    },
+    {
+      "command": "../mainnet-trade/.venv/bin/python -m compileall -q x3-lang/near_agent.py x3-lang/near_intents.py x3-lang/near_agent_key.py x3-lang/tests",
+      "exit_code": 0
+    },
+    {
+      "command": "bash -n x3-lang/near/agent-demo.sh",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    {
+      "command": "near contract call-function as-transaction guard.near agent_register_intent json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as agent.near network-config mainnet sign-with-access-key-file --help",
+      "exit_code": 0,
+      "scope": "help only; confirms nonce, block-hash and block-height options; no keyfile or send"
+    }
+  ],
+  "real_readonly_checks": [
+    {
+      "command": "../mainnet-trade/.venv/bin/python x3-lang/near_agent_key.py check --account x3-agent.x3lang.near --public-key ed25519:8teaXGYFELKQN5QA7gQqeA4B7URrcMQqaczZ5D68c23u --contract x3lang.near --method agent_register_intent --max-allowance-yocto 20000000000000000000000",
+      "exit_code": 1,
+      "expected_refusal": "X3_AGENT_KEY_PERMISSION",
+      "broadcasted": false
+    },
+    {
+      "command": "../mainnet-trade/.venv/bin/python x3-lang/near_agent_key.py check --account x3-agent.x3lang.near --public-key ed25519:J3NiU8J63HAfz2MTDu1zQVhFRYS5Pio21h1kNtJdP11x --contract x3lang.near --method agent_register_intent --max-allowance-yocto 20000000000000000000000",
+      "exit_code": 1,
+      "expected_refusal": "X3_AGENT_KEY_RPC",
+      "reason": "key absent at finalized query; provider result.error shape covered by regression",
+      "broadcasted": false
+    }
+  ],
+  "security_review": {
+    "author": "Review pins account/key/receiver/method/allowance and network; validates Ed25519 credential derivation; gates every CLI invocation on fresh finalized exact-key read, nonce/block binding, zero deposit, 60-second freshness; tests failures never invoke CLI, path replacement cannot select another credential, snapshots removed and all raw CLI output suppressed, emitting only unverified allowlisted metadata.",
+    "independent": "Independent read-only reviewer cleared final diff after privacy/refusal corrections: no blocking findings; 70 focused tests, shell syntax and diff checks passed. No edits or signing by reviewer.",
+    "scope": "trusted operator harness only; model proposes source; owner recovery FullAccess retained; not OS isolation or host-compromise protection",
+    "limits": [
+      "RPC observations are not cryptographic state proofs",
+      "Fixture sends intercept near CLI; no real signatures, subprocess chain execution, or successful mainnet delegated-key action claimed",
+      "An abrupt process kill may leave a private temporary snapshot; normal/error exits clean it",
+      "Legacy non-prepaid direct commands remain available and make no delegated-key claim"
+    ]
+  },
+  "production_actions": {
+    "signed_transactions": false,
+    "funding": false,
+    "key_addition_or_deletion": false,
+    "user_secret_files_read": false,
+    "contract_changes": false,
+    "live_quotes": false
+  },
+  "ci": "not run for uncommitted key-boundary branch"
+}

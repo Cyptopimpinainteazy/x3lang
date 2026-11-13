@@ -145,7 +145,9 @@ esac
     env = os.environ | {
         "X3_TEST_LIBRARY": str(library), "X3_TEST_TRACE": str(trace),
         "X3_TEST_ENTRYPOINT": entrypoint, "X3_AGENT_RUN_DIR": str(tmp_path),
-        "X3_AGENT_PREPAID_STORAGE": mode, "CONTRACT": "guard.sandbox", "AGENT_ACCOUNT": "agent.sandbox",
+        "X3_AGENT_PREPAID_STORAGE": mode,
+        "X3_AGENT_PUBLIC_KEY": "ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+        "X3_AGENT_MAX_ALLOWANCE_YOCTO": "100000000000000000000000", "CONTRACT": "guard.sandbox", "AGENT_ACCOUNT": "agent.sandbox",
         "AGENT_KEY": "fixture-only.json", "RECIPIENT": "recipient.sandbox", "AMOUNT": "5",
         "UNITS": "5000000", "SOLANA": "test-refund", "MIN_RECEIVE": "4900000", "OWNER": "owner.sandbox",
     }
@@ -154,6 +156,8 @@ esac
     calls = trace.read_text().splitlines()
     assert len(calls) == 1
     assert ("--prepaid-agent-storage" in calls[0].split()) == (mode == "1")
+    assert ("--agent-public-key" in calls[0].split()) == (mode == "1")
+    assert ("--agent-max-allowance-yocto" in calls[0].split()) == (mode == "1")
 
 
 def test_prepaid_storage_mode_rejects_invalid_configuration_before_any_command(tmp_path):
@@ -161,3 +165,32 @@ def test_prepaid_storage_mode_rejects_invalid_configuration_before_any_command(t
     result = subprocess.run(["bash", str(SCRIPT), "show"], env=env, capture_output=True, text=True, timeout=10)
     assert result.returncode != 0
     assert "X3_AGENT_PREPAID_STORAGE must be 0 or 1" in result.stderr
+
+
+@pytest.mark.parametrize("missing", ["X3_AGENT_PUBLIC_KEY", "X3_AGENT_MAX_ALLOWANCE_YOCTO"])
+def test_prepaid_demo_requires_explicit_operator_pin_and_allowance_before_loading_state(tmp_path, missing):
+    env = os.environ | {"X3_AGENT_PREPAID_STORAGE": "1", "X3_AGENT_RUN_DIR": str(tmp_path),
+                        "X3_AGENT_PUBLIC_KEY": "ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+                        "X3_AGENT_MAX_ALLOWANCE_YOCTO": "100000000000000000000000"}
+    env.pop(missing)
+    result = subprocess.run(["bash", str(SCRIPT), "show"], env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode != 0
+    assert missing in result.stderr
+
+
+def test_prepaid_refusal_output_does_not_claim_chain_confirmation(tmp_path):
+    library = tmp_path / "functions.sh"
+    library.write_text(SCRIPT.read_text().split('\ncase "${1:-}" in', 1)[0])
+    shell = r'''
+source "$X3_TEST_LIBRARY"
+AGENT_STORAGE_ARGS=(--prepaid-agent-storage)
+confirm() { :; }
+bash() { printf '{"error_code_candidates":["X3_MANDATE_DENIED"],"verified":false}\n'; return 1; }
+send_expected_refusal unused "$X3_TEST_LOG" fixture
+'''
+    env = os.environ | {"X3_TEST_LIBRARY": str(library), "X3_TEST_LOG": str(tmp_path / "call.log"),
+                        "X3_AGENT_PREPAID_STORAGE": "0", "X3_AGENT_RUN_DIR": str(tmp_path)}
+    result = subprocess.run(["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert "unverified" in result.stdout
+    assert "Confirmed" not in result.stdout
