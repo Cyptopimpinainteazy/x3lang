@@ -137,6 +137,22 @@ For a fresh read-only public-RPC observation, follow the
 For broader local tests, provisioning requirements and browser panels, use the
 [reproduction package](docs/hackathon/JUDGE_PACKAGE.md#one-command-demonstration).
 
+## What the counts measure
+
+| Count | Meaning | Scope |
+| --- | --- | --- |
+| Nine capabilities | Six core payment claims plus three additional local capabilities | Claim index, not nine mainnet deployments |
+| 9/9 compiler edits | Unsafe edits to the example payment | Local compiler demo |
+| 8/8 scripted attacks | Separate red-team scenarios | Local policy checks |
+| 8/8 invoice edits | Mutations of the original invoice_06 source | Local compiler/mandate replay |
+| 21 quote checks | Passing checks in the archived allowed acceptance receipt | NEAR mainnet, not 21 attack refusals |
+| 5/5 links | Source, compiler, Guard, payment and recorded-outcome archive consistency | Offline verifier, not fresh RPC verification |
+
+The [recorded reproduction run](audit-artifacts/judge-reproduction-20261113/verification.json)
+includes command results and hashes of the tested verifier/runtime files. Historical
+CI and commit references establish earlier evidence provenance; the single pinned
+snapshot above governs this reproduction. Neither reference is a final submission receipt.
+
 ## Replay time and evidence boundaries
 
 The invoice verifier reconstructs its compiler clock as the archived policy's

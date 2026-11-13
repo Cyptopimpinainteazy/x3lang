@@ -25,7 +25,7 @@ X3 Force Field takes authorization out of the model:
 
 - **The owner writes the rules** as an `.x3` mandate, a small typed language: who may be paid,
   in which asset, how much per payment and per day, slippage and fee ceilings, refund address,
-  approval thresholds, expiry. Its SHA-256 is what gets pinned.
+  approval thresholds, expiry. Its SHA-256 is recorded as source identity; this is not deployed payment-program pinning.
 - **The agent can only propose.** Each payment is an `.x3` program the agent writes.
 - **Deterministic code decides.** A compiler and a NEAR contract (`x3-guard`) compare the
   program, and the signed 1Click quote, against the mandate. Nothing the agent holds, reads or
