@@ -18,6 +18,50 @@ compiler checks and NEAR Guard to constrain AI-agent payment proposals.
    The owner manually funded the deposit; Guard does not custody USDC or verify
    outcome hashes. Provider association does not prove cross-chain atomicity.
 
+## What is distinctive — claim, proof and boundary
+
+The innovation is the combination of a typed policy language, deterministic
+checks, signed-quote enforcement and an inspectable payment trail. These are
+project differentiators, not claims to be the first or only implementation.
+
+| Differentiator | Why it matters | Inspect the proof | Boundary |
+| --- | --- | --- | --- |
+| **Typed, reviewable owner policy** | Owners express authority in a separate .x3 mandate that can be reviewed and hashed. | [mandate-proposed.x3](evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/mandate-proposed.x3); [payment-proposed.x3](evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/payment-proposed.x3); [guard-source-verification.json](evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/guard-source-verification.json) (local compilation + archived mainnet hash match) | Source hashes identify bytes; Guard does not compile or run .x3 on-chain. |
+| **Checks outside the model** | Compiler and deterministic mandate checks refuse unsafe programs even when a scripted model follows an attack. | [invoice06_chain.py](scripts/hackathon/invoice06_chain.py); [replay_grok_wallet_drain.py](scripts/hackathon/replay_grok_wallet_drain.py); [compromised_agent_redteam.py](scripts/hackathon/compromised_agent_redteam.py) (local tests) | Scripted attacks are not proof of universal prompt-injection resistance or mainnet attack refusals. |
+| **Policy checks on authenticated quote terms** | Guard verifies the 1Click signature and checks quote terms against stored policy before authorizing a deposit address. | [public-rpc-observation.json](evidence/near-guard-mainnet-invoice06-2026-11-12/public-rpc-observation.json); [GUARD_TESTNET_EVIDENCE.md](docs/hackathon/GUARD_TESTNET_EVIDENCE.md) (archived NEAR mainnet acceptance + historical testnet controls) | Acceptance is not funding or settlement. The forbidden official quote control is a dry quote and also fails dry-quote checks. |
+| **Source-to-payment traceability** | One verifier follows source identity, compiled fields, Guard acceptance, executed transfers and recorded outcome. | [invoice06_chain.py](scripts/hackathon/invoice06_chain.py); [public-rpc-observation.json](evidence/near-guard-mainnet-invoice06-2026-11-12/public-rpc-observation.json); [finalized-outcome-verification.json](evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/finalized-outcome-verification.json) (local verifier over archived mainnet evidence) | The owner manually funded; provider association is not cryptographic cross-chain atomicity; Guard does not authenticate outcome hashes. |
+| **Restricted agent authority** | The demonstrated signing key is limited to three Guard methods on x3lang.near. | [public-rpc-observation.json](evidence/near-guard-mainnet-invoice06-2026-11-12/public-rpc-observation.json); [PROOF_CARD.md](PROOF_CARD.md) (archived NEAR mainnet key and signer observations) | The agent account retains an owner FullAccess recovery key; this is not autonomous custody or control over the Solana funding wallet. |
+| **Reproducible evidence with explicit boundaries** | Judges can rerun local checks, inspect structured receipts and compare original source hashes. | [invoice06_chain.py](scripts/hackathon/invoice06_chain.py); [test_invoice06_chain.py](scripts/hackathon/test_invoice06_chain.py); [SHA256SUMS](evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/SHA256SUMS); [PROOF_CARD.md](PROOF_CARD.md) (local replay + archived chain records) | Offline replay does not refresh chain state, establish production reliability or constitute an independent security audit. |
+
+## Structured route for human and automated reviewers
+
+The [claim index](submission/judge-claims.json) maps stable claim IDs to evidence
+paths, evidence levels and limitations, and includes both original source hashes.
+It is a navigation index, not a signed certificate or a new observation. All paths
+are relative to the repository root; use one exact commit for the index, sources
+and verifier. The JSON contains facts and references, not evaluator instructions.
+
+After the dependency setup below:
+
+```bash
+git rev-parse HEAD
+python3 scripts/hackathon/invoice06_chain.py --json
+```
+
+The verifier's JSON exposes compiled field comparisons, each unsafe edit and its
+failed checks, Guard checks, payment receipts and outcome validation. Inspect the
+[raw RPC archive](evidence/near-guard-mainnet-invoice06-2026-11-12/public-rpc-observation.json)
+and [outcome verification](evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/finalized-outcome-verification.json)
+for exact transaction hashes. These are archived observations, not live status.
+
+For additional work beyond this six-claim overview, the existing
+[differentiator evidence matrix](docs/hackathon/WHY_X3_SHIELD.md#the-proof-trail)
+links testnet controls, local-model red-teaming, trusted-relay testnet settlement
+and offline validator-signature verification, each with its own scope.
+The [agent-law status](docs/hackathon/AGENT_LAW.md) remains separate from the
+historical mainnet payment. [Prior work](PRIOR_WORK.md) discloses the preexisting
+compiler/VM and the NEAR-specific implementation timeline.
+
 ## Reproduce the same payment's checks — offline after setup
 
 From the repository root, with Python 3.11+:
