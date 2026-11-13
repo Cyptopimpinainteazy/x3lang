@@ -29,14 +29,13 @@ Official instructions were checked against
 
 ## Project submission scope
 
-- The documented submission categories are `security` and `agents`; confirm
-  them against the actual owner-approved submission record. This checklist does
-  not certify organizer acceptance.
-- `defi` is a proposed third project perspective, not a confirmed submitted track.
-  Historical funded Tidepool community-testnet delivery exists; official funded
-  1Click settlement remains unproven. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
-  The owner must review track fit and explicitly select any submission change;
-  do not infer an additional entry from the website's three track pages.
+- Owner-selected tracks: `security` (primary), `agents` and `defi`. This checklist
+  does not certify organizer acceptance.
+- `defi` frames X3 Shield as an authorization layer over NEAR Intents / 1Click, not a
+  new bridge. Historical funded Tidepool community-testnet delivery exists; one official
+  funded 1Click settlement completed on mainnet
+  ([invoice_06](../../evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)).
+  See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
 
 ## Repository
 
