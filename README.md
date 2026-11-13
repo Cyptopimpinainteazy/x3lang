@@ -1,5 +1,7 @@
 # X3 Shield
 
+[Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks bind this repository's exact source and execute its proofs. Equality with the private parent repository is checked only by an explicitly requested parity audit.
+
 **AI agents are getting wallets. Their spending limits should not live inside the model.**
 
 On May 4, 2026, an attacker drained about $150,000 from Grok's AI-agent wallet in two moves.
