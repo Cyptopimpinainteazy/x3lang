@@ -47,6 +47,10 @@ past the mainnet Guard's 21 checks on a signed 1Click quote, the owner funded 25
    deployed authorization path.
 7. One settlement of about $25. It does not establish production reliability.
 
+Which attacks the checks stop, and which these limits leave open, is one table in the README:
+[if the agent is compromised](README.md#if-the-agent-is-compromised). Each of its rows says
+whether the evidence is local, testnet or mainnet.
+
 ## Check it yourself
 
 ```bash
@@ -58,6 +62,22 @@ python3 scripts/hackathon/observe_mainnet_invoice06.py --out /tmp/observation.js
 
 The observer prints 18 passed, 0 failed and 1 not readable on chain (who controls the funding
 wallet). It predates the outcome call; step 5 has its own [readback](evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md#read-only-reproduction).
+### Link by link, offline
+
+On current `master` (the script was added after `4f60ddb`; it reads only the committed evidence):
+
+```bash
+python3 scripts/hackathon/invoice06_chain.py          # --json for the full report
+```
+
+It runs the shipped `.x3` compiler on the two mainnet files and shows that its output equals what
+Guard stores on mainnet: all 10 policy fields on the intent and all 13 mandate terms. It then edits
+the same payment eight ways and shows where each edit stops: paying `attacker.near`, ten times the
+amount, a redirected refund or looser slippage are refused by the mandate check; dropping the
+slippage bound, the timeout or the nonce, or adding a second swap leg, fail to compile. Finally it
+reads the 21 passing Guard checks, the deposit and payout, and the recorded outcome from the
+committed receipts, and prints where the chain is not cryptographic (the limits above).
+
 Testnet and local evidence (the attacker refusal, the Base Sepolia trade, the red-team runs) is
 listed separately in the [README](README.md) and is not mainnet.
 

@@ -2,6 +2,8 @@
 
 **Historical name:** X3 Shield. The `.x3` language, compiler and verified Guard authorization mechanism are unchanged; historic file paths and contract names remain as recorded.
 
+**Start here for the complete judge story:** [five-stage, three-minute evidence walkthrough](VIDEO_WALKTHROUGH.md) and [one-page mainnet proof card](../../PROOF_CARD.md). The workflow deliberately separates LOCAL compile/type-check refusal, real NEAR Guard quote authorization, manually funded Solana deposit, NEAR payout, and the agent-reported Guard outcome.
+
 ## Competition framing
 
 **.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
@@ -374,7 +376,7 @@ enforcement is independently proven.
 
 | Claim | Required real artifact | Current status |
 | --- | --- | --- |
-| Mainnet Guard deployment | Contract address, approved WASM hash and finalized deployment transaction | [VERIFIED: `x3lang.near`, 572248 bytes, `9a614640…a632`, transaction `BVXX3h…3faF`](MAINNET_GUARD_DEPLOYMENT.md); state preserved, funded agent payment still unproven |
+| Mainnet Guard deployment | Contract address, approved WASM hash and finalized deployment transaction | [VERIFIED: `x3lang.near`, 572248 bytes, `9a614640…a632`, transaction `BVXX3h…3faF`](MAINNET_GUARD_DEPLOYMENT.md); state preserved; the later bounded invoice_06 payment is documented separately in [the mainnet proof card](../../PROOF_CARD.md) |
 | Testnet Guard deployment | Contract account, WASM/code hashes, finalized deploy tx | VERIFIED: `x3lang-guard-20261106.testnet`, `ac44fa…`, `FJ5vo…` |
 | Owner mandate and revocation | NEAR contract transaction hashes | VERIFIED TESTNET: `J4Wrx…`, `7aVon…` |
 | Allowed official-live quote acceptance | NEAR tx + nonce + quote guard result | VERIFIED TESTNET OWNER PATH: `6B6k…`; no deposit |

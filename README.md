@@ -4,6 +4,8 @@
 
 **Judges: start with the one-page [proof card](PROOF_CARD.md)** — the five mainnet invoice_06 transactions, the accounts and keys, the matching `.x3` hashes, and the seven limits.
 
+**See the complete five-step demonstration:** [written `.x3` mandate and payment → compiler rejection → signed-quote Guard enforcement → finalized Solana-to-NEAR payout → recorded Guard outcome](docs/hackathon/VIDEO_WALKTHROUGH.md). The video plan labels each stage LOCAL or MAINNET and states its proof boundary. This link is a recording guide, not a claim that a public video has already been posted.
+
 [Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks bind this repository's exact source and execute its proofs. Equality with the private parent repository is checked only by an explicitly requested parity audit.
 
 **AI agents are getting wallets. Their spending limits should not live inside the model.**
@@ -340,7 +342,7 @@ settlement then completed on mainnet
 ([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). The
 [official 1Click quickstart](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/introduction)
 states that NEAR Intents has no testnet version.
-`demo.py` and `track_control.py` print the two documented submission categories
+`demo.py` and `track_control.py` print the three documented track perspectives
 only. Their offline results do not establish deposit or settlement; the separate
 historical Tidepool evidence records actual source funding and destination delivery.
 
@@ -422,6 +424,38 @@ outcomes.
 
 <a id="hard-questions"></a>
 ## Trust boundaries
+
+### If the agent is compromised
+
+Assume the attacker controls the model completely, so it writes whatever `.x3` payment the
+attacker asks for. In [step 5](#5-make-the-model-the-attacker) a model that complies with all
+eight attacks still gets all eight refused. Each row says where its evidence comes from: local
+runs of the off-chain compiler and policy checks, Guard's unit tests, or finalized testnet or
+mainnet transactions. The local checks protect an agent runtime that runs them; an attacker who
+skips them still meets Guard's checks.
+
+| The attacker… | What stops it | Evidence |
+|---|---|---|
+| Rewrites the agent's prompt or instructions | Nothing the agent reads carries authority. The mandate is Guard state that only its owner can create, replace or revoke, and the agent's key cannot call those methods. | Mainnet: the agent key's permissions in the [proof card](PROOF_CARD.md#accounts-keys-and-code). Source: `create_mandate` and `revoke_mandate` act only on the caller's own mandates. |
+| Has the model pay `attacker.near` | `mandate_recipient`, an exact match against the owner's allowlist | Local: [step 4](#what-a-prompt-injection-looks-like). Testnet: Guard refused the agent's registration, [`AhVBD…`](https://testnet.nearblocks.io/txns/AhVBD7oXfwsixBipupjCzuhNdqunjdXJnLz3LXnmfnN8). |
+| Claims a token or an "executive pass" lifts the caps | `mandate_per_payment` and `mandate_daily`. Nothing the agent holds changes the mandate. | Local: the Grok drain replay, [step 5b](#5b-replay-a-real-wallet-drain), 3/3 refused. |
+| Drops the slippage bound, the refund or the one-use nonce, or pays a Cyrillic look-alike | The compiler, before any quote or Guard call | Local: [step 3](#3-unsafe-payments-do-not-compile), 9/9 refused. |
+| Brings a 1Click quote with a valid signature but terms outside the policy | Guard. A valid signature proves what the quote says, not that the owner allows it. | Testnet: Guard verified the signature and refused the recipient, [`3Q7q…`](https://testnet.nearblocks.io/txns/3Q7qTZqiRBB6EuhN78Ra5Q5NBqPXDhfuCg2FKW8WoU2q). It was a dry quote, so the dry-quote checks failed too. |
+| Asks for a payment above the approval threshold | `mandate_approvals`. Only approvers named in the mandate can approve, and the agent is not one. | Mainnet: invoice_06's 25 USDC needed one approval under `approve above 24999999 by 1 of x3lang.near`. The owner's [`approve_intent`](https://nearblocks.io/txns/GFdQLrzT5tnPPdZwKLtmwpNvSwrxVHDvVg2C3WX5fsK6) came before the agent's [`agent_accept_quote`](https://nearblocks.io/txns/Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153). |
+| Replays a used signed quote, or splits a payment to stay under the cap | Guard's quote replay registry and its rolling 24-hour cap | Guard unit tests (mocked chain) in the required `near-guard` CI job: `agent_cannot_replay_a_consumed_signed_quote_or_charge_twice`, `the_daily_cap_is_a_rolling_window_checked_when_a_quote_is_accepted`. |
+| Steals the agent's restricted key and skips the compiler | Guard checks every intent and quote against the mandate: active, recipient, assets, refund address, caps, slippage, fees, deadline and approvals. The key can call only `agent_register_intent`, `agent_accept_quote` and `agent_record_outcome` on `x3lang.near`, so it cannot approve, change the mandate or move tokens. | Mainnet: the key's permissions in the [proof card](PROOF_CARD.md#accounts-keys-and-code). Source: `check_mandate` in [`mandate.rs`](x3-lang/near/x3-guard/src/mandate.rs). |
+
+Where protection ends (the proof card's [seven limits](PROOF_CARD.md#seven-limits)):
+
+| The attacker… | What happens |
+|---|---|
+| Records a false outcome with the agent's key | **Not stopped.** Guard stores the hashes and amount it is given and compares the amount with the quote's floor; it authenticates neither. Each accepted quote takes one outcome. |
+| Holds the funding wallet's key | **Not stopped.** Guard does not hold or move the funds, so that key can pay anyone without Guard. |
+| Holds the owner's keys | **Not stopped.** The owner is trusted: the FullAccess key on `x3lang.near` can rewrite the mandate, approve and redeploy Guard, and the FullAccess recovery key on `x3-agent.x3lang.near` controls the agent account. |
+
+Where this goes next, with each stage of the agent lifecycle labeled enforced on mainnet, offline, check-only or design: [agent law](docs/hackathon/AGENT_LAW.md).
+
+### Custody, quotes and evidence
 
 A holder of an unrestricted wallet key can bypass Guard and transfer funds directly.
 The deployed contract checks Guard-mediated actions and does not custody swap tokens.
