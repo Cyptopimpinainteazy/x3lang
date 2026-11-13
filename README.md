@@ -4,6 +4,8 @@
 
 **Judges: start with the one-page [proof card](PROOF_CARD.md)** — the five mainnet invoice_06 transactions, the accounts and keys, the matching `.x3` hashes, and the seven limits.
 
+**See the complete five-step demonstration:** [written `.x3` mandate and payment → compiler rejection → signed-quote Guard enforcement → finalized Solana-to-NEAR payout → recorded Guard outcome](docs/hackathon/VIDEO_WALKTHROUGH.md). The video plan labels each stage LOCAL or MAINNET and states its proof boundary. This link is a recording guide, not a claim that a public video has already been posted.
+
 [Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks bind this repository's exact source and execute its proofs. Equality with the private parent repository is checked only by an explicitly requested parity audit.
 
 **AI agents are getting wallets. Their spending limits should not live inside the model.**
@@ -336,7 +338,7 @@ settlement then completed on mainnet
 ([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). The
 [official 1Click quickstart](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/introduction)
 states that NEAR Intents has no testnet version.
-`demo.py` and `track_control.py` print the two documented submission categories
+`demo.py` and `track_control.py` print the three documented track perspectives
 only. Their offline results do not establish deposit or settlement; the separate
 historical Tidepool evidence records actual source funding and destination delivery.
 
