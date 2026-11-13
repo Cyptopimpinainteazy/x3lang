@@ -125,6 +125,33 @@ def _check_value(observation: Dict[str, Any], name: str) -> Any:
     raise SystemExit(f"{OBSERVATION.name}: no {name} check")
 
 
+def _executed(tx: Dict[str, Any]) -> bool:
+    """Final, successful, and every receipt successful (a failed child receipt fails it)."""
+    def ok(status: Any) -> bool:
+        return isinstance(status, dict) and "SuccessValue" in status and "Failure" not in status
+    return (tx.get("final_execution_status") == "FINAL" and ok(tx.get("status"))
+            and bool(tx.get("receipts")) and all(ok(r.get("status")) for r in tx["receipts"]))
+
+
+def _passed(observation: Dict[str, Any], name: str) -> bool:
+    return any(c.get("check") == name and c.get("result") == "pass" for c in observation["checks"])
+
+
+def _nep141_transfers(tx: Dict[str, Any], token_contract: str) -> List[Dict[str, Any]]:
+    """ft_transfer events emitted by the token contract itself in this transaction's receipts."""
+    found: List[Dict[str, Any]] = []
+    for receipt in tx.get("receipts", []):
+        if receipt.get("executor") != token_contract:
+            continue
+        for log in receipt.get("logs", []):
+            if not log.startswith("EVENT_JSON:"):
+                continue
+            event = json.loads(log[len("EVENT_JSON:"):])
+            if event.get("standard") == "nep141" and event.get("event") == "ft_transfer":
+                found.extend(event.get("data", []))
+    return found
+
+
 def _diff(ours: Dict[str, Any], chain: Dict[str, Any]) -> Dict[str, Tuple[Any, Any]]:
     return {k: (ours.get(k), chain[k]) for k in sorted(chain) if ours.get(k) != chain[k]}
 
@@ -215,6 +242,7 @@ def evaluate() -> Dict[str, Any]:
         "block": accept_tx["included_block_height"],
         "signer": accept_tx["signer_id"],
         "public_key": accept_tx["public_key"],
+        "executed": _executed(accept_tx) and _passed(observation, "agent_accept_quote_final_success"),
         "signed_by_function_call_key": isinstance(signing_permission, dict) and "FunctionCall" in signing_permission
         and signing_permission["FunctionCall"]["receiver_id"] == accept_tx["receiver_id"],
         "checks": len(guards),
@@ -231,6 +259,8 @@ def evaluate() -> Dict[str, Any]:
     payer = quote["refund_to"]
     deposit_address = quote["deposit_address"]
     payout_tx = observation["near_transactions"]["payout"]
+    token_contract = quote["destination_asset"].split(":", 1)[1]
+    transfers = _nep141_transfers(payout_tx, token_contract)
     withdrawals = []
     for action in payout_tx["actions"]:
         for signed in action["FunctionCall"]["args"].get("signed", []):
@@ -250,7 +280,13 @@ def evaluate() -> Dict[str, Any]:
         - usdc_held(deposit["pre_token_balances"], deposit_address),
         "payout_tx": payout_tx["hash"],
         "payout_signer": payout_tx["signer_id"],
+        "payout_executed": _executed(payout_tx) and _passed(observation, "payout_final_success"),
         "payout_withdrawals": withdrawals,
+        "payout_transfers": transfers,
+        "transfer_matches_quote": len(transfers) == 1
+        and transfers[0].get("old_owner_id") == "intents.near"
+        and transfers[0].get("new_owner_id") == quote["recipient"]
+        and transfers[0].get("amount") == quote["amount_out"],
         "payout_matches_quote": len(withdrawals) == 1
         and withdrawals[0]["receiver_id"] == quote["recipient"]
         and withdrawals[0]["amount"] == quote["amount_out"],
@@ -267,18 +303,20 @@ def evaluate() -> Dict[str, Any]:
         "tx_hashes": recorded["tx_hashes"],
         "cites_payout": payout_tx["hash"] in recorded["tx_hashes"],
         "cross_chain_causality_proven": outcome_file["cross_chain_causality_proven"],
+        "executed": all(outcome_file["checks"].get(k) is True for k in ("finalized", "success", "all_receipts_successful")),
     }
 
     links = {
         "written": written["payment_matches_intent"] and written["mandate_matches_mandate"],
         "compiler": not policy_diff and not terms_diff and compiler["nonce_equal"] and compiler["owner_agent_equal"]
         and compiler["file_mandate_checks_ok"] and compiler["edits_refused"] == len(EDITS),
-        "guard": guard["checks"] > 0 and not guard["failed"] and guard["signed_by_function_call_key"],
+        "guard": guard["executed"] and guard["checks"] > 0 and not guard["failed"] and guard["signed_by_function_call_key"],
         "payment": deposit["err"] is None and payment["deposit_address_received"] == int(quote["amount_in"])
         and payment["payer_before"] - payment["payer_after"] == int(quote["amount_in"])
         and payment["solana_signers"] == [payer]
-        and payment["payout_matches_quote"] and payment["payout_signer"] == "intents.near",
-        "outcome": outcome["status"] == "Settled" and outcome["floor_met"] is True
+        and payment["payout_matches_quote"] and payment["payout_signer"] == "intents.near"
+        and payment["payout_executed"] and payment["transfer_matches_quote"],
+        "outcome": outcome["executed"] and outcome["status"] == "Settled" and outcome["floor_met"] is True
         and outcome["amount_out"] == quote["amount_out"] and outcome["cites_payout"],
     }
     return {"schema": "x3.invoice06_chain.v1", "links": links, "ok": all(links.values()),
@@ -322,9 +360,10 @@ def render(r: Dict[str, Any]) -> str:
         f"   Solana: {p['solana_tx'][:8]}… slot {p['solana_slot']}, signed by the owner wallet {p['payer'][:6]}…: "
         f"{usdc(p['payer_before'])} -> {usdc(p['payer_after'])} USDC",
         f"           quoted deposit address {p['deposit_address'][:6]}… received +{usdc(p['deposit_address_received'])} USDC",
-        f"   NEAR:   {p['payout_tx'][:8]}… {p['payout_signer']} ft_withdraw "
-        + ", ".join(f"{usdc(x['amount'])} USDC to {x['receiver_id']}" for x in p["payout_withdrawals"])
-        + f", {p['seconds_deposit_to_payout']} s after the deposit",
+        f"   NEAR:   {p['payout_tx'][:8]}… {p['payout_signer']} ft_withdraw, {p['seconds_deposit_to_payout']} s after the deposit; "
+        + ("executed, all receipts successful" if p["payout_executed"] else "NOT EXECUTED"),
+        "           USDC contract ft_transfer: "
+        + (", ".join(f"{usdc(x['amount'])} {x['old_owner_id']} -> {x['new_owner_id']}" for x in p["payout_transfers"]) or "NONE"),
         "",
         f"5  Recorded outcome {'':50}{_mark(r['links']['outcome'])}",
         f"   agent_record_outcome {o['tx'][:8]}… block {o['block']}: {o['status']}, amount_out {o['amount_out']}, "

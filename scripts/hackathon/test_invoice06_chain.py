@@ -94,6 +94,63 @@ def test_a_drifted_edit_stops_the_run(monkeypatch):
         chain.evaluate()
 
 
+def _observation_with(tmp_path, monkeypatch, change):
+    data = json.loads(chain.OBSERVATION.read_text(encoding="utf-8"))
+    change(data)
+    path = tmp_path / "observation.json"
+    path.write_text(json.dumps(data))
+    monkeypatch.setattr(chain, "OBSERVATION", path)
+    return chain.evaluate()
+
+
+def test_the_payment_link_needs_the_executed_token_transfer(report):
+    p = report["payment"]
+    assert p["payout_executed"] and p["transfer_matches_quote"]
+    assert p["payout_transfers"] == [{"old_owner_id": "intents.near", "new_owner_id": "x3lang.near", "amount": "24995200"}]
+
+
+def test_a_failed_payout_fails_the_payment_link(tmp_path, monkeypatch):
+    def fail(data):
+        data["near_transactions"]["payout"]["status"] = {"Failure": {"ActionError": {}}}
+    assert _observation_with(tmp_path, monkeypatch, fail)["links"]["payment"] is False
+
+
+def test_a_failed_child_receipt_fails_the_payment_link(tmp_path, monkeypatch):
+    def fail(data):
+        data["near_transactions"]["payout"]["receipts"][1]["status"] = {"Failure": {"ActionError": {}}}
+    assert _observation_with(tmp_path, monkeypatch, fail)["links"]["payment"] is False
+
+
+def test_requested_withdrawal_without_the_transfer_event_fails(tmp_path, monkeypatch):
+    def drop(data):
+        for receipt in data["near_transactions"]["payout"]["receipts"]:
+            receipt["logs"] = [log for log in receipt["logs"] if '"event":"ft_transfer"' not in log]
+    r = _observation_with(tmp_path, monkeypatch, drop)
+    assert r["payment"]["payout_transfers"] == [] and r["links"]["payment"] is False
+
+
+def test_a_transfer_to_someone_else_fails(tmp_path, monkeypatch):
+    def redirect(data):
+        for receipt in data["near_transactions"]["payout"]["receipts"]:
+            receipt["logs"] = [log.replace('"new_owner_id":"x3lang.near"', '"new_owner_id":"attacker.near"') for log in receipt["logs"]]
+    assert _observation_with(tmp_path, monkeypatch, redirect)["links"]["payment"] is False
+
+
+def test_a_failed_accept_fails_the_guard_link(tmp_path, monkeypatch):
+    def fail(data):
+        data["near_transactions"]["agent_accept_quote"]["final_execution_status"] = "EXECUTED_OPTIMISTIC"
+    assert _observation_with(tmp_path, monkeypatch, fail)["links"]["guard"] is False
+
+
+def test_an_unfinalized_outcome_fails_the_outcome_link(tmp_path, monkeypatch):
+    data = json.loads(chain.OUTCOME.read_text(encoding="utf-8"))
+    data["checks"]["finalized"] = False
+    bad = tmp_path / "outcome.json"
+    bad.write_text(json.dumps(data))
+    monkeypatch.setattr(chain, "OUTCOME", bad)
+    assert chain.evaluate()["links"]["outcome"] is False
+
+
 def test_cli_exit_code_and_summary(capsys):
     assert chain.main([]) == 0
     out = capsys.readouterr().out
