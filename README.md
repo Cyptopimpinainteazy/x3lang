@@ -68,7 +68,7 @@ to its evidence and limits.
 
 | Result | Network | Check it |
 |---|---|---|
-| **On mainnet**, a restricted agent key accepted a signed 1Click quote on the X3 Guard after 21 mandate and quote checks passed; the owner's wallet then sent **25 USDC on Solana** and **24.9952 USDC arrived on NEAR** 84 seconds later. The agent key can call only three Guard methods; the owner's key did not sign. | NEAR + Solana mainnet | [invoice_06 evidence](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md), [agent call](https://nearblocks.io/txns/Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153) |
+| **On mainnet**, a restricted agent key accepted a signed 1Click quote on the X3 Guard after 21 mandate and quote checks passed; the owner's wallet then sent **25 USDC on Solana** and **24.9952 USDC arrived on NEAR** 84 seconds later. The agent key can call only three Guard methods; the owner's key did not sign. The agent then recorded the outcome on Guard (`Settled`, minimum output met), and the original `.x3` payment and mandate files match the hashes Guard stored. | NEAR + Solana mainnet | [invoice_06 evidence](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md), [agent call](https://nearblocks.io/txns/Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153), [outcome](https://nearblocks.io/txns/9sTn9pJ1ZbCVazBm9Wz9oEDh6aWw4FUVMoAJEKCCzuqE), [`.x3` sources](evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md) |
 | Guard on `x3lang.near` was upgraded to the reviewed WASM; all seven stored records were preserved. A separately approved native transfer recovered 0.3 NEAR to `dotx3.near`. | NEAR mainnet | [Deployment and recovery receipts](docs/hackathon/MAINNET_GUARD_DEPLOYMENT.md) |
 | An `.x3` program specified a cross-chain trade that finalized: **1.000000 test USDC left Base Sepolia, 0.997400 arrived on NEAR testnet**. The program's SHA-256 was bound on a NEAR Guard contract before the source transfer. | Base Sepolia + NEAR testnet | [Step 1](#1-the-x3-program-behind-the-cross-chain-trade), [Step 2](#2-verify-the-finalized-two-chain-trade) |
 | The deployed Guard refused an agent intent to `attacker.near` and accepted a permitted intent. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
@@ -78,9 +78,11 @@ to its evidence and limits.
 | 9 unsafe edits to an agent payment fail to compile. | Local | [Step 3](#3-unsafe-payments-do-not-compile) |
 
 One small mainnet settlement (about $25) is recorded above, read back from public RPC on
-both chains. Guard authorized its deposit address but did not hold the funds, and the link
-between the Solana deposit and the NEAR payout comes from the 1Click status record, not a
-proof. The Guard upgrade and native account-surplus recovery also have finalized mainnet
+both chains. The owner funded the deposit manually from a Solflare wallet. Guard authorized
+its deposit address but did not hold the funds, and the link between the Solana deposit and
+the NEAR payout comes from the 1Click status record, not a proof. Guard stores the
+settlement hashes the agent reports in its outcome; it does not verify them against either
+chain ([outcome evidence](evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md)). The Guard upgrade and native account-surplus recovery also have finalized mainnet
 receipts; they are operational records, not agent payments. Everything else is testnet or
 local. The testnet two-chain trade relied on a trusted testnet relay, so it does not prove
 atomic settlement. [Limits](#trust-boundaries) are stated in full below.
@@ -315,7 +317,8 @@ which tracks the organizer has accepted; confirm the owner-approved submission
 record before changing that scope. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
 and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md). The
 [three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md) separates local policy,
-historical testnet evidence, and outstanding official 1Click mainnet settlement. The agent
+historical testnet evidence, and the official 1Click mainnet settlement path, completed once
+as [invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md). The agent
 proposes and the owner signs; a Solana wallet keyholder can still transfer directly outside Guard.
 
 | Track | What X3 Shield shows | Steps |
@@ -408,6 +411,11 @@ outcomes.
 ## Trust boundaries
 
 A holder of an unrestricted wallet key can bypass Guard and transfer funds directly.
+For invoice_06 that includes the owner's Solana wallet that funded the deposit and the
+owner's FullAccess recovery key on `x3-agent.x3lang.near`; the agent's own key is
+FunctionCall-only and limited to three Guard methods. `agent_record_outcome` stores the
+settlement hashes the agent reports without verifying them; `verify_mainnet_payment.py`
+checks both legs off-chain.
 The deployed contract checks Guard-mediated actions and does not custody swap tokens.
 The scoped-storage source adds bounded owner-funded native NEAR credit for contract
 storage and owner withdrawal; deployment of this source is a separate approval gate.
