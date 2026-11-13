@@ -13,11 +13,9 @@ for compile-time versus runtime checks and the evidence boundaries.
 
 **Project:** X3Lang — the programmable trust layer for AI agents and cross-chain finance.
 
-**Documented submission scope:** `security`, `agents`. The project also presents
-an Unstoppable DeFi perspective (`defi`), assessed in
-[DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md), but its submission is
-not confirmed here. Confirm the actual owner-approved submission record; this
-package does not certify organizer acceptance or add a track.
+**Submitted tracks (owner-selected 2026-11-13):** `security`, `agents`, `defi`. The
+DeFi entry is assessed in [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
+This package does not certify organizer acceptance.
 
 **NEW REAL-CHAIN EVIDENCE:** [X3Lang first two-chain testnet swap — judge walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) has a successful strict independent finalized Base Sepolia + NEAR receipt proof and immutable signed quote. It is a **separate** owner-authorized Tidepool community testnet execution, not a native X3 bridge, and not an official 1Click mainnet trade. The old offline demo below remains valid as an offline demo.
 

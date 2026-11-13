@@ -332,8 +332,9 @@ settlement then completed on mainnet
 ([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). The
 [official 1Click quickstart](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/introduction)
 states that NEAR Intents has no testnet version.
-`demo.py` and `track_control.py` print the two documented submission categories
-only. Their offline results do not establish deposit or settlement; the separate
+`demo.py` and `track_control.py` name all three tracks and print offline panels,
+including the security policy decision and the DeFi compiled-route preview. Their
+offline results do not establish deposit or settlement; the separate
 historical Tidepool evidence records actual source funding and destination delivery.
 
 ## NEAR features used
