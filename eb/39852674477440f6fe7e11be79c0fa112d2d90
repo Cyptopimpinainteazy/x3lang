@@ -1,0 +1,18 @@
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md
+  h_e41068bed968d7 76-85
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/SHA256SUMS
+  h_e41068bed968d7 1,7
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/secret-scan-triage.json
+  h_e41068bed968d7 1-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eb39852674477440f6fe7e11be79c0fa112d2d90",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
