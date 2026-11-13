@@ -326,10 +326,10 @@ proposes and the owner signs; a Solana wallet keyholder can still transfer direc
 | Track | What X3 Force Field shows | Steps |
 |---|---|---|
 | **AI Security & Defense** | A policy engine for agent spending: recipient and asset allowlists, per-payment and 24-hour caps, slippage and fee ceilings, approval thresholds, expiry, one-use nonces. Enforced off-chain by the compiler and on-chain by `x3-guard`, which reads terms from the signed quote bytes. | 3, 4, 5, 6, 9, [testnet refusals](#proof-on-near-testnet) |
-| **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. On mainnet, the agent's restricted key accepted an official live quote under the mandate and the trade settled ([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet), [mainnet invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md) |
-| **Unstoppable DeFi (candidate third track)** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
+| **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. On mainnet, the agent's restricted key accepted an official live quote under the mandate, the trade settled, and the agent recorded the outcome on Guard ([proof card](PROOF_CARD.md)). | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet), [mainnet proof card](PROOF_CARD.md) |
+| **Unstoppable DeFi** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. On mainnet, Guard checked the signed quote's slippage, fee and minimum output before the deposit: guaranteed 24.770243 USDC against the program's 24.75 floor; 24.9952 delivered. **Try it with no funds:** [x3-guard.pages.dev](https://x3-guard.pages.dev/) fetches a real signed 1Click dry quote and runs the same policy checks in the browser. | 1, 2, 10, [proof card](PROOF_CARD.md), [live dry-quote page](https://x3-guard.pages.dev/) |
 
-The proposed DeFi perspective uses historical trusted Tidepool community-testnet
+The DeFi testnet trade (steps 1, 2) used historical trusted Tidepool community-testnet
 delivery, not official 1Click settlement. On testnet the official 1Click quote flow was
 exercised up to deposit authorization and stopped before funding; one official 1Click
 settlement then completed on mainnet
@@ -342,16 +342,23 @@ historical Tidepool evidence records actual source funding and destination deliv
 
 ## NEAR features used
 
-- **NEAR smart contracts** (Rust, `near-sdk` 5.30, WASM): `x3-guard` and `x3-tidepool-guard`,
-  deployed on NEAR testnet. [Byte-reproducible build](docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md).
+- **NEAR smart contracts** (Rust, `near-sdk` 5.30, WASM): `x3-guard` is live on **NEAR mainnet**
+  at `x3lang.near` (code hash `BPdpJAw8…Fb15T`; it authorized [invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md))
+  and on testnet; `x3-tidepool-guard` is on testnet. Both deployed binaries rebuild byte for
+  byte from public source: [mainnet](PROOF_CARD.md#reproduce-the-mainnet-code-hash),
+  [testnet](docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md).
 - **NEAR Intents / 1Click API**: `.x3` intents lower to a single 1Click leg. The contract
   verifies the 1Click quote's Ed25519 signature against a manager key pinned at
   initialization, then checks the signed recipient, asset, minimum output, deadline and
   refund address against the stored policy.
 - **NEAR light client verification**: validator Ed25519 approvals checked from a pinned
   checkpoint (step 10).
-- **Function-call access keys**: used by the agent vault, which exists as a local NEAR
-  Sandbox test only ([#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125)).
+- **Function-call access keys**: on mainnet the agent `x3-agent.x3lang.near` signs with a
+  FunctionCall key limited to three Guard methods (`agent_register_intent`,
+  `agent_accept_quote`, `agent_record_outcome`) on `x3lang.near`. It accepted the invoice_06
+  quote and recorded its outcome; the owner's FullAccess recovery key on that account signed
+  neither ([proof card](PROOF_CARD.md)). The custody vault built on the same pattern is a
+  local NEAR Sandbox test only ([#125](https://github.com/Cyptopimpinainteazy/x3lang/pull/125)).
 
 For authenticated 1Click access, configure `NEAR_INTENTS_API_KEY` in the process
 secret environment; the adapter and route probe send it as `X-API-Key`. The legacy

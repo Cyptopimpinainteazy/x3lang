@@ -60,3 +60,35 @@ The observer prints 18 passed, 0 failed and 1 not readable on chain (who control
 wallet). It predates the outcome call; step 5 has its own [readback](evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md#read-only-reproduction).
 Testnet and local evidence (the attacker refusal, the Base Sepolia trade, the red-team runs) is
 listed separately in the [README](README.md) and is not mainnet.
+
+## Reproduce the mainnet code hash
+
+The Guard bytes on `x3lang.near` rebuild exactly from this repository's source. Needs Rust
+1.99.1 (pinned by the folder's `rust-toolchain.toml`) plus its `rust-src` component:
+`rustup component add rust-src --toolchain 1.99.1`. No key, wallet or RPC.
+
+```bash
+cd x3-lang/near/x3-guard
+RUSTFLAGS="--cfg near --remap-path-prefix=$(rustc --print sysroot)/lib/rustlib/src/rust=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67 --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}/registry/src=/home/lojak/.cargo/registry/src" \
+  cargo build --locked --release --target wasm32-unknown-unknown
+python3 - <<'PY'
+import hashlib
+wasm = open("target/wasm32-unknown-unknown/release/x3_guard.wasm", "rb").read()
+digest = hashlib.sha256(wasm).digest()
+alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+n, b58 = int.from_bytes(digest, "big"), ""
+while n:
+    n, r = divmod(n, 58)
+    b58 = alphabet[r] + b58
+print(len(wasm), digest.hex(), b58)
+PY
+```
+
+Expected: `572248 9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632
+BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T`. The last value is the code hash nearblocks
+shows for `x3lang.near`. The two `--remap-path-prefix` flags only rewrite compiler
+source-path strings to the ones used in the original build; without them the bytes differ
+([why](docs/hackathon/GUARD_WASM_BYTE_REPRODUCIBILITY.md#why-a-plain-rebuild-originally-produced-696-additional-bytes)).
+CI runs the same rebuild and hash assertion in the "Reproduce reviewed scoped-storage upgrade
+bytes" step of [`x3guard-real-wasm-sandbox.yml`](.github/workflows/x3guard-real-wasm-sandbox.yml),
+against the [reviewed manifest](audit-artifacts/guard-scoped-storage-20261110/verification.json).
