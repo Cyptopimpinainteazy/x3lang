@@ -5,6 +5,8 @@ on:
       - 'x3-lang/**'
       - 'scripts/hackathon/compromised_agent_redteam.py'
       - 'scripts/hackathon/test_compromised_agent_redteam.py'
+      - 'scripts/hackathon/replay_grok_wallet_drain.py'
+      - 'scripts/hackathon/test_replay_grok_wallet_drain.py'
       - '.github/workflows/x3-compromised-agent-redteam.yml'
   push:
     branches: [master]
@@ -12,6 +14,8 @@ on:
       - 'x3-lang/**'
       - 'scripts/hackathon/compromised_agent_redteam.py'
       - 'scripts/hackathon/test_compromised_agent_redteam.py'
+      - 'scripts/hackathon/replay_grok_wallet_drain.py'
+      - 'scripts/hackathon/test_replay_grok_wallet_drain.py'
       - '.github/workflows/x3-compromised-agent-redteam.yml'
   workflow_dispatch:
 permissions:
@@ -34,3 +38,8 @@ jobs:
           set -euo pipefail
           python3 scripts/hackathon/compromised_agent_redteam.py
           python3 -m pytest scripts/hackathon/test_compromised_agent_redteam.py -q
+      - name: Replay the May 2026 Grok/Bankr wallet-drain pattern
+        run: |
+          set -euo pipefail
+          python3 scripts/hackathon/replay_grok_wallet_drain.py
+          python3 -m pytest scripts/hackathon/test_replay_grok_wallet_drain.py -q
