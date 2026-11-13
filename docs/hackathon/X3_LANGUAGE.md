@@ -1,10 +1,12 @@
-# What the X3 language does in X3 Shield
+# What the X3 language does in X3 Force Field
+
+**Formerly X3 Shield.** The `.x3` syntax, compiler and recorded transaction evidence are unchanged.
 
 ## .x3: intents with compiler checks and Guard enforcement
 
 **.x3 is an owner-controlled, typed intent language for AI-agent payments.**
 An intent describes the desired outcome; an owner mandate defines the permitted
-recipients, assets, amounts and execution bounds. X3 Shield combines compiler
+recipients, assets, amounts and execution bounds. X3 Force Field combines compiler
 checks with deterministic authorization of signed quote terms.
 
 | Stage | What it does | Evidence boundary |
@@ -24,16 +26,17 @@ NEAR lacks constraints or that X3 invented outcome-based execution.
 AI Security & Defense shows compiler rejection and policy refusal;
 Unstoppable DeFi shows the separately evidenced cross-chain route.
 The historical Base Sepolia → NEAR testnet transfer used a trusted Tidepool
-relay. It is separate from the official 1Click quote demonstration, which
-stopped before funding.
+relay. It is separate from the historical testnet official 1Click quote demonstration,
+which stopped before funding. A later official 1Click mainnet settlement completed
+under `invoice_06`, and its original payment and mandate `.x3` source hashes match
+Guard state ([source verification](../../evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md), [recorded outcome](../../evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md)).
 
 The compiler cannot enforce external chain behavior by itself. Guard does not
-custody funds, and an unrestricted wallet key can bypass it. The historical
-trade used the Python frontend, not Rust X3VM bytecode execution on-chain.
+custody funds, and an unrestricted wallet key can bypass it. The historical testnet trade and the later mainnet payment used the Python
+frontend and Guard checks, not native Rust X3VM bytecode execution on-chain.
 Timeout, refund and rollback syntax alone does not prove cross-chain rollback.
 
-**Judge takeaway:** “The agent proposes an intent. .x3 compiles the rules.
-Guard checks the signed terms. The execution route carries out the payment.”
+**Judge takeaway:** “The owner writes typed `.x3` authority. The agent proposes typed `.x3` payment code. The compiler rejects unsafe source; deterministic Guard checks authenticate the signed terms. A separately funded execution route carries out the payment.”
 
 
 X3 is a typed language for cross-chain payment intents. A `.x3` program says what moves,
