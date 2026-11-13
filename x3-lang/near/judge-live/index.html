@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>X3 Shield Live</title>
-<meta name="description" content="An AI agent trades real money on NEAR mainnet. A hostile model can't break the owner's mandate. Try it and check every transaction yourself.">
+<meta name="description" content="Inspect AI-agent payment proposals, runner-reported results and basic NEAR RPC transaction checks. Program binding and payment remain unverified.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -25,8 +25,8 @@
   </nav>
 
   <header class="hero">
-    <h1>An AI agent trades real money. Try to make it steal.</h1>
-    <p class="muted">An AI model writes each trade as an <code>.x3</code> program. A NEAR Guard contract checks it against the owner's on-chain mandate, and only then can the vault move funds. Pick an attack, switch to the hostile model, or write your own instructions. Every result is a mainnet transaction, and this page checks each one against NEAR RPC itself instead of trusting our server.</p>
+    <h1>Inspect an AI agent's payment proposals.</h1>
+    <p class="muted">When the runner is available, pick an attack or write your own instructions and inspect its reported <code>.x3</code> proposal and result. This page compares basic transaction fields with NEAR RPC and computes source hashes. It does not verify that a transaction executed that program, that Guard authorized its terms, or that a payment occurred.</p>
   </header>
 
   <section class="strip" id="status-strip" aria-label="Live status"></section>
@@ -64,7 +64,7 @@
         <ol class="stages" id="stages" aria-label="Progress"></ol>
         <div class="verdict" id="verdict"></div>
         <div class="block" id="chain-block" hidden>
-          <div class="block-head"><h3>Checked on NEAR RPC by this page</h3><span id="chain-chip"></span></div>
+          <div class="block-head"><h3>Transaction lookup from NEAR RPC</h3><span id="chain-chip"></span></div>
           <dl class="kv" id="chain-kv"></dl>
           <pre id="chain-logs" hidden></pre>
         </div>
@@ -73,13 +73,13 @@
           <pre id="proposal"></pre>
         </div>
         <div class="block" id="x3-block" hidden>
-          <div class="block-head"><h3>Compiled <code>.x3</code> program</h3><span id="x3-chip"></span></div>
+          <div class="block-head"><h3>Runner's <code>.x3</code> program</h3><span id="x3-chip"></span></div>
           <pre id="x3-source"></pre>
           <p class="small muted hash" id="x3-hash"></p>
           <pre id="x3-compiler" hidden></pre>
         </div>
         <div class="block" id="rules-block" hidden>
-          <h3>Local mandate check <span class="small muted">(prediction; Guard's on-chain answer is the one that counts)</span></h3>
+          <h3>Runner-reported mandate check <span class="small muted">(not independently verified)</span></h3>
           <ul class="rules" id="rules"></ul>
         </div>
       </div>
@@ -99,7 +99,7 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>When (UTC)</th><th>Model</th><th>Request</th><th>Amount → recipient</th><th>Guard</th><th>Transaction</th></tr></thead>
+        <thead><tr><th>When (UTC)</th><th>Model</th><th>Request</th><th>Amount → recipient</th><th>Reported outcome</th><th>Transaction</th></tr></thead>
         <tbody id="feed-body"></tbody>
       </table>
     </div>
@@ -108,8 +108,8 @@
 
   <div class="grid2">
     <section class="panel" id="mandate" aria-labelledby="mandate-h">
-      <div class="panel-head"><h2 id="mandate-h">The owner's mandate</h2><span id="mandate-chip" class="chip idle">Loading</span></div>
-      <p class="small muted">The owner signed these limits onto NEAR. The agent can't change them, and the model never holds a key that could.</p>
+      <div class="panel-head"><h2 id="mandate-h">Mandate reported by the runner</h2><span id="mandate-chip" class="chip idle">Loading</span></div>
+      <p class="small muted">These limits come from the runner. This page does not bind them to the owner's on-chain mandate or to a payment.</p>
       <dl class="kv" id="mandate-kv"></dl>
     </section>
 
@@ -146,7 +146,7 @@
   </section>
 
   <footer>
-    <p>Transactions open on NearBlocks. Hashes, account keys and mandate arguments are read from NEAR RPC in your browser. The SHA-256 of every <code>.x3</code> program is recomputed here too.</p>
+    <p>Transactions open on NearBlocks. Transaction and account data come from the configured NEAR RPC endpoints. Source hashes are computed from the supplied text. These checks do not establish authenticated finality, program execution or payment.</p>
     <p>Source: <a href="https://github.com/Cyptopimpinainteazy/x3lang" rel="noopener">github.com/Cyptopimpinainteazy/x3lang</a></p>
   </footer>
 </div>

@@ -1,8 +1,8 @@
 # X3 Shield Live: judge site
 
-Static site for NEAR HACKATHON 2026 judges. Judges send requests to the agent, watch
-Guard approve or reject them on NEAR mainnet, and check every result against NEAR RPC
-from their own browser.
+Static site for NEAR HACKATHON 2026 judges. When a runner is available, judges can
+send requests and inspect its reported results alongside basic NEAR RPC lookups.
+The page does not independently verify program execution, Guard authorization or payment.
 
 ## Files
 
@@ -22,6 +22,21 @@ no runner.
 Nothing in this folder is served yet, and it is not linked from dotx3.net. The runner API
 in `API.md` doesn't exist yet, so `index.html` opens in its offline state until it does.
 
+## Verification boundary
+
+Attempt lookups require an explicit `FINAL` RPC execution status, one recognized
+success or failure result, the requested transaction hash, the configured agent
+signer and the receiver reported by the runner. Contradictory or unknown outcomes
+remain unverified. Matching basic fields are shown neutrally; a failed transaction
+does not prove the runner's claimed Guard rejection reason or that no funds moved.
+
+The runner's source, source hash, mandate and feed remain runner-reported. The page
+does not bind the source hash, nonce or payment terms to transaction arguments,
+approved vault methods, receipts or token transfers, and it does not authenticate
+RPC finality. A featured program's hash is compared with archived configuration.
+Those limits must remain visible until a separately reviewed evidence contract
+and its adversarial tests establish the missing bindings.
+
 ## Already filled in
 
 - `programs/base_sepolia_to_near_testnet_1usdc.x3` is a byte-for-byte copy of
@@ -31,6 +46,8 @@ in `API.md` doesn't exist yet, so `index.html` opens in its offline state until 
 - `featuredProgram.txs`: the Base Sepolia source transfer, the NEAR testnet Guard
   approval block, and the NEAR testnet maker-signed settlement, from the same evidence file.
 - `test/config.test.mjs` checks all of the above: `node --test x3-lang/near/judge-live/test/*.test.mjs`.
+- `test/verification.test.mjs` exercises the production page with offline RPC fixtures,
+  including unknown statuses, contradictory outcomes, identity mismatches and an offline runner.
 
 ## Before going live
 

@@ -1,6 +1,6 @@
 "use strict";
 /* X3 Shield judge site. Static front end for the runner API described in API.md.
-   Everything the runner claims about the chain is re-checked here against NEAR RPC. */
+   RPC lookups compare basic fields; program binding and payment remain unverified. */
 
 /* ---------- Built-in catalog (used when the runner doesn't send its own) ---------- */
 const BUILTIN_SCENARIOS = [
@@ -40,8 +40,8 @@ const STAGES = [
   ["proposing", "Model proposes"],
   ["compiling", "Compiles to .x3"],
   ["checking", "Local mandate check"],
-  ["submitting", "Guard decides on-chain"],
-  ["final", "Finalized"]
+  ["submitting", "Runner submits"],
+  ["final", "Runner reports a result"]
 ];
 const EMPTY_CODE_HASH = "11111111111111111111111111111111";
 
@@ -191,10 +191,10 @@ function renderStatus(err) {
     const gas = Number(st.agentBalanceNear);
     tiles.push(
       ["Runner", st.paused ? "Paused" : "Online", st.paused ? "wait" : "ok"],
-      ["Today's limit", st.window ? `${st.window.spent} of ${st.mandate.windowCap} USDC used` : "Unavailable", remaining === 0 ? "wait" : "ok"],
+      ["Reported limit", st.window ? `${st.window.spent} of ${st.mandate.windowCap} USDC used` : "Unavailable", remaining === 0 ? "wait" : ""],
       ["Attempts today", `${st.attemptsToday} of ${st.attemptCeiling}`, st.attemptsToday >= st.attemptCeiling ? "wait" : "ok"],
-      ["Vault", st.vaultBalanceUsdc != null ? `${st.vaultBalanceUsdc} USDC` : "Unavailable", "ok"],
-      ["Agent gas", `${st.agentBalanceNear} NEAR`, gas < 1 ? "bad" : "ok"]
+      ["Reported vault", st.vaultBalanceUsdc != null ? `${st.vaultBalanceUsdc} USDC` : "Unavailable", ""],
+      ["Reported agent gas", `${st.agentBalanceNear} NEAR`, gas < 1 ? "bad" : ""]
     );
     if (st.window && st.window.resetsAt) tiles.push(["Limit resets", `${fmtUtc(st.window.resetsAt)} UTC`, ""]);
   }
@@ -203,15 +203,15 @@ function renderStatus(err) {
   const n = $("runner-notice");
   if (!st) {
     n.hidden = false; n.className = "notice bad";
-    n.textContent = `${err ? err.message + " " : ""}Try it is unavailable until it's back. Everything else on this page reads from NEAR directly.`;
+    n.textContent = `${err ? err.message + " " : ""}Try it is unavailable until it's back. Account and setup transaction lookups remain available; runner claims stay unverified.`;
   } else if (st.paused) {
     n.hidden = false; n.className = "notice wait";
-    n.textContent = `The runner is paused: ${st.pauseReason || "no reason given"}. When the daily limit is spent, the mandate is doing its job.`;
+    n.textContent = `The runner reports it is paused: ${st.pauseReason || "no reason given"}. This does not independently verify mandate enforcement.`;
   } else { n.hidden = true; }
 
   if (!st) setChip("try-chip", "bad", "Runner offline");
   else if (st.paused) setChip("try-chip", "wait", "Paused");
-  else setChip("try-chip", "ok", `Live on ${st.network}`);
+  else setChip("try-chip", "info", `Runner online · reports ${st.network || "unknown network"}`);
   renderMandate();
   updateRunButton();
 }
@@ -219,11 +219,11 @@ function renderStatus(err) {
 function renderMandate() {
   const m = S.status && S.status.mandate;
   if (!m) {
-    setChip("mandate-chip", "idle", "Runner offline");
+    setChip("mandate-chip", "idle", "Terms unavailable");
     $("mandate-kv").innerHTML = `<dt>Terms</dt><dd>Current terms come from the runner. The exact arguments of the installed mandate are under Setup evidence: decode them from chain.</dd>`;
     return;
   }
-  setChip("mandate-chip", "ok", "Stored on-chain");
+  setChip("mandate-chip", "info", "Runner-reported; chain binding unverified");
   const acct = a => `<a class="mono" href="${acctUrl(a)}" rel="noopener">${esc(a)}</a>`;
   const rows = [
     ["Agent", acct(m.agent)],
@@ -357,9 +357,7 @@ function renderVerdict(a, note) {
     v.innerHTML = `<span class="big">Ready</span><span class="muted">${esc(note || "Pick a request and a model, then run it. The result appears here with its mainnet transaction.")}</span>`;
     return;
   }
-  const p = a.proposal || {};
   const c = a.chain || {};
-  const hostile = a.model && a.model.kind === "hostile";
   const txLink = c.txHash ? ` <a class="hash" href="${txUrl(c.txHash)}" rel="noopener">${esc(shortHash(c.txHash))} ↗</a>` : "";
   if (a.status === "error") {
     v.className = "verdict bad";
@@ -373,14 +371,17 @@ function renderVerdict(a, note) {
     return;
   }
   if (c.outcome === "authorized") {
-    v.className = "verdict ok";
-    v.innerHTML = `<span class="big">Authorized</span><span>Guard approved it on-chain and the vault paid ${esc(p.amount || "")} ${esc(p.token || "USDC")} to <span class="mono">${esc(p.recipient || "")}</span>.${txLink}</span>`;
+    v.className = "verdict wait";
+    v.innerHTML = `<span class="big">Runner reports authorization</span><span>Program binding, the vault decision and payment are not verified by this page.${txLink}</span>`;
   } else if (c.outcome === "rejected") {
-    v.className = "verdict bad";
-    v.innerHTML = `<span class="big">Rejected</span><span>Guard refused it on-chain${c.rule ? `: ${esc(ruleText(c.rule))}` : ""}. No funds moved.${hostile ? " The hostile model tried; the mandate held." : ""}${txLink}</span>`;
+    v.className = "verdict wait";
+    v.innerHTML = `<span class="big">Runner reports rejection</span><span>The reported reason${c.rule ? ` (${esc(ruleText(c.rule))})` : ""} and absence of payment are not verified by this page.${txLink}</span>`;
+  } else if (c.outcome === "not_submitted") {
+    v.className = "verdict wait";
+    v.innerHTML = `<span class="big">Runner reports no submission</span><span>This page has no independent proof that nothing was sent.${txLink}</span>`;
   } else {
-    v.className = "verdict bad";
-    v.innerHTML = `<span class="big">Refused before the chain</span><span>The proposal didn't compile to a valid <code>.x3</code> program, so nothing was sent.</span>`;
+    v.className = "verdict wait";
+    v.innerHTML = `<span class="big">Unverified result</span><span>The runner did not report a recognized outcome.${txLink}</span>`;
   }
 }
 async function renderAttempt(a) {
@@ -397,7 +398,7 @@ async function renderAttempt(a) {
     const local = await sha256Hex(a.x3.source);
     const claimed = (a.x3.sha256 || "").toLowerCase();
     const match = claimed && claimed === local;
-    $("x3-chip").innerHTML = comp && comp.ok === false ? chip("bad", "Didn't compile") : claimed ? chip(match ? "ok" : "bad", match ? "Hash matches" : "Hash mismatch") : chip("info", "Hash computed here");
+    $("x3-chip").innerHTML = comp && comp.ok === false ? chip("bad", "Runner reports compile failure") : claimed ? chip(match ? "info" : "bad", match ? "Runner's source hash matches; chain binding unverified" : "Hash mismatch") : chip("info", "Hash computed here; chain binding unverified");
     $("x3-hash").textContent = `SHA-256 computed in your browser: ${local}${claimed && !match ? ` · runner reported: ${claimed}` : ""}`;
   } else $("x3-block").hidden = true;
 
@@ -416,33 +417,48 @@ async function verifyAttemptOnChain(a) {
   $("chain-kv").innerHTML = "";
   $("chain-logs").hidden = true;
   try {
-    const { url, result } = await rpc("tx", { tx_hash: c.txHash, sender_account_id: c.sender || agentId(), wait_until: "FINAL" });
+    // The runner cannot choose the identity against which its own claim is checked.
+    const expectedAgent = S.cfg.accounts.find(account => account.isAgent)?.id;
+    if (!expectedAgent) throw new Error("No agent identity is configured for this lookup.");
+    const { url, result } = await rpc("tx", { tx_hash: c.txHash, sender_account_id: expectedAgent, wait_until: "FINAL" });
     const t = result.transaction;
-    const st = result.status || {};
-    const failed = Object.prototype.hasOwnProperty.call(st, "Failure");
+    const st = result.status;
+    const keys = st && typeof st === "object" && !Array.isArray(st) ? Object.keys(st) : [];
+    const succeeded = keys.length === 1 && keys[0] === "SuccessValue" && typeof st.SuccessValue === "string";
+    const failed = keys.length === 1 && keys[0] === "Failure" && st.Failure !== null && typeof st.Failure === "object" && !Array.isArray(st.Failure) && Object.keys(st.Failure).length > 0;
+    const final = result.final_execution_status === "FINAL";
     const problems = [];
-    const expectedAgent = agentId();
-    if (expectedAgent && t.signer_id !== expectedAgent) problems.push(`Signed by ${t.signer_id}, not the agent ${expectedAgent}.`);
-    if (c.receiver && t.receiver_id !== c.receiver) problems.push(`Sent to ${t.receiver_id}, but the runner said ${c.receiver}.`);
-    if (c.outcome === "authorized" && failed) problems.push("The runner says authorized, but the transaction failed on-chain.");
-    $("chain-chip").innerHTML = problems.length ? chip("bad", "Mismatch") : chip("ok", "Chain agrees");
+    if (!final) problems.push("RPC did not report FINAL execution.");
+    if (!succeeded && !failed) problems.push("RPC returned an unknown or malformed execution result.");
+    if (t.hash !== c.txHash) problems.push("RPC returned a different transaction hash.");
+    if (t.signer_id !== expectedAgent) problems.push(`Signed by ${t.signer_id}, not the configured agent ${expectedAgent}.`);
+    if (c.sender && c.sender !== expectedAgent) problems.push("The runner reported a different agent identity.");
+    if (typeof c.receiver !== "string" || !c.receiver) problems.push("The runner did not report a receiver to compare.");
+    else if (t.receiver_id !== c.receiver) problems.push(`Sent to ${t.receiver_id}, but the runner said ${c.receiver}.`);
+    if (c.outcome !== "authorized" && c.outcome !== "rejected") problems.push("The reported outcome cannot be compared with this transaction.");
+    if (c.outcome === "authorized" && !succeeded) problems.push("The runner says authorized, but RPC does not report success.");
+    if (c.outcome === "rejected" && !failed) problems.push("The runner says rejected, but RPC does not report failure.");
+    $("chain-chip").innerHTML = !final || (!succeeded && !failed) ? chip("wait", "Unverified")
+      : problems.length ? chip("bad", "Mismatch") : chip("info", "RPC fields match; payment unverified");
     const acts = t.actions.map(describeAction);
     $("chain-kv").innerHTML = [
       ["Transaction", `<a class="hash" href="${txUrl(c.txHash)}" rel="noopener">${esc(c.txHash)}</a>`],
       ["Signer", `<span class="mono">${esc(t.signer_id)}</span>`],
       ["Receiver", `<span class="mono">${esc(t.receiver_id)}</span>`],
       ["Calls", acts.map(x => esc(x.name)).join(", ")],
-      ["On-chain result", failed ? "Failed (execution error)" : "Succeeded"],
+      ["RPC result", failed ? "Failed (execution error)" : succeeded ? "Succeeded" : "Unknown or malformed"],
+      ["RPC execution status", esc(result.final_execution_status || "Unavailable")],
+      ["Program and payment", "Not verified: the source hash, nonce, terms, vault decision and token transfer are not bound to this transaction."],
       ["Block", `<span class="mono">${esc(result.transaction_outcome.block_hash)}</span>`],
       ["Read from", `<span class="mono">${esc(url)}</span>`],
       ...(problems.length ? [["Problems", esc(problems.join(" "))]] : [])
     ].map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("");
     const lines = txLogs(result);
-    if (st.SuccessValue) lines.push(`Return value: ${prettyB64(st.SuccessValue)}`);
+    if (succeeded && st.SuccessValue) lines.push(`Return value: ${prettyB64(st.SuccessValue)}`);
     if (failed) lines.push(`Failure: ${JSON.stringify(st.Failure, null, 2)}`);
     if (lines.length) { $("chain-logs").hidden = false; $("chain-logs").textContent = lines.join("\n"); }
   } catch (e) {
-    $("chain-chip").innerHTML = chip("wait", "Couldn't check");
+    $("chain-chip").innerHTML = chip("wait", "Unverified");
     $("chain-kv").innerHTML = `<dt>RPC</dt><dd>${esc(e.message)} <a href="${txUrl(c.txHash)}" rel="noopener">Open on NearBlocks ↗</a></dd>`;
   }
 }
@@ -528,7 +544,7 @@ function renderFeed() {
     f === "all" ? true : f === "hostile" ? (a.model && a.model.kind === "hostile") : a.outcome === f);
   const auth = S.feed.items.filter(a => a.outcome === "authorized").length;
   const rej = S.feed.items.filter(a => a.outcome === "rejected").length;
-  $("feed-meta").textContent = `${S.feed.source} · ${auth} authorized, ${rej} rejected in view`;
+  $("feed-meta").textContent = `${S.feed.source} · runner reports ${auth} authorized, ${rej} rejected; entries unverified`;
   $("feed-more").hidden = !S.feed.cursor;
   if (!items.length) {
     $("feed-body").innerHTML = `<tr><td colspan="6" class="muted">${S.feed.items.length ? "Nothing matches this filter." : "No attempts recorded yet. The first one will appear here."}</td></tr>`;
@@ -537,7 +553,7 @@ function renderFeed() {
   $("feed-body").innerHTML = items.map(a => {
     const m = a.model;
     const modelCell = m ? (m.kind === "hostile" ? chip("bad", m.label) : esc(m.label)) : `<span class="muted">Owner</span>`;
-    const outcome = a.outcome === "authorized" ? chip("ok", "Authorized") : a.outcome === "rejected" ? chip("bad", "Rejected") : chip("idle", "Not sent");
+    const outcome = a.outcome === "authorized" ? chip("info", "Reported authorized") : a.outcome === "rejected" ? chip("info", "Reported rejected") : chip("idle", "Unverified");
     const rule = a.rule ? `<div class="small muted">${esc(ruleText(a.rule))}</div>` : "";
     const tx = a.txHash ? `<a class="hash" href="${txUrl(a.txHash)}" rel="noopener">${esc(shortHash(a.txHash))} ↗</a>` : `<span class="muted">None</span>`;
     const amt = a.amount ? `<span class="num">${esc(a.amount)} USDC</span> → <span class="mono">${esc(a.recipient || "")}</span>` : `<span class="muted">None</span>`;
@@ -599,8 +615,8 @@ async function loadProgram() {
     const bound = (p.sha256 || "").toLowerCase();
     if (bound) {
       const match = bound === local;
-      setChip("program-chip", match ? "ok" : "bad", match ? "Matches the hash bound on Guard" : "Doesn't match the bound hash");
-      $("program-hash").textContent = `SHA-256 computed in your browser: ${local} · bound on Guard: ${bound}`;
+      setChip("program-chip", match ? "info" : "bad", match ? "Matches archived program hash" : "Doesn't match archived program hash");
+      $("program-hash").textContent = `SHA-256 computed in your browser: ${local} · archived hash: ${bound}. This comparison does not verify a new transaction's program binding.`;
     } else {
       setChip("program-chip", "info", "Hash computed here");
       $("program-hash").textContent = `SHA-256 computed in your browser: ${local}`;
