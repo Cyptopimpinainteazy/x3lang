@@ -1,6 +1,6 @@
 # X3 Agent Constitution — admission boundary v1
 
-Status: **pure policy checks implemented; runtime enforcement NOT implemented**.
+Status: **pure policy and signed admission checks implemented; a separate local durable runtime now exists**. See [local runtime scope and limits](AGENT_LAW_RUNTIME.md). The original pure functions remain preflight-only; they grant no authority by themselves.
 
 ## Provenance
 
@@ -31,7 +31,11 @@ All privileged execution adapters must check live identity status and capability
 - Missing trusted approval and duplicate IDs fail closed.
 - Root admission is not handled by this child-admission function and always fails closed.
 
-## Not yet implemented
+## Original preflight gaps and local runtime follow-up
+
+The local runtime now implements atomic signed admission, durable identities, budget reservation and revocation. Production adapters, full constitutional enforcement and on-chain integration remain unimplemented. The following list describes the original preflight boundary, not the guarantees of the new runtime.
+
+### Original preflight gaps
 
 - Atomic admission with cryptographic proof verification tied to the current parent registry state (the pure Ed25519 preflight exists, but is not yet wired into durable admission).
 - Durable identity registry, atomic budget reservations and race safety.
