@@ -87,16 +87,20 @@ class SourceLine:
 
 
 def _clean_lines(path: str) -> List[SourceLine]:
+    with open(path, "r", encoding="utf-8") as source:
+        return _clean_source_lines(source.read())
+
+
+def _clean_source_lines(source: str) -> List[SourceLine]:
     lines: List[SourceLine] = []
-    with open(path, "r", encoding="utf-8") as f:
-        for no, raw in enumerate(f.readlines(), 1):
-            stripped = raw.strip()
-            if not stripped or stripped.startswith("//") or stripped.startswith("#"):
-                continue
-            # remove trailing comments outside strings (grammar does not use quoted // in commands)
-            stripped = re.sub(r"\s+(//|#).*$", "", stripped).strip()
-            if stripped:
-                lines.append(SourceLine(no, stripped.rstrip(";")))
+    for no, raw in enumerate(source.split("\n"), 1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("//") or stripped.startswith("#"):
+            continue
+        # remove trailing comments outside strings (grammar does not use quoted // in commands)
+        stripped = re.sub(r"\s+(//|#).*$", "", stripped).strip()
+        if stripped:
+            lines.append(SourceLine(no, stripped.rstrip(";")))
     return lines
 
 
@@ -368,7 +372,12 @@ def _intent_line_index(lines: List[SourceLine]) -> int:
 
 
 def parse_file(path):
-    lines = _clean_lines(path)
+    with open(path, "r", encoding="utf-8") as source:
+        return parse_source(source.read())
+
+
+def parse_source(source: str):
+    lines = _clean_source_lines(source.replace("\r\n", "\n").replace("\r", "\n"))
     if not lines:
         raise X3ParseError("X3_PARSE_EMPTY", "input file is empty")
     start = _intent_line_index(lines)
