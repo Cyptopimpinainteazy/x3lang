@@ -33,7 +33,6 @@ NOW = datetime(2026, 11, 6, 22, 34, 26, 89000, tzinfo=timezone.utc)
 class FakeClient:
     base_url = "https://1click.chaindefuser.com"
     authenticated = False
-    api_key = False
 
     def __init__(self, tokens=None, response=None):
         self._tokens = TOKENS + [BASE_USDC] if tokens is None else tokens
@@ -143,21 +142,32 @@ def test_bad_input_is_refused(field, value, message):
         run(**{field: value})
 
 
-def test_api_key_header_is_added_and_never_reported(monkeypatch):
+@pytest.mark.parametrize("api_key,jwt,expected", [
+    ("synthetic-api-key", "", {"X-API-Key": "synthetic-api-key"}),
+    ("synthetic-api-key", "synthetic-jwt", {"X-API-Key": "synthetic-api-key"}),
+    ("", "synthetic-jwt", {"Authorization": "Bearer synthetic-jwt"}),
+    ("", "", {}),
+])
+def test_client_authentication_matches_headers_and_report(monkeypatch, api_key, jwt, expected):
     seen = {}
 
     def inner(method, url, headers, body, timeout):
         seen.update(headers)
         return 200, b"[]"
 
-    monkeypatch.setenv("NEAR_INTENTS_API_KEY", "secret-key-value")
+    monkeypatch.setenv("NEAR_INTENTS_API_KEY", api_key)
+    monkeypatch.setenv("NEAR_INTENTS_JWT", jwt)
     client = rp.make_client()
-    client.transport = rp._ApiKeyTransport("secret-key-value", inner)
+    client.transport = inner
     assert client.tokens() == []
-    assert seen["X-API-Key"] == "secret-key-value"
+    assert {k: v for k, v in seen.items() if k in ("X-API-Key", "Authorization")} == expected
+    assert client.authenticated is bool(expected)
     report = rp.run(args(routes="sol-near"), client, now_fn=lambda: NOW, sleep=lambda s: None)
-    assert report["authenticated"] is True
-    assert "secret-key-value" not in json.dumps(report)
+    assert report["authenticated"] is bool(expected)
+    assert "synthetic-api-key" not in json.dumps(report)
+    assert "synthetic-jwt" not in json.dumps(report)
+    assert "synthetic-api-key" not in rp.render(report)
+    assert "synthetic-jwt" not in rp.render(report)
 
 
 def test_report_is_private_and_never_overwritten(tmp_path, monkeypatch, capsys):

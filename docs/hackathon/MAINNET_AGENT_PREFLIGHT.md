@@ -58,8 +58,10 @@ Endpoints are fixed to `https://1click.chaindefuser.com` and
 `https://free.rpc.fastnear.com`; environment endpoint overrides are ignored and
 redirects refused. Only token-list reads, dry quote requests, RPC status and
 final account reads and the pinned USDC `storage_balance_of` view are allowed.
-An optional existing `NEAR_INTENTS_JWT` is sent
-only to the official API and is never included in output.
+An optional existing `NEAR_INTENTS_API_KEY` is sent as `X-API-Key`; if absent or
+empty, legacy `NEAR_INTENTS_JWT` is sent as Bearer. Only one partner credential
+header is sent to the official API and it is never included in output. Explorer
+and user-session JWTs are not partner credentials.
 
 Reports are new files only, mode 0600; existing files and symlinks are refused.
 Do not commit the report without reviewing its public-address and quote contents.
