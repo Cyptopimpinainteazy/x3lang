@@ -2,6 +2,11 @@ name: X3 Shield Vault-Origin Two-Chain Read-only Verification Tests
 on:
   pull_request:
     paths:
+      - 'x3-lang/*.py'
+      - 'x3-lang/near/x3-tidepool-guard/src/signed_live_fixture.json'
+      - 'scripts/hackathon/base_sepolia_guarded_admission.py'
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/near_guard_quorum.py'
       - 'scripts/hackathon/keccak_min.py'
       - 'scripts/hackathon/vault_origin_base_proof.py'
       - 'scripts/hackathon/near_delivery_receipt_proof.py'
@@ -11,6 +16,8 @@ on:
       - 'scripts/hackathon/test_near_delivery_receipt_proof.py'
       - 'scripts/hackathon/test_vault_two_chain_pairing.py'
       - 'scripts/hackathon/test_vault_two_chain_cli.py'
+      - 'scripts/hackathon/test_fresh_x3_proof_binding.py'
+      - 'docs/hackathon/candidates/base_vault_fresh_20261108.x3'
       - 'docs/security/X3_VAULT_ORIGIN_FINALITY_REVIEW.md'
       - 'docs/security/OWNER_APPROVAL_PACKET_TEMPLATE.json'
       - 'docs/security/ISSUE141_PATCH_HANDOFF.md'
@@ -41,7 +48,8 @@ jobs:
             scripts.hackathon.test_vault_origin_base_proof \
             scripts.hackathon.test_near_delivery_receipt_proof \
             scripts.hackathon.test_vault_two_chain_pairing \
-            scripts.hackathon.test_vault_two_chain_cli
+            scripts.hackathon.test_vault_two_chain_cli \
+            scripts.hackathon.test_fresh_x3_proof_binding
       - name: Reject accidental source/test syntax errors
         run: |
           python3 -m py_compile \

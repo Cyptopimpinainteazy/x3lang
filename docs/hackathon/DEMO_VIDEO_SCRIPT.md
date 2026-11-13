@@ -1,5 +1,18 @@
 # X3 Shield — Three-Minute Demo Video Script
 
+## Competition framing
+
+**.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
+
+An intent states the desired outcome. The owner’s `.x3` mandate sets the limits.
+The compiler rejects invalid programs; deterministic mandate checks and NEAR Guard
+refuse prohibited terms. NEAR Intents / 1Click supplies the supported execution route.
+Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
+for compile-time versus runtime checks and the evidence boundaries.
+
+**Opening narration:** “Intents express what an agent wants to achieve. .x3 makes the outcome and the owner’s rules explicit in a typed program. Compiler checks reject invalid programs, and Guard checks the signed quote against policy before authorizing a deposit address.”
+
+
 **Length:** 3:00 max. **Say the evidence level on every slide.** If a shot is
 "local mock-chain" or "pending," say that out loud — do not upgrade it in narration.
 All commands are read-only and local (first-run dependency installation may use the

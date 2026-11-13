@@ -1,0 +1,17 @@
+name: Explorer client
+on:
+  pull_request:
+    paths: ['x3-lang/near/explorer/**', '.github/workflows/explorer-client.yml']
+  push:
+    paths: ['x3-lang/near/explorer/**', '.github/workflows/explorer-client.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test x3-lang/near/explorer/client.test.mjs
