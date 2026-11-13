@@ -1,0 +1,87 @@
+{
+  "schema": "x3.guard.quote-storage-rollback.sandbox.v1",
+  "captured_at_utc": "2026-11-11T19:18:16.795056+00:00",
+  "source_base_commit": "8ec3dec1b5b2b8c43ffe6cd3957696bc090730ad",
+  "tested_state": "uncommitted harness source, exact SHA-256 values below; no contract source changes",
+  "environment": {
+    "os": "Linux-6.8.0-147-generic-x86_64-with-glibc2.39",
+    "rust": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "near_sandbox": "2.14.0",
+    "sandbox_sha256": "797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13"
+  },
+  "source_sha256": {
+    "x3-lang/near/guard-sandbox-tests/Cargo.toml": "b962973ad185eb122eea499320ecfc4f72b60be043f234836c73261916804f7c",
+    "x3-lang/near/guard-sandbox-tests/Cargo.lock": "b63c27a5c5484e328a7bba52aa9bdc7450e1ec311f2e6b1e40989cf5d6a6a592",
+    "x3-lang/near/guard-sandbox-tests/src/bin/scoped_agent_boundary.rs": "994d9e1ecb5402d0f4e8da969046666dd48025dd2635d3af2b119eb84ed485be",
+    "x3-lang/near/guard-sandbox-tests/src/scoped_quote_storage.rs": "7c581dea73e78782f5944880489dd64cdb6a368e27d0ad45adfb49c6728941eb"
+  },
+  "wasm": {
+    "bytes": 572248,
+    "sha256": "9a614640ac8bc39bbbcb1674ce0f4fe2f51610ac7ba828c9c4574be92712a632",
+    "expected_near_code_hash": "BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T",
+    "contract_sources_changed": false,
+    "rebuilt_in_this_task": false
+  },
+  "upgrade_from": {
+    "bytes": 551278,
+    "sha256": "e544adec722714c7608bc87b1971c30c69faf2d15def958c6037129b226edfbe",
+    "expected_near_code_hash": "GRy6z84ucCR9WMVXyepibVDC34TyKwjWtEi9rteKJtny"
+  },
+  "command": "NEAR_NETWORK_ID=sandbox NEAR_SANDBOX_BIN_PATH=/tmp/x3-scoped-sandbox-target/debug/build/near-sandbox-4df73ee1ba5376e0/out/.near/near-sandbox-2.14.0/near-sandbox TMPDIR=/media/lojak/64a55477-2213-4479-8beb-3f56b4082d0b/x3-guard-quote-storage-rollback/tmp /media/lojak/64a55477-2213-4479-8beb-3f56b4082d0b/x3-guard-quote-storage-rollback/target/debug/scoped_agent_boundary /tmp/x3-mainnet-guard-target/wasm32-unknown-unknown/release/x3_guard.wasm /tmp/x3-guard-mainnet-before-upgrade.wasm",
+  "working_directory": "/home/lojak/Documents/ChatGPT/x3langnearhackathon/guard-quote-storage-rollback",
+  "exit_code": 0,
+  "completed_markers": [
+    "X3_SANDBOX_SCOPED_ALLOWED_METHOD_OK",
+    "X3_SANDBOX_STORAGE_UPGRADE_OK",
+    "X3_SANDBOX_OWNER_FUNDED_STORAGE_OK",
+    "X3_SANDBOX_QUOTE_STORAGE_ROLLBACK_OK",
+    "X3_SANDBOX_QUOTE_STORAGE_RETRY_OK",
+    "X3_SANDBOX_SCOPED_KEY_BYPASS_REFUSED",
+    "X3_SANDBOX_SCOPED_KEY_LIMITS"
+  ],
+  "assertions": [
+    "Synthetic signature refused under original production manager; public contract snapshot unchanged.",
+    "Sandbox-only manager patch accepts synthetic signature in check_agent_quote; all quote checks pass.",
+    "Zero-deposit acceptance fails specifically X3_STORAGE_BUDGET_EXHAUSTED.",
+    "Intent, second intent, quote consumer, deposit consumer, mandate including spends, credit and storage usage exactly match pre-call values.",
+    "Owner funds credit; identical signed quote succeeds via restricted agent key with no deposit.",
+    "Exactly one 25000000-unit spend and both consumers bind to the accepted nonce; storage credit decreases.",
+    "Same quote with another registered nonce fails specifically X3_NEAR_QUOTE_REPLAY; accepted snapshot unchanged.",
+    "Original manager restored; on-node code identity unchanged throughout."
+  ],
+  "limitations": [
+    "Synthetic quote signatures, not official 1Click acceptance.",
+    "Public contract calls executed by actual local Sandbox receipts; not public-chain settlement.",
+    "Manager key patched only through this ephemeral Sandbox state API.",
+    "Exact reviewed candidate WASM reused, not rebuilt in this test-only task."
+  ],
+  "public_chain_transactions": [],
+  "additional_checks": [
+    {
+      "command": "cargo +1.99.1 fmt --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml -- --check",
+      "exit_code": 0
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/media/lojak/64a55477-2213-4479-8beb-3f56b4082d0b/x3-guard-quote-storage-rollback/target cargo +1.99.1 clippy --offline --locked --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml --bin scoped_agent_boundary -- -D warnings",
+      "exit_code": 0
+    },
+    {
+      "command": "bash -n scripts/hackathon/scoped_agent_sandbox_smoke.sh",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "build_command": "CARGO_TARGET_DIR=/media/lojak/64a55477-2213-4479-8beb-3f56b4082d0b/x3-guard-quote-storage-rollback/target cargo +1.99.1 build --offline --manifest-path x3-lang/near/guard-sandbox-tests/Cargo.toml --bin scoped_agent_boundary",
+  "build_exit_code": 0,
+  "independent_review": {
+    "reviewers": [
+      "/root",
+      "/root/review"
+    ],
+    "scope": "read-only diff and security/evidence review; runtime executed by author",
+    "blocking_findings": 0
+  }
+}
