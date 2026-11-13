@@ -1,5 +1,7 @@
 # X3Lang judge package
 
+**Judges: [start here — payment, limits, proof and reproduction](../../JUDGES.md).**
+
 ## Competition framing
 
 **.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
@@ -13,11 +15,15 @@ for compile-time versus runtime checks and the evidence boundaries.
 
 **Project:** X3Lang — the programmable trust layer for AI agents and cross-chain finance.
 
-**Submitted tracks (owner-selected 2026-11-13):** `security`, `agents`, `defi`. The
-DeFi entry is assessed in [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
-This package does not certify organizer acceptance.
+**Documented submission scope:** `security`, `agents`. The project also presents
+an Unstoppable DeFi perspective (`defi`), assessed in
+[DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md), but its submission is
+not confirmed here. Confirm the actual owner-approved submission record; this
+package does not certify organizer acceptance or add a track.
 
-**NEW REAL-CHAIN EVIDENCE:** [X3Lang first two-chain testnet swap — judge walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) has a successful strict independent finalized Base Sepolia + NEAR receipt proof and immutable signed quote. It is a **separate** owner-authorized Tidepool community testnet execution, not a native X3 bridge, and not an official 1Click mainnet trade. The old offline demo below remains valid as an offline demo.
+**Mainnet payment evidence:** [invoice_06 proof card](../../PROOF_CARD.md) covers the 25-USDC Solana deposit, 24.9952-USDC NEAR payout and restricted-agent outcome. The deployment/recovery operations below are separate from this payment.
+
+**Historical testnet evidence:** [X3Lang first two-chain testnet swap — judge walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) has a successful strict independent finalized Base Sepolia + NEAR receipt proof and immutable signed quote. It is a **separate** owner-authorized Tidepool community testnet execution, not a native X3 bridge, and not an official 1Click mainnet trade. The old offline demo below remains valid as an offline demo.
 
 **NEAR mainnet deployment:** The [November 11 Guard upgrade and native recovery](MAINNET_GUARD_DEPLOYMENT.md)
 have finalized transaction receipts, an exact deployed-WASM match and unchanged

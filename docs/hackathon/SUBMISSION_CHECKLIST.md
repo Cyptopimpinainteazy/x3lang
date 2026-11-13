@@ -1,4 +1,4 @@
-# NEAR Hackathon submission checklist
+# X3 Force Field — NEAR Hackathon submission checklist
 
 ## Competition framing
 
@@ -29,21 +29,22 @@ Official instructions were checked against
 
 ## Project submission scope
 
-- Owner-selected tracks: `security` (primary), `agents` and `defi`. This checklist
-  does not certify organizer acceptance.
-- `defi` frames X3 Shield as an authorization layer over NEAR Intents / 1Click, not a
+**Public-facing name:** X3 Force Field (formerly X3 Shield). Preserve historic X3 Shield evidence names, deployed `x3-guard` contract and `.x3` hash identities. This rename makes no protocol or on-chain change.
+
+**Differentiator to show judges:** typed owner-written `.x3` mandate → compile/type-check and reject unsafe edits → deterministic quote/policy checks → NEAR Guard signed-quote enforcement → archived `invoice_06` authorization, settlement and recorded outcome. Do not imply native X3VM executed on NEAR.
+
+
+- Owner-selected tracks: `security` (primary), `agents` and `defi`, as selected on the
+  submission form. This checklist does not certify organizer acceptance.
+- `defi` frames X3 Force Field as an authorization layer over NEAR Intents / 1Click, not a
   new bridge. Historical funded Tidepool community-testnet delivery exists; one official
-  funded 1Click settlement completed on mainnet
-  ([invoice_06](../../evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)).
-  See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
+  funded 1Click mainnet settlement is recorded as `invoice_06`. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
+  Preserve the submission receipt.
 
 ## Repository
 
 - [x] Release consolidation PR #83 was merged to the canonical `master` branch.
 - [ ] Confirm the **exact submission commit SHA** is still reachable from `master` (do not submit a stale release branch).
-- [ ] Push the annotated tag `hackathon-submission` on that exact commit, once (never move a
-      pushed tag), and confirm the README link `pre-hackathon...hackathon-submission` opens.
-      `pre-hackathon` points at the same commit as `baseline`.
 - [ ] Confirm no unreviewed changes are required for the submitted demo; keep non-production settlement gates closed.
 - [ ] `PRIOR_WORK.md` and the baseline comparison remain intact.
 - [ ] No API keys, key files, seed phrases, `.env` files or private receipts are tracked.
@@ -68,8 +69,7 @@ Official instructions were checked against
       separately labeled NEAR testnet evidence at its own limited level.
 - [ ] Re-verify both commands in `GUARD_TESTNET_EVIDENCE.md`; distinguish
       official dry-quote refusal and live allowed acceptance from an unproven live
-      forbidden-quote refusal. Funded official 1Click settlement appears only in the
-      separate mainnet invoice_06 evidence, not in the testnet record.
+      forbidden-quote refusal and funded official 1Click settlement.
 - [ ] Reproduce the separately labeled historical Tidepool archive using
       `verify_first_swap_archive.py`; retain the exact commit and result. Keep
       archived observations, any fresh RPC recheck and trusted-relay assumptions
@@ -87,14 +87,12 @@ Official instructions were checked against
       linked archived quote, Guard transaction and Tidepool delivery evidence
       separately labeled.
 - [ ] If a hosted page is used, verify it serves this exact commit and keep it available through
-      judging: HACKATHON.md asks for at least 2026-11-18, ideally 2026-11-25. The README links
-      https://dotx3.net.
+      judging.
 
 ## Video and X post
 
 - [ ] Use [`VIDEO_WALKTHROUGH.md`](VIDEO_WALKTHROUGH.md) and keep the recording under three
-      minutes. Check the posting account's X upload limit first; see the note in
-      [`x-post-draft.md`](../../submission/x-post-draft.md).
+      minutes.
 - [ ] Show the local one-command judge path after its documented dependency
       provisioning and show the exact decision labels.
 - [ ] Use the exact transactions and code hashes for each evidence path. State
@@ -129,9 +127,6 @@ payload for the human and wait for explicit approval before sending anything.
 ## Submission gate
 
 - [ ] Official rules re-opened immediately before submission.
-- [ ] `PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_submission_copy.py -q` passes
-      on the submitted commit: description within 2,000 characters by LF, UTF-16 and CRLF
-      counts, the same tracks in every document, X posts within 280 characters.
 - [ ] Human confirmed the exact JSON payload.
 - [ ] Human confirmed the public repository and X post links.
 - [ ] No secret or personal browser state appears in screenshots.

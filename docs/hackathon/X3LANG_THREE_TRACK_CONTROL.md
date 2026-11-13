@@ -11,8 +11,9 @@ Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-ch
 for compile-time versus runtime checks and the evidence boundaries.
 
 
-**Scope:** the owner-selected submission tracks are AI Security & Defense, Agent
-Economy and Unstoppable DeFi. One `.x3` owner mandate and one `.x3` payment policy supply
+**Scope:** the owner selected AI Security & Defense (primary), Agent Economy and
+Unstoppable DeFi on the submission form; this does not establish organizer
+acceptance. One `.x3` owner mandate and one `.x3` payment policy supply
 the local security and agent demonstrations; there is no new language syntax,
 second policy authority, or separate track-specific transaction engine.
 Historical Tidepool testnet delivery is assessed separately in

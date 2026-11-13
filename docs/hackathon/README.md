@@ -1,5 +1,7 @@
 # Hackathon materials
 
+**Judges: [start here — payment, limits, proof and reproduction](../../JUDGES.md).**
+
 ## Competition framing
 
 **.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**

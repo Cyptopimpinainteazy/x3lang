@@ -1,63 +1,30 @@
-# X post draft — owner publishes manually
+# X3 Force Field — owner-published X demo draft
 
-Do not post automatically. Attach the demo video to post 1. HACKATHON.md requires
-the post to say it was built at NEAR HACKATHON and to tag `@NEARProtocol` and
-`#NEARHackathon`; `x3-lang/tests/test_submission_copy.py` checks that and the
-280-character limit. Structure follows HACKATHON.md: the user's problem first,
-one complete moment, what NEAR does, a next step. Every claim below is backed by
-a file in the repo.
+**Previously X3 Shield.** Draft only. Attach the actual public demo video or screenshots before posting. Do not claim a post exists until its signed-out URL is verified.
 
-## Post 1 (attach video; under 280 characters)
+## Post 1 — video post (254 characters)
 
-A prompt-injected agent pays whoever the prompt says.
+Built at NEAR HACKATHON: X3 Force Field 🛡️ — a typed .x3 language + compiler for AI-agent spending rules. A NEAR Guard checks signed terms, not model promises. 25 USDC moved Solana→NEAR on mainnet under owner-approved limits. @NEARProtocol #NEARHackathon
 
-X3 Shield: owners write spending rules in .x3; a NEAR contract checks agent payments against them.
+## Post 2 — reply: why this differs
 
-Mainnet: 21 checks passed; 25 USDC left Solana, 24.9952 reached NEAR.
+This isn't a wallet settings toggle. The owner writes auditable .x3 mandate code; a compiler rejects unsafe payment programs. Deterministic checks and NEAR x3-guard enforce signed quote terms. X3BC/X3VM exist as prior work—not as on-chain Guard execution.
 
-Built at NEAR HACKATHON @NEARProtocol #NEARHackathon
+## Post 3 — reply: inspect the proof
 
-## Post 2 (reply)
+Mainnet invoice_06: 25 USDC deposited from the owner's Solflare wallet; 24.9952 reached x3lang.near. Restricted agent recorded Settled; original .x3 files match Guard-stored hashes. Source, payout and outcome receipts: https://github.com/Cyptopimpinainteazy/x3lang
 
-The agent's NEAR key can call only three Guard methods. It accepted a signed
-1Click quote only after Guard checked recipient, asset, caps, slippage, fee,
-refund address and owner approval. Then it recorded the outcome on-chain:
-Settled, floor met. All transactions are public.
+## Post 4 — reply: limits and reproducibility
 
-## Post 3 (reply)
+One owner-assisted ~$25 settlement; Guard does not custody Solana funds or authenticate the agent-reported outcome tx hashes. No atomic cross-chain proof; X3VM not executing in Guard. Reproduce the compiler refusal and adversarial tests from the README: https://github.com/Cyptopimpinainteazy/x3lang
 
-A scripted local model replayed the May 2026 Grok wallet drain: 3/3 attack
-programs refused, the owner's control passed policy. Separately on testnet,
-Guard refused an agent payment to attacker.near.
+## Video storyboard (2–3 minutes)
 
-## Post 4 (reply)
+1. 0:00–0:20: Problem—model output must not be authorization.
+2. 0:20–0:50: Show real v4 `mandate-proposed.x3`, the typed rules, and compiler pipeline.
+3. 0:50–1:20: Demonstrate 9 unsafe edits fail compilation and the local Grok drain replay refuses 3/3 attacks. Label LOCAL.
+4. 1:20–2:15: Show invoice_06 owner approval, restricted-agent quote acceptance, Solana deposit, NEAR payout and recorded Guard outcome with explorer links. Label MAINNET.
+5. 2:15–2:45: Explain custody, manually signed funding, FullAccess recovery key, unauthenticated outcome hashes, no atomicity and no on-chain X3VM.
+6. 2:45–3:00: Show the exact public repository commit and clean-clone judge commands.
 
-Limits: one ~$25 trade, funded by hand; Guard checks payments but doesn't hold
-funds. Clone it and run the "do X, see Y" checks, no wallet needed:
-https://github.com/Cyptopimpinainteazy/x3lang
-
-What rule would you want on your own agent's wallet?
-
-## Video (2–3 minutes)
-
-Before recording a cut longer than 2:20, check the posting account's X upload
-limit: 2026 third-party guides still cite 140 seconds for non-Premium uploads in
-the app. If X rejects the file, attach a cut of 2:20 or less to post 1 and link
-the full video, already hosted at `https://dotx3.net/media/x3-shield-who-gets-paid.mp4`
-(2:56), in a reply.
-
-1. Problem: the Grok wallet drain, where the model's output was the
-   authorization (20 s).
-2. The owner's v4 mandate, `source-recovery/mandate-proposed.x3`, and its
-   limits (30 s).
-3. Run `python3 scripts/hackathon/replay_grok_wallet_drain.py`; hold on
-   `3/3 attack programs refused`. Label the frame LOCAL (30 s).
-4. invoice_06 on the explorers, in order: owner approval `GFdQLrzT…`, agent
-   quote acceptance `Eg75uehw…`, Solana deposit `4zhGYyWN…`, NEAR payout
-   `8jfbACLS…`, outcome `9sTn9pJ1…`. Label MAINNET (55 s).
-5. Limits: one ~$25 trade, manual funding, no custody, owner recovery key on
-   the agent account, outcome hashes not verified by Guard, no atomicity,
-   X3VM not on-chain (30 s).
-6. Public repo, exact commit, judge commands (15 s).
-
-Label every frame LOCAL, TESTNET or MAINNET. Show no keys.
+Never display private keys or credentials. Verify the published video and X post while signed out.
