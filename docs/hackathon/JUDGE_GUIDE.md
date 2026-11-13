@@ -1,5 +1,16 @@
 # X3 Shield — Judge Guide
 
+## Competition framing
+
+**.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
+
+An intent states the desired outcome. The owner’s `.x3` mandate sets the limits.
+The compiler rejects invalid programs; deterministic mandate checks and NEAR Guard
+refuse prohibited terms. NEAR Intents / 1Click supplies the supported execution route.
+Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
+for compile-time versus runtime checks and the evidence boundaries.
+
+
 Start with the evidence for the claim you want to verify. The three checks
 below can be completed without a wallet. They cover the AI Security & Defense
 and Agent Economy submission.
@@ -361,7 +372,7 @@ enforcement is independently proven.
 
 | Claim | Required real artifact | Current status |
 | --- | --- | --- |
-| Mainnet Guard deployment | Contract address and deployment transaction | PENDING |
+| Mainnet Guard deployment | Contract address, approved WASM hash and finalized deployment transaction | [VERIFIED: `x3lang.near`, 572248 bytes, `9a614640…a632`, transaction `BVXX3h…3faF`](MAINNET_GUARD_DEPLOYMENT.md); state preserved, funded agent payment still unproven |
 | Testnet Guard deployment | Contract account, WASM/code hashes, finalized deploy tx | VERIFIED: `x3lang-guard-20261106.testnet`, `ac44fa…`, `FJ5vo…` |
 | Owner mandate and revocation | NEAR contract transaction hashes | VERIFIED TESTNET: `J4Wrx…`, `7aVon…` |
 | Allowed official-live quote acceptance | NEAR tx + nonce + quote guard result | VERIFIED TESTNET OWNER PATH: `6B6k…`; no deposit |

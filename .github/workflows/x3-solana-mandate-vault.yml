@@ -45,6 +45,8 @@ jobs:
         run: cargo test --locked --lib --quiet
       - name: Verify actual Solana program-test and SPL Token CPI (not public chain)
         run: cargo test --locked --test vault_runtime -- --nocapture
+      - name: Verify the Python client's golden wire vectors against the real program types
+        run: cargo test --locked --test client_vectors
       - name: Rust formatting
         run: cargo fmt --all -- --check
       - name: Strict Clippy

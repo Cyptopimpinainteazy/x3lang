@@ -1,0 +1,14 @@
+// X3 Shield NEXT LIVE PROOF CANDIDATE — Base Sepolia -> NEAR testnet only.
+// Source preparation is NOT owner signature, Guard approval, or spending authority.
+// This owner nonce is NEW and has NOT yet been checked against live Guard storage.
+intent x3_base_vault_testnet_to_near_20261108 {
+    from BaseSepolia.USDC amount 1000000 receiver 0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721
+    to Near.USDC receiver x3lang.testnet
+    route {
+        bridge NearIntents BaseSepolia.USDC -> Near.USDC min_receive 980000;
+    }
+    require slippage <= 1%
+    require nonce unused x3_base_vault_20261108_0cf8a80f52f96a1629f04a23
+    timeout 30m refund BaseSepolia.USDC to 0x5aF0c1BF95B3A158f6Fc48e3DED35903b2fa0721
+    on_fail rollback
+}
