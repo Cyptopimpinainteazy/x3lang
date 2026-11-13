@@ -18,16 +18,19 @@ What runs today, on testnet or locally:
 
 3. One .x3 program specified a cross-chain trade: its hash was bound on Guard, then 1.000000 test USDC left Base Sepolia and 0.997400 arrived on NEAR testnet, both finalized. The link is a trusted testnet relay, not atomic settlement.
 
+Mainnet: an agent key that can call only three Guard methods accepted a signed 1Click quote after 21 mandate checks passed; 25 USDC left Solana and 24.9952 USDC reached NEAR 84 s later.
+
 Who it's for: teams shipping paying agents, wallets and Intents integrators, and owners delegating spend who need limits they can audit and revoke.
 
 The README has "do X, see Y" steps; most run offline with Python and Node, no wallet or key.
 
-Limits: Guard does not custody funds, so an unrestricted wallet key can bypass it. No funded official 1Click settlement or cryptographic atomicity. The X3 compiler and VM predate the hackathon and are disclosed; the NEAR integration is the hackathon work.
+Limits: one ~$25 mainnet trade; the rest is testnet. Guard does not custody funds, so an unrestricted wallet key can bypass it. No cryptographic cross-chain atomicity. The X3 compiler and VM predate the hackathon and are disclosed as baseline; the NEAR integration is the hackathon work.
 
 ## Public links
 
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang
 - Testnet evidence: `docs/hackathon/GUARD_TESTNET_EVIDENCE.md`
+- Mainnet evidence: `evidence/near-guard-mainnet-invoice06-2026-11-12/README.md`
 - Testnet mandate lifecycle:
   https://github.com/Cyptopimpinainteazy/x3lang/blob/master/evidence/near-guard-testnet-live-2026-11-06.md
 - Authenticated light-client design and limits:
@@ -53,6 +56,12 @@ Limits: Guard does not custody funds, so an unrestricted wallet key can bypass i
   `0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9`
 - Two-chain trade, NEAR testnet payout:
   `EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d`
+- Mainnet invoice_06, owner approval: `GFdQLrzT5tnPPdZwKLtmwpNvSwrxVHDvVg2C3WX5fsK6`
+- Mainnet invoice_06, agent `agent_accept_quote` (restricted key):
+  `Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153`
+- Mainnet invoice_06, Solana deposit:
+  `4zhGYyWNabYQ5gixTUzoVHVbgFKWAsQssSpCv3B1J1LjCRisEJW6wm3zuS2GVuDotAT93S8wm1qezHwsKX2RkXo5`
+- Mainnet invoice_06, NEAR payout: `8jfbACLSxrzi3fnajfAVGc4Fgo6XLCWA1mpiJWXPw43P`
 
 ## Owner-only fields
 

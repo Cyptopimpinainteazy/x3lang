@@ -68,6 +68,7 @@ to its evidence and limits.
 
 | Result | Network | Check it |
 |---|---|---|
+| **On mainnet**, a restricted agent key accepted a signed 1Click quote on the X3 Guard after 21 mandate and quote checks passed; the owner's wallet then sent **25 USDC on Solana** and **24.9952 USDC arrived on NEAR** 84 seconds later. The agent key can call only three Guard methods; the owner's key did not sign. | NEAR + Solana mainnet | [invoice_06 evidence](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md), [agent call](https://nearblocks.io/txns/Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153) |
 | Guard on `x3lang.near` was upgraded to the reviewed WASM; all seven stored records were preserved. A separately approved native transfer recovered 0.3 NEAR to `dotx3.near`. | NEAR mainnet | [Deployment and recovery receipts](docs/hackathon/MAINNET_GUARD_DEPLOYMENT.md) |
 | An `.x3` program specified a cross-chain trade that finalized: **1.000000 test USDC left Base Sepolia, 0.997400 arrived on NEAR testnet**. The program's SHA-256 was bound on a NEAR Guard contract before the source transfer. | Base Sepolia + NEAR testnet | [Step 1](#1-the-x3-program-behind-the-cross-chain-trade), [Step 2](#2-verify-the-finalized-two-chain-trade) |
 | The deployed Guard refused an agent intent to `attacker.near` and accepted a permitted intent. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |
@@ -76,9 +77,12 @@ to its evidence and limits.
 | Both steps of the May 2026 AI-wallet drain (limit-lifting token, Morse-encoded order), replayed with a model that falls for them: 3 of 3 attack programs refused, owner payment allowed. | Local | [Step 5b](#5b-replay-a-real-wallet-drain) |
 | 9 unsafe edits to an agent payment fail to compile. | Local | [Step 3](#3-unsafe-payments-do-not-compile) |
 
-The Guard upgrade and native account-surplus recovery have finalized mainnet
-receipts. They do not establish a funded agent payment or official 1Click settlement.
-The two-chain trade above relied on a trusted testnet relay, so it does not prove
+One small mainnet settlement (about $25) is recorded above, read back from public RPC on
+both chains. Guard authorized its deposit address but did not hold the funds, and the link
+between the Solana deposit and the NEAR payout comes from the 1Click status record, not a
+proof. The Guard upgrade and native account-surplus recovery also have finalized mainnet
+receipts; they are operational records, not agent payments. Everything else is testnet or
+local. The testnet two-chain trade relied on a trusted testnet relay, so it does not prove
 atomic settlement. [Limits](#trust-boundaries) are stated in full below.
 
 ## The language in 20 lines
@@ -317,12 +321,14 @@ proposes and the owner signs; a Solana wallet keyholder can still transfer direc
 | Track | What X3 Shield shows | Steps |
 |---|---|---|
 | **AI Security & Defense** | A policy engine for agent spending: recipient and asset allowlists, per-payment and 24-hour caps, slippage and fee ceilings, approval thresholds, expiry, one-use nonces. Enforced off-chain by the compiler and on-chain by `x3-guard`, which reads terms from the signed quote bytes. | 3, 4, 5, 6, 9, [testnet refusals](#proof-on-near-testnet) |
-| **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. The official live quote was accepted only up to deposit authorization. | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet) |
+| **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. On mainnet, the agent's restricted key accepted an official live quote under the mandate and the trade settled ([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet), [mainnet invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md) |
 | **Unstoppable DeFi (proposed)** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. | 1, 2, 10 |
 
 The proposed DeFi perspective uses historical trusted Tidepool community-testnet
-delivery, not official 1Click settlement. The official 1Click quote flow was
-exercised up to deposit authorization and stopped before funding. The
+delivery, not official 1Click settlement. On testnet the official 1Click quote flow was
+exercised up to deposit authorization and stopped before funding; one official 1Click
+settlement then completed on mainnet
+([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). The
 [official 1Click quickstart](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/introduction)
 states that NEAR Intents has no testnet version.
 `demo.py` and `track_control.py` print the two documented submission categories
@@ -432,8 +438,8 @@ client in step 10 verifies validator approvals from a trusted checkpoint.
 <a id="not-claimed"></a>
 ## Not claimed
 
-Public Base/NEAR vault deployment, audited smart-account
-custody, a funded official 1Click settlement, a permissionless native X3 BSC-to-NEAR
+Mainnet operation beyond the one recorded settlement, public Base/NEAR vault deployment, audited smart-account
+custody, repeated or high-volume 1Click settlement, a permissionless native X3 BSC-to-NEAR
 bridge, cryptographic atomic cross-chain causality and native Rust X3VM execution
 on-chain. See the [threat model](docs/security/X3_SHIELD_THREAT_MODEL.md) for the
 controls and open risks.
