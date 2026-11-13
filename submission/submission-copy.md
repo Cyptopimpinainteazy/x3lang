@@ -4,7 +4,7 @@
 
 **Project:** X3 Force Field (X3Lang; formerly X3 Shield)
 
-**Tracks to select on submission form:** AI Security & Defense (`security`, primary), Agent Economy (`agents`); Unstoppable DeFi (`defi`) if selected as third track. Not a claim of organizer acceptance.
+**Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`), Unstoppable DeFi (`defi`). Selected on the submission form; not a claim of organizer acceptance.
 
 ## 20–2,000 character description (1923 characters, LF)
 
