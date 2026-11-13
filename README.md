@@ -149,6 +149,10 @@ More on what `.x3` does here: [X3 in X3 Force Field](docs/hackathon/X3_LANGUAGE.
 
 ## Try it: do X, see Y
 
+For one tested snapshot containing all nine capabilities, start with the
+[single-commit judge setup](JUDGES.md#reproduce-the-same-payments-checks--offline-after-setup).
+Commit IDs and test counts below describe historical runs, not current-head results.
+
 All steps run from the repository root. Steps 1 to 8 are offline, need no wallet, no API key
 and no network after install, and sign or send nothing. Each was run on Linux x86_64 with
 Python 3.13 and Node 22 at commit `48f650a`. Test counts grow as regressions are added;

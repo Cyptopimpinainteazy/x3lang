@@ -3,6 +3,8 @@
 **X3 Force Field** (formerly X3 Shield) uses owner-written `.x3` mandates,
 compiler checks and NEAR Guard to constrain AI-agent payment proposals.
 
+**Nine evidenced capabilities: six core payment capabilities plus three additional local capabilities.** The source hashes are identity records, not deployed payment-program pinning; that separate contract change is not part of this demonstration.
+
 ## Two-minute evidence route — no setup or wallet
 
 1. **See the payment:** [one-page invoice_06 proof card](PROOF_CARD.md).
@@ -88,7 +90,7 @@ failed checks, Guard checks, payment receipts and outcome validation. Inspect th
 and [outcome verification](evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/finalized-outcome-verification.json)
 for exact transaction hashes. These are archived observations, not live status.
 
-For additional work beyond this six-claim overview, the existing
+For supporting work beyond these nine indexed capabilities, the existing
 [differentiator evidence matrix](docs/hackathon/WHY_X3_SHIELD.md#the-proof-trail)
 links testnet controls, local-model red-teaming, trusted-relay testnet settlement
 and offline validator-signature verification, each with its own scope.
@@ -98,14 +100,31 @@ compiler/VM and the NEAR-specific implementation timeline.
 
 ## Reproduce the same payment's checks — offline after setup
 
-From the repository root, with Python 3.11+:
+Use this single pinned snapshot for the compiler, verifier, sources, receipts and
+local runtime tests: [`cd19233`](https://github.com/Cyptopimpinainteazy/x3lang/tree/cd1923318d6f47701e4969d841320459605a131f).
+It contains all nine indexed capabilities. Historical commits linked in evidence
+show provenance; **do not switch to them during this reproduction**. This snapshot
+is not a final submission tag or evidence of organizer acceptance.
+
+From a new checkout, with Python 3.11+:
 
 ```bash
+git clone https://github.com/Cyptopimpinainteazy/x3lang.git x3-force-field-review
+cd x3-force-field-review
+git checkout --detach cd1923318d6f47701e4969d841320459605a131f
+git rev-parse HEAD
 python3 -m venv .venv
 . .venv/bin/activate
-python3 -m pip install -r x3-lang/requirements.txt
-python3 scripts/hackathon/invoice06_chain.py
+python3 -m pip install -r x3-lang/requirements.txt -r x3-lang/requirements-agent-security.txt pytest
+(cd evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery && sha256sum --check SHA256SUMS)
+python3 scripts/hackathon/invoice06_chain.py --json
+python3 scripts/hackathon/agent_law_local_demo.py
+PYTHONPATH=x3-lang python3 -m pytest scripts/hackathon/test_invoice06_chain.py x3-lang/tests/test_submission_copy.py x3-lang/tests/test_agent_runtime*.py x3-lang/tests/test_agent_constitution.py x3-lang/tests/test_agent_admission_signed.py x3-lang/tests/test_vault_complete_path_evidence.py -q
 ```
+
+The invoice JSON must have `ok: true` and all five `links` true. The lifecycle
+must report replay blocked, retirement after violation and retirement surviving
+restart. Require zero failed tests; archive tests do not start a new vault node.
 
 Dependency installation uses the network. The verifier then reads committed
 records only: no wallet, key, RPC, signing or new payment. Expect **5/5 links
@@ -117,6 +136,20 @@ For a fresh read-only public-RPC observation, follow the
 [proof card's observer instructions](PROOF_CARD.md#check-it-yourself).
 For broader local tests, provisioning requirements and browser panels, use the
 [reproduction package](docs/hackathon/JUDGE_PACKAGE.md#one-command-demonstration).
+
+## Replay time and evidence boundaries
+
+The invoice verifier reconstructs its compiler clock as the archived policy's
+`deadline_ms` minus the source's 74-hour timeout. This makes replay deterministic;
+it is **not independent evidence of when the original compilation happened**.
+The JSON field `compiler.compiled_at_utc` is this reconstructed time. Its local
+`dry=True` request builds policy terms only; the mainnet acceptance claim comes
+from the separately archived signed live quote/Guard receipt, not that request.
+
+The offline verifier checks archived internal consistency and executed transfer
+records. It does not re-query mainnet. For current chain state use the separate
+read-only observer, recording its time and any RPC failures. The agent-reported
+outcome remains unauthenticated by Guard even when its recorded floor is met.
 
 ## Demo and supporting material
 
