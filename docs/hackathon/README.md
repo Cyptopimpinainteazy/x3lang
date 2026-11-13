@@ -13,7 +13,7 @@ Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-ch
 for compile-time versus runtime checks and the evidence boundaries.
 
 
-- [Two-track control architecture](X3LANG_THREE_TRACK_CONTROL.md)
+- [Three-track control architecture](X3LANG_THREE_TRACK_CONTROL.md)
 - [Judge package](JUDGE_PACKAGE.md)
 - [Three-minute walkthrough](VIDEO_WALKTHROUGH.md)
 - [Submission checklist](SUBMISSION_CHECKLIST.md)

@@ -8,9 +8,19 @@ exists in this repository today. Every row carries one label:
 | Label | Meaning |
 |---|---|
 | **MAINNET** | Enforced by the deployed Guard on `x3lang.near` (code hash `BPdpJAw8R4SDh6Wi7dPcXTs5T7ncJDVKCLgzuqZFb15T`). |
-| **OFFLINE** | Enforced by the compiler or the off-chain policy check before anything is sent, and run in CI. An agent runtime that skips them still meets Guard. |
+| **OFFLINE** | Enforced by the compiler, off-chain policy checks or trusted local runtime, and covered by tests. An agent runtime that skips them still meets Guard. |
 | **CHECK ONLY** | A pure function with tests. No runtime calls it yet. |
 | **DESIGN** | Not built. |
+
+## Newly merged local runtime
+
+The table below describes deployed Guard behavior and the original lifecycle
+mapping. The [local runtime](../security/AGENT_LAW_RUNTIME.md) now implements signed
+birth, child identity registration, atomic SQLite budget reservations, durable
+retirement/revocation and signed incident review. Its [demo](../../scripts/hackathon/agent_law_local_demo.py)
+and [archived evidence](../../audit-artifacts/agent-law-local-20261113/lifecycle.json)
+are local only, with scripted jury signing identities and no wallet adapter.
+This does not upgrade any MAINNET row or provide OS/process isolation.
 
 ## The lifecycle
 
@@ -18,13 +28,13 @@ exists in this repository today. Every row carries one label:
 |---|---|---|---|
 | Birth: mandate | The owner writes the agent's limits: recipients, assets, per-payment and 24-hour caps, refund address, approvals and expiry. Guard also stores the mandate source's SHA-256 as a record; it does not check intents against it (pinning payment programs is PR #202, not deployed). | **MAINNET** | `create_mandate` in [`mandate.rs`](../../x3-lang/near/x3-guard/src/mandate.rs). invoice_06 ran under mandate v4, whose source is [`mandate-proposed.x3`](../../evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/mandate-proposed.x3). |
 | Birth: identity | The agent is its own NEAR account with a FunctionCall key limited to `agent_register_intent`, `agent_accept_quote` and `agent_record_outcome` on `x3lang.near`. | **MAINNET** | The keys in the [proof card](../../PROOF_CARD.md#accounts-keys-and-code). The same account still holds the owner's FullAccess recovery key (limit 3). |
-| Birth: child agents | A child cannot gain capabilities its parent lacks, exceed the parent's budget or lifetime, or spawn past the parent's limit; an Ed25519 operator approval binds the exact manifests. | **CHECK ONLY** | [`agent_constitution.py`](../../x3-lang/agent_constitution.py), [`agent_admission_signed.py`](../../x3-lang/agent_admission_signed.py), [`X3_AGENT_CONSTITUTION_V1.md`](../security/X3_AGENT_CONSTITUTION_V1.md). There is no identity registry and no atomic budget reservation. |
+| Birth: child agents | A child cannot gain capabilities its parent lacks, exceed the parent's budget or lifetime, or spawn past the parent's limit; an Ed25519 operator approval binds the exact manifests. | **OFFLINE** | [`agent_constitution.py`](../../x3-lang/agent_constitution.py), [`agent_admission_signed.py`](../../x3-lang/agent_admission_signed.py), [`X3_AGENT_CONSTITUTION_V1.md`](../security/X3_AGENT_CONSTITUTION_V1.md). The standalone functions are check-only; the separately merged local Runtime supplies a SQLite identity registry and atomic budget reservations (see above). |
 | Compile | A payment the chain cannot enforce does not compile: no slippage bound, no timeout or refund, no nonce, a second swap leg, an unenforceable finality promise, a look-alike account. | **OFFLINE** | [`x3_wont_compile.py`](../../scripts/hackathon/x3_wont_compile.py) (9/9). On the real mainnet file: [`invoice06_chain.py`](../../scripts/hackathon/invoice06_chain.py) (8/8 edits refused; the unedited files compile to exactly the policy and mandate Guard stores). |
 | Test | A compliant-but-compromised model is run against the mandate before anything is sent. | **OFFLINE** | [`compromised_agent_redteam.py`](../../scripts/hackathon/compromised_agent_redteam.py) (8/8), [`replay_grok_wallet_drain.py`](../../scripts/hackathon/replay_grok_wallet_drain.py) (3/3). Gating a new agent's privileges on passing such a run is **DESIGN**. |
 | Authorize | Every intent and quote is checked against the stored mandate; a 1Click quote must carry a valid manager signature and match the policy term by term. | **MAINNET** | `check_mandate` in `mandate.rs`; `verify_signed_quote` and `evaluate` in [`lib.rs`](../../x3-lang/near/x3-guard/src/lib.rs). invoice_06 returned 21 checks, all ok. |
 | Execute | The agent cannot move value except through an authorized route. | **Gap** | Guard authorizes a deposit address; it does not hold or move funds. The funding wallet's key and the FullAccess keys are routes around it (proof card limits 1–3). A Guard-controlled vault as the only spend route is **DESIGN**. |
-| Terminate | The owner revokes the mandate; the agent's next register, approve or accept fails at once. | **MAINNET** (code), shown in a unit test and on testnet | `revoke_mandate` in `mandate.rs`; unit test `revoking_stops_the_agent_at_once_and_replacing_voids_old_intents` (required `near-guard` CI job); testnet `revoke_mandate` [`7aVonMiR…`](https://testnet.nearblocks.io/txns/7aVonMiRCDyetbkpRBK6GKnL2X1XrQTPsf3Pk1gKGzp8), block 276547226, in [`transactions.json`](../../evidence/near-guard-testnet/transactions.json). A finalized refusal of an agent call after revocation is not yet recorded on chain. Stopping off-chain processes and preserving their state (Scrapyard) is **DESIGN**. |
-| Review (court and jury) | Independent reviewers examine the preserved proposal, checks and receipts; the agent may explain itself but cannot authorize or acquit itself. | Evidence: **MAINNET** receipts and committed bundles. Court and jury: **DESIGN** | The [invoice_06 bundle](../../evidence/near-guard-mainnet-invoice06-2026-11-12/README.md). Refusals revert, so Guard stores no record of them; an on-chain refusal record is **DESIGN**. The agent's outcome report is stored as reported and not authenticated (limit 4). |
+| Terminate | The owner revokes the mandate; the agent's next register, approve or accept fails at once. | **MAINNET** (code), shown in a unit test and on testnet | `revoke_mandate` in `mandate.rs`; unit test `revoking_stops_the_agent_at_once_and_replacing_voids_old_intents` (required `near-guard` CI job); testnet `revoke_mandate` [`7aVonMiR…`](https://testnet.nearblocks.io/txns/7aVonMiRCDyetbkpRBK6GKnL2X1XrQTPsf3Pk1gKGzp8), block 276547226, in [`transactions.json`](../../evidence/near-guard-testnet/transactions.json). A finalized refusal of an agent call after revocation is not yet recorded on chain. The local Runtime persists retirement and evidence across restart. Stopping arbitrary OS processes and full Scrapyard isolation remain **DESIGN**. |
+| Review (court and jury) | Independent reviewers examine the preserved proposal, checks and receipts; the agent may explain itself but cannot authorize or acquit itself. | Evidence: **MAINNET** receipts and committed bundles. Local signed incident review: **OFFLINE**; independent AI court and jury: **DESIGN** | The [invoice_06 bundle](../../evidence/near-guard-mainnet-invoice06-2026-11-12/README.md). Refusals revert, so Guard stores no record of them; an on-chain refusal record is **DESIGN**. The agent's outcome report is stored as reported and not authenticated (limit 4). |
 | Evolve | Rules change only as a new owner-signed mandate version; intents registered under an older version can no longer be accepted. | **MAINNET** | `create_mandate` increments the version; the unit test above shows the old intent refused. The agent's FunctionCall key cannot call `create_mandate` or `revoke_mandate`. Chaining each version to the previous one by hash is **DESIGN**. |
 
 ## Properties the deployed Guard already has
@@ -53,4 +63,4 @@ The original ten-commandment constitution is Orchestra's Score in the xxxstar re
 3. Make a Guard-controlled vault the agent's only spend route (closes the Execute gap).
 4. Store a refusal record, with the guard and program hash, for every refused call (gives review on-chain evidence).
 5. Pin payment programs (PR #202) and chain mandate versions by hash.
-6. The runtime registry, termination and Scrapyard for child agents.
+6. Integrate the local runtime registry and retirement into real execution routes; OS-level termination and Scrapyard isolation remain unimplemented.

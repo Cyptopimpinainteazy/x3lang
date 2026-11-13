@@ -19,7 +19,7 @@ for compile-time versus runtime checks and the evidence boundaries.
 
 Start with the evidence for the claim you want to verify. The three checks
 below can be completed without a wallet. They cover the AI Security & Defense
-and Agent Economy submission.
+Agent Economy and Unstoppable DeFi submission perspectives; mainnet payment proof is linked above.
 
 ## 1. Run the offline policy demo
 

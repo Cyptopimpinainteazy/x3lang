@@ -11,10 +11,7 @@ Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-ch
 for compile-time versus runtime checks and the evidence boundaries.
 
 
-**Scope:** the documented submission categories are AI Security & Defense and
-Agent Economy. Unstoppable DeFi is a proposed third project perspective, not a
-confirmed submitted track. Confirm the owner-approved submission record before
-changing that scope. One `.x3` owner mandate and one `.x3` payment policy supply
+**Scope:** the owner-selected tracks are AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). This does not certify organizer acceptance. One `.x3` owner mandate and one `.x3` payment policy supply
 the local security and agent demonstrations; there is no new language syntax,
 second policy authority, or separate track-specific transaction engine.
 Historical Tidepool testnet delivery is assessed separately in
