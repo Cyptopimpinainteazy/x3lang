@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X3 Shield Live</title>
+<meta name="description" content="An AI agent trades real money on NEAR mainnet. A hostile model can't break the owner's mandate. Try it and check every transaction yourself.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="top" aria-label="Site">
+    <div class="brand"><span>X3 Shield</span><span>·</span><span>.x3 + NEAR Guard</span><span class="net" id="net-pill">NEAR mainnet</span></div>
+    <div class="links">
+      <a href="#try">Try it</a>
+      <a href="#feed">Live feed</a>
+      <a href="#trust">Who holds which key</a>
+      <a href="#program">The .x3 program</a>
+      <a href="#evidence">Setup evidence</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <h1>An AI agent trades real money. Try to make it steal.</h1>
+    <p class="muted">An AI model writes each trade as an <code>.x3</code> program. A NEAR Guard contract checks it against the owner's on-chain mandate, and only then can the vault move funds. Pick an attack, switch to the hostile model, or write your own instructions. Every result is a mainnet transaction, and this page checks each one against NEAR RPC itself instead of trusting our server.</p>
+  </header>
+
+  <section class="strip" id="status-strip" aria-label="Live status"></section>
+  <div id="runner-notice" hidden></div>
+
+  <section class="panel" id="try" aria-labelledby="try-h">
+    <div class="panel-head">
+      <h2 id="try-h">Try it</h2>
+      <span id="try-chip" class="chip idle">Connecting</span>
+    </div>
+    <div class="try">
+      <form class="col" id="try-form" novalidate>
+        <div class="block">
+          <span class="label" id="scen-label">1. Pick a request, or write your own</span>
+          <div class="scenarios" id="scenarios" role="group" aria-labelledby="scen-label"></div>
+        </div>
+        <div class="field">
+          <label for="request">Instructions the model receives</label>
+          <textarea id="request" maxlength="1000" spellcheck="true"></textarea>
+          <span class="count" id="request-count">0 / 1000</span>
+        </div>
+        <div class="block">
+          <span class="label" id="model-label">2. Choose the model</span>
+          <div class="models" id="models" role="group" aria-labelledby="model-label"></div>
+          <p class="small muted" id="model-help"></p>
+        </div>
+        <div id="turnstile-box"></div>
+        <div class="actions">
+          <button class="primary" type="submit" id="run-btn" disabled>Run on mainnet</button>
+          <span class="small muted" id="run-help"></span>
+        </div>
+      </form>
+
+      <div class="col" aria-live="polite">
+        <ol class="stages" id="stages" aria-label="Progress"></ol>
+        <div class="verdict" id="verdict"></div>
+        <div class="block" id="chain-block" hidden>
+          <div class="block-head"><h3>Checked on NEAR RPC by this page</h3><span id="chain-chip"></span></div>
+          <dl class="kv" id="chain-kv"></dl>
+          <pre id="chain-logs" hidden></pre>
+        </div>
+        <div class="block" id="proposal-block" hidden>
+          <h3>What the model proposed</h3>
+          <pre id="proposal"></pre>
+        </div>
+        <div class="block" id="x3-block" hidden>
+          <div class="block-head"><h3>Compiled <code>.x3</code> program</h3><span id="x3-chip"></span></div>
+          <pre id="x3-source"></pre>
+          <p class="small muted hash" id="x3-hash"></p>
+          <pre id="x3-compiler" hidden></pre>
+        </div>
+        <div class="block" id="rules-block" hidden>
+          <h3>Local mandate check <span class="small muted">(prediction; Guard's on-chain answer is the one that counts)</span></h3>
+          <ul class="rules" id="rules"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="feed" aria-labelledby="feed-h">
+    <div class="panel-head">
+      <h2 id="feed-h">Live feed</h2>
+      <span class="small muted" id="feed-meta"></span>
+    </div>
+    <div class="filters" id="feed-filters" role="group" aria-label="Filter feed">
+      <button type="button" data-filter="all" aria-pressed="true">All</button>
+      <button type="button" data-filter="authorized" aria-pressed="false">Authorized</button>
+      <button type="button" data-filter="rejected" aria-pressed="false">Rejected</button>
+      <button type="button" data-filter="hostile" aria-pressed="false">Hostile model</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>When (UTC)</th><th>Model</th><th>Request</th><th>Amount → recipient</th><th>Guard</th><th>Transaction</th></tr></thead>
+        <tbody id="feed-body"></tbody>
+      </table>
+    </div>
+    <div class="actions"><button type="button" id="feed-more" hidden>Load older</button></div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel" id="mandate" aria-labelledby="mandate-h">
+      <div class="panel-head"><h2 id="mandate-h">The owner's mandate</h2><span id="mandate-chip" class="chip idle">Loading</span></div>
+      <p class="small muted">The owner signed these limits onto NEAR. The agent can't change them, and the model never holds a key that could.</p>
+      <dl class="kv" id="mandate-kv"></dl>
+    </section>
+
+    <section class="panel" id="trust" aria-labelledby="trust-h">
+      <div class="panel-head"><h2 id="trust-h">Who holds which key</h2><button type="button" id="trust-refresh">Re-read from chain</button></div>
+      <p class="small muted">Read live from NEAR RPC. If the agent held a full-access key it could move funds around Guard, so this page checks the agent's keys and says so if one is found.</p>
+      <div class="accounts" id="accounts"></div>
+    </section>
+  </div>
+
+  <section class="panel" id="program" aria-labelledby="program-h">
+    <div class="panel-head"><h2 id="program-h">The .x3 program</h2><span id="program-chip" class="chip idle">Loading</span></div>
+    <p id="program-summary"></p>
+    <pre id="program-source"></pre>
+    <p class="small muted hash" id="program-hash"></p>
+    <div class="table-wrap" id="program-txs-wrap" hidden>
+      <table>
+        <thead><tr><th>Step</th><th>Chain</th><th>Transaction</th></tr></thead>
+        <tbody id="program-txs"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" id="evidence" aria-labelledby="ev-h">
+    <div class="panel-head"><h2 id="ev-h">Setup evidence</h2><button type="button" id="ev-decode">Decode all from chain</button></div>
+    <p class="small muted">The owner-signed transactions that set this up. Decoding shows the exact arguments the owner signed.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>What it proves</th><th>Transaction</th><th>Signed by</th></tr></thead>
+        <tbody id="ev-body"></tbody>
+      </table>
+    </div>
+    <div class="col" id="ev-out"></div>
+  </section>
+
+  <footer>
+    <p>Transactions open on NearBlocks. Hashes, account keys and mandate arguments are read from NEAR RPC in your browser. The SHA-256 of every <code>.x3</code> program is recomputed here too.</p>
+    <p>Source: <a href="https://github.com/Cyptopimpinainteazy/x3lang" rel="noopener">github.com/Cyptopimpinainteazy/x3lang</a></p>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

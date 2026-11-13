@@ -3713,7 +3713,7 @@ fn check_names_the_failing_stage_rather_than_assuming_one() {
 /// `--deny-warnings` is deliberate: an example that checks but warns shows a reader a
 /// program the compiler complains about, which for documentation is a defect. That is how
 /// `arb_solana_eth.x3` turned out to have two refund operations claiming one lock.
-const ADAPTER_ONLY_INTENTS: &[&str] = &[
+const ADAPTER_INTENTS: &[&str] = &[
     "bsc_bnb_to_near_wnear_dry.x3",
     "near_intents_agent_denied.x3",
     "near_intents_agent_payment.x3",
@@ -3721,10 +3721,94 @@ const ADAPTER_ONLY_INTENTS: &[&str] = &[
     "near_intents_sol_to_near.x3",
 ];
 
-/// These files are source-compatible policy inputs, but their fee ceiling is
-/// checked against a live signed quote by the NEAR adapter rather than by the
-/// generic VM's strategy policy. `x3c intent` must still produce the adapter
-/// draft; `x3c build` must continue to fail closed.
+const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
+/// `mandate` declarations consumed by the Python tooling (near_mandate.py and
+/// near_native_vault.py) and x3-guard; they are not intents the generic VM executes.
+/// Their own Python suites check them (test_surface_drift.py, test_native_vault_binding.py).
+const PYTHON_ONLY_MANDATES: [&str; 2] = ["near_mandate_agent.x3", "near_native_vault_supplier.x3"];
+
+/// This historical testnet source is compiled only by the Python Base Sepolia frontend
+/// (scripts/hackathon/base_sepolia_x3_intent.py). Every generic production entry point
+/// (`intent`, `check` and `build`) must refuse its unsupported chain and emit nothing.
+/// None of these outcomes is evidence that a quote was authorized or a transaction executed.
+fn assert_testnet_draft_and_generic_refusal(file: &std::path::Path) {
+    let draft_path = unique_temp("testnet-adapter.intent.json");
+    let draft = x3c()
+        .arg("intent")
+        .arg(file)
+        .arg("--out")
+        .arg(&draft_path)
+        .output()
+        .expect("x3c intent");
+    let draft_diagnostic = format!(
+        "{}{}",
+        String::from_utf8_lossy(&draft.stdout),
+        String::from_utf8_lossy(&draft.stderr)
+    );
+    assert!(
+        !draft.status.success(),
+        "fail-closed intent admission must refuse the unsupported testnet chain: {draft_diagnostic}"
+    );
+    // `intent` reports admission errors in Debug form, which escapes the quotes.
+    assert!(
+        draft_diagnostic.contains("intent admission failed")
+            && draft_diagnostic.contains(r#"X3E0501: source chain \"basesepolia\" is not a known production chain"#),
+        "intent must name the chain boundary, not fail for an unrelated reason: {draft_diagnostic}"
+    );
+    assert!(
+        !draft_path.exists(),
+        "refused testnet source must not produce an adapter draft"
+    );
+
+    let artifact = unique_temp("testnet-adapter.x3b");
+    for operation in ["check", "build"] {
+        let mut command = x3c();
+        command.arg(operation).arg(file);
+        if operation == "build" {
+            command.arg("--out").arg(&artifact);
+        }
+        let output = command.output().expect("generic testnet refusal");
+        let diagnostic = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !output.status.success(),
+            "generic {operation} must refuse the unsupported testnet chain: {diagnostic}"
+        );
+        let expected_reason = "X3E0501: source chain \"basesepolia\" is not a known production chain";
+        let refused_for_chain = if operation == "check" {
+            // `check` emits a JSON diagnostic after its human-readable prelude.
+            // Match a decoded error, not JSON's escaped quote representation.
+            let json_start = diagnostic
+                .find("\n{")
+                .map(|index| index + 1)
+                .expect("check JSON diagnostic");
+            let report: serde_json::Value = serde_json::from_str(&diagnostic[json_start..]).expect("check JSON");
+            assert_eq!(report["status"], "error");
+            report["errors"]
+                .as_array()
+                .expect("check errors")
+                .iter()
+                .any(|error| error.as_str().is_some_and(|message| message.contains(expected_reason)))
+        } else {
+            diagnostic.contains(expected_reason)
+        };
+        assert!(
+            refused_for_chain,
+            "generic {operation} must name the chain boundary, not fail for an unrelated reason: {diagnostic}"
+        );
+    }
+    assert!(
+        !artifact.exists(),
+        "refused testnet source must not produce VM bytecode"
+    );
+}
+
+/// These programs produce NEAR adapter drafts. Draft generation or generic
+/// compilation does not verify signed quotes, enforce a mandate, or authorize
+/// execution. The testnet-only source has a separate, explicit refusal contract.
 #[test]
 fn every_example_checks_and_builds() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
@@ -3753,18 +3837,24 @@ fn every_example_checks_and_builds() {
 
     let mut failures = Vec::new();
     let mut adapter_intents = 0usize;
+    let mut testnet_drafts = 0usize;
     for example in &found {
         let name = example
             .file_name()
             .expect("an example path has a file name")
             .to_string_lossy()
             .into_owned();
-        if name == "near_mandate_agent.x3" {
-            // A `mandate` declaration is consumed by near_mandate.py and
+        if name == TESTNET_DRAFT_ONLY {
+            testnet_drafts += 1;
+            assert_testnet_draft_and_generic_refusal(example);
+            continue;
+        }
+        if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
+            // A `mandate` declaration is consumed by the Python tooling and
             // x3-guard; it is not an intent the generic VM can execute.
             continue;
         }
-        if ADAPTER_ONLY_INTENTS.contains(&name.as_str()) {
+        if ADAPTER_INTENTS.contains(&name.as_str()) {
             adapter_intents += 1;
             let intent = x3c().arg("intent").arg(example).output().expect("x3c intent");
             if !intent.status.success() {
@@ -3805,6 +3895,10 @@ fn every_example_checks_and_builds() {
         }
     }
 
+    assert_eq!(
+        testnet_drafts, 1,
+        "the corpus walk must check the testnet draft's named refusal"
+    );
     assert_eq!(
         adapter_intents, 4,
         "the example walk must find all four NEAR adapter intents"
@@ -3971,10 +4065,11 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
 
     let mut failures = Vec::new();
     let mut adapter_intents = 0usize;
-    let mut python_only = 0usize;
+    let mut testnet_drafts: Vec<std::path::PathBuf> = Vec::new();
+    let mut python_only: Vec<String> = Vec::new();
     for file in &found {
         let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        if ADAPTER_ONLY_INTENTS.contains(&name.as_str()) {
+        if ADAPTER_INTENTS.contains(&name.as_str()) {
             adapter_intents += 1;
             let intent = x3c().arg("intent").arg(file).output().expect("x3c intent");
             if !intent.status.success() {
@@ -3986,8 +4081,13 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
             }
             continue;
         }
-        if name == "near_mandate_agent.x3" {
-            python_only += 1;
+        if name == TESTNET_DRAFT_ONLY {
+            testnet_drafts.push(file.clone());
+            assert_testnet_draft_and_generic_refusal(file);
+            continue;
+        }
+        if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
+            python_only.push(name);
             continue;
         }
         let check = x3c().arg("check").arg(file).output().expect("x3c check");
@@ -3997,14 +4097,33 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         }
     }
 
+    // The canonical draft lives in examples/. Published copies (the judge-live site serves one)
+    // are allowed only as byte-identical mirrors, and each one is checked for the named refusal.
+    let canonical = root.join("examples").join(TESTNET_DRAFT_ONLY);
+    assert!(
+        testnet_drafts.contains(&canonical),
+        "the corpus walk must check the testnet draft's named refusal at {}",
+        canonical.display()
+    );
+    let canonical_bytes = std::fs::read(&canonical).expect("read the canonical testnet draft");
+    for copy in &testnet_drafts {
+        assert_eq!(
+            std::fs::read(copy).expect("read a testnet draft copy"),
+            canonical_bytes,
+            "{} must stay byte-identical to the canonical testnet draft {}",
+            copy.display(),
+            canonical.display()
+        );
+    }
     assert_eq!(
         adapter_intents,
-        ADAPTER_ONLY_INTENTS.len(),
+        ADAPTER_INTENTS.len(),
         "the tree walk must find every adapter intent exactly once"
     );
+    python_only.sort();
     assert_eq!(
-        python_only, 1,
-        "the tree walk must find the Python-only mandate declaration"
+        python_only, PYTHON_ONLY_MANDATES,
+        "the tree walk must find each Python-only mandate declaration exactly once"
     );
     assert!(
         failures.is_empty(),

@@ -153,10 +153,19 @@ Run `cargo test --locked` from `x3-lang/near/x3-guard`, and
 `bash scripts/hackathon/scoped_agent_sandbox_smoke.sh` from the repository root.
 The Sandbox exercises the compiled production WASM with a real function-call
 signer, storage debit, mandate refusal, withdrawal and failed-registration
-rollback. Unit tests cover acceptance/outcome charging, credit isolation/caps,
+rollback. It also exercises quote acceptance with exhausted storage credit:
+the failed receipt must preserve both replay ledgers, both intent records,
+the mandate's spending history, credit and storage usage. Funding credit then
+allows the identical quote once; a cross-nonce replay must fail without changes.
+This uses synthetic signatures and a manager public key patched only into the
+ephemeral Sandbox's state. The production manager first refuses the synthetic
+quote, the exact production WASM remains unchanged, and the manager is restored
+afterward. This proves runtime rollback, not official 1Click acceptance or
+cross-chain settlement. See the [execution evidence](../../audit-artifacts/guard-quote-storage-rollback-20261111/verification.json).
+
+Unit tests cover acceptance/outcome charging, credit isolation/caps,
 and failed-transfer callback restoration. Mocked promise outcomes do not prove
-real failed-transfer execution. The Sandbox does not claim accepted-quote
-storage-exhaustion/replay-ledger rollback or a cross-chain settlement.
+real failed-transfer execution.
 
 Dependency reference: `near-sdk 5.30.0`, pinned in Cargo.lock. Its
 [generated self-call and private-method documentation](https://docs.rs/near-sdk/5.30.0/near_sdk/attr.near.html)

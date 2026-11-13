@@ -1,5 +1,16 @@
 # NEAR Hackathon submission checklist
 
+## Competition framing
+
+**.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
+
+An intent states the desired outcome. The owner’s `.x3` mandate sets the limits.
+The compiler rejects invalid programs; deterministic mandate checks and NEAR Guard
+refuse prohibited terms. NEAR Intents / 1Click supplies the supported execution route.
+Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
+for compile-time versus runtime checks and the evidence boundaries.
+
+
 Official instructions were checked against
 [`https://nearhackathon.com/HACKATHON.md`](https://nearhackathon.com/HACKATHON.md) on
 2026-11-04. Re-open that live file immediately before submitting because rules may change.
@@ -15,8 +26,17 @@ Official instructions were checked against
 - Errors are changed through
   [`/request-changes`](https://nearhackathon.com/request-changes), not by creating a second
   submission.
-- Track ids for this project are `security` and `agents`. DeFi routing remains
-  roadmap work until a separately evidenced deposit and settlement exist.
+
+## Project submission scope
+
+- The documented submission categories are `security` and `agents`; confirm
+  them against the actual owner-approved submission record. This checklist does
+  not certify organizer acceptance.
+- `defi` is a proposed third project perspective, not a confirmed submitted track.
+  Historical funded Tidepool community-testnet delivery exists; official funded
+  1Click settlement remains unproven. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
+  The owner must review track fit and explicitly select any submission change;
+  do not infer an additional entry from the website's three track pages.
 
 ## Repository
 
@@ -45,8 +65,12 @@ Official instructions were checked against
 - [ ] Confirm the local demo reports `local_policy_preview_only`; keep the
       separately labeled NEAR testnet evidence at its own limited level.
 - [ ] Re-verify both commands in `GUARD_TESTNET_EVIDENCE.md`; distinguish
-      official dry-quote refusal and live allowed acceptance from a live
-      forbidden-quote refusal, deposit, settlement and causality.
+      official dry-quote refusal and live allowed acceptance from an unproven live
+      forbidden-quote refusal and funded official 1Click settlement.
+- [ ] Reproduce the separately labeled historical Tidepool archive using
+      `verify_first_swap_archive.py`; retain the exact commit and result. Keep
+      archived observations, any fresh RPC recheck and trusted-relay assumptions
+      distinct; neither local policy nor quote acceptance proves delivery.
 - [ ] Run GitHub CI on the exact pushed SHA.
 - [ ] Record every check result without treating a neutral or skipped check as a pass.
 
@@ -55,7 +79,10 @@ Official instructions were checked against
 - [ ] Run `python3 -m http.server 8000 --directory x3-lang/near/demo`.
 - [ ] Open `http://localhost:8000/judge.html` on localhost so WebCrypto is available.
 - [ ] Confirm all twelve scenarios render and Python/browser decisions agree.
-- [ ] Confirm the page says no quote, wallet authorization, transaction or settlement occurred.
+- [ ] Confirm the local judge preview says its scenarios do not fetch a fresh
+      quote, authorize a wallet, send a transaction or settle funds. Keep any
+      linked archived quote, Guard transaction and Tidepool delivery evidence
+      separately labeled.
 - [ ] If a hosted page is used, verify it serves this exact commit and keep it available through
       judging.
 
@@ -65,8 +92,12 @@ Official instructions were checked against
       minutes.
 - [ ] Show the local one-command judge path after its documented dependency
       provisioning and show the exact decision labels.
-- [ ] Show only the real testnet transactions and code hashes in
-      `GUARD_TESTNET_EVIDENCE.md`; state that no deposit or settlement occurred.
+- [ ] Use the exact transactions and code hashes for each evidence path. State
+      that the official 1Click positive control in `GUARD_TESTNET_EVIDENCE.md`
+      stopped before funding. If showing the separate historical Tidepool trade,
+      link `FIRST_SWAP_JUDGE_WALKTHROUGH.md`, show the funded source and finalized
+      destination, and disclose the trusted relay. Do not claim official 1Click
+      settlement or cryptographic cross-chain atomicity from that trade.
 - [ ] State the evidence boundary plainly.
 - [ ] The human publishes the X post from the project/team account.
 - [ ] The post names NEAR HACKATHON, `@NEARProtocol` and `#NEARHackathon`.
