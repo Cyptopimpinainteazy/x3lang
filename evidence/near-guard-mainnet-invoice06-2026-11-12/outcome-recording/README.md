@@ -73,3 +73,13 @@ sets `floor_met`; it does not independently authenticate the supplied transactio
 hashes or prove solver-level cross-chain causality. Provider linkage remains an
 unsigned association. This is an agent-reported outcome backed by the separately
 reverified finalized transfers, not an on-chain cross-chain proof verifier.
+
+## Secret-scan triage
+
+GitGuardian flagged three high-entropy values in `settlement-reverification.json`:
+its two public Solana SPL token-account addresses and its public NEAR USDC token
+contract account ID. [secret-scan-triage.json](secret-scan-triage.json) records the
+exact finding IDs, fields and fresh finalized public account queries establishing
+what each value is. They are public chain identifiers, not signing/API credentials.
+The raw evidence is preserved and secret scanning remains enabled; the dashboard
+findings have not been dismissed. This external check is not being reported green.
