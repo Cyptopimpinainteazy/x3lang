@@ -1,5 +1,7 @@
 # X3 Force Field
 
+**Judges: [start here — payment, limits, proof and reproduction](JUDGES.md).**
+
 **Formerly X3 Shield.** The name changes; deployed `x3-guard`, `.x3` source files, evidence paths, wallet permissions and historical transaction records do not.
 
 **Judges: start with the one-page [proof card](PROOF_CARD.md)** — the five mainnet invoice_06 transactions, the accounts and keys, the matching `.x3` hashes, and the seven limits.
@@ -318,12 +320,10 @@ It makes no blockchain transactions and uses no wallet. Longer walkthrough:
 
 ## Three project perspectives
 
-Built at NEAR HACKATHON 2026. The documented submission scope is
-**AI Security & Defense** (`security`, primary) and **Agent Economy** (`agents`).
-**Unstoppable DeFi** (`defi`) is the intended third-track perspective if selected
-by the owner in the submission form; no submission receipt is confirmed. The three project perspectives below do not establish
-which tracks the organizer has accepted; confirm the owner-approved submission
-record before changing that scope. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
+Built at NEAR HACKATHON 2026. Submitted tracks: **AI Security & Defense**
+(`security`, primary), **Agent Economy** (`agents`) and **Unstoppable DeFi** (`defi`),
+as selected by the owner on the submission form. The three project perspectives below
+do not establish which tracks the organizer has accepted. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
 and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md). The
 [three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md) separates local policy,
 historical testnet evidence, and one completed official 1Click mainnet settlement. The agent

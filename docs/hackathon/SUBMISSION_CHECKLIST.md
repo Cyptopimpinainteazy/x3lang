@@ -34,14 +34,12 @@ Official instructions were checked against
 **Differentiator to show judges:** typed owner-written `.x3` mandate → compile/type-check and reject unsafe edits → deterministic quote/policy checks → NEAR Guard signed-quote enforcement → archived `invoice_06` authorization, settlement and recorded outcome. Do not imply native X3VM executed on NEAR.
 
 
-- The documented submission categories are `security` and `agents`; confirm
-  them against the actual owner-approved submission record. This checklist does
-  not certify organizer acceptance.
-- `defi` is an intended third-track perspective **only if selected on the official form**; no organizer acceptance is claimed.
-  Historical funded Tidepool community-testnet delivery exists; one official funded
-  1Click mainnet settlement is recorded as `invoice_06`. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
-  The owner must select the track on the final form and preserve its receipt;
-  do not infer an additional entry from the website's three track pages.
+- Owner-selected tracks: `security` (primary), `agents` and `defi`, as selected on the
+  submission form. This checklist does not certify organizer acceptance.
+- `defi` frames X3 Force Field as an authorization layer over NEAR Intents / 1Click, not a
+  new bridge. Historical funded Tidepool community-testnet delivery exists; one official
+  funded 1Click mainnet settlement is recorded as `invoice_06`. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
+  Preserve the submission receipt.
 
 ## Repository
 

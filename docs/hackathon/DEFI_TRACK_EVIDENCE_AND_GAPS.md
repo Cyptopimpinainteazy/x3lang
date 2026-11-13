@@ -1,10 +1,9 @@
 # Unstoppable DeFi: evidence and judge path
 
-This is a proposed third-track assessment, not a claim of entry, victory, or release readiness.
-The documented submission scope remains AI Security & Defense (`security`) and
-Agent Economy (`agents`). The website's three project perspectives do not confirm
-that `defi` was submitted; verify the owner-approved submission record before any
-track change. See the [submission checklist](SUBMISSION_CHECKLIST.md) and
+This is the evidence assessment for the third submitted track, not a claim of organizer
+acceptance, victory, or release readiness. The owner selected AI Security & Defense
+(`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`) on the
+submission form. See the [submission checklist](SUBMISSION_CHECKLIST.md) and
 [local judge package](JUDGE_PACKAGE.md).
 
 ## Working demonstration
