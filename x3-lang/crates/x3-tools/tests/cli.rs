@@ -3722,10 +3722,15 @@ const ADAPTER_INTENTS: &[&str] = &[
 ];
 
 const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
+/// `mandate` declarations consumed by the Python tooling (near_mandate.py and
+/// near_native_vault.py) and x3-guard; they are not intents the generic VM executes.
+/// Their own Python suites check them (test_surface_drift.py, test_native_vault_binding.py).
+const PYTHON_ONLY_MANDATES: [&str; 2] = ["near_mandate_agent.x3", "near_native_vault_supplier.x3"];
 
-/// This historical testnet source can be emitted as a draft, while the generic
-/// production compiler must continue to refuse its unsupported chain. Neither outcome is
-/// evidence that a quote was authorized or a transaction was executed.
+/// This historical testnet source is compiled only by the Python Base Sepolia frontend
+/// (scripts/hackathon/base_sepolia_x3_intent.py). Every generic production entry point
+/// (`intent`, `check` and `build`) must refuse its unsupported chain and emit nothing.
+/// None of these outcomes is evidence that a quote was authorized or a transaction executed.
 fn assert_testnet_draft_and_generic_refusal(file: &std::path::Path) {
     let draft_path = unique_temp("testnet-adapter.intent.json");
     let draft = x3c()
@@ -3735,16 +3740,25 @@ fn assert_testnet_draft_and_generic_refusal(file: &std::path::Path) {
         .arg(&draft_path)
         .output()
         .expect("x3c intent");
-    assert!(
-        draft.status.success(),
-        "the testnet adapter draft must be emitted: {}{}",
+    let draft_diagnostic = format!(
+        "{}{}",
         String::from_utf8_lossy(&draft.stdout),
         String::from_utf8_lossy(&draft.stderr)
     );
-    let value: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&draft_path).expect("draft file")).expect("draft JSON");
-    assert_eq!(value["source_chain"], "BaseSepolia");
-    assert_eq!(value["dest_chain"], "Near");
+    assert!(
+        !draft.status.success(),
+        "fail-closed intent admission must refuse the unsupported testnet chain: {draft_diagnostic}"
+    );
+    // `intent` reports admission errors in Debug form, which escapes the quotes.
+    assert!(
+        draft_diagnostic.contains("intent admission failed")
+            && draft_diagnostic.contains(r#"X3E0501: source chain \"basesepolia\" is not a known production chain"#),
+        "intent must name the chain boundary, not fail for an unrelated reason: {draft_diagnostic}"
+    );
+    assert!(
+        !draft_path.exists(),
+        "refused testnet source must not produce an adapter draft"
+    );
 
     let artifact = unique_temp("testnet-adapter.x3b");
     for operation in ["check", "build"] {
@@ -3835,8 +3849,8 @@ fn every_example_checks_and_builds() {
             assert_testnet_draft_and_generic_refusal(example);
             continue;
         }
-        if name == "near_mandate_agent.x3" {
-            // A `mandate` declaration is consumed by near_mandate.py and
+        if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
+            // A `mandate` declaration is consumed by the Python tooling and
             // x3-guard; it is not an intent the generic VM can execute.
             continue;
         }
@@ -4052,7 +4066,7 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
     let mut failures = Vec::new();
     let mut adapter_intents = 0usize;
     let mut testnet_drafts: Vec<std::path::PathBuf> = Vec::new();
-    let mut python_only = 0usize;
+    let mut python_only: Vec<String> = Vec::new();
     for file in &found {
         let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
         if ADAPTER_INTENTS.contains(&name.as_str()) {
@@ -4072,8 +4086,8 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
             assert_testnet_draft_and_generic_refusal(file);
             continue;
         }
-        if name == "near_mandate_agent.x3" {
-            python_only += 1;
+        if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
+            python_only.push(name);
             continue;
         }
         let check = x3c().arg("check").arg(file).output().expect("x3c check");
@@ -4106,9 +4120,10 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         ADAPTER_INTENTS.len(),
         "the tree walk must find every adapter intent exactly once"
     );
+    python_only.sort();
     assert_eq!(
-        python_only, 1,
-        "the tree walk must find the Python-only mandate declaration"
+        python_only, PYTHON_ONLY_MANDATES,
+        "the tree walk must find each Python-only mandate declaration exactly once"
     );
     assert!(
         failures.is_empty(),

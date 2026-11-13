@@ -1,0 +1,31 @@
+name: X3 Mainnet invoice_06 Read-Only Observation
+on:
+  push:
+    branches: [observe/mainnet-invoice06-20261112]
+    paths:
+      - 'scripts/hackathon/observe_mainnet_invoice06.py'
+      - '.github/workflows/x3-mainnet-invoice06-observation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read both chains through public RPC (no keys, no signing)
+        run: python3 scripts/hackathon/observe_mainnet_invoice06.py --out observation.json
+      - name: Show the full observation
+        if: always()
+        run: cat observation.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mainnet-invoice06-observation
+          path: observation.json

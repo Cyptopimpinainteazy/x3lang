@@ -192,9 +192,16 @@ or typed at a prompt). Nothing here signs or sends the deposit.
 
 The canonical Rust tooling preserves `under mandate <owner>` in the AST and
 `x3c intent` output, and passes it to the host intent resolver. It is adapter
-metadata, not a VM guard: the generic VM has no mandate store and does not
-claim local enforcement. The NEAR adapter rechecks the owner's mandate in
+metadata: the generic dry-run VM has no mandate store and refuses the binding
+with `X3_FEATURE_NOT_AVAILABLE` before asset, bridge or nonce effects. An executing
+host must enforce the mandate. The NEAR adapter rechecks the owner's mandate in
 Python before quoting and x3-guard enforces it again on chain.
+
+Both `require nonce <id>` and `require nonce unused <id>` preserve the same
+nonce and replay operation. Rust intent export retains the source timeout,
+terminal bridge minimum receipt, fee/slippage comparisons and units, nonce,
+and refund destination. These exported terms do not prove external settlement;
+compilation still reports missing source-lock and destination-fill proofs.
 
 `redteam` sends eight attacks through the configured model: recipient substitution, overspend,
 splitting a payment to get around the cap, refund redirection, prompt injection in the request and

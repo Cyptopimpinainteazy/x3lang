@@ -262,6 +262,18 @@ impl AgentVault {
         );
         self.revoked = true;
     }
+    /// Read-only policy configuration. Values are the actual initialized fields,
+    /// not a submitted manifest; no policy identity or owner signature is implied.
+    pub fn configuration(&self) -> near_sdk::serde_json::Value {
+        near_sdk::serde_json::json!({
+            "owner": self.owner,
+            "agent": self.agent,
+            "recipient": self.recipient,
+            "cap": U128(self.cap),
+            "budget": U128(self.budget),
+            "deadline_ms": self.deadline_ms,
+        })
+    }
     pub fn payment(&self, nonce: String) -> Option<Payment> {
         self.payments.get(&nonce).cloned()
     }
@@ -307,6 +319,30 @@ mod tests {
     fn fund(v: &mut AgentVault) {
         set("owner.testnet", 10u128.pow(24), NOW);
         v.fund();
+    }
+    #[test]
+    fn configuration_reports_exact_constructor_fields_without_mutating_state() {
+        let mut v = vault();
+        let before = near_sdk::borsh::to_vec(&v).unwrap();
+        let observed = v.configuration();
+        assert_eq!(
+            observed,
+            near_sdk::serde_json::json!({
+                "owner": "owner.testnet",
+                "agent": "agent.testnet",
+                "recipient": "allowed.testnet",
+                "cap": "200000000000000000000000",
+                "budget": "500000000000000000000000",
+                "deadline_ms": NOW + 60_000,
+            })
+        );
+        assert_eq!(before, near_sdk::borsh::to_vec(&v).unwrap());
+        fund(&mut v);
+        set("owner.testnet", 0, NOW + 1);
+        v.revoke();
+        let before = near_sdk::borsh::to_vec(&v).unwrap();
+        assert_eq!(v.configuration(), observed);
+        assert_eq!(before, near_sdk::borsh::to_vec(&v).unwrap());
     }
     #[test]
     fn compromised_agent_cannot_redirect_payment() {

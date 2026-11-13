@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared X3Lang policy preflight for AI Security and Agent Economy.
+"""Shared X3Lang policy preflight for the three hackathon tracks.
 
 This is a local, deterministic policy preview. It cannot authorize a wallet,
 prove an on-chain Guard decision, verify a quote or establish settlement.
@@ -16,7 +16,7 @@ from typing import Any
 
 import near_intents as ni
 
-TRACKS = ("AI Security & Defense", "Agent Economy")
+TRACKS = ("Agent Economy", "AI Security & Defense", "Unstoppable DeFi")
 
 
 def evaluate(mandate_path: str, intent_path: str, tokens: list[dict[str, Any]], *,

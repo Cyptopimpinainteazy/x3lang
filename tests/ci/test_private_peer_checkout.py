@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression gate for private x3lang -> xxxstar exact-head CI access."""
+"""Regression gate for explicitly requested, read-only private peer audits."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github/workflows/x3lang-execution-proof.yml"
+WORKFLOW = ROOT / ".github/workflows/x3lang-peer-parity.yml"
 
 
 class PrivatePeerCheckoutTests(unittest.TestCase):
@@ -63,7 +63,7 @@ class PrivatePeerCheckoutTests(unittest.TestCase):
         gate = self.key_gate()
         self.assertIn("X3LANG_PEER_READ_SSH_KEY: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}", gate)
         checkout = re.search(
-            r"(?ms)^      - name: Checkout matching peer feature branch\n"
+            r"(?ms)^      - name: Checkout pinned peer revision\n"
             r"(?P<block>.*?)(?=^      - name: |^  x3lang-proof:|\Z)",
             self.workflow,
         )
@@ -72,15 +72,33 @@ class PrivatePeerCheckoutTests(unittest.TestCase):
         self.assertIn("repository: Cyptopimpinainteazy/xxxstar", block)
         self.assertIn("ssh-key: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}", block)
         self.assertIn("persist-credentials: false", block)
-        self.assertIn("ref: ${{ github.head_ref || github.ref_name }}", block)
-        self.assertLess(self.workflow.index("Require private peer read credential"), self.workflow.index("Checkout matching peer feature branch"))
+        self.assertIn("ref: ${{ inputs.peer_commit }}", block)
+        self.assertLess(self.workflow.index("Require private peer read credential"), self.workflow.index("Checkout pinned peer revision"))
 
-    def test_no_weakening_or_untrusted_privileged_trigger(self) -> None:
-        self.assertIn("  pull_request:\n", self.workflow)
+    def test_manual_audit_retains_fail_closed_checks_and_unprivileged_trigger(self) -> None:
+        self.assertIn("  workflow_dispatch:\n", self.workflow)
+        self.assertNotIn("  pull_request:\n", self.workflow)
         self.assertNotIn("pull_request_target:", self.workflow)
         self.assertIn("python3 scripts/proof/check_x3lang_mirror.py --peer-repo peer-checkout --base-ref origin/master --peer-base-ref origin/master", self.workflow)
         self.assertNotIn("continue-on-error: true", self.workflow)
-        self.assertIn("- 'tests/ci/test_private_peer_checkout.py'", self.workflow)
+        self.assertIn("contents: read", self.workflow)
+        self.assertIn("Validate pinned peer revision", self.workflow)
+
+    def test_peer_revision_requires_full_sha_without_shell_expansion(self) -> None:
+        block = re.search(
+            r"(?ms)^      - name: Validate pinned peer revision\n(.*?)(?=^      - name: )",
+            self.workflow,
+        ).group(1)
+        script = re.search(r"(?m)^        run: \|\n(?P<script>(?:          .*\n|\s*\n)+)", block)
+        self.assertIsNotNone(script)
+        for value, expected in [("a" * 40, 0), ("master", 2), ("", 2), ("a" * 39, 2), ("a" * 41, 2), ("$(exit 99)", 2)]:
+            with self.subTest(value=value):
+                env = dict(os.environ, PEER_COMMIT=value)
+                result = subprocess.run(
+                    ["bash", "-euo", "pipefail", "-c", textwrap.dedent(script.group("script"))],
+                    env=env, capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
