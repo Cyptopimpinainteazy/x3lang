@@ -41,6 +41,33 @@ All privileged execution adapters must check live identity status and capability
 
 These are mandatory preconditions before describing this code as production agent admission. The separate Scrapyard workstream must not assume a `check_admission` success is equivalent to live enforcement.
 
+## Where the agent-law chain stands (2026-11-13)
+
+The chain this constitution aims for is birth → compile → test → authorize → execute → monitor → judge. This table records what exists at each stage today and how strong the evidence is. Spending enforcement exists separately from the admission checks above, and the two are not yet connected.
+
+| Stage | What exists | Evidence | Missing |
+|---|---|---|---|
+| Birth | The owner creates the Guard mandate (recipients, assets, caps, refund address, approvals, expiry) and gives the agent a key limited to three Guard methods. This module's admission checks and signed preflight. | Mainnet for the mandate and key ([proof card](../../PROOF_CARD.md#accounts-keys-and-code)). Local tests for admission. | Admission is not wired to mandate creation or key issuance. The ten commandments are not enforced in code here. |
+| Compile | The `.x3` compiler refuses unsafe payments. | Local: `scripts/hackathon/x3_wont_compile.py`, 9/9 refused. | — |
+| Test | Red-team and replay suites in which the model complies with every attack. | Local: `compromised_agent_redteam.py` 8/8 and `replay_grok_wallet_drain.py` 3/3 refused. | Passing them is not required before an agent receives a key. |
+| Authorize and execute | Guard checks Guard-mediated actions and holds no funds. The NEAR agent vault holds the funds and pays only inside its mandate. | Guard: mainnet invoice_06. Vault: local Sandbox, below. | The invoice_06 funds moved from a wallet outside Guard. The vault is not publicly deployed. The Solana vault is source and local tests only. |
+| Terminate | Owner revocation in Guard (`revoke_mandate`) and in the vault (`revoke`), and expiry in both. | Guard: unit test `revoking_stops_the_agent_at_once_and_replacing_voids_old_intents`. Vault: local Sandbox, below. | Nothing revokes an agent automatically when it breaks a rule. |
+| Court | Typed refusals, hashed logs and fail-closed evidence checkers. | Local and CI. | No independent review process. On Guard the agent records its own outcome, and Guard does not authenticate it (proof card limit 4). |
+| Evolve | Mandates are versioned, and only the owner can replace one. | Guard unit tests. | No reviewed path from findings to new policy. |
+
+### One complete path, on a local NEAR node
+
+[`evidence/agent-vault-local/complete-path-sandbox-20261113.json`](../../evidence/agent-vault-local/complete-path-sandbox-20261113.json) records a run of `scripts/hackathon/vault_sandbox_smoke.sh` on commit `aa8e3ae` against an ephemeral NEAR Sandbox 2.14.0 node:
+
+- **A permitted action executes.** The 0.1 NEAR payment reached `Paid`.
+- **A forbidden action cannot bypass enforcement.** A direct transfer with the agent's key failed with `RequiresFullAccess`, and attaching a deposit failed with `DepositWithFunctionCall`; balances were unchanged. A wrong recipient, an over-cap amount and a replayed payment each got a typed `X3_VAULT_DENIED` refusal. The agent could not call the owner's recovery method (`MethodNameMismatch`).
+- **Revocation stops later actions.** A fresh payment after the owner revoked was refused (`owner revoked mandate`), and the earlier payment stayed `Paid`. A fresh payment under an expired mandate was refused as well.
+- **The evidence is preserved.** The harness output is committed with its SHA-256, next to the compiled contract's SHA-256.
+
+Limits: this is a disposable local chain, not testnet or mainnet. Runner observations are not consensus proofs. The owner's FullAccess key is trusted and was outside the adversary's reach. It is not the mainnet invoice_06 path, where Guard held no funds.
+
+`x3-lang/tests/test_vault_complete_path_evidence.py` checks the committed log against its hash and the contract's refusal reasons.
+
 ## Focused verification
 
 From the repository root:
