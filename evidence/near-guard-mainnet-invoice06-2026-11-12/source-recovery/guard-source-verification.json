@@ -1,0 +1,130 @@
+{
+  "schema": "x3.invoice06.source-recovery.v1",
+  "observed_at_utc": "2026-11-13T05:19:43.894446+00:00",
+  "machine": "x3gpu1",
+  "base_commit": "efb514ffef2cdfdeb8ad8147747887c85356073c",
+  "source_directory": "/home/lojak/Documents/ChatGPT/x3langnearhackathon/release-evidence/mainnet-deadline-resolution-20261111",
+  "scope": "read-only finalized public NEAR RPC and exact local byte recovery; no signing",
+  "guard": "x3lang.near",
+  "nonce": "mainnet_demo_nov11_invoice_06",
+  "mandate_version": 4,
+  "files": [
+    {
+      "file": "payment-proposed.x3",
+      "bytes": 440,
+      "sha256": "9ee29a5603cfa1e7d9fdbd866cf330ce35e6b5f0907c6844dd2ef1a213768ba0",
+      "guard_program_sha256": "9ee29a5603cfa1e7d9fdbd866cf330ce35e6b5f0907c6844dd2ef1a213768ba0",
+      "matches_guard": true
+    },
+    {
+      "file": "mandate-proposed.x3",
+      "bytes": 396,
+      "sha256": "eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515",
+      "guard_program_sha256": "eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515",
+      "matches_guard": true
+    }
+  ],
+  "intent": {
+    "url": "https://free.rpc.fastnear.com",
+    "result": {
+      "block_hash": "AwjjJa8PZ7FkaKGCWTMiovEXLXUfRVHaJe8yARmCants",
+      "block_height": 224318792,
+      "logs": []
+    },
+    "value": {
+      "owner": "x3lang.near",
+      "nonce": "mainnet_demo_nov11_invoice_06",
+      "policy": {
+        "program_sha256": "9ee29a5603cfa1e7d9fdbd866cf330ce35e6b5f0907c6844dd2ef1a213768ba0",
+        "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+        "amount": "25000000",
+        "min_receive": "24750000",
+        "slippage_bps": 90,
+        "fee_cap_bps": 100,
+        "recipient": "x3lang.near",
+        "refund_to": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+        "deadline_ms": 1794714561152
+      },
+      "registered_at_ms": 1794449167169,
+      "quote": {
+        "facts": {
+          "quote_hash": "8ynPgyqDugkyL2gicfUuTtymMjTPQzcRMBjj4RKgKeSD",
+          "signature": "ed25519:38pJWi4WkTYFCunBZ1Bdvd6vFCfovgeknfZgkMNxhStYCdZUk1LKrEQd3a7cJZZMmLDE7wWCM7GHuVLSkRV4ok88",
+          "dry": false,
+          "swap_type": "EXACT_INPUT",
+          "deposit_type": "ORIGIN_CHAIN",
+          "refund_type": "ORIGIN_CHAIN",
+          "recipient_type": "DESTINATION_CHAIN",
+          "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+          "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+          "recipient": "x3lang.near",
+          "refund_to": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+          "slippage_tolerance_bps": 90,
+          "amount": "25000000",
+          "amount_in": "25000000",
+          "amount_out": "24995200",
+          "min_amount_out": "24770243",
+          "amount_in_usd": "24.988450000000",
+          "amount_out_usd": "24.983652217600",
+          "refund_fee": "10005",
+          "deposit_address": "C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN",
+          "quote_deadline_ms": 1794709670918,
+          "time_estimate_s": 20,
+          "issued_at_ms": 1794449271901
+        },
+        "signed_payload": "{\"amount\":\"25000000\",\"amountIn\":\"25000000\",\"amountInFormatted\":\"25.0\",\"amountInUsd\":\"24.988450000000\",\"amountOut\":\"24995200\",\"amountOutFormatted\":\"24.9952\",\"amountOutUsd\":\"24.983652217600\",\"deadline\":\"2026-11-15T02:27:50.918Z\",\"depositAddress\":\"C6978ATtM33Acw79Dh3y6K5syfzJtwcvo6t6b62UdkN\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"dry\":false,\"minAmountIn\":\"25000000\",\"minAmountOut\":\"24770243\",\"originAsset\":\"nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near\",\"recipient\":\"x3lang.near\",\"recipientType\":\"DESTINATION_CHAIN\",\"refundFee\":\"10005\",\"refundTo\":\"58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ\",\"refundType\":\"ORIGIN_CHAIN\",\"slippageTolerance\":90,\"swapType\":\"EXACT_INPUT\",\"timeEstimate\":20,\"timeWhenInactive\":\"2026-11-15T02:27:50.918Z\",\"timestamp\":\"2026-11-12T02:07:51.901Z\",\"withdrawFee\":\"0\"}",
+        "accepted_at_ms": 1794449428772
+      },
+      "outcome": null,
+      "agent": "x3-agent.x3lang.near",
+      "mandate_version": 4,
+      "approvals": [
+        "x3lang.near"
+      ]
+    }
+  },
+  "mandate": {
+    "url": "https://free.rpc.fastnear.com",
+    "result": {
+      "block_hash": "C7gZ7CTMF6QiWQgJryfYxvTXDMAGbE4FGYeqR1ADNAoF",
+      "block_height": 224318793,
+      "logs": []
+    },
+    "value": {
+      "owner": "x3lang.near",
+      "agent": "x3-agent.x3lang.near",
+      "terms": {
+        "program_sha256": "eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515",
+        "asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "per_payment_cap": "25000000",
+        "daily_cap": "25000000",
+        "destination_assets": [
+          "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
+        ],
+        "recipients": [
+          "x3lang.near"
+        ],
+        "refund_to": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+        "max_slippage_bps": 100,
+        "max_fee_bps": 100,
+        "approval_above": "24999999",
+        "approvers": [
+          "x3lang.near"
+        ],
+        "approval_threshold": 1,
+        "expires_at_ms": 1794714561152
+      },
+      "version": 4,
+      "revoked": false,
+      "created_at_ms": 1794448232878,
+      "spends": [
+        {
+          "at_ms": 1794449428772,
+          "amount": "25000000",
+          "nonce": "mainnet_demo_nov11_invoice_06"
+        }
+      ]
+    }
+  }
+}

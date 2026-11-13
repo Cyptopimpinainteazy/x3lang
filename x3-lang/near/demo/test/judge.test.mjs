@@ -88,6 +88,16 @@ test("prompt-injection-recipient and wrong-recipient evaluate the same checked-i
   assert.deepEqual(injected.python.denied_guards, wrong.python.denied_guards);
 });
 
+test("judge video panel labels dramatization, testnet and local evidence, never mainnet settlement", () => {
+  const html = read("x3-lang/near/demo/judge.html");
+  assert.match(html, /src="https:\/\/dotx3\.net\/media\/x3-shield-who-gets-paid\.mp4"/);
+  assert.match(html, /preload="none"/);
+  assert.doesNotMatch(html, /<video[^>]*autoplay/i);
+  assert.match(html, /Scenes marked DRAMATIZATION are AI-generated/);
+  assert.match(html, /Explorer cards show testnet\s+transactions/);
+  assert.match(html, /Nothing in the video\s+is a mainnet settlement/);
+});
+
 test("only the local policy level is claimed as proven", () => {
   assert.deepEqual(judge.EVIDENCE_LADDER.filter((l) => l.proven).map((l) => l.level), ["local_policy"]);
 });

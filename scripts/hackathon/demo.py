@@ -115,8 +115,8 @@ def _label(decision: str) -> str:
 
 def render(report: dict[str, Any]) -> str:
     lines: list[str] = [
-        "X3LANG TWO-TRACK JUDGE DEMONSTRATION",
-        "One owner mandate; one policy authority; two submitted hackathon tracks.",
+        "X3LANG THREE-TRACK JUDGE DEMONSTRATION",
+        "One payment proposal under an owner-defined X3Lang mandate.",
         "Evidence level: local policy preview only. No network request was made.",
         "",
         "PANEL 1 - THE OWNER'S X3LANG POLICY",
@@ -124,7 +124,7 @@ def render(report: dict[str, Any]) -> str:
         f"SHA-256: {report['mandate']['sha256']}",
         *[f"  {line}" for line in report["mandate"]["source"].splitlines()],
         "",
-        "PANEL 2 - AGENT REQUESTS",
+        "PANEL 2 - AGENT ECONOMY | PAYMENT PROPOSALS",
         "These are checked-in agent programs; this offline demo does not call an AI provider.",
     ]
     for scenario in report["scenarios"]:
@@ -137,7 +137,7 @@ def render(report: dict[str, Any]) -> str:
             "",
         ])
     lines.extend([
-        "PANEL 3 - SECURITY DECISION",
+        "PANEL 3 - AI SECURITY & DEFENSE | POLICY DECISION",
     ])
     for scenario in report["scenarios"]:
         lines.append(f"  {scenario['title']} -> {_label(scenario['decision'])}")
@@ -149,7 +149,7 @@ def render(report: dict[str, Any]) -> str:
         )
     lines.extend([
         "",
-        "PANEL 4 - CROSS-CHAIN EXECUTION PATH",
+        "PANEL 4 - UNSTOPPABLE DEFI | COMPILED ROUTE PREVIEW",
     ])
     for scenario in report["scenarios"]:
         leg = scenario["cross_chain"]
@@ -160,8 +160,8 @@ def render(report: dict[str, Any]) -> str:
             f"refund_to={leg['refund_to']}"
         )
     lines.extend([
-        "  1Click may later provide the route; this demo uses the archived token fixture only.",
-        "  1Click is not contacted. A dry quote would still not be a transaction or settlement.",
+        "  The compiled request uses an archived token fixture. No API call was made.",
+        "  Official 1Click mainnet settlement: evidence outstanding.",
         "",
         "PANEL 5 - VERIFICATION AND LIMITS",
         "  Proven now: deterministic local policy checks over the checked-in X3 sources.",
@@ -171,6 +171,8 @@ def render(report: dict[str, Any]) -> str:
         "  Full local evidence: bash scripts/hackathon/verify.sh",
         "  No wallet signature, wallet transfer, deposit, signed quote or settlement is claimed by this local demo.",
         "  Separately recorded testnet accept_quote authorizes a deposit address only.",
+        "  The agent proposes. The owner signs.",
+        "  Guard does not custody the Solana wallet. The wallet keyholder can transfer outside Guard.",
         "",
         "Tracks: " + ", ".join(report["tracks"]),
     ])

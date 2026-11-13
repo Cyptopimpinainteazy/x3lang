@@ -53,3 +53,7 @@ not duplicate source code or evidence.
 | Submission checklist | Pre-submission gates | `docs/hackathon/SUBMISSION_CHECKLIST.md` |
 | CI workflows | Exact repository checks | `.github/workflows/` |
 | Release rules | Branching, review, evidence, and agent ownership | `.shipframe/profile.md` |
+
+- [Standalone source admission](../docs/security/STANDALONE_CI_POLICY.md): exact local source identity, execution proofs and manual peer parity.
+
+- [Local agent-law runtime](../docs/security/AGENT_LAW_RUNTIME.md): signed birth, SQLite authority, bounded compiler adapter, incident review and explicit limits.

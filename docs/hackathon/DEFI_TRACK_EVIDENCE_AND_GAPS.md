@@ -1,6 +1,28 @@
 # Unstoppable DeFi: evidence and judge path
 
-This is a proposed third-track assessment, not a claim of entry, victory, or release readiness.
+The owner confirmed selection of AI Security & Defense (`security`, primary),
+Agent Economy (`agents`) and Unstoppable DeFi (`defi`) in the submission form.
+This assessment does not certify organizer acceptance, victory or release readiness.
+For DeFi, X3 Force Field is an authorization layer over NEAR Intents / 1Click, not a new
+bridge or atomic settlement protocol. See the [submission checklist](SUBMISSION_CHECKLIST.md)
+and [local judge package](JUDGE_PACKAGE.md).
+
+## Mainnet invoice_06
+
+One official 1Click route completed: the owner manually deposited 25 USDC from
+Solana and 24.9952 USDC reached `x3lang.near`. The restricted NEAR agent key accepted
+the signed quote after 21 checks, then recorded `Settled`, `floor_met: true` and
+both transaction hashes on Guard. The recovered payment and mandate `.x3` files
+match the stored hashes. See [settlement evidence](../../evidence/near-guard-mainnet-invoice06-2026-11-12/README.md),
+[source-byte verification](../../evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md)
+and [finalized outcome recording](../../evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md).
+
+This is one small, manually funded mainnet trade. Guard does not custody the
+funding wallet or authenticate the outcome's transaction hashes against either
+chain. Independent off-chain checks verify the finalized transfers; provider
+status associates them without cryptographic solver-level cross-chain causality.
+The owner's unrestricted wallet key and retained account-recovery key remain
+trust boundaries. X3VM does not run on-chain.
 
 ## Working demonstration
 
@@ -18,12 +40,12 @@ At master `2caa28e95014068e0cbd273552aa797b613cd870`, `python3 scripts/hackathon
 
 ## Track fit and remaining work
 
-The [organizer's track description](https://nearhackathon.com/) emphasizes trading and cross-chain settlement through NEAR Intents. The Tidepool demonstration supports a real testnet cross-chain trading story, but does not by itself establish an official NEAR Intents settlement. The existing 1Click positive control stopped at deposit-address acceptance. Do not conflate the two.
+The [organizer's track description](https://nearhackathon.com/) emphasizes trading and cross-chain settlement through NEAR Intents. The Tidepool demonstration supports a real testnet cross-chain trading story, but does not by itself establish an official NEAR Intents settlement. The historical testnet 1Click positive control stopped at deposit-address acceptance; the later mainnet invoice_06 completed funding and payout. Keep the Tidepool testnet route, local checks and official mainnet settlement distinct.
 
 1. Reproduce the historical proof against the exact release candidate using the documented archival procedure; retain the results and RPC limitations.
-2. Demonstrate an actual official NEAR Intents route through deposit and destination settlement only if feasible with fresh owner-authorized testnet terms and independently verifiable receipts. Otherwise label this gap explicitly; do not present a preview or address acceptance as settlement.
+2. The official route requirement is evidenced once by invoice_06 above. Preserve its source, quote authorization, deposit, payout and outcome records. Any additional trade requires fresh owner-authorized terms and independently verifiable receipts. The [official 1Click quickstart](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/introduction) states that NEAR Intents has no testnet version; do not assume Tidepool terms apply to official 1Click. Do not present a preview or address acceptance as another settlement. An explorer URL or distribution-channel API key alone is not evidence of a funded deposit or delivery.
 3. Make a concise judge journey: policy terms and pretrade authorization; source transaction; destination receipt and balance change; trusted-relayer boundary; separately labeled local adverse cases. Verify each referenced test against its own exact head.
-4. Reconcile README, submission copy, checklist and video script so the separate Tidepool trade and official 1Click demo are both accurately described. Select DeFi only if the owner elects to submit it after reviewing fit and evidence.
+4. Reconcile README, submission copy, checklist and video script so the separate Tidepool trade and official 1Click demo are both accurately described. The owner has confirmed selection of DeFi alongside security and agents; this does not establish organizer acceptance.
 5. Verify the public repository, reproducible judge commands, public demo post and actual submission before the organizer deadline. Preserve prior-work disclosure and exact-head CI gates.
 
 Winning cannot be guaranteed. Record any independent review, competing entries or official scoring rubric only when supported by current evidence.

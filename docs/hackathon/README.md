@@ -1,5 +1,7 @@
 # Hackathon materials
 
+**Judges: [start here — payment, limits, proof and reproduction](../../JUDGES.md).**
+
 ## Competition framing
 
 **.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
@@ -11,7 +13,7 @@ Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-ch
 for compile-time versus runtime checks and the evidence boundaries.
 
 
-- [Two-track control architecture](X3LANG_THREE_TRACK_CONTROL.md)
+- [Three-track control architecture](X3LANG_THREE_TRACK_CONTROL.md)
 - [Judge package](JUDGE_PACKAGE.md)
 - [Three-minute walkthrough](VIDEO_WALKTHROUGH.md)
 - [Submission checklist](SUBMISSION_CHECKLIST.md)

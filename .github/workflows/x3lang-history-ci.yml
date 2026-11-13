@@ -45,9 +45,11 @@ jobs:
       - name: X3Lang Python and NEAR adapter tests
         env:
           PYTHONPATH: x3-lang
-        run: python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py -q
+        run: python -m pytest x3-lang/tests scripts/hackathon/test_mainnet_agent_preflight.py scripts/hackathon/test_verify_mainnet_payment.py scripts/hackathon/test_mainnet_rpc_replay.py scripts/hackathon/test_route_probe.py scripts/hackathon/test_invoice06_chain.py scripts/hackathon/test_agent_law_doc.py -q
       - name: Browser demo
         run: node --test x3-lang/near/demo/test/*.test.mjs
+      - name: Judge transaction lookup boundaries
+        run: node --test x3-lang/near/judge-live/test/*.test.mjs
       - name: Offline three-track judge demo
         run: python scripts/hackathon/demo.py
 
@@ -63,9 +65,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: x3-lang
-      - name: Test Rust VM with archived proofs
+      - name: Test compiler, CLI corpus, and VM with archived proofs
         working-directory: x3-lang
-        run: cargo test -p x3-lang-vm --locked --quiet
+        run: cargo test -p x3-lang-compiler -p x3-tools -p x3-lang-vm --locked --quiet
       - name: Formatting
         working-directory: x3-lang
         run: cargo fmt --all -- --check

@@ -26,7 +26,9 @@ slippage spread, the effective cost and the refund fee against the fee cap. USAB
 check passed at that amount, at that moment. Quotes move: re-check right before trading.
 
 An API key in NEAR_INTENTS_API_KEY (sent as X-API-Key) or a legacy NEAR_INTENTS_JWT (Bearer)
-is used if set and never printed. Without one the unauthenticated fee schedule applies.
+is used if set and never printed. API key takes precedence when both are set. Without
+one the unauthenticated fee schedule applies. `authenticated` reports a configured credential,
+not proof the provider accepted it.
 
 The full report, including every raw signed response, is written to --out (default
 ~/.x3/route-probe-<UTC time>.json, mode 0600). It holds public addresses and public quotes only.
@@ -43,7 +45,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1].parent
 X3 = ROOT / "x3-lang"
@@ -225,7 +227,7 @@ def run(args: argparse.Namespace, client, now_fn: Callable[[], datetime] = lambd
         "mode": "dry_quotes_only_nothing_signed_nothing_deposited",
         "started_utc": ni.format_timestamp(now_fn()),
         "api": client.base_url,
-        "authenticated": bool(getattr(client, "api_key", None) or client.authenticated),
+        "authenticated": client.authenticated,
         "slippage_bps": args.slippage_bps, "fee_cap_bps": args.fee_cap_bps,
         "routes": [],
     }
@@ -287,21 +289,8 @@ def render(report: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-class _ApiKeyTransport:
-    """Adds 1Click's X-API-Key header; the key never appears in output or the report."""
-
-    def __init__(self, key: str, inner=ni.urllib_transport):
-        self._key, self._inner = key, inner
-
-    def __call__(self, method: str, url: str, headers: Dict[str, str], body: Optional[bytes], timeout: float) -> Tuple[int, bytes]:
-        return self._inner(method, url, {**headers, "X-API-Key": self._key}, body, timeout)
-
-
 def make_client():
-    key = os.environ.get("NEAR_INTENTS_API_KEY")
-    client = ni.OneClickClient(transport=_ApiKeyTransport(key)) if key else ni.OneClickClient()
-    client.api_key = bool(key)
-    return client
+    return ni.OneClickClient()
 
 
 def _write_private(path: Path, data: Dict[str, Any]) -> None:

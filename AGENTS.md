@@ -15,6 +15,9 @@ NEAR Guard, independently verified transaction evidence, and the judge demo.
 - Write only to this repository's isolated feature branches/worktrees.
 - `Cyptopimpinainteazy/xxxstar` is **read-only context** for this sprint.
   No experimental cross-VM, liquidity, or agent-firewall code imports.
+- Follow `docs/security/STANDALONE_CI_POLICY.md`: ordinary PRs bind and execute
+  this repository's source; private peer parity is an explicit manual audit.
+  Standalone CI success must never be described as cross-repository parity.
 - Mission Control and orchestration live in separate local repositories.
 - Unrelated projects are out of scope.
 
@@ -28,7 +31,7 @@ and dependencies. Another agent may already be handling your proposed task.
 2. **Stop if Git resolves to the user's home folder or another repository.**
    Never run `git add -A` from an unverified directory.
 3. Use one task, one dedicated worktree, one branch, and one owner.
-4. Never write directly to `main`, force-push, rewrite history, delete
+4. Never write directly to `master`, force-push, rewrite history, delete
    another worker's checkout, or run destructive global cleanup.
 5. Changes require a focused draft PR, tests and independent review.
    Never merge financial or security changes without owner approval.

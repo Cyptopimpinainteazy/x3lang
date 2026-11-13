@@ -9,16 +9,20 @@ on:
       - 'tests/proof/**'
       - '.github/workflows/x3lang-execution-proof.yml'
       - 'tests/ci/test_private_peer_checkout.py'
+      - 'tests/ci/test_standalone_checkout.py'
+      - '.github/workflows/x3lang-peer-parity.yml'
       - 'tests/ci/test_proof_source_binding.py'
+      - 'docs/security/STANDALONE_CI_POLICY.md'
+      - 'AGENTS.md'
+      - '.shipframe/profile.md'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  mirrored-proof-files:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    name: Verify identical proof code in both GitHub repos
+  standalone-proof-inputs:
+    name: Verify standalone committed proof inputs
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,27 +30,19 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-          fetch-depth: 0
-      - name: Require private peer read credential
-        shell: bash
+      - name: Test standalone and manual peer checkout policy
+        run: python3 -m unittest discover -s tests/ci -p 'test_*checkout*.py' -v
+      - name: Admit exact committed checkout without peer credentials
         env:
-          X3LANG_PEER_READ_SSH_KEY: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}
-        run: |
-          if [[ -z "${X3LANG_PEER_READ_SSH_KEY:-}" ]]; then
-            echo "::error::Missing X3LANG_PEER_READ_SSH_KEY (read-only SSH deploy key on private xxxstar repository)"
-            exit 2
-          fi
-      - name: Checkout matching peer feature branch
-        uses: actions/checkout@v4
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/proof/check_x3lang_checkout.py --expected-head "$EXPECTED_HEAD" --output-dir "$RUNNER_TEMP/x3lang-checkout"
+      - name: Publish source admission scope (not execution or parity proof)
+        uses: actions/upload-artifact@v4
         with:
-          repository: Cyptopimpinainteazy/xxxstar
-          ssh-key: ${{ secrets.X3LANG_PEER_READ_SSH_KEY }}
-          ref: ${{ github.head_ref || github.ref_name }}
-          path: peer-checkout
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Reject mirrored-file drift
-        run: python3 scripts/proof/check_x3lang_mirror.py --peer-repo peer-checkout --base-ref origin/master --peer-base-ref origin/master
+          name: x3lang-standalone-source-admission
+          path: ${{ runner.temp }}/x3lang-checkout/checkout.json
+          if-no-files-found: error
+          retention-days: 14
 
   x3lang-proof:
     runs-on: ubuntu-latest
@@ -62,7 +58,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: x3-lang
-      - name: Test private peer authentication fail-closed policy
+      - name: Test manual peer authentication fail-closed policy
         run: python3 -m unittest discover -s tests/ci -p test_private_peer_checkout.py -v
       - name: Test proof source binding before Cargo execution
         run: python3 -m unittest discover -s tests/ci -p test_proof_source_binding.py -v

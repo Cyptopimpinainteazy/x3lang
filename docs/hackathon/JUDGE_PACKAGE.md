@@ -1,5 +1,7 @@
 # X3Lang judge package
 
+**Judges: [start here — payment, limits, proof and reproduction](../../JUDGES.md).**
+
 ## Competition framing
 
 **.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
@@ -13,9 +15,16 @@ for compile-time versus runtime checks and the evidence boundaries.
 
 **Project:** X3Lang — the programmable trust layer for AI agents and cross-chain finance.
 
-**Track ids:** `security`, `agents`.
+**Owner-selected tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). Not a claim of organizer acceptance. See [DeFi evidence](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
 
-**NEW REAL-CHAIN EVIDENCE:** [X3Lang first two-chain testnet swap — judge walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) has a successful strict independent finalized Base Sepolia + NEAR receipt proof and immutable signed quote. It is a **separate** owner-authorized Tidepool community testnet execution, not a native X3 bridge, and not an official 1Click mainnet trade. The old offline demo below remains valid as an offline demo.
+**Mainnet payment evidence:** [invoice_06 proof card](../../PROOF_CARD.md) covers the 25-USDC Solana deposit, 24.9952-USDC NEAR payout and restricted-agent outcome. The deployment/recovery operations below are separate from this payment.
+
+**Historical testnet evidence:** [X3Lang first two-chain testnet swap — judge walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) has a successful strict independent finalized Base Sepolia + NEAR receipt proof and immutable signed quote. It is a **separate** owner-authorized Tidepool community testnet execution, not a native X3 bridge, and not an official 1Click mainnet trade. The old offline demo below remains valid as an offline demo.
+
+**NEAR mainnet deployment:** The [November 11 Guard upgrade and native recovery](MAINNET_GUARD_DEPLOYMENT.md)
+have finalized transaction receipts, an exact deployed-WASM match and unchanged
+contract storage. These operations do not prove a funded agent purchase or a
+1Click swap. The native 0.3 NEAR recovery is account surplus, not a swap refund.
 
 This package reproduces the current offline policy demonstration. It deliberately separates what
 the repository proves locally from wallet authorization, on-chain enforcement, signed quotes,
@@ -41,7 +50,7 @@ requests. It prints:
 | 2. Agent requests | Four actual X3 programs with hashes: an allowed payment, one requiring approval, a wrong-recipient request, and the same denied payload framed as prompt injection |
 | 3. Security decision | Local policy verdicts and the exact failed guard (`mandate_recipient` for the attack) |
 | 4. Cross-chain path | The lowered Solana USDC to NEAR USDC leg, minimum receipt, recipient and pinned refund address |
-| 5. Verification limits | What is proven, what was not contacted, and why no wallet, chain or settlement proof is claimed |
+| 5. Verification limits | What is proven, what was not contacted, and why this offline run claims no wallet, chain or settlement proof |
 
 The three checked-in programs are examples. This local path does not call an AI provider and does
 not label a template as model output. The separate AI Money Agent PR is the path that records real
@@ -141,7 +150,7 @@ The readiness report never calculates a completion percentage. It reports:
 - whether evidence describes the current clean commit;
 - whether Python, browser, scenario-freshness and contract runs passed;
 - which claims are verified locally;
-- which chain, wallet, quote and settlement evidence is absent;
+- which chain, wallet, quote and settlement evidence the local run does not establish;
 - which external GitHub checks must pass on the exact commit.
 
 ## Honest claim matrix

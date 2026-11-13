@@ -1,29 +1,37 @@
 # NEAR Hackathon submission copy
 
-**Project:** X3 Shield (X3Lang)
+**Judges: [start here — payment, limits, proof and reproduction](../JUDGES.md).**
 
-**Tracks:** AI Security & Defense (`security`), Agent Economy (`agents`), Unstoppable DeFi (`defi`)
+**Project:** X3 Force Field (X3Lang; formerly X3 Shield)
 
-## 20–2,000 character description
+**Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). Owner-confirmed selection; not a claim of organizer acceptance or a submission receipt.
 
-X3 Shield is a policy layer for AI-agent payments on NEAR. The owner writes spending rules in X3, a small typed language: who may be paid, in which asset, how much per payment and per day, slippage and fee ceilings, approval thresholds, expiry. The agent writes each payment as an .x3 program. A deterministic compiler and a NEAR contract (x3-guard) compare the two. Model output never authorizes anything.
+## 20–2,000 character description (1923 characters, LF)
 
-What runs today, all on testnet or locally:
+X3 Force Field (formerly X3 Shield) combines typed .x3 owner policy, deterministic checks and signed-quote enforcement for AI-agent payments.
 
-1. A cross-chain trade specified by one .x3 program. Its source hash was bound on a NEAR Guard contract first; then 1.000000 test USDC left Base Sepolia and 0.997400 arrived at x3lang.testnet on NEAR. Both transactions are finalized and public, and an offline verifier in the repo checks the archive. The link between the legs is a trusted Tidepool testnet relay, not atomic settlement.
+Owners write reviewable mandates; agents propose payment programs. Compiler and mandate checks reject unsafe proposals outside the model. NEAR x3-guard verifies signed NEAR Intents / 1Click terms before authorizing a deposit address. The model cannot change the stored mandate.
 
-2. On-chain refusals. The deployed Guard refused an agent intent to attacker.near (mandate_recipient) and accepted the permitted control. It also verified an official 1Click dry quote's Ed25519 signature; the quote was refused with recipient mismatch and separate dry-quote failures. A matching live quote was accepted and stopped before deposit.
+Six differentiators: typed, hashable policy; checks outside the model; authenticated quote-term enforcement; source-to-payment traceability; restricted agent-key methods; reproducible evidence. JUDGES.md maps each claim to source, receipts, commands and limits. submission/judge-claims.json provides the same evidence paths and source hashes for automated review; invoice06_chain.py --json reproduces the archived five-link trail.
 
-3. The model is not the defence. A scripted model that complies with all 8 attacks gets 8 of 8 refused by deterministic checks. Nine unsafe edits to an agent payment fail to compile.
+Mainnet invoice_06: following owner approval, a restricted key accepted a quote after 21 Guard checks. The mandate capped each payment and daily spend at 25 USDC, restricted the recipient and pinned refunds. The policy floor was 24.75 USDC. The owner manually sent 25 USDC on Solana; 24.9952 USDC reached x3lang.near about 84 seconds later. The agent recorded Settled and floor_met. Both original .x3 hashes match Guard state; compiled output matches 10 policy fields and 13 mandate terms. Eight unsafe edits of that payment are refused locally.
 
-The README has ten "do X, see Y" steps; eight run offline with Python and Node, no wallet or key.
+Other local evidence: 3/3 scripted drain-pattern attacks refused with the authorized control allowed; 9 unsafe edits fail compilation. Historical testnet Guard evidence includes attacker.near refusal.
 
-Limits: testnet only. Guard does not custody funds, so an unrestricted wallet key can bypass it. No funded official 1Click settlement, no mainnet, no cryptographic cross-chain atomicity. The X3 compiler and VM predate the hackathon and are disclosed as baseline; the NEAR integration is the hackathon work.
+Limits: one owner-assisted ~$25 run. Guard is noncustodial and does not authenticate outcome hashes. The agent account retains an owner FullAccess recovery key. Provider association is not cryptographic cross-chain atomicity; no native X3VM runs on-chain. Compiler/VM predate the hackathon; NEAR integration is new work.
 
 ## Public links
 
+The public video and X post are owner-published. Replace the placeholders only after verifying signed-out URLs.
+
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang
 - Testnet evidence: `docs/hackathon/GUARD_TESTNET_EVIDENCE.md`
+- Judge proof card: [payment, limits and transaction receipts](../PROOF_CARD.md)
+- Demo script: [three-minute walkthrough](../docs/hackathon/VIDEO_WALKTHROUGH.md)
+- Offline payment-to-proof verifier: `python3 scripts/hackathon/invoice06_chain.py`
+- Mainnet evidence: `evidence/near-guard-mainnet-invoice06-2026-11-12/README.md`
+- Exact `.x3` sources: `evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md`
+- Guard outcome: `evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md`
 - Testnet mandate lifecycle:
   https://github.com/Cyptopimpinainteazy/x3lang/blob/master/evidence/near-guard-testnet-live-2026-11-06.md
 - Authenticated light-client design and limits:
@@ -31,6 +39,24 @@ Limits: testnet only. Guard does not custody funds, so an unrestricted wallet ke
 - Judge path: README "Try it: do X, see Y"; all gates: `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge`
 - Demo video: OWNER TO ATTACH PUBLIC URL AFTER RECORDING
 - Public X post: OWNER TO ATTACH PUBLIC URL AFTER POSTING
+
+## Differentiators and evidence for reviewers
+
+Use the [six-claim proof matrix](../JUDGES.md#what-is-distinctive--claim-proof-and-boundary)
+for why each capability matters, direct proof and its limits. The
+[machine-readable index](judge-claims.json) lists evidence paths, levels and source
+hashes. Run `python3 scripts/hackathon/invoice06_chain.py --json` after the
+[judge-page setup](../JUDGES.md#reproduce-the-same-payments-checks--offline-after-setup).
+These supporting links are outside the form-description character count.
+
+## Additional implemented innovations
+
+Beyond the six main payment differentiators, the [additional-innovation matrix](../JUDGES.md#additional-innovations--separate-local-evidence)
+links proof for signed child admission and budget reservations, durable retirement
+and signed incident review, and real local NEAR Sandbox vault execution.
+All three also appear in [judge-claims.json](judge-claims.json). These are local
+capabilities; no public-chain custody, independent AI jury or automatic policy
+rewrite is claimed. They are separate from invoice_06.
 
 ## Exact transaction anchors
 
@@ -49,6 +75,13 @@ Limits: testnet only. Guard does not custody funds, so an unrestricted wallet ke
   `0x46c21dc305a9271c4e74c6d0734fb50f847a1e53d3cad87976133d66fd6728d9`
 - Two-chain trade, NEAR testnet payout:
   `EBEBxJNgV9U5tBFBLj18ZzukgArqwXH5rBsBStFyCm1d`
+- Mainnet invoice_06, owner approval: `GFdQLrzT5tnPPdZwKLtmwpNvSwrxVHDvVg2C3WX5fsK6`
+- Mainnet invoice_06, agent `agent_accept_quote` (restricted key):
+  `Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153`
+- Mainnet invoice_06, Solana deposit:
+  `4zhGYyWNabYQ5gixTUzoVHVbgFKWAsQssSpCv3B1J1LjCRisEJW6wm3zuS2GVuDotAT93S8wm1qezHwsKX2RkXo5`
+- Mainnet invoice_06, recorded outcome: `9sTn9pJ1ZbCVazBm9Wz9oEDh6aWw4FUVMoAJEKCCzuqE`
+- Mainnet invoice_06, NEAR payout: `8jfbACLSxrzi3fnajfAVGc4Fgo6XLCWA1mpiJWXPw43P`
 
 ## Owner-only fields
 

@@ -52,6 +52,11 @@ def test_offline_demo_has_five_panels_and_three_expected_decisions(capsys):
     assert "Refused" in text
     assert "No wallet signature, wallet transfer, deposit, signed quote or settlement is claimed by this local demo" in text
     assert "accept_quote authorizes a deposit address only" in text
+    assert "X3LANG THREE-TRACK JUDGE DEMONSTRATION" in text
+    assert "Unstoppable DeFi" in text
+    assert "Official 1Click mainnet settlement: evidence outstanding" in text
+    assert "The agent proposes. The owner signs." in text
+    assert "wallet keyholder can transfer outside Guard" in text
 
 
 def test_offline_demo_json_is_deterministic_and_embeds_the_actual_legs():
@@ -172,10 +177,10 @@ def test_prompt_injection_is_refused_by_the_recipient_guard():
     demo = load_script("scripts/hackathon/demo.py")
     by_id = {scenario["id"]: scenario for scenario in demo.build_report()["scenarios"]}
     scenario = by_id["prompt-injection-recipient"]
-    assert scenario["title"] == "Prompt-injected payment"
+    assert scenario["title"] == "Recipient redirection fixture"
     assert scenario["story"] == (
-        "A prompt-injected instruction steers the AI agent to pay attacker.near, "
-        "but the owner never authorized that recipient."
+        "A checked-in fixture models a prompt injection asking for payment to attacker.near. "
+        "This example contains no model output."
     )
     assert scenario["decision"] == "denied_by_policy"
     assert scenario["denied_guards"] == ["mandate_recipient"]
@@ -186,7 +191,7 @@ def test_prompt_injection_is_rendered_and_gated_by_demo_main(capsys):
     demo = load_script("scripts/hackathon/demo.py")
     assert demo.main([]) == 0
     text = capsys.readouterr().out
-    assert "Prompt-injected payment (prompt-injection-recipient)" in text
+    assert "Recipient redirection fixture (prompt-injection-recipient)" in text
     assert (
         "prompt-injection-recipient: decision=denied_by_policy, "
         "failed_guards=['mandate_recipient'], approvals=0"
