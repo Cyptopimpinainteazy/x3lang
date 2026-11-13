@@ -47,6 +47,10 @@ past the mainnet Guard's 21 checks on a signed 1Click quote, the owner funded 25
    deployed authorization path.
 7. One settlement of about $25. It does not establish production reliability.
 
+Which attacks the checks stop, and which these limits leave open, is one table in the README:
+[if the agent is compromised](README.md#if-the-agent-is-compromised). Each of its rows says
+whether the evidence is local, testnet or mainnet.
+
 ## Check it yourself
 
 ```bash
