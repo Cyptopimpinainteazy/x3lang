@@ -3722,6 +3722,10 @@ const ADAPTER_INTENTS: &[&str] = &[
 ];
 
 const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
+/// `mandate` declarations consumed by the Python tooling (near_mandate.py and
+/// near_native_vault.py) and x3-guard; they are not intents the generic VM executes.
+/// Their own Python suites check them (test_surface_drift.py, test_native_vault_binding.py).
+const PYTHON_ONLY_MANDATES: [&str; 2] = ["near_mandate_agent.x3", "near_native_vault_supplier.x3"];
 
 /// This historical testnet source is compiled only by the Python Base Sepolia frontend
 /// (scripts/hackathon/base_sepolia_x3_intent.py). Every generic production entry point
@@ -3845,8 +3849,8 @@ fn every_example_checks_and_builds() {
             assert_testnet_draft_and_generic_refusal(example);
             continue;
         }
-        if name == "near_mandate_agent.x3" {
-            // A `mandate` declaration is consumed by near_mandate.py and
+        if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
+            // A `mandate` declaration is consumed by the Python tooling and
             // x3-guard; it is not an intent the generic VM can execute.
             continue;
         }
@@ -4062,7 +4066,7 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
     let mut failures = Vec::new();
     let mut adapter_intents = 0usize;
     let mut testnet_drafts: Vec<std::path::PathBuf> = Vec::new();
-    let mut python_only = 0usize;
+    let mut python_only: Vec<String> = Vec::new();
     for file in &found {
         let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
         if ADAPTER_INTENTS.contains(&name.as_str()) {
@@ -4082,8 +4086,8 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
             assert_testnet_draft_and_generic_refusal(file);
             continue;
         }
-        if name == "near_mandate_agent.x3" {
-            python_only += 1;
+        if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
+            python_only.push(name);
             continue;
         }
         let check = x3c().arg("check").arg(file).output().expect("x3c check");
@@ -4116,9 +4120,10 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         ADAPTER_INTENTS.len(),
         "the tree walk must find every adapter intent exactly once"
     );
+    python_only.sort();
     assert_eq!(
-        python_only, 1,
-        "the tree walk must find the Python-only mandate declaration"
+        python_only, PYTHON_ONLY_MANDATES,
+        "the tree walk must find each Python-only mandate declaration exactly once"
     );
     assert!(
         failures.is_empty(),

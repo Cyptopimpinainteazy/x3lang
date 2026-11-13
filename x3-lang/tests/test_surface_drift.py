@@ -95,7 +95,10 @@ def test_every_example_the_suite_uses_is_readable_by_this_surface():
     failures = []
     for path in examples:
         try:
-            if os.path.basename(path) in MANDATE_FILES:
+            if os.path.basename(path) in NATIVE_MANDATE_FILES:
+                # Explicit backend: never reinterpret a lifetime budget as Guard's daily cap.
+                _mandate_parser().parse_mandate(path, profile="near_native_vault_v1")
+            elif os.path.basename(path) in MANDATE_FILES:
                 # Not an intent: read by its own surface, which must accept it just as strictly.
                 _mandate_parser().parse_mandate(path)
             else:
@@ -110,11 +113,22 @@ def test_every_example_the_suite_uses_is_readable_by_this_surface():
 #: surface refuses them (see REFUSES); `near_mandate.py` is the surface that reads them, and the
 #: gate above holds it to the same rule.
 MANDATE_FILES = {"near_mandate_agent.x3"}
+NATIVE_MANDATE_FILES = {"near_native_vault_supplier.x3"}
 
 
 def _mandate_parser():
     from test_near_intents import ni
     return ni.mandates()
+
+
+def test_native_vault_example_has_explicit_lifetime_budget():
+    root = Path(__file__).resolve().parents[1]
+    path = root / "examples" / "near_native_vault_supplier.x3"
+    parsed = _mandate_parser().parse_mandate(str(path), profile="near_native_vault_v1")
+    assert parsed["target"] == "near_native_vault_v1"
+    assert parsed["spend"] == "Near.NEAR"
+    assert parsed["lifetime_budget"] == "400000000000000000000000"
+    assert "per_24h" not in parsed
 
 
 #: What this surface reads today, and what it refuses **and why**, one entry per file.
@@ -158,6 +172,7 @@ REFUSES = {
     "flagship_b52.x3": "X3_PARSE_NO_INTENT",
     "mainnet_safe_swap.x3": "X3_PARSE_NO_INTENT",
     "near_mandate_agent.x3": "X3_PARSE_NO_INTENT",
+    "near_native_vault_supplier.x3": "X3_PARSE_NO_INTENT",
     "objective_routing.x3": "X3_PARSE_NO_INTENT",
     "opportunity_graph.x3": "X3_PARSE_NO_INTENT",
     "parallel_dag.x3": "X3_PARSE_NO_INTENT",
