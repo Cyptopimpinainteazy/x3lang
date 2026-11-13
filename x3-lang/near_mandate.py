@@ -72,8 +72,16 @@ def _list(text: str) -> List[str]:
     return [item.strip().strip('"') for item in text.split(",") if item.strip()]
 
 
-def parse_mandate(path: str) -> Dict[str, Any]:
-    """Read one `mandate` declaration. Any line it does not recognise is refused."""
+def parse_mandate(path: str, *, profile: str = "guard") -> Dict[str, Any]:
+    """Read one mandate using an explicitly selected enforcement profile.
+
+    The default Guard grammar is unchanged. The native-vault profile is opt-in
+    and cannot silently discard rolling-budget, swap or approval requirements.
+    """
+    if profile not in ("guard", "near_native_vault_v1"):
+        raise _err("X3_MANDATE_BACKEND", "unknown mandate enforcement profile")
+    native = profile == "near_native_vault_v1"
+    native_fields = ("target", "owner", "agent", "spend", "per_payment", "lifetime_budget", "expires")
     cli = _ni.cli_module()
     lines = cli._clean_lines(path)
     if not lines:
@@ -92,6 +100,11 @@ def parse_mandate(path: str) -> Dict[str, Any]:
             continue
         words = text.split()
         key = words[0]
+        if native:
+            if key not in (*native_fields, "allow"):
+                raise _err("X3_MANDATE_BACKEND", f"{key!r} is not enforced by {profile}", key, ln.no)
+            if key == "allow" and (len(words) != 3 or words[1] != "recipients" or "," in words[2]):
+                raise _err("X3_MANDATE_BACKEND", "native vault requires exactly one recipient", "allow", ln.no)
         if key == "require":
             try:
                 req = cli._parse_require(ln)
@@ -123,7 +136,9 @@ def parse_mandate(path: str) -> Dict[str, Any]:
                 "threshold": threshold,
                 "approvers": _list(m.group(3)),
             }
-        elif key in ("owner", "agent", "spend", "per_payment", "per_24h", "refund_to", "expires") and len(words) == 2:
+        elif key in (native_fields if native else (
+            "owner", "agent", "spend", "per_payment", "per_24h", "refund_to", "expires"
+        )) and len(words) == 2:
             field, value = key, words[1].strip('"')
         else:
             raise _err("X3_MANDATE_PARSE", f"{text!r} is not a mandate clause", "mandate", ln.no)
@@ -134,11 +149,15 @@ def parse_mandate(path: str) -> Dict[str, Any]:
         out["line_of"][field] = ln.no
     if not closed:
         raise _err("X3_MANDATE_PARSE", "the mandate is never closed", "mandate", lines[-1].no)
-    for required in ("owner", "agent", "spend", "per_payment", "per_24h", "allow_recipients", "allow_assets",
-                     "refund_to", "expires"):
+    required_fields = (*native_fields, "allow_recipients") if native else (
+        "owner", "agent", "spend", "per_payment", "per_24h", "allow_recipients", "allow_assets", "refund_to", "expires"
+    )
+    for required in required_fields:
         if required not in out:
             raise _err("X3_MANDATE_PARSE", f"a mandate must state `{required.replace('_', ' ', 1) if required.startswith('allow') else required}`",
                        required)
+    if native and out["target"] != profile:
+        raise _err("X3_MANDATE_BACKEND", f"target must be {profile}", "target", out["line_of"].get("target"))
     return out
 
 
