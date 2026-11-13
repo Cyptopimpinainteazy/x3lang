@@ -1,0 +1,59 @@
+name: X3 Guard Candidate Artifact (Unsigned)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/x3-guard-candidate-artifact.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-unsigned-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout explicitly reviewed candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: 35152b85f12b657f3e8918c999e205e71d8a9668
+          persist-credentials: false
+      - name: Install pinned Rust and WASM target
+        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
+      - name: Verify source, test and build Guard
+        working-directory: x3-lang/near/x3-guard
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 35152b85f12b657f3e8918c999e205e71d8a9668
+          test -z "$(git status --porcelain)"
+          rustc --version --verbose
+          cargo --version
+          cargo test --locked --quiet
+          cargo build --locked --release --target wasm32-unknown-unknown --quiet
+      - name: Verify candidate bytes and on-chain panic import
+        run: |
+          set -euo pipefail
+          wasm=x3-lang/near/x3-guard/target/wasm32-unknown-unknown/release/x3_guard.wasm
+          echo 'ae7cac5962fe4bba3e527e466e7671a587c4899488e2035e8411a80a3905d302  '"$wasm" | sha256sum -c -
+          test "$(wc -c < "$wasm")" -eq 551302
+          python3 scripts/hackathon/check_guard_wasm_host_panics.py --expect present "$wasm"
+          mkdir -p candidate
+          cp "$wasm" candidate/x3_guard.wasm
+          (cd candidate && sha256sum x3_guard.wasm > SHA256SUMS)
+          {
+            printf 'source_commit=%s\n' "$(git rev-parse HEAD)"
+            printf 'guard_lockfile_sha256=%s\n' "$(sha256sum x3-lang/near/x3-guard/Cargo.lock | cut -d ' ' -f 1)"
+            printf 'wasm_sha256=%s\n' "$(sha256sum "$wasm" | cut -d ' ' -f 1)"
+            printf 'wasm_bytes=%s\n' "$(wc -c < "$wasm")"
+            rustc --version --verbose
+            cargo --version
+            printf '%s\n' 'unsigned=true' 'deployment_authorized=false' 'chain_activity=false'
+          } > candidate/PROVENANCE.txt
+      - name: Retain unsigned candidate and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: x3-guard-unsigned-35152b85
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 14

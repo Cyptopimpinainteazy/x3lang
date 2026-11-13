@@ -4,7 +4,7 @@
 
 **Scope:** owner-bound X3Lang Python frontend policy, deployed NEAR testnet Tidepool Guard, authenticated maker quote, Base Sepolia ERC-20 transfer, Tidepool community testnet relay, finalized NEAR receipt, independently verified pre/post NEP-141 balances.
 
-**Release posture:** this repository remains private until the owner approves hackathon disclosure.
+**Release posture:** this public repository provides historical testnet evidence; it is not a mainnet release or an independent security audit.
 
 **Historical evidence:** never reuse the expired deposit address, nonce or quote.
 

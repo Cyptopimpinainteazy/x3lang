@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="X3Lang and X3 Shield judge demos on x3star.net.">
+<meta name="theme-color" content="#071017">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23071017'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%23bbff71'%3E%E2%9C%B3%3C/text%3E%3C/svg%3E">
+<title>X3Lang // Demos</title>
+<style>
+:root{color-scheme:dark;--bg:#071017;--panel2:#0b1921;--line:#33505b;--text:#f2fcfe;--mute:#b4cbd2;--dim:#7f9aa3;--lime:#bbff71;--cyan:#74e8ff;--amber:#ffbd7a;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at 80% -15%,#23535b,transparent 52%),var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
+main,header,footer{max-width:1080px;margin:auto;padding-left:20px;padding-right:20px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:18px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.brand{font-weight:850;letter-spacing:.18em;color:var(--lime);font-size:14px}
+.pill{font-size:11.5px;border:1px solid #7a6c4c;color:var(--amber);padding:5px 11px;border-radius:30px;font-weight:700}
+h1{font-size:clamp(38px,6.5vw,72px);line-height:.98;letter-spacing:-.055em;margin:44px 0 18px}h1 em{font-style:normal;color:var(--lime)}
+.lede{font-size:clamp(17px,2vw,20px);color:#cfdee6;max-width:720px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:30px}
+a.card{display:flex;flex-direction:column;gap:6px;text-decoration:none;color:var(--text);background:linear-gradient(140deg,#0f2530,var(--panel2));border:1px solid var(--line);border-radius:14px;padding:22px;min-height:210px;transition:border-color .15s,transform .15s}
+a.card:hover,a.card:focus-visible{border-color:var(--lime);transform:translateY(-2px)}
+a.card:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+.k{font:700 11px var(--mono);letter-spacing:.1em;color:var(--lime)}
+.t{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.d{color:var(--mute);font-size:14.5px}
+.u{margin-top:auto;font:600 12.5px var(--mono);color:var(--cyan);overflow-wrap:anywhere}
+.alert{border-left:3px solid var(--amber);background:#34281b;color:#ffe2c9;padding:12px 16px;margin:24px 0 0;border-radius:0 9px 9px 0;font-size:14px}
+.more{margin-top:34px;border:1px solid var(--line);border-radius:14px;padding:18px 20px;background:var(--panel2)}
+.more h2{font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+.more ul{margin:0;padding-left:18px}.more li{margin:6px 0}
+a{color:var(--cyan);text-underline-offset:3px}a:hover{color:var(--lime)}
+footer{color:var(--mute);border-top:1px solid var(--line);padding-top:20px;padding-bottom:40px;margin-top:48px;font-size:13px}
+@media(prefers-reduced-motion:reduce){a.card{transition:none}a.card:hover{transform:none}}
+@media(max-width:860px){.grid{grid-template-columns:1fr}a.card{min-height:0}}
+</style>
+</head>
+<body>
+<header><div class="brand">✳ X3LANG / DEMOS</div><div class="pill">PRIVATE PRE-RELEASE</div></header>
+<main>
+<h1>AI agents,<br><em>on a leash.</em></h1>
+<p class="lede">X3Lang turns an agent's payment into a typed program. X3 Shield checks it against the owner's mandate before anything moves. Three ways to see it:</p>
+<div class="grid">
+  <a class="card" href="https://controlroom.x3star.net/">
+    <span class="k">01 · CONTROL ROOM</span>
+    <span class="t">Attack the agent</span>
+    <span class="d">Run nine attacks against an owner's mandate and watch each rule decide. Offline policy preview, plus links to the recorded Sandbox and testnet evidence.</span>
+    <span class="u">controlroom.x3star.net</span>
+  </a>
+  <a class="card" href="https://guard.x3star.net/">
+    <span class="k">02 · X3 GUARD</span>
+    <span class="t">Check a live quote</span>
+    <span class="d">Edit an X3 intent, request a real 1Click dry quote, verify its Ed25519 signature in the browser and see every guard checked line by line.</span>
+    <span class="u">guard.x3star.net</span>
+  </a>
+  <a class="card" href="https://judge.x3star.net/">
+    <span class="k">03 · JUDGE CONSOLE</span>
+    <span class="t">One mandate, nine payments</span>
+    <span class="d">Two allowed, seven forbidden, each check marked on its line. JavaScript and Python decisions compared check by check.</span>
+    <span class="u">judge.x3star.net</span>
+  </a>
+</div>
+<p class="alert"><strong>Evidence boundary:</strong> these pages request dry quotes and run policy checks in your browser. They never hold keys, connect a wallet or move funds. Each page labels which of its claims rest on real chain transactions.</p>
+<section class="more" aria-labelledby="more-title">
+  <h2 id="more-title">Also here</h2>
+  <ul>
+    <li><a href="https://judge.x3star.net/bnb.html">BNB → NEAR live readiness gate</a></li>
+    <li><a href="https://controlroom.x3star.net/evidence/tidepool-testnet/first-swap-strict-two-chain-proof-20261107.json">Strict two-chain proof JSON (Base Sepolia → NEAR testnet)</a> · <a href="https://controlroom.x3star.net/evidence/tidepool-testnet/FIRST_SWAP_SHA256SUMS.txt">SHA-256 sums</a></li>
+    <li><a href="https://controlroom.x3star.net/docs/hackathon/FIRST_SWAP_JUDGE_WALKTHROUGH.md">First swap judge walkthrough</a></li>
+  </ul>
+</section>
+</main>
+<footer>X3Lang · X3 Shield · Served from x3star.net through a Cloudflare Tunnel · No wallet connection from these pages.</footer>
+</body>
+</html>

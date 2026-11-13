@@ -1,0 +1,29 @@
+name: X3 Shield Fresh Base Vault Intent Candidate (no signing)
+on:
+  pull_request:
+    paths:
+      - 'scripts/hackathon/base_sepolia_x3_intent.py'
+      - 'scripts/hackathon/test_fresh_vault_intent_20261108.py'
+      - 'docs/hackathon/candidates/base_vault_fresh_20261108.x3'
+      - 'docs/hackathon/candidates/base_vault_owner_review_20261108.json'
+      - '.github/workflows/x3-fresh-base-vault-intent.yml'
+permissions:
+  contents: read
+jobs:
+  compile-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile real Python .x3 testnet frontend and refuse tampering
+        env:
+          PYTHONPATH: x3-lang:scripts/hackathon
+        run: |
+          python3 -m unittest scripts.hackathon.test_base_sepolia_x3_intent scripts.hackathon.test_fresh_vault_intent_20261108 -v
+          python3 -m py_compile scripts/hackathon/base_sepolia_x3_intent.py scripts/hackathon/test_fresh_vault_intent_20261108.py
