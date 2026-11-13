@@ -1,19 +1,21 @@
 # X post draft — owner publishes manually
 
-Do not post automatically. Attach the demo video to post 1 and replace
-`REPOSITORY_URL` in post 4 with https://github.com/Cyptopimpinainteazy/x3lang.
-Structure follows HACKATHON.md: the user's problem first, one complete moment,
-what NEAR does, a next step. Every claim below is backed by a file in the repo.
+Do not post automatically. Attach the demo video to post 1. HACKATHON.md requires
+the post to say it was built at NEAR HACKATHON and to tag `@NEARProtocol` and
+`#NEARHackathon`; `x3-lang/tests/test_submission_copy.py` checks that and the
+280-character limit. Structure follows HACKATHON.md: the user's problem first,
+one complete moment, what NEAR does, a next step. Every claim below is backed by
+a file in the repo.
 
 ## Post 1 (attach video; under 280 characters)
 
 A prompt-injected agent pays whoever the prompt says.
 
-X3 Shield: the owner writes spending rules in .x3, and a NEAR contract checks each agent payment against them.
+X3 Shield: owners write spending rules in .x3; a NEAR contract checks agent payments against them.
 
-On mainnet: 25 USDC left Solana, 24.9952 arrived on NEAR after 21 checks passed.
+Mainnet: 21 checks passed; 25 USDC left Solana, 24.9952 reached NEAR.
 
-@NEARProtocol #NEARHackathon
+Built at NEAR HACKATHON @NEARProtocol #NEARHackathon
 
 ## Post 2 (reply)
 
@@ -32,11 +34,17 @@ Guard refused an agent payment to attacker.near.
 
 Limits: one ~$25 trade, funded by hand; Guard checks payments but doesn't hold
 funds. Clone it and run the "do X, see Y" checks, no wallet needed:
-REPOSITORY_URL
+https://github.com/Cyptopimpinainteazy/x3lang
 
 What rule would you want on your own agent's wallet?
 
 ## Video (2–3 minutes)
+
+Before recording a cut longer than 2:20, check the posting account's X upload
+limit: 2026 third-party guides still cite 140 seconds for non-Premium uploads in
+the app. If X rejects the file, attach a cut of 2:20 or less to post 1 and link
+the full video, already hosted at `https://dotx3.net/media/x3-shield-who-gets-paid.mp4`
+(2:56), in a reply.
 
 1. Problem: the Grok wallet drain, where the model's output was the
    authorization (20 s).
