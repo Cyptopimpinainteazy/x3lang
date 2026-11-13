@@ -15,14 +15,15 @@ SIGNATURE = "5" * 88
 REFUND_SIGNATURE = "6" * 88
 
 
-def run_deposit(tmp_path, *, status, proof, deposit=0, refund=REFUND_SIGNATURE, first_swap=False):
+def run_deposit(tmp_path, *, status, proof, deposit=0, refund=REFUND_SIGNATURE, first_swap=False, recorded=None):
     script_path = SCRIPT.with_name("first-swap.sh") if first_swap else SCRIPT
     script = script_path.read_text(encoding="utf-8")
     assert '\ncase "${1:-}" in' in script
     setup = tmp_path / "functions.sh"
     setup.write_text(script.split('\ncase "${1:-}" in', 1)[0], encoding="utf-8")
     receipt = tmp_path / "receipt.json"
-    receipt.write_text(json.dumps({"deposit": {"address": "test-deposit-address"}}), encoding="utf-8")
+    receipt.write_text(json.dumps({"deposit": {"address": "test-deposit-address", "tx_hash": recorded}}),
+                       encoding="utf-8")
     trace = tmp_path / "trace"
     # Never execute the actual network adapters, owner keys or guard transaction.
     shell = r"""
@@ -98,3 +99,17 @@ def test_first_swap_never_records_provider_success_even_with_legacy_zero_exit(tm
     assert "Payout transaction verification is not implemented" in result.stderr
     assert "CONFIRM" not in entries
     assert "GUARD" not in entries
+
+
+def test_pending_deposit_resumes_without_notifying_again(tmp_path):
+    result, entries = run_deposit(tmp_path, status=4, proof=5, recorded=SIGNATURE)
+    assert result.returncode != 0
+    assert "Do not deposit again" in result.stderr
+    assert entries == ["status"]
+
+
+def test_different_signature_cannot_replace_recorded_deposit(tmp_path):
+    result, entries = run_deposit(tmp_path, status=0, proof=0, recorded=REFUND_SIGNATURE)
+    assert result.returncode != 0
+    assert "different signature" in result.stderr
+    assert entries == []

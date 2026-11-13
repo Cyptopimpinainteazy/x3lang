@@ -309,7 +309,10 @@ Built at NEAR HACKATHON 2026. The documented submission scope is
 confirmed submitted track. The three project perspectives below do not establish
 which tracks the organizer has accepted; confirm the owner-approved submission
 record before changing that scope. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
-and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md).
+and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md). The
+[three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md) separates local policy,
+historical testnet evidence, and outstanding official 1Click mainnet settlement. The agent
+proposes and the owner signs; a Solana wallet keyholder can still transfer directly outside Guard.
 
 | Track | What X3 Shield shows | Steps |
 |---|---|---|
