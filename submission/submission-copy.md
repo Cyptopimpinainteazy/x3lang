@@ -1,36 +1,30 @@
 # NEAR Hackathon submission copy
 
-**Project:** X3 Shield (X3Lang)
+**Project:** X3 Force Field (X3Lang; formerly X3 Shield)
 
-**Tracks:** AI Security & Defense (`security`), Agent Economy (`agents`), Unstoppable DeFi (`defi`)
+**Tracks to select on submission form:** AI Security & Defense (`security`, primary), Agent Economy (`agents`); Unstoppable DeFi (`defi`) if selected as third track. Not a claim of organizer acceptance.
 
-## 20–2,000 character description
+## 20–2,000 character description (1594 characters, LF)
 
-In May 2026 an attacker drained ~$150K from Grok's AI-agent wallet: a gifted NFT lifted its limits, then a Morse-coded order made the agent send funds. The model's output was the authorization. X3 Shield moves authorization out of the model.
+X3 Force Field (formerly X3 Shield) is a programmable security boundary for AI-agent payments, powered by X3Lang, a typed .x3 language and compiler—not a wallet settings page.
 
-The owner writes spending rules in .x3, a small typed language: recipients, asset, per-payment and daily caps, slippage and fee ceilings, refund address, approvals, expiry. The agent can only propose: each payment is an .x3 program. A deterministic compiler and a NEAR contract (x3-guard) check it, and the signed 1Click quote, against the mandate. Nothing the agent holds, reads or decodes changes the rules.
+Owners write reviewable .x3 mandates defining recipients, assets, per-payment and daily caps, approvals, fees, slippage, refunds and expiry. Agents propose .x3 payment programs; deterministic compiler/policy checks and the NEAR x3-guard contract enforce the rules against signed NEAR Intents / 1Click quote terms. The model cannot grant itself permission.
 
-What runs today, on testnet or locally:
+Mainnet invoice_06: the agent's restricted NEAR key accepted a signed quote after 21 Guard checks, following owner approval. The owner manually deposited 25 USDC from Solflare on Solana; 24.9952 USDC reached x3lang.near about 84 seconds later. The agent recorded Settled and floor_met on NEAR. Both original .x3 source files match the SHA-256 hashes stored by Guard.
 
-1. Replay of that drain with a model that falls for every step: 3/3 attack programs refused, owner's payment allowed. Separately, 8/8 scripted attacks refused; 9 unsafe edits fail to compile.
+Security evidence: 3/3 Grok-drain replay attacks refused locally while the authorized control passed; 8/8 scripted attacks refused; 9 unsafe payment edits failed compilation. Testnet Guard refused attacker.near; a separate Base Sepolia-to-NEAR testnet transfer delivered 0.9974 of 1 test USDC via a trusted relay.
 
-2. On-chain refusals: the deployed Guard refused an agent intent to attacker.near and accepted the permitted control. It verified an official 1Click quote's Ed25519 signature and refused it on recipient mismatch; a matching live quote was accepted and stopped before deposit.
-
-3. One .x3 program specified a cross-chain trade: its hash was bound on Guard, then 1.000000 test USDC left Base Sepolia and 0.997400 arrived on NEAR testnet, both finalized. The link is a trusted testnet relay, not atomic settlement.
-
-Mainnet: an agent key that can call only three Guard methods accepted a signed 1Click quote after 21 mandate checks passed; 25 USDC left Solana and 24.9952 USDC reached NEAR 84 s later.
-
-Who it's for: teams shipping paying agents, wallets and Intents integrators, and owners delegating spend who need limits they can audit and revoke.
-
-The README has "do X, see Y" steps; most run offline with Python and Node, no wallet or key.
-
-Limits: one ~$25 mainnet trade; the rest is testnet. Guard does not custody funds, so an unrestricted wallet key can bypass it. No cryptographic cross-chain atomicity. The X3 compiler and VM predate the hackathon and are disclosed as baseline; the NEAR integration is the hackathon work.
+Limits: one owner-assisted ~$25 mainnet settlement, not autonomous custody. Guard does not hold Solana funds or validate the agent-reported outcome transaction hashes; the agent account retains an owner FullAccess recovery key. No cryptographic cross-chain atomicity or native X3VM on-chain execution. X3Lang compiler/VM predate the hackathon; NEAR integration is the new work.
 
 ## Public links
+
+The public video and X post are owner-published. Replace the placeholders only after verifying signed-out URLs.
 
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang
 - Testnet evidence: `docs/hackathon/GUARD_TESTNET_EVIDENCE.md`
 - Mainnet evidence: `evidence/near-guard-mainnet-invoice06-2026-11-12/README.md`
+- Exact `.x3` sources: `evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md`
+- Guard outcome: `evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md`
 - Testnet mandate lifecycle:
   https://github.com/Cyptopimpinainteazy/x3lang/blob/master/evidence/near-guard-testnet-live-2026-11-06.md
 - Authenticated light-client design and limits:

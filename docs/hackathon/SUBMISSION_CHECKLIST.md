@@ -1,4 +1,4 @@
-# NEAR Hackathon submission checklist
+# X3 Force Field — NEAR Hackathon submission checklist
 
 ## Competition framing
 
@@ -29,13 +29,18 @@ Official instructions were checked against
 
 ## Project submission scope
 
+**Public-facing name:** X3 Force Field (formerly X3 Shield). Preserve historic X3 Shield evidence names, deployed `x3-guard` contract and `.x3` hash identities. This rename makes no protocol or on-chain change.
+
+**Differentiator to show judges:** typed owner-written `.x3` mandate → compile/type-check and reject unsafe edits → deterministic quote/policy checks → NEAR Guard signed-quote enforcement → archived `invoice_06` authorization, settlement and recorded outcome. Do not imply native X3VM executed on NEAR.
+
+
 - The documented submission categories are `security` and `agents`; confirm
   them against the actual owner-approved submission record. This checklist does
   not certify organizer acceptance.
-- `defi` is a proposed third project perspective, not a confirmed submitted track.
-  Historical funded Tidepool community-testnet delivery exists; official funded
-  1Click settlement remains unproven. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
-  The owner must review track fit and explicitly select any submission change;
+- `defi` is an intended third-track perspective **only if selected on the official form**; no organizer acceptance is claimed.
+  Historical funded Tidepool community-testnet delivery exists; one official funded
+  1Click mainnet settlement is recorded as `invoice_06`. See [DeFi evidence and gaps](DEFI_TRACK_EVIDENCE_AND_GAPS.md).
+  The owner must select the track on the final form and preserve its receipt;
   do not infer an additional entry from the website's three track pages.
 
 ## Repository

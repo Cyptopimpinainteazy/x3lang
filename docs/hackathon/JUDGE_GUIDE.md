@@ -1,13 +1,15 @@
-# X3 Shield — Judge Guide
+# X3 Force Field — Judge Guide
+
+**Historical name:** X3 Shield. The `.x3` language, compiler and verified Guard authorization mechanism are unchanged; historic file paths and contract names remain as recorded.
 
 ## Competition framing
 
 **.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
 
-An intent states the desired outcome. The owner’s `.x3` mandate sets the limits.
+A typed `.x3` payment intent states the desired outcome. The owner’s separately written `.x3` mandate sets the limits. This is auditable source code, not a prompt or wallet settings page.
 The compiler rejects invalid programs; deterministic mandate checks and NEAR Guard
 refuse prohibited terms. NEAR Intents / 1Click supplies the supported execution route.
-Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
+See [the recovered mainnet `.x3` sources](../../evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md) and [the recorded Guard outcome](../../evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md). Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
 for compile-time versus runtime checks and the evidence boundaries.
 
 
@@ -79,7 +81,7 @@ balance change.
 The transfer was specified by the X3 program
 [`base_sepolia_to_near_testnet_1usdc.x3`](../../x3-lang/examples/base_sepolia_to_near_testnet_1usdc.x3).
 `sha256sum` of that file gives `1398f64e…f860`, the program hash the owner bound on the
-Guard before the Base transfer. See [X3 in X3 Shield](X3_LANGUAGE.md) for the offline
+Guard before the Base transfer. See [X3 in X3 Force Field](X3_LANGUAGE.md) for the offline
 checks and what the record does not prove.
 
 From the repo root, replay the archived evidence offline:
@@ -96,14 +98,14 @@ evidence and keep the RPC result separate. Both chain records document
 the movements, and linking them as one delivery relies on the **trusted
 Tidepool testnet relay**. Cryptographic cross-chain atomicity remains unproven.
 
-## Why X3 Shield is different from the NEAR Agent API
+## Why X3 Force Field is different from the NEAR Agent API
 
 **This is not an entry about inventing spending limits.** NEAR's Agent API
 already offers policy-bound wallets, and NEAR function-call keys scope an
 account key's contract/method permissions. Those are baseline controls, not
 original X3 technology.
 
-X3 Shield's proposed differentiation is a *separate, auditable transaction
+X3 Force Field's proposed differentiation is a *separate, auditable transaction
 policy*: an owner expresses constraints in `.x3`; the NEAR adapter derives
 candidate intent/quote rules; the `x3-guard` contract verifies the exact signed
 1Click quote against a pinned manager key **before** applying the stored
