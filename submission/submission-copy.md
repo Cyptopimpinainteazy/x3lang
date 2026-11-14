@@ -6,17 +6,17 @@
 
 **Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`), Autonomous Business (`business`) and Unstoppable DeFi (`defi`). Owner-confirmed selection; not a claim of organizer acceptance or a submission receipt.
 
-## 20–2,000 character description (1780 characters, LF)
+## 20–2,000 character description (1830 characters, LF)
 
-AI agents are getting wallets, and their spending limits should not live inside the model. In May 2026 an attacker drained about $150,000 from an AI agent's wallet in two moves; no key was stolen, because the model's output was the authorization.
+AI agents are starting to move money. X3 Force Field checks each payment an agent proposes against the spending rules its owner wrote down, and shows it working on NEAR mainnet.
 
-X3 Force Field takes authorization out of the model. The owner writes spending rules as a small typed .x3 mandate: who may be paid, in which asset, per-payment and daily caps, slippage and fee ceilings, refund address, approval threshold and expiry. The agent can only propose payments, as .x3 programs. A compiler and deterministic checks refuse unsafe proposals outside the model: locally, 9/9 unsafe edits fail to compile and 3/3 replayed attack payments are refused while the owner's normal payment is allowed.
+How it works: the owner writes a typed .x3 mandate (recipient, per-payment and daily caps, refund address). The compiler rejects unsafe payment programs before anything runs. NEAR x3-guard stores the mandate and checks every signed NEAR Intents / 1Click quote against it before a deposit address is authorized. The agent holds a restricted key: it can propose and accept, but it cannot change the stored mandate. The checks run outside the model.
 
-How NEAR fits: the x3-guard contract on NEAR mainnet verifies the NEAR Intents / 1Click quote's Ed25519 signature, then checks recipient, asset, minimum output, refund address and deadline against the owner's mandate before authorizing a deposit address. The agent signs with a FunctionCall key limited to three Guard methods.
+Proven on mainnet (invoice_06): after owner approval, the agent's quote passed 21 Guard checks under a 25 USDC cap. 25 USDC left Solana and 24.9952 USDC reached x3lang.near about 84 seconds later, recorded as Settled with floor_met. Every link reproduces offline: .x3 source -> compiler -> Guard state (10/10 policy fields, 13/13 mandate terms match) -> payment -> recorded outcome. Eight unsafe edits of that payment are refused.
 
-Mainnet proof (invoice_06): after owner approval, the agent's restricted key submitted a signed quote and Guard accepted it; the owner's Solana wallet sent 25 USDC and 24.9952 USDC reached x3lang.near through NEAR Intents about 84 seconds later; the agent recorded the outcome. Both original .x3 files hash-match Guard state. JUDGES.md maps every claim to receipts and one-command checks.
+Try to break it: on dotx3.net, pick any of 12 recorded attacks to see the check that stopped it, and the SHA-256 hashes that tie the mainnet payment to its .x3 files. Agent Court lets you write a mandate, drill an agent against attacks, run it through a day of requests, and amend its rules. Also: 8/8 red-team and 3/3 replayed wallet-drain attacks refused; on testnet, Guard refuses an agent intent paying attacker.near, and mandate revocation is on-chain.
 
-Limits: one owner-funded ~$25 payment. Guard does not hold funds or authenticate the outcome the agent reports, the agent account keeps an owner FullAccess recovery key, and there is no cryptographic cross-chain atomicity. The X3 compiler/VM predate the hackathon; the NEAR integration is new work.
+Honest limits: one owner-assisted ~$25 mainnet run; the owner signed the Solana deposit; Guard is noncustodial and does not authenticate outcome hashes; no cryptographic cross-chain atomicity; the agent account keeps an owner recovery key. Compiler and VM predate the hackathon; the NEAR integration is new work.
 
 ## Public links
 
