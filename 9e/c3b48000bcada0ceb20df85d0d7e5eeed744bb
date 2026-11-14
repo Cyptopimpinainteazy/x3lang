@@ -1,0 +1,78 @@
+.github/workflows/x3-solana-vault-mainnet-archive.yml
+  h_e41068bed968d7 1-39
+JUDGES.md
+  h_e41068bed968d7 23-32
+PROOF_CARD.md
+  h_e41068bed968d7 13-21
+README.md
+  h_e41068bed968d7 63,84
+audit-artifacts/mainnet-vault-proof-20261114/secret-scan-triage.json
+  h_e41068bed968d7 1-60
+audit-artifacts/mainnet-vault-proof-20261114/validation.json
+  h_e41068bed968d7 1-43
+evidence/solana-vault-mainnet-2026-11-14/README.md
+  h_e41068bed968d7 1-132
+evidence/solana-vault-mainnet-2026-11-14/agent-execution-simulation.json
+  h_e41068bed968d7 1-89
+evidence/solana-vault-mainnet-2026-11-14/approval-transaction.json
+  h_e41068bed968d7 1-127
+evidence/solana-vault-mainnet-2026-11-14/capture-environment.json
+  h_e41068bed968d7 1-7
+evidence/solana-vault-mainnet-2026-11-14/deployment-transaction.json
+  h_e41068bed968d7 1-75
+evidence/solana-vault-mainnet-2026-11-14/deployment.json
+  h_e41068bed968d7 1-11
+evidence/solana-vault-mainnet-2026-11-14/execution-submission.json
+  h_e41068bed968d7 1-11
+evidence/solana-vault-mainnet-2026-11-14/finalized-accounts.json
+  h_e41068bed968d7 1-73
+evidence/solana-vault-mainnet-2026-11-14/finalized-approval.json
+  h_e41068bed968d7 1-30
+evidence/solana-vault-mainnet-2026-11-14/finalized-execution-primary.json
+  h_e41068bed968d7 1-206
+evidence/solana-vault-mainnet-2026-11-14/live-quote.near-receipt.json
+  h_e41068bed968d7 1-268
+evidence/solana-vault-mainnet-2026-11-14/manifest.json
+  h_e41068bed968d7 1-26
+evidence/solana-vault-mainnet-2026-11-14/near-after-execution.json
+  h_e41068bed968d7 1-13
+evidence/solana-vault-mainnet-2026-11-14/near-before-execution.json
+  h_e41068bed968d7 1-13
+evidence/solana-vault-mainnet-2026-11-14/near-payout-transaction.json
+  h_e41068bed968d7 1-689
+evidence/solana-vault-mainnet-2026-11-14/payment-proposed.x3
+  h_e41068bed968d7 1-14
+evidence/solana-vault-mainnet-2026-11-14/provider-latest-status.json
+  h_e41068bed968d7 1-91
+evidence/solana-vault-mainnet-2026-11-14/settlement-summary.json
+  h_e41068bed968d7 1-67
+evidence/solana-vault-mainnet-2026-11-14/setup-transaction.json
+  h_e41068bed968d7 1-122
+evidence/solana-vault-mainnet-2026-11-14/setup.json
+  h_e41068bed968d7 1-33
+evidence/solana-vault-mainnet-2026-11-14/source-quorum-verification.json
+  h_e41068bed968d7 1-7
+evidence/solana-vault-mainnet-2026-11-14/source-secondary-rpc-probes.json
+  h_e41068bed968d7 1-14
+evidence/solana-vault-mainnet-2026-11-14/test_verify_archived.py
+  h_e41068bed968d7 1-102
+evidence/solana-vault-mainnet-2026-11-14/ui-verification.json
+  h_e41068bed968d7 1-15
+evidence/solana-vault-mainnet-2026-11-14/verify_archived.py
+  h_e41068bed968d7 1-172
+wiki/index.md
+  h_e41068bed968d7 60-61
+x3-lang/solana/x3-mandate-vault/README.md
+  h_e41068bed968d7 7,123-125,127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9ec3b48000bcada0ceb20df85d0d7e5eeed744bb",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
