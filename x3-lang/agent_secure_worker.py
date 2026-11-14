@@ -26,7 +26,8 @@ TIMEOUT = 2.0
 DEFAULT_EXECUTION_TIMEOUT = 30.0
 
 
-def _recv_exact(stream: socket.socket, count: int, *, deadline: float | None = None) -> bytes:
+def _recv_exact(stream: socket.socket, count: int, *, deadline: float | None = None,
+                idle_limit: float | None = TIMEOUT) -> bytes:
     if not isinstance(count, int) or count < 0 or count > MAX_WIRE_BYTES:
         raise ValueError("invalid frame size")
     chunks = []
@@ -36,7 +37,7 @@ def _recv_exact(stream: socket.socket, count: int, *, deadline: float | None = N
             left = deadline - time.monotonic()
             if left <= 0:
                 raise TimeoutError("whole-frame deadline exceeded")
-            stream.settimeout(min(TIMEOUT, left))
+            stream.settimeout(min(idle_limit, left) if idle_limit is not None else left)
         block = stream.recv(min(65536, remaining))
         if not block:
             raise ValueError("incomplete frame")
@@ -164,11 +165,11 @@ def request_unix_worker(socket_path: str | os.PathLike, request: bytes, *,
         # Execution may be much slower than parsing a bounded frame. A client
         # timeout leaves the result UNKNOWN; never blindly retry the nonce.
         response_deadline = time.monotonic() + float(execution_timeout)
-        header = _recv_exact(client, RESPONSE.size, deadline=response_deadline)
+        header = _recv_exact(client, RESPONSE.size, deadline=response_deadline, idle_limit=None)
         status, size = RESPONSE.unpack(header)
         if status not in (0, 1) or size > MAX_REPLY_BYTES:
             raise ValueError("invalid worker response")
-        body = _recv_exact(client, size, deadline=response_deadline)
+        body = _recv_exact(client, size, deadline=response_deadline, idle_limit=None)
         if status == 1:
             raise ValueError("worker denied request")
         return body
