@@ -22,6 +22,10 @@ Limits: one owner-assisted ~$25 run. Guard is noncustodial and does not authenti
 
 ## Public links
 
+Reproduction: [one pinned commit, setup and expected outputs](../JUDGES.md#reproduce-the-same-payments-checks--offline-after-setup).
+Nine capabilities = six core payment claims + three additional local capabilities.
+Video/X links below remain pending; a recording script is not a published demo.
+
 The public video and X post are owner-published. Replace the placeholders only after verifying signed-out URLs.
 
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang

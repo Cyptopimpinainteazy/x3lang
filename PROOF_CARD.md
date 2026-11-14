@@ -53,9 +53,10 @@ whether the evidence is local, testnet or mainnet.
 
 ## Check it yourself
 
+Use the [single-commit judge setup](JUDGES.md#reproduce-the-same-payments-checks--offline-after-setup) first. Keep the same checkout for the commands below.
+
 ```bash
-git clone https://github.com/Cyptopimpinainteazy/x3lang && cd x3lang
-git checkout 4f60ddb652188784ed44f64d8172cd2cd84da422
+# From the repository root prepared by the judge setup above:
 cd evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery && sha256sum --check SHA256SUMS && cd -
 python3 scripts/hackathon/observe_mainnet_invoice06.py --out /tmp/observation.json   # read-only, public RPC
 ```
@@ -64,7 +65,7 @@ The observer prints 18 passed, 0 failed and 1 not readable on chain (who control
 wallet). It predates the outcome call; step 5 has its own [readback](evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md#read-only-reproduction).
 ### Link by link, offline
 
-On current `master` (the script was added after `4f60ddb`; it reads only the committed evidence):
+Stay on the same pinned snapshot above. It includes this verifier and all evidence (the historical `4f60ddb` reference is provenance, not the reproduction checkout):
 
 ```bash
 python3 scripts/hackathon/invoice06_chain.py          # --json for the full report

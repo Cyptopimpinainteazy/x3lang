@@ -25,7 +25,7 @@ X3 Force Field takes authorization out of the model:
 
 - **The owner writes the rules** as an `.x3` mandate, a small typed language: who may be paid,
   in which asset, how much per payment and per day, slippage and fee ceilings, refund address,
-  approval thresholds, expiry. Its SHA-256 is what gets pinned.
+  approval thresholds, expiry. Its SHA-256 is recorded as source identity; this is not deployed payment-program pinning.
 - **The agent can only propose.** Each payment is an `.x3` program the agent writes.
 - **Deterministic code decides.** A compiler and a NEAR contract (`x3-guard`) compare the
   program, and the signed 1Click quote, against the mandate. Nothing the agent holds, reads or
@@ -148,6 +148,10 @@ flowchart LR
 More on what `.x3` does here: [X3 in X3 Force Field](docs/hackathon/X3_LANGUAGE.md).
 
 ## Try it: do X, see Y
+
+For one tested snapshot containing all nine capabilities, start with the
+[single-commit judge setup](JUDGES.md#reproduce-the-same-payments-checks--offline-after-setup).
+Commit IDs and test counts below describe historical runs, not current-head results.
 
 All steps run from the repository root. Steps 1 to 8 are offline, need no wallet, no API key
 and no network after install, and sign or send nothing. Each was run on Linux x86_64 with
