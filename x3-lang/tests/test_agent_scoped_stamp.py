@@ -70,6 +70,13 @@ class StampTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             issue_scoped_stamp(request, self.key)
 
+    def test_missing_required_policy_check_fails_closed(self):
+        with self.assertRaises(ValueError):
+            verify_scoped_stamp(self.stamp, **{**self.kw,
+                "required_checks": {"major_action_jury"}})
+        self.assertTrue(verify_scoped_stamp(self.stamp, **{**self.kw,
+            "required_checks": {"source_digest", "capability_scope"}}))
+
     def test_missing_check_set_fails_closed(self):
         self.stamp["payload"]["passed_checks"] = []
         with self.assertRaises(ValueError):
