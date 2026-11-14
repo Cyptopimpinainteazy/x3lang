@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -44,6 +45,38 @@ OWNER_SEED, AGENT_SEED = bytes.fromhex(V["owner_test_scalar_hex"]), bytes.fromhe
 POLICY_STATE = bytes.fromhex(V["policy_state_hex"])
 NOW = 1_799_998_000  # before the vector's pending_until (1_799_999_000) and expiry (1_800_000_000)
 DEVNET, MAINNET = vc.GENESIS["devnet"], vc.GENESIS["mainnet"]
+
+
+@pytest.mark.parametrize("answer, expected", [(b"yes\n", "True"), (b"no\n", "False")])
+def test_confirmation_reads_controlling_terminal(answer, expected):
+    pty = pytest.importorskip("pty")
+    master, slave = pty.openpty()
+    try:
+        # Give the child a controlling terminal independent of its piped stdin.
+        child = (
+            "import fcntl, sys, termios; "
+            "fcntl.ioctl(int(sys.argv[1]), termios.TIOCSCTTY, 0); "
+            "from vault_client import tty_confirm; print(tty_confirm('Authorize? '))"
+        )
+        os.write(master, answer)
+        result = subprocess.run(
+            [sys.executable, "-c", child, str(slave)], cwd=SOLANA, pass_fds=(slave,),
+            start_new_session=True, input=b"yes\n", capture_output=True, timeout=10, check=True,
+        )
+        assert result.stdout.decode().strip() == expected
+        os.set_blocking(master, False)
+        assert b"Authorize? " in os.read(master, 1024)
+    finally:
+        os.close(slave)
+        os.close(master)
+
+
+def test_confirmation_refuses_piped_yes_without_terminal():
+    result = subprocess.run(
+        [sys.executable, "-c", "from vault_client import tty_confirm; print(tty_confirm('Authorize? '))"],
+        cwd=SOLANA, start_new_session=True, input=b"yes\n", capture_output=True, timeout=10, check=True,
+    )
+    assert result.stdout == b"False\n"
 
 
 @pytest.fixture(autouse=True)
