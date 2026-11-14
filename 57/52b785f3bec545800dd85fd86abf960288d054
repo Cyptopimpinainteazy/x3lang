@@ -1,0 +1,18 @@
+scripts/hackathon/test_testnet_guard_evidence.py
+  h_e41068bed968d7 364-376
+scripts/hackathon/testnet_guard_evidence.py
+  h_e41068bed968d7 379,387-397,490-491
+scripts/hackathon/vault_testnet_evidence.py
+  h_e41068bed968d7 756,781
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5752b785f3bec545800dd85fd86abf960288d054",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
