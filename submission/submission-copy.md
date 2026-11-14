@@ -6,19 +6,17 @@
 
 **Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`), Autonomous Business (`business`) and Unstoppable DeFi (`defi`). Owner-confirmed selection; not a claim of organizer acceptance or a submission receipt.
 
-## 20–2,000 character description (1948 characters, LF)
+## 20–2,000 character description (1780 characters, LF)
 
-X3 Force Field (formerly X3 Shield) combines typed .x3 owner policy, deterministic checks and signed-quote enforcement for AI-agent payments.
+AI agents are getting wallets, and their spending limits should not live inside the model. In May 2026 an attacker drained about $150,000 from an AI agent's wallet in two moves; no key was stolen, because the model's output was the authorization.
 
-Owners write reviewable mandates; agents propose payment programs. Compiler and mandate checks reject unsafe proposals outside the model. NEAR x3-guard verifies signed NEAR Intents / 1Click terms before authorizing a deposit address. The model cannot change the stored mandate.
+X3 Force Field takes authorization out of the model. The owner writes spending rules as a small typed .x3 mandate: who may be paid, in which asset, per-payment and daily caps, slippage and fee ceilings, refund address, approval threshold and expiry. The agent can only propose payments, as .x3 programs. A compiler and deterministic checks refuse unsafe proposals outside the model: locally, 9/9 unsafe edits fail to compile and 3/3 replayed attack payments are refused while the owner's normal payment is allowed.
 
-Six differentiators: typed, hashable policy; checks outside the model; authenticated quote-term enforcement; source-to-payment traceability; restricted agent-key methods; reproducible evidence. JUDGES.md maps each claim to source, receipts, commands and limits. submission/judge-claims.json provides the same evidence paths and source hashes for automated review; invoice06_chain.py --json reproduces the archived five-link trail.
+How NEAR fits: the x3-guard contract on NEAR mainnet verifies the NEAR Intents / 1Click quote's Ed25519 signature, then checks recipient, asset, minimum output, refund address and deadline against the owner's mandate before authorizing a deposit address. The agent signs with a FunctionCall key limited to three Guard methods.
 
-Mainnet invoice_06: following owner approval, a restricted key accepted a quote after 21 Guard checks. The mandate capped each payment and daily spend at 25 USDC, restricted the recipient and pinned refunds. The policy floor was 24.75 USDC. The owner manually sent 25 USDC on Solana; 24.9952 USDC reached x3lang.near about 84 seconds later. The agent recorded Settled and floor_met. Both original .x3 hashes match Guard state; compiled output matches 10 policy fields and 13 mandate terms. Eight unsafe edits of that payment are refused locally.
+Mainnet proof (invoice_06): after owner approval, the agent's restricted key submitted a signed quote and Guard accepted it; the owner's Solana wallet sent 25 USDC and 24.9952 USDC reached x3lang.near through NEAR Intents about 84 seconds later; the agent recorded the outcome. Both original .x3 files hash-match Guard state. JUDGES.md maps every claim to receipts and one-command checks.
 
-Other local evidence: 8/8 scripted red-team attacks and 3/3 replayed wallet-drain attacks refused, authorized control allowed; 9 unsafe edits fail compilation. Historical testnet Guard evidence includes attacker.near refusal.
-
-Limits: one owner-assisted ~$25 run. Guard is noncustodial and does not authenticate outcome hashes. The agent account retains an owner FullAccess recovery key. Provider association is not cryptographic cross-chain atomicity; no native X3VM runs on-chain. Compiler/VM predate the hackathon; NEAR integration is new work.
+Limits: one owner-funded ~$25 payment. Guard does not hold funds or authenticate the outcome the agent reports, the agent account keeps an owner FullAccess recovery key, and there is no cryptographic cross-chain atomicity. The X3 compiler/VM predate the hackathon; the NEAR integration is new work.
 
 ## Public links
 

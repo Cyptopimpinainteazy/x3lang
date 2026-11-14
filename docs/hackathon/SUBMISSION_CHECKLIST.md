@@ -118,13 +118,16 @@ Collect these from the human; do not infer or invent them:
 - 20–2,000 character description;
 - explicit consent to the organizer contact notice.
 
+Leave the form's `website` field empty and omit it from the API payload: it is a spam trap,
+and the organizer rejects any submission where it has a value.
+
 Generate one lowercase UUID as `requestId` and reuse it for retries. Print the complete JSON
 payload for the human and wait for explicit approval before sending anything.
 
 ## Submission gate
 
 - [ ] Official rules re-opened immediately before submission.
-- [ ] `PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_submission_copy.py -q` passes (description LF/UTF-16/CRLF, all three tracks, X post lengths and tags).
+- [ ] `PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_submission_copy.py -q` passes (description LF/UTF-16/CRLF, all four tracks, X post lengths and tags).
 - [ ] Final exact-commit tag `hackathon-submission` is created once and never moved; preserve `pre-hackathon`/`baseline` provenance.
 - [ ] Hosted demo remains available through judging (at least November 18, ideally November 25 per organizer guidance).
 - [ ] Human confirmed the exact JSON payload.

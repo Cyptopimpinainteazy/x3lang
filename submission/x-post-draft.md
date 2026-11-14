@@ -1,30 +1,38 @@
 # X3 Force Field — owner-published X demo draft
 
-**Previously X3 Shield.** Draft only. Attach the actual public demo video or screenshots before posting. Do not claim a post exists until its signed-out URL is verified.
+**Previously X3 Shield.** Draft only. Attach the demo video before posting. Do not claim a post exists until its signed-out URL is verified.
 
-## Post 1 — video post (254 characters)
+Written to the organizer's demo-post advice: lead with the user problem, show one complete moment, explain NEAR's role concretely, then give a next step and ask a genuine question.
 
-Built at NEAR HACKATHON: X3 Force Field 🛡️ — a typed .x3 language + compiler for AI-agent spending rules. A NEAR Guard checks signed terms, not model promises. 25 USDC moved Solana→NEAR on mainnet under owner-approved limits. @NEARProtocol #NEARHackathon
+## Post 1 — video post
 
-## Post 2 — reply: why this differs
+In May an AI agent was talked into sending ~$150K to an attacker. The model's output was the authorization.
 
-This isn't a wallet settings toggle. The owner writes auditable .x3 mandate code; a compiler rejects unsafe payment programs. Deterministic checks and NEAR x3-guard enforce signed quote terms. X3BC/X3VM exist as prior work—not as on-chain Guard execution.
+X3 Force Field takes the spending rules out of the model. Watch an agent fall for that attack and get refused.
 
-## Post 3 — reply: inspect the proof
+Built at NEAR HACKATHON @NEARProtocol #NEARHackathon
 
-Mainnet invoice_06: 25 USDC deposited from the owner's Solflare wallet; 24.9952 reached x3lang.near. Restricted agent recorded Settled; original .x3 files match Guard-stored hashes. Source, payout and outcome receipts: https://github.com/Cyptopimpinainteazy/x3lang
+## Post 2 — reply: how NEAR fits
 
-## Post 4 — reply: limits and reproducibility
+The agent signs with a key that can call only 3 methods on our NEAR contract, which verifies the NEAR Intents quote's signature and checks its terms against the owner's rules. On mainnet, the owner's Solana wallet then sent 25 USDC; 24.9952 USDC arrived on NEAR 84s later.
 
-One owner-assisted ~$25 settlement; Guard does not custody Solana funds or authenticate the agent-reported outcome tx hashes. No atomic cross-chain proof; X3VM not executing in Guard. Reproduce the compiler refusal and adversarial tests from the README: https://github.com/Cyptopimpinainteazy/x3lang
+## Post 3 — reply: try it
 
-## Video storyboard (2–3 minutes)
+Try it without a wallet or keys: one command replays the attack, and the scripted model falls for every step. 3/3 attack payments refused, the owner's normal payment allowed. Code, proofs and every mainnet transaction: https://github.com/Cyptopimpinainteazy/x3lang
 
-1. 0:00–0:20: Problem—model output must not be authorization.
-2. 0:20–0:50: Show real v4 `mandate-proposed.x3`, the typed rules, and compiler pipeline.
-3. 0:50–1:20: Demonstrate 9 unsafe edits fail compilation and the local Grok drain replay refuses 3/3 attacks. Label LOCAL.
-4. 1:20–2:15: Show invoice_06 owner approval, restricted-agent quote acceptance, Solana deposit, NEAR payout and recorded Guard outcome with explorer links. Label MAINNET.
-5. 2:15–2:45: Explain custody, manually signed funding, FullAccess recovery key, unauthenticated outcome hashes, no atomicity and no on-chain X3VM.
-6. 2:45–3:00: Show the exact public repository commit and clean-clone judge commands.
+## Post 4 — reply: limits and a question
+
+Limits, plainly: one owner-funded ~$25 payment; the contract doesn't hold funds or verify the outcome the agent reports; no atomic cross-chain proof.
+
+Builders: what's the one spending rule you'd want enforced before giving your agent a wallet?
+
+## Video storyboard (about 2 minutes, captions only)
+
+1. 0:00–0:10 — The problem: AI agents hold wallets; the May 2026 drain; the model's output was the authorization.
+2. 0:10–0:45 — LOCAL, real run: `replay_grok_wallet_drain.py`. The scripted model falls for both attack steps; 3/3 attack programs are refused for their own reason; the owner's payment is allowed.
+3. 0:45–1:00 — LOCAL, real run: `x3_wont_compile.py`. 9/9 unsafe edits fail to compile.
+4. 1:00–1:45 — MAINNET: invoice_06 on the explorers. Owner approval → restricted agent key accepts the signed 1Click quote → the owner's wallet sends 25 USDC on Solana → `intents.near` pays 24.9952 USDC to `x3lang.near` → the agent records the outcome.
+5. 1:45–1:55 — How NEAR fits: a FunctionCall key limited to three Guard methods; Guard verifies the quote signature and terms; NEAR Intents settles Solana→NEAR.
+6. 1:55–2:10 — The limits on one card, the repository link and the question from Post 4.
 
 Never display private keys or credentials. Verify the published video and X post while signed out.
