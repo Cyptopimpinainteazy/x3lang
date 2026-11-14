@@ -111,6 +111,91 @@ class ProofSecurityTests(unittest.TestCase):
         with patch.object(p,'require_base_tx',side_effect=fake),self.assertRaisesRegex(p.AdmissionError,'BASE_RPC_RECEIPT_OR_LOG_DISAGREEMENT'):
             p.verify_base_quorum(TXID,TO)
 
+    # --- issue #110: common finalized checkpoint instead of head-height drift ---
+    def quorum(self,finalized,blocks,inclusion=1000):
+        """finalized: {url:(height,hash)}; blocks: {url:{height:block or None}}."""
+        def obs(url,txid,destination):
+            h,fh=finalized[url]
+            return {'tx_hash':TXID,'chain_id':p.CHAIN_ID,'from':SOURCE.lower(),'token':p.TOKEN.lower(),
+                    'deposit_address':TO.lower(),'units':p.AMOUNT,'block_hash':BLOCK,'block_number':inclusion,
+                    'inclusion_timestamp_unix_s':1_762_500_000,'event_log_index':'0x1',
+                    'token_code_sha256':p.TOKEN_CODE_SHA256,'confirmations':30,
+                    'finalized_block_height':h,'finalized_block_hash':fh,'rpc':url}
+        calls=[]
+        def fake(url,method,params):
+            self.assertEqual(method,'eth_getBlockByNumber')
+            self.assertIs(params[1],False)
+            calls.append((url,params[0]))
+            return blocks[url].get(int(params[0],16))
+        with patch.object(p,'require_base_tx',side_effect=obs),patch.object(p,'rpc',side_effect=fake):
+            out=p.verify_base_quorum(TXID,TO)
+        return out,calls
+
+    def test_async_finalized_heads_with_matching_common_hash_pass(self):
+        a,b=p.BASE_RPCS
+        common='0x'+'82'*32
+        out,calls=self.quorum({a:(55_561_159,'0x'+'1'*64),b:(55_559_063,common)},
+                              {a:{55_559_063:{'hash':common}},b:{55_559_063:{'hash':common}}},inclusion=55_557_170)
+        self.assertEqual(out['base_finality_method'],'common_finalized_checkpoint_v2')
+        self.assertEqual(out['common_finalized_checkpoint'],{'height':55_559_063,'hash':common})
+        self.assertEqual(sorted(calls),sorted([(a,hex(55_559_063)),(b,hex(55_559_063))]))
+        self.assertEqual(out['classification'],'independent_base_sepolia_finalized_transfer')
+
+    def test_old_drift_limit_no_longer_rejects_2096_block_gap(self):
+        a,b=p.BASE_RPCS
+        h='0x'+'d'*64
+        out,_=self.quorum({a:(3096,'0x'+'1'*64),b:(1000,h)},{a:{1000:{'hash':h}},b:{1000:{'hash':h}}})
+        self.assertEqual(out['common_finalized_checkpoint']['height'],1000)
+        self.assertFalse(hasattr(p,'MAX_BLOCK_DRIFT'))
+
+    def test_split_fork_hash_at_common_height_rejected(self):
+        a,b=p.BASE_RPCS
+        with self.assertRaisesRegex(p.AdmissionError,'BASE_RPC_FINALIZED_CHECKPOINT_HASH_DISAGREEMENT'):
+            self.quorum({a:(1200,'0x'+'1'*64),b:(1100,'0x'+'2'*64)},
+                        {a:{1100:{'hash':'0x'+'3'*64}},b:{1100:{'hash':'0x'+'2'*64}}})
+
+    def test_equal_heights_different_finalized_hashes_rejected(self):
+        a,b=p.BASE_RPCS
+        with self.assertRaises(p.AdmissionError):
+            self.quorum({a:(1100,'0x'+'1'*64),b:(1100,'0x'+'2'*64)},
+                        {a:{1100:{'hash':'0x'+'1'*64}},b:{1100:{'hash':'0x'+'2'*64}}})
+
+    def test_stale_provider_below_inclusion_rejected(self):
+        a,b=p.BASE_RPCS
+        h='0x'+'e'*64
+        with self.assertRaisesRegex(p.AdmissionError,'BASE_TX_NOT_L2_FINALIZED'):
+            self.quorum({a:(1200,'0x'+'1'*64),b:(999,h)},{a:{999:{'hash':h}},b:{999:{'hash':h}}})
+
+    def test_archive_block_unavailable_rejected(self):
+        a,b=p.BASE_RPCS
+        h='0x'+'e'*64
+        for missing in (None,{},{'hash':None},{'hash':'0x12'},{'hash':'0x'+'z'*64},
+                        {'hash':'0x'+'e'*32+'_'+'e'*31},{'hash':'0x '+'e'*63},{'hash':'0x'+'e'*63+'\n'},{'hash':'0x'+'e'*64+'\n'}):
+            with self.subTest(missing=missing),self.assertRaisesRegex(p.AdmissionError,'BASE_COMMON_CHECKPOINT_UNAVAILABLE'):
+                self.quorum({a:(1200,'0x'+'1'*64),b:(1100,h)},{a:{1100:missing},b:{1100:{'hash':h}}})
+
+    def test_provider_head_inconsistent_with_its_block_at_common_rejected(self):
+        a,b=p.BASE_RPCS
+        h='0x'+'e'*64
+        # b says its finalized head (height 1100) is hash 'e…', but by number returns 'f…'
+        with self.assertRaisesRegex(p.AdmissionError,'BASE_RPC_FINALIZED_HEAD_INCONSISTENT'):
+            self.quorum({a:(1200,'0x'+'1'*64),b:(1100,h)},
+                        {a:{1100:{'hash':'0x'+'f'*64}},b:{1100:{'hash':'0x'+'f'*64}}})
+
+    def test_hash_case_is_normalised(self):
+        a,b=p.BASE_RPCS
+        out,_=self.quorum({a:(1200,'0x'+'1'*64),b:(1100,'0x'+'AB'*32)},
+                          {a:{1100:{'hash':'0x'+'ab'*32}},b:{1100:{'hash':'0x'+'Ab'*32}}})
+        self.assertEqual(out['common_finalized_checkpoint']['hash'],'0x'+'ab'*32)
+
+    def test_single_or_duplicate_provider_quorum_rejected(self):
+        h='0x'+'e'*64
+        o={'finalized_block_height':1100,'finalized_block_hash':h,'block_number':1000,'rpc':'https://one.invalid'}
+        with self.assertRaisesRegex(p.AdmissionError,'BASE_RPC_QUORUM_TOO_SMALL'):
+            p.common_finalized_checkpoint([o])
+        with self.assertRaisesRegex(p.AdmissionError,'BASE_RPC_PROVIDERS_NOT_DISTINCT'):
+            p.common_finalized_checkpoint([o,dict(o)])
+
     def test_near_must_have_successful_actual_ft_transfer_receipt(self):
         def fake(url,method,params):
             if method=='status':return {'chain_id':'testnet','genesis_hash':p.NEAR_GENESIS}
