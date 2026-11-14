@@ -16,13 +16,16 @@ from agent_admission_signed import SignedApproval, approval_payload
 from agent_runtime import Runtime, Adapter, Action, JuryVote, canonical, digest, vote_payload, PolicyViolation
 from agent_runtime_intents import IntentCompilerPolicy
 from agent_runtime_court import IncidentCourt, Finding, finding_payload, incident_packet
+from agent_runtime_handoff import (build_incident_payload, recheck_rejection, sign_incident_handoff,
+                                   verify_incident_handoff)
 
 
 def raw(key):
     return key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
 
-def demonstrate():
+def demonstrate(handoff_key=None):
+    """Run the lifecycle; with handoff_key, also sign the incident for outside review."""
     now = int(datetime(2026, 11, 13, tzinfo=timezone.utc).timestamp())
     operator, parent_key, child_key = (Ed25519PrivateKey.generate() for _ in range(3))
     jurors = {name: Ed25519PrivateKey.generate() for name in ("jury-a", "jury-b", "jury-c")}
@@ -85,13 +88,30 @@ def demonstrate():
         proposal = IncidentCourt(jury_keys).review(runtime, case_id, findings, now=now)
         restarted = Runtime(path, raw(operator), adapters, jury_keys=jury_keys, clock=lambda: now)
         stopped_after_restart = False
+        probe_error = None
         later = Action("child", "compile-intent", source, "later", now+60)
         try:
             restarted.execute(later, child_key.sign(restarted.action_payload(later)), votes(later))
-        except ValueError:
+        except ValueError as exc:
             stopped_after_restart = True
+            probe_error = str(exc)
         assert replay_blocked and stopped_after_restart
         assert restarted.snapshot("child")["status"] == "retired"
+        handoff = {}
+        if handoff_key is not None:
+            # Exported from the reopened runtime: the evidence is what survived on disk.
+            payload = build_incident_payload(
+                restarted, case_id, issued_at=now,
+                recheck=recheck_rejection(policy.compile, bad.artifact),
+                restart={"status_after_restart": restarted.snapshot("child")["status"],
+                         "probe_action_refused": stopped_after_restart, "probe_error": probe_error},
+                court=proposal)
+            envelope = sign_incident_handoff(payload, handoff_key)
+            verify_incident_handoff(envelope, [raw(handoff_key)])
+            handoff = {"incident_handoff": {"envelope_sha256": digest(envelope),
+                                            "signer": raw(handoff_key).hex(),
+                                            "format": "x3.incident-handoff", "version": 1},
+                       "incident_handoff_envelope": envelope.decode("ascii")}
         return {
             "scope": "local SQLite + real Ed25519 + existing .x3 compiler; no payment",
             "jury": "scripted signing identities; not independent model judgments",
@@ -102,14 +122,27 @@ def demonstrate():
             "child_remaining": restarted.snapshot("child")["remaining"],
             "court_proposal": proposal,
             "events": restarted.events(),
+            **handoff,
         }
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--handoff", type=Path,
+                        help="write the signed incident handoff (x3.incident-handoff v1) here")
+    parser.add_argument("--handoff-signer", type=Path,
+                        help="write the handoff signer's Ed25519 public key (hex) here")
     args = parser.parse_args()
-    result = demonstrate()
+    if (args.handoff is None) != (args.handoff_signer is None):
+        parser.error("--handoff and --handoff-signer are used together")
+    # Ephemeral per run; the private key is never written. Consumers pin the public key.
+    result = demonstrate(Ed25519PrivateKey.generate() if args.handoff else None)
+    envelope = result.pop("incident_handoff_envelope", None)
+    if args.handoff:
+        for path, text in ((args.handoff, envelope), (args.handoff_signer, result["incident_handoff"]["signer"] + "\n")):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(text.encode("ascii"))
     encoded = json.dumps(result, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
