@@ -20,9 +20,10 @@ Environment=LABEL=%H
 Environment=COORDINATOR=https://gpu.x3star.net
 Environment=PAYOUT=
 Environment=MODELS=qwen3:8b
+# $$ passes a literal $ through systemd to the shell, which reads the Environment= values.
 ExecStart=/bin/sh -c 'exec /opt/x3lang/.venv/bin/python -m gpu_mesh worker run \
-    --key /var/lib/x3-gpu-worker/worker.key --coordinator "$COORDINATOR" --label "$LABEL" \
-    --models "$MODELS" ${PAYOUT:+--payout-account "$PAYOUT"}'
+    --key /var/lib/x3-gpu-worker/worker.key --coordinator "$$COORDINATOR" --label "$$LABEL" \
+    --models "$$MODELS" $${PAYOUT:+--payout-account "$$PAYOUT"}'
 Restart=always
 RestartSec=10
 NoNewPrivileges=true
