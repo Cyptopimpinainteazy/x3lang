@@ -134,6 +134,43 @@ class SecureWorkerTests(unittest.TestCase):
             serve_unix_worker(None, self.path, allowed_uids={os.getuid()},
                               ready_event=self.ready, stop_event=self.stop)
 
+    def test_shutdown_removes_only_owned_socket(self):
+        self.start_server(allowed_uids={os.getuid()})
+        self.assertTrue(self.path.exists())
+        self.stop.set()
+        self.process.join(4)
+        self.assertFalse(self.process.is_alive())
+        self.assertFalse(self.path.exists())
+
+    def test_denial_never_discloses_private_signing_material(self):
+        self.start_server(allowed_uids={os.getuid()})
+        forged = json.loads(self.signed())
+        forged["agent_signature_hex"] = "00" * 64
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            sock.connect(str(self.path))
+            raw = json.dumps(forged).encode()
+            sock.sendall(struct.pack("!I", len(raw)) + raw)
+            response = sock.recv(512)
+        self.assertIn(b"request denied", response)
+        self.assertNotIn(b"private", response)
+        self.assertNotIn(b"agent-one", response)
+
+    def test_client_refuses_oversized_request_without_connecting(self):
+        with self.assertRaisesRegex(ValueError, "invalid request size"):
+            request_unix_worker(self.path, b"x" * (MAX_WIRE_BYTES + 1))
+
+    def test_incomplete_request_body_does_not_execute(self):
+        self.start_server(allowed_uids={os.getuid()})
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(3)
+            sock.connect(str(self.path))
+            sock.sendall(struct.pack("!I", 30) + b"partial")
+            sock.shutdown(socket.SHUT_WR)
+            response = sock.recv(512)
+        self.assertIn(b"request denied", response)
+        self.assertEqual(self.runtime.snapshot("agent-one")["remaining"], 10)
+
     def test_existing_socket_path_not_overwritten(self):
         self.path.write_text("not a socket")
         with self.assertRaises(ValueError):
