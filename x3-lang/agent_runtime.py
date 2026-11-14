@@ -190,13 +190,19 @@ class Runtime:
     """Trusted local runtime; SQLite is authoritative, not caller state."""
 
     def __init__(self, db_path, operator_public_key: bytes, adapters: Mapping[str, Adapter],
-                 *, jury_keys=None, clock=time.time, stamp_policies=None):
+                 *, jury_keys=None, clock=time.time, stamp_policies=None,
+                 stamp_enforcement="configured"):
         _key(operator_public_key)
         self.operator_key = operator_public_key
         self.adapters = dict(adapters)
         self.jury_keys = dict(jury_keys or {})
         self.clock = clock
+        if stamp_enforcement not in ("configured", "all"):
+            raise ValueError("unrecognized stamp enforcement mode")
+        self.stamp_enforcement = stamp_enforcement
         self.stamp_policies = dict(stamp_policies or {})
+        if stamp_enforcement == "all" and (not self.adapters or set(self.stamp_policies) != set(self.adapters)):
+            raise ValueError("strict stamp enforcement requires every registered adapter to be protected")
         for name, policy in self.stamp_policies.items():
             if name not in self.adapters or not isinstance(policy, StampGatePolicy):
                 raise ValueError("stamp policy must reference a registered adapter")
@@ -220,6 +226,8 @@ class Runtime:
                           "score": SCORE_IDS}
         if self.stamp_policies:
             trusted_config["stamp_policies"] = {n: p.record() for n, p in self.stamp_policies.items()}
+        if self.stamp_enforcement == "all":
+            trusted_config["stamp_enforcement"] = "all"
         config = canonical(trusted_config)
         with self._connection() as db:
             db.executescript("""
@@ -450,6 +458,8 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
         if type(ttl) is not int or not 0 < ttl <= 3600:
             raise ValueError("invalid stamp ttl")
         action_request = self.action_payload(action)
+        if self.stamp_enforcement == "all" and set(self.stamp_policies) != set(self.adapters):
+            raise ValueError("strict stamp coverage missing")
         policy = self.stamp_policies.get(action.adapter)
         if policy is None:
             raise ValueError("adapter is not configured for scoped stamping")
@@ -502,6 +512,8 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
                 raise ValueError("action expired or outlives identity")
             if db.execute("SELECT 1 FROM actions WHERE agent=? AND nonce=?", (action.agent_id, action.nonce)).fetchone():
                 raise ValueError("action already reserved; outcome may be uncertain")
+            if self.stamp_enforcement == "all" and set(self.stamp_policies) != set(self.adapters):
+                raise ValueError("strict stamp coverage missing")
             stamp_policy = self.stamp_policies.get(action.adapter)
             stamp_nonce = None
             if stamp_policy is not None:
