@@ -95,7 +95,8 @@ def issue_scoped_stamp(req: StampRequest, issuer: Ed25519PrivateKey) -> dict:
 
 def verify_scoped_stamp(stamp: dict, *, trusted_issuer: bytes, agent_id: str,
                         action: str, artifact: bytes, policy_sha256: str, now: int,
-                        revoked_nonces: Collection[str] = (),\n                        required_checks: Collection[str] = ()) -> bool:
+                        revoked_nonces: Collection[str] = (),
+                        required_checks: Collection[str] = ()) -> bool:
     """Fail-closed verifier; raises ValueError for any mismatch."""
     try:
         if not isinstance(stamp, dict) or set(stamp) != {"payload", "signature"}:
