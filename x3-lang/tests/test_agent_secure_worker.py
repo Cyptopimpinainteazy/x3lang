@@ -10,6 +10,7 @@ import struct
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -220,6 +221,24 @@ class SecureWorkerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             request_unix_worker(self.path, self.signed())
         self.assertEqual(self.runtime.snapshot("agent-one")["remaining"], 10)
+
+    def test_failure_after_bind_before_inode_capture_cleans_socket(self):
+        from agent_tool_gateway import LocalToolGateway
+        gateway = LocalToolGateway(self.runtime, {"compile-intent": self.issuer})
+        real_lstat = os.lstat
+        injected = [False]
+        def fail_first_bound_target(path, *args, **kwargs):
+            if (str(path) == str(self.path) and self.path.exists()
+                    and not injected[0]):
+                injected[0] = True
+                raise OSError("injected filesystem failure")
+            return real_lstat(path, *args, **kwargs)
+        with patch("agent_secure_worker.os.lstat", side_effect=fail_first_bound_target):
+            with self.assertRaises(OSError):
+                serve_unix_worker(gateway, self.path, allowed_uids={os.geteuid()},
+                                  stop_event=self.stop)
+        self.assertTrue(injected[0])
+        self.assertFalse(self.path.exists(), "failed bind must not strand a stale socket")
 
     def test_existing_socket_path_not_overwritten(self):
         self.path.write_text("not a socket")
