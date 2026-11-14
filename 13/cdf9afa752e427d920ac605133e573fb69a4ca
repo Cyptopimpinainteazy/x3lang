@@ -1,0 +1,53 @@
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/01-x3lang/incident-handoff.json
+  s_8fd403fa84d397::t_8d59c864f3bd27 1
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/01-x3lang/incident-handoff.signer
+  s_8fd403fa84d397::t_9847aa15179b3b 1
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/01-x3lang/lifecycle.json
+  s_8fd403fa84d397::t_cadff50db64f16 1-155
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/01-x3lang/summary.json
+  s_8fd403fa84d397::t_40f76ed380f2a3 1-38
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/02-reaper/reaper-retirement.json
+  s_8fd403fa84d397::t_81f47ff80222e5 1
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/02-reaper/reaper-retirement.signer
+  s_8fd403fa84d397::t_e691c90292feac 1
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/02-reaper/reaper-storage.json
+  s_8fd403fa84d397::t_634393eb260899 1-115
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/02-reaper/summary.json
+  s_8fd403fa84d397::t_558ec4f675016b 1-24
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/03-scrapyard/regression-proposal.json
+  s_8fd403fa84d397::t_e08ae80ede8542 1-28
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/03-scrapyard/scrapyard-retirement.json
+  s_8fd403fa84d397::t_2146466e95b811 1-44
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/03-scrapyard/summary.json
+  s_8fd403fa84d397::t_d39efab1e3472f 1-18
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/04-review/replay-verdict.json
+  s_8fd403fa84d397::t_adcbd7f9707583 1-13
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/MANIFEST.json
+  s_8fd403fa84d397::t_9ddbeb300c1a7e 1-177
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/README.md
+  s_8fd403fa84d397::t_5d46abd239eb21 1-22
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/run-log/reaper-intake.stderr
+  s_8fd403fa84d397::t_4d0c21db3111c3 1-4
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/run-log/reaper-replay-refused.stderr
+  s_8fd403fa84d397::t_9cda4df7b8beb3 1
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/run-log/scrapyard-wrong-key-refused.stderr
+  s_8fd403fa84d397::t_e8e7b3918e2ca9 1
+audit-artifacts/reaper-scrapyard-lifecycle-20261113/run-log/steps.tsv
+  s_8fd403fa84d397::t_828706b784c2d1 1-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "13cdf9afa752e427d920ac605133e573fb69a4ca",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
