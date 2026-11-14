@@ -22,6 +22,15 @@ REQUEST_FIELDS = frozenset({"agent_id", "adapter", "nonce", "expires_at",
                              "artifact_b64", "agent_signature_hex"})
 
 
+def _unique_object(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate request field")
+        obj[key] = value
+    return obj
+
+
 def _text(value, label):
     if not isinstance(value, str) or not 1 <= len(value) <= 128:
         raise ValueError("invalid " + label)
@@ -59,7 +68,7 @@ class LocalToolGateway:
         if not isinstance(serialized_request, bytes) or not 0 < len(serialized_request) <= MAX_REQUEST_BYTES:
             raise ValueError("invalid request size")
         try:
-            request = json.loads(serialized_request)
+            request = json.loads(serialized_request, object_pairs_hook=_unique_object)
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise ValueError("invalid request encoding") from exc
         if not isinstance(request, dict) or set(request) != REQUEST_FIELDS:
