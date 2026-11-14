@@ -2,6 +2,8 @@
 
 **Judges: [start here — payment, limits, proof and reproduction](JUDGES.md).**
 
+**No install: try it in your browser at [dotx3.net](https://dotx3.net).** [Break the Mandate](https://dotx3.net/labs/force-field/index.html) runs 12 attacks against the mandate, [Agent Court](https://dotx3.net/labs/court/index.html) lets you write a mandate, send an agent through a day of attacks and amend the law, and [Verify](https://dotx3.net/labs/force-field/verify.html) SHA-256-checks the archived invoice_06 mainnet evidence in the page.
+
 **Formerly X3 Shield.** The name changes; deployed `x3-guard`, `.x3` source files, evidence paths, wallet permissions and historical transaction records do not.
 
 **Judges: start with the one-page [proof card](PROOF_CARD.md)** — the five mainnet invoice_06 transactions, the accounts and keys, the matching `.x3` hashes, and the seven limits.
