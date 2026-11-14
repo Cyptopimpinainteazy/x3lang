@@ -5,7 +5,9 @@ compiler checks and NEAR Guard to constrain AI-agent payment proposals.
 
 **Nine evidenced capabilities: six core payment capabilities plus three additional local capabilities.** The source hashes are identity records, not deployed payment-program pinning; that separate contract change is not part of this demonstration.
 
-**If you have 90 seconds:** [read the judge pitch and three-proof sequence](docs/hackathon/JUDGE_PITCH_90_SECONDS.md). It includes a 30-second opener, live evidence links, four-track fit and answers to the hardest questions.\n\n## Two-minute evidence route — no setup or wallet
+**If you have 90 seconds:** [read the judge pitch and three-proof sequence](docs/hackathon/JUDGE_PITCH_90_SECONDS.md). It includes a 30-second opener, live evidence links, four-track fit and answers to the hardest questions.
+
+## Two-minute evidence route — no setup or wallet
 
 **No install: try it in your browser at [dotx3.net](https://dotx3.net).** [Break the Mandate](https://dotx3.net/labs/force-field/index.html) runs 12 attacks against the mandate, [Agent Court](https://dotx3.net/labs/court/index.html) lets you write a mandate, send an agent through a day of attacks and amend the law, and [Verify](https://dotx3.net/labs/force-field/verify.html) SHA-256-checks the archived invoice_06 mainnet evidence in the page.
 
