@@ -72,6 +72,9 @@ MUTANTS = [
      ".is_ok_and(|(bytes, hash)| *bytes == intent.unsigned_tx && *hash == intent.signing_hash)",
      ".is_ok()",
      "a_tampered_stored_payload_is_refused_before_signing"),
+    ("intent_hash_binding_bypass", "src/lib.rs",
+     "&& intent_hash(intent) == rec.intent_hash,", "&& true,",
+     "a_tampered_stored_payload_is_refused_before_signing"),
     ("signature_key_bypass", "src/lib.rs",
      "if recovered != expected {", "if false {",
      "a_signature_by_another_key_is_not_accepted"),
@@ -133,8 +136,11 @@ def main():
         # Preserve Rust include_str! paths relative to the Guard crate.
         crate = scratch / "x3-lang" / "near" / "x3-mpc-guard"
         crate.parent.mkdir(parents=True)
-        shutil.copytree(source, crate, ignore=shutil.ignore_patterns(
-            "target", ".pytest_cache", ".venv", "__pycache__"))
+        # copy (not copy2): fresh mtimes, so a reused --target-dir can never
+        # serve a stale mutant build as the baseline.
+        shutil.copytree(source, crate, copy_function=shutil.copy,
+                        ignore=shutil.ignore_patterns(
+                            "target", ".pytest_cache", ".venv", "__pycache__"))
         target_dir = args.target_dir or scratch / "target"
         target_dir.mkdir(parents=True, exist_ok=True)
 

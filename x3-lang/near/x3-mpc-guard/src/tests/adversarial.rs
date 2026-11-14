@@ -126,7 +126,7 @@ fn a_recipient_in_another_spelling_is_not_matched_loosely() {
 #[test]
 fn a_tampered_stored_payload_is_refused_before_signing() {
     let mut c = world();
-    propose(&mut c, request("pay", 100_000, 0), T0_MS);
+    let requested_original = propose(&mut c, request("pay", 100_000, 0), T0_MS);
     // Simulate a corrupted or substituted record: the hash no longer matches the transaction.
     let key = format!("{OWNER}/pay");
     let mut rec = c.intents.get(&key).unwrap().clone();
@@ -138,9 +138,31 @@ fn a_tampered_stored_payload_is_refused_before_signing() {
     })
     .contains("canonical_transaction"));
 
-    // A substituted recipient inside the stored intent changes the rebuilt transaction too.
+    // A substituted hash with a recomputed intent hash: only the re-encoding catches it.
     let mut rec = c.intents.get(&key).unwrap().clone();
-    rec.intent.signing_hash = requested(&c, "pay").intent.signing_hash;
+    rec.intent.signing_hash = "ab".repeat(32);
+    rec.intent_hash = crate::authority::intent_hash(&rec.intent);
+    c.intents.insert(key.clone(), rec);
+    set(AGENT, 0, T0_MS + 1);
+    assert!(refused(|| {
+        let _ = c.agent_request_signature(acc(OWNER), "pay".into());
+    })
+    .contains("canonical_transaction"));
+
+    // A changed non-transaction field: only the intent hash catches it.
+    let mut rec = c.intents.get(&key).unwrap().clone();
+    rec.intent.signing_hash = requested_original.intent.signing_hash.clone();
+    rec.intent_hash = requested_original.intent_hash.clone();
+    rec.intent.chain_namespace = "solana".into();
+    c.intents.insert(key.clone(), rec);
+    set(AGENT, 0, T0_MS + 1);
+    assert!(refused(|| {
+        let _ = c.agent_request_signature(acc(OWNER), "pay".into());
+    })
+    .contains("canonical_transaction"));
+
+    // A substituted recipient inside the stored intent changes the rebuilt transaction too.
+    let mut rec = requested_original.clone();
     rec.intent.recipient = RECIPIENT_2.into();
     c.intents.insert(key, rec);
     set(AGENT, 0, T0_MS + 1);
