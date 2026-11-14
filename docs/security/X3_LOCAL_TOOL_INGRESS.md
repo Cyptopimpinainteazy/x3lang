@@ -12,10 +12,14 @@ A **trusted host process** constructs an Agent Law `Runtime` in
 `StampGatePolicy` objects, holds the scoped stamp issuer key and database,
 and exposes only `LocalToolGateway.submit(bytes)` to a caller.
 
-The request envelope contains only an agent ID, adapter ID, request nonce,
+The request envelope contains an agent ID, adapter ID, request nonce,
 expiry, base64-encoded exact artifact, and the agent's Ed25519 signature over
-`Runtime.action_payload(action)`. No callback, URL, key, dynamic policy,
-caller-issued stamp or arbitrary tool name is accepted.
+`Runtime.action_payload(action)`. For a major action, it may also include
+`jury_votes`: a bounded list of juror IDs, boolean decisions, expiry times,
+and signature hex strings. The runtime—not the gateway—verifies each vote
+against its pinned juror registry, rejects duplicate jurors, and requires a
+majority of the fixed eligible electorate. No callback, URL, key, dynamic
+policy, caller-issued stamp or arbitrary tool name is accepted.
 
 The gateway validates input bounds and exact schema, obtains a stamp through
 trusted local preflight, and invokes the existing signed-action
@@ -66,3 +70,14 @@ IDE, or API privileges, build and review:
 
 No deployment, merger, wallet transaction, on-chain policy upgrade, or Guard
 change is part of this PR. Keep NEAR Guard PR #202 out of this scope.
+
+## Preflight denial accounting gap
+
+The trusted issuer performs admission preflight before `Runtime.execute`.
+A malformed or unauthenticated request fails closed without task dispatch;
+however, an authenticated but insufficient-capability/budget request can be
+refused at that preflight stage without triggering the same retirement and
+per-action audit event as a denial detected by `execute`. This discrepancy
+must be specified and tested independently before production. Do not count
+preflight refusal as evidence of durable agent retirement. No live keys or
+effects are required to reproduce this boundary.
