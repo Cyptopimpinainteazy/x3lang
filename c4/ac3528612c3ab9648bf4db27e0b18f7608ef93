@@ -1,0 +1,29 @@
+submission/x-post-draft.md
+  s_02a490da6587ad::t_459c10da6fdffe 3,5,7,9,11,13,15,17,19,21,23-36
+README.md
+  s_02a490da6587ad::t_73bd524733d851 3-8,10-11,13,15-16,18-26
+  s_02a490da6587ad::t_7df7ded290c8b2 524-528,531-533
+  s_02a490da6587ad::t_b4bf68148f6278 49-54
+JUDGES.md
+  s_02a490da6587ad::t_268cf38371265e 8-10
+docs/hackathon/SUBMISSION_CHECKLIST.md
+  s_02a490da6587ad::t_7d4c2043101b21 121-123,130
+submission/submission-copy.md
+  s_02a490da6587ad::t_52fd56601d5461 9,11,13,15,17,19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c4ac3528612c3ab9648bf4db27e0b18f7608ef93",
+  "prompts": {},
+  "sessions": {
+    "s_02a490da6587ad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ec2bbf4f-852a-4b49-8113-2eefcc0a7d54",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
