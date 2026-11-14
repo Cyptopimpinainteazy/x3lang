@@ -60,14 +60,17 @@ reconciliation base; require zero failures on the commit you review. Full runtim
 setup and limits: [local runtime guide](docs/security/AGENT_LAW_RUNTIME.md).
 The [claim index](submission/judge-claims.json) now covers all nine capabilities.
 
-## Three selected tracks
+## Selected tracks
 
 Owner-confirmed selection: **AI Security & Defense** (`security`, primary),
-**Agent Economy** (`agents`) and **Unstoppable DeFi** (`defi`). This is not a saved
+**Agent Economy** (`agents`), **Autonomous Business** (`business`) and
+**Unstoppable DeFi** (`defi`). This is not a saved
 submission receipt or organizer acceptance. Security maps to compiler/Guard
-restrictions; agents to scoped authority and local signed lifecycle; DeFi to
-signed quote authorization and the archived 25-USDC mainnet route. See the
-[track evidence table](README.md#three-project-perspectives).
+restrictions; agents to scoped authority and local signed lifecycle; business to
+the owner-set spending constraints Guard enforces (invoice_06 was owner-funded and
+paid to the owner's own account; no treasury, sales or revenue features exist); DeFi
+to signed quote authorization and the archived 25-USDC mainnet route. See the
+[track evidence table](README.md#track-perspectives).
 
 ## Structured route for human and automated reviewers
 
@@ -143,7 +146,8 @@ For broader local tests, provisioning requirements and browser panels, use the
 | --- | --- | --- |
 | Nine capabilities | Six core payment claims plus three additional local capabilities | Claim index, not nine mainnet deployments |
 | 9/9 compiler edits | Unsafe edits to the example payment | Local compiler demo |
-| 8/8 scripted attacks | Separate red-team scenarios | Local policy checks |
+| 8/8 scripted attacks | Scripted-model red-team scenarios (README step 5) | Local policy checks |
+| 3/3 replayed drain attacks | Replay of a real AI-wallet drain pattern, authorized control allowed (README step 5b) | Local policy checks |
 | 8/8 invoice edits | Mutations of the original invoice_06 source | Local compiler/mandate replay |
 | 21 quote checks | Passing checks in the archived allowed acceptance receipt | NEAR mainnet, not 21 attack refusals |
 | 5/5 links | Source, compiler, Guard, payment and recorded-outcome archive consistency | Offline verifier, not fresh RPC verification |
