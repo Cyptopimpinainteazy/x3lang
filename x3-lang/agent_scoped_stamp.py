@@ -115,6 +115,8 @@ def verify_scoped_stamp(stamp: dict, *, trusted_issuer: bytes, agent_id: str,
             raise ValueError("missing checks")
         if p["passed_checks"] != sorted(set(p["passed_checks"])) or not set(p["passed_checks"]) <= SUPPORTED_CHECKS:
             raise ValueError("invalid checks")
+        if not set(required_checks) <= SUPPORTED_CHECKS or not set(required_checks) <= set(p["passed_checks"]):
+            raise ValueError("required policy checks missing")
         if (p["agent_id"], p["action"], p["artifact_sha256"], p["policy_sha256"]) != (
             agent_id, action, _sha(artifact), policy_sha256):
             raise ValueError("artifact or authority mismatch")
