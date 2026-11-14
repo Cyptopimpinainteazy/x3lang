@@ -20,6 +20,12 @@ compiler checks and NEAR Guard to constrain AI-agent payment proposals.
    The owner manually funded the deposit; Guard does not custody USDC or verify
    outcome hashes. Provider association does not prove cross-chain atomicity.
 
+## Real incidents, deterministic guards, and honest trust boundaries
+
+**Judge takeaway:** X3 separates an agent's proposed payment from the owner's authorization. See the [incident-to-guard matrix](docs/hackathon/INCIDENT_GUARD_TRUST_BOUNDARIES.md) for the NEAR Intents/HOT Omni, Bybit, KelpDAO, Synthetix, Grok/Bankr, Solana web3.js, and Mt. Gox-inspired failure classes. Each row links a specific control and observable evidence, then identifies what X3 **would not have prevented**.
+
+**Fast demo:** `python3 scripts/hackathon/replay_grok_wallet_drain.py` demonstrates **3/3 local attack-program refusals and an allowed control**, followed by the [owner-assisted mainnet invoice_06 evidence](PROOF_CARD.md). The [Mt. Gox-inspired replay](docs/hackathon/MTGOX_INSPIRED_ACCOUNTING_REPLAY.md) is a **separate synthetic accounting model**, not deployed Guard enforcement. We make **no claim** X3 would have stopped the named historical incidents or saved their reported losses.
+
 ## What is distinctive — claim, proof and boundary
 
 The innovation is the combination of a typed policy language, deterministic
