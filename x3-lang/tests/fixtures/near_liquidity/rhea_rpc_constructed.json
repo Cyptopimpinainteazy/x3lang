@@ -1,0 +1,59 @@
+{
+  "_fixture": {
+    "kind": "CONSTRUCTED TEST FIXTURE - NOT CHAIN DATA",
+    "note": "Hand-written NEAR JSON-RPC results shaped after the documented responses. No value here was observed on NEAR mainnet; reserves, block hash, height, timestamp and get_return output are invented for unit tests and must never be cited as RHEA liquidity.",
+    "shape_sources": [
+      "https://docs.near.org/primitives/dex.md",
+      "https://ref-finance.gitbook.io/ref-finance/smart-contracts/ref-exchange",
+      "https://docs.near.org/api/rpc/block-chunk.md",
+      "https://docs.near.org/api/rpc/contracts.md",
+      "https://docs.near.org/api-reference/call-view-function.md",
+      "https://github.com/near/NEPs/blob/master/neps/nep-0148.md"
+    ],
+    "created": "2026-11-13"
+  },
+  "block_header": {
+    "height": 187310138,
+    "hash": "6RWmTYhXCzjMjoY3Mz1rfFcnBm8E6XeDDbFEPUA4sv1w",
+    "timestamp_offset_s": -2
+  },
+  "views": {
+    "v2.ref-finance.near|get_pools|{\"from_index\":0,\"limit\":2}": [
+      {
+        "pool_kind": "SIMPLE_POOL",
+        "token_account_ids": ["wrap.near", "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"],
+        "amounts": ["1000000000000000000000000000", "3000000000"],
+        "total_fee": 30,
+        "shares_total_supply": "1000000000000000000000000",
+        "amp": 0
+      },
+      {
+        "pool_kind": "SIMPLE_POOL",
+        "token_account_ids": ["wrap.near", "token.v2.ref-finance.near"],
+        "amounts": ["0", "0"],
+        "total_fee": 30,
+        "shares_total_supply": "0",
+        "amp": 0
+      }
+    ],
+    "v2.ref-finance.near|get_pools|{\"from_index\":2,\"limit\":2}": [
+      {
+        "pool_kind": "STABLE_SWAP",
+        "token_account_ids": ["17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", "usdt.tether-token.near"],
+        "amounts": ["5000000000", "5000000000"],
+        "total_fee": 5,
+        "shares_total_supply": "10000000000000000000000",
+        "amp": 240
+      }
+    ],
+    "v2.ref-finance.near|get_return|{\"amount_in\":\"1000000000000000000000000\",\"pool_id\":0,\"token_in\":\"wrap.near\",\"token_out\":\"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\"}": "2988016",
+    "wrap.near|ft_metadata|{}": {
+      "spec": "ft-1.0.0", "name": "Wrapped NEAR fungible token", "symbol": "wNEAR",
+      "icon": null, "reference": null, "reference_hash": null, "decimals": 24
+    },
+    "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1|ft_metadata|{}": {
+      "spec": "ft-1.0.0", "name": "USDC", "symbol": "USDC",
+      "icon": null, "reference": null, "reference_hash": null, "decimals": 6
+    }
+  }
+}

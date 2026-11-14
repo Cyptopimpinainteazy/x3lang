@@ -10,6 +10,13 @@ This is the **first local RFQ/reservation component**, not a deployed bridge.
 - Requires independently verified destination inventory before any executable quote can be reserved.
 - Does not import keys, sign, broadcast, deploy, move money, or infer that a BSC wallet owns a NEAR account.
 
+## Internal holds are not on-chain locks
+
+`reserve()` returns a `Quote` with `hold="internal_sqlite_hold"`, `onchain_locked=False`
+and `executable=False`, and a `Quote` claiming anything else cannot be constructed. The
+hold only stops this SQLite file from double-booking an offer. It does not lock, escrow or
+observe any asset on BSC or NEAR, and other processes or databases do not see it.
+
 ## Current security boundary
 
 There is **no** production wallet-signature verification, inventory attestation,

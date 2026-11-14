@@ -50,6 +50,24 @@ class LiquidityTests(unittest.TestCase):
         self.book.release("r1")
         self.assertEqual(self.book.reserve("r2", "bnb-near", 100).destination_amount, 148)
 
+    def test_reservation_is_an_internal_hold_not_an_onchain_lock(self):
+        # Internal test-only setup, as above: no verifier sets these rows in production.
+        with closing(self.book._db()) as db, db:
+            db.execute("UPDATE providers SET authorized=1")
+            db.execute("UPDATE offers SET verified_inventory=100000")
+        quote = self.book.reserve("r1", "bnb-near", 100)
+        self.assertEqual(quote.hold, module.INTERNAL_SQLITE_HOLD)
+        self.assertIs(quote.onchain_locked, False)
+        self.assertIs(quote.executable, False)
+
+    def test_quote_cannot_claim_onchain_lock_or_executability(self):
+        base = dict(provider_id="p", source_asset="BSC.BNB", destination_asset="NEAR",
+                    source_amount=1, destination_amount=1, fee_amount=0, expires_at=1)
+        for override in ({"onchain_locked": True}, {"executable": True}, {"hold": "escrow_lock"},
+                         {"executable": 1}):
+            with self.assertRaises(Error):
+                module.Quote(**base, **override)
+
     def test_replayed_reservation_id_fails(self):
         with closing(self.book._db()) as db, db:
             db.execute("UPDATE providers SET authorized=1")
