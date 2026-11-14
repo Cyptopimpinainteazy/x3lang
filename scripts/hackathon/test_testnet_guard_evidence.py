@@ -361,3 +361,16 @@ def test_http_quota_and_permanent_errors(monkeypatch, status, retry_after, delay
         record_transaction("historical-tx", "https://archive.example.org")
     assert sleeps == delays
     assert calls == ["https://archive.example.org"] * (1 + len(delays))
+
+
+@pytest.mark.parametrize(("tx_hash", "signer", "reason"), [
+    ("   ", None, "transaction hash must not be empty"),
+    ("historical-tx", "Invalid Account", "invalid signer_id"),
+])
+def test_record_invalid_transaction_never_queries_rpc(monkeypatch, tx_hash, signer, reason):
+    def unexpected_request(*args, **kwargs):
+        pytest.fail("invalid local input triggered an RPC request")
+
+    monkeypatch.setattr(evidence, "urlopen", unexpected_request)
+    with pytest.raises(EvidenceError, match=reason):
+        record_transaction(tx_hash, "https://archive.example.org", sender_id=signer)

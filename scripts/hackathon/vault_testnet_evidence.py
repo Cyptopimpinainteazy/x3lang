@@ -753,7 +753,7 @@ def verify(evidence_path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     _check_record_hash(data, "vault evidence")
     if data.get("chain_id") != "testnet" or data.get("genesis_hash") != EXPECTED_TESTNET_GENESIS:
         raise EvidenceError("evidence is not pinned to NEAR testnet")
-    _require_testnet_identity(rpc_url)
+    chain_id, genesis_hash, _ = _require_testnet_identity(rpc_url)
     run, vault = data["run"], data["run"]["accounts"]["vault"]
     by_label = _validate_scenario(run)
     if data.get("classification") != CLASSIFICATION:
@@ -778,7 +778,7 @@ def verify(evidence_path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
         if record.get("tx_hash") != step["tx_hash"] or record.get("transaction_hash") != step["tx_hash"]:
             raise EvidenceError(f"{step['label']}: record transaction hash differs from run step")
         _check_record_hash(record, f"transaction {record.get('label')}")
-        _verify_transaction_record(record, rpc_url)
+        _verify_transaction_record(record, rpc_url, chain_id, genesis_hash)
         _check_transaction_actions(step, raw[step["label"]], run, data["manifest"], raw, data["keys"]["agent"][0]["public_key"])
         verdicts.append(judge_step(step, record, vault, raw[step["label"]]["signer_id"]))
     if verdicts != data.get("verdicts"):

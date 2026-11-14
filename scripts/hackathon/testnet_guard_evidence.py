@@ -376,13 +376,7 @@ def record_manifest(account_id: str, wasm: Path, rpc_url: str) -> dict:
     return record
 
 
-def record_transaction(tx_hash: str, rpc_url: str, sender_id: str | None = None) -> dict:
-    """Record one finalized (or failed) testnet transaction's sanitized facts."""
-    chain_id, genesis_hash, _ = _require_testnet_identity(rpc_url)
-    return _read_transaction(tx_hash, rpc_url, sender_id, chain_id, genesis_hash)
-
-
-def _read_transaction(tx_hash: str, rpc_url: str, sender_id: str | None, chain_id: str, genesis_hash: str) -> dict:
+def _transaction_lookup(tx_hash: str, sender_id: str | None) -> tuple[str, str]:
     tx_hash = str(tx_hash).strip()
     if not tx_hash:
         raise EvidenceError("transaction hash must not be empty")
@@ -390,6 +384,17 @@ def _read_transaction(tx_hash: str, rpc_url: str, sender_id: str | None, chain_i
     signer = sender_id or "x3lang-guard-20261106.testnet"
     if not _ACCOUNT_RE.fullmatch(str(signer)):
         raise EvidenceError(f"invalid signer_id: {signer!r}")
+    return tx_hash, signer
+
+
+def record_transaction(tx_hash: str, rpc_url: str, sender_id: str | None = None) -> dict:
+    """Record one finalized (or failed) testnet transaction's sanitized facts."""
+    tx_hash, signer = _transaction_lookup(tx_hash, sender_id)
+    chain_id, genesis_hash, _ = _require_testnet_identity(rpc_url)
+    return _read_transaction(tx_hash, rpc_url, signer, chain_id, genesis_hash)
+
+
+def _read_transaction(tx_hash: str, rpc_url: str, signer: str, chain_id: str, genesis_hash: str) -> dict:
     result = _rpc(rpc_url, "tx", [tx_hash, signer])
     final_status = result.get("final_execution_status")
     if final_status != "FINAL":
@@ -482,7 +487,8 @@ def _verify_transaction_record(stored: dict, rpc_url: str, chain_id: str, genesi
     signer = stored.get("signer_id")
     if stored.get("args_sha256") is not None and _canonical_hash(stored.get("sanitized_args")) != stored.get("args_sha256"):
         raise EvidenceError("args_sha256 mismatch: stored hash does not match sanitized args")
-    fresh = _read_transaction(tx_hash, rpc_url, signer if isinstance(signer, str) else None, chain_id, genesis_hash)
+    lookup_hash, lookup_signer = _transaction_lookup(tx_hash, signer if isinstance(signer, str) else None)
+    fresh = _read_transaction(lookup_hash, rpc_url, lookup_signer, chain_id, genesis_hash)
     if fresh.get("args_sha256") is not None and _canonical_hash(fresh.get("sanitized_args")) != fresh.get("args_sha256"):
         raise EvidenceError("args_sha256 mismatch in fresh RPC record")
     excluded = {"observed_at_utc", "record_hash", "label", "rpc_url"}
