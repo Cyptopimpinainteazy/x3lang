@@ -55,6 +55,7 @@ class StampRequest:
     expires_at: int
     nonce: str
     passed_checks: tuple[str, ...]
+    action_digest: str | None = None  # local-runtime signed request binding
 
 
 def _validate_request(req: StampRequest) -> None:
@@ -66,6 +67,8 @@ def _validate_request(req: StampRequest) -> None:
         raise ValueError("invalid artifact")
     if not _hex_digest(req.policy_sha256):
         raise ValueError("invalid policy digest")
+    if req.action_digest is not None and not _hex_digest(req.action_digest):
+        raise ValueError("invalid signed action digest")
     if type(req.issued_at) is not int or type(req.expires_at) is not int:
         raise ValueError("invalid issuance time")
     if req.issued_at < 0 or not 0 < req.expires_at - req.issued_at <= MAX_TTL_SECONDS:
@@ -86,6 +89,7 @@ def issue_scoped_stamp(req: StampRequest, issuer: Ed25519PrivateKey) -> dict:
         "agent_id": req.agent_id, "action": req.action, "artifact_sha256": _sha(req.artifact),
         "policy_sha256": req.policy_sha256, "issued_at": req.issued_at,
         "expires_at": req.expires_at, "nonce": req.nonce,
+        "action_digest": req.action_digest,
         "passed_checks": sorted(req.passed_checks),
         "full_ten_commandments_enforced": False,
     }
@@ -96,7 +100,8 @@ def issue_scoped_stamp(req: StampRequest, issuer: Ed25519PrivateKey) -> dict:
 def verify_scoped_stamp(stamp: dict, *, trusted_issuer: bytes, agent_id: str,
                         action: str, artifact: bytes, policy_sha256: str, now: int,
                         revoked_nonces: Collection[str] = (),
-                        required_checks: Collection[str] = ()) -> bool:
+                        required_checks: Collection[str] = (),
+                        required_action_digest: str | None = None) -> bool:
     """Fail-closed verifier; raises ValueError for any mismatch."""
     try:
         if not isinstance(stamp, dict) or set(stamp) != {"payload", "signature"}:
@@ -104,11 +109,16 @@ def verify_scoped_stamp(stamp: dict, *, trusted_issuer: bytes, agent_id: str,
         p = stamp["payload"]
         if not isinstance(p, dict) or set(p) != {
             "domain", "label", "agent_id", "action", "artifact_sha256", "policy_sha256",
-            "issued_at", "expires_at", "nonce", "passed_checks", "full_ten_commandments_enforced"
+            "issued_at", "expires_at", "nonce", "action_digest", "passed_checks", "full_ten_commandments_enforced"
         }:
             raise ValueError("malformed payload")
         if p["domain"] != DOMAIN or p["full_ten_commandments_enforced"] is not False:
             raise ValueError("incorrect stamp scope")
+        if required_action_digest is not None and (not _hex_digest(required_action_digest)
+                or p["action_digest"] != required_action_digest):
+            raise ValueError("signed action not bound to this runtime")
+        if p["action_digest"] is not None and not _hex_digest(p["action_digest"]):
+            raise ValueError("invalid signed action digest")
         if p["label"] != "X3 SCOPED CHECKS ATTESTED - NOT SAFETY CERTIFIED":
             raise ValueError("incorrect label")
         if not isinstance(p["passed_checks"], list) or not p["passed_checks"]:
