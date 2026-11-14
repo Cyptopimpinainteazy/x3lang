@@ -19,6 +19,7 @@ from typing import Callable, Mapping
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from agent_scoped_stamp import verify_scoped_stamp, SUPPORTED_CHECKS
 from agent_constitution import AgentManifest
 from agent_admission_signed import SignedApproval, _manifest, verify_signed_admission
 
@@ -158,16 +159,45 @@ def vote_payload(action_digest: str, juror_id: str, approve: bool, expires_at: i
                       "juror": juror_id, "approve": approve, "expires_at": expires_at})
 
 
+@dataclass(frozen=True)
+class StampGatePolicy:
+    """Trusted operator configuration: scope and pinned issuer for protected adapter."""
+    issuer_key: bytes
+    policy_sha256: str
+    required_checks: tuple[str, ...]
+
+    def __post_init__(self):
+        _key(self.issuer_key)
+        if not isinstance(self.policy_sha256, str) or len(self.policy_sha256) != 64:
+            raise ValueError("invalid stamp policy digest")
+        try:
+            bytes.fromhex(self.policy_sha256)
+        except ValueError as exc:
+            raise ValueError("invalid stamp policy digest") from exc
+        if (not isinstance(self.required_checks, tuple) or not self.required_checks
+                or len(set(self.required_checks)) != len(self.required_checks)
+                or not set(self.required_checks) <= SUPPORTED_CHECKS):
+            raise ValueError("invalid required stamp checks")
+
+    def record(self):
+        return {"issuer_key": self.issuer_key.hex(), "policy_sha256": self.policy_sha256,
+                "required_checks": sorted(self.required_checks)}
+
+
 class Runtime:
     """Trusted local runtime; SQLite is authoritative, not caller state."""
 
     def __init__(self, db_path, operator_public_key: bytes, adapters: Mapping[str, Adapter],
-                 *, jury_keys=None, clock=time.time):
+                 *, jury_keys=None, clock=time.time, stamp_policies=None):
         _key(operator_public_key)
         self.operator_key = operator_public_key
         self.adapters = dict(adapters)
         self.jury_keys = dict(jury_keys or {})
         self.clock = clock
+        self.stamp_policies = dict(stamp_policies or {})
+        for name, policy in self.stamp_policies.items():
+            if name not in self.adapters or not isinstance(policy, StampGatePolicy):
+                raise ValueError("stamp policy must reference a registered adapter")
         for name, adapter in self.adapters.items():
             _text(name, "adapter")
             _text(adapter.capability, "capability")
@@ -182,10 +212,13 @@ class Runtime:
         if len(set(self.jury_keys.values())) != len(self.jury_keys):
             raise ValueError("duplicate juror key")
         self.path = str(Path(db_path))
-        config = canonical({"operator": operator_public_key.hex(),
-                            "adapters": {n: a.policy() for n, a in self.adapters.items()},
-                            "jury": {n: k.hex() for n, k in self.jury_keys.items()},
-                            "score": SCORE_IDS})
+        trusted_config = {"operator": operator_public_key.hex(),
+                          "adapters": {n: a.policy() for n, a in self.adapters.items()},
+                          "jury": {n: k.hex() for n, k in self.jury_keys.items()},
+                          "score": SCORE_IDS}
+        if self.stamp_policies:
+            trusted_config["stamp_policies"] = {n: p.record() for n, p in self.stamp_policies.items()}
+        config = canonical(trusted_config)
         with self._connection() as db:
             db.executescript("""
 CREATE TABLE IF NOT EXISTS config (singleton INTEGER PRIMARY KEY CHECK(singleton=1), value BLOB NOT NULL);
@@ -197,6 +230,8 @@ CREATE TABLE IF NOT EXISTS actions (digest TEXT PRIMARY KEY, agent TEXT NOT NULL
  artifact BLOB NOT NULL, request BLOB NOT NULL, status TEXT NOT NULL, output BLOB, UNIQUE(agent,nonce));
 CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL,
  previous TEXT NOT NULL, hash TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS stamp_nonces (nonce TEXT PRIMARY KEY, action_digest TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEXT NOT NULL);
 """)
             db.execute("BEGIN IMMEDIATE")
             old = db.execute("SELECT value FROM config WHERE singleton=1").fetchone()
@@ -400,7 +435,7 @@ CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payloa
         if yes <= len(eligible) // 2:
             raise ValueError("jury majority of fixed electorate required")
 
-    def execute(self, action, signature, jury_votes=()):
+    def execute(self, action, signature, jury_votes=(), *, stamp=None):
         jury_votes = tuple(jury_votes)
         if len(jury_votes) > len(self.jury_keys):
             raise ValueError("too many jury votes")
