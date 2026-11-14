@@ -54,7 +54,7 @@ def _send_response(stream: socket.socket, status: int, payload: bytes) -> None:
     stream.sendall(RESPONSE.pack(status, len(payload)) + payload)
 
 
-def _check_socket_path(socket_path: str | os.PathLike) -> Path:
+def _check_socket_path(socket_path: str | os.PathLike, *, client_group: int | None = None) -> Path:
     if os.name != "posix" or not hasattr(socket, "SO_PEERCRED"):
         raise RuntimeError("Linux peer credentials required")
     target = Path(socket_path)
@@ -62,9 +62,19 @@ def _check_socket_path(socket_path: str | os.PathLike) -> Path:
         raise ValueError("absolute socket path required")
     parent = target.parent
     pstat = os.lstat(parent)
-    if (not stat.S_ISDIR(pstat.st_mode) or pstat.st_uid != os.geteuid()
-            or stat.S_IMODE(pstat.st_mode) & 0o077):
-        raise ValueError("socket directory must be private and owned by worker")
+    if not stat.S_ISDIR(pstat.st_mode) or pstat.st_uid != os.geteuid():
+        raise ValueError("socket directory must be owned by worker")
+    mode = stat.S_IMODE(pstat.st_mode)
+    if client_group is None:
+        if mode & 0o077:
+            raise ValueError("socket directory must be private")
+    else:
+        if (type(client_group) is not int or client_group < 0
+                or pstat.st_gid != client_group
+                or not pstat.st_mode & stat.S_ISGID
+                or mode & 0o007 or mode & 0o020
+                or mode & 0o010 == 0 or mode & 0o700 != 0o700):
+            raise ValueError("socket directory must be setgid and group-searchable only")
     if os.path.lexists(target):
         raise ValueError("socket path already exists; will not overwrite")
     if len(os.fsencode(target)) >= 100:
@@ -101,7 +111,8 @@ def _handle_connection(conn: socket.socket, gateway: LocalToolGateway,
 def serve_unix_worker(gateway: LocalToolGateway,
                       socket_path: str | os.PathLike,
                       *, allowed_uids, ready_event=None, stop_event=None,
-                      request_deadline: float = TIMEOUT) -> None:
+                      request_deadline: float = TIMEOUT,
+                      client_group: int | None = None) -> None:
     """Serve sequential one-shot requests from authenticated local peers.
 
     The process launching this function is trusted. The caller controls OS
@@ -110,13 +121,15 @@ def serve_unix_worker(gateway: LocalToolGateway,
     if (type(request_deadline) not in (int, float) or not math.isfinite(request_deadline)
             or not 0 < request_deadline <= 60):
         raise ValueError("invalid total request deadline")
-    target = _check_socket_path(socket_path)
+    target = _check_socket_path(socket_path, client_group=client_group)
     if not isinstance(gateway, LocalToolGateway):
         raise ValueError("trusted LocalToolGateway is required")
     if (not isinstance(allowed_uids, (set, frozenset)) or not allowed_uids
             or any(type(uid) is not int or uid < 0 for uid in allowed_uids)):
         raise ValueError("explicit allowed UID set required")
     allowed = frozenset(allowed_uids)
+    if client_group is not None and os.geteuid() in allowed:
+        raise ValueError("hardened socket requires distinct client UID")
     if stop_event is None:
         raise ValueError("explicit stop event required in local test server")
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -126,7 +139,9 @@ def serve_unix_worker(gateway: LocalToolGateway,
         listener.bind(str(target))
         bound = True
         original_inode = os.lstat(target).st_ino
-        os.chmod(target, 0o600)
+        os.chmod(target, 0o660 if client_group is not None else 0o600)
+        if client_group is not None and os.lstat(target).st_gid != client_group:
+            raise ValueError("socket group inheritance mismatch")
         listener.listen(8)
         listener.settimeout(0.2)
         if ready_event is not None:
