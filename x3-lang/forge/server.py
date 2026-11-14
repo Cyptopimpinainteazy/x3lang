@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import core
+from .access import AccessVerifier
 from .store import Forge
 
 log = logging.getLogger("x3.forge")
@@ -108,7 +109,8 @@ def _i(body: Dict[str, Any], key: str) -> int:
     return v
 
 
-def make_handler(api: Api, *, web_dist: Path = WEB_DIST, secure_cookie: bool = False):
+def make_handler(api: Api, *, web_dist: Path = WEB_DIST, secure_cookie: bool = False,
+                 access: Optional[AccessVerifier] = None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "x3-agent-forge/1"
         sys_version = ""
@@ -172,6 +174,12 @@ def make_handler(api: Api, *, web_dist: Path = WEB_DIST, secure_cookie: bool = F
             path = parts.path
             if path == "/health":
                 return self._json(200, {"ok": True}, None)
+            if access is not None:
+                ok, why = access.verify(self.headers.get("Cf-Access-Jwt-Assertion"))
+                if not ok:
+                    log.warning("refused %s %s: %s", method, path, why)
+                    return self._json(403, {"errors": [{"code": "X3_FORGE_ACCESS", "message": "Cloudflare Access login required"}]},
+                                      None)
             if path == "/api/connect/callback" and method == "GET":
                 return self._callback(session, new_session, parts.query)
             if path.startswith("/api/"):
@@ -262,15 +270,34 @@ def main(argv: Optional[list] = None) -> int:
     p.add_argument("--secure-cookie", action="store_true", help="set when served over HTTPS")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # FORGE_ACCESS_MODE=access: every request (except /health) needs the owner's Cloudflare Access JWT.
+    # local (default): no login check, so only loopback binds are allowed.
+    mode = os.environ.get("FORGE_ACCESS_MODE", "local")
+    access = None
+    if mode == "access":
+        try:
+            access = AccessVerifier(os.environ.get("FORGE_ACCESS_TEAM_DOMAIN", ""), os.environ.get("FORGE_ACCESS_AUD", ""),
+                                    os.environ.get("FORGE_OWNER_EMAIL", ""))
+        except ValueError as exc:
+            print(f"refusing to start: {exc}", file=sys.stderr)
+            return 2
+    elif mode != "local":
+        print("refusing to start: FORGE_ACCESS_MODE must be access or local", file=sys.stderr)
+        return 2
+    elif args.host not in ("127.0.0.1", "::1", "localhost"):
+        print("refusing to start: binding beyond loopback needs FORGE_ACCESS_MODE=access", file=sys.stderr)
+        return 2
     mimetypes.add_type("application/javascript", ".js")
     mimetypes.add_type("application/wasm", ".wasm")
     reg = core.load_registry()
     assets = core.load_assets(args.tokens, live=args.live_tokens)
     # FORGE_SETUP_TOKEN lets an operator (or the e2e suite) choose the one-time claim token.
     forge = Forge(Path(args.data), reg, assets, setup_token=os.environ.get("FORGE_SETUP_TOKEN") or None)
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(Api(forge), secure_cookie=args.secure_cookie))
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(Api(forge), secure_cookie=args.secure_cookie,
+                                                                         access=access))
     print(f"X3 Agent Forge on http://{args.host}:{args.port}  (data: {args.data})", flush=True)
     print(f"Token list: {assets.source}", flush=True)
+    print(f"Access mode: {mode}" + (f" (owner {access.owner}, team {access.team})" if access else ""), flush=True)
     if forge.runtime is None:
         print(f"High Command is unclaimed. One-time setup token: {forge.setup_token}", flush=True)
     else:

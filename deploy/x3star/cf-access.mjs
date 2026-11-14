@@ -67,8 +67,8 @@ const normalizeEmail = (email) => {
   return value;
 };
 
-const policyBody = (email) => ({
-  name: POLICY_NAME,
+const policyBody = (email, policyName = POLICY_NAME) => ({
+  name: policyName,
   decision: 'allow',
   include: [{email: {email}}],
   exclude: [],
@@ -76,8 +76,8 @@ const policyBody = (email) => ({
   session_duration: SESSION,
 });
 
-const appBody = (hosts, policyId) => ({
-  name: APP_NAME,
+const appBody = (hosts, policyId, appName = APP_NAME) => ({
+  name: appName,
   type: 'self_hosted',
   domain: hosts[0],
   destinations: hosts.map((uri) => ({type: 'public', uri})),
@@ -112,33 +112,33 @@ async function teamDomainOf(client) {
 
 const findByName = async (client, route, name) => (await client.list(route)).filter((x) => x.name === name);
 
-export async function ensure(client, {hosts, email}) {
+export async function ensure(client, {hosts, email, appName = APP_NAME, policyName = POLICY_NAME}) {
   email = normalizeEmail(email);
   const teamDomain = await teamDomainOf(client);
 
-  const policies = await findByName(client, '/access/policies', POLICY_NAME);
-  if (policies.length > 1) throw new CfError(`more than one reusable policy named "${POLICY_NAME}"; remove the extras first`);
+  const policies = await findByName(client, '/access/policies', policyName);
+  if (policies.length > 1) throw new CfError(`more than one reusable policy named "${policyName}"; remove the extras first`);
   const policy = policies[0]
-    ? (await client.call('PUT', `/access/policies/${policies[0].id}`, policyBody(email))).result
-    : (await client.call('POST', '/access/policies', policyBody(email))).result;
+    ? (await client.call('PUT', `/access/policies/${policies[0].id}`, policyBody(email, policyName))).result
+    : (await client.call('POST', '/access/policies', policyBody(email, policyName))).result;
 
-  const apps = await findByName(client, '/access/apps', APP_NAME);
-  if (apps.length > 1) throw new CfError(`more than one Access app named "${APP_NAME}"; remove the extras first`);
+  const apps = await findByName(client, '/access/apps', appName);
+  if (apps.length > 1) throw new CfError(`more than one Access app named "${appName}"; remove the extras first`);
   const app = apps[0]
-    ? (await client.call('PUT', `/access/apps/${apps[0].id}`, appBody(hosts, policy.id))).result
-    : (await client.call('POST', '/access/apps', appBody(hosts, policy.id))).result;
+    ? (await client.call('PUT', `/access/apps/${apps[0].id}`, appBody(hosts, policy.id, appName))).result
+    : (await client.call('POST', '/access/apps', appBody(hosts, policy.id, appName))).result;
 
-  return verify(client, {hosts, email, teamDomain, appId: app.id});
+  return verify(client, {hosts, email, teamDomain, appId: app.id, appName});
 }
 
-export async function verify(client, {hosts, email, teamDomain, appId}) {
+export async function verify(client, {hosts, email, teamDomain, appId, appName = APP_NAME}) {
   email = normalizeEmail(email);
   teamDomain ||= await teamDomainOf(client);
   let app;
   if (appId) app = (await client.call('GET', `/access/apps/${appId}`)).result;
   else {
-    const apps = await findByName(client, '/access/apps', APP_NAME);
-    if (apps.length !== 1) throw new CfError(`expected exactly one Access app named "${APP_NAME}", found ${apps.length}. Run: deploy.sh lock`);
+    const apps = await findByName(client, '/access/apps', appName);
+    if (apps.length !== 1) throw new CfError(`expected exactly one Access app named "${appName}", found ${apps.length}. Run: deploy.sh lock`);
     app = apps[0];
   }
   if (app.type !== 'self_hosted') throw new CfError(`Access app ${app.id} is not self_hosted`);
@@ -155,8 +155,8 @@ export async function verify(client, {hosts, email, teamDomain, appId}) {
   return {teamDomain, aud: app.aud, appId: app.id};
 }
 
-export async function remove(client) {
-  const apps = await findByName(client, '/access/apps', APP_NAME);
+export async function remove(client, {appName = APP_NAME} = {}) {
+  const apps = await findByName(client, '/access/apps', appName);
   for (const app of apps) await client.call('DELETE', `/access/apps/${app.id}`);
   return {removed: apps.map((a) => a.id)};
 }
@@ -169,9 +169,13 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
   const run = async () => {
     const client = createClient({token: process.env.CF_API_TOKEN, accountId: process.env.CF_ACCOUNT_ID});
     const hosts = hostsFrom(manifestPath);
-    if (command === 'ensure') return ensure(client, {hosts, email: process.env.X3_OWNER_EMAIL});
-    if (command === 'verify') return verify(client, {hosts, email: process.env.X3_OWNER_EMAIL});
-    if (command === 'remove') return remove(client);
+    // X3_ACCESS_APP_NAME / X3_ACCESS_POLICY_NAME let another deployment (the Agent Forge) keep
+    // its own Access app and policy, so it can never change the demos' gate.
+    const appName = process.env.X3_ACCESS_APP_NAME || APP_NAME;
+    const policyName = process.env.X3_ACCESS_POLICY_NAME || POLICY_NAME;
+    if (command === 'ensure') return ensure(client, {hosts, email: process.env.X3_OWNER_EMAIL, appName, policyName});
+    if (command === 'verify') return verify(client, {hosts, email: process.env.X3_OWNER_EMAIL, appName});
+    if (command === 'remove') return remove(client, {appName});
     throw new CfError('usage: cf-access.mjs ensure|verify|remove');
   };
   run().then((result) => { process.stdout.write(`${JSON.stringify(result)}\n`); })

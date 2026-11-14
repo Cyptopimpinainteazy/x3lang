@@ -441,3 +441,66 @@ def test_http_compile_errors_csrf_and_callback(http_forge):
     assert out["status"] == "linked" and out["confirmed_by"] == "page" and "session" not in out
     st, _, _ = call(port, "GET", "/api/nope")
     assert st == 404
+
+
+# -- Cloudflare Access at the origin ----------------------------------------------------------
+
+import base64 as _b64
+from cryptography.hazmat.primitives.asymmetric import padding as _pad, rsa as _rsa
+from cryptography.hazmat.primitives import hashes as _hashes
+from forge.access import AccessVerifier
+
+TEAM = "https://x3star.cloudflareaccess.com"
+AUD = "a" * 64
+
+
+def _jwt(key, kid="k1", **claims):
+    enc = lambda d: _b64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()  # noqa: E731
+    body = {"iss": TEAM, "aud": [AUD], "email": "Owner@Example.com", "exp": 2_000_000_000, "nbf": 1_000}
+    body.update(claims)
+    head = enc({"alg": "RS256", "kid": kid})
+    signing = f"{head}.{enc(body)}"
+    sig = key.sign(signing.encode(), _pad.PKCS1v15(), _hashes.SHA256())
+    return f"{signing}.{_b64.urlsafe_b64encode(sig).rstrip(b'=').decode()}"
+
+
+def _jwks(key, kid="k1"):
+    n = key.public_key().public_numbers()
+    b = lambda i: _b64.urlsafe_b64encode(i.to_bytes((i.bit_length() + 7) // 8, "big")).rstrip(b"=").decode()  # noqa: E731
+    return {"keys": [{"kty": "RSA", "kid": kid, "n": b(n.n), "e": b(n.e)}]}
+
+
+def test_access_verifier_matches_the_x3star_origin_rules():
+    key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    other = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    v = AccessVerifier(TEAM, AUD, "owner@example.com", fetch=lambda url: _jwks(key), clock=lambda: 1_700_000_000)
+    assert v.verify(_jwt(key)) == (True, "owner@example.com")
+    assert v.verify(None)[1] == "missing token"
+    assert v.verify(_jwt(other))[1] == "bad signature"
+    assert v.verify(_jwt(key, aud=["b" * 64]))[1] == "wrong audience"
+    assert v.verify(_jwt(key, iss="https://evil.cloudflareaccess.com"))[1] == "wrong issuer"
+    assert v.verify(_jwt(key, email="someone@example.com"))[1] == "wrong owner"
+    assert v.verify(_jwt(key, exp=1_600_000_000))[1] == "expired"
+    assert v.verify(_jwt(key, kid="k2"))[1] == "unknown key id"
+    none = _jwt(key).split(".")
+    none[0] = _b64.urlsafe_b64encode(b'{"alg":"none","kid":"k1"}').rstrip(b"=").decode()
+    assert v.verify(".".join(none))[1] == "unsupported algorithm"
+    with pytest.raises(ValueError):
+        AccessVerifier("https://evil.example", AUD, "owner@example.com")
+
+
+def test_origin_refuses_requests_without_the_owner_jwt(reg, assets, tmp_path):
+    key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    v = AccessVerifier(TEAM, AUD, "owner@example.com", fetch=lambda url: _jwks(key))
+    forge = Forge(tmp_path / "data", reg, assets, transport=lambda url: (200, {}), setup_token="tok")
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Api(forge), web_dist=tmp_path / "nodist", access=v))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    try:
+        assert call(port, "GET", "/health")[0] == 200
+        assert call(port, "GET", "/api/status")[0] == 403
+        assert call(port, "GET", "/")[0] == 403
+        assert call(port, "GET", "/api/status", headers={"Cf-Access-Jwt-Assertion": _jwt(key, email="x@y.com")})[0] == 403
+        assert call(port, "GET", "/api/status", headers={"Cf-Access-Jwt-Assertion": _jwt(key)})[0] == 200
+    finally:
+        srv.shutdown()
