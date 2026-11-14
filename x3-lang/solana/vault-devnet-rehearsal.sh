@@ -14,9 +14,9 @@
 #   vault-devnet-rehearsal.sh attack-not-agent      owner key tries Execute        -> Unauthorized
 #   vault-devnet-rehearsal.sh attack-destination    agent pays another account     -> IncorrectTokenAccount
 #   vault-devnet-rehearsal.sh execute               agent executes the approval
-#   vault-devnet-rehearsal.sh attack-replay         agent repeats the payment      -> MissingApproval
+#   vault-devnet-rehearsal.sh attack-replay         agent repeats the payment      -> IncorrectTokenAccount
 #   vault-devnet-rehearsal.sh revoke                owner revokes the policy
-#   vault-devnet-rehearsal.sh attack-post-revoke    agent executes after revoke    -> Revoked
+#   vault-devnet-rehearsal.sh attack-post-revoke    agent repeats after revoke     -> IncorrectTokenAccount
 #   vault-devnet-rehearsal.sh withdraw              owner recovers the remainder
 #   vault-devnet-rehearsal.sh show                  state, addresses and recorded signatures
 #
@@ -281,12 +281,25 @@ cmd_execute() {
   info "Next: $0 attack-replay"
 }
 
-cmd_attack_replay() {
+replay_refusal() {
+  local label="$1" phase="$2" state_error="$3"
   load_state
   require PROGRAM POLICY RECIPIENT_TOKEN NONCE DIGEST
-  vault attack-replay execute "$AGENT_KEY" --policy "$POLICY" --nonce "$NONCE" --quote-digest "$DIGEST" \
-    --destination-token "$RECIPIENT_TOKEN" --expect-error 7
-  info "Recorded: an executed approval cannot be replayed. Next: $0 revoke"
+  local sim="$RUN_DIR/$label-original-simulation.json"
+  local base=(execute --rpc-url "$RPC" --cluster devnet --program "$PROGRAM" --keypair "$AGENT_KEY"
+              --policy "$POLICY" --nonce "$NONCE" --quote-digest "$DIGEST")
+  client "${base[@]}" --destination-token "$RECIPIENT_TOKEN" --expect-error 10 > "$sim"
+  python3 "$HERE/rehearsal_replay.py" "$RUN_DIR/execute-$NONCE.jsonl" "$sim" "$phase"
+  # Omitting the destination uses the cleared default. This unsigned simulation reaches
+  # execution_window, whereas a literal replay first fails the original destination check.
+  client "${base[@]}" --expect-error "$state_error" > "$RUN_DIR/$label-state-simulation.json"
+  vault "$label" execute "$AGENT_KEY" --policy "$POLICY" --nonce "$NONCE" --quote-digest "$DIGEST" \
+    --destination-token "$RECIPIENT_TOKEN" --expect-error 10
+}
+
+cmd_attack_replay() {
+  replay_refusal attack-replay active 7
+  info "Recorded: the repeated payment was refused. Next: $0 revoke"
 }
 
 cmd_revoke() {
@@ -297,11 +310,8 @@ cmd_revoke() {
 }
 
 cmd_attack_post_revoke() {
-  load_state
-  require PROGRAM POLICY RECIPIENT_TOKEN NONCE DIGEST
-  vault attack-post-revoke execute "$AGENT_KEY" --policy "$POLICY" --nonce "$NONCE" --quote-digest "$DIGEST" \
-    --destination-token "$RECIPIENT_TOKEN" --expect-error 5
-  info "Recorded: nothing executes after revocation. Next: $0 withdraw"
+  replay_refusal attack-post-revoke revoked 5
+  info "Recorded: the repeated payment after revocation was refused. Next: $0 withdraw"
 }
 
 cmd_withdraw() {

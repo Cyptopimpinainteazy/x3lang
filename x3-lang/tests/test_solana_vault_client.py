@@ -33,6 +33,7 @@ def _load(name, filename):
 
 vc = _load("x3_vault_client", "vault_client.py")
 ve = _load("x3_vault_evidence_for_client", "vault_evidence.py")
+rr = _load("x3_rehearsal_replay", "rehearsal_replay.py")
 V = json.loads((SOLANA / "x3-mandate-vault" / "tests" / "fixtures" / "client_vectors.json").read_text())
 
 K = vc.pubkey_bytes
@@ -347,6 +348,56 @@ def test_dry_run_simulates_and_never_signs_or_sends(tmp_path):
     assert "simulateTransaction" in methods
     assert "sendTransaction" not in methods and "getLatestBlockhash" not in methods
     assert h.prompts == [] and h.cluster.sent == []
+
+
+@pytest.fixture
+def rehearsal_replay(tmp_path):
+    h = Harness(tmp_path)
+    assert h.run(*EXECUTE, "--keypair", h.agent_key, "--send") == vc.EXIT_OK
+    replay = json.loads(h.lines[0])
+    replay["expect_error"] = "IncorrectTokenAccount (custom 10)"
+    replay["simulation"].update(as_expected=True, ok=False, error=replay["expect_error"])
+    replay["checks"].update(policy_pending=False, policy_revoked=False,
+                            pending_destination=vc.pubkey_text(bytes(32)))
+    return h.output(), replay
+
+
+@pytest.mark.parametrize("revoked", [False, True])
+def test_rehearsal_accepts_exact_replay_in_clear_policy_state(rehearsal_replay, revoked):
+    original, replay = rehearsal_replay
+    replay["checks"]["policy_revoked"] = revoked
+    rr.check_replay(original, replay, revoked=revoked)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("data_hex", "00"), ("args.nonce", 99), ("args.quote_digest_sha256", "00" * 32),
+    ("args.destination_token", V["owner"]), ("program", V["mint"]), ("accounts", []),
+    ("signer_and_fee_payer", V["owner"]), ("checks.policy_pending", True),
+    ("checks.policy_revoked", True), ("checks.policy_last_nonce", 99),
+    ("checks.pending_destination", V["destination_spl_account"]),
+    ("simulation.as_expected", False), ("simulation.ok", True), ("simulation.error", None), ("sent", True),
+])
+def test_rehearsal_rejects_other_instruction_or_policy_state(rehearsal_replay, field, value):
+    original, replay = rehearsal_replay
+    parent, _, child = field.partition(".")
+    if child:
+        replay[parent][child] = value
+    else:
+        replay[parent] = value
+    with pytest.raises(ValueError):
+        rr.check_replay(original, replay, revoked=False)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("finalized", False), ("sent", False), ("signature", "different"), ("error", "failed"),
+])
+def test_rehearsal_requires_finalized_success_of_original(rehearsal_replay, field, value):
+    original, replay = rehearsal_replay
+    records, last = original.rsplit("\n", 1)
+    final = json.loads(last)
+    final[field] = value
+    with pytest.raises(ValueError):
+        rr.check_replay(records + "\n" + json.dumps(final), replay, revoked=False)
 
 
 def test_dry_run_reports_a_failing_simulation(tmp_path):
