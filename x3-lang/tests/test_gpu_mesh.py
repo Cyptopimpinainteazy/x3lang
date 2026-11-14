@@ -31,10 +31,14 @@ DIGEST = "a" * 64
 # --------------------------------------------------------------------------------------------
 
 class FakeOllama:
-    """mode: honest (answers canaries, echoes a program), liar (constant junk), broken (HTTP 500)."""
+    """Ollama's /api/tags and streaming /api/chat (NDJSON).
 
-    def __init__(self, mode: str = "honest", models=((MODEL, DIGEST),)):
+    mode: honest (answers canaries, writes a program), liar (constant junk), broken (HTTP 500),
+    slow (streams word by word with a pause), dies (streams a little, then breaks the stream)."""
+
+    def __init__(self, mode: str = "honest", models=((MODEL, DIGEST),), pause_s: float = 0.0):
         self.mode = mode
+        self.pause_s = pause_s
         self.models = list(models)
         self.calls = []
         fake = self
@@ -60,8 +64,8 @@ class FakeOllama:
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 fake.calls.append(body)
-                if fake.mode == "broken":
-                    self._json(500, {"error": {"message": "CUDA out of memory"}})
+                if self.path != "/api/chat" or fake.mode == "broken":
+                    self._json(500, {"error": "CUDA out of memory"})
                     return
                 last = body["messages"][-1]["content"]
                 if fake.mode == "liar":
@@ -70,10 +74,23 @@ class FakeOllama:
                     content = last.rsplit(" ", 1)[-1]
                 else:
                     content = "```x3\nintent pay { amount: 1 }\n```"
-                self._json(200, {"id": "chatcmpl-1", "model": body["model"],
-                                 "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
-                                              "finish_reason": "stop"}],
-                                 "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}})
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson")
+                self.end_headers()
+                pieces = [content[i:i + 4] for i in range(0, len(content), 4)]
+                for n, piece in enumerate(pieces):
+                    if fake.mode == "dies" and n == 3:
+                        self.wfile.flush()
+                        self.connection.shutdown(2)
+                        return
+                    self.wfile.write(json.dumps({"model": body["model"], "message": {"role": "assistant",
+                                                 "content": piece}, "done": False}).encode() + b"\n")
+                    self.wfile.flush()
+                    if fake.pause_s:
+                        time.sleep(fake.pause_s)
+                self.wfile.write(json.dumps({"model": body["model"], "message": {"role": "assistant", "content": ""},
+                                             "done": True, "done_reason": "stop", "prompt_eval_count": 11,
+                                             "eval_count": 7}).encode() + b"\n")
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -98,8 +115,8 @@ class Mesh:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.workers, self.fakes = [], []
 
-    def worker(self, label, *, fleet=True, mode="honest", models=((MODEL, DIGEST),)):
-        fake = FakeOllama(mode, models)
+    def worker(self, label, *, fleet=True, mode="honest", models=((MODEL, DIGEST),), pause_s=0.0):
+        fake = FakeOllama(mode, models, pause_s)
         self.fakes.append(fake)
         identity = Identity.generate()
         if fleet:
@@ -175,7 +192,7 @@ def test_fleet_gpu_serves_the_unchanged_near_agent(mesh):
     assert "intent pay" in out["text"]
     assert out["provider"] == "openai-compatible" and out["usage"]["completion_tokens"] == 7
     assert fake.calls[0]["messages"][0] == {"role": "system", "content": "You write X3 programs."}
-    assert fake.calls[0]["temperature"] == 0
+    assert fake.calls[0]["options"]["temperature"] == 0 and fake.calls[0]["stream"] is True
 
     check = mesh.store.verify_receipts(mesh.identity.public_hex)
     assert check == {"ok": True, "receipts": 1, "head": check["head"]}
@@ -202,18 +219,91 @@ def test_response_carries_a_verifiable_receipt(mesh):
     assert verify_signature(receipt["coordinator"], receipt["receipt_hash"].encode(), receipt["coordinator_sig"])
 
 
+def read_sse(url, body, key):
+    """POST and read server-sent events as they arrive. Returns [(seconds_since_start, payload)]."""
+    import http.client
+    from urllib.parse import urlparse
+
+    u = urlparse(url)
+    conn = http.client.HTTPConnection(u.hostname, u.port, timeout=30)
+    start = time.monotonic()
+    conn.request("POST", u.path, json.dumps(body), {"Content-Type": "application/json",
+                                                     "Authorization": f"Bearer {key}"})
+    resp = conn.getresponse()
+    assert resp.status == 200 and resp.getheader("Content-Type") == "text/event-stream", resp.status
+    events = []
+    while True:
+        line = resp.fp.readline()
+        if not line:
+            break
+        line = line.decode().strip()
+        if line.startswith("data: "):
+            data = line[len("data: "):]
+            events.append((time.monotonic() - start, data if data == "[DONE]" else json.loads(data)))
+            if data == "[DONE]":
+                break
+    conn.close()
+    return events
+
+
 def test_streaming_for_ide_chat_clients(mesh):
     w, _ = mesh.worker("x3gpu1")
     assert wait_for(lambda: w.status == "approved")
     body = {**CHAT, "stream": True, "stream_options": {"include_usage": True}}
-    status, raw, headers = post(f"{mesh.url}/v1/chat/completions", body, mesh.app("ide"))
-    assert status == 200 and headers["Content-Type"] == "text/event-stream"
-    events = [line[len("data: "):] for line in raw.decode().split("\n\n") if line.startswith("data: ")]
+    events = [e for _, e in read_sse(f"{mesh.url}/v1/chat/completions", body, mesh.app("ide"))]
     assert events[-1] == "[DONE]"
-    chunks = [json.loads(e) for e in events[:-1]]
-    assert "".join(c["choices"][0]["delta"].get("content", "") for c in chunks if c["choices"]).startswith("```x3")
-    assert chunks[1]["choices"][0]["finish_reason"] == "stop" and chunks[1]["x3_mesh"]["app"] == "ide"
-    assert chunks[2]["usage"]["total_tokens"] == 18
+    chunks = events[:-1]
+    deltas = [c["choices"][0]["delta"] for c in chunks if c.get("choices")]
+    assert deltas[0]["role"] == "assistant"
+    text = "".join(d.get("content", "") for d in deltas)
+    assert text == "```x3\nintent pay { amount: 1 }\n```"
+    [final] = [c for c in chunks if c.get("choices") and c["choices"][0]["finish_reason"]]
+    assert final["choices"][0]["finish_reason"] == "stop" and final["x3_mesh"]["app"] == "ide"
+    response = {"content": text, "finish_reason": "stop", "model": MODEL,
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7}}
+    assert sha256_hex(canonical(response)) == final["x3_mesh"]["response_sha256"], "receipt covers streamed text"
+    assert chunks[-1]["usage"]["total_tokens"] == 18
+
+
+def test_tokens_arrive_while_the_gpu_is_still_generating(mesh):
+    w, _ = mesh.worker("x3gpu-slow", pause_s=0.15)
+    assert wait_for(lambda: w.status == "approved")
+    events = read_sse(f"{mesh.url}/v1/chat/completions", {**CHAT, "stream": True}, mesh.app("ide"))
+    content_times = [t for t, e in events if e != "[DONE]" and e.get("choices")
+                     and e["choices"][0]["delta"].get("content")]
+    final_time = next(t for t, e in events if e != "[DONE]" and e.get("x3_mesh"))
+    assert len(content_times) >= 3, "the answer should arrive in several pieces"
+    assert final_time - content_times[0] >= 0.5, "the first words must arrive well before the end"
+
+
+def test_mid_stream_failure_is_reported_not_retried(mesh):
+    dying, dying_fake = mesh.worker("x3gpu-dies", mode="dies", pause_s=0.15)
+    good, good_fake = mesh.worker("x3gpu-ok")
+    assert wait_for(lambda: dying.status == "approved" and good.status == "approved")
+    db = sqlite3.connect(mesh.store.path)
+    db.execute("UPDATE workers SET jobs_ok = 1, jobs_failed = 1 WHERE pubkey = ?", (good.identity.public_hex,))
+    db.commit()
+    db.close()
+    events = [e for _, e in read_sse(f"{mesh.url}/v1/chat/completions", {**CHAT, "stream": True},
+                                     mesh.app("ide"))]
+    assert events[-1] == "[DONE]"
+    assert any(e.get("choices") and e["choices"][0]["delta"].get("content") for e in events[:-1])
+    assert events[-2]["error"]["code"] == "worker_failed"
+    assert good_fake.calls == [], "text already reached the client, so the job must not silently restart elsewhere"
+
+
+def test_stream_before_any_output_is_retried_elsewhere(mesh):
+    bad, _ = mesh.worker("x3gpu-broken", mode="broken")
+    good, _ = mesh.worker("x3gpu-ok")
+    assert wait_for(lambda: bad.status == "approved" and good.status == "approved")
+    db = sqlite3.connect(mesh.store.path)
+    db.execute("UPDATE workers SET jobs_ok = 1, jobs_failed = 1 WHERE pubkey = ?", (good.identity.public_hex,))
+    db.commit()
+    db.close()
+    events = [e for _, e in read_sse(f"{mesh.url}/v1/chat/completions", {**CHAT, "stream": True},
+                                     mesh.app("ide"))]
+    final = next(e for e in events if e != "[DONE]" and e.get("x3_mesh"))
+    assert final["x3_mesh"]["worker"] == good.identity.public_hex
 
 
 def test_models_endpoint_lists_what_contributors_serve(mesh):
@@ -331,7 +421,7 @@ def test_max_tokens_is_capped_per_app(mesh):
     assert wait_for(lambda: w.status == "approved")
     key = mesh.app("ide", max_tokens_cap=256)
     assert post(f"{mesh.url}/v1/chat/completions", {**CHAT, "max_tokens": 4000}, key)[0] == 200
-    assert fake.calls[-1]["max_tokens"] == 256
+    assert fake.calls[-1]["options"]["num_predict"] == 256
 
 
 # --------------------------------------------------------------------------------------------
@@ -637,3 +727,92 @@ def test_a_canary_that_never_returns_is_failed_and_frees_the_slot(tmp_path):
     info = store.worker(a.id.public_hex)
     assert info["canary_fail"] == 1 and c._running[a.id.public_hex] == 1
     store.close()
+
+
+def start_stream(coord, key_name="ide"):
+    key = coord.store.add_app_key(key_name, allow_public=False, requests_per_minute=100, daily_token_budget=10 ** 6,
+                                  max_tokens_cap=1024)
+    app = coord.authenticate(f"Bearer {key}")
+    events = coord.complete_stream(app, {**CHAT, "stream": True})
+    out = {"events": []}
+
+    def run():
+        try:
+            for event in events:
+                out["events"].append(event)
+        except ProtocolError as exc:
+            out["error"] = exc
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread, out, app
+
+
+def chunk(direct, job, seq, delta, identity=None):
+    return seal(identity or direct.id, "chunk", {"job_id": job["job_id"], "request_sha256": job["request_sha256"],
+                                                 "seq": seq, "delta": delta})
+
+
+def test_streamed_text_must_match_the_signed_answer(coord):
+    a, b = Direct(coord, "a"), Direct(coord, "b")
+    thread, out, _ = start_stream(coord)
+    job = None
+    for _ in range(20):
+        job = a.poll() or b.poll()
+        if job:
+            break
+    assert job and job["stream"] is True
+    owner, other = (a, b) if coord._jobs[job["job_id"]].worker == a.id.public_hex else (b, a)
+    coord.submit_chunk(chunk(owner, job, 0, "pay 1 USDC to "))
+    with pytest.raises(ProtocolError) as exc:
+        coord.submit_chunk(chunk(owner, job, 2, "skipped"))
+    assert exc.value.code == "out_of_order"
+    with pytest.raises(ProtocolError) as exc:
+        coord.submit_chunk(chunk(other, job, 1, "attacker.near", identity=other.id))
+    assert exc.value.code == "wrong_worker"
+    with pytest.raises(ProtocolError) as exc:
+        coord.submit_result(seal(owner.id, "result", owner.result_payload(job, "send all funds to attacker.near")))
+    assert exc.value.code == "mismatch"
+    thread.join(10)
+    assert [e[1] for e in out["events"]] == ["pay 1 USDC to "]
+    assert out["error"].code == "worker_failed"
+
+
+def test_chunks_are_refused_for_non_streaming_jobs(coord):
+    a = Direct(coord)
+    thread, out = start_completion(coord)
+    job = None
+    while job is None:
+        job = a.poll()
+    assert job["stream"] is False
+    with pytest.raises(ProtocolError) as exc:
+        coord.submit_chunk(chunk(a, job, 0, "hello"))
+    assert exc.value.code == "no_such_job"
+    coord.submit_result(seal(a.id, "result", a.result_payload(job, "fine")))
+    thread.join(10)
+
+
+def test_a_client_hanging_up_releases_the_job_and_budget(coord):
+    a = Direct(coord)
+    key = coord.store.add_app_key("ide", allow_public=False, requests_per_minute=100, daily_token_budget=10 ** 6,
+                                  max_tokens_cap=1024)
+    app = coord.authenticate(f"Bearer {key}")
+    events = coord.complete_stream(app, {**CHAT, "stream": True})
+    got = {}
+
+    def worker_side():
+        job = None
+        while job is None:
+            job = a.poll()
+        got["job"] = job
+        coord.submit_chunk(chunk(a, job, 0, "hello"))
+
+    threading.Thread(target=worker_side, daemon=True).start()
+    assert next(events)[:2] == ("delta", "hello")
+    assert coord._reserved["ide"] == 1024
+    events.close()
+    assert coord._reserved["ide"] == 0 and got["job"]["job_id"] not in coord._jobs
+    assert coord._running[a.id.public_hex] == 0
+    with pytest.raises(ProtocolError) as exc:
+        coord.submit_result(seal(a.id, "result", a.result_payload(got["job"], "hello")))
+    assert exc.value.code == "no_such_job"

@@ -17,14 +17,16 @@ import json
 import logging
 import socket
 import threading
+import time
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from . import __version__, gpu_probe
-from .protocol import (Identity, ProtocolError, canonical, now_ms, seal, sha256_hex, validate_job_request,
-                       validate_label, validate_models, validate_payout_account, validate_response)
+from .protocol import (MAX_RESPONSE_CHARS, Identity, ProtocolError, canonical, now_ms, seal, sha256_hex,
+                       validate_job_request, validate_label, validate_models, validate_payout_account,
+                       validate_response)
 from .store import worker_result_message
 
 log = logging.getLogger("x3.gpu_mesh.worker")
@@ -74,8 +76,8 @@ def http_json(method: str, url: str, body: Optional[Any] = None, *, timeout: flo
 
 
 class OllamaClient:
-    """Talks to the contributor's local Ollama (or any server with Ollama's /api/tags and an
-    OpenAI-compatible /v1/chat/completions)."""
+    """Talks to the contributor's local Ollama: ``/api/tags`` for models and digests, and the
+    native streaming ``/api/chat`` for inference."""
 
     def __init__(self, base_url: str, *, allow_http: bool = False, http: Callable = http_json):
         self.base_url = check_url(base_url, allow_http=allow_http, what="Ollama URL")
@@ -96,42 +98,117 @@ class OllamaClient:
             found.append({"name": name, "digest": digest.lower()})
         return validate_models(found[:64]) if found else []
 
-    def chat(self, request: Dict[str, Any], timeout: float) -> Dict[str, Any]:
-        body: Dict[str, Any] = {
-            "model": request["model"],
-            "messages": request["messages"],
-            "max_tokens": request["max_tokens"],
+    def chat(self, request: Dict[str, Any], timeout: float,
+             on_delta: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """Run the job on Ollama's native streaming endpoint (``/api/chat``), which also reports
+        exact prompt and completion token counts. ``on_delta`` gets text as it is generated."""
+        options: Dict[str, Any] = {
             "temperature": request["temperature_milli"] / 1000,
             "top_p": request["top_p_milli"] / 1000,
-            "stream": False,
+            "num_predict": request["max_tokens"],
         }
         if "seed" in request:
-            body["seed"] = request["seed"]
+            options["seed"] = request["seed"]
         if "stop" in request:
-            body["stop"] = request["stop"]
-        status, data = self.http("POST", f"{self.base_url}/v1/chat/completions", body, timeout=timeout)
-        if status != 200 or not isinstance(data, dict):
-            message = ""
-            if isinstance(data, dict):
-                err = data.get("error")
-                message = err.get("message") if isinstance(err, dict) else str(err or "")
-            raise TransportError(f"Ollama answered {status} {message[:160]}")
-        choice = (data.get("choices") or [{}])[0] or {}
-        content = (choice.get("message") or {}).get("content")
-        if not isinstance(content, str):
-            raise TransportError("Ollama returned no text content")
-        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+            options["stop"] = request["stop"]
+        body = {"model": request["model"], "messages": request["messages"], "stream": True, "options": options}
+        parts: List[str] = []
+        final: Optional[Dict[str, Any]] = None
+        size = 0
+        for line in self.stream(f"{self.base_url}/api/chat", body, timeout):
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                raise TransportError("Ollama sent a malformed stream line") from None
+            if not isinstance(event, dict):
+                raise TransportError("Ollama sent a malformed stream event")
+            if event.get("error"):
+                raise TransportError(f"Ollama error: {str(event['error'])[:160]}")
+            text = (event.get("message") or {}).get("content") or ""
+            if not isinstance(text, str):
+                raise TransportError("Ollama returned non-text content")
+            if text:
+                size += len(text)
+                if size > MAX_RESPONSE_CHARS:
+                    raise TransportError("the answer is longer than the mesh allows")
+                parts.append(text)
+                if on_delta:
+                    on_delta(text)
+            if event.get("done"):
+                final = event
+                break
+        if final is None:
+            raise TransportError("Ollama's stream ended without a final event")
 
         def count(key: str) -> int:
-            value = usage.get(key, 0)
+            value = final.get(key, 0)
             return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
         return validate_response({
-            "content": content,
-            "finish_reason": "length" if choice.get("finish_reason") == "length" else "stop",
+            "content": "".join(parts),
+            "finish_reason": "length" if final.get("done_reason") == "length" else "stop",
             "model": request["model"],
-            "usage": {"prompt_tokens": count("prompt_tokens"), "completion_tokens": count("completion_tokens")},
+            "usage": {"prompt_tokens": count("prompt_eval_count"), "completion_tokens": count("eval_count")},
         })
+
+    @staticmethod
+    def stream(url: str, body: Dict[str, Any], timeout: float) -> Iterator[str]:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json"})
+        try:
+            resp = urllib.request.urlopen(req, timeout=timeout)  # noqa: S310 - URL scheme checked by check_url
+        except urllib.error.HTTPError as exc:
+            detail = exc.read(2048).decode("utf-8", "replace")
+            raise TransportError(f"Ollama answered {exc.code} {detail[:160]}") from exc
+        except (urllib.error.URLError, socket.timeout, ConnectionError, TimeoutError, OSError) as exc:
+            raise TransportError(f"Ollama is not reachable: {exc}") from exc
+        with resp:
+            try:
+                for raw in resp:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if line:
+                        yield line
+            except (socket.timeout, TimeoutError, OSError) as exc:
+                raise TransportError(f"Ollama stream broke: {exc}") from exc
+
+
+class ChunkSender:
+    """Batches streamed text into signed, in-order chunks (at most every ``interval_s``).
+
+    If a chunk is refused or lost, streaming stops for this job: the final signed result is
+    authoritative and only has to start with the chunks the coordinator accepted."""
+
+    def __init__(self, post: Callable[[Dict[str, Any]], bool], job_id: str, request_sha: str,
+                 interval_s: float = 0.1, max_chars: int = 2000):
+        self.post, self.job_id, self.request_sha = post, job_id, request_sha
+        self.interval_s, self.max_chars = interval_s, max_chars
+        self.buffer: List[str] = []
+        self.buffered = 0
+        self.seq = 0
+        self.last = time.monotonic()
+        self.broken = False
+
+    def add(self, text: str) -> None:
+        if self.broken:
+            return
+        self.buffer.append(text)
+        self.buffered += len(text)
+        if self.buffered >= self.max_chars or time.monotonic() - self.last >= self.interval_s:
+            self.flush()
+
+    def flush(self) -> None:
+        if self.broken or not self.buffer:
+            return
+        text = "".join(self.buffer)
+        self.buffer, self.buffered = [], 0
+        for start in range(0, len(text), 8192):
+            ok = self.post({"job_id": self.job_id, "request_sha256": self.request_sha, "seq": self.seq,
+                            "delta": text[start:start + 8192]})
+            if not ok:
+                self.broken = True
+                return
+            self.seq += 1
+        self.last = time.monotonic()
 
 
 class Worker:
@@ -229,7 +306,13 @@ class Worker:
             if remaining <= 1:
                 raise ProtocolError("job deadline already passed")
             started = now_ms()
-            response = self.ollama.chat(request, timeout=max(1.0, remaining - 1))
+            sender = None
+            if job.get("stream") is True:
+                sender = ChunkSender(self._post_chunk, job_id, request_sha)
+            response = self.ollama.chat(request, timeout=max(1.0, remaining - 1),
+                                        on_delta=sender.add if sender else None)
+            if sender:
+                sender.flush()
             finished = now_ms()
         except (ProtocolError, TransportError) as exc:
             log.warning("job %s failed: %s", job_id, exc)
@@ -254,6 +337,13 @@ class Worker:
             log.info("job %s done (%d completion tokens)", job_id, response["usage"]["completion_tokens"])
         else:
             log.warning("result for job %s refused (%s): %s", job_id, status, _err(data))
+
+    def _post_chunk(self, payload: Dict[str, Any]) -> bool:
+        try:
+            status, _ = self._post("/mesh/chunk", "chunk", payload, timeout=10)
+        except TransportError:
+            return False
+        return status == 200
 
     # ---------------------------------------------------------------- loops
 

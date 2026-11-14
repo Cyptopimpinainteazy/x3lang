@@ -24,6 +24,7 @@ for work. Code: [`x3-lang/gpu_mesh/`](../../x3-lang/gpu_mesh/). Tests:
 | Fleet-only apps never reach strangers | App keys default to fleet-only; `--allow-public` is an explicit opt-in per app |
 | A contributor that doesn't run the model is caught | Public contributors get canary jobs (first poll, then every 15 min) and get no real work until one passes; two failures in a row suspend them |
 | Broken machines drop out | Failed jobs are retried on the next contributor; three failures in a row suspend any machine, fleet included |
+| Streamed text can't differ from the attested answer | Chunks are signed, in order and bound to the assigned contributor; the signed result must extend exactly what was streamed |
 | Usage can't be quietly rewritten | Receipts are hash-chained and signed by the coordinator; `admin verify-receipts` recomputes the chain and every worker and coordinator signature |
 | Admin can't be attacked over HTTP | There is no admin endpoint; the CLI edits the coordinator's SQLite database on the host |
 
@@ -97,10 +98,17 @@ export X3_AGENT_API_KEY=<agents app key>
 
 **Super IDE and dotx3.net.** Call `POST /v1/chat/completions` from the server (the IDE's
 Python backend, a dotx3.net server route), never from the browser: the coordinator sends no
-CORS headers on purpose, so an app key can't be lifted from page source. `stream: true` is
-accepted and returns standard `chat.completion.chunk` events (today the whole answer arrives
-as one content chunk, then the finish chunk). Each response carries an `x3_mesh` receipt with
-the contributor, model digest, request and response hashes and both signatures.
+CORS headers on purpose, so an app key can't be lifted from page source. Each response carries
+an `x3_mesh` receipt with the contributor, model digest, request and response hashes and both
+signatures.
+
+`stream: true` streams for real: the contributor's Ollama generates, the worker forwards text
+in signed, in-order chunks (about every 100 ms), and the coordinator relays them as standard
+`chat.completion.chunk` events. The last chunk carries the receipt. The contributor's final
+signed answer must start with everything it streamed, or the job fails, so a contributor can't
+stream one text and attest another. A job is retried on another contributor only if nothing has
+reached the client yet; after that a failure arrives as an `error` event before `[DONE]`. A
+client that hangs up releases the job and its budget reservation.
 
 Accepted: `model`, `messages` (text only), `temperature`, `top_p`, `max_tokens`, `seed`, `stop`,
 `stream`, `stream_options.include_usage`, `user`. Refused with a 400 rather than silently
@@ -135,7 +143,6 @@ key's public half.
 
 ## Known limits
 
-* Streaming is buffered: tokens arrive in one chunk once the job finishes, not token by token.
 * The coordinator is a single process (Python `ThreadingHTTPServer`, SQLite). Sized for tens of
   contributors and modest request rates, not a public inference marketplace.
 * Canaries use a fixed prompt shape; a determined cheater could learn to recognise them.

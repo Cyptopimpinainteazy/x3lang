@@ -33,11 +33,12 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from . import __version__
-from .protocol import (MAX_BODY_BYTES, MAX_CLOCK_SKEW_S, PROTOCOL, Identity, ProtocolError, canonical,
+from .protocol import (MAX_BODY_BYTES, MAX_CLOCK_SKEW_S, MAX_RESPONSE_CHARS, PROTOCOL, Identity, ProtocolError,
+                       canonical,
                        normalize_chat_request, now_ms, now_s, open_envelope, sha256_hex, validate_gpus,
                        validate_label, validate_models, validate_payout_account, validate_response,
                        verify_signature)
@@ -46,6 +47,7 @@ from .store import Store, worker_result_message
 log = logging.getLogger("x3.gpu_mesh.coordinator")
 
 CANARY_APP = "_canary"
+MAX_CHUNK_CHARS = 8192
 
 
 @dataclass
@@ -79,6 +81,9 @@ class Job:
     tried: List[str] = field(default_factory=list)
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    stream: bool = False
+    chunks: List[str] = field(default_factory=list)
+    chunk_chars: int = 0
 
     @property
     def model(self) -> str:
@@ -86,7 +91,7 @@ class Job:
 
     def handout(self) -> Dict[str, Any]:
         return {"job_id": self.job_id, "request": self.request, "request_sha256": self.request_sha256,
-                "deadline_ms": self.deadline_ms}
+                "deadline_ms": self.deadline_ms, "stream": self.stream}
 
 
 class Coordinator:
@@ -250,6 +255,35 @@ class Coordinator:
             self._jobs.pop(job.job_id, None)
         self._cv.notify_all()
 
+    def submit_chunk(self, envelope: Any) -> Dict[str, Any]:
+        """A signed, in-order piece of a streaming answer. The final signed result must start with
+        everything streamed, so a contributor can't stream one text and attest another."""
+        worker, payload = self._open(envelope, "chunk")
+        if set(payload) != {"job_id", "request_sha256", "seq", "delta"}:
+            raise ProtocolError("chunk fields must be exactly job_id, request_sha256, seq and delta")
+        self._require_approved(worker)
+        delta, seq = payload["delta"], payload["seq"]
+        if not isinstance(delta, str) or not 0 < len(delta) <= MAX_CHUNK_CHARS:
+            raise ProtocolError(f"delta must be 1–{MAX_CHUNK_CHARS} characters")
+        with self._cv:
+            job = self._jobs.get(payload["job_id"]) if isinstance(payload["job_id"], str) else None
+            if job is None or job.state != "running" or not job.stream:
+                raise ProtocolError("no running streaming job with that id", status=409, code="no_such_job")
+            if job.worker != worker:
+                raise ProtocolError("this job is assigned to a different contributor", status=403,
+                                    code="wrong_worker")
+            if payload["request_sha256"] != job.request_sha256:
+                raise ProtocolError("request_sha256 does not match the job", status=409, code="mismatch")
+            if isinstance(seq, bool) or seq != len(job.chunks):
+                raise ProtocolError(f"chunk out of order: expected seq {len(job.chunks)}", status=409,
+                                    code="out_of_order")
+            if job.chunk_chars + len(delta) > MAX_RESPONSE_CHARS:
+                raise ProtocolError("streamed text exceeds the response size limit", status=413, code="too_large")
+            job.chunks.append(delta)
+            job.chunk_chars += len(delta)
+            self._cv.notify_all()
+        return {"accepted": True}
+
     def submit_result(self, envelope: Any) -> Dict[str, Any]:
         worker, payload = self._open(envelope, "result")
         expected = {"job_id", "request_sha256", "response", "response_sha256", "model_digest", "result_sig",
@@ -271,8 +305,8 @@ class Coordinator:
                 self._check_result(job, info, payload)
             except ProtocolError as exc:
                 job.error = str(exc)
-                self._finish(job, "failed")
                 self._count_failure(worker, f"invalid result: {exc}")
+                self._finish(job, "failed")
                 raise
             response = payload["response"]
             record = {
@@ -290,11 +324,11 @@ class Coordinator:
                 record["outcome"] = "canary_pass" if passed else "canary_fail"
             receipt = self.store.append_receipt(record, lambda h: self.identity.sign(h.encode()))
             job.result = {"response": response, "receipt": receipt, "tier": info["tier"]}
+            if job.kind == "canary":
+                self._count_canary(worker, record["outcome"] == "canary_pass")
+            else:
+                self.store.record_job_outcome(worker, True)
             self._finish(job, "done")
-        if job.kind == "canary":
-            self._count_canary(worker, record["outcome"] == "canary_pass")
-        else:
-            self.store.record_job_outcome(worker, True)
         return {"accepted": True, "receipt_hash": receipt["receipt_hash"]}
 
     def _check_result(self, job: Job, info: Dict[str, Any], payload: Dict[str, Any]) -> None:
@@ -309,6 +343,8 @@ class Coordinator:
         if digests.get(job.model) != payload["model_digest"]:
             raise ProtocolError("model_digest does not match the digest this contributor advertised", status=409,
                                 code="mismatch")
+        if job.chunks and not response["content"].startswith("".join(job.chunks)):
+            raise ProtocolError("the signed answer does not match what was streamed", status=409, code="mismatch")
         message = worker_result_message({"job_id": job.job_id, "request_sha256": job.request_sha256,
                                          "response_sha256": payload["response_sha256"], "model": job.model,
                                          "model_digest": payload["model_digest"]})
@@ -329,11 +365,13 @@ class Coordinator:
             if payload["request_sha256"] != job.request_sha256:
                 raise ProtocolError("request_sha256 does not match the job", status=409, code="mismatch")
             job.error = reason[:200]
+            # Record the failure (and any suspension) before waking the waiting request, so the app's
+            # answer never races ahead of the contributor's record.
+            if job.kind == "canary":
+                self._count_canary(worker, False)
+            else:
+                self._count_failure(worker, f"reported failure: {reason[:200]}")
             self._finish(job, "failed")
-        if job.kind == "canary":
-            self._count_canary(worker, False)
-        else:
-            self._count_failure(worker, f"reported failure: {reason[:200]}")
         return {"accepted": True}
 
     def _count_failure(self, worker: str, why: str) -> None:
@@ -412,16 +450,40 @@ class Coordinator:
         with self._cv:
             self._reserved[app["name"]] = max(0, self._reserved.get(app["name"], 0) - max_tokens)
 
-    def complete(self, app: Dict[str, Any], body: Any) -> Tuple[Dict[str, Any], bool]:
-        """Run one chat completion. Returns (openai_response, stream_requested)."""
+    def _start(self, app: Dict[str, Any], body: Any) -> Tuple[Job, bool]:
         request, stream = normalize_chat_request(body, max_tokens_cap=app["max_tokens_cap"])
         self._reserve(app, request["max_tokens"])
         job = Job(job_id=secrets.token_hex(16), kind="job", app=app["name"], request=request,
                   request_sha256=sha256_hex(canonical(request)),
-                  deadline_ms=now_ms() + self.config.job_timeout_s * 1000)
-        allow_public = bool(app["allow_public"])
+                  deadline_ms=now_ms() + self.config.job_timeout_s * 1000, stream=stream)
         with self._cv:
             self._jobs[job.job_id] = job
+        return job, stream
+
+    def _end(self, app: Dict[str, Any], job: Job) -> None:
+        with self._cv:
+            if job.state in ("queued", "running"):
+                queue = self._queues.get(job.worker or "")
+                if queue and job in queue:
+                    queue.remove(job)
+                self._finish(job, "abandoned")
+            self._jobs.pop(job.job_id, None)
+        self._release(app, job.request["max_tokens"])
+
+    def _no_result(self, job: Job, allow_public: bool) -> ProtocolError:
+        if not job.tried:
+            where = "fleet or approved public" if allow_public else "fleet"
+            return ProtocolError(f"no {where} contributor GPU is serving {job.model} right now", status=503,
+                                 code="no_capacity")
+        if now_ms() >= job.deadline_ms:
+            return ProtocolError("no contributor finished the job before the deadline", status=504, code="timeout")
+        return ProtocolError(f"the job failed on {len(job.tried)} contributor(s): {job.error or 'no result'}",
+                             status=502, code="worker_failed")
+
+    def complete(self, app: Dict[str, Any], body: Any) -> Tuple[Dict[str, Any], bool]:
+        """Run one chat completion to the end. Returns (openai_response, stream_requested)."""
+        job, stream = self._start(app, body)
+        allow_public = bool(app["allow_public"])
         try:
             for _attempt in range(self.config.max_attempts):
                 candidates = self._eligible(job.model, allow_public, job.tried)
@@ -429,24 +491,70 @@ class Coordinator:
                     break
                 worker = self._choose(candidates)
                 job.tried.append(worker)
-                outcome = self._run_on(job, worker)
+                if not self._dispatch(job, worker):
+                    if now_ms() >= job.deadline_ms:
+                        break
+                    continue
+                outcome = self._wait_done(job, worker)
                 if outcome == "done":
                     return self._openai_response(job), stream
                 if outcome == "deadline":
                     break
-            if not job.tried:
-                where = "fleet or approved public" if allow_public else "fleet"
-                raise ProtocolError(f"no {where} contributor GPU is serving {job.model} right now", status=503,
-                                    code="no_capacity")
-            if now_ms() >= job.deadline_ms:
-                raise ProtocolError("no contributor finished the job before the deadline", status=504,
-                                    code="timeout")
-            raise ProtocolError(f"the job failed on {len(job.tried)} contributor(s): {job.error or 'no result'}",
-                                status=502, code="worker_failed")
+            raise self._no_result(job, allow_public)
         finally:
-            with self._cv:
-                self._jobs.pop(job.job_id, None)
-            self._release(app, request["max_tokens"])
+            self._end(app, job)
+
+    def complete_stream(self, app: Dict[str, Any], body: Any) -> Iterator[Tuple[str, Any, str]]:
+        """Run one completion, yielding ("delta", text, job_id) as the contributor streams and finally
+        ("final", openai_response, job_id). Errors before the first delta are raised so the HTTP layer can
+        answer with a normal error; a job is only retried on another contributor if nothing has
+        reached the client yet."""
+        job, _ = self._start(app, body)
+        job.stream = True
+        allow_public = bool(app["allow_public"])
+        delivered = 0
+        try:
+            for _attempt in range(self.config.max_attempts):
+                candidates = self._eligible(job.model, allow_public, job.tried)
+                if not candidates:
+                    break
+                worker = self._choose(candidates)
+                job.tried.append(worker)
+                if not self._dispatch(job, worker):
+                    if now_ms() >= job.deadline_ms:
+                        break
+                    continue
+                while True:
+                    with self._cv:
+                        while job.state == "running" and len(job.chunks) == delivered:
+                            remaining = (job.deadline_ms - now_ms()) / 1000
+                            if remaining <= 0:
+                                self._finish(job, "expired")
+                                break
+                            self._cv.wait(timeout=remaining)
+                        fresh = job.chunks[delivered:]
+                        state = job.state
+                    for text in fresh:
+                        delivered += 1
+                        yield "delta", text, job.job_id
+                    if state == "running":
+                        continue
+                    break
+                if state == "done":
+                    content = job.result["response"]["content"]
+                    rest = content[sum(len(c) for c in job.chunks):]
+                    if rest:
+                        yield "delta", rest, job.job_id
+                    yield "final", self._openai_response(job), job.job_id
+                    return
+                if state == "expired":
+                    self._count_failure(worker, "did not finish before the deadline")
+                if delivered or now_ms() >= job.deadline_ms:
+                    break
+                job.chunks, job.chunk_chars = [], 0
+            raise self._no_result(job, allow_public)
+        finally:
+            self._end(app, job)
 
     def _choose(self, candidates: List[Dict[str, Any]]) -> str:
         with self._cv:
@@ -458,8 +566,8 @@ class Coordinator:
                         busy / max(1, info["max_concurrency"]), failure_rate + random.random() * 1e-6)
             return min(candidates, key=load)["pubkey"]
 
-    def _run_on(self, job: Job, worker: str) -> str:
-        """Queue the job for one contributor and wait. Returns done | retry | deadline."""
+    def _dispatch(self, job: Job, worker: str) -> bool:
+        """Queue the job for one contributor; True once it picks it up."""
         with self._cv:
             job.worker = worker
             job.state = "queued"
@@ -474,8 +582,13 @@ class Coordinator:
                     if queue and job in queue:
                         queue.remove(job)
                     job.state = "unclaimed"
-                    return "retry" if now_ms() < job.deadline_ms else "deadline"
+                    return False
                 self._cv.wait(timeout=remaining)
+            return job.state == "running" or job.state in ("done", "failed")
+
+    def _wait_done(self, job: Job, worker: str) -> str:
+        """Wait for a picked-up job. Returns done | retry | deadline."""
+        with self._cv:
             while job.state == "running":
                 remaining = (job.deadline_ms - now_ms()) / 1000
                 if remaining <= 0:
@@ -533,22 +646,6 @@ class Coordinator:
 # --------------------------------------------------------------------------------------------
 # HTTP
 # --------------------------------------------------------------------------------------------
-
-def _sse_chunks(response: Dict[str, Any], include_usage: bool) -> List[Dict[str, Any]]:
-    """The whole answer as OpenAI-style stream chunks (one content chunk, then the finish chunk)."""
-    base = {"id": response["id"], "object": "chat.completion.chunk", "created": response["created"],
-            "model": response["model"]}
-    choice = response["choices"][0]
-    chunks = [
-        {**base, "choices": [{"index": 0, "delta": {"role": "assistant", "content": choice["message"]["content"]},
-                              "finish_reason": None}]},
-        {**base, "choices": [{"index": 0, "delta": {}, "finish_reason": choice["finish_reason"]}],
-         "x3_mesh": response["x3_mesh"]},
-    ]
-    if include_usage:
-        chunks.append({**base, "choices": [], "usage": response["usage"]})
-    return chunks
-
 
 class MeshServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -630,12 +727,10 @@ class MeshHandler(BaseHTTPRequestHandler):
             if path in ("/v1/chat/completions", "/chat/completions"):
                 app = coord.authenticate(self.headers.get("Authorization"))
                 body = self._read_json()
-                response, stream = coord.complete(app, body)
-                if stream:
-                    include_usage = bool(isinstance(body.get("stream_options"), dict)
-                                         and body["stream_options"].get("include_usage"))
-                    self._send_stream(response, include_usage)
+                if isinstance(body, dict) and body.get("stream") is True:
+                    self._stream(coord.complete_stream(app, body), body)
                 else:
+                    response, _ = coord.complete(app, body)
                     self._send_json(200, response)
                 return
             body = self._read_json()
@@ -649,6 +744,8 @@ class MeshHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {"job": None})
                 else:
                     self._send_json(200, {"job": job})
+            elif path == "/mesh/chunk":
+                self._send_json(200, coord.submit_chunk(body))
             elif path == "/mesh/result":
                 self._send_json(200, coord.submit_result(body))
             elif path == "/mesh/fail":
@@ -663,15 +760,63 @@ class MeshHandler(BaseHTTPRequestHandler):
             log.exception("POST %s failed", path)
             self._send_error(ProtocolError("internal error", status=500, code="internal"))
 
-    def _send_stream(self, response: Dict[str, Any], include_usage: bool) -> None:
+    def _stream(self, events: Iterator[Tuple[str, Any, str]], body: Dict[str, Any]) -> None:
+        """Server-sent events in OpenAI's chat.completion.chunk format, forwarded as the
+        contributor streams. The last chunk carries the signed ``x3_mesh`` receipt."""
+        include_usage = bool(isinstance(body.get("stream_options"), dict)
+                             and body["stream_options"].get("include_usage"))
+        try:
+            first = next(events)  # errors before any output become a normal JSON error
+        except StopIteration:
+            raise ProtocolError("the stream ended without output", status=502, code="worker_failed") from None
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
         self.send_header("Connection", "close")
         self.end_headers()
         self.close_connection = True
-        for chunk in _sse_chunks(response, include_usage):
-            self.wfile.write(b"data: " + json.dumps(chunk).encode("utf-8") + b"\n\n")
+        created = now_s()
+        model = body.get("model")
+        role_sent = False
+
+        def emit(obj: Dict[str, Any]) -> None:
+            self.wfile.write(b"data: " + json.dumps(obj).encode("utf-8") + b"\n\n")
+            self.wfile.flush()
+
+        def chunk(job_id: str, delta: Dict[str, Any], finish: Optional[str]) -> Dict[str, Any]:
+            return {"id": f"x3mesh-{job_id}", "object": "chat.completion.chunk", "created": created, "model": model,
+                    "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+
+        try:
+            pending: List[Tuple[str, Any, str]] = [first]
+            while True:
+                if pending:
+                    kind, payload, job_id = pending.pop()
+                else:
+                    try:
+                        kind, payload, job_id = next(events)
+                    except StopIteration:
+                        break
+                if kind == "delta":
+                    delta = {"content": payload}
+                    if not role_sent:
+                        delta["role"] = "assistant"
+                        role_sent = True
+                    emit(chunk(job_id, delta, None))
+                elif kind == "final":
+                    if not role_sent:
+                        emit(chunk(job_id, {"role": "assistant", "content": ""}, None))
+                        role_sent = True
+                    last = chunk(job_id, {}, payload["choices"][0]["finish_reason"])
+                    last["x3_mesh"] = payload["x3_mesh"]
+                    emit(last)
+                    if include_usage:
+                        emit({**chunk(job_id, {}, None), "choices": [], "usage": payload["usage"]})
+        except ProtocolError as exc:
+            emit({"error": {"message": str(exc), "type": "server_error", "code": exc.code}})
+        finally:
+            events.close()  # a client that hung up releases the job and its budget reservation
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
