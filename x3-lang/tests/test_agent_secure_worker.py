@@ -24,7 +24,7 @@ def pub(key):
     return key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
 
-def start_worker(path, db, operator_key, issuer_key, policy, allowed_uids, ready, stop, request_deadline=2.0, delay=0):
+def start_worker(path, db, operator_key, issuer_key, policy, allowed_uids, ready, stop, request_deadline=2.0, delay=0, client_group=None):
     # Execution callback is registered only inside the worker process.
     adapter = Adapter("compile", "local-plan", 1, False,
                       lambda source: (time.sleep(delay) or (str(os.getpid()) + ":" + source.decode("ascii")).encode()),
@@ -34,7 +34,7 @@ def start_worker(path, db, operator_key, issuer_key, policy, allowed_uids, ready
                       clock=lambda: 100)
     gateway = LocalToolGateway(runtime, {"compile-intent": issuer_key})
     serve_unix_worker(gateway, path, allowed_uids=allowed_uids, ready_event=ready,
-                      stop_event=stop, request_deadline=request_deadline)
+                      stop_event=stop, request_deadline=request_deadline, client_group=client_group)
 
 
 @unittest.skipUnless(os.name == "posix" and hasattr(socket, "SO_PEERCRED"), "Linux SO_PEERCRED")
@@ -74,10 +74,10 @@ class SecureWorkerTests(unittest.TestCase):
                 self.process.join(4)
             self.assertFalse(self.process.is_alive(), "worker failed to exit")
 
-    def start_server(self, allowed_uids=None, *, request_deadline=2.0, delay=0):
+    def start_server(self, allowed_uids=None, *, request_deadline=2.0, delay=0, client_group=None):
         self.process = self.context.Process(target=start_worker,
                     args=(str(self.path), self.db, self.operator, self.issuer,
-                          self.policy, allowed_uids, self.ready, self.stop, request_deadline, delay))
+                          self.policy, allowed_uids, self.ready, self.stop, request_deadline, delay, client_group))
         self.process.start()
         self.assertTrue(self.ready.wait(5), "worker failed to bind Unix socket")
         self.assertTrue(self.process.is_alive(), "worker exited unexpectedly")
@@ -196,6 +196,29 @@ class SecureWorkerTests(unittest.TestCase):
         for invalid in (-1, 0, float("nan"), "forever"):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 request_unix_worker(self.path, self.signed(), execution_timeout=invalid)
+
+    def test_group_mode_disallows_worker_uid_on_client_allowlist(self):
+        self.root.chmod(0o2710)
+        with self.assertRaisesRegex(ValueError, "distinct client UID"):
+            serve_unix_worker(None, self.path, allowed_uids={os.geteuid()},
+                              stop_event=self.stop, client_group=os.getegid())
+
+    def test_group_mode_rejects_missing_setgid_directory(self):
+        self.root.chmod(0o710)
+        with self.assertRaises(ValueError):
+            serve_unix_worker(None, self.path, allowed_uids={os.geteuid()+1},
+                              stop_event=self.stop, client_group=os.getegid())
+
+    def test_group_mode_binds_separate_uid_socket_permissions(self):
+        self.root.chmod(0o2710)
+        # This checks kernel peer enforcement as the current UID is refused.
+        # It cannot establish cross-UID access without a second OS user.
+        self.start_server(allowed_uids={os.geteuid()+1}, client_group=os.getegid())
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o660)
+        self.assertEqual(self.path.stat().st_gid, os.getegid())
+        with self.assertRaises(ValueError):
+            request_unix_worker(self.path, self.signed())
+        self.assertEqual(self.runtime.snapshot("agent-one")["remaining"], 10)
 
     def test_existing_socket_path_not_overwritten(self):
         self.path.write_text("not a socket")
