@@ -1,0 +1,23 @@
+pallets/depin-marketplace/src/lib.rs
+  s_8fd403fa84d397::t_c2b73adca6a661 182-190,254-265,308-309,358-363,365-366,368-370,670,687-688,705,718-719,748-774,787-808
+pallets/depin-marketplace/src/tests.rs
+  s_8fd403fa84d397::t_c80beed93210b3 336-517
+scripts/local-ci.sh
+  s_8fd403fa84d397::t_d7f784f674d057 489-492
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "57e98c284a5ac512892997ca41bb2418890c95c2",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
