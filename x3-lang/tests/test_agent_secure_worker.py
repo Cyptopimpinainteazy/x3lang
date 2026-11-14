@@ -236,6 +236,16 @@ class SecureWorkerTests(unittest.TestCase):
                               stop_event=self.stop, client_group=os.getegid())
         self.assertFalse(self.path.exists())
 
+    def test_group_mode_rejects_worker_owned_readonly_database(self):
+        from agent_tool_gateway import LocalToolGateway
+        self.root.chmod(0o2710)
+        self.db.chmod(0o400)
+        gateway = LocalToolGateway(self.runtime, {"compile-intent": self.issuer})
+        with self.assertRaisesRegex(ValueError, "worker database file must be writable"):
+            serve_unix_worker(gateway, self.path, allowed_uids={os.geteuid()+1},
+                              stop_event=self.stop, client_group=os.getegid())
+        self.assertFalse(self.path.exists())
+
     def test_group_mode_binds_separate_uid_socket_permissions(self):
         self.root.chmod(0o2710)
         # This checks kernel peer enforcement as the current UID is refused.
