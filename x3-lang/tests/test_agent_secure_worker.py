@@ -188,7 +188,7 @@ class SecureWorkerTests(unittest.TestCase):
             time.sleep(0.28)
             # Worker must release the sequential connection by absolute deadline.
             self.assertIn(b"request denied", slow.recv(100))
-        self.assertEqual(request_unix_worker(self.path, self.signed()), 
+        self.assertEqual(request_unix_worker(self.path, self.signed()),
                          str(self.process.pid).encode() + b":safe")
 
     def test_slow_approved_execution_can_use_separate_result_wait(self):
