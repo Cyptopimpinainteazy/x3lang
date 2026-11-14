@@ -34,7 +34,7 @@ jobs:
       - name: Real SQLite, signatures, compiler and failure cases
         run: |
           set -euo pipefail
-          PYTHONPATH=x3-lang python -m pytest x3-lang/tests/test_agent_runtime*.py x3-lang/tests/test_agent_constitution.py x3-lang/tests/test_agent_admission_signed.py -q
+          PYTHONPATH=x3-lang python -m pytest x3-lang/tests/test_agent_runtime*.py x3-lang/tests/test_agent_law_*.py x3-lang/tests/test_agent_constitution.py x3-lang/tests/test_agent_admission_signed.py -q
           python -m compileall -q x3-lang/agent_runtime*.py scripts/hackathon/agent_law_local_demo.py
           python scripts/hackathon/agent_law_local_demo.py --output /tmp/agent-law-lifecycle.json \
             --handoff /tmp/incident-handoff.json --handoff-signer /tmp/incident-handoff.signer

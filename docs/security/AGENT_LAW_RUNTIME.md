@@ -104,6 +104,15 @@ The demo generates a signing key for each run and writes only its public key.
 Pinning a key taken from the same run proves the evidence was not altered
 between steps. It does not prove the producer's identity to a third party.
 
+A regression proposal that comes back from a downstream reviewer
+(`x3.regression-proposal` v1) can be replayed against this compiler:
+
+    .venv/bin/python scripts/hackathon/agent_law_local_demo.py --replay-regression proposal.json
+
+The replay refuses a proposal that names a different policy revision or whose
+source does not match its digest. It exits 0 only when the real compiler still
+rejects the source with the expected error.
+
 The effect flags are fixed in version 1. The runtime refuses the subject's
 future actions. No operating-system process is stopped, no wallet or blockchain
 key is revoked, and no external effect is reversed. The restart observation is
