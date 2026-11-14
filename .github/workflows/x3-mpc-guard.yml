@@ -1,0 +1,69 @@
+name: X3 MPC Signing Guard (draft, offline)
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/near/x3-mpc-guard/**'
+      - 'scripts/security/mpc_guard_rust_mutations.py'
+      - '.github/workflows/x3-mpc-guard.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/near/x3-mpc-guard/**'
+      - 'scripts/security/mpc_guard_rust_mutations.py'
+      - '.github/workflows/x3-mpc-guard.yml'
+permissions:
+  contents: read
+jobs:
+  mpc-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - name: Format, native tests, clippy, WASM build
+        shell: bash
+        working-directory: x3-lang/near/x3-mpc-guard
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo build --locked --release --target wasm32-unknown-unknown
+          ls -l target/wasm32-unknown-unknown/release/x3_mpc_guard.wasm
+          sha256sum target/wasm32-unknown-unknown/release/x3_mpc_guard.wasm
+      - name: The deployed Guard is untouched by this crate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -rn 'x3-guard\s*=\|path *= *"../x3-guard' x3-lang/near/x3-mpc-guard/Cargo.toml; then
+            echo "x3-mpc-guard must not depend on the deployed Guard crate" >&2; exit 1
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --depth=200 origin "${{ github.base_ref }}"
+            if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep '^x3-lang/near/x3-guard/'; then
+              echo "this workflow's PRs must not modify x3-lang/near/x3-guard" >&2; exit 1
+            fi
+          fi
+      - name: Source mutations of the authority check
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          python3 scripts/security/mpc_guard_rust_mutations.py \
+            --target-dir "$RUNNER_TEMP/x3-mpc-guard-mutants-target" \
+            --output "$RUNNER_TEMP/x3-mpc-guard-mutants.json" --timeout 300
+      - name: Upload mutation report (offline evidence, not chain proof)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x3-mpc-guard-mutations
+          path: ${{ runner.temp }}/x3-mpc-guard-mutants.json
+          if-no-files-found: warn
+          retention-days: 14
