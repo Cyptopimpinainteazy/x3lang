@@ -1,0 +1,28 @@
+x3-lang/tests/test_agent_law_regression_replay.py
+  s_8fd403fa84d397::t_d58457b7c001c2 1-47,53-64
+  s_8fd403fa84d397::t_063e987a37121e 48-52
+scripts/hackathon/agent_law_local_demo.py
+  s_8fd403fa84d397::t_fac126d340068f 58,60-63
+  s_8fd403fa84d397::t_98551ad5fd8f64 173-175,177-180
+  s_8fd403fa84d397::t_f6d43bd0ef53ca 27-32,40-57,59,64-77
+docs/security/AGENT_LAW_RUNTIME.md
+  s_8fd403fa84d397::t_bcfa1f31c61ce0 107-115
+.github/workflows/agent-law-local.yml
+  s_8fd403fa84d397::t_1b906077da18f9 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4e0f634cb4f3a9200f81cec6dceec09befd53c2",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
