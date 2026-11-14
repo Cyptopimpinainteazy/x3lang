@@ -1,0 +1,27 @@
+.github/workflows/x3lang-history-ci.yml
+  s_8fd403fa84d397::t_f858cca09cb573 48
+JUDGES.md
+  s_8fd403fa84d397::t_73ec92493222d1 8-10
+docs/hackathon/X3LANG_THREE_TRACK_CONTROL.md
+  s_8fd403fa84d397::t_5df1c5aa936a23 52,61-71,77
+scripts/hackathon/observe_mainnet_invoice06.py
+  s_8fd403fa84d397::t_c13b4448f6efbe 154-200,232,263-264
+scripts/hackathon/test_invoice06_observer.py
+  s_8fd403fa84d397::t_b5adccbf790bbc 1-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aa57733ca3187b4d47438b5526bc7df579f202a1",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
