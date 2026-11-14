@@ -180,6 +180,23 @@ class ProtectedExecutionTests(unittest.TestCase):
             runtime.execute(action, signed)
         self.assertEqual(self.executed, [])
 
+    def test_strict_mode_cannot_swap_valid_policy_to_attacker_issuer(self):
+        runtime, _ = self.strict_runtime()
+        attacker_issuer = Ed25519PrivateKey.generate()
+        runtime.stamp_policies["compile-intent"] = StampGatePolicy(
+            raw(attacker_issuer), "a" * 64, self.policies["compile-intent"].required_checks)
+        action = Action("test-agent", "compile-intent", b"valid-source", "swapped-1", 150)
+        signed = self.agent.sign(runtime.action_payload(action))
+        with self.assertRaisesRegex(ValueError, "live stamp policy differs"):
+            runtime.issue_stamp_for_action(action, signed, attacker_issuer)
+        forged = issue_scoped_stamp(StampRequest(
+            "test-agent", "compile-intent", b"valid-source", "a" * 64,
+            90, 120, "swapped-1", self.policies["compile-intent"].required_checks,
+            digest(runtime.action_payload(action))), attacker_issuer)
+        with self.assertRaisesRegex(ValueError, "live stamp policy differs"):
+            runtime.execute(action, signed, stamp=forged)
+        self.assertEqual(self.executed, [])
+
     def test_strict_mode_none_policy_value_never_bypasses(self):
         runtime, _ = self.strict_runtime()
         runtime.stamp_policies["compile-intent"] = None
