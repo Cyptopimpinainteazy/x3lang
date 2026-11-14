@@ -1,0 +1,36 @@
+# X3 GPU mesh contributor daemon. Needs a local Ollama with the models pulled.
+# Edit LABEL, COORDINATOR, PAYOUT and MODELS in the override:
+#
+#   sudo useradd --system --home /var/lib/x3-gpu-worker --create-home x3worker
+#   sudo install -m 0644 x3-gpu-mesh-worker.service /etc/systemd/system/
+#   sudo systemctl edit x3-gpu-mesh-worker      # set the Environment= lines below
+#   sudo systemctl enable --now x3-gpu-mesh-worker
+#   sudo -u x3worker env PYTHONPATH=/opt/x3lang/x3-lang /opt/x3lang/.venv/bin/python -m gpu_mesh pubkey \
+#       --key /var/lib/x3-gpu-worker/worker.key      # give this to the coordinator owner
+[Unit]
+Description=X3 GPU mesh contributor
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+User=x3worker
+WorkingDirectory=/opt/x3lang
+Environment=PYTHONPATH=/opt/x3lang/x3-lang
+Environment=LABEL=%H
+Environment=COORDINATOR=https://gpu.x3star.net
+Environment=PAYOUT=
+Environment=MODELS=qwen3:8b
+ExecStart=/bin/sh -c 'exec /opt/x3lang/.venv/bin/python -m gpu_mesh worker run \
+    --key /var/lib/x3-gpu-worker/worker.key --coordinator "$COORDINATOR" --label "$LABEL" \
+    --models "$MODELS" ${PAYOUT:+--payout-account "$PAYOUT"}'
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/x3-gpu-worker
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

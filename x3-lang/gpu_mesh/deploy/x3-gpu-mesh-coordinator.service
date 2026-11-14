@@ -1,0 +1,29 @@
+# X3 GPU mesh coordinator. Binds loopback only; publish it through a TLS front end
+# (cloudflared tunnel or a reverse proxy) as e.g. https://gpu.x3star.net.
+#
+#   sudo useradd --system --home /var/lib/x3-gpu-mesh --create-home x3mesh
+#   sudo install -m 0644 x3-gpu-mesh-coordinator.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now x3-gpu-mesh-coordinator
+[Unit]
+Description=X3 GPU mesh coordinator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=x3mesh
+WorkingDirectory=/opt/x3lang
+Environment=PYTHONPATH=/opt/x3lang/x3-lang
+ExecStart=/opt/x3lang/.venv/bin/python -m gpu_mesh coordinator serve \
+    --db /var/lib/x3-gpu-mesh/mesh.db --key /var/lib/x3-gpu-mesh/coordinator.key \
+    --host 127.0.0.1 --port 8790
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/x3-gpu-mesh
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
