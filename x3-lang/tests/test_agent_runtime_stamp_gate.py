@@ -26,7 +26,10 @@ class ProtectedExecutionTests(unittest.TestCase):
         self.agent = Ed25519PrivateKey.generate()
         self.issuer = Ed25519PrivateKey.generate()
         self.executed = []
-        self.adapter = Adapter("compile", "local-plan", 1, False, self.executed.append,
+        def record_task(source):
+            self.executed.append(source)
+            return b"local-verified-output"
+        self.adapter = Adapter("compile", "local-plan", 1, False, record_task,
                                policy_id="v1")
         self.policies = {"compile-intent": StampGatePolicy(raw(self.issuer), "a" * 64,
                           ("signed_agent_identity", "capability_scope", "source_digest"))}
