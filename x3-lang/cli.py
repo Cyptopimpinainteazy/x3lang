@@ -181,7 +181,9 @@ def _parse_require(ln: SourceLine) -> Dict[str, Any]:
     if kind == "finality" and len(tokens) >= 5:
         return {"kind": "finality", "chain": tokens[2].lower(), "op": tokens[3], "value": tokens[4]}
     if kind == "slippage" and len(tokens) >= 4:
-        return {"kind": "slippage", "op": tokens[2], "value": tokens[3]}
+        # The whole bound: `require slippage <= 50 bps` is four words after `require`, and
+        # keeping only the first one turned it into a bare `50` (issue #241).
+        return {"kind": "slippage", "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind == "profit" and len(tokens) >= 4:
         return {"kind": "profit", "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind == "nonce" and len(tokens) >= 3:

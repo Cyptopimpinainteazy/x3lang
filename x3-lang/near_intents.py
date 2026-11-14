@@ -176,6 +176,9 @@ def _load(name: str):
 registry = _load("registry")
 ed25519 = _load("ed25519")
 chain_evidence = _load("chain_evidence")
+numeric = _load("numeric")
+NumericParseError = numeric.NumericParseError
+split_rate = numeric.split_rate
 helius_evidence = importlib.import_module("helius_evidence")
 _MANDATE_MODULE = None
 _CLI_MODULE = None
@@ -334,21 +337,26 @@ def base_units(value: Any, field: str) -> int:
 
 
 def to_bps(value: Any, field: str) -> Decimal:
-    """`0.5%`, `50 bps`, `50bps`, or a bare fraction (`0.005`) -> basis points."""
-    text = str(value).strip().lower().replace(" ", "")
-    if text.endswith("bps"):
-        bps = _decimal(text[:-3], field)
-    elif text.endswith("%"):
-        bps = _decimal(text[:-1], field) * 100
-    else:
-        fraction = _decimal(text, field)
-        if fraction >= 1:
-            raise NearIntentsError(
-                "X3_NEAR_BOUND_UNIT",
-                f"{field} {value!r} has no unit; write it as a percent (0.5%) or in bps (50 bps)",
-                field,
-            )
-        bps = fraction * 10000
+    """`0.5%`, `50 bps` or `50bps` -> basis points.
+
+    A bound with no unit is refused (issue #241): a bare `0.5` read as a fraction is 50%,
+    100x looser than someone writing "0.5" for 0.5% intended, and nothing else would catch it
+    on a program with no owner mandate."""
+    try:
+        number, unit = split_rate(value)
+    except NumericParseError:
+        raise NearIntentsError(
+            "X3_NEAR_BOUND_UNIT",
+            f"{field} {value!r} is not a number with a unit; write it as a percent (0.5%) or in bps (50 bps)",
+            field,
+        )
+    if unit is None:
+        raise NearIntentsError(
+            "X3_NEAR_BOUND_UNIT",
+            f"{field} {value!r} has no unit; write it as a percent (0.5%) or in bps (50 bps)",
+            field,
+        )
+    bps = number * 100 if unit == "%" else number
     if bps < 0:
         raise NearIntentsError("X3_NEAR_BOUND_UNIT", f"{field} must not be negative", field)
     return bps

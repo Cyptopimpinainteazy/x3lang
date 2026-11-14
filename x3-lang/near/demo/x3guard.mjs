@@ -157,7 +157,8 @@ function parseRequire(ln) {
   const at = (r) => ({ ...r, line: ln.no });
   if (kind.startsWith("finality.") && t.length >= 4) return at({ kind: "finality", chain: kind.split(".")[1], op: t[2], value: t[3] });
   if (kind === "finality" && t.length >= 5) return at({ kind: "finality", chain: t[2].toLowerCase(), op: t[3], value: t[4] });
-  if (kind === "slippage" && t.length >= 4) return at({ kind: "slippage", op: t[2], value: t[3] });
+  // The whole bound: keeping only t[3] turned `50 bps` into a bare `50` (issue #241).
+  if (kind === "slippage" && t.length >= 4) return at({ kind: "slippage", op: t[2], value: t.slice(3).join(" ") });
   if (kind === "nonce" && t.length >= 3) return at({ kind: "nonce", value: t.slice(2).join(" ") });
   if (REQUIRE_KINDS.includes(kind)) {
     if (t.length >= 4) return at({ kind, op: t[2], value: t.slice(3).join(" ") });
@@ -299,17 +300,19 @@ export function baseUnits(value, field) {
   return n;
 }
 
-/** `0.5%`, `50 bps`, or a bare fraction -> { n, d } basis points as an exact fraction. */
+/** `0.5%`, `50 bps` or `50bps` -> { n, d } basis points as an exact fraction. A bound with
+ * no unit is refused (issue #241): a bare `0.5` read as a fraction is 50%. */
 function toBps(value, field) {
-  const text = String(value).trim().toLowerCase().replace(/\s+/g, "");
-  let d;
-  let mul;
-  if (text.endsWith("bps")) { d = decimal(text.slice(0, -3), field); mul = 1n; }
-  else if (text.endsWith("%")) { d = decimal(text.slice(0, -1), field); mul = 100n; }
-  else {
-    d = decimal(text, field);
-    if (d.n >= pow10(d.scale)) throw new X3Error("X3_NEAR_BOUND_UNIT", `${field} '${value}' has no unit; write it as a percent (0.5%) or in bps (50 bps)`, { field });
-    mul = 10000n;
+  let text = String(value).trim().toLowerCase();
+  let mul = null;
+  if (text.endsWith("bps")) { text = text.slice(0, -3).trim(); mul = 1n; }
+  else if (text.endsWith("%")) { text = text.slice(0, -1).trim(); mul = 100n; }
+  if (!text || /\s/.test(text)) {
+    throw new X3Error("X3_NEAR_BOUND_UNIT", `${field} '${value}' is not a number with a unit; write it as a percent (0.5%) or in bps (50 bps)`, { field });
+  }
+  const d = decimal(text, field);
+  if (mul === null) {
+    throw new X3Error("X3_NEAR_BOUND_UNIT", `${field} '${value}' has no unit; write it as a percent (0.5%) or in bps (50 bps)`, { field });
   }
   return { n: d.n * mul, d: pow10(d.scale) };
 }

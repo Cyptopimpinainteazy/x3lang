@@ -248,11 +248,46 @@ def test_example_lowers_to_the_1click_request_it_describes():
     ("require slippage <= 0.5%", 50),
     ("require slippage < 0.5%", 49),
     ("require slippage <= 0.125%", 12),  # rounds toward the stricter side
-    ("require slippage <= 0.003", 30),
+    ("require slippage <= 30 bps", 30),
 ])
 def test_slippage_bound_becomes_whole_bps_never_looser(tmp_path, bound, expected):
     _, leg = ni.compile_program(program(tmp_path, requires=[bound]), now=NOW)
     assert leg["slippage_bps"] == expected
+
+
+# Issue #241: every spelling from the report, with the unit the program actually wrote.
+@pytest.mark.parametrize("bound,expected", [
+    ("0.5%", 50),
+    ("0.5 %", 50),
+    ("50 bps", 50),
+    ("50bps", 50),
+    ("50 BPS", 50),
+    ("0.5", "X3_NEAR_BOUND_UNIT"),     # was silently 5000 bps (50%)
+    ("0.005", "X3_NEAR_BOUND_UNIT"),   # was 50 bps by guessing it was a fraction
+    ("50", "X3_NEAR_BOUND_UNIT"),
+    ("50 bps extra", "X3_NEAR_TYPECHECK"),  # refused before lowering: never dropped
+    ("50 percent", "X3_NEAR_TYPECHECK"),
+])
+def test_slippage_bounds_need_a_unit_and_bps_reaches_the_bound(tmp_path, bound, expected):
+    path = program(tmp_path, requires=[f"require slippage <= {bound}"])
+    if isinstance(expected, int):
+        _, leg = ni.compile_program(path, now=NOW)
+        assert leg["slippage_bps"] == expected
+    else:
+        with pytest.raises(ni.NearIntentsError) as err:
+            ni.compile_program(path, now=NOW)
+        assert err.value.code == expected
+        if expected == "X3_NEAR_BOUND_UNIT":
+            assert "0.5%" in err.value.message and "50 bps" in err.value.message
+
+
+def test_the_suggested_spelling_in_the_unit_error_compiles(tmp_path):
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.compile_program(program(tmp_path, requires=["require slippage <= 50"]), now=NOW)
+    assert "write it as a percent (0.5%) or in bps (50 bps)" in err.value.message
+    for suggested in ("0.5%", "50 bps"):
+        _, leg = ni.compile_program(program(tmp_path, requires=[f"require slippage <= {suggested}"]), now=NOW)
+        assert leg["slippage_bps"] == 50
 
 
 def test_tightest_of_several_slippage_guards_wins(tmp_path):
@@ -275,6 +310,8 @@ def test_explicit_refund_receiver_is_used(tmp_path):
     ({"requires": []}, "X3_NEAR_SLIPPAGE_REQUIRED"),
     ({"requires": ["require slippage >= 0.5%"]}, "X3_NEAR_GUARD_OPERATOR"),
     ({"requires": ["require slippage <= 30"]}, "X3_NEAR_BOUND_UNIT"),
+    ({"requires": ["require slippage <= 0.003"]}, "X3_NEAR_BOUND_UNIT"),
+    ({"requires": ["require slippage <= 0.5%", "require fees <= 0.01"]}, "X3_NEAR_BOUND_UNIT"),
     ({"requires": ["require slippage <= 0.5%", "require finality Solana >= 32"]}, "X3_NEAR_GUARD_UNENFORCEABLE"),
     ({"requires": ["require slippage <= 0.5%", "require proof_complete source_lock_proof"]}, "X3_NEAR_GUARD_UNENFORCEABLE"),
     ({"timeout": None}, "X3_NEAR_TIMEOUT_REQUIRED"),
