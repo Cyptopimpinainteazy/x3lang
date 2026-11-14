@@ -6,24 +6,22 @@
 
 **Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`), Autonomous Business (`business`) and Unstoppable DeFi (`defi`). Owner-confirmed selection; not a claim of organizer acceptance or a submission receipt.
 
-## 20–2,000 character description (1948 characters, LF)
+## 20–2,000 character description (1861 characters, LF)
 
-X3 Force Field (formerly X3 Shield) combines typed .x3 owner policy, deterministic checks and signed-quote enforcement for AI-agent payments.
+X3 Force Field gives AI-agent payments typed owner policies and checks outside the model. Owners write reviewable .x3 mandates; agents propose payment programs. Compiler and deterministic checks reject unsafe proposals. NEAR x3-guard authenticates signed NEAR Intents / 1Click quote terms before authorizing a deposit address.
 
-Owners write reviewable mandates; agents propose payment programs. Compiler and mandate checks reject unsafe proposals outside the model. NEAR x3-guard verifies signed NEAR Intents / 1Click terms before authorizing a deposit address. The model cannot change the stored mandate.
+Two separate mainnet proofs show the boundaries. In invoice_06, an owner-approved restricted key accepted a quote after 21 Guard checks. The owner manually deposited 25 USDC on Solana; 24.9952 USDC reached x3lang.near, and the agent recorded the outcome on Guard. Original .x3 hashes match Guard state.
 
-Six differentiators: typed, hashable policy; checks outside the model; authenticated quote-term enforcement; source-to-payment traceability; restricted agent-key methods; reproducible evidence. JUDGES.md maps each claim to source, receipts, commands and limits. submission/judge-claims.json provides the same evidence paths and source hashes for automated review; invoice06_chain.py --json reproduces the archived five-link trail.
+On November 14, the owner funded a separate Solana vault and approved one exact signed quote. A dedicated agent signed the 5-USDC transfer from the policy-PDA-owned token account; 4.999746 USDC reached x3lang.near, above the signed 4.974757 minimum. The vault enforced 5-USDC payment and rolling-day caps, nonce and expiry. Finalized source event/SPL CPI, NEAR token-transfer event and provider SUCCESS are archived. The approval was consumed. This pilot made no new NEAR Guard call; its operator-written .x3 intent checked quote terms off chain.
 
-Mainnet invoice_06: following owner approval, a restricted key accepted a quote after 21 Guard checks. The mandate capped each payment and daily spend at 25 USDC, restricted the recipient and pinned refunds. The policy floor was 24.75 USDC. The owner manually sent 25 USDC on Solana; 24.9952 USDC reached x3lang.near about 84 seconds later. The agent recorded Settled and floor_met. Both original .x3 hashes match Guard state; compiled output matches 10 policy fields and 13 mandate terms. Eight unsafe edits of that payment are refused locally.
+Judges can reproduce compiler refusals, local attack controls and archived receipts from JUDGES.md. The new vault archive has an offline verifier and tamper tests. Its links and limitations are also in submission/judge-claims.json.
 
-Other local evidence: 8/8 scripted red-team attacks and 3/3 replayed wallet-drain attacks refused, authorized control allowed; 9 unsafe edits fail compilation. Historical testnet Guard evidence includes attacker.near refusal.
-
-Limits: one owner-assisted ~$25 run. Guard is noncustodial and does not authenticate outcome hashes. The agent account retains an owner FullAccess recovery key. Provider association is not cryptographic cross-chain atomicity; no native X3VM runs on-chain. Compiler/VM predate the hackathon; NEAR integration is new work.
+Limits: two bounded pilots, not production reliability or an external security audit. Owners retain recovery/upgrade authority. The vault does not verify the provider signature on chain. One RPC per chain supported the new pilot; provider linkage is not cryptographic cross-chain atomicity. The generic receipt verifier's deadline mismatch is disclosed. Compiler/VM predate the hackathon; NEAR integration is new work. No native X3VM runs on chain.
 
 ## Public links
 
 Reproduction: [one pinned commit, setup and expected outputs](../JUDGES.md#reproduce-the-same-payments-checks--offline-after-setup).
-Nine capabilities = six core payment claims + three additional local capabilities.
+Six core payment claims and three additional local capabilities remain indexed separately from the new mainnet vault pilot.
 Video/X links below remain pending; a recording script is not a published demo.
 
 The public video and X post are owner-published. Replace the placeholders only after verifying signed-out URLs.
@@ -33,7 +31,9 @@ The public video and X post are owner-published. Replace the placeholders only a
 - Judge proof card: [payment, limits and transaction receipts](../PROOF_CARD.md)
 - Demo script: [three-minute walkthrough](../docs/hackathon/VIDEO_WALKTHROUGH.md)
 - Offline payment-to-proof verifier: `python3 scripts/hackathon/invoice06_chain.py`
-- Mainnet evidence: `evidence/near-guard-mainnet-invoice06-2026-11-12/README.md`
+- Owner-approved, agent-executed 5-USDC vault proof: [November 14 mainnet pilot](../evidence/solana-vault-mainnet-2026-11-14/README.md)
+- Offline vault-pilot verifier: `python3 evidence/solana-vault-mainnet-2026-11-14/verify_archived.py` (requires solders 0.26.0; setup in the proof README)
+- Earlier NEAR Guard / owner-funded 25-USDC evidence: `evidence/near-guard-mainnet-invoice06-2026-11-12/README.md`
 - Exact `.x3` sources: `evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md`
 - Guard outcome: `evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md`
 - Testnet mandate lifecycle:
@@ -61,6 +61,17 @@ and signed incident review, and real local NEAR Sandbox vault execution.
 All three also appear in [judge-claims.json](judge-claims.json). These are local
 capabilities; no public-chain custody, independent AI jury or automatic policy
 rewrite is claimed. They are separate from invoice_06.
+
+## New mainnet vault pilot — separate proof
+
+The November 14 pilot used owner-approved source custody in the Solana vault, not a new NEAR Guard authorization. The owner signed deployment, setup/funding and exact quote approval; the dedicated agent signed execution. Its PDA-authorized SPL Token TransferChecked moved exactly 5 USDC to the quoted deposit account. The finalized NEAR token event paid 4.999746 USDC to x3lang.near. The policy caps payment and rolling 24-hour spend at 5 USDC; nonce 1 is consumed and the vault balance is zero.
+
+The [proof bundle](../evidence/solana-vault-mainnet-2026-11-14/README.md) archives the signed quote, owner and agent transactions, source event/CPI, payout event, post-state and checksums. Source and destination observations each used one RPC. Provider SUCCESS links the two legs, without proving cryptographic solver causality or atomic settlement. The bundle discloses that the generic receipt verifier rejects the differing request/program deadlines; the separate vault commitment and direct chain verifiers were used instead.
+
+- Dedicated Solana agent: `6R4nioW9tPke3PFuWLaQY3gRAwM5SMi1vbY925WJZtPS`
+- Owner quote approval: [finalized on Solana](https://explorer.solana.com/tx/4ReKsqwxpwtyx2CNmah6UCkHWgb4GbiJjXGTZLwtHaMMBoWv8vqSki4XXzDrBmqgURJSX7A1fHAKm3jSf3fnWwkV)
+- Agent execution: [5-USDC vault transfer](https://explorer.solana.com/tx/3Bu3eWLwiSLoTNHgLPCzn5JyTAUnfzbXJENQG36oEt7kZm9e1M4rRB5CtUZxG92gRaGmPvuFZUQ1EqBzkL9rdLBf)
+- NEAR payout: [4.999746 USDC delivered](https://nearblocks.io/txns/CXoXgJ5FwcSZcyPDVu7PrNby7KULfY8bJxUBRT9fu4ia)
 
 ## Exact transaction anchors
 

@@ -1,30 +1,30 @@
 # X3 Force Field — owner-published X demo draft
 
-**Previously X3 Shield.** Draft only. Attach the actual public demo video or screenshots before posting. Do not claim a post exists until its signed-out URL is verified.
+**Previously X3 Shield.** Draft only. Attach the actual public demo video or screenshots before posting. No public post or public video URL has been verified. The owner publishes the post; these drafts do not authorize posting.
 
-## Post 1 — video post (254 characters)
+## Post 1 — video post
 
-Built at NEAR HACKATHON: X3 Force Field 🛡️ — a typed .x3 language + compiler for AI-agent spending rules. A NEAR Guard checks signed terms, not model promises. 25 USDC moved Solana→NEAR on mainnet under owner-approved limits. @NEARProtocol #NEARHackathon
+Built at NEAR HACKATHON: X3 Force Field puts AI-agent spending rules in .x3. Owner approves the exact quote; an agent executes a 5-USDC Solana vault payment; 4.999746 USDC arrives on NEAR. Policy and receipts, not model promises. @NEARProtocol #NEARHackathon
 
-## Post 2 — reply: why this differs
+## Post 2 — reply: separate Guard proof
 
-This isn't a wallet settings toggle. The owner writes auditable .x3 mandate code; a compiler rejects unsafe payment programs. Deterministic checks and NEAR x3-guard enforce signed quote terms. X3BC/X3VM exist as prior work—not as on-chain Guard execution.
+NEAR HACKATHON proof: invoice_06 used a restricted NEAR key for 21 Guard quote checks. The owner funded 25 USDC; 24.9952 reached NEAR. Today's 5-USDC vault transfer was agent-signed and made no new Guard call. @NEARProtocol #NEARHackathon
 
-## Post 3 — reply: inspect the proof
+## Post 3 — reply: inspect and reproduce
 
-Mainnet invoice_06: 25 USDC deposited from the owner's Solflare wallet; 24.9952 reached x3lang.near. Restricted agent recorded Settled; original .x3 files match Guard-stored hashes. Source, payout and outcome receipts: https://github.com/Cyptopimpinainteazy/x3lang
+NEAR HACKATHON: inspect the signed quote, agent-signed vault transfer, finalized NEAR payout and consumed approval. Reproduce offline checks and tamper tests: https://github.com/Cyptopimpinainteazy/x3lang @NEARProtocol #NEARHackathon
 
-## Post 4 — reply: limits and reproducibility
+## Post 4 — reply: limits
 
-One owner-assisted ~$25 settlement; Guard does not custody Solana funds or authenticate the agent-reported outcome tx hashes. No atomic cross-chain proof; X3VM not executing in Guard. Reproduce the compiler refusal and adversarial tests from the README: https://github.com/Cyptopimpinainteazy/x3lang
+NEAR HACKATHON limits: owner approves each exact quote; recovery/upgrade authority stays trusted. One RPC per chain for the vault pilot; provider linkage is not atomic cross-chain proof. No external audit or on-chain X3VM. @NEARProtocol #NEARHackathon
 
-## Video storyboard (2–3 minutes)
+## Video storyboard (about 2 minutes 30 seconds)
 
-1. 0:00–0:20: Problem—model output must not be authorization.
-2. 0:20–0:50: Show real v4 `mandate-proposed.x3`, the typed rules, and compiler pipeline.
-3. 0:50–1:20: Demonstrate 9 unsafe edits fail compilation and the local Grok drain replay refuses 3/3 attacks. Label LOCAL.
-4. 1:20–2:15: Show invoice_06 owner approval, restricted-agent quote acceptance, Solana deposit, NEAR payout and recorded Guard outcome with explorer links. Label MAINNET.
-5. 2:15–2:45: Explain custody, manually signed funding, FullAccess recovery key, unauthenticated outcome hashes, no atomicity and no on-chain X3VM.
-6. 2:45–3:00: Show the exact public repository commit and clean-clone judge commands.
+1. 0:00–0:15: State the problem: an agent should spend within owner-set rules.
+2. 0:15–0:40: Show a real .x3 policy and an unsafe payment refused with its reason. Label LOCAL; show a permitted control.
+3. 0:40–1:00: Show invoice_06 as the separate NEAR Guard proof: owner approval, 21 signed-quote checks and restricted key. State that the owner signed that 25-USDC source deposit.
+4. 1:00–1:50: Show the November 14 vault policy, exact owner quote approval, agent-signed 5-USDC source event/SPL CPI, and finalized 4.999746-USDC NEAR payout. Label MAINNET. Show the consumed nonce and empty vault; no new NEAR Guard call is claimed for this pilot.
+5. 1:50–2:15: Explain owner approval and recovery/upgrade trust, one RPC per chain, provider linkage rather than atomic cross-chain proof, no external audit and no on-chain X3VM. Keep the detailed receipt-verifier deadline limitation linked in the proof bundle.
+6. 2:15–2:30: Show the pinned public repository commit, proof bundle and offline verification command with its solders dependency. End on the public proof links.
 
-Never display private keys or credentials. Verify the published video and X post while signed out.
+Never display private keys or credentials. Verify the published video and X post while signed out. A local recording and these draft texts are not evidence of a published post.

@@ -130,5 +130,45 @@
     "agents",
     "business",
     "defi"
-  ]
+  ],
+  "mainnet_vault_pilot": {
+    "id": "mainnet-solana-vault-pilot-20261114",
+    "title": "Owner-approved, agent-executed Solana vault payment",
+    "claim": "On November 14, a dedicated Solana agent signed a policy-PDA-owned 5-USDC transfer for an owner-approved exact quote; 4.999746 USDC was paid to x3lang.near and the provider reported SUCCESS.",
+    "evidence_level": "archived finalized mainnet RPC responses, one source RPC and one destination RPC; provider-reported linkage",
+    "evidence_paths": [
+      "evidence/solana-vault-mainnet-2026-11-14/README.md",
+      "evidence/solana-vault-mainnet-2026-11-14/payment-proposed.x3",
+      "evidence/solana-vault-mainnet-2026-11-14/live-quote.near-receipt.json",
+      "evidence/solana-vault-mainnet-2026-11-14/finalized-approval.json",
+      "evidence/solana-vault-mainnet-2026-11-14/finalized-execution-primary.json",
+      "evidence/solana-vault-mainnet-2026-11-14/near-payout-transaction.json",
+      "evidence/solana-vault-mainnet-2026-11-14/settlement-summary.json",
+      "evidence/solana-vault-mainnet-2026-11-14/finalized-accounts.json",
+      "evidence/solana-vault-mainnet-2026-11-14/manifest.json"
+    ],
+    "reproduce": {
+      "command": "python3 evidence/solana-vault-mainnet-2026-11-14/verify_archived.py",
+      "network": "offline after dependency setup",
+      "additional_dependency": "solders==0.26.0",
+      "expected": "archived_checks: passed; source_rpc_quorum and cryptographic_solver_causality remain false"
+    },
+    "boundaries": {
+      "owner_quote_approval_required": true,
+      "source_transfer_signer": "dedicated Solana agent",
+      "new_near_guard_call": false,
+      "input_usdc": "5",
+      "output_usdc": "4.999746",
+      "signed_minimum_usdc": "4.974757",
+      "per_payment_cap_usdc": "5",
+      "rolling_24h_cap_usdc": "5",
+      "nonce": 1,
+      "approval_consumed": true,
+      "vault_balance_usdc": "0",
+      "source_rpc_quorum_verified": false,
+      "cryptographic_solver_causality_proven": false,
+      "generic_receipt_verifier_pass": false
+    },
+    "limitation": "A separate pilot from invoice_06, with no new NEAR Guard call. Operator-written .x3 checked quote terms off chain; the vault binds the exact owner-approved digest and transfer fields but does not verify the provider signature on chain. Owner recovery and upgrade authority remain trusted. The source quorum did not pass, and provider association is not cryptographic cross-chain causality or atomicity. The unchanged receipt has a disclosed request/program deadline mismatch; separate vault commitment and direct chain checks were used. One bounded pilot establishes neither production reliability, an external audit nor reproducible source-to-SBF build identity."
+  }
 }

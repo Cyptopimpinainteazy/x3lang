@@ -126,3 +126,37 @@ def test_judge_track_surfaces_name_all_owner_selected_tracks():
     ]
     for path, lead in surfaces:
         assert _track_ids_in_sentence((ROOT / path).read_text(), lead) == {"security", "agents", "business", "defi"}, path
+
+
+def test_vault_pilot_claims_match_the_finalized_archive():
+    import json
+    from decimal import Decimal
+
+    index = json.loads((ROOT / "submission" / "judge-claims.json").read_text())
+    pilot = index["mainnet_vault_pilot"]
+    archive = ROOT / "evidence" / "solana-vault-mainnet-2026-11-14"
+    summary = json.loads((archive / "settlement-summary.json").read_text())
+    quote = json.loads((archive / "live-quote.near-receipt.json").read_text())["quote_response"]["quote"]
+    bounds = pilot["boundaries"]
+    assert bounds["input_usdc"] == summary["inputUsdc"]
+    assert bounds["output_usdc"] == summary["outputUsdc"]
+    assert bounds["signed_minimum_usdc"] == summary["minimumUsdc"]
+    assert int(quote["amountIn"]) == int(Decimal(bounds["input_usdc"]) * 1_000_000)
+    assert bounds["nonce"] == summary["policyState"]["last_nonce"]
+    assert bounds["approval_consumed"] == (not summary["policyState"]["pending"])
+    assert bounds["source_rpc_quorum_verified"] == summary["sourceQuorumVerified"] is False
+    assert bounds["cryptographic_solver_causality_proven"] == summary["cryptographicSolverCausalityProven"] is False
+    assert bounds["generic_receipt_verifier_pass"] == summary["genericReceiptVerifierPass"] is False
+    assert bounds["new_near_guard_call"] is False
+    assert pilot["evidence_paths"]
+    assert all((ROOT / path).is_file() for path in pilot["evidence_paths"])
+    body = _description()
+    assert summary["outputUsdc"] in body
+    assert "no new NEAR Guard call" in body
+
+
+def test_description_heading_reports_the_actual_lf_character_count():
+    text = SUBMISSION.read_text()
+    stated = re.search(r"description \((\d+) characters, LF\)", text)
+    assert stated, "description heading must state its actual LF count"
+    assert int(stated.group(1)) == len(_description())
