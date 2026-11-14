@@ -1,0 +1,77 @@
+{
+  "byte_identical_to_upstream": [
+    "test_0.json",
+    "test_1.json",
+    "test_2.json",
+    "main_0.json",
+    "main_1.json",
+    "main_2.json",
+    "old.json",
+    "new.json",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "files": {
+    "LICENSE-APACHE": {
+      "description": "upstream license file shipped alongside",
+      "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/licenses/LICENSE-APACHE"
+    },
+    "LICENSE-MIT": {
+      "description": "upstream license (Cargo.toml: license = \"MIT\")",
+      "sha256": "b801c8d677ef9701149e05cf98f28b82a56832dd67c94d96d36d25d063b1b353",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/licenses/LICENSE-MIT"
+    },
+    "main_0.json": {
+      "description": "NEAR mainnet next_light_client_block view, height 86629892 (reference main_first)",
+      "sha256": "59d93ec7d784ceb415ae0017b958a74a4d0687e0a3ae398349971ecf623ae393",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/fixtures/main_0.json"
+    },
+    "main_1.json": {
+      "description": "NEAR mainnet next_light_client_block view, height 86673092, next epoch of main_0 (reference main_next)",
+      "sha256": "b398483546dc291df2c5b8483f9909ffe4661e0b15dff665369174941b519ca0",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/fixtures/main_1.json"
+    },
+    "main_2.json": {
+      "description": "NEAR mainnet next_light_client_block view, height 86716292, next epoch of main_1 (reference main_last)",
+      "sha256": "75f4526772d63260e3cbf619411819ef345fd5f3dd9573ff38b5685307240e0d",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/fixtures/main_2.json"
+    },
+    "new.json": {
+      "description": "NEAR testnet light_client_proof result (receipt j9XRxXGN..., SuccessValue), reference head root WWrLWbWH...",
+      "sha256": "7b4cdd2436d75c696383fa2f759c0527c532f7c0462f5cfde1ef6a4a1f0a15f3",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/fixtures/new.json"
+    },
+    "old.json": {
+      "description": "NEAR testnet light_client_proof result (receipt 7LAgw7ET..., SuccessValue), reference head root WWrLWbWH...",
+      "sha256": "5b940badff0abc64c8cd1f301fcec9eb820677d00fa8ef9d1cc0daf4996a62af",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/fixtures/old.json"
+    },
+    "protocol_lib_rs_test_outcome_root.json": {
+      "description": "NEAR testnet light_client_proof result (SuccessReceiptId). Extracted verbatim from the raw string literal in test_outcome_root; its JSON `timestamp` is float-rounded (see README)",
+      "sha256": "02a3fde21ea8b9254d18ff831a45b3e362c88064918201bf120de59b3acf9b01",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/crates/protocol/src/lib.rs#L547"
+    },
+    "test_0.json": {
+      "description": "NEAR testnet next_light_client_block view, height 154654776 (reference test_first)",
+      "sha256": "cce89573eae86908a48484caada6eb03ab260991a567cc819388aa9a7f2a8d2d",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/fixtures/test_0.json"
+    },
+    "test_1.json": {
+      "description": "NEAR testnet next_light_client_block view, height 154697976, next epoch of test_0 (reference test_next)",
+      "sha256": "04512ac854fea58a9cbc9c106dd612e7ca764430b6cf1823af1279b4b4abeb14",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/fixtures/test_1.json"
+    },
+    "test_2.json": {
+      "description": "NEAR testnet next_light_client_block view, height 154741176, next epoch of test_1 (reference test_last)",
+      "sha256": "d7199146ea48e6b0bf5a5f0e9e7d38334f310e9a387f4976830c9d071d575846",
+      "upstream_url": "https://github.com/near/near-light-client/blob/522f94003fbbedfdc1e7a7de6284f5a1d25d8134/fixtures/test_2.json"
+    }
+  },
+  "retrieved": "2026-11-13 via git clone --depth 1 (git proxy, anonymous read)",
+  "schema": "x3.vendored-reference-vectors.v1",
+  "trust": "Reference test vectors published by NEAR's light-client repository. They are NOT trusted checkpoints: tests anchor each chain with an explicitly synthetic test checkpoint signature and then verify the real validator Ed25519 approvals, stake and commitments.",
+  "upstream_commit": "522f94003fbbedfdc1e7a7de6284f5a1d25d8134",
+  "upstream_commit_date": "2024-07-16T16:18:35+01:00",
+  "upstream_repository": "https://github.com/near/near-light-client"
+}

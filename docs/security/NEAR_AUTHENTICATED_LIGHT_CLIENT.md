@@ -137,20 +137,74 @@ python3 x3-lang/bridge/near_authenticated.py head \
 
 For each candidate the verifier:
 
-1. Reconstructs the candidate block hash from the lite header.
-2. Requires a strictly greater height.
-3. Accepts only the authenticated current epoch or its committed next epoch.
-4. Selects the validator set for the candidate's epoch; a newly announced set
-   is never used to authenticate itself.
-5. Verifies `next_bps` using the V1 Borsh commitment supported by protocol 88.
-6. Reconstructs `ApprovalInner::Endorsement(next_block_hash)` and the signed
-   height.
-7. Verifies every present Ed25519 signature in validator order.
-8. Counts absent approvals as zero, counts the full validator stake, and
-   requires signed stake strictly greater than two-thirds.
-9. Rejects duplicate identities, malformed keys, unsupported versions,
-   overflow, replay, conflicting epochs, and incomplete persistence.
-10. Atomically replaces state only after every check succeeds.
+1. Admits only the exact `LightClientBlockView` fields and the exact
+   `BlockHeaderInnerLite` (V1) fields the hash covers, plus
+   `timestamp_nanosec`, which must equal `timestamp`. An inner-lite
+   `chunk_execution_root` (nearcore `BlockHeaderInnerLiteV2`, Spice, nightly
+   protocol 180) is refused: there are no real vectors for it.
+2. Reconstructs the candidate block hash from the lite header.
+3. Requires a strictly greater height and a strictly greater timestamp
+   (nearcore `InvalidBlockPastTime`).
+4. Accepts only the authenticated current epoch or its committed next epoch.
+   A same-epoch candidate must repeat the head's `next_epoch_id` and
+   `next_bp_hash` (nearcore `InvalidNextBPHash`); an epoch-crossing candidate
+   must carry `next_bps` and must not loop back to the head's epoch.
+5. Selects the validator set for the candidate's epoch; a newly announced set
+   is never used to authenticate itself. If the checkpoint did not state its
+   own epoch's producers (`current_validators: null`), same-epoch candidates
+   are refused.
+6. Verifies `next_bps` with nearcore's *versioned* bp-hash format
+   (`ValidatorStake::V1` enum tag, used since BlockHeaderV3). The untagged
+   legacy format and any other variant are refused.
+7. Reconstructs `ApprovalInner::Endorsement(next_block_hash)` and the signed
+   height (`height + 2`, little-endian).
+8. Verifies every present Ed25519 signature in validator order. Slots beyond
+   the epoch's producers (nearcore appends next-epoch approvers) are parsed but
+   ignored, as in the Nomicon `zip`.
+9. Counts absent approvals as zero, counts the full validator stake (also for
+   a truncated approval vector), and requires signed stake strictly greater
+   than two-thirds.
+10. Rejects duplicate validator accounts, malformed keys, unsupported versions,
+   overflow, replay, conflicting epochs, and incomplete persistence. Two
+   accounts may share one consensus key; each slot counts separately, as in
+   nearcore and real mainnet data.
+11. Atomically replaces state only after every check succeeds.
+
+The trust policy, checkpoint and state must pair `testnet` and `mainnet` with
+their pinned genesis hashes (`NETWORK_GENESIS`, taken from committed `status`
+RPC evidence); any other pairing is refused before trust exists.
+
+## Reference vectors (issue #56)
+
+`x3-lang/bridge/fixtures/near-light-client-522f940/` vendors the real testnet
+and mainnet vectors published by `near/near-light-client` at commit
+`522f940`, with a SHA-256 provenance manifest. `test_near_light_client_vectors`
+uses them as follows:
+
+| Property | Real data used | Result |
+|---|---|---|
+| Lite-header hash | `main_0/1`, `test_1` vs. the block hash the next fixture recorded | identical |
+| Versioned `next_bps` commitment | all six reference views + PR #57 protocol-88 testnet views | tagged hash matches; untagged legacy hash does not |
+| Epoch transitions | testnet `test_0 → test_1 → test_2`, mainnet `main_0 → main_1 → main_2` | both verify with the previous epoch's committed producers |
+| Stake accounting | `main_0.next_bps` approving `main_1` | `345140782903867823005444871054881 / 512915271547861520119028536348929`, equal to the reference implementation's own assertion |
+| Shared consensus key | mainnet slots 17 and 42 | identical signatures; without slot 42 the real block is not final |
+| `light_client_proof` | `old.json`, `new.json` | outcome Borsh, outcome path, shard→block outcome root, lite hash and block path reach the reference's pinned head root |
+| Encoding hazard | reference inline SuccessReceiptId vector | float-rounded `timestamp` is refused; the exact `timestamp_nanosec` value reproduces the recorded block hash |
+
+The anchor of each reference chain is approved by a **synthetic test checkpoint
+key** with `current_validators: null`. Everything after the anchor is real.
+
+`verify_outcome_inclusion` (unauthenticated root) and
+`verify_authenticated_outcome` (authenticated head root) encode every
+`PartialExecutionStatus` variant: `Unknown`=0, `Failure`=1 (unit; the error
+detail is not committed), `SuccessValue`=2, `SuccessReceiptId`=3. The older
+`verify_authenticated_inclusion` still admits successful receipts only.
+
+`x3-lang/bridge/light_client_mutation_check.py` applies 13 single-expression
+source mutants (threshold, denominator, approval height, signature check,
+validator-set selection, same-epoch commitment, timestamp, epoch skip,
+genesis pin, inner-lite encoding, outcome-root leaf, Failure tag, shared keys)
+in disposable copies; CI requires every one to be killed.
 
 State writes use a lock, same-directory temporary file, `fsync`, atomic rename
 and directory `fsync`. A failed comparison or interrupted write leaves the
@@ -237,8 +291,16 @@ permission to sign.
   remains a governance step this repository records but cannot perform.
 - State authority is only as strong as the offline checkpoint signer policy.
   Compromise or operator error in that ceremony compromises every later head.
-- The selected protocol-88 V1 encoding is supported. V2/future validator
-  encodings are rejected until protocol-specific vectors and review are added.
+- The versioned `ValidatorStake::V1` bp-hash encoding is supported and
+  checked against real testnet (2023 and protocol 88, 2026) and mainnet (2023)
+  vectors. The pre-BlockHeaderV3 untagged encoding, inner-lite V2 (Spice) and
+  future validator encodings are refused until real vectors and review exist.
+- No real `light_client_proof` built for an authenticated real head is
+  committed. The genuine PR #57 receipt proof targets head `V7Kc…`, so it is
+  checked under a synthetic head carrying that real root, and it is
+  correctly refused under the real authenticated Gb head. Closing this needs
+  a live `light_client_proof` request with `light_client_head` set to an
+  authenticated head.
 - Raw light-client responses do not cryptographically carry a protocol version.
   Optional candidate protocol metadata is checked when present, but protocol
   transitions require an authenticated external release policy.
@@ -257,6 +319,8 @@ deployed, and no funds move.**
 ```bash
 cd x3-lang/bridge
 python3 -W error::ResourceWarning -m unittest test_near_authenticated -v
+python3 -W error::ResourceWarning -m unittest test_near_light_client_vectors -v
+python3 light_client_mutation_check.py
 python3 -W error::ResourceWarning -m unittest discover -s . -p 'test_*.py' -v
 
 cd lightclient-core

@@ -70,6 +70,40 @@ def verify_block_inclusion(block_hash: bytes, block_proof: list[dict], trusted_h
     return compute_merkle_root(block_hash, block_proof) == trusted_head_block_merkle_root
 
 
+INNER_LITE_V1_FIELDS = frozenset((
+    'height', 'epoch_id', 'next_epoch_id', 'prev_state_root', 'outcome_root',
+    'timestamp', 'next_bp_hash', 'block_merkle_root',
+))
+# nearcore serializes the u64 timestamp a second time as a decimal string so
+# JSON tooling that parses numbers as IEEE doubles cannot silently round it.
+INNER_LITE_VIEW_ONLY_FIELDS = frozenset(('timestamp_nanosec',))
+
+
+def check_inner_lite_encoding(inner: dict) -> None:
+    """Admit only the BlockHeaderInnerLite (V1) view that the hash covers.
+
+    Fields outside the hashed Borsh struct would otherwise travel next to an
+    authenticated hash without being authenticated themselves. In particular
+    `chunk_execution_root` selects nearcore's BlockHeaderInnerLiteV2 (Spice,
+    nightly protocol 180) encoding, which this verifier has no real vectors for.
+    """
+    if type(inner) is not dict:
+        raise ValueError('missing inner_lite')
+    if 'chunk_execution_root' in inner:
+        raise ValueError('inner-lite V2 (chunk_execution_root) encoding is not supported')
+    unknown = set(inner) - INNER_LITE_V1_FIELDS - INNER_LITE_VIEW_ONLY_FIELDS
+    if unknown:
+        raise ValueError('unauthenticated inner_lite field: ' + ','.join(sorted(unknown)))
+    missing = INNER_LITE_V1_FIELDS - set(inner)
+    if missing:
+        raise ValueError('missing inner_lite field: ' + ','.join(sorted(missing)))
+    if 'timestamp_nanosec' in inner:
+        if (type(inner['timestamp_nanosec']) is not str
+                or type(inner['timestamp']) is not int
+                or inner['timestamp_nanosec'] != str(inner['timestamp'])):
+            raise ValueError('timestamp and timestamp_nanosec disagree')
+
+
 def lite_block_hash(header: dict) -> bytes:
     """Nomicon block-lite hash from Borsh inner_lite + supplied inner_rest hash.
 
@@ -79,8 +113,7 @@ def lite_block_hash(header: dict) -> bytes:
     if type(header) is not dict:
         raise ValueError('missing header')
     inner = header.get('inner_lite')
-    if type(inner) is not dict:
-        raise ValueError('missing inner_lite')
+    check_inner_lite_encoding(inner)
     height = inner.get('height')
     timestamp = inner.get('timestamp')
     if (type(height) is not int or not 0 <= height < 2**64 or
