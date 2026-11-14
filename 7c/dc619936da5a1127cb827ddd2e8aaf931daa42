@@ -1,0 +1,20 @@
+docs/hackathon/SOLANA_VAULT_CLIENT_RUNBOOK.md
+  h_e41068bed968d7 8-10,41,43,47-56
+x3-lang/solana/rehearsal_replay.py
+  h_e41068bed968d7 1-40
+x3-lang/solana/vault-devnet-rehearsal.sh
+  h_e41068bed968d7 17,19,284-285,288-302,313-314
+x3-lang/tests/test_solana_vault_client.py
+  h_e41068bed968d7 36,353-402
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7cdc619936da5a1127cb827ddd2e8aaf931daa42",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
