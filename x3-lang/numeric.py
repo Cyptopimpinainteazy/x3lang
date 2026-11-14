@@ -67,4 +67,3 @@ def split_rate(value: Any) -> Tuple[Decimal, Optional[str]]:
     if not text or any(ch.isspace() for ch in text):
         raise NumericParseError(f"rate {value!r} must be a number with an optional % or bps unit")
     return parse_decimal(text), unit
-
