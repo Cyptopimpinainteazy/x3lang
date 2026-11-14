@@ -158,7 +158,11 @@ def serve_unix_worker(gateway: LocalToolGateway,
         if bound:
             try:
                 current = os.lstat(target)
-                if stat.S_ISSOCK(current.st_mode) and current.st_ino == original_inode:
+                if (stat.S_ISSOCK(current.st_mode) and current.st_uid == os.geteuid()
+                        and (original_inode is None or current.st_ino == original_inode)):
+                    # On bind success but inode-stat failure, the parent dir
+                    # was prechecked as worker-owned and non-writable by
+                    # group/others; remove only a worker-owned socket.
                     target.unlink()
             except FileNotFoundError:
                 pass
