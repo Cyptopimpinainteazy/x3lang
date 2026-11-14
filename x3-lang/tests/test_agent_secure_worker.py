@@ -1,0 +1,146 @@
+"""Linux-only integration tests: signed task crosses a real subprocess Unix socket."""
+import base64
+import json
+import multiprocessing as mp
+import os
+from pathlib import Path
+import socket
+import stat
+import struct
+import tempfile
+import time
+import unittest
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from agent_constitution import AgentManifest
+from agent_runtime import Action, Adapter, Runtime, StampGatePolicy
+from agent_tool_gateway import LocalToolGateway
+from agent_secure_worker import serve_unix_worker, request_unix_worker, MAX_WIRE_BYTES
+
+
+def pub(key):
+    return key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+
+
+def start_worker(path, db, operator_key, issuer_key, policy, allowed_uids, ready, stop):
+    # Execution callback is registered only inside the worker process.
+    adapter = Adapter("compile", "local-plan", 1, False,
+                      lambda source: (str(os.getpid()) + ":" + source.decode("ascii")).encode(),
+                      policy_id="v1")
+    runtime = Runtime(db, pub(operator_key), {"compile-intent": adapter},
+                      stamp_policies={"compile-intent": policy}, stamp_enforcement="all",
+                      clock=lambda: 100)
+    gateway = LocalToolGateway(runtime, {"compile-intent": issuer_key})
+    serve_unix_worker(gateway, path, allowed_uids=allowed_uids, ready_event=ready,
+                      stop_event=stop)
+
+
+@unittest.skipUnless(os.name == "posix" and hasattr(socket, "SO_PEERCRED"), "Linux SO_PEERCRED")
+class SecureWorkerTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.root.chmod(0o700)
+        self.path = self.root / "worker.sock"
+        self.db = self.root / "agent.sqlite"
+        self.operator = Ed25519PrivateKey.generate()
+        self.agent = Ed25519PrivateKey.generate()
+        self.issuer = Ed25519PrivateKey.generate()
+        self.policy = StampGatePolicy(pub(self.issuer), "a" * 64,
+                        ("signed_agent_identity", "capability_scope", "source_digest"))
+        adapter = Adapter("compile", "local-plan", 1, False,
+                          lambda src: b"never-called-in-parent", policy_id="v1")
+        self.runtime = Runtime(self.db, pub(self.operator), {"compile-intent": adapter},
+                               stamp_policies={"compile-intent": self.policy},
+                               stamp_enforcement="all", clock=lambda: 100)
+        manifest = AgentManifest("agent-one", None, frozenset({"compile"}),
+                                  frozenset({"local-plan"}), 10, 500, (), 0)
+        birth = self.runtime.genesis_payload(manifest, pub(self.agent), "birth-one")
+        self.runtime.genesis(manifest, pub(self.agent), "birth-one", self.operator.sign(birth))
+        self.context = mp.get_context("fork")
+        self.ready = self.context.Event()
+        self.stop = self.context.Event()
+        self.process = None
+
+    def tearDown(self):
+        if self.process is not None:
+            self.stop.set()
+            self.process.join(4)
+            if self.process.is_alive():
+                self.process.terminate()
+                self.process.join(4)
+            self.assertFalse(self.process.is_alive(), "worker failed to exit")
+
+    def start_server(self, allowed_uids=None):
+        self.process = self.context.Process(target=start_worker,
+                    args=(str(self.path), self.db, self.operator, self.issuer,
+                          self.policy, allowed_uids, self.ready, self.stop))
+        self.process.start()
+        self.assertTrue(self.ready.wait(5), "worker failed to bind Unix socket")
+        self.assertTrue(self.process.is_alive(), "worker exited unexpectedly")
+
+    def signed(self, nonce="one", source=b"safe"):
+        act = Action("agent-one", "compile-intent", source, nonce, 150)
+        return json.dumps({
+            "agent_id": act.agent_id, "adapter": act.adapter, "nonce": act.nonce,
+            "expires_at": act.expires_at, "artifact_b64": base64.b64encode(source).decode(),
+            "agent_signature_hex": self.agent.sign(self.runtime.action_payload(act)).hex(),
+        }).encode()
+
+    def test_separate_worker_process_authorized_request(self):
+        self.start_server(allowed_uids={os.getuid()})
+        result = request_unix_worker(self.path, self.signed())
+        self.assertEqual(result, str(self.process.pid).encode() + b":safe")
+        self.assertNotEqual(self.process.pid, os.getpid())
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+
+    def test_unlisted_peer_uid_fails_before_dispatch(self):
+        self.start_server(allowed_uids={os.getuid() + 1})
+        with self.assertRaises(ValueError):
+            request_unix_worker(self.path, self.signed())
+        self.assertEqual(self.runtime.snapshot("agent-one")["remaining"], 10)
+
+    def test_forged_signature_denied_no_execution(self):
+        self.start_server(allowed_uids={os.getuid()})
+        message = json.loads(self.signed())
+        message["agent_signature_hex"] = "00" * 64
+        with self.assertRaises(ValueError):
+            request_unix_worker(self.path, json.dumps(message).encode())
+        self.assertEqual(self.runtime.snapshot("agent-one")["remaining"], 10)
+
+    def test_replay_is_rejected_across_process_boundary(self):
+        self.start_server(allowed_uids={os.getuid()})
+        request = self.signed()
+        request_unix_worker(self.path, request)
+        with self.assertRaises(ValueError):
+            request_unix_worker(self.path, request)
+        self.assertEqual(self.runtime.snapshot("agent-one")["remaining"], 9)
+
+    def test_oversized_frame_is_rejected(self):
+        self.start_server(allowed_uids={os.getuid()})
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            sock.connect(str(self.path))
+            sock.sendall(struct.pack("!I", MAX_WIRE_BYTES + 1))
+            data = sock.recv(10)
+        self.assertTrue(data, "worker should return bounded denial")
+
+    def test_untrusted_socket_directory_permissions_rejected(self):
+        self.root.chmod(0o777)
+        with self.assertRaises(ValueError):
+            serve_unix_worker(None, self.path, allowed_uids={os.getuid()},
+                              ready_event=self.ready, stop_event=self.stop)
+
+    def test_existing_socket_path_not_overwritten(self):
+        self.path.write_text("not a socket")
+        with self.assertRaises(ValueError):
+            serve_unix_worker(None, self.path, allowed_uids={os.getuid()},
+                              ready_event=self.ready, stop_event=self.stop)
+        self.assertEqual(self.path.read_text(), "not a socket")
+
+
+if __name__ == "__main__":
+    unittest.main()
