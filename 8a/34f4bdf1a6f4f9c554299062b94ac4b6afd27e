@@ -1,0 +1,21 @@
+scripts/hackathon/judge_local_showcase.py
+  s_72f3ccca1628d2::t_67b60febe3d30a 17-22,32-33,44
+scripts/hackathon/test_judge_local_showcase.py
+  s_72f3ccca1628d2::t_3ec8aa33fbb6a3 3-4,8-10,22-23,40-43,45,49-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8a34f4bdf1a6f4f9c554299062b94ac4b6afd27e",
+  "prompts": {},
+  "sessions": {
+    "s_72f3ccca1628d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1d86b-d092-71a3-8f4f-2f774ea393e9",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
