@@ -201,7 +201,8 @@ class Runtime:
             raise ValueError("unrecognized stamp enforcement mode")
         self.stamp_enforcement = stamp_enforcement
         self.stamp_policies = dict(stamp_policies or {})
-        if stamp_enforcement == "all" and (not self.adapters or set(self.stamp_policies) != set(self.adapters)):
+        if stamp_enforcement == "all" and (not self.adapters or set(self.stamp_policies) != set(self.adapters)
+                or any(not isinstance(policy, StampGatePolicy) for policy in self.stamp_policies.values())):
             raise ValueError("strict stamp enforcement requires every registered adapter to be protected")
         for name, policy in self.stamp_policies.items():
             if name not in self.adapters or not isinstance(policy, StampGatePolicy):
@@ -458,7 +459,8 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
         if type(ttl) is not int or not 0 < ttl <= 3600:
             raise ValueError("invalid stamp ttl")
         action_request = self.action_payload(action)
-        if self.stamp_enforcement == "all" and set(self.stamp_policies) != set(self.adapters):
+        if self.stamp_enforcement == "all" and (set(self.stamp_policies) != set(self.adapters)
+                or any(not isinstance(policy, StampGatePolicy) for policy in self.stamp_policies.values())):
             raise ValueError("strict stamp coverage missing")
         policy = self.stamp_policies.get(action.adapter)
         if policy is None:
@@ -485,15 +487,16 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
             if db.execute("SELECT 1 FROM actions WHERE agent=? AND nonce=?",
                           (action.agent_id, action.nonce)).fetchone():
                 raise ValueError("action nonce already reserved")
-            if db.execute("SELECT 1 FROM stamp_revocations WHERE nonce=?", (action.nonce,)).fetchone():
+            scoped_nonce = digest(canonical({"agent": action.agent_id, "nonce": action.nonce}))
+            if db.execute("SELECT 1 FROM stamp_revocations WHERE nonce=?", (scoped_nonce,)).fetchone():
                 raise ValueError("stamp nonce revoked")
-            if db.execute("SELECT 1 FROM stamp_nonces WHERE nonce=?", (action.nonce,)).fetchone():
+            if db.execute("SELECT 1 FROM stamp_nonces WHERE nonce=?", (scoped_nonce,)).fetchone():
                 raise ValueError("stamp already consumed")
             return issue_scoped_stamp(
                 StampRequest(action.agent_id, action.adapter, action.artifact,
                              policy.policy_sha256, now,
                              min(action.expires_at, now + ttl), action.nonce,
-                             tuple(policy.required_checks)), issuer_key)
+                             tuple(policy.required_checks), digest(action_request)), issuer_key)
 
     def execute(self, action, signature, jury_votes=(), *, stamp=None):
         jury_votes = tuple(jury_votes)
@@ -512,7 +515,8 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
                 raise ValueError("action expired or outlives identity")
             if db.execute("SELECT 1 FROM actions WHERE agent=? AND nonce=?", (action.agent_id, action.nonce)).fetchone():
                 raise ValueError("action already reserved; outcome may be uncertain")
-            if self.stamp_enforcement == "all" and set(self.stamp_policies) != set(self.adapters):
+            if self.stamp_enforcement == "all" and (set(self.stamp_policies) != set(self.adapters)
+                or any(not isinstance(policy, StampGatePolicy) for policy in self.stamp_policies.values())):
                 raise ValueError("strict stamp coverage missing")
             stamp_policy = self.stamp_policies.get(action.adapter)
             stamp_nonce = None
@@ -523,15 +527,17 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
                 stamp_nonce = payload.get("nonce") if isinstance(payload, dict) else None
                 if stamp_nonce != action.nonce:
                     raise ValueError("stamp nonce must match signed action nonce")
-                if db.execute("SELECT 1 FROM stamp_revocations WHERE nonce=?", (stamp_nonce,)).fetchone():
+                scoped_nonce = digest(canonical({"agent": action.agent_id, "nonce": stamp_nonce}))
+                if db.execute("SELECT 1 FROM stamp_revocations WHERE nonce=?", (scoped_nonce,)).fetchone():
                     raise ValueError("stamp has been revoked")
-                if db.execute("SELECT 1 FROM stamp_nonces WHERE nonce=?", (stamp_nonce,)).fetchone():
+                if db.execute("SELECT 1 FROM stamp_nonces WHERE nonce=?", (scoped_nonce,)).fetchone():
                     raise ValueError("stamp nonce already consumed")
                 verify_scoped_stamp(stamp, trusted_issuer=stamp_policy.issuer_key,
                                     agent_id=action.agent_id, action=action.adapter,
                                     artifact=action.artifact,
                                     policy_sha256=stamp_policy.policy_sha256,
-                                    now=now, required_checks=stamp_policy.required_checks)
+                                    now=now, required_checks=stamp_policy.required_checks,
+                                    required_action_digest=action_digest)
             adapter = self.adapters.get(action.adapter)
             if adapter is None:
                 denial = "unknown adapter"
@@ -549,7 +555,7 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
                 if adapter.major:
                     self._jury(db, action, action_digest, manifest, jury_votes, now)
                 if stamp_policy is not None:
-                    db.execute("INSERT INTO stamp_nonces VALUES(?,?)", (stamp_nonce, action_digest))
+                    db.execute("INSERT INTO stamp_nonces VALUES(?,?)", (scoped_nonce, action_digest))
                 self._consume(db, "action", action.agent_id, action.nonce)
                 db.execute("UPDATE agents SET remaining=remaining-? WHERE id=?", (adapter.cost, action.agent_id))
                 db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,NULL)",
@@ -578,13 +584,16 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
                         {"action": action_digest, "output_sha256": digest(output)})
         return output
 
-    def revoke_stamp(self, nonce, reason):
-        """Trusted operator revocation; cannot reverse in-flight effects."""
+    def revoke_stamp(self, agent_id, nonce, reason):
+        """Trusted operator revocation scoped to one agent; cannot undo in-flight effects."""
+        _text(agent_id, "agent identity")
         _text(nonce, "stamp nonce")
         _text(reason, "revocation reason")
+        scoped_nonce = digest(canonical({"agent": agent_id, "nonce": nonce}))
         with self._transaction() as db:
-            db.execute("INSERT OR IGNORE INTO stamp_revocations VALUES(?,?)", (nonce, reason))
-            self._event(db, "stamp_revoked", "operator", {"nonce": nonce, "reason": reason})
+            self._agent(db, agent_id)
+            db.execute("INSERT OR IGNORE INTO stamp_revocations VALUES(?,?)", (scoped_nonce, reason))
+            self._event(db, "stamp_revoked", agent_id, {"nonce": nonce, "reason": reason})
 
     def revoke(self, agent_id, reason):
         """Trusted operator call; prevents future reservations, not in-flight effects."""
