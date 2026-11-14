@@ -57,7 +57,9 @@ repo_root() { git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || die 
 current() { echo "$STATE/current"; }
 manifest() { echo "$STATE/access-sites.json"; }
 
-env_get() { [[ -f "$ENV_FILE" ]] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 || true; }
+env_get() {
+  if [[ -f "$ENV_FILE" ]]; then sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1; fi
+}
 
 parse_ref() {
   REF="HEAD"
