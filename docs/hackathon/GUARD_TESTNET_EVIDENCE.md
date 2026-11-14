@@ -21,16 +21,26 @@ Evidence files:
 Verify independently (read-only, no signing):
 
 ```bash
-PYTHONPATH=x3-lang .venv/bin/python scripts/hackathon/testnet_guard_evidence.py --verify evidence/near-guard-testnet/manifest.json
-PYTHONPATH=x3-lang .venv/bin/python scripts/hackathon/testnet_guard_evidence.py --verify evidence/near-guard-testnet/transactions.json
+python3 scripts/hackathon/testnet_guard_evidence.py --verify evidence/near-guard-testnet/manifest.json
+python3 scripts/hackathon/testnet_guard_evidence.py --verify evidence/near-guard-testnet/transactions.json
 ```
 
-Both exit `0` on the 2026-11-07 UTC recapture. Any tampered hash, chain id, genesis, account,
+On 2026-11-14 UTC both commands exited `0` against the archive, verifying the
+manifest and all 13 transaction records from the 2026-11-07 recapture. Any tampered hash, chain id, genesis, account,
 block height/hash, code view, or status fails verification. The manifest records
 the exact block returned by the final account view, not a moving RPC status
 head. Verification requires that historical block and fails instead of falling
-back to current final state. Collector default RPC is
-`https://test.rpc.fastnear.com` (HTTPS required; localhost HTTP only for tests).
+back to current final state. Historical verification uses FastNear’s archival
+endpoint, `https://archival-rpc.testnet.fastnear.com`. To use another archive,
+append `--rpc-url <archival-testnet-https-url>` to either command. Recording
+a new manifest or transaction defaults to `https://test.rpc.fastnear.com`.
+
+A collection checks the network and genesis once, then reads each recorded
+transaction and its historical state from that endpoint. The verifier retries
+temporary quota or service errors twice per read, with a maximum 30-second
+wait per retry. If the provider requests a longer wait or quotas are still
+exhausted, verification exits with an error. [FastNear RPC reference](https://docs.fastnear.com/rpc)
+
 The chain id is `testnet` and the pinned genesis is
 `FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b`.
 After building the Guard Wasm, append
