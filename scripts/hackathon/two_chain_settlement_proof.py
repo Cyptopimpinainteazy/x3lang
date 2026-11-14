@@ -25,7 +25,7 @@ from base_sepolia_guarded_admission import (
 USDC_NEAR_CONTRACT = 'usdc.tidepool-sandbox.testnet'
 ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 MIN_BASE_CONFIRMATIONS = 12
-MAX_BLOCK_DRIFT = 6  # finalized snapshots should be near each other across providers
+BASE_FINALITY_METHOD = 'common_finalized_checkpoint_v2'
 
 
 def is_tx_hash(value: str) -> bool:
@@ -100,15 +100,56 @@ def require_base_tx(rpc_url: str, txid: str, destination: str) -> dict:
             'token_code_sha256':TOKEN_CODE_SHA256,'rpc':rpc_url}
 
 
+def _block_hash(value) -> str | None:
+    if not isinstance(value,dict):return None
+    h=value.get('hash')
+    if not (isinstance(h,str) and len(h)==66 and h.startswith('0x')):return None
+    try:int(h[2:],16)
+    except ValueError:return None
+    return h.lower()
+
+
+def common_finalized_checkpoint(observations: list[dict]) -> dict:
+    """Agree on one finalized Base block that every provider has finalized.
+
+    Providers advance their finalized heads at different times, so comparing
+    head heights with a fixed tolerance fails on honest providers (issue #110).
+    Instead take the lowest finalized height any provider reports, ask every
+    provider for the block at that exact height and require one identical hash.
+    Each provider's finalized head is already >= the source inclusion block
+    (require_base_tx), so the checkpoint is at or above the inclusion block.
+    """
+    reject(len(observations)>=2,'BASE_RPC_QUORUM_TOO_SMALL')
+    reject(len({o['rpc'] for o in observations})==len(observations),'BASE_RPC_PROVIDERS_NOT_DISTINCT')
+    inclusion=observations[0]['block_number']
+    for o in observations:
+        reject(isinstance(o['finalized_block_height'],int) and o['finalized_block_height']>=inclusion,'BASE_TX_NOT_L2_FINALIZED')
+    common=min(o['finalized_block_height'] for o in observations)
+    hashes=[]
+    for o in observations:
+        h=_block_hash(rpc(o['rpc'],'eth_getBlockByNumber',[hex(common),False]))
+        reject(h is not None,'BASE_COMMON_CHECKPOINT_UNAVAILABLE')
+        if o['finalized_block_height']==common:
+            # This provider's own finalized head is the checkpoint: the block it
+            # returns by number must be the same block it reported as finalized.
+            reject(h==str(o['finalized_block_hash']).lower(),'BASE_RPC_FINALIZED_HEAD_INCONSISTENT')
+        hashes.append(h)
+    reject(len(set(hashes))==1,'BASE_RPC_FINALIZED_CHECKPOINT_HASH_DISAGREEMENT')
+    return {'method':BASE_FINALITY_METHOD,'height':common,'hash':hashes[0]}
+
+
 def verify_base_quorum(txid: str,destination: str) -> dict:
     observations=[require_base_tx(url,txid,destination) for url in BASE_RPCS]
     comparable=('tx_hash','chain_id','from','token','deposit_address','units','block_hash','block_number','event_log_index','token_code_sha256')
     reject(all(tuple(o[k] for k in comparable)==tuple(observations[0][k] for k in comparable) for o in observations[1:]),'BASE_RPC_RECEIPT_OR_LOG_DISAGREEMENT')
-    reject(max(x['confirmations'] for x in observations)-min(x['confirmations'] for x in observations)<=MAX_BLOCK_DRIFT,'BASE_RPC_HEAD_DRIFT_TOO_HIGH')
-    reject(max(x['finalized_block_height'] for x in observations)-min(x['finalized_block_height'] for x in observations)<=MAX_BLOCK_DRIFT,'BASE_RPC_FINALIZED_HEIGHT_DRIFT')
-    if len({x['finalized_block_height'] for x in observations})==1:
-        reject(len({x['finalized_block_hash'] for x in observations})==1,'BASE_RPC_FINALIZED_HASH_DISAGREEMENT')
-    return {'classification':'independent_base_sepolia_finalized_transfer','observations':observations}
+    # Every provider has already enforced >= MIN_BASE_CONFIRMATIONS and its own
+    # finalized head >= inclusion. Cross-provider finality is a shared checkpoint
+    # hash, not a numeric head-height tolerance.
+    checkpoint=common_finalized_checkpoint(observations)
+    return {'classification':'independent_base_sepolia_finalized_transfer',
+            'base_finality_method':checkpoint['method'],
+            'common_finalized_checkpoint':{'height':checkpoint['height'],'hash':checkpoint['hash']},
+            'observations':observations}
 
 
 def verify_near_delivery(tx_hash: str, signer_id: str, *, min_units: int) -> dict:
