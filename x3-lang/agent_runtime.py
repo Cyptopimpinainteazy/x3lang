@@ -17,8 +17,11 @@ import time
 from typing import Callable, Mapping
 
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey, Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
 
+from agent_scoped_stamp import (verify_scoped_stamp, issue_scoped_stamp,
+                                 StampRequest, SUPPORTED_CHECKS)
 from agent_constitution import AgentManifest
 from agent_admission_signed import SignedApproval, _manifest, verify_signed_admission
 
@@ -158,16 +161,52 @@ def vote_payload(action_digest: str, juror_id: str, approve: bool, expires_at: i
                       "juror": juror_id, "approve": approve, "expires_at": expires_at})
 
 
+@dataclass(frozen=True)
+class StampGatePolicy:
+    """Trusted operator configuration: scope and pinned issuer for protected adapter."""
+    issuer_key: bytes
+    policy_sha256: str
+    required_checks: tuple[str, ...]
+
+    def __post_init__(self):
+        _key(self.issuer_key)
+        if not isinstance(self.policy_sha256, str) or len(self.policy_sha256) != 64:
+            raise ValueError("invalid stamp policy digest")
+        try:
+            bytes.fromhex(self.policy_sha256)
+        except ValueError as exc:
+            raise ValueError("invalid stamp policy digest") from exc
+        if (not isinstance(self.required_checks, tuple) or not self.required_checks
+                or len(set(self.required_checks)) != len(self.required_checks)
+                or not set(self.required_checks) <= SUPPORTED_CHECKS):
+            raise ValueError("invalid required stamp checks")
+
+    def record(self):
+        return {"issuer_key": self.issuer_key.hex(), "policy_sha256": self.policy_sha256,
+                "required_checks": sorted(self.required_checks)}
+
+
 class Runtime:
     """Trusted local runtime; SQLite is authoritative, not caller state."""
 
     def __init__(self, db_path, operator_public_key: bytes, adapters: Mapping[str, Adapter],
-                 *, jury_keys=None, clock=time.time):
+                 *, jury_keys=None, clock=time.time, stamp_policies=None,
+                 stamp_enforcement="configured"):
         _key(operator_public_key)
         self.operator_key = operator_public_key
         self.adapters = dict(adapters)
         self.jury_keys = dict(jury_keys or {})
         self.clock = clock
+        if stamp_enforcement not in ("configured", "all"):
+            raise ValueError("unrecognized stamp enforcement mode")
+        self.stamp_enforcement = stamp_enforcement
+        self.stamp_policies = dict(stamp_policies or {})
+        if stamp_enforcement == "all" and (not self.adapters or set(self.stamp_policies) != set(self.adapters)
+                or any(not isinstance(policy, StampGatePolicy) for policy in self.stamp_policies.values())):
+            raise ValueError("strict stamp enforcement requires every registered adapter to be protected")
+        for name, policy in self.stamp_policies.items():
+            if name not in self.adapters or not isinstance(policy, StampGatePolicy):
+                raise ValueError("stamp policy must reference a registered adapter")
         for name, adapter in self.adapters.items():
             _text(name, "adapter")
             _text(adapter.capability, "capability")
@@ -182,10 +221,15 @@ class Runtime:
         if len(set(self.jury_keys.values())) != len(self.jury_keys):
             raise ValueError("duplicate juror key")
         self.path = str(Path(db_path))
-        config = canonical({"operator": operator_public_key.hex(),
-                            "adapters": {n: a.policy() for n, a in self.adapters.items()},
-                            "jury": {n: k.hex() for n, k in self.jury_keys.items()},
-                            "score": SCORE_IDS})
+        trusted_config = {"operator": operator_public_key.hex(),
+                          "adapters": {n: a.policy() for n, a in self.adapters.items()},
+                          "jury": {n: k.hex() for n, k in self.jury_keys.items()},
+                          "score": SCORE_IDS}
+        if self.stamp_policies:
+            trusted_config["stamp_policies"] = {n: p.record() for n, p in self.stamp_policies.items()}
+        if self.stamp_enforcement == "all":
+            trusted_config["stamp_enforcement"] = "all"
+        config = canonical(trusted_config)
         with self._connection() as db:
             db.executescript("""
 CREATE TABLE IF NOT EXISTS config (singleton INTEGER PRIMARY KEY CHECK(singleton=1), value BLOB NOT NULL);
@@ -197,6 +241,8 @@ CREATE TABLE IF NOT EXISTS actions (digest TEXT PRIMARY KEY, agent TEXT NOT NULL
  artifact BLOB NOT NULL, request BLOB NOT NULL, status TEXT NOT NULL, output BLOB, UNIQUE(agent,nonce));
 CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL,
  previous TEXT NOT NULL, hash TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS stamp_nonces (nonce TEXT PRIMARY KEY, action_digest TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEXT NOT NULL);
 """)
             db.execute("BEGIN IMMEDIATE")
             old = db.execute("SELECT value FROM config WHERE singleton=1").fetchone()
@@ -249,6 +295,20 @@ CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payloa
             now = int(now)
         _integer(now, "clock")
         return now
+
+    def _assert_stamp_configuration(self, db):
+        """Do not authorize work with policy objects diverging from pinned SQLite trust."""
+        row = db.execute("SELECT value FROM config WHERE singleton=1").fetchone()
+        if row is None:
+            raise ValueError("missing trusted runtime configuration")
+        stored = json.loads(bytes(row["value"]))
+        try:
+            configured = {n: p.record() for n, p in self.stamp_policies.items()}
+        except (AttributeError, TypeError) as exc:
+            raise ValueError("invalid live stamp configuration") from exc
+        if (stored.get("stamp_policies", {}) != configured
+                or stored.get("stamp_enforcement", "configured") != self.stamp_enforcement):
+            raise ValueError("live stamp policy differs from pinned configuration")
 
     @staticmethod
     def _verify_log(db):
@@ -400,7 +460,60 @@ CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payloa
         if yes <= len(eligible) // 2:
             raise ValueError("jury majority of fixed electorate required")
 
-    def execute(self, action, signature, jury_votes=()):
+    def issue_stamp_for_action(self, action, agent_signature, issuer_key, *, ttl=120):
+        """Trusted-host preflight for ONLY three independently verified local checks.
+
+        The runtime itself verifies agent identity, live scope, and source bytes.
+        It does not attest that the full Score, a compiler, or a jury executed.
+        A stamp is not a reservation: execute() rechecks authority and budget
+        and atomically consumes the stamp/action nonce before dispatch.
+        """
+        if not isinstance(issuer_key, Ed25519PrivateKey):
+            raise ValueError("trusted issuer private key required")
+        if type(ttl) is not int or not 0 < ttl <= 3600:
+            raise ValueError("invalid stamp ttl")
+        action_request = self.action_payload(action)
+        if self.stamp_enforcement == "all" and (set(self.stamp_policies) != set(self.adapters)
+                or any(not isinstance(policy, StampGatePolicy) for policy in self.stamp_policies.values())):
+            raise ValueError("strict stamp coverage missing")
+        policy = self.stamp_policies.get(action.adapter)
+        if policy is None:
+            raise ValueError("adapter is not configured for scoped stamping")
+        independently_checkable = {"signed_agent_identity", "capability_scope", "source_digest"}
+        if not set(policy.required_checks) <= independently_checkable:
+            raise ValueError("required checks need an external trusted issuer")
+        issuer_public = issuer_key.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        if issuer_public != policy.issuer_key:
+            raise ValueError("issuer is not the pinned trusted issuer")
+        with self._transaction() as db:
+            self._assert_stamp_configuration(db)
+            row = self._agent(db, action.agent_id)
+            _verify(bytes(row["public_key"]), agent_signature, action_request)
+            now = self._now()
+            manifest = self._active(db, row, now)
+            adapter = self.adapters[action.adapter]
+            if action.expires_at <= now or action.expires_at > manifest.expires_at:
+                raise ValueError("action expiry invalid")
+            if adapter.capability not in manifest.capabilities or adapter.surface not in manifest.surfaces:
+                raise ValueError("capability or surface forbidden")
+            if adapter.cost > row["remaining"]:
+                raise ValueError("budget insufficient for proposed task")
+            if db.execute("SELECT 1 FROM actions WHERE agent=? AND nonce=?",
+                          (action.agent_id, action.nonce)).fetchone():
+                raise ValueError("action nonce already reserved")
+            scoped_nonce = digest(canonical({"agent": action.agent_id, "nonce": action.nonce}))
+            if db.execute("SELECT 1 FROM stamp_revocations WHERE nonce=?", (scoped_nonce,)).fetchone():
+                raise ValueError("stamp nonce revoked")
+            if db.execute("SELECT 1 FROM stamp_nonces WHERE nonce=?", (scoped_nonce,)).fetchone():
+                raise ValueError("stamp already consumed")
+            return issue_scoped_stamp(
+                StampRequest(action.agent_id, action.adapter, action.artifact,
+                             policy.policy_sha256, now,
+                             min(action.expires_at, now + ttl), action.nonce,
+                             tuple(policy.required_checks), digest(action_request)), issuer_key)
+
+    def execute(self, action, signature, jury_votes=(), *, stamp=None):
         jury_votes = tuple(jury_votes)
         if len(jury_votes) > len(self.jury_keys):
             raise ValueError("too many jury votes")
@@ -408,6 +521,7 @@ CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payloa
         action_digest = digest(request)
         denial = None
         with self._transaction() as db:
+            self._assert_stamp_configuration(db)
             row = self._agent(db, action.agent_id)
             # Authentication precedes every state change affecting an identity.
             _verify(bytes(row["public_key"]), signature, request)
@@ -417,6 +531,29 @@ CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payloa
                 raise ValueError("action expired or outlives identity")
             if db.execute("SELECT 1 FROM actions WHERE agent=? AND nonce=?", (action.agent_id, action.nonce)).fetchone():
                 raise ValueError("action already reserved; outcome may be uncertain")
+            if self.stamp_enforcement == "all" and (set(self.stamp_policies) != set(self.adapters)
+                or any(not isinstance(policy, StampGatePolicy) for policy in self.stamp_policies.values())):
+                raise ValueError("strict stamp coverage missing")
+            stamp_policy = self.stamp_policies.get(action.adapter)
+            stamp_nonce = None
+            if stamp_policy is not None:
+                if stamp is None:
+                    raise ValueError("protected adapter requires a scoped X3 stamp")
+                payload = stamp.get("payload") if isinstance(stamp, dict) else None
+                stamp_nonce = payload.get("nonce") if isinstance(payload, dict) else None
+                if stamp_nonce != action.nonce:
+                    raise ValueError("stamp nonce must match signed action nonce")
+                scoped_nonce = digest(canonical({"agent": action.agent_id, "nonce": stamp_nonce}))
+                if db.execute("SELECT 1 FROM stamp_revocations WHERE nonce=?", (scoped_nonce,)).fetchone():
+                    raise ValueError("stamp has been revoked")
+                if db.execute("SELECT 1 FROM stamp_nonces WHERE nonce=?", (scoped_nonce,)).fetchone():
+                    raise ValueError("stamp nonce already consumed")
+                verify_scoped_stamp(stamp, trusted_issuer=stamp_policy.issuer_key,
+                                    agent_id=action.agent_id, action=action.adapter,
+                                    artifact=action.artifact,
+                                    policy_sha256=stamp_policy.policy_sha256,
+                                    now=now, required_checks=stamp_policy.required_checks,
+                                    required_action_digest=action_digest)
             adapter = self.adapters.get(action.adapter)
             if adapter is None:
                 denial = "unknown adapter"
@@ -433,12 +570,15 @@ CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payloa
             else:
                 if adapter.major:
                     self._jury(db, action, action_digest, manifest, jury_votes, now)
+                if stamp_policy is not None:
+                    db.execute("INSERT INTO stamp_nonces VALUES(?,?)", (scoped_nonce, action_digest))
                 self._consume(db, "action", action.agent_id, action.nonce)
                 db.execute("UPDATE agents SET remaining=remaining-? WHERE id=?", (adapter.cost, action.agent_id))
                 db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,NULL)",
                            (action_digest, action.agent_id, action.nonce, action.artifact, request, "pending"))
                 self._event(db, "reserved", action.agent_id,
                             {"action": action_digest, "signature": signature.hex(), "cost": adapter.cost,
+                             "stamp_sha256": digest(canonical(stamp)) if stamp_policy is not None else None,
                              "votes": [{"juror": v.juror_id, "approve": v.approve,
                                         "expires_at": v.expires_at, "signature": v.signature.hex()} for v in jury_votes]})
         if denial:
@@ -460,6 +600,17 @@ CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, payloa
             self._event(db, "completed", action.agent_id,
                         {"action": action_digest, "output_sha256": digest(output)})
         return output
+
+    def revoke_stamp(self, agent_id, nonce, reason):
+        """Trusted operator revocation scoped to one agent; cannot undo in-flight effects."""
+        _text(agent_id, "agent identity")
+        _text(nonce, "stamp nonce")
+        _text(reason, "revocation reason")
+        scoped_nonce = digest(canonical({"agent": agent_id, "nonce": nonce}))
+        with self._transaction() as db:
+            self._agent(db, agent_id)
+            db.execute("INSERT OR IGNORE INTO stamp_revocations VALUES(?,?)", (scoped_nonce, reason))
+            self._event(db, "stamp_revoked", agent_id, {"nonce": nonce, "reason": reason})
 
     def revoke(self, agent_id, reason):
         """Trusted operator call; prevents future reservations, not in-flight effects."""
