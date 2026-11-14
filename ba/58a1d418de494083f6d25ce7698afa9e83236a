@@ -1,0 +1,37 @@
+x3-lang/tests/test_agent_runtime_handoff.py
+  s_8fd403fa84d397::t_e1024d3c8b76a8 178-179
+  s_8fd403fa84d397::t_c982438c6403ef 1-175,180-194,196-232
+  s_8fd403fa84d397::t_e6f90d4bf14f9b 176-177
+  s_8fd403fa84d397::t_2e5adc549bf3f9 195
+scripts/hackathon/agent_law_local_demo.py
+  s_8fd403fa84d397::t_c4463252145f9e 125,132-135,137-145
+  s_8fd403fa84d397::t_5e027a372a6617 91,95,97,100-114
+  s_8fd403fa84d397::t_390ec6130e37c1 19-20,27-28
+docs/security/AGENT_LAW_RUNTIME.md
+  s_8fd403fa84d397::t_ac3290b67412bf 79-113
+.github/workflows/agent-law-local.yml
+  s_8fd403fa84d397::t_f484ed7f89b2b4 39-40,44-47
+x3-lang/agent_runtime_handoff.py
+  s_8fd403fa84d397::t_9ae62242050d03 287
+  s_8fd403fa84d397::t_cca59f11eaa8be 1-108,110-115,120-152,161,165-238,240,243-275,279-286,288-294
+  s_8fd403fa84d397::t_40ff7668f496f0 153-160,162-164
+  s_8fd403fa84d397::t_d584532a7c1c3b 109,116-119
+  s_8fd403fa84d397::t_2479b5af2494ae 276-278
+  s_8fd403fa84d397::t_8cd235bdfbff3e 239,241-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ba58a1d418de494083f6d25ce7698afa9e83236a",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
