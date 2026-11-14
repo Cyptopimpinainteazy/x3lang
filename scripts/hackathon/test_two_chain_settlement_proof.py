@@ -169,7 +169,8 @@ class ProofSecurityTests(unittest.TestCase):
     def test_archive_block_unavailable_rejected(self):
         a,b=p.BASE_RPCS
         h='0x'+'e'*64
-        for missing in (None,{},{'hash':None},{'hash':'0x12'},{'hash':'0x'+'z'*64}):
+        for missing in (None,{},{'hash':None},{'hash':'0x12'},{'hash':'0x'+'z'*64},
+                        {'hash':'0x'+'e'*32+'_'+'e'*31},{'hash':'0x '+'e'*63},{'hash':'0x'+'e'*63+'\n'},{'hash':'0x'+'e'*64+'\n'}):
             with self.subTest(missing=missing),self.assertRaisesRegex(p.AdmissionError,'BASE_COMMON_CHECKPOINT_UNAVAILABLE'):
                 self.quorum({a:(1200,'0x'+'1'*64),b:(1100,h)},{a:{1100:missing},b:{1100:{'hash':h}}})
 

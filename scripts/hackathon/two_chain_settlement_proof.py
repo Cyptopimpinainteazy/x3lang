@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -100,12 +101,14 @@ def require_base_tx(rpc_url: str, txid: str, destination: str) -> dict:
             'token_code_sha256':TOKEN_CODE_SHA256,'rpc':rpc_url}
 
 
+_BLOCK_HASH=re.compile(r'0x[0-9a-fA-F]{64}')
+
+
 def _block_hash(value) -> str | None:
+    # fullmatch, not int(..,16): int() also accepts '_' separators and whitespace.
     if not isinstance(value,dict):return None
     h=value.get('hash')
-    if not (isinstance(h,str) and len(h)==66 and h.startswith('0x')):return None
-    try:int(h[2:],16)
-    except ValueError:return None
+    if not (isinstance(h,str) and _BLOCK_HASH.fullmatch(h)):return None
     return h.lower()
 
 
