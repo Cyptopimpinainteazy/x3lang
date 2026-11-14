@@ -48,6 +48,9 @@ RECEIPT_PROOF = ROOT / "fixtures" / "near_live_receipt_proof_20261105.json"
 RECEIPT = "3f9FCzqC8k75AGob2UrCxbKVqADRyv5M5vGfoLEXbZyu"
 RECEIVER = "league-v7.near-post.testnet"
 REAL_HEAD_ROOT = "6F2mBDUkzB8tRpETPpRTtH5zo1E5yGGpftfyNYbRVDVw"
+# Real testnet genesis, pinned by near_authenticated.NETWORK_GENESIS from
+# committed `status` RPC evidence; synthetic genesis markers are now refused.
+TESTNET_GENESIS = "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b"
 IDENTITY_KEY = b"\x01" + b"\x00" * 31
 SMALL_ORDER_KEYS = (
     b"\x00" * 32,
@@ -161,7 +164,7 @@ def policy(private, *, network="testnet", genesis=None, versions=None):
     return {
         "schema": TRUST_POLICY_SCHEMA,
         "network": network,
-        "genesis_hash": genesis or marker("testnet-genesis"),
+        "genesis_hash": genesis or TESTNET_GENESIS,
         "allowed_protocol_versions": versions or [88],
         "checkpoint_signers": [
             {"signer_id": "offline-test-authority", "public_key": key_token(private)}
@@ -179,7 +182,7 @@ def checkpoint_document(view, current_validators, *, network="testnet", genesis=
     return {
         "schema": CHECKPOINT_SCHEMA,
         "network": network,
-        "genesis_hash": genesis or marker("testnet-genesis"),
+        "genesis_hash": genesis or TESTNET_GENESIS,
         "protocol_version": protocol_version,
         "block_height": view["inner_lite"]["height"],
         "block_hash": block_hash or _view_block_hash(view),
@@ -351,7 +354,7 @@ class AuthenticatedLightClientTests(unittest.TestCase):
             p27,
             current,
             network="testnet",
-            genesis_hash=marker("testnet-genesis"),
+            genesis_hash=TESTNET_GENESIS,
             protocol_version=88,
             provenance={
                 "source": "fixture",
@@ -538,7 +541,7 @@ class AuthenticatedLightClientTests(unittest.TestCase):
         trust_policy = {
             "schema": TRUST_POLICY_SCHEMA,
             "network": "testnet",
-            "genesis_hash": marker("testnet-genesis"),
+            "genesis_hash": TESTNET_GENESIS,
             "allowed_protocol_versions": [88],
             "checkpoint_signers": [
                 {"signer_id": "authority-a", "public_key": key_token(first)},
@@ -611,8 +614,10 @@ class AuthenticatedLightClientTests(unittest.TestCase):
             next_validators=None,
             label="checkpoint",
         )
+        # Two accounts sharing one consensus key is legitimate NEAR data (real
+        # mainnet main_0 slots 17/42); it is accepted and counted per slot in
+        # test_near_light_client_vectors. Duplicate *accounts* remain invalid.
         for validators in (
-            [validator(seed(51), "same.testnet"), validator(seed(51), "other.testnet")],
             [validator(seed(51), "same.testnet"), validator(seed(52), "same.testnet")],
             [validator(seed(51), "v.testnet", (1 << 128))],
             [
