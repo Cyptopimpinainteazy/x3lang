@@ -46,7 +46,9 @@ class SecureWorkerTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.root.chmod(0o700)
         self.path = self.root / "worker.sock"
-        self.db = self.root / "agent.sqlite"
+        self.private = self.root / "worker-private"
+        self.private.mkdir(mode=0o700)
+        self.db = self.private / "agent.sqlite"
         self.operator = Ed25519PrivateKey.generate()
         self.agent = Ed25519PrivateKey.generate()
         self.issuer = Ed25519PrivateKey.generate()
@@ -57,6 +59,7 @@ class SecureWorkerTests(unittest.TestCase):
         self.runtime = Runtime(self.db, pub(self.operator), {"compile-intent": adapter},
                                stamp_policies={"compile-intent": self.policy},
                                stamp_enforcement="all", clock=lambda: 100)
+        self.db.chmod(0o600)
         manifest = AgentManifest("agent-one", None, frozenset({"compile"}),
                                   frozenset({"local-plan"}), 10, 500, (), 0)
         birth = self.runtime.genesis_payload(manifest, pub(self.agent), "birth-one")
@@ -210,6 +213,28 @@ class SecureWorkerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             serve_unix_worker(None, self.path, allowed_uids={os.geteuid()+1},
                               stop_event=self.stop, client_group=os.getegid())
+
+    def test_group_mode_refuses_database_directory_accessible_by_clients(self):
+        from agent_tool_gateway import LocalToolGateway
+        self.root.chmod(0o2710)
+        self.private.chmod(0o710)
+        gateway = LocalToolGateway(self.runtime, {"compile-intent": self.issuer})
+        self.stop.set()
+        with self.assertRaisesRegex(ValueError, "worker database directory must be private"):
+            serve_unix_worker(gateway, self.path, allowed_uids={os.geteuid()+1},
+                              stop_event=self.stop, client_group=os.getegid())
+        self.assertFalse(self.path.exists())
+
+    def test_group_mode_refuses_database_world_readable_file(self):
+        from agent_tool_gateway import LocalToolGateway
+        self.root.chmod(0o2710)
+        self.db.chmod(0o644)
+        gateway = LocalToolGateway(self.runtime, {"compile-intent": self.issuer})
+        self.stop.set()
+        with self.assertRaisesRegex(ValueError, "worker database file must be private"):
+            serve_unix_worker(gateway, self.path, allowed_uids={os.geteuid()+1},
+                              stop_event=self.stop, client_group=os.getegid())
+        self.assertFalse(self.path.exists())
 
     def test_group_mode_binds_separate_uid_socket_permissions(self):
         self.root.chmod(0o2710)
