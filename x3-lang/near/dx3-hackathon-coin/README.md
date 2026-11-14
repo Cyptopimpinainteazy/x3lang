@@ -144,7 +144,7 @@ sudo install -d -o x3faucet -m 700 /var/lib/dx3hack-faucet
 sudo install -o x3faucet -m 600 ~/.x3/dx3hack/faucet-key.mainnet.json /var/lib/dx3hack-faucet/
 PYTHONPATH=x3-lang TURNSTILE_SECRET=... python3 -m dx3hack_faucet preflight --network mainnet \
     --key /var/lib/dx3hack-faucet/faucet-key.mainnet.json --db /var/lib/dx3hack-faucet/faucet.db
-# then x3-lang/dx3hack_faucet/deploy/dx3hack-faucet.service, published as https://faucet.x3star.net
+# then x3-lang/dx3hack_faucet/deploy/dx3hack-faucet.service, published as https://faucet.dotx3.net
 ```
 
 API (CORS for dotx3.net only): `GET /v1/faucet/status`, `GET /v1/faucet/feed`,

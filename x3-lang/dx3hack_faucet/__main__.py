@@ -1,7 +1,7 @@
 """python3 -m dx3hack_faucet serve --network mainnet --key ~/.x3/dx3hack/faucet-key.mainnet.json --db faucet.db
 
 Reads TURNSTILE_SECRET and TURNSTILE_SITE_KEY from the environment (required on mainnet).
-Binds loopback by default; publish it through a Cloudflare tunnel (e.g. faucet.x3star.net)
+Binds loopback by default; publish it through a Cloudflare tunnel (e.g. faucet.dotx3.net)
 and pass --trust-cf-ip so per-client limits use CF-Connecting-IP.
 """
 
