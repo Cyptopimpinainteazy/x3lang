@@ -17,9 +17,11 @@ import time
 from typing import Callable, Mapping
 
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey, Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
 
-from agent_scoped_stamp import verify_scoped_stamp, SUPPORTED_CHECKS
+from agent_scoped_stamp import (verify_scoped_stamp, issue_scoped_stamp,
+                                 StampRequest, SUPPORTED_CHECKS)
 from agent_constitution import AgentManifest
 from agent_admission_signed import SignedApproval, _manifest, verify_signed_admission
 
@@ -434,6 +436,54 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
             yes += vote.approve
         if yes <= len(eligible) // 2:
             raise ValueError("jury majority of fixed electorate required")
+
+    def issue_stamp_for_action(self, action, agent_signature, issuer_key, *, ttl=120):
+        """Trusted-host preflight for ONLY three independently verified local checks.
+
+        The runtime itself verifies agent identity, live scope, and source bytes.
+        It does not attest that the full Score, a compiler, or a jury executed.
+        A stamp is not a reservation: execute() rechecks authority and budget
+        and atomically consumes the stamp/action nonce before dispatch.
+        """
+        if not isinstance(issuer_key, Ed25519PrivateKey):
+            raise ValueError("trusted issuer private key required")
+        if type(ttl) is not int or not 0 < ttl <= 3600:
+            raise ValueError("invalid stamp ttl")
+        action_request = self.action_payload(action)
+        policy = self.stamp_policies.get(action.adapter)
+        if policy is None:
+            raise ValueError("adapter is not configured for scoped stamping")
+        independently_checkable = {"signed_agent_identity", "capability_scope", "source_digest"}
+        if not set(policy.required_checks) <= independently_checkable:
+            raise ValueError("required checks need an external trusted issuer")
+        issuer_public = issuer_key.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        if issuer_public != policy.issuer_key:
+            raise ValueError("issuer is not the pinned trusted issuer")
+        with self._transaction() as db:
+            row = self._agent(db, action.agent_id)
+            _verify(bytes(row["public_key"]), agent_signature, action_request)
+            now = self._now()
+            manifest = self._active(db, row, now)
+            adapter = self.adapters[action.adapter]
+            if action.expires_at <= now or action.expires_at > manifest.expires_at:
+                raise ValueError("action expiry invalid")
+            if adapter.capability not in manifest.capabilities or adapter.surface not in manifest.surfaces:
+                raise ValueError("capability or surface forbidden")
+            if adapter.cost > row["remaining"]:
+                raise ValueError("budget insufficient for proposed task")
+            if db.execute("SELECT 1 FROM actions WHERE agent=? AND nonce=?",
+                          (action.agent_id, action.nonce)).fetchone():
+                raise ValueError("action nonce already reserved")
+            if db.execute("SELECT 1 FROM stamp_revocations WHERE nonce=?", (action.nonce,)).fetchone():
+                raise ValueError("stamp nonce revoked")
+            if db.execute("SELECT 1 FROM stamp_nonces WHERE nonce=?", (action.nonce,)).fetchone():
+                raise ValueError("stamp already consumed")
+            return issue_scoped_stamp(
+                StampRequest(action.agent_id, action.adapter, action.artifact,
+                             policy.policy_sha256, now,
+                             min(action.expires_at, now + ttl), action.nonce,
+                             tuple(policy.required_checks)), issuer_key)
 
     def execute(self, action, signature, jury_votes=(), *, stamp=None):
         jury_votes = tuple(jury_votes)
