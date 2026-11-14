@@ -1,0 +1,29 @@
+# DX3HACK faucet runner (backend for dotx3.net/faucet). Binds loopback; publish it with a
+# Cloudflare tunnel as https://faucet.x3star.net (no Cloudflare Access: judges must reach it).
+#
+#   sudo install -m 0644 dx3hack-faucet.service /etc/systemd/system/
+#   sudo systemctl edit dx3hack-faucet     # Environment=TURNSTILE_SECRET=... TURNSTILE_SITE_KEY=...
+#   sudo systemctl enable --now dx3hack-faucet
+[Unit]
+Description=DX3HACK faucet runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=x3faucet
+WorkingDirectory=/opt/x3lang
+Environment=PYTHONPATH=/opt/x3lang/x3-lang
+ExecStart=/opt/x3lang/.venv/bin/python -m dx3hack_faucet serve --network mainnet \
+    --key /var/lib/dx3hack-faucet/faucet-key.mainnet.json --db /var/lib/dx3hack-faucet/faucet.db \
+    --host 127.0.0.1 --port 8791 --trust-cf-ip
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/dx3hack-faucet
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
