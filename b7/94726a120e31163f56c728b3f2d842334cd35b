@@ -1,0 +1,34 @@
+tests/fixtures/x3lang_incident_v1/lifecycle.json
+  s_8fd403fa84d397::t_b45134ccc66034 1-155
+tests/test_x3lang_reaper_intake.py
+  s_8fd403fa84d397::t_a07adb67e9d558 1-12,14-18,25,27-276
+  s_8fd403fa84d397::t_b3b7841d13ecd9 13,19-24,26
+tests/fixtures/x3lang_incident_v1/PROVENANCE.json
+  s_8fd403fa84d397::t_64f896bb1bde5f 1-21
+scripts/ci/provision-runner-toolchain.sh
+  s_8fd403fa84d397::t_7cc909a72d46f4 154-161
+swarm_infrastructure/integrations/x3lang_incident.py
+  s_8fd403fa84d397::t_bd5309c065e38c 1-576
+tests/fixtures/x3lang_incident_v1/incident-handoff.signer
+  s_8fd403fa84d397::t_d8b84e718e3eef 1
+tests/fixtures/x3lang_incident_v1/incident-handoff.json
+  s_8fd403fa84d397::t_645c596c2d408e 1
+scripts/local-ci.sh
+  s_8fd403fa84d397::t_3fce3cf3032c6d 611-612
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b794726a120e31163f56c728b3f2d842334cd35b",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
