@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from agent_constitution import AgentManifest
-from agent_runtime import Runtime, Adapter, Action, StampGatePolicy, PolicyViolation
+from agent_runtime import Runtime, Adapter, Action, StampGatePolicy, PolicyViolation, digest
 from agent_scoped_stamp import StampRequest, issue_scoped_stamp
 
 
@@ -51,10 +51,12 @@ class ProtectedExecutionTests(unittest.TestCase):
         return self.runtime.execute(action, signed, stamp=stamp)
 
     def stamp(self, nonce="act-1", source=b"valid-source", checks=None):
+        action = Action("test-agent", "compile-intent", source, nonce, 150)
         return issue_scoped_stamp(StampRequest(
             "test-agent", "compile-intent", source, "a" * 64,
             90, 120, nonce,
-            checks or self.policies["compile-intent"].required_checks), self.issuer)
+            checks or self.policies["compile-intent"].required_checks,
+            digest(self.runtime.action_payload(action))), self.issuer)
 
     def test_trusted_issuer_preflight_to_actual_dispatch(self):
         action = Action("test-agent", "compile-intent", b"valid-source", "fresh", 150)
@@ -178,6 +180,58 @@ class ProtectedExecutionTests(unittest.TestCase):
             runtime.execute(action, signed)
         self.assertEqual(self.executed, [])
 
+    def test_strict_mode_none_policy_value_never_bypasses(self):
+        runtime, _ = self.strict_runtime()
+        runtime.stamp_policies["compile-intent"] = None
+        action = Action("test-agent", "compile-intent", b"valid-source", "probe-1", 150)
+        signed = self.agent.sign(runtime.action_payload(action))
+        with self.assertRaisesRegex(ValueError, "strict stamp coverage missing"):
+            runtime.execute(action, signed)
+        self.assertEqual(self.executed, [])
+
+    def test_separate_agents_can_use_same_nonce_without_collision(self):
+        second = Ed25519PrivateKey.generate()
+        manifest = AgentManifest("second-agent", None, frozenset({"compile"}),
+                                 frozenset({"local-plan"}), 5, 500, (), 0)
+        birth = self.runtime.genesis_payload(manifest, raw(second), "second-birth")
+        self.runtime.genesis(manifest, raw(second), "second-birth", self.operator.sign(birth))
+        for agent_id, key in (("test-agent", self.agent), ("second-agent", second)):
+            action = Action(agent_id, "compile-intent", b"valid-source", "shared", 150)
+            signed = key.sign(self.runtime.action_payload(action))
+            stamp = self.runtime.issue_stamp_for_action(action, signed, self.issuer)
+            self.assertEqual(self.runtime.execute(action, signed, stamp=stamp), b"local-verified-output")
+        self.assertEqual(len(self.executed), 2)
+
+    def test_cross_runtime_stamp_does_not_authorize_different_identity(self):
+        first = Action("test-agent", "compile-intent", b"valid-source", "transfer", 150)
+        signed = self.agent.sign(self.runtime.action_payload(first))
+        stamp = self.runtime.issue_stamp_for_action(first, signed, self.issuer)
+        other_db = Path(self.temp.name) / "other.sqlite"
+        other_agent = Ed25519PrivateKey.generate()
+        other = Runtime(other_db, raw(self.operator), {"compile-intent": self.adapter},
+                        stamp_policies=self.policies, clock=lambda: 100)
+        manifest = AgentManifest("test-agent", None, frozenset({"compile"}),
+                                 frozenset({"local-plan"}), 5, 500, (), 0)
+        birth = other.genesis_payload(manifest, raw(other_agent), "other-birth")
+        other.genesis(manifest, raw(other_agent), "other-birth", self.operator.sign(birth))
+        fresh = Action("test-agent", "compile-intent", b"valid-source", "transfer", 150)
+        fresh_signature = other_agent.sign(other.action_payload(fresh))
+        with self.assertRaisesRegex(ValueError, "signed action not bound"):
+            other.execute(fresh, fresh_signature, stamp=stamp)
+        self.assertEqual(self.executed, [])
+
+    def test_revoking_agent_does_not_block_other_agent_nonce(self):
+        second = Ed25519PrivateKey.generate()
+        manifest = AgentManifest("second-agent", None, frozenset({"compile"}),
+                                 frozenset({"local-plan"}), 5, 500, (), 0)
+        birth = self.runtime.genesis_payload(manifest, raw(second), "second-birth")
+        self.runtime.genesis(manifest, raw(second), "second-birth", self.operator.sign(birth))
+        self.runtime.revoke_stamp("test-agent", "shared", "owner revoked")
+        action = Action("second-agent", "compile-intent", b"valid-source", "shared", 150)
+        signed = second.sign(self.runtime.action_payload(action))
+        stamp = self.runtime.issue_stamp_for_action(action, signed, self.issuer)
+        self.assertEqual(self.runtime.execute(action, signed, stamp=stamp), b"local-verified-output")
+
     def test_strict_mode_refuses_unknown_mode(self):
         with self.assertRaisesRegex(ValueError, "unrecognized stamp enforcement"):
             Runtime(Path(self.temp.name) / "invalid-mode.sqlite", raw(self.operator),
@@ -213,13 +267,13 @@ class ProtectedExecutionTests(unittest.TestCase):
         self.assertEqual(len(self.executed), 1)
 
     def test_revocation_blocks_dispatch(self):
-        self.runtime.revoke_stamp("act-1", "operator revoked")
+        self.runtime.revoke_stamp("test-agent", "act-1", "operator revoked")
         with self.assertRaisesRegex(ValueError, "revoked"):
             self.attempt(stamp=self.stamp())
         self.assertEqual(self.executed, [])
 
     def test_revocation_survives_restart(self):
-        self.runtime.revoke_stamp("act-1", "operator revoked")
+        self.runtime.revoke_stamp("test-agent", "act-1", "operator revoked")
         self.runtime = self.make_runtime()
         with self.assertRaisesRegex(ValueError, "revoked"):
             self.attempt(stamp=self.stamp())
@@ -234,7 +288,8 @@ class ProtectedExecutionTests(unittest.TestCase):
         other = Ed25519PrivateKey.generate()
         stamp = issue_scoped_stamp(StampRequest("test-agent", "compile-intent",
             b"valid-source", "a" * 64, 90, 120, "act-1",
-            self.policies["compile-intent"].required_checks), other)
+            self.policies["compile-intent"].required_checks,
+            digest(self.runtime.action_payload(Action("test-agent", "compile-intent", b"valid-source", "act-1", 150)))), other)
         with self.assertRaises(ValueError):
             self.attempt(stamp=stamp)
         self.assertEqual(self.executed, [])
@@ -251,7 +306,8 @@ class ProtectedExecutionTests(unittest.TestCase):
     def test_protected_execution_rejects_expired_stamp(self):
         expired = issue_scoped_stamp(StampRequest("test-agent", "compile-intent",
             b"valid-source", "a" * 64, 60, 95, "act-1",
-            self.policies["compile-intent"].required_checks), self.issuer)
+            self.policies["compile-intent"].required_checks,
+            digest(self.runtime.action_payload(Action("test-agent", "compile-intent", b"valid-source", "act-1", 150)))), self.issuer)
         with self.assertRaises(ValueError):
             self.attempt(stamp=expired)
         self.assertEqual(self.executed, [])
