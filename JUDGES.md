@@ -7,6 +7,8 @@ compiler checks and NEAR Guard to constrain AI-agent payment proposals.
 
 **If you have 90 seconds:** [read the judge pitch and three-proof sequence](docs/hackathon/JUDGE_PITCH_90_SECONDS.md). It includes a 30-second opener, live evidence links, four-track fit and answers to the hardest questions.\n\n## Two-minute evidence route — no setup or wallet
 
+**No install: try it in your browser at [dotx3.net](https://dotx3.net).** [Break the Mandate](https://dotx3.net/labs/force-field/index.html) runs 12 attacks against the mandate, [Agent Court](https://dotx3.net/labs/court/index.html) lets you write a mandate, send an agent through a day of attacks and amend the law, and [Verify](https://dotx3.net/labs/force-field/verify.html) SHA-256-checks the archived invoice_06 mainnet evidence in the page.
+
 1. **See the payment:** [one-page invoice_06 proof card](PROOF_CARD.md).
    Follow its five explorer links: owner approval → restricted-agent quote
    acceptance → 25-USDC Solana deposit → 24.9952-USDC NEAR payout → recorded outcome.
