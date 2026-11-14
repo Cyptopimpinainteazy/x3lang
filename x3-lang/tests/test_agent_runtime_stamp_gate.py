@@ -125,6 +125,65 @@ class ProtectedExecutionTests(unittest.TestCase):
             self.runtime.issue_stamp_for_action(later, signed_later, self.issuer)
         self.assertEqual(len(self.executed), 1)
 
+    def strict_runtime(self):
+        strict_db = Path(self.temp.name) / "strict-runtime.sqlite"
+        runtime = Runtime(strict_db, raw(self.operator), {"compile-intent": self.adapter},
+                          clock=lambda: 100, stamp_policies=self.policies,
+                          stamp_enforcement="all")
+        manifest = AgentManifest("test-agent", None, frozenset({"compile"}),
+                                 frozenset({"local-plan"}), 5, 500, (), 0)
+        birth = runtime.genesis_payload(manifest, raw(self.agent), "strict-birth")
+        runtime.genesis(manifest, raw(self.agent), "strict-birth", self.operator.sign(birth))
+        return runtime, strict_db
+
+    def test_strict_mode_protected_execution(self):
+        runtime, _ = self.strict_runtime()
+        action = Action("test-agent", "compile-intent", b"valid-source", "strict-1", 150)
+        signed = self.agent.sign(runtime.action_payload(action))
+        stamp = runtime.issue_stamp_for_action(action, signed, self.issuer)
+        self.assertEqual(runtime.execute(action, signed, stamp=stamp),
+                         b"local-verified-output")
+        self.assertEqual(self.executed, [b"valid-source"])
+
+    def test_strict_mode_blocks_unstamped_adapter(self):
+        runtime, _ = self.strict_runtime()
+        action = Action("test-agent", "compile-intent", b"valid-source", "strict-1", 150)
+        signed = self.agent.sign(runtime.action_payload(action))
+        with self.assertRaisesRegex(ValueError, "requires a scoped X3 stamp"):
+            runtime.execute(action, signed)
+        self.assertEqual(self.executed, [])
+
+    def test_strict_mode_rejects_missing_coverage_at_start(self):
+        additional = Adapter("compile", "local-plan", 1, False,
+                             lambda source: b"unused", policy_id="v1")
+        with self.assertRaisesRegex(ValueError, "every registered adapter"):
+            Runtime(Path(self.temp.name) / "coverage.sqlite", raw(self.operator),
+                    {"compile-intent": self.adapter, "new-adapter": additional},
+                    clock=lambda: 100, stamp_policies=self.policies,
+                    stamp_enforcement="all")
+
+    def test_strict_mode_refuses_downgrade_after_reopen(self):
+        runtime, db = self.strict_runtime()
+        with self.assertRaisesRegex(ValueError, "runtime trust configuration changed"):
+            Runtime(db, raw(self.operator), {"compile-intent": self.adapter},
+                    clock=lambda: 100, stamp_policies=self.policies,
+                    stamp_enforcement="configured")
+
+    def test_strict_mode_fails_if_policy_removed_at_runtime(self):
+        runtime, _ = self.strict_runtime()
+        runtime.stamp_policies.clear()
+        action = Action("test-agent", "compile-intent", b"valid-source", "strict-1", 150)
+        signed = self.agent.sign(runtime.action_payload(action))
+        with self.assertRaisesRegex(ValueError, "strict stamp coverage missing"):
+            runtime.execute(action, signed)
+        self.assertEqual(self.executed, [])
+
+    def test_strict_mode_refuses_unknown_mode(self):
+        with self.assertRaisesRegex(ValueError, "unrecognized stamp enforcement"):
+            Runtime(Path(self.temp.name) / "invalid-mode.sqlite", raw(self.operator),
+                    {"compile-intent": self.adapter}, stamp_policies=self.policies,
+                    stamp_enforcement="all_except_one")
+
     def test_valid_stamp_dispatches_once(self):
         self.attempt(stamp=self.stamp())
         self.assertEqual(self.executed, [b"valid-source"])
