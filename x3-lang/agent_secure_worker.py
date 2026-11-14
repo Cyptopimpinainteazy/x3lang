@@ -82,6 +82,24 @@ def _check_socket_path(socket_path: str | os.PathLike, *, client_group: int | No
     return target
 
 
+def _check_worker_database_privacy(gateway: LocalToolGateway) -> None:
+    """Read-only DAC preflight for the runtime's DB in distinct-UID mode.
+
+    This is necessary but not sufficient: it does not protect in-memory issuer
+    keys, root-capable callers, POSIX ACLs, or privilege escalation.
+    """
+    database = Path(gateway._runtime.path)
+    directory = database.parent
+    parent = os.lstat(directory)
+    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid()
+            or stat.S_IMODE(parent.st_mode) & 0o077):
+        raise ValueError("worker database directory must be private")
+    current = os.lstat(database)
+    if (not stat.S_ISREG(current.st_mode) or current.st_uid != os.geteuid()
+            or stat.S_IMODE(current.st_mode) & 0o077):
+        raise ValueError("worker database file must be private")
+
+
 def _handle_connection(conn: socket.socket, gateway: LocalToolGateway,
                        allowed_uids: frozenset[int], request_deadline: float) -> None:
     conn.settimeout(TIMEOUT)
@@ -128,8 +146,10 @@ def serve_unix_worker(gateway: LocalToolGateway,
             or any(type(uid) is not int or uid < 0 for uid in allowed_uids)):
         raise ValueError("explicit allowed UID set required")
     allowed = frozenset(allowed_uids)
-    if client_group is not None and os.geteuid() in allowed:
-        raise ValueError("hardened socket requires distinct client UID")
+    if client_group is not None:
+        if os.geteuid() in allowed:
+            raise ValueError("hardened socket requires distinct client UID")
+        _check_worker_database_privacy(gateway)
     if stop_event is None:
         raise ValueError("explicit stop event required in local test server")
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
