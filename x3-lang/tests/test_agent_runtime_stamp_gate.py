@@ -176,7 +176,7 @@ class ProtectedExecutionTests(unittest.TestCase):
         runtime.stamp_policies.clear()
         action = Action("test-agent", "compile-intent", b"valid-source", "strict-1", 150)
         signed = self.agent.sign(runtime.action_payload(action))
-        with self.assertRaisesRegex(ValueError, "strict stamp coverage missing"):
+        with self.assertRaisesRegex(ValueError, "live stamp policy differs"):
             runtime.execute(action, signed)
         self.assertEqual(self.executed, [])
 
@@ -202,7 +202,7 @@ class ProtectedExecutionTests(unittest.TestCase):
         runtime.stamp_policies["compile-intent"] = None
         action = Action("test-agent", "compile-intent", b"valid-source", "probe-1", 150)
         signed = self.agent.sign(runtime.action_payload(action))
-        with self.assertRaisesRegex(ValueError, "strict stamp coverage missing"):
+        with self.assertRaisesRegex(ValueError, "invalid live stamp configuration"):
             runtime.execute(action, signed)
         self.assertEqual(self.executed, [])
 
