@@ -296,6 +296,20 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
         _integer(now, "clock")
         return now
 
+    def _assert_stamp_configuration(self, db):
+        """Do not authorize work with policy objects diverging from pinned SQLite trust."""
+        row = db.execute("SELECT value FROM config WHERE singleton=1").fetchone()
+        if row is None:
+            raise ValueError("missing trusted runtime configuration")
+        stored = json.loads(bytes(row["value"]))
+        try:
+            configured = {n: p.record() for n, p in self.stamp_policies.items()}
+        except (AttributeError, TypeError) as exc:
+            raise ValueError("invalid live stamp configuration") from exc
+        if (stored.get("stamp_policies", {}) != configured
+                or stored.get("stamp_enforcement", "configured") != self.stamp_enforcement):
+            raise ValueError("live stamp policy differs from pinned configuration")
+
     @staticmethod
     def _verify_log(db):
         previous = "0" * 64
@@ -473,6 +487,7 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
         if issuer_public != policy.issuer_key:
             raise ValueError("issuer is not the pinned trusted issuer")
         with self._transaction() as db:
+            self._assert_stamp_configuration(db)
             row = self._agent(db, action.agent_id)
             _verify(bytes(row["public_key"]), agent_signature, action_request)
             now = self._now()
@@ -506,6 +521,7 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
         action_digest = digest(request)
         denial = None
         with self._transaction() as db:
+            self._assert_stamp_configuration(db)
             row = self._agent(db, action.agent_id)
             # Authentication precedes every state change affecting an identity.
             _verify(bytes(row["public_key"]), signature, request)
@@ -562,6 +578,7 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
                            (action_digest, action.agent_id, action.nonce, action.artifact, request, "pending"))
                 self._event(db, "reserved", action.agent_id,
                             {"action": action_digest, "signature": signature.hex(), "cost": adapter.cost,
+                             "stamp_sha256": digest(canonical(stamp)) if stamp_policy is not None else None,
                              "votes": [{"juror": v.juror_id, "approve": v.approve,
                                         "expires_at": v.expires_at, "signature": v.signature.hex()} for v in jury_votes]})
         if denial:
