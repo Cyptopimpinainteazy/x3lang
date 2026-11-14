@@ -1,0 +1,43 @@
+{
+  "base_sha": "77bd098154199ee24579782577590da77a2248cf",
+  "state": "isolated feature worktree with scoped uncommitted proof and documentation changes at validation",
+  "environment": {
+    "python": "3.12",
+    "solders": "0.26.0",
+    "signing": false,
+    "broadcasts": 0
+  },
+  "commands": [
+    {
+      "command": "python evidence/solana-vault-mainnet-2026-11-14/verify_archived.py",
+      "exit": 0
+    },
+    {
+      "command": "python -m unittest discover -s evidence/solana-vault-mainnet-2026-11-14 -p test_verify_archived.py -v",
+      "exit": 0,
+      "tests": 9
+    },
+    {
+      "command": "PYTHONPATH=x3-lang python -m pytest x3-lang/tests/test_solana_vault_client.py x3-lang/tests/test_solana_vault_evidence.py -q",
+      "exit": 0,
+      "tests": 141
+    },
+    {
+      "command": "PYTHONPATH=x3-lang python -m pytest x3-lang/tests/test_surface_drift.py -q",
+      "exit": 0,
+      "tests": 5
+    },
+    {
+      "command": "git diff --check",
+      "exit": 0
+    },
+    {
+      "command": "gitleaks dir evidence/solana-vault-mainnet-2026-11-14 --redact",
+      "exit": 1,
+      "findings": 9,
+      "triage": "Known public token identifiers; no suppression added. See secret-scan-triage.json."
+    }
+  ],
+  "independent_review": "Two verifier gaps repaired and retested: historical owner-signature pinning and exact expiry binding. Final reviewer reported no blocking findings.",
+  "hosted_ci": "not yet run at local validation"
+}

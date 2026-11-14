@@ -1,0 +1,11 @@
+{
+  "signature": "62a2Ufv9Qtw1HTNniwm2RTmD9Q3J7GfiCUrKXeCQkWULmWoDwPkJhPMwES2HENacjSLFNsX2ZZVD7c2LWvfweqtJ",
+  "finalized": true,
+  "slot": 469307525,
+  "program": "68ssmMccnqQFUHWipQKy1W4DcycjA9jip9ZUi7EJyUZn",
+  "programData": "Ge8isRDGupqwe3p6n8SmqURQiTrSD62GD1TGMTrPwF3m",
+  "sha256": "aa96de859a8d29c4e41eece9ff336545f3f99e40c8412f78bc16dd25b562c270",
+  "upgradeAuthority": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+  "feeLamports": 5000,
+  "debitLamports": 838120
+}

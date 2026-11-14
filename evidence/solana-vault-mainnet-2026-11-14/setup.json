@@ -1,0 +1,33 @@
+{
+  "signature": "32FhzL7fxQKPgTTopxjJnwGXMpTgaGVgAzDDsQkevw4YY1kDvKuHdPmjV773ynWcr9m6dPofuedKRPin8abPh9Un",
+  "finalized": true,
+  "slot": 469310414,
+  "program": "68ssmMccnqQFUHWipQKy1W4DcycjA9jip9ZUi7EJyUZn",
+  "vault": "FTToXuCe3RG6L78Ctpno5SL5BpXDNAYc6JnjhjqGWndU",
+  "policy": "ATXS8Y9cDVAN3BxTDa7CXt7FuHU7Y6LJHDqGDDuQtXGC",
+  "agent": "6R4nioW9tPke3PFuWLaQY3gRAwM5SMi1vbY925WJZtPS",
+  "vaultUsdc": "5",
+  "debitLamports": 9788320,
+  "feeLamports": 5000,
+  "policyState": {
+    "version": 1,
+    "bump": 253,
+    "owner": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+    "agent": "6R4nioW9tPke3PFuWLaQY3gRAwM5SMi1vbY925WJZtPS",
+    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "vault_token": "FTToXuCe3RG6L78Ctpno5SL5BpXDNAYc6JnjhjqGWndU",
+    "max_per_payment": 5000000,
+    "max_per_day": 5000000,
+    "expires_at": 1794741558,
+    "revoked": false,
+    "last_nonce": 0,
+    "pending": false,
+    "pending_nonce": 0,
+    "pending_destination": "11111111111111111111111111111111",
+    "pending_destination_owner": "11111111111111111111111111111111",
+    "pending_quote_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "pending_amount": 0,
+    "pending_until": 0,
+    "spends": []
+  }
+}

@@ -20,6 +20,16 @@ compiler checks and NEAR Guard to constrain AI-agent payment proposals.
    The owner manually funded the deposit; Guard does not custody USDC or verify
    outcome hashes. Provider association does not prove cross-chain atomicity.
 
+## New mainnet source-vault proof — November 14
+
+[Follow the 5-USDC vault pilot](evidence/solana-vault-mainnet-2026-11-14/README.md):
+owner deployment/setup → exact quote approval → **agent-signed PDA vault execution**
+→ **4.999746 USDC delivered to x3lang.near**. Unlike invoice_06, the source
+transfer was signed by the dedicated Solana agent and enforced by the vault.
+The owner still approved this exact quote. This pilot adds no NEAR Guard call,
+external audit, source-RPC quorum or cryptographic cross-chain atomicity claim.
+The linked bundle includes an offline verifier and its limits.
+
 ## Real incidents, deterministic guards, and honest trust boundaries
 
 **Judge takeaway:** X3 separates an agent's proposed payment from the owner's authorization. See the [incident-to-guard matrix](docs/hackathon/INCIDENT_GUARD_TRUST_BOUNDARIES.md) for the NEAR Intents/HOT Omni, Bybit, KelpDAO, Synthetix, Grok/Bankr, Solana web3.js, and Mt. Gox-inspired failure classes. Each row links a specific control and observable evidence, then identifies what X3 **would not have prevented**.

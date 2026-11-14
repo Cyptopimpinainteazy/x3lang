@@ -1,0 +1,7 @@
+{
+  "source_verified": false,
+  "destination_verified": false,
+  "cross_chain_causality_proven": false,
+  "proof_level": "source_only",
+  "failure": "cannot reach https://solana-rpc.publicnode.com: [SSL: TLSV1_ALERT_ACCESS_DENIED] tlsv1 alert access denied (_ssl.c:1000)"
+}

@@ -1,0 +1,67 @@
+{
+  "checkedUnix": 1794656485,
+  "status": "settled",
+  "network": "mainnet",
+  "inputUsdc": "5",
+  "outputUsdc": "4.999746",
+  "minimumUsdc": "4.974757",
+  "recipient": "x3lang.near",
+  "sourceSignature": "3Bu3eWLwiSLoTNHgLPCzn5JyTAUnfzbXJENQG36oEt7kZm9e1M4rRB5CtUZxG92gRaGmPvuFZUQ1EqBzkL9rdLBf",
+  "sourceSlot": 469314055,
+  "sourceRpc": "https://api.mainnet-beta.solana.com",
+  "sourceVaultEventAndTransferCheckedVerified": true,
+  "destinationTransaction": "CXoXgJ5FwcSZcyPDVu7PrNby7KULfY8bJxUBRT9fu4ia",
+  "destinationRpc": "https://free.rpc.fastnear.com",
+  "destinationFinality": "FINAL",
+  "destinationTokenEvent": {
+    "old_owner_id": "intents.near",
+    "new_owner_id": "x3lang.near",
+    "amount": "4999746"
+  },
+  "providerStatus": "SUCCESS",
+  "providerReportedLinkageVerified": true,
+  "cryptographicSolverCausalityProven": false,
+  "sourceQuorumVerified": false,
+  "sourceQuorumLimitation": "Second public RPC endpoints were inaccessible or required credentials; finalized source proof uses one RPC.",
+  "vaultBalanceBaseUnits": 0,
+  "policyState": {
+    "version": 1,
+    "bump": 253,
+    "owner": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+    "agent": "6R4nioW9tPke3PFuWLaQY3gRAwM5SMi1vbY925WJZtPS",
+    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "vault_token": "FTToXuCe3RG6L78Ctpno5SL5BpXDNAYc6JnjhjqGWndU",
+    "max_per_payment": 5000000,
+    "max_per_day": 5000000,
+    "expires_at": 1794741558,
+    "revoked": false,
+    "last_nonce": 1,
+    "pending": false,
+    "pending_nonce": 1,
+    "pending_destination": "11111111111111111111111111111111",
+    "pending_destination_owner": "11111111111111111111111111111111",
+    "pending_quote_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "pending_amount": 0,
+    "pending_until": 0,
+    "spends": [
+      {
+        "timestamp": 1794656341,
+        "amount": 5000000
+      }
+    ]
+  },
+  "agentLamports": 995000,
+  "executionFeeLamports": 5000,
+  "replaySimulationError": {
+    "InstructionError": [
+      0,
+      {
+        "Custom": 10
+      }
+    ]
+  },
+  "replaySigned": false,
+  "replaySent": false,
+  "genericReceiptVerifierPass": false,
+  "genericReceiptVerifierLimitation": "Saved program timeout differs from narrowed signed request deadline; original receipt preserved. Vault quote signature/commitment and source/NEAR transaction verification used separately."
+}

@@ -57,3 +57,5 @@ not duplicate source code or evidence.
 - [Standalone source admission](../docs/security/STANDALONE_CI_POLICY.md): exact local source identity, execution proofs and manual peer parity.
 
 - [Local agent-law runtime](../docs/security/AGENT_LAW_RUNTIME.md): signed birth, SQLite authority, bounded compiler adapter, incident review and explicit limits.
+
+- [Solana mainnet vault pilot](../evidence/solana-vault-mainnet-2026-11-14/README.md): owner-approved, agent-signed 5-USDC source-vault payment, finalized 4.999746-USDC NEAR payout, offline archive verification and explicit limits.

@@ -1,0 +1,14 @@
+// Owner-reviewed 5-USDC vault pilot; the Solana policy is the spending boundary.
+// This proposal does not assert NEAR Guard authorization.
+intent vault_pilot_5usdc_nov14 {
+    from Solana.USDC amount 5000000 receiver 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ
+    to Near.USDC receiver x3lang.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 4950000;
+    }
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused vault_pilot_5usdc_nov14_001
+    timeout 74h refund Solana.USDC
+    on_fail rollback
+}

@@ -1,0 +1,75 @@
+{
+  "rpc": "https://api.mainnet-beta.solana.com",
+  "result": {
+    "blockTime": 1794654932,
+    "meta": {
+      "computeUnitsConsumed": 2670,
+      "costUnits": 4654,
+      "err": null,
+      "fee": 5000,
+      "innerInstructions": [
+        {
+          "index": 1,
+          "instructions": [
+            {
+              "accounts": [
+                0,
+                3,
+                1
+              ],
+              "data": "11117nbHsTpUt3ZpCU47BVtmE8nA4o3oxgyf13RcRLufUjAMpXAvBdmT8iDaGmtUtFY6Zu",
+              "programIdIndex": 4,
+              "stackHeight": 2
+            }
+          ]
+        }
+      ],
+      "loadedAddresses": {
+        "readonly": [],
+        "writable": []
+      },
+      "logMessages": [
+        "Program 11111111111111111111111111111111 invoke [1]",
+        "Program 11111111111111111111111111111111 success",
+        "Program BPFLoaderUpgradeab1e11111111111111111111111 invoke [1]",
+        "Program 11111111111111111111111111111111 invoke [2]",
+        "Program 11111111111111111111111111111111 success",
+        "Deployed program 68ssmMccnqQFUHWipQKy1W4DcycjA9jip9ZUi7EJyUZn",
+        "Program BPFLoaderUpgradeab1e11111111111111111111111 success"
+      ],
+      "postBalances": [
+        49437972,
+        0,
+        833120,
+        529727160,
+        1,
+        1,
+        1169280,
+        1009200
+      ],
+      "postTokenBalances": [],
+      "preBalances": [
+        50276092,
+        529727160,
+        0,
+        0,
+        1,
+        1,
+        1169280,
+        1009200
+      ],
+      "preTokenBalances": [],
+      "rewards": [],
+      "status": {
+        "Ok": null
+      }
+    },
+    "slot": 469307525,
+    "transaction": [
+      "AftwOh9NVYZZGpFjIC+u2bWqACMjse0sKACe9Jl7NhWyGBYZAj1Pve5lSKpjcajxTB2dvWdKxtybPxbcDS9oZgcBAAQIPXQmJoBGkF0Ku3I7UEKxmE0uPJRLMPlDAzWVwgFTDL0Yd7qAG8JaHn9adybBOK9yllBUrrIcM237EoHZzaWic0xPBm7Vnt1iogKKGcxY+t4PS0q3VPht+JfelvLIq5Ep6GKGZfFc26lvg8OCWl6fTFZPSB4G0lelhNeA5d3wV4gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKo9pFOiKGw4hAVPvdjrisAwrk9FsEk0sBTehAEgAAABqfVFxjHdMkoVmOYaR1etoteuKObS21cc1VbIQAAAAAGp9UXGSxcUSGMyUw9SvF/WNruCJuh/UTj29mKAAAAAM4XUjNKoqOPR7mK9ixkVytAMOxqj+QjqfWH73mN7RHFAgQDAAIAdQMAAAA9dCYmgEaQXQq7cjtQQrGYTS48lEsw+UMDNZXCAVMMvRkAAAAAAAAAeDMtdmF1bHQtYWE5NmRlODUtcHJvZy12MWC2DAAAAAAAJAAAAAAAAAACqPaRToihsOIQFT73Y64rAMK5PRbBJNLAU3oQBIAAAAUIAAMCAQcGBAAMAgAAAKiWAQAAAAAA",
+      "base64"
+    ],
+    "transactionIndex": 34,
+    "version": "legacy"
+  }
+}

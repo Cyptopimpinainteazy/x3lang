@@ -60,7 +60,7 @@ refused for their own reason, and the owner's ordinary payment still goes throug
 - **Owners and DAOs delegating spend to agents** who want limits that are auditable, versioned
   and revocable without trusting the model.
 
-Status: hackathon prototype with one bounded mainnet 1Click settlement and historical testnet evidence; no production users yet.
+Status: hackathon prototype with two bounded mainnet 1Click settlements (an owner-funded 25-USDC payment and an agent-executed 5-USDC Solana vault pilot), plus historical testnet evidence; no production users yet.
 [Commercial model](docs/business/COMMERCIAL_MODEL.md) describes the proposed opt-in services.
 
 ### In one line
@@ -81,6 +81,7 @@ A separate [local runtime prototype](docs/security/AGENT_LAW_RUNTIME.md) now bin
 | Result | Network | Check it |
 |---|---|---|
 | **On mainnet**, a restricted agent key accepted a signed 1Click quote on the X3 Guard after 21 mandate and quote checks passed; the owner's wallet then sent **25 USDC on Solana** and **24.9952 USDC arrived on NEAR** 84 seconds later. The agent key can call only three Guard methods; the owner's key did not sign. | NEAR + Solana mainnet | [invoice_06 evidence](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md), [agent call](https://nearblocks.io/txns/Eg75uehwU4YJ86ZZPEPKiBqnjkr6PxwPmV23HFAgu153), [recorded outcome](https://nearblocks.io/txns/9sTn9pJ1ZbCVazBm9Wz9oEDh6aWw4FUVMoAJEKCCzuqE), [hash-matched `.x3` sources](evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md) |
+| A dedicated agent executed an owner-approved **5-USDC** payment from a PDA-owned Solana vault; **4.999746 USDC reached x3lang.near**. The source vault event/CPI, final NEAR token event and provider SUCCESS are archived. | Solana + NEAR mainnet | [November 14 vault proof and offline reproduction](evidence/solana-vault-mainnet-2026-11-14/README.md); owner quote approval required, single-RPC observations, provider-reported cross-chain linkage |
 | Guard on `x3lang.near` was upgraded to the reviewed WASM; all seven stored records were preserved. A separately approved native transfer recovered 0.3 NEAR to `dotx3.near`. | NEAR mainnet | [Deployment and recovery receipts](docs/hackathon/MAINNET_GUARD_DEPLOYMENT.md) |
 | An `.x3` program specified a cross-chain trade that finalized: **1.000000 test USDC left Base Sepolia, 0.997400 arrived on NEAR testnet**. The program's SHA-256 was bound on a NEAR Guard contract before the source transfer. | Base Sepolia + NEAR testnet | [Step 1](#1-the-x3-program-behind-the-cross-chain-trade), [Step 2](#2-verify-the-finalized-two-chain-trade) |
 | The deployed Guard refused an agent intent to `attacker.near` and accepted a permitted intent. | NEAR testnet | [Proof on NEAR testnet](#proof-on-near-testnet) |

@@ -4,7 +4,7 @@
 
 This is a *new, standalone Solana program*, not a wallet extension or an off-chain allowance service. Funds governed by the vault must first reside in a classic SPL Token account whose **token authority is the X3 vault's program-derived policy address (PDA)**. A normal external wallet remains unrestricted outside that account.
 
-> **Status:** source and local testing only. **No deployment, external audit, funded use, or verified cross-chain settlement is claimed.** Never send funds to the example keys, and do not use this program on mainnet without an independent security review and full SBF/runtime tests.
+> **Status:** experimental, unaudited. A separately owner-approved [November 14 mainnet pilot](../../../evidence/solana-vault-mainnet-2026-11-14/README.md) deployed the reviewed artifact, funded a 5-USDC vault and executed one agent-signed payment; 4.999746 USDC reached x3lang.near. Source event/CPI and finalized NEAR payout were checked through one RPC per chain; provider association is not cryptographic cross-chain causality. This one pilot does not establish production readiness or an independent external audit. Never send funds to example keys.
 
 ## Enforced trust boundary
 
@@ -120,8 +120,8 @@ cargo build-sbf --manifest-path Cargo.toml --sbf-out-dir /safe/build/artifacts
 
 1. Independent security review of the Solana vault and full integration tests, including malicious token accounts and owner/agent confusion.
 2. Authenticated off-chain quote-to-destination instruction construction with no arbitrary RPC trust, and an explicit owner-signing UX.
-3. Verified finalized Solana transaction evidence tied to the approved quote digest and actual program/Token CPI.
-4. Independently verified NEAR destination transaction and causal link to the same quote, rather than only a balance change.
-5. Safe validator/deployment/upgrade authority strategy, public artifact checksums, rollback, and operational monitoring.
+3. The bounded pilot now has finalized source event/CPI evidence; source verification from multiple independent RPCs remains open.
+4. The pilot now has a direct finalized NEAR token-transfer event and provider association. Cryptographic solver-level causality remains unproven.
+5. Reproducible source-to-SBF build identity, external audit, rollback and operational monitoring. The pilot publishes its observed payload hash and retains the owner upgrade authority.
 
-**Use a zero-value local test environment until all blockers are closed.** No wallets or funded transaction instructions are shipped by this README.
+**Use a zero-value local test environment for further development.** The bounded pilot does not close the audit, reproducible-build or production-readiness gaps above. This README authorizes no deployment, funding or repeat payment.

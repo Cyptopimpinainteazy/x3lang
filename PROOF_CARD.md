@@ -10,6 +10,15 @@ the evidence bundle is [`evidence/near-guard-mainnet-invoice06-2026-11-12/`](evi
 past the mainnet Guard's 21 checks on a signed 1Click quote, the owner funded 25 USDC on Solana,
 `intents.near` paid 24.9952 USDC to `x3lang.near`, and the agent recorded the outcome on Guard.
 
+## Separate new proof: agent-executed Solana vault pilot
+
+The [November 14 5-USDC pilot](evidence/solana-vault-mainnet-2026-11-14/README.md)
+adds finalized **agent-signed source-vault execution** and **4.999746-USDC NEAR
+payout** evidence. It is separate from the five invoice_06 transactions below:
+the owner approved the exact quote, the Solana policy enforced the transfer,
+and no additional NEAR Guard call is claimed. Read that bundle's single-RPC,
+provider-linkage and receipt-verifier limits before combining claims.
+
 ## Accounts, keys and code
 
 | What | Value | Note |

@@ -1,0 +1,13 @@
+{
+  "token": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+  "account": "x3lang.near",
+  "balance": "24995200",
+  "block_height": 224508653,
+  "block_hash": "2Xjv6eSfnpRYKKDUvniv652u2NnYu48k13V7abhFWTYC",
+  "rpcs": [
+    {
+      "url": "https://free.rpc.fastnear.com",
+      "result_sha256": "22ae289c058caff6708120454230366919015fcc9f8b1abf69c63b6e1a96ada4"
+    }
+  ]
+}

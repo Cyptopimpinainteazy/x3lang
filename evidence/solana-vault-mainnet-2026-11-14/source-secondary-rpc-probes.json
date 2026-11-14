@@ -1,0 +1,14 @@
+[
+  {
+    "url": "https://solana.drpc.org",
+    "error": "https://solana.drpc.org getTransaction: {'message': 'chain is not available on free plan, please upgrade to paid plan', 'code': 35}"
+  },
+  {
+    "url": "https://solana-mainnet.rpc.extrnode.com",
+    "error": "cannot reach https://solana-mainnet.rpc.extrnode.com: [Errno -2] Name or service not known"
+  },
+  {
+    "url": "https://rpc.ankr.com/solana",
+    "error": "https://rpc.ankr.com/solana getTransaction: message: API key is not allowed to access blockchain, json-rpc code: -32052, rest code: 403"
+  }
+]

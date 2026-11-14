@@ -1,0 +1,30 @@
+{
+  "signature": "4ReKsqwxpwtyx2CNmah6UCkHWgb4GbiJjXGTZLwtHaMMBoWv8vqSki4XXzDrBmqgURJSX7A1fHAKm3jSf3fnWwkV",
+  "finalized": true,
+  "slot": 469313452,
+  "policyState": {
+    "version": 1,
+    "bump": 253,
+    "owner": "58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ",
+    "agent": "6R4nioW9tPke3PFuWLaQY3gRAwM5SMi1vbY925WJZtPS",
+    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "vault_token": "FTToXuCe3RG6L78Ctpno5SL5BpXDNAYc6JnjhjqGWndU",
+    "max_per_payment": 5000000,
+    "max_per_day": 5000000,
+    "expires_at": 1794741558,
+    "revoked": false,
+    "last_nonce": 1,
+    "pending": true,
+    "pending_nonce": 1,
+    "pending_destination": "9BCGvA3kLoHCGv93hLUMK4HqSXmi4ghdNJDa7aYGMZvd",
+    "pending_destination_owner": "HR876DcfqzX5NmYADVvJZQRKjkchpRSTuracYFQsm3G1",
+    "pending_quote_digest": "e53cd55f8ef6b923fe312fa213e6f9f43a0b6d4f230b411f59e58c1589b11b3d",
+    "pending_amount": 5000000,
+    "pending_until": 1794657709,
+    "spends": []
+  },
+  "quoteHash": "GRrAXUy1vFCjPZ53mvX9dMLhXZ7NXgbyekmMPod7tw2L",
+  "quoteDigest": "e53cd55f8ef6b923fe312fa213e6f9f43a0b6d4f230b411f59e58c1589b11b3d",
+  "validUntil": 1794657709,
+  "tradeExecuted": false
+}

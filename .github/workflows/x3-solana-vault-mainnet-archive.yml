@@ -1,0 +1,39 @@
+name: X3 Solana Vault Mainnet Archive
+on:
+  pull_request:
+    paths:
+      - 'evidence/solana-vault-mainnet-2026-11-14/**'
+      - 'x3-lang/*.py'
+      - 'x3-lang/solana/*.py'
+      - '.github/workflows/x3-solana-vault-mainnet-archive.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'evidence/solana-vault-mainnet-2026-11-14/**'
+      - 'x3-lang/*.py'
+      - 'x3-lang/solana/*.py'
+      - '.github/workflows/x3-solana-vault-mainnet-archive.yml'
+permissions:
+  contents: read
+jobs:
+  archived-mainnet-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated archive decoder
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/x3-vault-archive"
+          "$RUNNER_TEMP/x3-vault-archive/bin/python" -m pip install solders==0.26.0
+      - name: Replay archived evidence and refuse tampering without RPC or wallets
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/x3-vault-archive/bin/python" evidence/solana-vault-mainnet-2026-11-14/verify_archived.py
+          "$RUNNER_TEMP/x3-vault-archive/bin/python" -m unittest discover -s evidence/solana-vault-mainnet-2026-11-14 -p test_verify_archived.py -v
+          "$RUNNER_TEMP/x3-vault-archive/bin/python" -m compileall -q evidence/solana-vault-mainnet-2026-11-14

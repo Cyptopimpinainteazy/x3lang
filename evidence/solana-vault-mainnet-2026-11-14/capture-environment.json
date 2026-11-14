@@ -1,0 +1,7 @@
+{
+  "base_sha": "77bd098154199ee24579782577590da77a2248cf",
+  "branch": "docs/mainnet-vault-proof-20261114",
+  "capture": "public finalized RPC responses and original provider receipt copied from completed pilot; no signing or network writes",
+  "compiler_source_provenance": "Reviewed artifact hash is observed on chain. Reproducible source-to-SBF build identity is not established by this bundle.",
+  "python": "Python 3.12.3"
+}

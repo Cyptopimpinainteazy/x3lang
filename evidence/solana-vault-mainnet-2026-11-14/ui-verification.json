@@ -1,0 +1,15 @@
+{
+  "live": {
+    "slot": 469313021,
+    "debit": 1493440,
+    "fee": 5000,
+    "mutationRejections": 8,
+    "unsignedRejected": true,
+    "submissions": 0
+  },
+  "assetAllowlist": true,
+  "foreignOriginRejected": true,
+  "unknownMethodRejected": true,
+  "browserErrors": [],
+  "walletConnections": 0
+}
