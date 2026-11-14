@@ -5,7 +5,9 @@ compiler checks and NEAR Guard to constrain AI-agent payment proposals.
 
 **Nine evidenced capabilities: six core payment capabilities plus three additional local capabilities.** The source hashes are identity records, not deployed payment-program pinning; that separate contract change is not part of this demonstration.
 
-**If you have 90 seconds:** [read the judge pitch and three-proof sequence](docs/hackathon/JUDGE_PITCH_90_SECONDS.md). It includes a 30-second opener, live evidence links, four-track fit and answers to the hardest questions.\n\n## Two-minute evidence route — no setup or wallet
+**If you have 90 seconds:** [read the judge pitch and three-proof sequence](docs/hackathon/JUDGE_PITCH_90_SECONDS.md). It includes a 30-second opener, live evidence links, four-track fit and answers to the hardest questions.
+
+## Two-minute evidence route — no setup or wallet
 
 1. **See the payment:** [one-page invoice_06 proof card](PROOF_CARD.md).
    Follow its five explorer links: owner approval → restricted-agent quote

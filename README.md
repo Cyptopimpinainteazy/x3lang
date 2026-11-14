@@ -1,14 +1,29 @@
 # X3 Force Field
 
-**Judges: [start here — payment, limits, proof and reproduction](JUDGES.md).**
+**Spending rules for AI agents that live outside the model.** The owner writes the rules in a
+small typed language (`.x3`), the agent can only propose payments, and deterministic checks (a
+compiler and a NEAR contract) compare each proposal and its signed quote against those rules.
+Proven once on mainnet: the agent's restricted key submitted a signed NEAR Intents quote, the
+contract checked it against the owner's limits and accepted it, then the owner's Solana wallet
+sent 25 USDC and 24.9952 USDC arrived on NEAR.
 
-**Formerly X3 Shield.** The name changes; deployed `x3-guard`, `.x3` source files, evidence paths, wallet permissions and historical transaction records do not.
+**Judges:** [start here](JUDGES.md) · [one-page proof card](PROOF_CARD.md) (five mainnet
+transactions, keys, hashes and seven limits) · [project site](https://dotx3.net)
 
-**Judges: start with the one-page [proof card](PROOF_CARD.md)** — the five mainnet invoice_06 transactions, the accounts and keys, the matching `.x3` hashes, and the seven limits.
+## See it in 30 seconds
 
-**See the complete five-step demonstration:** [written `.x3` mandate and payment → compiler rejection → signed-quote Guard enforcement → finalized Solana-to-NEAR payout → recorded Guard outcome](docs/hackathon/VIDEO_WALKTHROUGH.md). The video plan labels each stage LOCAL or MAINNET and states its proof boundary. This link is a recording guide, not a claim that a public video has already been posted.
+No wallet, no keys and no install beyond Python 3.11+. Both commands run offline and sign or
+send nothing.
 
-[Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks bind this repository's exact source and execute its proofs. Equality with the private parent repository is checked only by an explicitly requested parity audit.
+```bash
+git clone https://github.com/Cyptopimpinainteazy/x3lang && cd x3lang
+python3 scripts/hackathon/replay_grok_wallet_drain.py  # a real AI-wallet drain, replayed: 3/3 attacks refused, owner payment allowed
+python3 scripts/hackathon/x3_wont_compile.py           # 9/9 unsafe edits to a payment fail to compile
+```
+
+Every other check, step by step: [Try it: do X, see Y](#try-it-do-x-see-y).
+
+## Why
 
 **AI agents are getting wallets. Their spending limits should not live inside the model.**
 
@@ -31,10 +46,12 @@ X3 Force Field takes authorization out of the model:
   program, and the signed 1Click quote, against the mandate. Nothing the agent holds, reads or
   decodes can change the mandate.
 
-**See it in one command:** `python3 scripts/hackathon/replay_grok_wallet_drain.py` replays both
-steps of that incident with a model that falls for every one. All three attack programs are
-refused for their own reason, and the owner's ordinary payment still goes through
-([step 5b](#5b-replay-a-real-wallet-drain)).
+The replay above runs both steps of that incident with a model that falls for every one. All
+three attack programs are refused for their own reason, and the owner's ordinary payment still
+goes through ([step 5b](#5b-replay-a-real-wallet-drain)).
+
+*Formerly X3 Shield.* The name changes; deployed `x3-guard`, `.x3` source files, evidence
+paths, wallet permissions and historical transaction records do not.
 
 ## What makes the language and compiler different
 
@@ -504,11 +521,16 @@ controls and open risks.
   repository.
 - **Hackathon work.** The NEAR integration: 1Click adapter and signed-quote verification,
   the `x3-guard` and `x3-tidepool-guard` contracts, agent mandates, the light client and
-  evidence verifiers, the judge demos, and the testnet evidence. Diff from the annotated
-  `baseline` tag (last commit before 2026-10-19 00:00 UTC):
-  [`baseline...master`](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...master).
+  evidence verifiers, the judge demos, and the testnet evidence. Per the organizer's Q-003,
+  the hackathon diff runs from tag `pre-hackathon` (the same commit as the annotated `baseline`
+  tag, the last commit before 2026-10-19 00:00 UTC) to tag `hackathon-submission`:
+  [`pre-hackathon...hackathon-submission`](https://github.com/Cyptopimpinainteazy/x3lang/compare/pre-hackathon...hackathon-submission)
+  (live view: [`baseline...master`](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...master)).
   PRIOR_WORK.md lists six pre-cutoff commits that appear in that diff because they were
   merged later.
+- **CI.** [Standalone CI policy](docs/security/STANDALONE_CI_POLICY.md): automatic checks bind
+  this repository's exact source and execute its proofs. Equality with the private parent
+  repository is checked only by an explicitly requested parity audit.
 - **Libraries.** `near-sdk` 5.30 (contracts); `pycryptodome` and `cryptography` (Python);
   `pytest` (tests); Node.js 22 built-in test runner (browser parity tests).
 - **AI-generated code.** Hackathon-window code and documentation were written with AI coding
