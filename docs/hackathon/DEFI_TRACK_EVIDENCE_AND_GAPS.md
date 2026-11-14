@@ -1,7 +1,8 @@
 # Unstoppable DeFi: evidence and judge path
 
 The owner confirmed selection of AI Security & Defense (`security`, primary),
-Agent Economy (`agents`) and Unstoppable DeFi (`defi`) in the submission form.
+Agent Economy (`agents`), Autonomous Business (`business`) and Unstoppable DeFi (`defi`)
+in the submission form.
 This assessment does not certify organizer acceptance, victory or release readiness.
 For DeFi, X3 Force Field is an authorization layer over NEAR Intents / 1Click, not a new
 bridge or atomic settlement protocol. See the [submission checklist](SUBMISSION_CHECKLIST.md)

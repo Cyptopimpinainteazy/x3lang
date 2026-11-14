@@ -4,9 +4,9 @@
 
 **Project:** X3 Force Field (X3Lang; formerly X3 Shield)
 
-**Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). Owner-confirmed selection; not a claim of organizer acceptance or a submission receipt.
+**Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`), Autonomous Business (`business`) and Unstoppable DeFi (`defi`). Owner-confirmed selection; not a claim of organizer acceptance or a submission receipt.
 
-## 20–2,000 character description (1923 characters, LF)
+## 20–2,000 character description (1948 characters, LF)
 
 X3 Force Field (formerly X3 Shield) combines typed .x3 owner policy, deterministic checks and signed-quote enforcement for AI-agent payments.
 
@@ -16,7 +16,7 @@ Six differentiators: typed, hashable policy; checks outside the model; authentic
 
 Mainnet invoice_06: following owner approval, a restricted key accepted a quote after 21 Guard checks. The mandate capped each payment and daily spend at 25 USDC, restricted the recipient and pinned refunds. The policy floor was 24.75 USDC. The owner manually sent 25 USDC on Solana; 24.9952 USDC reached x3lang.near about 84 seconds later. The agent recorded Settled and floor_met. Both original .x3 hashes match Guard state; compiled output matches 10 policy fields and 13 mandate terms. Eight unsafe edits of that payment are refused locally.
 
-Other local evidence: 3/3 scripted drain-pattern attacks refused with the authorized control allowed; 9 unsafe edits fail compilation. Historical testnet Guard evidence includes attacker.near refusal.
+Other local evidence: 8/8 scripted red-team attacks and 3/3 replayed wallet-drain attacks refused, authorized control allowed; 9 unsafe edits fail compilation. Historical testnet Guard evidence includes attacker.near refusal.
 
 Limits: one owner-assisted ~$25 run. Guard is noncustodial and does not authenticate outcome hashes. The agent account retains an owner FullAccess recovery key. Provider association is not cryptographic cross-chain atomicity; no native X3VM runs on-chain. Compiler/VM predate the hackathon; NEAR integration is new work.
 

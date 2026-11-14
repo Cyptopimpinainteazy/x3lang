@@ -322,9 +322,9 @@ Needs Linux x86_64, Python 3.12, Node 22+ and Rust (same toolchain download as s
 It makes no blockchain transactions and uses no wallet. Longer walkthrough:
 [judge guide](docs/hackathon/JUDGE_GUIDE.md).
 
-## Three project perspectives
+## Track perspectives
 
-Built at NEAR HACKATHON 2026. Submitted tracks: AI Security & Defense (`security`, primary), Agent Economy (`agents`) and Unstoppable DeFi (`defi`). These are the owner-confirmed selections; organizer acceptance and a saved submission receipt are not established here. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
+Built at NEAR HACKATHON 2026. Submitted tracks: AI Security & Defense (`security`, primary), Agent Economy (`agents`), Autonomous Business (`business`) and Unstoppable DeFi (`defi`). These are the owner-confirmed selections; organizer acceptance and a saved submission receipt are not established here. See the [submission checklist](docs/hackathon/SUBMISSION_CHECKLIST.md)
 and [DeFi evidence assessment](docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md). The
 [three-track runbook](docs/hackathon/MAINNET_AGENT_PREFLIGHT.md) separates local policy,
 historical testnet evidence, and one completed official 1Click mainnet settlement. The agent
@@ -333,8 +333,9 @@ proposes and the owner signs; a Solana wallet keyholder can still transfer direc
 | Track | What X3 Force Field shows | Steps |
 |---|---|---|
 | **AI Security & Defense** | A policy engine for agent spending: recipient and asset allowlists, per-payment and 24-hour caps, slippage and fee ceilings, approval thresholds, expiry, one-use nonces. Enforced off-chain by the compiler and on-chain by `x3-guard`, which reads terms from the signed quote bytes. | 3, 4, 5, 6, 9, [testnet refusals](#proof-on-near-testnet) |
-| **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. On mainnet, the agent's restricted key accepted an official live quote under the mandate, the trade settled, and the agent recorded the outcome on Guard ([proof card](PROOF_CARD.md)). | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet), [mainnet proof card](PROOF_CARD.md) |
-| **Unstoppable DeFi** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. On mainnet, Guard checked the signed quote's slippage, fee and minimum output before the deposit: guaranteed 24.770243 USDC against the program's 24.75 floor; 24.9952 delivered. **Try it with no funds:** [x3-guard.pages.dev](https://x3-guard.pages.dev/) fetches a real signed 1Click dry quote and runs the same policy checks in the browser. | 1, 2, 10, [proof card](PROOF_CARD.md), [live dry-quote page](https://x3-guard.pages.dev/) |
+| **Agent Economy** | An owner defines a mandate for agent requests. Local checks demonstrate permitted, approval-required and denied cases; testnet evidence shows an allowed intent and a refused intent. On mainnet, the agent's restricted key accepted an official live quote under the mandate, the trade settled, and the agent recorded the outcome on Guard ([proof card](PROOF_CARD.md)). The agent authorized the payment and the owner signed the Solana deposit; the agent does not earn, negotiate or buy services. | 4, 6, 7, [testnet allowed control](#proof-on-near-testnet), [mainnet proof card](PROOF_CARD.md) |
+| **Autonomous Business** | The constraint layer an AI-run business puts in front of its spending: the owner sets per-payment and 24-hour caps, an approval threshold, recipient and asset allowlists, a refund address and expiry, and Guard enforces them on mainnet. The agent can only propose. **Limits:** invoice_06 was owner-funded and paid to the owner's own account (`x3lang.near` is both owner and the only allowed recipient; "invoice" is a nonce label). There are no treasury, sales, procurement, revenue-sharing or recurring-payment features; business uses are intended, not adopted. | 4, 6, [mainnet proof card](PROOF_CARD.md), [`mandate.rs`](x3-lang/near/x3-guard/src/mandate.rs) |
+| **Unstoppable DeFi** | A cross-chain trade specified as one `.x3` program with `min_receive`, slippage, timeout, refund and nonce, pre-authorized on NEAR by source hash, then finalized on two chains. On mainnet, Guard checked the signed quote's slippage, fee and minimum output before the deposit: guaranteed 24.770243 USDC against the program's 24.75 floor; 24.9952 delivered. **Try it with no funds:** [x3-guard.pages.dev](https://x3-guard.pages.dev/) fetches a real signed 1Click dry quote and runs the same policy checks in the browser. X3 Force Field is not a market, liquidity venue or bridge: one ~$25 same-asset route, the two legs are not atomic, and Guard does not custody funds. | 1, 2, 10, [proof card](PROOF_CARD.md), [live dry-quote page](https://x3-guard.pages.dev/) |
 
 The DeFi testnet trade (steps 1, 2) used historical trusted Tidepool community-testnet
 delivery, not official 1Click settlement. On testnet the official 1Click quote flow was
@@ -343,8 +344,8 @@ settlement then completed on mainnet
 ([invoice_06](evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)). The
 [official 1Click quickstart](https://docs.near-intents.org/integration/distribution-channels/1click-api/quickstart/introduction)
 states that NEAR Intents has no testnet version.
-`demo.py` and `track_control.py` print the three documented track perspectives
-only. Their offline results do not establish deposit or settlement; the separate
+`demo.py` and `track_control.py` print the security, agents and DeFi perspectives
+only; the business row uses the same mandate and evidence. Their offline results do not establish deposit or settlement; the separate
 historical Tidepool evidence records actual source funding and destination delivery.
 
 ## NEAR features used
