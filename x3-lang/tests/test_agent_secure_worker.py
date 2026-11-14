@@ -24,17 +24,17 @@ def pub(key):
     return key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
 
-def start_worker(path, db, operator_key, issuer_key, policy, allowed_uids, ready, stop):
+def start_worker(path, db, operator_key, issuer_key, policy, allowed_uids, ready, stop, request_deadline=2.0, delay=0):
     # Execution callback is registered only inside the worker process.
     adapter = Adapter("compile", "local-plan", 1, False,
-                      lambda source: (str(os.getpid()) + ":" + source.decode("ascii")).encode(),
+                      lambda source: (time.sleep(delay) or (str(os.getpid()) + ":" + source.decode("ascii")).encode()),
                       policy_id="v1")
     runtime = Runtime(db, pub(operator_key), {"compile-intent": adapter},
                       stamp_policies={"compile-intent": policy}, stamp_enforcement="all",
                       clock=lambda: 100)
     gateway = LocalToolGateway(runtime, {"compile-intent": issuer_key})
     serve_unix_worker(gateway, path, allowed_uids=allowed_uids, ready_event=ready,
-                      stop_event=stop)
+                      stop_event=stop, request_deadline=request_deadline)
 
 
 @unittest.skipUnless(os.name == "posix" and hasattr(socket, "SO_PEERCRED"), "Linux SO_PEERCRED")
@@ -74,10 +74,10 @@ class SecureWorkerTests(unittest.TestCase):
                 self.process.join(4)
             self.assertFalse(self.process.is_alive(), "worker failed to exit")
 
-    def start_server(self, allowed_uids=None):
+    def start_server(self, allowed_uids=None, *, request_deadline=2.0, delay=0):
         self.process = self.context.Process(target=start_worker,
                     args=(str(self.path), self.db, self.operator, self.issuer,
-                          self.policy, allowed_uids, self.ready, self.stop))
+                          self.policy, allowed_uids, self.ready, self.stop, request_deadline, delay))
         self.process.start()
         self.assertTrue(self.ready.wait(5), "worker failed to bind Unix socket")
         self.assertTrue(self.process.is_alive(), "worker exited unexpectedly")
@@ -170,6 +170,32 @@ class SecureWorkerTests(unittest.TestCase):
             response = sock.recv(512)
         self.assertIn(b"request denied", response)
         self.assertEqual(self.runtime.snapshot("agent-one")["remaining"], 10)
+
+    def test_drip_feed_reaches_total_deadline_and_other_request_progresses(self):
+        self.start_server(allowed_uids={os.getuid()}, request_deadline=0.35)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as slow:
+            slow.settimeout(2)
+            slow.connect(str(self.path))
+            # A valid frame size but no complete request. Send bytes slowly
+            # enough to keep the per-recv idle timeout reset.
+            slow.sendall(struct.pack("!I", 200) + b"{")
+            time.sleep(0.17)
+            slow.sendall(b" ")
+            time.sleep(0.28)
+            # Worker must release the sequential connection by absolute deadline.
+            self.assertIn(b"request denied", slow.recv(100))
+        self.assertEqual(request_unix_worker(self.path, self.signed()), 
+                         str(self.process.pid).encode() + b":safe")
+
+    def test_slow_approved_execution_can_use_separate_result_wait(self):
+        self.start_server(allowed_uids={os.getuid()}, delay=2.2)
+        result = request_unix_worker(self.path, self.signed(), execution_timeout=4.0)
+        self.assertEqual(result, str(self.process.pid).encode() + b":safe")
+
+    def test_invalid_execution_timeout_is_rejected_before_connecting(self):
+        for invalid in (-1, 0, float("nan"), "forever"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                request_unix_worker(self.path, self.signed(), execution_timeout=invalid)
 
     def test_existing_socket_path_not_overwritten(self):
         self.path.write_text("not a socket")
