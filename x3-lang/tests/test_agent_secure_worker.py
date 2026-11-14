@@ -200,7 +200,8 @@ class SecureWorkerTests(unittest.TestCase):
     def test_group_mode_disallows_worker_uid_on_client_allowlist(self):
         self.root.chmod(0o2710)
         with self.assertRaisesRegex(ValueError, "distinct client UID"):
-            serve_unix_worker(None, self.path, allowed_uids={os.geteuid()},
+            gateway = LocalToolGateway(self.runtime, {"compile-intent": self.issuer})
+            serve_unix_worker(gateway, self.path, allowed_uids={os.geteuid()},
                               stop_event=self.stop, client_group=os.getegid())
 
     def test_group_mode_rejects_missing_setgid_directory(self):
