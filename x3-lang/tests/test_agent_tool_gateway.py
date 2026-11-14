@@ -104,6 +104,14 @@ class GatewayTests(unittest.TestCase):
                 self.gateway.submit(payload)
         self.assertEqual(self.called, [])
 
+    def test_duplicate_json_fields_are_refused(self):
+        request = self.request()
+        encoded = json.dumps(request)
+        ambiguous = encoded[:-1] + ', "nonce": "attacker"}'
+        with self.assertRaisesRegex(ValueError, "duplicate request field"):
+            self.gateway.submit(ambiguous.encode())
+        self.assertEqual(self.called, [])
+
     def test_gateway_requires_strict_runtime(self):
         with self.assertRaisesRegex(ValueError, "strictly stamped"):
             runtime = Runtime(Path(self.db.parent) / "loose.sqlite", public(self.operator),
