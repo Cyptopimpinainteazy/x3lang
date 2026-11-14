@@ -54,6 +54,44 @@ class ProtectedExecutionTests(unittest.TestCase):
             90, 120, nonce,
             checks or self.policies["compile-intent"].required_checks), self.issuer)
 
+    def test_trusted_issuer_preflight_to_actual_dispatch(self):
+        action = Action("test-agent", "compile-intent", b"valid-source", "fresh", 150)
+        signature = self.agent.sign(self.runtime.action_payload(action))
+        stamped = self.runtime.issue_stamp_for_action(action, signature, self.issuer)
+        output = self.runtime.execute(action, signature, stamp=stamped)
+        self.assertEqual(output, b"local-verified-output")
+        self.assertEqual(self.executed, [b"valid-source"])
+
+    def test_stamp_issue_requires_authentic_agent_signature(self):
+        action = Action("test-agent", "compile-intent", b"valid-source", "fresh", 150)
+        forged = Ed25519PrivateKey.generate().sign(self.runtime.action_payload(action))
+        with self.assertRaises(ValueError):
+            self.runtime.issue_stamp_for_action(action, forged, self.issuer)
+        self.assertEqual(self.executed, [])
+
+    def test_stamp_issue_requires_correct_issuer(self):
+        action = Action("test-agent", "compile-intent", b"valid-source", "fresh", 150)
+        signature = self.agent.sign(self.runtime.action_payload(action))
+        with self.assertRaises(ValueError):
+            self.runtime.issue_stamp_for_action(action, signature, Ed25519PrivateKey.generate())
+        self.assertEqual(self.executed, [])
+
+    def test_stamp_issue_fails_after_agent_revoked(self):
+        action = Action("test-agent", "compile-intent", b"valid-source", "fresh", 150)
+        signature = self.agent.sign(self.runtime.action_payload(action))
+        self.runtime.revoke("test-agent", "owner termination")
+        with self.assertRaises(ValueError):
+            self.runtime.issue_stamp_for_action(action, signature, self.issuer)
+        self.assertEqual(self.executed, [])
+
+    def test_issuer_cannot_claim_unverified_ten_commandments(self):
+        guarded = {"compile-intent": StampGatePolicy(
+            raw(self.issuer), "a" * 64, ("major_action_jury",))}
+        # Protected trust config is permanent: cannot quietly weaken/change it.
+        with self.assertRaises(ValueError):
+            self.make_runtime(stamp_policies=guarded)
+        self.assertEqual(self.executed, [])
+
     def test_valid_stamp_dispatches_once(self):
         self.attempt(stamp=self.stamp())
         self.assertEqual(self.executed, [b"valid-source"])
