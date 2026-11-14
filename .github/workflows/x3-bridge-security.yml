@@ -5,10 +5,12 @@ on:
     branches: [master, 'feat/**', 'integration/**']
     paths:
       - 'x3-lang/bridge/**'
+      - 'scripts/security/bridge_settlement_mutation.py'
       - '.github/workflows/x3-bridge-security.yml'
   pull_request:
     paths:
       - 'x3-lang/bridge/**'
+      - 'scripts/security/bridge_settlement_mutation.py'
       - '.github/workflows/x3-bridge-security.yml'
   workflow_dispatch:
 
@@ -43,6 +45,8 @@ jobs:
       - name: Solidity format
         working-directory: x3-lang/bridge/bsc
         run: forge fmt --check
+      - name: Issue 42 settlement-condition mutation gate (BSC)
+        run: python3 scripts/security/bridge_settlement_mutation.py --targets bsc
 
   bridge-near:
     runs-on: ubuntu-latest
@@ -63,6 +67,8 @@ jobs:
       - name: NEAR formatting
         working-directory: x3-lang/bridge/near
         run: cargo fmt --check
+      - name: Issue 42 settlement-condition mutation gate (NEAR)
+        run: python3 scripts/security/bridge_settlement_mutation.py --targets near
       - name: NEAR deployable WASM release build (no deployment)
         working-directory: x3-lang/bridge/near
         run: cargo build --locked --release --target wasm32-unknown-unknown

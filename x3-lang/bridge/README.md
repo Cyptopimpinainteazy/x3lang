@@ -52,11 +52,14 @@ Proposed sequence (not yet orchestrated): User locks BNB; LP independently verif
 
 SECURITY STATUS: A secret can leak from a failed NEAR claim transaction. The current BSC contract now prevents the LP from using that secret alone, because ownerRelease requires the original BSC depositor. This resolves that direct LP-theft path in local tests, NOT the two-sided atomicity problem. The LP may supply NEAR and then never receive BNB if the depositor withholds ownerRelease; a depositor may also release too early and lose BNB. This is a trusted, owner-authorized bilateral settlement prototype, not a trustless atomic swap. The BSC contract rejects deployment on BSC mainnet chain ID 56; it permits only BSC testnet 97 and local Anvil 31337. NEAR contract deployment is NOT chain-ID hardened. DO NOT deploy or fund permissionless or production swaps on this prototype. Before permissionless release, require independently verified destination claim finality directly in the source-chain release condition, or implement another independently audited protocol that prevents either party from receiving both assets. Reuse of the same preimage and staggered timelocks alone is insufficient. All external LP onboarding stays disabled.
 
+ISSUE #42 REDESIGN (draft, not deployable): `bsc/src/NearSettledBnbEscrow.sol` replaces both the preimage condition and depositor release with one rule: BNB moves only on a verified FINAL NEAR terminal outcome (`Claimed` pays the LP; `Refunded`/`NotFunded` refund the depositor) for a window id that commits to every NEAR and BSC term. The NEAR contract now enforces term-committed window ids, emits one settlement log per outcome and allows permissionless refund after expiry. The BSC side depends on an `INearSettlementVerifier` that does not exist yet (issue #56). See [`docs/security/NEAR_BSC_FINALITY_BOUND_SETTLEMENT.md`](../../docs/security/NEAR_BSC_FINALITY_BOUND_SETTLEMENT.md). `NativeBnbHTLC` and `AttestedBnbEscrow` remain unchanged and unsafe for permissionless use.
+
 Other gates: verified escrow code identities, finality-aware evidence adapters, wallet-control challenges, reserve-backed LP offers, NEAR storage/gas funding, reproducible deployments, signed quote terms, no manual oracle trust flags, testnet wallet approvals, failed-claim/mempool leakage and reorg tests, and an exact-head audited release.
 
 Reproduction on x3star1:
 - From repository root: python3 -W error::ResourceWarning -m unittest discover -s x3-lang/bridge -p 'test_*.py' -v
 - From x3-lang/bridge/bsc: ~/.foundry/bin/forge test --offline -vv
+- From repository root: python3 scripts/security/bridge_settlement_mutation.py --targets bsc,near
 - From x3-lang/bridge/near: cargo test --locked --offline
 - From x3-lang/bridge/near: cargo build --locked --offline --release --target wasm32-unknown-unknown
 
