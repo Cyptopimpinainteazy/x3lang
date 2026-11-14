@@ -1,7 +1,7 @@
 """Strict numeric parsing shared by the Python intent pipeline."""
 from decimal import Decimal, InvalidOperation
 from math import isfinite
-from typing import Any
+from typing import Any, Optional, Tuple
 
 
 class NumericParseError(ValueError):
@@ -45,3 +45,25 @@ def parse_positive_decimal(value: Any, *, allow_unit_suffix: bool = False) -> De
     if result <= 0:
         raise NumericParseError("value must be positive")
     return result
+
+
+RATE_UNITS = ("%", "bps")
+
+
+def split_rate(value: Any) -> Tuple[Decimal, Optional[str]]:
+    """A rate bound and its unit: `0.5%` -> (0.5, "%"); `50 bps` or `50bps` -> (50, "bps");
+    a bare number -> (number, None). Each caller decides what a bare number means, and the
+    NEAR path refuses it. Anything after the unit, or any other unit, is refused rather than
+    dropped: dropping `bps` is how `50 bps` silently became `50`."""
+    if isinstance(value, bool) or value is None:
+        raise NumericParseError("rate must be numeric")
+    text = str(value).strip().lower()
+    unit: Optional[str] = None
+    for candidate in RATE_UNITS:
+        if text.endswith(candidate):
+            unit = candidate
+            text = text[: -len(candidate)].strip()
+            break
+    if not text or any(ch.isspace() for ch in text):
+        raise NumericParseError(f"rate {value!r} must be a number with an optional % or bps unit")
+    return parse_decimal(text), unit

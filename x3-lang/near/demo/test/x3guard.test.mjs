@@ -63,7 +63,21 @@ test("slippage bounds round toward the stricter side, exactly", () => {
   assert.equal(bps("require slippage <= 0.29%"), 29); // a float would give 28
   assert.equal(bps("require slippage < 0.5%"), 49);
   assert.equal(bps("require slippage <= 0.125%"), 12);
-  assert.equal(bps("require slippage <= 0.003"), 30);
+  assert.equal(bps("require slippage <= 30 bps"), 30);
+});
+
+test("slippage bounds need a unit, and bps reaches the bound (issue #241)", () => {
+  const lower = (bound) => {
+    try { return x3.lower(x3.parse(EXAMPLE.replace("require slippage <= 0.5%", `require slippage <= ${bound}`)), NOW).slippage_bps; }
+    catch (e) { return e.code; }
+  };
+  for (const [bound, expected] of [["0.5%", 50], ["0.5 %", 50], ["50 bps", 50], ["50bps", 50], ["50 BPS", 50]]) {
+    assert.equal(lower(bound), expected, bound);
+  }
+  // A bare number was a guessed fraction (0.5 -> 50%); trailing words were dropped.
+  for (const bound of ["0.5", "0.005", "50", "50 bps extra", "50 percent", "bps"]) {
+    assert.equal(lower(bound), "X3_NEAR_BOUND_UNIT", bound);
+  }
 });
 
 test("BNB Chain aliases resolve and refunds require a complete EVM address", () => {
