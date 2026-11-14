@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from agent_constitution import AgentManifest
-from agent_runtime import Runtime, Adapter, Action, StampGatePolicy
+from agent_runtime import Runtime, Adapter, Action, StampGatePolicy, PolicyViolation
 from agent_scoped_stamp import StampRequest, issue_scoped_stamp
 
 
@@ -27,6 +27,8 @@ class ProtectedExecutionTests(unittest.TestCase):
         self.issuer = Ed25519PrivateKey.generate()
         self.executed = []
         def record_task(source):
+            if source == b"attacker-source":
+                raise PolicyViolation("deterministic recipient policy rejected")
             self.executed.append(source)
             return b"local-verified-output"
         self.adapter = Adapter("compile", "local-plan", 1, False, record_task,
@@ -91,6 +93,37 @@ class ProtectedExecutionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.make_runtime(stamp_policies=guarded)
         self.assertEqual(self.executed, [])
+
+    def test_full_local_lifecycle_stamp_violation_retirement_and_evidence(self):
+        # Real signatures, live source-binding, trusted adapter and SQLite state.
+        good = Action("test-agent", "compile-intent", b"valid-source", "good-1", 150)
+        signed_good = self.agent.sign(self.runtime.action_payload(good))
+        good_stamp = self.runtime.issue_stamp_for_action(good, signed_good, self.issuer)
+        self.assertEqual(self.runtime.execute(good, signed_good, stamp=good_stamp),
+                         b"local-verified-output")
+
+        # A valid scope stamp is NOT proof of semantic safety: the actual
+        # adapter still rejects the malformed program at execution time.
+        bad = Action("test-agent", "compile-intent", b"attacker-source", "bad-1", 150)
+        signed_bad = self.agent.sign(self.runtime.action_payload(bad))
+        bad_stamp = self.runtime.issue_stamp_for_action(bad, signed_bad, self.issuer)
+        with self.assertRaises(PolicyViolation):
+            self.runtime.execute(bad, signed_bad, stamp=bad_stamp)
+        self.assertEqual(self.executed, [b"valid-source"])
+        self.assertEqual(self.runtime.snapshot("test-agent")["status"], "retired")
+        # The operator can additionally revoke, and the entire hash-checked
+        # event sequence (including failure) survives a database reopen.
+        self.runtime.revoke("test-agent", "confirmed policy violation")
+        before = self.runtime.events()
+        self.assertTrue(any(json.loads(e["payload"])["kind"] == "retired" for e in before))
+        self.runtime = self.make_runtime()
+        self.assertEqual(self.runtime.snapshot("test-agent")["status"], "revoked")
+        self.assertEqual(before, self.runtime.events())
+        later = Action("test-agent", "compile-intent", b"valid-source", "later-1", 150)
+        signed_later = self.agent.sign(self.runtime.action_payload(later))
+        with self.assertRaises(ValueError):
+            self.runtime.issue_stamp_for_action(later, signed_later, self.issuer)
+        self.assertEqual(len(self.executed), 1)
 
     def test_valid_stamp_dispatches_once(self):
         self.attempt(stamp=self.stamp())
