@@ -169,6 +169,94 @@ fn refund_excess(excess: u128) {
     }
 }
 
+/// Issue #42: NEAR-finality-bound BNB settlement. A funding window's id is not
+/// chosen freely: it MUST be the SHA-256 commitment to every swap term plus the
+/// opaque BSC source binding, so any record stored under a window id has
+/// exactly the terms the BSC escrow derived that id from. Byte layout is pinned
+/// by the cross-language vector shared with `settlement.py` and
+/// `NearSettledBnbEscrow.sol`.
+const WINDOW_DOMAIN: &[u8] = b"X3-NEAR-BSC-WINDOW-V1";
+const SETTLEMENT_DOMAIN: &[u8] = b"X3-NEAR-SETTLEMENT-V1";
+/// Exact log line prefix a BSC-side verifier must match, byte for byte.
+pub const SETTLEMENT_LOG_PREFIX: &str = "X3_NEAR_SETTLEMENT_V1 ";
+
+/// Settlement outcome codes. `Registered` is evidence a window exists with
+/// exact terms; the other three are mutually exclusive terminal outcomes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SettlementOutcome {
+    Registered = 1,
+    Claimed = 2,
+    Refunded = 3,
+    NotFunded = 4,
+}
+
+fn push_account(buf: &mut Vec<u8>, account: &AccountId) {
+    let raw = account.as_str().as_bytes();
+    buf.extend_from_slice(&(raw.len() as u32).to_be_bytes());
+    buf.extend_from_slice(raw);
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(DIGITS[(b >> 4) as usize] as char);
+        out.push(DIGITS[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+
+/// Lowercase-hex window id committing to vault, parties, hashlock, amount,
+/// funding deadline, expiry and the 32-byte BSC source binding.
+pub fn derive_window_id(
+    vault: &AccountId,
+    initiator: &AccountId,
+    recipient: &AccountId,
+    hashlock: &[u8],
+    amount: u128,
+    deadline_ns: u64,
+    expiry_ns: u64,
+    source_binding: &[u8],
+) -> String {
+    assert_eq!(hashlock.len(), 32, "hashlock length");
+    assert_eq!(source_binding.len(), 32, "source binding must be 32 bytes");
+    let mut buf = Vec::with_capacity(256);
+    buf.extend_from_slice(WINDOW_DOMAIN);
+    push_account(&mut buf, vault);
+    push_account(&mut buf, initiator);
+    push_account(&mut buf, recipient);
+    buf.extend_from_slice(hashlock);
+    buf.extend_from_slice(&amount.to_be_bytes());
+    buf.extend_from_slice(&deadline_ns.to_be_bytes());
+    buf.extend_from_slice(&expiry_ns.to_be_bytes());
+    buf.extend_from_slice(source_binding);
+    lower_hex(&env::sha256(&buf))
+}
+
+/// The exact log line emitted for `outcome` of window `window_id_hex`.
+pub fn settlement_log_line(window_id_hex: &str, outcome: SettlementOutcome) -> String {
+    assert_eq!(window_id_hex.len(), 64, "window id length");
+    let mut raw = Vec::with_capacity(32);
+    for pair in window_id_hex.as_bytes().chunks(2) {
+        let hi = (pair[0] as char).to_digit(16).expect("window id hex");
+        let lo = (pair[1] as char).to_digit(16).expect("window id hex");
+        raw.push((hi * 16 + lo) as u8);
+    }
+    let mut buf = Vec::with_capacity(SETTLEMENT_DOMAIN.len() + 33);
+    buf.extend_from_slice(SETTLEMENT_DOMAIN);
+    buf.extend_from_slice(&raw);
+    buf.push(outcome as u8);
+    format!("{SETTLEMENT_LOG_PREFIX}{}", lower_hex(&env::sha256(&buf)))
+}
+
+/// Emitted as the LAST statement of a successful state transition, so no
+/// assertion can fail after it inside the same function call. A BSC verifier
+/// must still require the receipt's execution status to be successful: NEAR
+/// keeps logs of failed receipts in their outcomes.
+fn emit_settlement(window_id_hex: &str, outcome: SettlementOutcome) {
+    env::log_str(&settlement_log_line(window_id_hex, outcome));
+}
+
 fn check_swap_id(id: &str) {
     assert!(
         id.len() as u64 == SWAP_ID_LEN && id.bytes().all(|b| b.is_ascii_hexdigit()),
@@ -217,6 +305,11 @@ impl NativeNearHtlc {
     /// Testnet pilot: trusted registrar reserves a unique swap identity and a
     /// last funding deadline on-chain BEFORE the liquidity provider funds it.
     /// The registrar attaches the window record's storage stake.
+    ///
+    /// Issue #42: `id` must equal `derive_window_id` over the exact terms and
+    /// the BSC `source_binding`. The registrar therefore admits windows but
+    /// cannot bind an id to terms other than the ones it commits to. A
+    /// `Registered` settlement log is emitted for the BSC escrow's lock gate.
     #[payable]
     pub fn register_window(
         &mut self,
@@ -227,9 +320,27 @@ impl NativeNearHtlc {
         amount: U128,
         deadline_ns: u64,
         expiry_ns: u64,
+        source_binding: Base64VecU8,
     ) {
         assert_eq!(env::predecessor_account_id(), self.registrar, "registrar only");
         check_swap_id(&id);
+        assert_eq!(hashlock.0.len(), 32, "hashlock length");
+        assert_eq!(source_binding.0.len(), 32, "source binding must be 32 bytes");
+        assert!(source_binding.0.iter().any(|b| *b != 0), "zero source binding");
+        assert_eq!(
+            id,
+            derive_window_id(
+                &env::current_account_id(),
+                &initiator,
+                &recipient,
+                &hashlock.0,
+                amount.0,
+                deadline_ns,
+                expiry_ns,
+                &source_binding.0,
+            ),
+            "window id must commit to its terms"
+        );
         assert!(
             !self.swaps.contains_key(&id) && !self.windows.contains_key(&id),
             "id reserved"
@@ -257,11 +368,12 @@ impl NativeNearHtlc {
         let (storage, excess) = require_deposit(0, bytes);
         window.storage_deposit = storage;
         let before = env::storage_usage();
-        self.windows.insert(id, window);
+        self.windows.insert(id.clone(), window);
         self.verify_storage(before, bytes);
         self.live_windows += 1;
         self.storage_deposits = self.storage_deposits.checked_add(storage).expect("overflow");
         refund_excess(excess);
+        emit_settlement(&id, SettlementOutcome::Registered);
     }
 
     /// The provider can only fund the exact reserved terms before deadline. It
@@ -313,6 +425,7 @@ impl NativeNearHtlc {
         assert!(!self.swaps.contains_key(&id), "already funded");
         window.state = FundingWindowState::NotFunded;
         self.live_windows -= 1;
+        emit_settlement(&id, SettlementOutcome::NotFunded);
     }
 
     pub fn window_state(&self, id: String) -> Option<FundingWindowState> {
@@ -394,8 +507,14 @@ impl NativeNearHtlc {
 
     /// The source-chain observer must wait for THIS finalized credit state,
     /// not merely for the preimage to appear in a pending NEAR transaction.
+    ///
+    /// Issue #42: for a window-bound swap the `Claimed` settlement log is the
+    /// only NEAR fact that can pay the BSC liquidity provider. A failed claim
+    /// still discloses `preimage` in its arguments; that disclosure confers no
+    /// BSC payout because the BSC escrow accepts no preimage at all.
     pub fn claim(&mut self, id: String, preimage: Base64VecU8) {
         assert_eq!(preimage.0.len(), 32, "preimage must be 32 raw bytes");
+        let bound = self.windows.contains_key(&id);
         let swap = self.swaps.get_mut(&id).expect("unknown swap");
         assert_eq!(swap.state, SwapState::Locked, "not locked");
         assert_eq!(
@@ -410,19 +529,30 @@ impl NativeNearHtlc {
         swap.state = SwapState::Claimed;
         self.live_swaps -= 1;
         self.add_credit(recipient, amount);
+        if bound {
+            emit_settlement(&id, SettlementOutcome::Claimed);
+        }
     }
 
     /// Expiration assigns the initiator an on-chain withdrawal credit.
+    ///
+    /// Issue #42: callable by anyone once expired, and the credit still goes
+    /// only to the initiator. The BSC depositor must be able to drive an
+    /// unclaimed, funded window to its `Refunded` terminal state without the
+    /// liquidity provider's cooperation, or BNB could stay locked forever.
     pub fn refund(&mut self, id: String) {
+        let bound = self.windows.contains_key(&id);
         let swap = self.swaps.get_mut(&id).expect("unknown swap");
         assert_eq!(swap.state, SwapState::Locked, "not locked");
-        assert_eq!(swap.initiator, env::predecessor_account_id(), "not initiator");
         assert!(env::block_timestamp() >= swap.expires_at_ns, "not expired");
         let initiator = swap.initiator.clone();
         let amount = swap.amount;
         swap.state = SwapState::Refunded;
         self.live_swaps -= 1;
         self.add_credit(initiator, amount);
+        if bound {
+            emit_settlement(&id, SettlementOutcome::Refunded);
+        }
     }
 
     /// Only owner of credit can withdraw. Reject concurrent withdrawals for the same owner.
@@ -546,18 +676,41 @@ mod tests {
         c.window_deposit_required("lp.testnet".parse().unwrap(), "alice.testnet".parse().unwrap())
             .0
     }
-    fn register(c: &mut NativeNearHtlc, id: String, deadline: u64, expiry: u64) {
+    /// Distinct non-zero BSC source binding per index (stands in for distinct
+    /// BSC swaps; the NEAR contract treats it as opaque bytes).
+    fn binding(index: usize) -> Vec<u8> {
+        let mut b = vec![0xEEu8; 32];
+        b[..8].copy_from_slice(&(index as u64).to_be_bytes());
+        b
+    }
+    fn bound_id(index: usize, deadline: u64, expiry: u64) -> String {
+        derive_window_id(
+            &"x3-vault.testnet".parse().unwrap(),
+            &"lp.testnet".parse().unwrap(),
+            &"alice.testnet".parse().unwrap(),
+            &env::sha256(secret()),
+            ONE,
+            deadline,
+            expiry,
+            &binding(index),
+        )
+    }
+    /// Registers the window for source binding `index` and returns its id.
+    fn register(c: &mut NativeNearHtlc, index: usize, deadline: u64, expiry: u64) -> String {
+        let id = bound_id(index, deadline, expiry);
         let deposit = window_deposit(c);
         set("registrar.testnet", deposit, START);
         c.register_window(
-            id,
+            id.clone(),
             "lp.testnet".parse().unwrap(),
             "alice.testnet".parse().unwrap(),
             Base64VecU8(env::sha256(secret())),
             U128(ONE),
             deadline,
             expiry,
+            Base64VecU8(binding(index)),
         );
+        id
     }
     fn fund_deposit(c: &NativeNearHtlc) -> u128 {
         lock_deposit(c, "lp.testnet", "alice.testnet", ONE)
@@ -599,8 +752,8 @@ mod tests {
     #[test]
     fn funding_window_json_view_has_expected_wire_fields() {
         let mut c = new_testnet_vault();
-        register(&mut c, swap_id(), START + 600_000_000_000, START + 1_200_000_000_000);
-        let json = near_sdk::serde_json::to_value(c.get_window(swap_id()).unwrap()).unwrap();
+        let id = register(&mut c, 0, START + 600_000_000_000, START + 1_200_000_000_000);
+        let json = near_sdk::serde_json::to_value(c.get_window(id.clone()).unwrap()).unwrap();
         assert_eq!(json["state"], "Pending");
         assert!(json["deadline_ns"].is_number());
         assert!(json["hashlock"].is_array());
@@ -612,14 +765,14 @@ mod tests {
     fn can_never_close_funding_window_early_or_fund_at_deadline() {
         let mut c = new_testnet_vault();
         let deadline = START + 600_000_000_000;
-        register(&mut c, swap_id(), deadline, START + 1_200_000_000_000);
+        let id = register(&mut c, 0, deadline, START + 1_200_000_000_000);
         set("anyone.testnet", 0, deadline - 1);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.close_unfunded(swap_id()))).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.close_unfunded(id.clone()))).is_err());
         set("lp.testnet", fund_deposit(&c), deadline);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(id.clone()))).is_err());
         set("anyone.testnet", 0, deadline);
-        c.close_unfunded(swap_id());
-        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::NotFunded));
+        c.close_unfunded(id.clone());
+        assert_eq!(c.window_state(id.clone()), Some(FundingWindowState::NotFunded));
         assert_eq!(c.liability().0, 0);
         assert_eq!(c.live_windows, 0);
     }
@@ -636,30 +789,30 @@ mod tests {
     #[test]
     fn registered_window_can_be_irreversibly_closed_when_never_funded() {
         let mut c = new_testnet_vault();
-        register(&mut c, swap_id(), START + 600_000_000_000, START + 1_200_000_000_000);
-        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::Pending));
+        let id = register(&mut c, 0, START + 600_000_000_000, START + 1_200_000_000_000);
+        assert_eq!(c.window_state(id.clone()), Some(FundingWindowState::Pending));
         set("anyone.testnet", 0, START + 600_000_000_000);
-        c.close_unfunded(swap_id());
-        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::NotFunded));
-        assert!(c.get(swap_id()).is_none());
+        c.close_unfunded(id.clone());
+        assert_eq!(c.window_state(id.clone()), Some(FundingWindowState::NotFunded));
+        assert!(c.get(id.clone()).is_none());
         set("lp.testnet", fund_deposit(&c), START + 600_000_000_001);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(id.clone()))).is_err());
         let deposit = fund_deposit(&c);
-        assert!(!try_lock(&mut c, swap_id(), deposit, START + 1_200_000_000_000));
+        assert!(!try_lock(&mut c, id.clone(), deposit, START + 1_200_000_000_000));
         assert_eq!(c.liability().0, 0);
     }
 
     #[test]
     fn funded_window_cannot_be_closed_as_unfunded() {
         let mut c = new_testnet_vault();
-        register(&mut c, swap_id(), START + 600_000_000_000, START + 1_200_000_000_000);
+        let id = register(&mut c, 0, START + 600_000_000_000, START + 1_200_000_000_000);
         set("lp.testnet", fund_deposit(&c), START + 1);
-        c.fund_window(swap_id());
-        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::Funded));
-        assert_eq!(c.get(swap_id()).unwrap().amount, ONE);
+        c.fund_window(id.clone());
+        assert_eq!(c.window_state(id.clone()), Some(FundingWindowState::Funded));
+        assert_eq!(c.get(id.clone()).unwrap().amount, ONE);
         assert_eq!(c.liability().0, ONE);
         set("anyone.testnet", 0, START + 600_000_000_000);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.close_unfunded(swap_id()))).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.close_unfunded(id.clone()))).is_err());
     }
 
     #[test]
@@ -669,22 +822,23 @@ mod tests {
         set("stranger.testnet", deposit, START);
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.register_window(
-                swap_id(),
+                bound_id(0, START + 600_000_000_000, START + 1_200_000_000_000),
                 "lp.testnet".parse().unwrap(),
                 "alice.testnet".parse().unwrap(),
                 Base64VecU8(env::sha256(secret())),
                 U128(ONE),
                 START + 600_000_000_000,
-                START + 1_200_000_000_000
+                START + 1_200_000_000_000,
+                Base64VecU8(binding(0))
             )))
             .is_err()
         );
-        register(&mut c, swap_id(), START + 600_000_000_000, START + 1_200_000_000_000);
+        let id = register(&mut c, 0, START + 600_000_000_000, START + 1_200_000_000_000);
         set("attacker.testnet", fund_deposit(&c), START + 1);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(id.clone()))).is_err());
         set("lp.testnet", fund_deposit(&c) - 1, START + 2);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
-        assert_eq!(c.window_state(swap_id()), Some(FundingWindowState::Pending));
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(id.clone()))).is_err());
+        assert_eq!(c.window_state(id.clone()), Some(FundingWindowState::Pending));
         assert_eq!(c.liability().0, 0);
     }
 
@@ -735,17 +889,21 @@ mod tests {
         assert!(!try_lock(&mut c, swap_id(), deposit, START + 600_000_000_000));
     }
     #[test]
-    fn refund_credits_only_owner_after_expiry() {
+    /// Issue #42 changed refund from initiator-only to permissionless after
+    /// expiry. Who triggers it never changes who is credited.
+    fn refund_after_expiry_is_permissionless_but_credits_only_initiator() {
         let mut c = new_testnet_vault();
         lock(&mut c);
         set("lp.testnet", 0, START + 1);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.refund(swap_id()))).is_err());
-        set("other.testnet", 0, START + 600_000_000_000);
+        set("other.testnet", 0, START + 600_000_000_000 - 1);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.refund(swap_id()))).is_err());
-        set("lp.testnet", 0, START + 600_000_000_000);
+        set("other.testnet", 0, START + 600_000_000_000);
         c.refund(swap_id());
         assert_eq!(c.get(swap_id()).unwrap().state, SwapState::Refunded);
         assert_eq!(c.credit_of("lp.testnet".parse().unwrap()).0, ONE);
+        assert_eq!(c.credit_of("other.testnet".parse().unwrap()).0, 0);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.refund(swap_id()))).is_err());
     }
     #[test]
     fn withdrawal_moves_credit_to_inflight_without_double_spend() {
@@ -860,32 +1018,27 @@ mod tests {
     #[test]
     fn live_window_limit_is_fail_closed() {
         let mut c = new_testnet_vault();
+        let (deadline, expiry) = (START + 600_000_000_000, START + 1_200_000_000_000);
+        let mut first = String::new();
         for i in 0..MAX_LIVE_WINDOWS as usize {
-            register(
-                &mut c,
-                swap_id_at(i),
-                START + 600_000_000_000,
-                START + 1_200_000_000_000,
-            );
+            let id = register(&mut c, i, deadline, expiry);
+            if i == 0 {
+                first = id;
+            }
         }
         assert_eq!(c.live_windows, MAX_LIVE_WINDOWS);
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| register(
             &mut c,
-            swap_id_at(MAX_LIVE_WINDOWS as usize),
-            START + 600_000_000_000,
-            START + 1_200_000_000_000
+            MAX_LIVE_WINDOWS as usize,
+            deadline,
+            expiry
         )))
         .is_err());
         // Funding one window frees a window slot (counter, not a storage scan).
         set("lp.testnet", fund_deposit(&c), START + 1);
-        c.fund_window(swap_id_at(0));
+        c.fund_window(first);
         assert_eq!(c.live_windows, MAX_LIVE_WINDOWS - 1);
-        register(
-            &mut c,
-            swap_id_at(MAX_LIVE_WINDOWS as usize),
-            START + 600_000_000_000,
-            START + 1_200_000_000_000,
-        );
+        register(&mut c, MAX_LIVE_WINDOWS as usize, deadline, expiry);
     }
 
     // ---- issue #71: storage economics -------------------------------------
@@ -1034,26 +1187,29 @@ mod tests {
         set("registrar.testnet", 0, START);
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.register_window(
-                swap_id(),
+                bound_id(0, START + 600_000_000_000, START + 1_200_000_000_000),
                 "lp.testnet".parse().unwrap(),
                 "alice.testnet".parse().unwrap(),
                 Base64VecU8(env::sha256(secret())),
                 U128(ONE),
                 START + 600_000_000_000,
-                START + 1_200_000_000_000
+                START + 1_200_000_000_000,
+                Base64VecU8(binding(0))
             )))
             .is_err()
         );
-        assert!(c.get_window(swap_id()).is_none());
-        register(&mut c, swap_id(), START + 600_000_000_000, START + 1_200_000_000_000);
+        assert!(c
+            .get_window(bound_id(0, START + 600_000_000_000, START + 1_200_000_000_000))
+            .is_none());
+        let id = register(&mut c, 0, START + 600_000_000_000, START + 1_200_000_000_000);
         let window_stake = window_deposit(&c);
         assert_eq!(c.storage_deposits().0, window_stake);
         // Old behaviour: exact principal. Now refused; principal plus storage accepted.
         set("lp.testnet", ONE, START + 1);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(swap_id()))).is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.fund_window(id.clone()))).is_err());
         assert_eq!(c.liability().0, 0);
         set("lp.testnet", fund_deposit(&c), START + 1);
-        c.fund_window(swap_id());
+        c.fund_window(id.clone());
         assert_eq!(c.liability().0, ONE);
         assert_eq!(c.storage_deposits().0, window_stake + fund_deposit(&c) - ONE);
     }
@@ -1112,5 +1268,270 @@ mod tests {
         assert_eq!(c.liability().0, owed);
         // Terminal records remain as anti-replay tombstones.
         assert!(!try_lock(&mut c, swap_id_at(0), deposit, START + 600_000_000_000));
+    }
+
+    // ---- issue #42: NEAR-finality-bound BSC settlement --------------------
+
+    const DEADLINE: u64 = START + 600_000_000_000;
+    const EXPIRY: u64 = START + 1_200_000_000_000;
+
+    fn settlement_logs() -> Vec<String> {
+        near_sdk::test_utils::get_logs()
+            .into_iter()
+            .filter(|l| l.starts_with(SETTLEMENT_LOG_PREFIX))
+            .collect()
+    }
+    fn fails<R>(f: impl FnOnce() -> R) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err()
+    }
+    fn funded_window(c: &mut NativeNearHtlc) -> String {
+        let id = register(c, 0, DEADLINE, EXPIRY);
+        set("lp.testnet", fund_deposit(c), START + 1);
+        c.fund_window(id.clone());
+        assert!(settlement_logs().is_empty(), "funding is not a settlement outcome");
+        id
+    }
+
+    /// The same bytes are pinned in `test_settlement.py` (Python) and
+    /// `NearSettledBnbEscrow.t.sol` (Solidity). Any layout drift breaks all three.
+    #[test]
+    fn settlement_encoding_matches_cross_language_vector() {
+        set("anyone.testnet", 0, START);
+        let hashlock = env::sha256(secret());
+        assert_eq!(
+            lower_hex(&hashlock),
+            "648aa5c579fb30f38af744d97d6ec840c7a91277a499a0d780f3e7314eca090b"
+        );
+        let mut binding = [0u8; 32];
+        let raw = "f9ceb35c05cbdd513aa7342a5ba33dd8538a9580668cea14017b5ef7f91d05aa";
+        for (i, b) in binding.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&raw[2 * i..2 * i + 2], 16).unwrap();
+        }
+        let id = derive_window_id(
+            &"x3-vault.testnet".parse().unwrap(),
+            &"lp.testnet".parse().unwrap(),
+            &"alice.testnet".parse().unwrap(),
+            &hashlock,
+            ONE,
+            1_700_000_600_000_000_000,
+            1_700_001_200_000_000_000,
+            &binding,
+        );
+        assert_eq!(id, "9d66ddfe92e56e993dd87e2f7ca53b87e39ceb35325cc44b404c0a8eb87de110");
+        let expected = [
+            (
+                SettlementOutcome::Registered,
+                "4b7b258b6db8ae6b3979c0ef505ecf625c0ab59727439d980ce017b01fa04808",
+            ),
+            (
+                SettlementOutcome::Claimed,
+                "c956f53937ecff906f42672b636a1b8216fd7beade6dd7eeaaa2074e52d9177e",
+            ),
+            (
+                SettlementOutcome::Refunded,
+                "561cc941f2d1e81c86d2d428753acae16de924e836c2d9b589dbbc4a303bbb17",
+            ),
+            (
+                SettlementOutcome::NotFunded,
+                "e440e5dd802c852009e6e7315b05e404404d8f6f861d4a2f114ee9014dde9dff",
+            ),
+        ];
+        for (outcome, commitment) in expected {
+            assert_eq!(
+                settlement_log_line(&id, outcome),
+                format!("X3_NEAR_SETTLEMENT_V1 {commitment}")
+            );
+        }
+    }
+
+    #[test]
+    fn window_id_must_commit_to_every_term_and_the_source_binding() {
+        let mut c = new_testnet_vault();
+        let good = bound_id(0, DEADLINE, EXPIRY);
+        let attempt = |c: &mut NativeNearHtlc, id: String, amount: u128, recipient: &str, bind: Vec<u8>| {
+            let deposit = window_deposit(c);
+            set("registrar.testnet", deposit, START);
+            fails(|| {
+                c.register_window(
+                    id,
+                    "lp.testnet".parse().unwrap(),
+                    recipient.parse().unwrap(),
+                    Base64VecU8(env::sha256(secret())),
+                    U128(amount),
+                    DEADLINE,
+                    EXPIRY,
+                    Base64VecU8(bind),
+                )
+            })
+        };
+        // Same id, but terms that differ from what the id commits to.
+        assert!(attempt(&mut c, good.clone(), ONE + 1, "alice.testnet", binding(0)));
+        assert!(attempt(&mut c, good.clone(), ONE, "lp.testnet", binding(0)));
+        assert!(attempt(&mut c, good.clone(), ONE, "alice.testnet", binding(1)));
+        assert!(attempt(&mut c, good.to_uppercase(), ONE, "alice.testnet", binding(0)));
+        assert!(attempt(&mut c, swap_id(), ONE, "alice.testnet", binding(0)));
+        assert!(attempt(&mut c, good.clone(), ONE, "alice.testnet", vec![0u8; 32]));
+        assert!(attempt(&mut c, good.clone(), ONE, "alice.testnet", vec![1u8; 31]));
+        assert!(c.get_window(good.clone()).is_none());
+        assert_eq!(c.live_windows, 0);
+        assert!(!attempt(&mut c, good.clone(), ONE, "alice.testnet", binding(0)));
+        assert_eq!(c.window_state(good), Some(FundingWindowState::Pending));
+    }
+
+    #[test]
+    fn registration_emits_exactly_the_registered_settlement_log() {
+        let mut c = new_testnet_vault();
+        let id = register(&mut c, 0, DEADLINE, EXPIRY);
+        assert_eq!(
+            settlement_logs(),
+            vec![settlement_log_line(&id, SettlementOutcome::Registered)]
+        );
+    }
+
+    /// The issue #42 attack surface on NEAR: a claim that fails for any reason
+    /// (wrong caller, wrong preimage, landing at expiry) must never emit the
+    /// `Claimed` settlement log, and must leave the swap refundable.
+    #[test]
+    fn failed_claims_emit_no_settlement_log_and_success_emits_exactly_one() {
+        let mut c = new_testnet_vault();
+        let id = funded_window(&mut c);
+        set("lp.testnet", 0, START + 2);
+        assert!(fails(|| c.claim(id.clone(), Base64VecU8(secret()))));
+        assert!(settlement_logs().is_empty());
+        set("alice.testnet", 0, START + 2);
+        assert!(fails(|| c.claim(id.clone(), Base64VecU8(vec![4u8; 32]))));
+        assert!(settlement_logs().is_empty());
+        set("alice.testnet", 0, EXPIRY);
+        assert!(fails(|| c.claim(id.clone(), Base64VecU8(secret()))));
+        assert!(settlement_logs().is_empty());
+        assert_eq!(c.get(id.clone()).unwrap().state, SwapState::Locked);
+        assert_eq!(c.credit_of("alice.testnet".parse().unwrap()).0, 0);
+        // The preimage is now public, yet the swap is still only refundable.
+        set("anyone.testnet", 0, EXPIRY);
+        c.refund(id.clone());
+        assert_eq!(
+            settlement_logs(),
+            vec![settlement_log_line(&id, SettlementOutcome::Refunded)]
+        );
+        assert_eq!(c.credit_of("lp.testnet".parse().unwrap()).0, ONE);
+        set("alice.testnet", 0, EXPIRY + 1);
+        assert!(fails(|| c.claim(id.clone(), Base64VecU8(secret()))));
+        assert!(settlement_logs().is_empty());
+    }
+
+    #[test]
+    fn claim_one_nanosecond_before_expiry_is_terminal_and_excludes_refund() {
+        let mut c = new_testnet_vault();
+        let id = funded_window(&mut c);
+        set("alice.testnet", 0, EXPIRY - 1);
+        c.claim(id.clone(), Base64VecU8(secret()));
+        assert_eq!(
+            settlement_logs(),
+            vec![settlement_log_line(&id, SettlementOutcome::Claimed)]
+        );
+        assert_eq!(c.credit_of("alice.testnet".parse().unwrap()).0, ONE);
+        set("lp.testnet", 0, EXPIRY);
+        assert!(fails(|| c.refund(id.clone())));
+        set("alice.testnet", 0, EXPIRY);
+        assert!(fails(|| c.claim(id.clone(), Base64VecU8(secret()))));
+        assert!(settlement_logs().is_empty());
+        assert_eq!(c.credit_of("lp.testnet".parse().unwrap()).0, 0);
+    }
+
+    #[test]
+    fn refund_one_nanosecond_before_expiry_fails_and_at_expiry_is_terminal() {
+        let mut c = new_testnet_vault();
+        let id = funded_window(&mut c);
+        set("alice.testnet", 0, EXPIRY - 1);
+        assert!(fails(|| c.refund(id.clone())));
+        assert!(settlement_logs().is_empty());
+        set("alice.testnet", 0, EXPIRY);
+        c.refund(id.clone());
+        assert_eq!(
+            settlement_logs(),
+            vec![settlement_log_line(&id, SettlementOutcome::Refunded)]
+        );
+    }
+
+    #[test]
+    fn omitted_funding_closes_with_not_funded_log_and_nothing_follows() {
+        let mut c = new_testnet_vault();
+        let id = register(&mut c, 0, DEADLINE, EXPIRY);
+        set("alice.testnet", 0, DEADLINE - 1);
+        assert!(fails(|| c.close_unfunded(id.clone())));
+        assert!(settlement_logs().is_empty());
+        set("alice.testnet", 0, DEADLINE);
+        c.close_unfunded(id.clone());
+        assert_eq!(
+            settlement_logs(),
+            vec![settlement_log_line(&id, SettlementOutcome::NotFunded)]
+        );
+        set("lp.testnet", fund_deposit(&c), DEADLINE + 1);
+        assert!(fails(|| c.fund_window(id.clone())));
+        set("alice.testnet", 0, DEADLINE + 2);
+        assert!(fails(|| c.close_unfunded(id.clone())));
+        assert!(fails(|| c.claim(id.clone(), Base64VecU8(secret()))));
+        assert!(settlement_logs().is_empty());
+    }
+
+    /// A direct `lock()` can occupy a window id before registration (griefing
+    /// only: the BSC escrow then never sees a `Registered` proof, so the
+    /// depositor never locks BNB) but it can never emit a settlement log.
+    #[test]
+    fn direct_lock_squatting_a_window_id_cannot_forge_settlement() {
+        let mut c = new_testnet_vault();
+        let id = bound_id(0, DEADLINE, EXPIRY);
+        // The attacker names itself recipient so it could claim its own lock.
+        lock_as(&mut c, id.clone(), "lp.testnet", "lp.testnet", ONE, START);
+        let deposit = window_deposit(&c);
+        set("registrar.testnet", deposit, START);
+        assert!(fails(|| c.register_window(
+            id.clone(),
+            "lp.testnet".parse().unwrap(),
+            "alice.testnet".parse().unwrap(),
+            Base64VecU8(env::sha256(secret())),
+            U128(ONE),
+            DEADLINE,
+            EXPIRY,
+            Base64VecU8(binding(0)),
+        )));
+        set("lp.testnet", 0, START + 1);
+        c.claim(id.clone(), Base64VecU8(secret()));
+        assert!(settlement_logs().is_empty(), "unbound swap emitted settlement");
+        // Ordinary unbound swaps never emit settlement logs either.
+        lock(&mut c);
+        set("other.testnet", 0, START + 600_000_000_000);
+        c.refund(swap_id());
+        assert!(settlement_logs().is_empty());
+    }
+
+    #[test]
+    fn same_hashlock_across_windows_settles_each_window_independently() {
+        let mut c = new_testnet_vault();
+        let first = register(&mut c, 0, DEADLINE, EXPIRY);
+        let second = register(&mut c, 1, DEADLINE, EXPIRY);
+        assert_ne!(first, second);
+        for id in [&first, &second] {
+            set("lp.testnet", fund_deposit(&c), START + 1);
+            c.fund_window(id.clone());
+        }
+        set("alice.testnet", 0, START + 2);
+        c.claim(first.clone(), Base64VecU8(secret()));
+        assert_eq!(
+            settlement_logs(),
+            vec![settlement_log_line(&first, SettlementOutcome::Claimed)]
+        );
+        // The secret is public after the first claim; the second window's
+        // outcome is still decided only by its own on-chain transition.
+        set("anyone.testnet", 0, EXPIRY);
+        c.refund(second.clone());
+        assert_eq!(
+            settlement_logs(),
+            vec![settlement_log_line(&second, SettlementOutcome::Refunded)]
+        );
+        assert_ne!(
+            settlement_log_line(&first, SettlementOutcome::Claimed),
+            settlement_log_line(&second, SettlementOutcome::Claimed)
+        );
     }
 }
