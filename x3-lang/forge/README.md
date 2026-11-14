@@ -5,7 +5,7 @@ tree, plug the agent into its connections, and an alien grows from what you buil
 compiles to a real `.x3` mandate and an Agent Law runtime manifest. The creature is a picture of
 those compiled artifacts and nothing else.
 
-**Status: implemented and tested locally. Not deployed. Not on chain.** The Forge prints the
+**Status: implemented and tested. Deploy script for forge.dotx3.net included; not on chain.** The Forge prints the
 x3-guard `create_mandate` / `revoke_mandate` calls. The owner signs and sends them. The Forge
 never holds a NEAR key, an operator private key or an agent private key.
 
@@ -43,8 +43,10 @@ Options:
 - `FORGE_SETUP_TOKEN`: choose the claim token instead of a random one.
 - `--secure-cookie`: set this when the host is served over HTTPS.
 
-The host binds to 127.0.0.1. To expose it (for example `forge.dotx3.net`), put it behind
-Cloudflare Access like the other x3star.net demo pages and pass `--secure-cookie`.
+The host binds to 127.0.0.1 and refuses any other address unless `FORGE_ACCESS_MODE=access`,
+which makes it refuse every request without the owner's Cloudflare Access JWT
+(`FORGE_ACCESS_TEAM_DOMAIN`, `FORGE_ACCESS_AUD`, `FORGE_OWNER_EMAIL`). To host it at
+`forge.dotx3.net`, use `deploy/forge/deploy.sh up` (see `deploy/forge/README.md`).
 
 ## Connections
 
