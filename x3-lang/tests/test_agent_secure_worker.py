@@ -241,7 +241,22 @@ class SecureWorkerTests(unittest.TestCase):
         self.root.chmod(0o2710)
         self.db.chmod(0o400)
         gateway = LocalToolGateway(self.runtime, {"compile-intent": self.issuer})
+        # Set stop first, as the sibling tests do: if the check regresses, the
+        # worker returns instead of serving forever and hanging CI.
+        self.stop.set()
         with self.assertRaisesRegex(ValueError, "worker database file must be writable"):
+            serve_unix_worker(gateway, self.path, allowed_uids={os.geteuid()+1},
+                              stop_event=self.stop, client_group=os.getegid())
+        self.assertFalse(self.path.exists())
+
+    def test_group_mode_rejects_read_only_database_directory(self):
+        from agent_tool_gateway import LocalToolGateway
+        self.root.chmod(0o2710)
+        self.private.chmod(0o500)
+        self.addCleanup(self.private.chmod, 0o700)
+        gateway = LocalToolGateway(self.runtime, {"compile-intent": self.issuer})
+        self.stop.set()
+        with self.assertRaisesRegex(ValueError, "worker database directory must be writable"):
             serve_unix_worker(gateway, self.path, allowed_uids={os.geteuid()+1},
                               stop_event=self.stop, client_group=os.getegid())
         self.assertFalse(self.path.exists())

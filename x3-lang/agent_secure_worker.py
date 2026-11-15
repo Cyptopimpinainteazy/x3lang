@@ -94,10 +94,19 @@ def _check_worker_database_privacy(gateway: LocalToolGateway) -> None:
     if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid()
             or stat.S_IMODE(parent.st_mode) & 0o077):
         raise ValueError("worker database directory must be private")
+    # SQLite creates its rollback journal beside the database, so the worker
+    # needs owner read, write and search on the directory, not just the file.
+    if stat.S_IMODE(parent.st_mode) & stat.S_IRWXU != stat.S_IRWXU:
+        raise ValueError("worker database directory must be writable by the worker")
     current = os.lstat(database)
     if (not stat.S_ISREG(current.st_mode) or current.st_uid != os.geteuid()
             or stat.S_IMODE(current.st_mode) & 0o077):
         raise ValueError("worker database file must be private")
+    # A read-only database would start a worker that fails on its first
+    # spend-ledger write; refuse at startup instead.
+    owner_rw = stat.S_IRUSR | stat.S_IWUSR
+    if stat.S_IMODE(current.st_mode) & owner_rw != owner_rw:
+        raise ValueError("worker database file must be writable by the worker")
 
 
 def _handle_connection(conn: socket.socket, gateway: LocalToolGateway,
