@@ -5,7 +5,23 @@ compiler checks and NEAR Guard to constrain AI-agent payment proposals.
 
 **Nine evidenced capabilities: six core payment capabilities plus three additional local capabilities.** The source hashes are identity records, not deployed payment-program pinning; that separate contract change is not part of this demonstration.
 
-**If you have 90 seconds:** [read the judge pitch and three-proof sequence](docs/hackathon/JUDGE_PITCH_90_SECONDS.md). It includes a 30-second opener, live evidence links, four-track fit and answers to the hardest questions.\n\n## Two-minute evidence route — no setup or wallet
+**If you have 90 seconds:** [read the judge pitch and three-proof sequence](docs/hackathon/JUDGE_PITCH_90_SECONDS.md). It includes a 30-second opener, live evidence links, four-track fit and answers to the hardest questions.
+
+## Complete evidence directory — separate proof levels
+
+| Capability | Proof and reproduction | Boundary |
+| --- | --- | --- |
+| Newer agent-executed vault payment | [Archived 5-USDC source transfer, 4.999746-USDC NEAR payout, signed quote and post-state](https://github.com/Cyptopimpinainteazy/x3lang/blob/9ec3b48000bcada0ceb20df85d0d7e5eeed744bb/evidence/solana-vault-mainnet-2026-11-14/README.md); [offline verifier](https://github.com/Cyptopimpinainteazy/x3lang/blob/9ec3b48000bcada0ceb20df85d0d7e5eeed744bb/evidence/solana-vault-mainnet-2026-11-14/verify_archived.py) | Owner approved the exact quote; Solana policy PDA enforced execution. Separate from NEAR Guard. One RPC per chain; provider association is not cryptographic atomicity. Owner retains upgrade authority; source-to-SBF identity is not established. The generic receipt verifier rejects differing request/program deadlines; use the archive's separate checks and retain the original receipt. |
+| Earlier owner-assisted payment and enforced limits | [invoice_06 proof card](PROOF_CARD.md), [limits](docs/hackathon/VIDEO_WALKTHROUGH.md#the-limits-behind-this-payment), `python3 scripts/hackathon/invoice06_chain.py --json` | Owner funded 25 USDC; 24.9952 USDC arrived on NEAR. Guard authorization is separate from source custody and outcome-hash authentication. |
+| Signed admission, durable retirement and incident review | [Local innovation matrix](#additional-innovations--separate-local-evidence) links runtime, tests and archived lifecycle | Local trusted host and scripted jurors; no independent AI jury or public-chain custody. |
+| Scoped Sandbox vault | [Complete-path report](evidence/agent-vault-local/complete-path-sandbox-20261113.json) | Real local NEAR Sandbox; separate from both mainnet payments. |
+| Four track perspectives | [Security, Agents, Business and DeFi](README.md#track-perspectives) | Shared evidence, not four independent production products or organizer acceptance. |
+| Recorded demo | [2:27 payment/limits/proof video](https://dotx3.net/media/x3-force-field-mainnet-20261113.mp4) | Records the earlier invoice_06 proof; it does not show the newer vault pilot. |
+| Interactive and machine-readable review | [Policy checker](https://dotx3.net/playground), [archived browser verifier](https://dotx3.net/labs/force-field/verify.html), [claim index](submission/judge-claims.json) | Local decisions and archived records, not fresh consensus verification. |
+
+Still requiring confirmation: owner-published native X post and organizer submission receipt. The merged DX3HACK faucet page is an additional interface, not proof of a live coin or successful mint. Hosting must remain available through November 18 if listed as the demo. Do not change Guard contracts or merge held #202 for judging.
+
+## Two-minute evidence route — no setup or wallet
 
 **No install: try it in your browser at [dotx3.net](https://dotx3.net).** [Break the Mandate](https://dotx3.net/labs/force-field/index.html) runs 12 attacks against the mandate, [Agent Court](https://dotx3.net/labs/court/index.html) lets you write a mandate, send an agent through a day of attacks and amend the law, and [Verify](https://dotx3.net/labs/force-field/verify.html) SHA-256-checks the archived invoice_06 mainnet evidence in the page.
 

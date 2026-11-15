@@ -24,7 +24,7 @@ Limits: one owner-assisted ~$25 run. Guard is noncustodial and does not authenti
 
 Reproduction: [one pinned commit, setup and expected outputs](../JUDGES.md#reproduce-the-same-payments-checks--offline-after-setup).
 Nine capabilities = six core payment claims + three additional local capabilities.
-Video/X links below remain pending; a recording script is not a published demo.
+The 2:27 video is available below. The native X post and organizer receipt still require owner confirmation.
 
 The public video and X post are owner-published. Replace the placeholders only after verifying signed-out URLs.
 
@@ -41,7 +41,7 @@ The public video and X post are owner-published. Replace the placeholders only a
 - Authenticated light-client design and limits:
   https://github.com/Cyptopimpinainteazy/x3lang/blob/master/docs/security/NEAR_AUTHENTICATED_LIGHT_CLIENT.md
 - Judge path: README "Try it: do X, see Y"; all gates: `bash scripts/hackathon/judge_one_command.sh /tmp/x3-shield-judge`
-- Demo video: OWNER TO ATTACH PUBLIC URL AFTER RECORDING
+- Demo video: https://dotx3.net/media/x3-force-field-mainnet-20261113.mp4 (2:27; earlier invoice_06 proof)
 - Public X post: OWNER TO ATTACH PUBLIC URL AFTER POSTING
 
 ## Differentiators and evidence for reviewers
@@ -94,3 +94,9 @@ rejects the submission. The human must supply lead name, contact email, team siz
 account, public video/X links, and organizer-contact consent. Do not fabricate
 or infer these fields. Do not submit the form until the owner confirms the
 complete payload.
+
+## Complete supporting evidence beyond the form description
+
+[Complete evidence directory](../JUDGES.md#complete-evidence-directory--separate-proof-levels) links both mainnet payments, exact limits, local innovations, four track perspectives, the finished video and reproduction tools. The newer [agent-executed vault pilot](https://github.com/Cyptopimpinainteazy/x3lang/blob/9ec3b48000bcada0ceb20df85d0d7e5eeed744bb/evidence/solana-vault-mainnet-2026-11-14/README.md) moved 5 USDC from a Solana policy vault and delivered 4.999746 USDC on NEAR after owner approval of the exact quote. It is separate from invoice_06 and adds no new NEAR Guard call. See its offline verifier and explicit RPC, upgrade-authority, build-identity and deadline-mismatch limitations. The video predates this newer pilot.
+
+Pending owner evidence: signed-out native X post URL and organizer submission receipt. Website remains empty in the form. Faucet UI is not evidence of a live coin or successful mint.
