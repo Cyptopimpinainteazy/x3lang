@@ -6,7 +6,7 @@
 
 **Tracks:** AI Security & Defense (`security`, primary), Agent Economy (`agents`), Autonomous Business (`business`) and Unstoppable DeFi (`defi`). Owner-confirmed selection; not a claim of organizer acceptance or a submission receipt.
 
-## 20–2,000 character description (1948 characters, LF)
+## 20–2,000 character description (1963 characters, LF)
 
 X3 Force Field (formerly X3 Shield) combines typed .x3 owner policy, deterministic checks and signed-quote enforcement for AI-agent payments.
 
@@ -18,7 +18,7 @@ Mainnet invoice_06: following owner approval, a restricted key accepted a quote 
 
 Other local evidence: 8/8 scripted red-team attacks and 3/3 replayed wallet-drain attacks refused, authorized control allowed; 9 unsafe edits fail compilation. Historical testnet Guard evidence includes attacker.near refusal.
 
-Limits: one owner-assisted ~$25 run. Guard is noncustodial and does not authenticate outcome hashes. The agent account retains an owner FullAccess recovery key. Provider association is not cryptographic cross-chain atomicity; no native X3VM runs on-chain. Compiler/VM predate the hackathon; NEAR integration is new work.
+Limits: invoice_06 was one owner-assisted ~$25 run. Guard is noncustodial and does not authenticate outcome hashes. The agent account retains an owner FullAccess recovery key. Provider association is not cryptographic cross-chain atomicity; no native X3VM runs on-chain. Compiler/VM predate the hackathon; NEAR integration is new work.
 
 ## Public links
 
@@ -26,7 +26,7 @@ Reproduction: [one pinned commit, setup and expected outputs](../JUDGES.md#repro
 Nine capabilities = six core payment claims + three additional local capabilities.
 The 2:27 video is available below. The native X post and organizer receipt still require owner confirmation.
 
-The public video and X post are owner-published. Replace the placeholders only after verifying signed-out URLs.
+The video is available. The native X post remains pending owner confirmation; replace its placeholder only after verifying a signed-out URL.
 
 - Repository: https://github.com/Cyptopimpinainteazy/x3lang
 - Testnet evidence: `docs/hackathon/GUARD_TESTNET_EVIDENCE.md`
