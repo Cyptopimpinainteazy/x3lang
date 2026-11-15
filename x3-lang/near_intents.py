@@ -1909,13 +1909,21 @@ def _signed_quote(receipt: Dict[str, Any]) -> Dict[str, Any]:
         raise NearIntentsError("X3_EVIDENCE_BINDING",
                                "receipt deposit metadata differs from the signed live quote")
     leg = receipt.get("leg") or {}
+    # These two deadlines are separate claims about authorization. Never use
+    # the provider's later deposit deadline to silently extend the signed
+    # request or a compiled leg. In particular, the Nov 14 source-vault pilot
+    # recorded a later compiled-leg expiry than its signed 1Click request.
+    leg_deadline_mismatch = (
+        not leg.get("deadline")
+        or parse_timestamp(leg["deadline"]) != parse_timestamp(saved_request["deadline"])
+    )
     if (str(leg.get("amount")) != str(saved_request.get("amount"))
             or leg.get("recipient") != saved_request.get("recipient")
             or leg.get("refund_to") != saved_request.get("refundTo")
-            or not leg.get("deadline")
-            or parse_timestamp(leg["deadline"]) != parse_timestamp(saved_request["deadline"])):
+            or leg_deadline_mismatch):
+        reason = " (deadline mismatch)" if leg_deadline_mismatch else ""
         raise NearIntentsError("X3_EVIDENCE_BINDING",
-                               "receipt leg differs from the request signed by 1Click")
+                               "receipt leg differs from the request signed by 1Click" + reason)
     tokens = receipt.get("tokens") or {}
     if ((tokens.get("origin") or {}).get("assetId") != saved_request.get("originAsset")
             or (tokens.get("destination") or {}).get("assetId") != saved_request.get("destinationAsset")):
