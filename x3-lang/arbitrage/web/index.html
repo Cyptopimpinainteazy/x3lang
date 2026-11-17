@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>X3 Arbitrage · Route intelligence</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.mjs"></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="X3 Arbitrage home"
+        ><b>×3</b><span>ARBITRAGE<small>ROUTE INTELLIGENCE</small></span></a
+      >
+      <div class="nav-label">WORKSPACE</div>
+      <a class="nav active" href="#scanner">◈ &nbsp; Opportunity scanner</a
+      ><a class="nav" href="#journal">▤ &nbsp; Paper journal</a>
+      <div class="sidebar-bottom">
+        <span class="dot"></span> LOCAL WORKSPACE<small
+          >Powered by .x3<br />Owner-controlled execution</small
+        >
+      </div>
+    </aside>
+    <main>
+      <header>
+        <span>Markets <span class="slash">/</span> Opportunity scanner</span
+        ><span id="mode" class="badge">CONNECTING</span>
+      </header>
+      <section id="scanner" class="intro">
+        <div>
+          <div class="eyebrow">FIND THE EDGE. KNOW THE COST.</div>
+          <h1>Across chains.<br /><span>Within your rules.</span></h1>
+          <p>
+            Inspect the route, price the friction, export your .x3 strategy.
+          </p>
+        </div>
+        <div class="intro-action">
+          <button id="refresh" class="primary">↻ &nbsp; Refresh markets</button
+          ><small id="updated">Waiting for scanner</small>
+        </div>
+      </section>
+      <div id="notice" class="notice" role="status">Loading market state…</div>
+      <section class="metrics" aria-label="Scanner summary">
+        <article>
+          <span>OBSERVED ROUTES</span><strong id="route-count">—</strong
+          ><small>Full round-trip projections</small>
+        </article>
+        <article>
+          <span>PAPER ELIGIBLE</span><strong id="eligible-count">—</strong
+          ><small>Fresh quotes · known cost estimate</small>
+        </article>
+        <article>
+          <span>BEST PROJECTED EDGE</span><strong id="best-edge">—</strong
+          ><small>After stated costs · not a reserved fill</small>
+        </article>
+        <article>
+          <span>EXECUTION MODE</span
+          ><strong class="small-value">Read & prepare</strong
+          ><small>Wallet signing stays separate</small>
+        </article>
+      </section>
+      <section class="board">
+        <div class="section-head">
+          <div>
+            <h2>Opportunity scanner <span class="live-dot"></span></h2>
+            <p>Route economics with the assumptions left visible.</p>
+          </div>
+          <span class="badge muted">SPOT / CROSS-CHAIN</span>
+        </div>
+        <div class="filters">
+          <label
+            ><span>SEARCH</span
+            ><input
+              id="search"
+              type="search"
+              placeholder="Chain, venue, asset…" /></label
+          ><label
+            ><span>ROUTE TYPE</span
+            ><select id="kind">
+              <option value="">All routes</option>
+              <option value="cross-chain">Cross-chain</option>
+              <option value="cex-inventory">CEX inventory</option>
+            </select></label
+          ><label
+            ><span>MIN. EDGE</span
+            ><select id="edge">
+              <option value="">All spreads</option>
+              <option value="0">Positive only</option>
+              <option value="100">Above 1%</option>
+              <option value="200">Above 2%</option>
+            </select></label
+          ><label class="check"
+            ><input id="eligible" type="checkbox" /> Paper eligible only</label
+          >
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>MARKET / ROUTE</th>
+                <th>INPUT</th>
+                <th>PROJECTED NET</th>
+                <th>EDGE</th>
+                <th>STATUS</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="routes"></tbody>
+          </table>
+        </div>
+        <p id="empty" hidden class="empty">
+          No routes match. Adjust the filters or refresh markets.
+        </p>
+        <div class="table-foot">
+          <span id="visible-count">0 routes</span
+          ><span>Exact base-unit math · conservative output floors</span>
+        </div>
+      </section>
+      <section class="lower">
+        <article class="explain">
+          <div class="eyebrow">FROM SIGNAL TO SOURCE</div>
+          <h2>Your edge. Your .x3 rules.</h2>
+          <p>
+            Export an individual leg with a minimum delivery, fee ceiling,
+            slippage bound, nonce, and refund path. Compile it before asking for
+            a live quote.
+          </p>
+          <div class="steps">
+            <span>01 <b>Discover</b></span
+            ><i>→</i><span>02 <b>Inspect</b></span
+            ><i>→</i><span>03 <b>Compile .x3</b></span>
+          </div>
+          <small
+            >Sequential cross-chain legs are not atomic. An exported leg does
+            not enforce round-trip profit.</small
+          >
+        </article>
+        <article class="health">
+          <h2>Provider observations</h2>
+          <div id="providers"></div>
+        </article>
+      </section>
+      <section id="journal" class="board journal">
+        <div class="section-head">
+          <div>
+            <h2>Paper journal</h2>
+            <p>
+              Durable projections and failure scenarios. No submitted
+              transactions or realized P&amp;L.
+            </p>
+          </div>
+          <span class="badge muted">SIMULATION ONLY</span>
+        </div>
+        <div id="orders" class="orders"></div>
+      </section>
+      <footer>
+        X3 ARBITRAGE
+        <span>Quote evidence ≠ reserved liquidity ≠ settlement proof.</span>
+      </footer>
+    </main>
+    <dialog id="detail">
+      <div class="dialog-head">
+        <div>
+          <div class="eyebrow">ROUTE INSPECTOR</div>
+          <h2 id="detail-title"></h2>
+        </div>
+        <button
+          id="close-detail"
+          class="icon"
+          aria-label="Close route inspector"
+        >
+          ×
+        </button>
+      </div>
+      <div id="detail-body"></div>
+      <div class="dialog-actions">
+        <select id="scenario" aria-label="Paper scenario">
+          <option value="projection">Project quoted outcome</option>
+          <option value="timeout">Simulate timeout</option>
+          <option value="refund">Simulate refund</option>
+          <option value="rpc_failure">Simulate RPC failure</option></select
+        ><button id="paper" class="primary">Add to paper journal</button>
+      </div>
+      <form id="export-form">
+        <h3>Export a compiled .x3 leg</h3>
+        <label>Leg<select id="export-leg"></select></label>
+        <div class="address-grid">
+          <label
+            >Source / refund address<input
+              id="refund"
+              required
+              autocomplete="off"
+              placeholder="Address on source chain" /></label
+          ><label
+            >Destination receiver<input
+              id="recipient"
+              required
+              autocomplete="off"
+              placeholder="Address on destination chain"
+          /></label>
+        </div>
+        <label
+          >Mandate owner (optional for inspection)<input
+            id="mandate"
+            autocomplete="off"
+            placeholder="owner.near" /></label
+        ><button type="submit" class="secondary">↓ Download .x3 program</button
+        ><small
+          >Live quote preparation requires an owner mandate and Guard contract.
+          Trading is never triggered here.</small
+        >
+      </form>
+      <p id="dialog-result" role="status"></p>
+    </dialog>
+  </body>
+</html>
