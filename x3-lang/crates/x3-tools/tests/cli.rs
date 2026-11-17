@@ -3719,6 +3719,8 @@ const ADAPTER_INTENTS: &[&str] = &[
     "near_intents_agent_payment.x3",
     "near_intents_agent_refused_payment.x3",
     "near_intents_sol_to_near.x3",
+    "x3_route_base_usdc_to_near.x3",
+    "x3_route_payment_with_fee.x3",
 ];
 
 const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
@@ -3900,8 +3902,8 @@ fn every_example_checks_and_builds() {
         "the corpus walk must check the testnet draft's named refusal"
     );
     assert_eq!(
-        adapter_intents, 4,
-        "the example walk must find all four NEAR adapter intents"
+        adapter_intents, 6,
+        "the example walk must find all six NEAR adapter intents"
     );
     assert!(
         failures.is_empty(),
@@ -5246,4 +5248,34 @@ fn cli_build_refuses_unknown_tokens_without_writing_bytecode() {
         diagnostic.contains('$'),
         "the diagnostic must identify the token: {diagnostic}"
     );
+}
+
+/// `x3c intent` must carry an integrator fee into the exported draft, and leave exports of
+/// programs without one exactly as they were.
+#[test]
+fn intent_export_carries_app_fees() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let with_fee = x3c()
+        .arg("intent")
+        .arg(examples.join("x3_route_payment_with_fee.x3"))
+        .output()
+        .expect("x3c intent");
+    assert!(
+        with_fee.status.success(),
+        "{}",
+        String::from_utf8_lossy(&with_fee.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&with_fee.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout[stdout.find('{').expect("a JSON draft")..]).expect("valid JSON");
+    assert_eq!(
+        json["app_fees"],
+        serde_json::json!([{ "bps": 25, "recipient": "fees.yourapp.near" }])
+    );
+    let without = x3c()
+        .arg("intent")
+        .arg(examples.join("x3_route_base_usdc_to_near.x3"))
+        .output()
+        .expect("x3c intent");
+    assert!(!String::from_utf8_lossy(&without.stdout).contains("app_fees"));
 }

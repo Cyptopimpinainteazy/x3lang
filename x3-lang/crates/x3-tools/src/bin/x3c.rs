@@ -1849,6 +1849,16 @@ fn cmd_intent(input: &PathBuf, emit_hash: bool, emit_plan: bool, out: Option<&Pa
         })).collect::<Vec<_>>(),
     });
 
+    // Integrator fees are terms a host must pay or refuse; an export that dropped them would hand a
+    // resolver a route without its fee. Absent when there are none, so existing exports are unchanged.
+    if !draft.app_fees.is_empty() {
+        output["app_fees"] = serde_json::json!(draft
+            .app_fees
+            .iter()
+            .map(|(bps, recipient)| serde_json::json!({ "bps": bps, "recipient": recipient }))
+            .collect::<Vec<_>>());
+    }
+
     if emit_hash {
         use sha3::{Digest, Sha3_256};
         let draft_json = serde_json::to_string(&draft).map_err(|e| format!("serialization failed: {e}"))?;
