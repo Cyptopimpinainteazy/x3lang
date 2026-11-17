@@ -160,6 +160,7 @@ READS = {
     "x3_route_base_usdc_to_near.x3",
     "x3_route_payment_with_fee.x3",
     "x3_route_tron_usdt_to_near.x3",
+    "x3_route_doge_to_near.x3",
 }
 
 #: The rest are refused for **one** reason now, and it is the stated scope rather than drift: a

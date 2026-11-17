@@ -240,5 +240,61 @@
   "price": 1.0,
   "priceUpdatedAt": "2026-11-16T00:00:00.000Z",
   "contractAddress": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
+ },
+ {
+  "assetId": "nep141:btc.omft.near",
+  "decimals": 8,
+  "blockchain": "btc",
+  "symbol": "BTC",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep141:doge.omft.near",
+  "decimals": 8,
+  "blockchain": "doge",
+  "symbol": "DOGE",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep141:ltc.omft.near",
+  "decimals": 8,
+  "blockchain": "ltc",
+  "symbol": "LTC",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep141:bch.omft.near",
+  "decimals": 8,
+  "blockchain": "bch",
+  "symbol": "BCH",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep141:zec.omft.near",
+  "decimals": 8,
+  "blockchain": "zec",
+  "symbol": "ZEC",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep141:dash.omft.near",
+  "decimals": 8,
+  "blockchain": "dash",
+  "symbol": "DASH",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "1cs_v1:btc:native:coin",
+  "decimals": 8,
+  "blockchain": "btc",
+  "symbol": "BTC(OMNI)",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
  }
 ]

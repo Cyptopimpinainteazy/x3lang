@@ -3722,6 +3722,7 @@ const ADAPTER_INTENTS: &[&str] = &[
     "x3_route_base_usdc_to_near.x3",
     "x3_route_payment_with_fee.x3",
     "x3_route_tron_usdt_to_near.x3",
+    "x3_route_doge_to_near.x3",
 ];
 
 const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
@@ -3903,8 +3904,8 @@ fn every_example_checks_and_builds() {
         "the corpus walk must check the testnet draft's named refusal"
     );
     assert_eq!(
-        adapter_intents, 7,
-        "the example walk must find all seven NEAR adapter intents"
+        adapter_intents, 8,
+        "the example walk must find all eight NEAR adapter intents"
     );
     assert!(
         failures.is_empty(),

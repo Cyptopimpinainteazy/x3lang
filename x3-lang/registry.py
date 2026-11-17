@@ -29,6 +29,12 @@ CHAIN_DOMAINS = {
     # real checksum: 1Click sends real funds to whatever address the program names.
     'tron': {'aliases': {'trx'}, 'address': 'tron'},
     'ton': {'aliases': set(), 'address': 'ton'},
+    # UTXO chains routed through 1Click, each with its own address encoding and checksum.
+    'dogecoin': {'aliases': {'doge'}, 'address': 'doge'},
+    'litecoin': {'aliases': {'ltc'}, 'address': 'ltc'},
+    'bitcoincash': {'aliases': {'bch', 'bitcoin_cash'}, 'address': 'bch'},
+    'zcash': {'aliases': {'zec'}, 'address': 'zec'},
+    'dash': {'aliases': set(), 'address': 'dash'},
     'x3': {'aliases': set(), 'address': 'x3'},
     # NEAR is a destination and origin for `bridge NearIntents` legs, which settle through the
     # NEAR Intents 1Click API (`near_intents.py`). Its receivers are NEAR account IDs.
@@ -60,6 +66,11 @@ ASSETS_BY_CHAIN = {
     'tron': {'TRX', 'USDT'},
     # 1Click lists the native coin as GRAM; `TON` is accepted and resolved to it.
     'ton': {'TON', 'GRAM', 'USDT'},
+    'dogecoin': {'DOGE'},
+    'litecoin': {'LTC'},
+    'bitcoincash': {'BCH'},
+    'zcash': {'ZEC'},
+    'dash': {'DASH'},
     'x3': {'SOL', 'USDC', 'WSOL', 'WETH', 'BTC', 'X3'},
     'near': {'NEAR', 'wNEAR', 'USDC', 'USDT'},
 }
@@ -208,6 +219,8 @@ def is_valid_receiver(chain, receiver):
         return re.fullmatch(r'(x3_[a-zA-Z0-9_]{6,}|0x[a-fA-F0-9]{40})', str(receiver)) is not None
     if kind == 'near':
         return is_valid_near_account(receiver)
+    if kind in UTXO_ADDRESS_RULES:
+        return utxo_address_kind(kind, receiver) is not None
     if kind == 'tron':
         return is_valid_tron_address(receiver)
     if kind == 'ton':
@@ -266,6 +279,175 @@ def tron_address_from_hex(hex21):
 def is_valid_tron_address(address):
     """A mainnet Tron base58check address with a correct checksum."""
     return tron_address_bytes(address) is not None
+
+
+# --- UTXO chains -------------------------------------------------------------------------------
+
+def base58check_payload(text):
+    """The version+hash bytes behind a base58check string with a correct checksum, or None."""
+    if not re.fullmatch(r'[1-9A-HJ-NP-Za-km-z]{25,40}', str(text)):
+        return None
+    try:
+        raw = base58_decode(str(text))
+    except ValueError:
+        return None
+    if len(raw) < 5 or hashlib.sha256(hashlib.sha256(raw[:-4]).digest()).digest()[:4] != raw[-4:]:
+        return None
+    return raw[:-4]
+
+
+_BECH32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
+_BECH32_CONST, _BECH32M_CONST = 1, 0x2BC830A3
+
+
+def _bech32_polymod(values):
+    gen = (0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3)
+    chk = 1
+    for v in values:
+        top = chk >> 25
+        chk = (chk & 0x1FFFFFF) << 5 ^ v
+        for i in range(5):
+            chk ^= gen[i] if (top >> i) & 1 else 0
+    return chk
+
+
+def _bech32_hrp_expand(hrp):
+    return [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp]
+
+
+def _convertbits(data, frombits, tobits, pad):
+    acc = bits = 0
+    out = []
+    maxv = (1 << tobits) - 1
+    for value in data:
+        if value < 0 or value >> frombits:
+            return None
+        acc = (acc << frombits) | value
+        bits += frombits
+        while bits >= tobits:
+            bits -= tobits
+            out.append((acc >> bits) & maxv)
+    if pad and bits:
+        out.append((acc << (tobits - bits)) & maxv)
+    elif not pad and (bits >= frombits or ((acc << (tobits - bits)) & maxv)):
+        return None
+    return out
+
+
+def segwit_address_bytes(hrp, address):
+    """(witness version, program) for a BIP-173/350 segwit address on `hrp`, or None."""
+    text = str(address)
+    if text.lower() != text and text.upper() != text:
+        return None
+    text = text.lower()
+    if not text.startswith(hrp + '1') or len(text) > 90:
+        return None
+    data = []
+    for c in text[len(hrp) + 1:]:
+        if c not in _BECH32:
+            return None
+        data.append(_BECH32.find(c))
+    if len(data) < 7:
+        return None
+    const = _bech32_polymod(_bech32_hrp_expand(hrp) + data)
+    version = data[0]
+    program = _convertbits(data[1:-6], 5, 8, False)
+    if program is None or version > 16 or not 2 <= len(program) <= 40:
+        return None
+    if version == 0 and (const != _BECH32_CONST or len(program) not in (20, 32)):
+        return None
+    if version > 0 and const != _BECH32M_CONST:
+        return None
+    return version, bytes(program)
+
+
+def segwit_address(hrp, version, program):
+    data = [version] + _convertbits(list(program), 8, 5, True)
+    const = _BECH32_CONST if version == 0 else _BECH32M_CONST
+    polymod = _bech32_polymod(_bech32_hrp_expand(hrp) + data + [0] * 6) ^ const
+    return hrp + '1' + ''.join(_BECH32[d] for d in data + [(polymod >> 5 * (5 - i)) & 31 for i in range(6)])
+
+
+def _cashaddr_polymod(values):
+    c = 1
+    for d in values:
+        c0 = c >> 35
+        c = ((c & 0x07FFFFFFFF) << 5) ^ d
+        for bit, gen in ((1, 0x98F2BC8E61), (2, 0x79B76D99E2), (4, 0xF33E5FB3C4), (8, 0xAE2EABE2A8), (16, 0x1E4F43E470)):
+            if c0 & bit:
+                c ^= gen
+    return c ^ 1
+
+
+def cashaddr_payload(address, prefix='bitcoincash'):
+    """(type, hash) behind a CashAddr address (prefix optional) with a correct checksum, or None."""
+    text = str(address)
+    if text.lower() != text and text.upper() != text:
+        return None
+    text = text.lower()
+    body = text[len(prefix) + 1:] if text.startswith(prefix + ':') else text
+    if ':' in body:
+        return None
+    try:
+        data = [_BECH32.index(c) for c in body]
+    except ValueError:
+        return None
+    if len(data) < 9 or _cashaddr_polymod([ord(c) & 31 for c in prefix] + [0] + data) != 0:
+        return None
+    payload = _convertbits(data[:-8], 5, 8, False)
+    if payload is None or len(payload) != 21 or payload[0] not in (0x00, 0x08):
+        # Only 160-bit P2PKH (type 0) and P2SH (type 1) hashes.
+        return None
+    return ('p2pkh' if payload[0] == 0 else 'p2sh'), bytes(payload[1:])
+
+
+def cashaddr(kind, hash160, prefix='bitcoincash'):
+    payload = _convertbits([0x00 if kind == 'p2pkh' else 0x08] + list(hash160), 8, 5, True)
+    checksum = _cashaddr_polymod([ord(c) & 31 for c in prefix] + [0] + payload + [0] * 8)
+    return prefix + ':' + ''.join(_BECH32[d] for d in payload + [(checksum >> 5 * (7 - i)) & 31 for i in range(8)])
+
+
+#: Base58check version bytes per chain, and the segwit hrp where the chain has one. Zcash's
+#: are its two-byte transparent prefixes (t1, t3): shielded and unified addresses are refused,
+#: because nothing here can prove a payment to one. Bitcoin Cash takes CashAddr only: its legacy
+#: form is indistinguishable from a Bitcoin address.
+UTXO_ADDRESS_RULES = {
+    'btc': {'base58': {b'\x00': 'p2pkh', b'\x05': 'p2sh'}, 'hrp': 'bc'},
+    'doge': {'base58': {b'\x1e': 'p2pkh', b'\x16': 'p2sh'}},
+    'ltc': {'base58': {b'\x30': 'p2pkh', b'\x32': 'p2sh', b'\x05': 'p2sh'}, 'hrp': 'ltc'},
+    'dash': {'base58': {b'\x4c': 'p2pkh', b'\x10': 'p2sh'}},
+    'zec': {'base58': {b'\x1c\xb8': 'p2pkh', b'\x1c\xbd': 'p2sh'}},
+    'bch': {'cashaddr': 'bitcoincash'},
+}
+
+
+def utxo_address_kind(kind, address):
+    """'p2pkh' / 'p2sh' / 'segwit' when `address` is a valid mainnet address for this UTXO chain."""
+    rules = UTXO_ADDRESS_RULES.get(kind)
+    if rules is None or not isinstance(address, str):
+        return None
+    if 'cashaddr' in rules:
+        found = cashaddr_payload(address, rules['cashaddr'])
+        return found[0] if found else None
+    if rules.get('hrp') and address.lower().startswith(rules['hrp'] + '1'):
+        return 'segwit' if segwit_address_bytes(rules['hrp'], address) else None
+    payload = base58check_payload(address)
+    if payload is None:
+        return None
+    for version, kind_name in rules['base58'].items():
+        if payload.startswith(version) and len(payload) == len(version) + 20:
+            return kind_name
+    return None
+
+
+def canonical_utxo_address(kind, address):
+    """One spelling per address, so two renderings of it compare equal (CashAddr, bech32 case)."""
+    if kind == 'bch':
+        found = cashaddr_payload(address)
+        return cashaddr(*found) if found else None
+    if UTXO_ADDRESS_RULES[kind].get('hrp') and str(address).lower().startswith(UTXO_ADDRESS_RULES[kind]['hrp'] + '1'):
+        return str(address).lower()
+    return str(address)
 
 
 def is_valid_ton_address(address):

@@ -121,12 +121,16 @@ minimum. The refusal evidence is committed; no amount was silently increased. Se
 
 **Chains.** A `bridge NearIntents` leg can start or end on NEAR, Solana, Bitcoin, Ethereum,
 Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Gnosis, Scroll, Monad, Berachain,
-Abstract, Plasma, X Layer, Tron or TON:
+Abstract, Plasma, X Layer, Tron, TON, Dogecoin, Litecoin, Bitcoin Cash, Zcash or Dash:
 each mapped to the code 1Click lists it under (`CHAIN_TO_BLOCKCHAIN`, checked against
 `GET /v0/tokens` on 2026-11-16). Assets resolve from 1Click's live token list at quote time.
 EVM recipients and refund addresses must be full 20-byte addresses; Tron addresses must pass
 their base58check checksum, and TON addresses (raw `0:<hex>` or the 48-character user-friendly
-form) their CRC16, with testnet-flagged addresses refused. Mantle, zkSync Era, Linea,
+form) their CRC16, with testnet-flagged addresses refused. UTXO addresses must decode with their
+chain's own checksum and version bytes (base58check; bech32/bech32m for `bc1`/`ltc1`; CashAddr only
+for Bitcoin Cash, whose legacy form is indistinguishable from Bitcoin's; transparent `t1`/`t3`
+only for Zcash, whose shielded addresses cannot be proven). Bitcoin payouts and refunds on this
+path need a checksummed address even though the language checks Bitcoin addresses by shape. Mantle, zkSync Era, Linea,
 Cronos, Moonbeam, Celo, Plume, Aurora and HyperEVM are known by name and refused with
 `X3_CHAIN_NOT_ROUTABLE`, because 1Click does not route them (its `hypercore` is Hyperliquid's
 core chain, not HyperEVM). Every other chain 1Click lists is classified with the reason it is not
@@ -162,6 +166,13 @@ result, and agreement across every endpoint. Tron assets are pinned by signed as
 the hex inside 1Click's Tron asset IDs is not the token contract. **TON** routes, but its deposit
 evidence is refused by name (`X3_EVIDENCE_UNSUPPORTED`): a jetton transfer settles through the
 receiver's jetton wallet in later, asynchronous transactions and needs a reviewed trace verifier.
+
+**UTXO evidence.** BTC, LTC, DOGE, BCH, ZEC and DASH deposits and refunds are proven from each
+chain's node JSON-RPC (`X3_UTXO_RPC_URLS_<CHAIN>`, no default; the node needs `txindex=1`): the
+sum of the transaction's outputs to the address, at least `UTXO_MIN_CONFIRMATIONS` deep (6 BTC,
+12 LTC, 40 DOGE, 6 BCH, 24 ZEC, 6 DASH) on every endpoint, every endpoint on `main`, and all of
+them agreeing on the transaction and its block. Coin values are parsed as exact decimals and
+must be whole base units. Each chain's native listing is pinned by signed asset ID.
 
 **Receipts.** `near_intents.py verify-receipt --receipt R [--program P]` re-checks a receipt
 offline: the 1Click signature and every binding, the program's hash and recompiled terms, every

@@ -86,6 +86,11 @@ pub const KNOWN_CHAINS: &[&str] = &[
     "xlayer",
     "tron",
     "ton",
+    "dogecoin",
+    "litecoin",
+    "bitcoincash",
+    "zcash",
+    "dash",
 ];
 
 /// Hard-coded allow-list of bridge adapter names. Anything else must be
@@ -1611,6 +1616,11 @@ pub const SWAP_KNOWN_CHAINS: &[&str] = &[
     "xlayer",
     "tron",
     "ton",
+    "dogecoin",
+    "litecoin",
+    "bitcoincash",
+    "zcash",
+    "dash",
 ];
 
 /// Supported hash function names for hashlock in atomic swaps.

@@ -442,7 +442,7 @@ LIVE_20261116 = ["abs", "adi", "aleo", "aptos", "arb", "avax", "base", "bch", "b
 def test_every_code_1click_listed_is_routed_or_classified():
     report = _sync().compare(LIVE_20261116, ni.CHAIN_TO_BLOCKCHAIN, ni.ONECLICK_UNROUTED)
     assert report["ok"], report
-    assert len(report["routed"]) == 19 and report["live_codes"] == 39
+    assert len(report["routed"]) == 24 and report["live_codes"] == 39
 
 
 def test_the_sync_check_fails_on_a_new_chain_and_on_a_vanished_route():

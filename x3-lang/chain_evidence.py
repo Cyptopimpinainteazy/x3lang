@@ -557,7 +557,7 @@ class EvmRpc:
 TRANSFER_TOPIC_HEX = ERC20_TRANSFER_TOPIC[2:]
 
 
-def _tron_registry():
+def _address_registry():
     import importlib.util
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registry.py")
     spec = importlib.util.spec_from_file_location("registry_for_evidence", path)
@@ -585,7 +585,7 @@ def tron_post(transport: Transport, url: str, path: str, body: Dict[str, Any], t
 def tron_transfer_facts(tx: Dict[str, Any], info: Dict[str, Any], *, tx_id: str,
                         token: Optional[str]) -> Dict[str, Any]:
     """Facts from one Tron endpoint. `token` is the TRC-20 contract (base58), None for TRX."""
-    reg = _tron_registry()
+    reg = _address_registry()
     if not tx.get("txID") or not info.get("id"):
         return {"found": False}
     contracts = ((tx.get("raw_data") or {}).get("contract")) or []
@@ -691,7 +691,7 @@ class TronRpc:
 
     def _verify(self, *, tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
                 purpose: str, token: Optional[str], after_block: Optional[int]) -> Dict[str, Any]:
-        reg = _tron_registry()
+        reg = _address_registry()
         if not reg.is_valid_tron_address(recipient) or (token and not reg.is_valid_tron_address(token)):
             raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "Tron recipient or token is not a checksummed address")
         facts = []
@@ -715,6 +715,185 @@ class TronRpc:
                               after_block: Optional[int] = None) -> Dict[str, Any]:
         return self._verify(tx_hash=tx_hash, recipient=recipient, min_amount=min_amount, not_after_ms=not_after_ms,
                             purpose=purpose, token=token, after_block=after_block)
+
+
+# --------------------------------------------------------------------------------------------
+# UTXO chains (Bitcoin, Litecoin, Dogecoin, Bitcoin Cash, Zcash, Dash)
+# --------------------------------------------------------------------------------------------
+#
+# Read from each chain's node JSON-RPC (bitcoind and its forks: `getblockchaininfo`,
+# `getrawtransaction <txid> 1`, `getblockheader`). The node needs `txindex=1` (or a provider
+# that has it). A payment is the sum of the transaction's outputs to the address; the block
+# must be at least `UTXO_MIN_CONFIRMATIONS[chain]` deep on every endpoint, every endpoint must
+# report `chain == "main"`, and all must agree on the transaction and its block. Coin values
+# arrive as JSON numbers, so they are parsed as Decimal and must be whole base units: a float
+# would round them. Endpoints come from `X3_UTXO_RPC_URLS_<CHAIN>`; there are no defaults.
+
+from decimal import Decimal as _Decimal
+
+#: Evidence depth per chain: deep enough that a reorg past it is not a practical risk at the
+#: chain's block time (Bitcoin ~1h, Litecoin ~30m, Dogecoin ~40m, BCH ~1h, Zcash ~30m, Dash ~15m).
+UTXO_MIN_CONFIRMATIONS = {"bitcoin": 6, "litecoin": 12, "dogecoin": 40, "bitcoincash": 6, "zcash": 24, "dash": 6}
+#: The address kind (`registry.UTXO_ADDRESS_RULES`) for each chain.
+UTXO_ADDRESS_KIND = {"bitcoin": "btc", "litecoin": "ltc", "dogecoin": "doge", "bitcoincash": "bch",
+                     "zcash": "zec", "dash": "dash"}
+UTXO_DECIMALS = 8
+
+
+def utxo_rpc(transport: Transport, url: str, method: str, params: Any, timeout: float = 20.0) -> Any:
+    """One bitcoind-style JSON-RPC call, numbers parsed as Decimal."""
+    body = json.dumps({"jsonrpc": "1.0", "id": "x3-evidence", "method": method, "params": params}).encode()
+    status, raw = transport("POST", url, {"Content-Type": "application/json", "Accept": "application/json",
+                                          "User-Agent": "x3-lang-evidence/1"}, body, timeout)
+    try:
+        data = json.loads(raw.decode("utf-8"), parse_float=_Decimal)
+    except (UnicodeDecodeError, ValueError):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url} {method}: HTTP {status} with no JSON body")
+    if not isinstance(data, dict):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url} {method}: response is not a JSON object")
+    if data.get("error") is not None:
+        error = data["error"]
+        # -5: no such transaction (not seen, or the node has no txindex): "not found", not an outage.
+        if isinstance(error, dict) and error.get("code") == -5 and method == "getrawtransaction":
+            return None
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url} {method}: {error}")
+    if status >= 400 or "result" not in data:
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url} {method}: HTTP {status}")
+    return data["result"]
+
+
+def _coin_units(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, _Decimal)):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{field} is not a number: {value!r}")
+    units = _Decimal(value) * (10 ** UTXO_DECIMALS)
+    if units != units.to_integral_value() or units < 0:
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{field} {value} is not a whole number of base units")
+    return int(units)
+
+
+def utxo_transfer_facts(chain: str, info: Any, tx: Any, header: Any, *, tx_id: str) -> Dict[str, Any]:
+    reg = _address_registry()
+    kind = UTXO_ADDRESS_KIND[chain]
+    if not isinstance(info, dict):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "getblockchaininfo did not return an object")
+    facts: Dict[str, Any] = {"network": info.get("chain")}
+    if tx is None:
+        return {**facts, "found": False}
+    if not isinstance(tx, dict) or not isinstance(tx.get("vout"), list):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "getrawtransaction did not return a decoded transaction")
+    outputs = []
+    for i, out in enumerate(tx["vout"]):
+        spk = (out or {}).get("scriptPubKey") or {}
+        addresses = [spk["address"]] if spk.get("address") else list(spk.get("addresses") or [])
+        if len(addresses) != 1:
+            continue  # bare multisig, OP_RETURN and the like pay no single address
+        canonical = reg.canonical_utxo_address(kind, addresses[0])
+        if canonical is None:
+            continue
+        outputs.append({"address": canonical, "value": _coin_units(out.get("value"), f"vout[{i}].value")})
+    in_block = bool(tx.get("blockhash")) and isinstance(header, dict)
+    return {
+        **facts,
+        "found": True,
+        "txid": tx.get("txid"),
+        "transaction_hash_matches": tx.get("txid") == tx_id,
+        "outputs": outputs,
+        "blockhash": tx.get("blockhash"),
+        "in_block": in_block,
+        "block_hash_matches": in_block and header.get("hash") == tx.get("blockhash"),
+        "height": header.get("height") if in_block else None,
+        "blocktime": header.get("time") if in_block else None,
+        "confirmations": header.get("confirmations") if in_block else 0,
+    }
+
+
+def judge_utxo_transfer(facts_by_url: List[Tuple[str, Dict[str, Any], Optional[str]]], *, chain: str, tx_id: str,
+                        recipient: str, min_amount: int, not_after_ms: Optional[int], purpose: str,
+                        after_block: Optional[int] = None) -> Dict[str, Any]:
+    reg = _address_registry()
+    recipient = reg.canonical_utxo_address(UTXO_ADDRESS_KIND[chain], recipient)
+    need = UTXO_MIN_CONFIRMATIONS[chain]
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, ok: bool, **detail: Any) -> None:
+        checks.append({"check": name, "ok": bool(ok), **detail})
+
+    if not facts_by_url:
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"no {chain} endpoints answered")
+    check("mainnet", all(f.get("network") == "main" for _, f, _ in facts_by_url),
+          networks=[f.get("network") for _, f, _ in facts_by_url])
+    found = all(f.get("found") for _, f, _ in facts_by_url)
+    check("found", found)
+    first = facts_by_url[0][1]
+    observed = None
+    if found:
+        keys = ("txid", "transaction_hash_matches", "outputs", "blockhash", "in_block", "block_hash_matches",
+                "height", "blocktime")
+        comparable = [{k: f.get(k) for k in keys} for _, f, _ in facts_by_url]
+        check("endpoints_agree", all(c == comparable[0] for c in comparable[1:]), endpoints=len(facts_by_url))
+        check("transaction_hash_matches", first["transaction_hash_matches"] is True)
+        check("block_hash_matches", first["block_hash_matches"] is True)
+        depths = [f.get("confirmations") or 0 for _, f, _ in facts_by_url]
+        check("confirmed", all(isinstance(d, int) and d >= need for d in depths), required=need, observed=depths)
+        observed = sum(o["value"] for o in first["outputs"] if o["address"] == recipient)
+        check("recipient", observed > 0, expected=recipient,
+              outputs_to_recipient=sum(1 for o in first["outputs"] if o["address"] == recipient))
+        check("amount", observed >= min_amount, observed=str(observed), required=str(min_amount))
+        if not_after_ms is not None:
+            check("before_deadline", isinstance(first["blocktime"], int) and first["blocktime"] * 1000 <= not_after_ms,
+                  blocktime=first["blocktime"], notAfterMs=not_after_ms)
+        if after_block is not None:
+            check("after_deposit", isinstance(first["height"], int) and first["height"] > after_block,
+                  blockNumber=first["height"], depositBlock=after_block)
+    return {
+        "evidence_version": EVIDENCE_VERSION,
+        "kind": "utxo_native_transfer",
+        "chain": chain,
+        "purpose": purpose,
+        "verified": all(c["ok"] for c in checks),
+        "transaction_hash": tx_id,
+        "recipient": recipient,
+        "required": str(min_amount),
+        "observed": str(observed) if observed is not None else None,
+        "blockNumber": first.get("height"),
+        "blockTime": first.get("blocktime"),
+        "commitment": f"{need} confirmations",
+        "rpcs": [{"url": url, "result_sha256": digest} for url, _, digest in facts_by_url],
+        "checks": checks,
+    }
+
+
+class UtxoRpc:
+    """Confirmed native-coin payment evidence on one UTXO chain, from every configured endpoint."""
+
+    def __init__(self, chain: str, transport: Transport, urls: Optional[Sequence[str]] = None, timeout: float = 20.0):
+        if chain not in UTXO_MIN_CONFIRMATIONS:
+            raise ChainEvidenceError("X3_EVIDENCE_UNSUPPORTED", f"no UTXO evidence for chain {chain!r}")
+        self.chain = chain
+        self.urls = rpc_urls(f"X3_UTXO_RPC_URLS_{chain.upper()}", (), urls)
+        self.transport = transport
+        self.timeout = timeout
+
+    def verify_native_transfer(self, *, tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
+                               purpose: str, after_block: Optional[int] = None) -> Dict[str, Any]:
+        reg = _address_registry()
+        if reg.utxo_address_kind(UTXO_ADDRESS_KIND[self.chain], recipient) is None:
+            raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{recipient!r} is not a valid {self.chain} address")
+        facts = []
+        for url in self.urls:
+            info = utxo_rpc(self.transport, url, "getblockchaininfo", [], self.timeout)
+            tx = utxo_rpc(self.transport, url, "getrawtransaction", [tx_hash, 1], self.timeout)
+            header = None
+            if isinstance(tx, dict) and tx.get("blockhash"):
+                header = utxo_rpc(self.transport, url, "getblockheader", [tx["blockhash"]], self.timeout)
+            raw = {"info": info, "transaction": tx, "header": header}
+            facts.append((url, utxo_transfer_facts(self.chain, info, tx, header, tx_id=tx_hash),
+                          hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode()).hexdigest()))
+        return judge_utxo_transfer(facts, chain=self.chain, tx_id=tx_hash, recipient=recipient, min_amount=min_amount,
+                                   not_after_ms=not_after_ms, purpose=purpose, after_block=after_block)
+
+    def verify_token_transfer(self, **kw: Any) -> Dict[str, Any]:
+        raise ChainEvidenceError("X3_EVIDENCE_UNSUPPORTED", f"{self.chain} has no tokens this adapter routes")
 
 
 # --------------------------------------------------------------------------------------------

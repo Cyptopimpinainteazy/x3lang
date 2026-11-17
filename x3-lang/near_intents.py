@@ -236,6 +236,11 @@ CHAIN_TO_BLOCKCHAIN = {
     "xlayer": "xlayer",
     "tron": "tron",
     "ton": "ton",
+    "dogecoin": "doge",
+    "litecoin": "ltc",
+    "bitcoincash": "bch",
+    "zcash": "zec",
+    "dash": "dash",
 }
 
 # Every other code in 1Click's live `GET /v0/tokens` (2026-11-16), with why it is not routed.
@@ -246,11 +251,6 @@ ONECLICK_UNROUTED = {
     "sui": "non-EVM: needs Sui address validation and deposit evidence",
     "aptos": "non-EVM: needs Aptos address validation and deposit evidence",
     "movement": "non-EVM (Move): needs address validation and deposit evidence",
-    "doge": "UTXO: needs Dogecoin address validation and deposit evidence",
-    "ltc": "UTXO: needs Litecoin address validation and deposit evidence",
-    "bch": "UTXO: needs Bitcoin Cash address validation and deposit evidence",
-    "dash": "UTXO: needs Dash address validation and deposit evidence",
-    "zec": "UTXO (shielded pools): needs Zcash address validation and deposit evidence",
     "starknet": "non-EVM: needs Starknet address validation and deposit evidence",
     "stellar": "non-EVM: needs Stellar address validation and deposit evidence",
     "cardano": "non-EVM: needs Cardano address validation and deposit evidence",
@@ -275,6 +275,11 @@ def _require_full_evm_address(chain: str, address: str, field: str, code: str) -
     if chain in EVM_CHAINS and not _FULL_EVM_ADDRESS.fullmatch(str(address)):
         raise NearIntentsError(code, f"{address!r} is not a full 20-byte {chain} address; 1Click moves real "
                                "funds to it, so a short placeholder is refused", field)
+    # The language checks Bitcoin addresses by shape only; a 1Click payout or refund is real BTC,
+    # so here it must decode with a correct checksum (base58check, or bech32/bech32m `bc1…`).
+    if chain == "bitcoin" and registry.utxo_address_kind("btc", address) is None:
+        raise NearIntentsError(code, f"{address!r} is not a checksummed Bitcoin mainnet address; 1Click moves "
+                               "real funds to it", field)
 
 # X3 asset names that 1Click lists under another symbol. NEAR is deposited and delivered as
 # the wrapped NEP-141 token.
@@ -2205,11 +2210,44 @@ def tron_origin_asset(receipt: Dict[str, Any]) -> Dict[str, Any]:
     return {"chain": "tron", "kind": "trc20", "token": token}
 
 
-def _block_origin(receipt: Dict[str, Any], *, evm: Any, bsc: Any, tron: Any):
+#: The native-coin listing on each UTXO chain, pinned by signed asset ID (1Click /v0/tokens, 2026-11-16).
+REVIEWED_UTXO_ASSETS = {
+    "nep141:btc.omft.near": "bitcoin",
+    "nep141:ltc.omft.near": "litecoin",
+    "nep141:doge.omft.near": "dogecoin",
+    "nep141:bch.omft.near": "bitcoincash",
+    "nep141:zec.omft.near": "zcash",
+    "nep141:dash.omft.near": "dash",
+}
+UTXO_CHAINS = frozenset(REVIEWED_UTXO_ASSETS.values())
+
+
+def utxo_origin_asset(receipt: Dict[str, Any]) -> Dict[str, Any]:
+    chain = receipt["leg"]["origin"]["chain"]
+    signed_asset = str(receipt["quote_response"]["quoteRequest"].get("originAsset") or "")
+    origin = (receipt.get("tokens") or {}).get("origin") or {}
+    if (origin.get("assetId") != signed_asset or origin.get("blockchain") != CHAIN_TO_BLOCKCHAIN.get(chain)
+            or origin.get("contractAddress")):
+        raise NearIntentsError("X3_EVIDENCE_BINDING", "receipt origin token metadata differs from the signed asset")
+    if REVIEWED_UTXO_ASSETS.get(signed_asset) != chain:
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED",
+                               f"no reviewed {chain} binding for signed asset {signed_asset}; it can be routed, "
+                               "but its deposit cannot be independently proven here")
+    return {"chain": chain, "kind": "native", "token": None}
+
+
+def _block_origin(receipt: Dict[str, Any], *, evm: Any, bsc: Any, tron: Any, utxo: Any = None):
     """(evidence source, asset) for an origin proven by block number (EVM chains, Tron), or None."""
     chain = receipt["leg"]["origin"]["chain"]
     if chain == "tron":
         return (tron if tron is not None else chain_evidence.TronRpc(transport=urllib_transport)), tron_origin_asset(receipt)
+    if chain in UTXO_CHAINS:
+        asset = utxo_origin_asset(receipt)
+        if isinstance(utxo, dict) and chain in utxo:
+            return utxo[chain], asset
+        if utxo is not None and not isinstance(utxo, dict):
+            return utxo, asset
+        return chain_evidence.UtxoRpc(chain, transport=urllib_transport), asset
     if chain in EVM_CHAINS:
         asset = evm_origin_asset(receipt)
         if chain == "bsc" and asset["kind"] == "native" and bsc is None and evm is None:
@@ -2256,7 +2294,7 @@ def _record_evidence(receipt: Dict[str, Any], key: str, fn) -> Dict[str, Any]:
 
 
 def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = None,
-                   solana=None, bsc=None, helius=None, evm=None, tron=None) -> Dict[str, Any]:
+                   solana=None, bsc=None, helius=None, evm=None, tron=None, utxo=None) -> Dict[str, Any]:
     """Check a finalized EVM (native or reviewed ERC-20) or Solana deposit to the signed address."""
     quote_obj = _signed_quote(receipt)
     recorded_signature = (receipt.get("deposit") or {}).get("tx_hash")
@@ -2265,7 +2303,7 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
     signature = tx_signature or recorded_signature
     if not signature:
         raise NearIntentsError("X3_EVIDENCE_TX", "no deposit transaction: pass --tx, or record it with submit-deposit --receipt")
-    block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron)
+    block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron, utxo=utxo)
     if block_origin is not None:
         rpc, asset = block_origin
         return _record_evidence(receipt, "deposit", lambda: _evm_transfer(
@@ -2297,7 +2335,7 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
 
 
 def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None,
-                      solana=None, bsc=None, evm=None, tron=None) -> Dict[str, Any]:
+                      solana=None, bsc=None, evm=None, tron=None, utxo=None) -> Dict[str, Any]:
     """Observe NEAR balance movement (not settlement proof), or an origin-chain refund."""
     quote_obj = _signed_quote(receipt)
     leg = receipt["leg"]
@@ -2347,8 +2385,8 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
         # A locally saved 'verified' field is not permanent proof. Re-read the
         # actual finalized origin-chain deposit against THIS signed quote, including
         # its quoted address, amount, asset and deadline, before refund evidence.
-        block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron)
-        origin_is_evm = block_origin is not None  # proven by block number: EVM chains and Tron
+        block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron, utxo=utxo)
+        origin_is_evm = block_origin is not None  # proven by block number: EVM chains, Tron, UTXO chains
         try:
             if origin_is_evm:
                 evm_rpc, evm_asset = block_origin
@@ -2626,7 +2664,8 @@ def _write_private_json(path: str, payload: Dict[str, Any]) -> None:
 
 def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] = None,
          rpc: Optional[NearRpc] = None, near_views: Optional[Any] = None, solana: Optional[Any] = None,
-         bsc: Optional[Any] = None, evm: Optional[Any] = None, tron: Optional[Any] = None) -> int:
+         bsc: Optional[Any] = None, evm: Optional[Any] = None, tron: Optional[Any] = None,
+         utxo: Optional[Any] = None) -> int:
     parser = argparse.ArgumentParser(description="Settle X3 intents through NEAR Intents (1Click API)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -2802,10 +2841,10 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 receipt = _load_receipt(args.receipt)
                 if args.command == "verify-deposit":
                     evidence = verify_deposit(receipt, tx_signature=args.tx, solana=solana,
-                                              bsc=bsc, helius=args.helius, evm=evm, tron=tron)
+                                              bsc=bsc, helius=args.helius, evm=evm, tron=tron, utxo=utxo)
                 else:
                     evidence = verify_settlement(receipt, refund_tx=args.refund_tx, near_views=near_views,
-                                                 solana=solana, bsc=bsc, evm=evm, tron=tron)
+                                                 solana=solana, bsc=bsc, evm=evm, tron=tron, utxo=utxo)
                 write_receipt(args.receipt, receipt)
                 verification = receipt["verification"]
                 if args.command == "verify-deposit":

@@ -50,6 +50,11 @@ impl RiskScorer {
         chain_risk.insert("xlayer".into(), 40);
         chain_risk.insert("tron".into(), 40);
         chain_risk.insert("ton".into(), 40);
+        chain_risk.insert("dogecoin".into(), 30);
+        chain_risk.insert("litecoin".into(), 25);
+        chain_risk.insert("bitcoincash".into(), 30);
+        chain_risk.insert("zcash".into(), 35);
+        chain_risk.insert("dash".into(), 35);
         chain_risk.insert("sui".into(), 40);
         chain_risk.insert("aptos".into(), 40);
         chain_risk.insert("starknet".into(), 35);
