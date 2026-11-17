@@ -12,12 +12,14 @@ from .engine import rank
 from .execution import export_leg
 from .paper import PaperLedger
 from .trader import Trader, PaperExchange, example_strategy
+from .catalogue import token_report, build_route
+import near_intents as ni
 
 WEB = Path(__file__).parent / 'web'
 
 
 class App:
-    def __init__(self, *, mode, database, config=None, clock=time.time):
+    def __init__(self, *, mode, database, config=None, clock=time.time, catalog_client=None):
         if mode not in {'demo', 'live'}:
             raise ValueError('mode must be demo or live')
         self.mode, self.clock = mode, clock
@@ -25,6 +27,12 @@ class App:
         self.ledger = PaperLedger(database)
         self.trader = Trader(database, clock=clock)
         self.csrf = secrets.token_urlsafe(32)
+        self.catalog_client = catalog_client or ni.OneClickClient(timeout=8, api_key='')
+        self.catalogue = None
+        self.provider_tokens = []
+        self.catalogue_tokens = []
+        self.route_asset_pins = {}
+        self.catalogue_lock = threading.Lock()
         self.lock = threading.RLock()
         self.refresh_lock = threading.Lock()
         self.routes, self.tokens, self.errors = [], [], []
@@ -46,19 +54,22 @@ class App:
             else:
                 routes, errors = scan_cex(now=now)
                 tokens = []
-                if self.config:
-                    try:
-                        cross, tokens, cross_errors = scan_cross_chain(self.config, now=now)
-                        routes.extend(cross)
-                        errors.extend(cross_errors)
-                    except Exception:
-                        errors.append({'provider': 'oneclick', 'code': 'CATALOG_UNAVAILABLE',
-                                       'message': 'Token catalog unavailable or invalid; no substitute quotes used.'})
-                else:
-                    errors.append({'provider': 'oneclick', 'code': 'ROUTES_NOT_CONFIGURED',
-                                   'message': 'Configure exact assets, addresses and external costs for cross-chain discovery.'})
+            provider_tokens = list(self.provider_tokens)
+            if self.config:
+                try:
+                    cross, provider_tokens, cross_errors = scan_cross_chain(self.config, client=self.catalog_client, now=now, expected_assets=dict(self.route_asset_pins))
+                    routes.extend(cross)
+                    errors.extend(cross_errors)
+                except Exception:
+                    errors.append({'provider': 'oneclick', 'code': 'CATALOG_UNAVAILABLE',
+                                   'message': 'Token catalog unavailable or invalid; no substitute quotes used.'})
+            elif self.mode == 'live':
+                errors.append({'provider': 'oneclick', 'code': 'ROUTES_NOT_CONFIGURED',
+                               'message': 'Load provider tokens and build a route with exact assets and addresses.'})
             with self.lock:
-                self.routes, self.tokens, self.errors = routes, tokens, errors
+                self.routes = routes
+                self.tokens = tokens if self.mode == 'demo' else provider_tokens
+                self.provider_tokens, self.errors = provider_tokens, errors
                 self.updated_at = int(self.clock())
         finally:
             with self.lock:
@@ -76,14 +87,15 @@ class App:
 
     def state(self):
         with self.lock:
-            return {'schema': 'x3.arbitrage.v1', 'mode': self.mode, 'csrf': self.csrf,
+            return {'schema': 'x3.arbitrage.v1', 'mode': ('mixed' if self.mode == 'demo' and any(not route.demo for route in self.routes) else self.mode), 'csrf': self.csrf,
+                    'catalogue': self.catalogue, 'configured_route_count': len(self.config['routes']) if self.config else 0,
                     'now': int(self.clock()), 'updated_at': self.updated_at,
                     'refreshing': self.refreshing,
                     'routes': rank(self.routes, now=int(self.clock())),
                     'errors': list(self.errors), 'orders': self.ledger.orders(),
                     'cycles': [cycle for cycle in self.trader.cycles() if cycle['mode'] == 'paper'],
-                    'asset_symbols': {token['blockchain'] + '/' + token['assetId']: token['symbol']
-                                      for token in self.tokens},
+                    'asset_symbols': {token['blockchain'] + '/' + token['assetId']: (token.get('symbol') if isinstance(token.get('symbol'), str) and len(token['symbol']) <= 128 else token['assetId'])
+                                      for token in self.tokens + self.provider_tokens + self.catalogue_tokens},
                     'live_execution': 'Separate CLI preparation; no signing or deposits from dashboard.'}
 
     def route(self, route_id):
@@ -96,6 +108,39 @@ class App:
     def action(self, path, data):
         if not isinstance(data, dict):
             raise ValueError('JSON object required')
+        if path == '/api/catalogue':
+            if not self.catalogue_lock.acquire(blocking=False):
+                raise ValueError('catalogue request already running')
+            try:
+                with self.lock:
+                    if self.catalogue and int(self.clock()) - self.catalogue['loaded_at'] < 30:
+                        return self.catalogue
+                tokens = self.catalog_client.tokens()
+                report = token_report(tokens, now=int(self.clock()))
+                with self.lock:
+                    self.catalogue, self.catalogue_tokens = report, tokens
+                return report
+            finally:
+                self.catalogue_lock.release()
+        if path == '/api/routes':
+            with self.lock:
+                if not self.catalogue:
+                    raise ValueError('load the provider token catalogue first')
+                if self.refreshing or (self.last_refresh is not None and self.clock()-self.last_refresh < 15):
+                    raise ValueError('wait for the current scan and its 15-second request budget')
+                row = build_route(data, self.catalogue_tokens)
+                additions = {token['assetId']: {'network': token['blockchain'], 'decimals': token['decimals']}
+                             for token in self.catalogue_tokens if token['assetId'] in (row['origin_asset'], row['destination_asset'])}
+                if any(asset in self.route_asset_pins and self.route_asset_pins[asset] != pin for asset, pin in additions.items()):
+                    raise ValueError('asset metadata changed; restart with a reviewed fresh route configuration')
+                configured = list(self.config['routes']) if self.config else []
+                if len(configured) >= 4:
+                    raise ValueError('at most four configured round trips; restart with a fresh configuration to replace them')
+                self.config = {'routes': configured + [row]}
+                self.route_asset_pins.update(additions)
+                self.start_refresh()
+                return {'configured_routes': len(self.config['routes']), 'refreshing': True,
+                        'transactions_submitted': 0, 'quote_mode': 'dry'}
         if path == '/api/refresh':
             self.start_refresh()
             return {'refreshing': True}
@@ -125,7 +170,7 @@ class App:
         if path == '/api/export':
             route = self.route(data.get('route_id'))
             with self.lock:
-                tokens = list(self.tokens)
+                tokens = list(self.tokens if route.demo else self.provider_tokens)
             source = export_leg(route, data.get('leg', 0), tokens=tokens,
                                 refund_to=data.get('refund_to'), recipient=data.get('recipient'),
                                 now=int(self.clock()), mandate_owner=data.get('mandate_owner') or None)

@@ -41,8 +41,20 @@ def main():
     resume = commands.add_parser('trade-resume', help='Resume bounded observation of an unresolved operation')
     resume.add_argument('--database', type=Path, required=True)
     resume.add_argument('--key', required=True)
+    tokens = commands.add_parser('tokens', help='Read-only provider-listed exact token catalogue')
+    tokens.add_argument('--chain', help='Provider chain identifier: near, sol, eth, arb, pol, bsc, etc.')
+    tokens.add_argument('--search', default='')
     args = parser.parse_args()
     try:
+        if args.command == 'tokens':
+            import time
+            import near_intents as ni
+            from .catalogue import token_report
+            report = token_report(ni.OneClickClient(timeout=8, api_key='').tokens(), now=int(time.time()))
+            report['assets'] = [asset for asset in report['assets'] if (not args.chain or asset['network'] == args.chain) and args.search.lower() in (asset['symbol'] + ' ' + asset['asset_id']).lower()]
+            report['selected_asset_count'] = len(report['assets'])
+            print(json.dumps(report, indent=2))
+            return 0
         if args.command in ('trade', 'trade-status', 'trade-resume', 'trade-continue'):
             import time
             from .trader import Trader, PaperExchange, example_strategy, strategy_from_document

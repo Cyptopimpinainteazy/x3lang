@@ -77,7 +77,8 @@ to its evidence and limits.
 ## X3 Arbitrage local scanner
 
 The separate [X3 Arbitrage prototype](x3-lang/arbitrage/README.md) discovers configured
-NEAR/Solana/EVM round trips with signed dry quotes, compares conservative route economics,
+NEAR/Solana/EVM round trips with signed dry quotes, browses exact provider-listed tokens,
+compares conservative route economics,
 exports compiled `.x3` legs and runs durable automatic paper round trips under per-leg `.x3` mandates. Start the constructed demo
 with `PYTHONPATH=x3-lang python3 -m arbitrage serve --mode demo`. Public market discovery
 and explicit mandate-checked live quote preparation are separate modes; the live coordinator remains disarmed without an explicitly approved trusted wallet gateway.

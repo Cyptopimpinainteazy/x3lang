@@ -159,3 +159,47 @@ It checks desktop/mobile layout, filters, route inspection, a paper projection, 
 program download, and browser console/page errors.
 
 For the complete paper round trip, run `python3 scripts/proof/arbitrage_roundtrip.py --output /tmp/x3-paper-proof.json`.
+
+## More tokens and route building
+
+Use **Load provider tokens** in the dashboard, or:
+
+```bash
+PYTHONPATH=x3-lang python3 -m arbitrage tokens
+PYTHONPATH=x3-lang python3 -m arbitrage tokens --chain sol --search SOL
+```
+
+The public, anonymous 1Click catalogue snapshot on November 17, 2026 lists 231 exact assets,
+including 120 across NEAR (36), Solana (23), Ethereum (29), Arbitrum (7), Polygon (9), and
+BSC (16). Eleven of those six-chain entries are marked deprecated. Listings are discovery
+coverage, not vetted contracts, spend approval, executable liquidity or custody.
+
+The browser keeps exact provider IDs, contract metadata and decimals, flags deprecated
+listings, and distinguishes current `.x3` export candidates from discovery-only chains or
+unexpressible/ambiguous symbols. Candidate status does not substitute for actual compilation.
+Symbols such as `$WIF` are never silently renamed to fit the compiler.
+
+The route builder selects a start token and an intermediate token on a different chain,
+accepts human-readable amounts, and converts them using the exact start token's decimals.
+For example, BSC USDC uses 18 decimals, whereas NEAR/Solana/Ethereum USDC use 6. A changed
+chain/decimal identity is refused **before** requesting a quote for a UI-configured route.
+The current bounded session accepts at most four configured round trips; restart with a
+reviewed configuration to replace them. Input size limits and the existing 15-second refresh
+budget still apply. No amount is automatically increased to bypass provider minimums.
+
+Supply addresses on the two chains only for the dry quote requests. No wallet connection,
+keys, deposit addresses or funding calls are involved. Blank external cost remains unknown
+and blocks eligibility. If demo rows and provider dry routes share the workspace, the header
+and each demo row label that distinction. Catalogue selection and quote/export snapshots
+remain separate, so reloading listings cannot swap the token set behind a displayed quote.
+
+`POST /api/catalogue` loads/caches the public catalogue for 30 seconds; GET state returns it
+as `catalogue`. `POST /api/routes` accepts exactly `origin_asset`, `destination_asset`,
+`amount`, `origin_address`, `destination_address`, `external_cost`, and `cost_source`.
+It adds a bounded **dry-discovery** configuration and starts a background scan. These new
+POSTs use the same local Host/Origin/CSRF boundary; neither can choose an execution backend.
+This is additive to `x3.arbitrage.v1` and leaves existing compiler/contract APIs unchanged.
+
+The optional `X3_CATALOGUE_SMOKE=1` browser gate exercises a real anonymous public catalogue
+load and its chain/search filters, including 18-decimal BSC USDC. It does not request quotes
+or fund anything. Offline CI remains independent of provider availability.

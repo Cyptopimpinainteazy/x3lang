@@ -117,6 +117,101 @@
           ><span>Exact base-unit math · conservative output floors</span>
         </div>
       </section>
+      <section class="board token-universe">
+        <div class="section-head">
+          <div>
+            <h2>Provider token universe</h2>
+            <p id="token-summary">
+              Browse exact token IDs across NEAR, Solana, EVM and other listed
+              chains.
+            </p>
+          </div>
+          <button id="load-tokens" class="secondary">
+            Load provider tokens
+          </button>
+        </div>
+        <div class="filters">
+          <label
+            ><span>FIND TOKEN</span
+            ><input
+              id="token-search"
+              type="search"
+              placeholder="USDT, ETH, SOL, contract…" /></label
+          ><label
+            ><span>CHAIN</span
+            ><select id="token-chain">
+              <option value="">All provider chains</option>
+            </select></label
+          ><small>Listings are not vetted assets or reserved liquidity.</small>
+        </div>
+        <div id="token-list" class="token-grid">
+          <p class="empty">
+            Load the public catalogue to explore more assets. No wallet
+            connection needed.
+          </p>
+        </div>
+        <button id="more-tokens" class="secondary more-tokens" hidden>
+          Show more tokens
+        </button>
+        <form id="route-builder" class="route-builder">
+          <h3>Build a cross-chain round-trip scan</h3>
+          <p>
+            Select exact assets and supply receiver/refund addresses for dry
+            quotes. This never deposits funds.
+          </p>
+          <div class="address-grid">
+            <label
+              >Start asset<select id="route-origin" required></select></label
+            ><label
+              >Intermediate asset<select
+                id="route-destination"
+                required
+              ></select
+            ></label>
+          </div>
+          <div class="address-grid">
+            <label
+              ><span id="route-amount-label">Input amount</span
+              ><input
+                id="route-amount"
+                value="100"
+                inputmode="decimal"
+                required /></label
+            ><label
+              ><span id="route-cost-label"
+                >External cost estimate (optional)</span
+              ><input
+                id="route-cost"
+                inputmode="decimal"
+                placeholder="Blank means unknown, never zero"
+            /></label>
+          </div>
+          <div class="address-grid">
+            <label
+              >Source / refund wallet address<input
+                id="route-source-address"
+                required
+                autocomplete="off"
+                placeholder="Your address on the start chain" /></label
+            ><label
+              >Intermediate wallet address<input
+                id="route-destination-address"
+                required
+                autocomplete="off"
+                placeholder="Your address on the intermediate chain"
+            /></label>
+          </div>
+          <label
+            >Basis of external cost estimate<input
+              id="route-cost-source"
+              value="Operator estimate; verify gas and both-leg costs before execution"
+          /></label>
+          <button id="add-route" type="submit" class="primary" disabled>
+            Add dry-quote route
+          </button>
+          <p id="route-result" role="status"></p>
+        </form>
+      </section>
       <section class="lower">
         <article class="explain">
           <div class="eyebrow">FROM SIGNAL TO SOURCE</div>

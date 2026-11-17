@@ -735,3 +735,50 @@ form small {
 .automatic details {
   margin-top: 12px;
 }
+
+.token-universe {
+  margin-top: 25px;
+}
+.token-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 20px;
+}
+.token-card {
+  border: 1px solid var(--line);
+  padding: 12px;
+  border-radius: 7px;
+  min-width: 0;
+  font-size: 12px;
+}
+.token-card small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+  font-size: 10px;
+}
+.token-card code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 8px;
+  color: var(--orange);
+  font-size: 9px;
+}
+.route-builder {
+  padding: 22px;
+}
+.more-tokens {
+  margin: 0 20px 20px;
+}
+.token-universe .filters small {
+  color: var(--muted);
+  font-size: 10px;
+}
+@media (max-width: 760px) {
+  .token-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -7,7 +7,7 @@ from fractions import Fraction
 
 import near_intents as ni
 from near_liquidity.oneclick import fetch_oneclick_quote
-from near_liquidity.quote import AssetRef, FeeCharge, checked_sub
+from near_liquidity.quote import AssetRef, FeeCharge, checked_sub, LiquidityError
 from oneclick_catalog import catalog
 
 from .engine import Leg, Route, uint
@@ -65,7 +65,7 @@ def _floor(quote):
     return uint(floor, 'net floor', positive=True)
 
 
-def scan_cross_chain(config, *, client=None, now=None):
+def scan_cross_chain(config, *, client=None, now=None, expected_assets=None):
     validate_config(config)
     client = client or ni.OneClickClient(timeout=8, api_key='')
     now = int(time.time()) if now is None else now
@@ -75,6 +75,10 @@ def scan_cross_chain(config, *, client=None, now=None):
     for row in config['routes']:
         try:
             origin, destination = token_map[row['origin_asset']], token_map[row['destination_asset']]
+            for token in (origin, destination):
+                expected = (expected_assets or {}).get(token['assetId'])
+                if expected is not None and (token['blockchain'], token['decimals']) != (expected['network'], expected['decimals']):
+                    raise LiquidityError('TOKEN_IDENTITY_CHANGED', 'route token metadata changed before quoting')
             amount, legs = uint(row['amount'], 'amount', positive=True), []
             for token_in, token_out, sender, recipient in (
                 (origin, destination, row['origin_address'], row['destination_address']),

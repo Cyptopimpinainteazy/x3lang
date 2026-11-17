@@ -11,6 +11,8 @@ const chain = (value) =>
     "cex-inventory": "Exchange inventory",
   })[value] || value;
 let state, selected, pendingKey;
+let tokenLimit = 12,
+  renderedCatalogue = null;
 function el(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -47,13 +49,100 @@ async function request(path, body) {
   if (!response.ok) throw new Error(result.message || result.error);
   return result;
 }
+function renderTokens() {
+  const catalogue = state.catalogue;
+  if (!catalogue) return;
+  $("token-summary").textContent =
+    `${catalogue.asset_count} provider-listed assets across ${Object.keys(catalogue.chains).length} chains · no execution approval`;
+  if (renderedCatalogue !== catalogue.loaded_at) {
+    renderedCatalogue = catalogue.loaded_at;
+    const allChains = el("option", "All provider chains");
+    allChains.value = "";
+    $("token-chain").replaceChildren(allChains);
+    for (const network of Object.keys(catalogue.chains).sort()) {
+      const option = el(
+        "option",
+        `${chain(network)} (${catalogue.chains[network]})`,
+      );
+      option.value = network;
+      $("token-chain").append(option);
+    }
+    for (const id of ["route-origin", "route-destination"]) {
+      $(id).replaceChildren();
+      for (const asset of catalogue.assets.filter(
+        (asset) => !asset.deprecated,
+      )) {
+        const option = el(
+          "option",
+          `${asset.symbol || "Unnamed"} · ${chain(asset.network)} · ${asset.decimals} decimals`,
+        );
+        option.value = asset.asset_id;
+        $(id).append(option);
+      }
+    }
+    const origin = catalogue.assets.find(
+      (asset) => asset.network === "sol" && asset.symbol === "USDC",
+    );
+    const destination = catalogue.assets.find(
+      (asset) => asset.network === "near" && asset.symbol === "USDC",
+    );
+    if (origin) $("route-origin").value = origin.asset_id;
+    if (destination) $("route-destination").value = destination.asset_id;
+  }
+  const rows = catalogue.assets.filter(
+    (asset) =>
+      (!$("token-chain").value || asset.network === $("token-chain").value) &&
+      `${asset.symbol} ${asset.asset_id} ${asset.contract_address || ""}`
+        .toLowerCase()
+        .includes($("token-search").value.toLowerCase()),
+  );
+  $("token-list").replaceChildren();
+  for (const asset of rows.slice(0, tokenLimit)) {
+    const card = el("article", undefined, "token-card");
+    const id = el("code", asset.asset_id);
+    id.title = asset.asset_id;
+    card.append(
+      el("b", `${asset.symbol || "Unnamed asset"} · ${chain(asset.network)}`),
+      el(
+        "small",
+        `${asset.decimals} decimals · ${asset.deprecated ? "DEPRECATED" : asset.x3_export_candidate ? ".x3 export candidate" : "Discovery only"}`,
+      ),
+      id,
+    );
+    if (asset.limitation) card.append(el("small", asset.limitation));
+    $("token-list").append(card);
+  }
+  if (!rows.length)
+    $("token-list").append(
+      el("p", "No listed assets match these filters.", "empty"),
+    );
+  $("more-tokens").hidden = rows.length <= tokenLimit;
+  $("add-route").disabled =
+    state.refreshing || state.configured_route_count >= 4;
+  const start = catalogue.assets.find(
+    (asset) => asset.asset_id === $("route-origin").value,
+  );
+  if (start) {
+    $("route-amount-label").textContent =
+      `Input amount (${start.symbol} · ${start.decimals} decimals)`;
+    $("route-cost-label").textContent =
+      `Both-leg external costs (${start.symbol}, optional)`;
+  }
+}
 function render() {
+  renderTokens();
   $("mode").textContent =
-    state.mode === "demo" ? "CONSTRUCTED DEMO" : "LIVE OBSERVATIONS";
+    state.mode === "demo"
+      ? "CONSTRUCTED DEMO"
+      : state.mode === "mixed"
+        ? "DEMO + LIVE DISCOVERY"
+        : "LIVE OBSERVATIONS";
   $("notice").textContent =
     state.mode === "demo"
       ? "DEMO DATA — Constructed opportunities for exploring the workflow. Refresh regenerates examples; these are not market prices."
-      : "LIVE DISCOVERY — Quotes are indicative. External costs are operator estimates. Sequential routes carry partial-execution risk.";
+      : state.mode === "mixed"
+        ? "MIXED WORKSPACE — Demo rows stay labeled; configured routes use live dry quotes. No funds move."
+        : "LIVE DISCOVERY — Quotes are indicative. External costs are operator estimates. Sequential routes carry partial-execution risk.";
   $("route-count").textContent = state.routes.length;
   $("eligible-count").textContent = state.routes.filter(
     (row) => row.paper_eligible,
@@ -336,6 +425,49 @@ $("export-form").addEventListener("submit", async (event) => {
       "Compiled .x3 leg downloaded. Inspect it and re-quote before execution.";
   } catch (error) {
     $("dialog-result").textContent = error.message;
+  }
+});
+$("load-tokens").addEventListener("click", async () => {
+  $("load-tokens").disabled = true;
+  $("token-summary").textContent = "Fetching the public provider catalogue…";
+  try {
+    await request("/api/catalogue", {});
+    await update();
+  } catch (error) {
+    $("token-summary").textContent = error.message;
+  } finally {
+    $("load-tokens").disabled = false;
+  }
+});
+for (const id of ["token-search", "token-chain"])
+  $(id).addEventListener("input", () => {
+    tokenLimit = 12;
+    renderTokens();
+  });
+$("route-origin").addEventListener("change", renderTokens);
+$("more-tokens").addEventListener("click", () => {
+  tokenLimit += 24;
+  renderTokens();
+});
+$("route-builder").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("add-route").disabled = true;
+  try {
+    await request("/api/routes", {
+      origin_asset: $("route-origin").value,
+      destination_asset: $("route-destination").value,
+      amount: $("route-amount").value,
+      origin_address: $("route-source-address").value,
+      destination_address: $("route-destination-address").value,
+      external_cost: $("route-cost").value,
+      cost_source: $("route-cost-source").value,
+    });
+    $("route-result").textContent =
+      "Route added. Requesting signed dry quotes; no deposit address or funds requested.";
+    await update();
+  } catch (error) {
+    $("route-result").textContent = error.message;
+    $("add-route").disabled = false;
   }
 });
 update().catch((error) => {

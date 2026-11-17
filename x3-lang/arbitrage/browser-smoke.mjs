@@ -60,6 +60,7 @@ try {
     viewport: { width: 1440, height: 1100 },
   });
   const errors = [];
+  const extraChecks = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
@@ -67,6 +68,26 @@ try {
   await page.goto(base);
   await page.getByText("3 of 3 routes", { exact: true }).waitFor();
   assert.equal(await page.locator("#routes tr").count(), 3);
+  if (process.env.X3_CATALOGUE_SMOKE === "1") {
+    await page.locator("#load-tokens").click();
+    await page.waitForFunction(() =>
+      /\d+ provider-listed assets/.test(
+        document.getElementById("token-summary").textContent,
+      ),
+    );
+    assert.ok((await page.locator(".token-card").count()) >= 12);
+    await page.locator("#token-chain").selectOption("bsc");
+    await page.locator("#token-search").fill("USDC");
+    assert.match(
+      await page.locator("#token-list").textContent(),
+      /18 decimals/,
+    );
+    await page.locator("#token-search").fill("");
+    await page.locator("#token-chain").selectOption("");
+    extraChecks.push(
+      "real public token catalogue, chain/search filters and BSC USDC18",
+    );
+  }
   await page.screenshot({
     path: path.join(artifacts, "dashboard-desktop.png"),
     fullPage: true,
@@ -125,6 +146,7 @@ try {
         "compiled x3 download",
         "390px responsive layout",
         "no page or console errors",
+        ...extraChecks,
       ],
       result: "pass",
     }),
