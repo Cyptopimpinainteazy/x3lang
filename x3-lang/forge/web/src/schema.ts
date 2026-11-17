@@ -5,7 +5,7 @@ import { z } from "zod";
 export const Param = z.object({
   id: z.string(),
   label: z.string(),
-  type: z.enum(["asset", "amount", "address", "percent", "bps", "int", "asset_list", "receiver_list", "near_account_list"]),
+  type: z.enum(["asset", "amount", "address", "percent", "bps", "int", "asset_list", "receiver_list", "near_account_list", "model_list"]),
   default: z.unknown(),
   min: z.union([z.string(), z.number()]).optional(),
   max: z.union([z.string(), z.number()]).optional(),
@@ -25,7 +25,7 @@ export const Skill = z.object({
   conflicts: z.array(z.string()),
   needs: z.array(z.string()),
   compiles_to: z.object({ kind: z.enum(["mandate", "capability"]), capability: z.string().optional(), clauses: z.array(z.string()).optional() }),
-  enforced_by: z.enum(["x3-guard", "agent-runtime"]),
+  enforced_by: z.enum(["x3-guard", "agent-runtime", "forge-gate"]),
   params: z.array(Param),
   mutation: z.record(z.string(), z.unknown()),
 });
@@ -36,6 +36,7 @@ export const ConfigField = z.object({
   label: z.string(),
   type: z.enum(["url", "near_account", "text_list", "choice_list", "int"]),
   local: z.boolean().optional(),
+  allow_local: z.boolean().optional(),
   choices: z.array(z.string()).optional(),
   min: z.number().optional(),
   max: z.number().optional(),
@@ -45,7 +46,7 @@ export type ConfigField = z.infer<typeof ConfigField>;
 export const Connector = z.object({
   id: z.string(),
   name: z.string(),
-  type: z.enum(["ide", "agent", "pay", "wallet", "data"]),
+  type: z.enum(["ide", "agent", "pay", "wallet", "data", "compute"]),
   description: z.string(),
   setup_url: z.string().nullable(),
   auth: z.string(),
@@ -53,7 +54,8 @@ export const Connector = z.object({
   surface: z.string(),
   requires_skills: z.array(z.string()),
   risk: z.number(),
-  implant: z.enum(["neural_jack", "resonance", "vault_gem", "chain_sigil", "sensor_port"]),
+  implant: z.enum(["neural_jack", "resonance", "vault_gem", "chain_sigil", "sensor_port", "mind_link"]),
+  health_path: z.string().nullable().optional(),
   config: z.array(ConfigField),
 });
 export type Connector = z.infer<typeof Connector>;
@@ -137,8 +139,24 @@ export interface AgentRecord {
   compile: CompileResult; proof: Proof; cosmetics: Cosmetics; connections: ConnectionRec[];
   revocations: { kind: string; reason: string; at: number; connection_id?: string; nonce: string }[];
   mesh_log: { nonce: string; to: string; type: string; at: number; verdict: string; reasons: string[] }[];
+  infer_log?: InferEntry[];
   status: "active" | "revoked" | "expired"; runtime: { status: string; remaining: number; manifest: CompileResult["manifest"] };
   events: RuntimeEvent[]; revoke_mandate?: Record<string, unknown> | null;
+}
+export interface InferEntry {
+  nonce: string; at: number; kind: "run" | "infer"; model: string; max_tokens: number; tokens: number;
+  verdict: "refused" | "running" | "answered" | "mesh_error" | "run_error"; reasons: string[]; status?: string;
+  error?: { code: string; message: string };
+}
+export interface RunStage { stage: string; ok: boolean; [k: string]: unknown }
+export interface RunReport {
+  status: string; untrusted_output?: boolean; text?: string; note?: string; nonce?: string;
+  stages?: RunStage[]; model_output?: string; model?: { provider?: string; model?: string; usage?: unknown };
+  program?: { sha256: string; source: string }; summary?: Record<string, unknown>; approve_with?: string;
+}
+export interface GateResult {
+  verdict: InferEntry["verdict"]; reasons: string[]; entry: InferEntry; result?: RunReport | null;
+  error?: { code: string; message: string }; budget?: { daily_tokens: number | null; used_24h: number };
 }
 export interface RosterEntry {
   agent_id: string; name: string; born_at: number; archetype: string; status: string; stats: Stats; traits: Traits;

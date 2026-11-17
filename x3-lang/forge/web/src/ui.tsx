@@ -45,6 +45,8 @@ export function Badge({ children, tone = "slate", title }: { children: ReactNode
 }
 
 export function EnforcedBy({ by }: { by: string }) {
+  if (by === "forge-gate")
+    return <Badge tone="violet" title="Checked by the Forge inference gate on every signed request before it reaches the GPU mesh">forge gate</Badge>;
   return by === "x3-guard"
     ? <Badge tone="gold" title="Enforced on NEAR by the x3-guard contract once the owner sends create_mandate">x3-guard · on chain</Badge>
     : <Badge tone="glow" title="Recorded in the Agent Law runtime and checked on delegation; no production adapter enforces it yet">agent runtime</Badge>;

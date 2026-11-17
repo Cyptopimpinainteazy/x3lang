@@ -5,7 +5,7 @@ import { exportGlb, renderCard } from "../card";
 import { CreatureView, type CreatureHandle } from "../creature/Creature";
 import { genome, implantStateOf } from "../creature/genome";
 import { agentKey, exportAgentJwk, operatorKey, sign } from "../keys";
-import type { AgentRecord, ConnectionRec, ForgeErr } from "../schema";
+import type { AgentRecord, ConnectionRec, ForgeErr, GateResult } from "../schema";
 import { useForge } from "../store";
 import { Badge, Button, Errors, Field, Mono, Panel, StatBars, inputCls, short } from "../ui";
 import { CapabilityTable } from "./AlienScreen";
@@ -123,6 +123,7 @@ export function Profile({ agentId }: { agentId: string }) {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Panel title={`Proving Ground at birth · ${a.proof.probes.filter((p) => p.ok).length}/${a.proof.probes.length}`}><ProbeList probes={a.proof.probes} /></Panel>
         <div className="space-y-4">
+          {!dead && hasAgentKey && <MindConsole a={a} onDone={load} />}
           {!dead && hasAgentKey && <MeshConsole a={a} onDone={load} />}
           {isCommander && !dead && <RevokeAgent a={a} onDone={load} />}
           <Panel title="Runtime events (hash-chained)">
@@ -136,6 +137,21 @@ export function Profile({ agentId }: { agentId: string }) {
               ))}
             </ol>
           </Panel>
+          {(a.infer_log?.length ?? 0) > 0 && (
+            <Panel title="Mind log (inference gate)">
+              <ul className="space-y-1 text-xs">
+                {[...(a.infer_log ?? [])].reverse().slice(0, 20).map((m) => (
+                  <li key={m.nonce} className="flex flex-wrap items-center gap-2">
+                    <Badge tone={m.verdict === "answered" ? "acid" : m.verdict === "running" ? "gold" : "danger"}>{m.verdict}</Badge>
+                    <span className="text-slate-300">{m.kind} · {m.model}</span>
+                    <span className="text-slate-500">{m.tokens} tok · {new Date(m.at * 1000).toLocaleTimeString()}</span>
+                    {m.status && <Badge tone={m.status === "allowed" ? "acid" : "danger"}>{m.status}</Badge>}
+                    {m.reasons.map((r) => <Badge key={r} tone="danger">{r}</Badge>)}
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
           {a.mesh_log.length > 0 && (
             <Panel title="Mesh log">
               <ul className="space-y-1 text-xs">
@@ -258,4 +274,84 @@ function MeshConsole({ a, onDone }: { a: AgentRecord; onDone: () => void }) {
       <Errors errors={errs} />
     </Panel>
   );
+}
+
+function MindConsole({ a, onDone }: { a: AgentRecord; onDone: () => void }) {
+  const mind = (a.compile.normalized as { skills: Record<string, Record<string, unknown>> }).skills.mesh_mind as
+    { models: string[]; max_tokens: number; daily_tokens: number } | undefined;
+  const link = a.connections.find((c) => c.connector === "gpu_mesh");
+  const [task, setTask] = useState("Pay x3-demo.near 10 USDC for invoice 77.");
+  const [model, setModel] = useState(mind?.models[0] ?? "");
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState<GateResult | null>(null);
+  const [errs, setErrs] = useState<ForgeErr[]>([]);
+  if (!mind || !link) return null;
+  const go = async () => {
+    setBusy(true);
+    setErrs([]);
+    setOut(null);
+    try {
+      const key = await agentKey(a.agent_id);
+      if (!key) throw new Error("This browser does not hold the agent key.");
+      const nonce = randomHex(16);
+      const expires_at = Math.floor(Date.now() / 1000) + 120;
+      const body = { model, task, max_tokens: mind.max_tokens, nonce, expires_at };
+      const { payload_hex } = await api.post<{ payload_hex: string }>(`/api/agents/${a.agent_id}/run/payload`, body);
+      setOut(await api.post<GateResult>(`/api/agents/${a.agent_id}/run`, { ...body, signature: await sign(key, payload_hex) }));
+      onDone();
+    } catch (e) {
+      setErrs(errorsOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const report = out?.result;
+  return (
+    <Panel title="Mind: give this agent a task">
+      <p className="mb-2 text-xs text-slate-400">The agent signs the task with its own key. The Forge gate checks it is active, holds <code>ai.infer</code>,
+        the GPU-mesh link is live, the model is on its list and the 24h token budget has room, then one model call runs on the mesh.
+        The model's answer is untrusted: its <code>.x3</code> goes through the compiler and this agent's own mandate. Dry run: nothing is quoted, signed or sent.</p>
+      <Field label="Task"><textarea className={`${inputCls} h-16`} value={task} maxLength={4000} onChange={(e) => setTask(e.target.value)} /></Field>
+      <div className="mt-2 flex items-end gap-2">
+        <div className="flex-1"><Field label="Model"><select className={inputCls} value={model} onChange={(e) => setModel(e.target.value)}>
+          {mind.models.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select></Field></div>
+        <Button onClick={go} disabled={busy || !task.trim()}>{busy ? "Thinking…" : "Run"}</Button>
+      </div>
+      {out && (
+        <div className="mt-3 space-y-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={out.verdict === "answered" ? "acid" : "danger"}>{out.verdict}</Badge>
+            {out.reasons.map((r) => <Badge key={r} tone="danger">{r}</Badge>)}
+            {report?.status && <Badge tone={report.status === "allowed" || report.status === "answered" ? "acid" : "danger"}>{report.status}</Badge>}
+            {out.budget && <span className="text-slate-500">budget {out.budget.used_24h}/{out.budget.daily_tokens ?? "?"} tok (24h)</span>}
+          </div>
+          {out.error && <div className="text-danger">{out.error.code}: {out.error.message}</div>}
+          {report?.stages && (
+            <ol className="space-y-1">
+              {report.stages.map((st) => (
+                <li key={st.stage} className="flex flex-wrap items-center gap-2">
+                  <Badge tone={st.ok ? "acid" : "danger"}>{st.ok ? "pass" : "fail"}</Badge><span className="text-slate-300">{st.stage}</span>
+                  {!st.ok && failedGuards(st).map((g) => <Badge key={g} tone="danger">{g}</Badge>)}
+                  {!st.ok && typeof st.reason === "string" && <span className="text-slate-500">{st.reason}</span>}
+                </li>
+              ))}
+            </ol>
+          )}
+          {report?.program?.source && <pre className="code max-h-56 overflow-auto rounded border border-edge bg-void/80 p-2 font-mono text-slate-300">{report.program.source}</pre>}
+          {report?.text && <pre className="code max-h-56 overflow-auto whitespace-pre-wrap rounded border border-edge bg-void/80 p-2 text-slate-300">{report.text}</pre>}
+          {report?.note && <div className="text-gold">{report.note}</div>}
+          {report?.approve_with && <div className="text-slate-400">Owner approval would sign <Mono>{short(report.approve_with, 16)}</Mono> (not sent).</div>}
+        </div>
+      )}
+      <Errors errors={errs} />
+    </Panel>
+  );
+}
+
+function failedGuards(stage: Record<string, unknown>): string[] {
+  // near_agent stages carry the engine's checks: {mandate: {checks: [{guard, ok}]}} or {checks: [...]}.
+  const nested = stage.mandate as { checks?: { guard: string; ok: boolean }[] } | undefined;
+  const checks = nested?.checks ?? (stage.checks as { guard: string; ok: boolean }[] | undefined) ?? [];
+  return checks.filter((c) => !c.ok).map((c) => c.guard);
 }

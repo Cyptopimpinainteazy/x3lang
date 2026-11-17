@@ -1,5 +1,20 @@
 [
   {
+    "id": "gpu_mesh",
+    "name": "X3 GPU mesh",
+    "type": "compute",
+    "description": "The X3 GPU contributor mesh coordinator. The Forge keeps the app key on the server and forwards only requests its gate allows. Fleet-only or public GPUs is set on the app key at the coordinator.",
+    "setup_url": null,
+    "auth": "api_key",
+    "scopes": ["ai.infer"],
+    "surface": "compute.gpu_mesh",
+    "requires_skills": ["mesh_mind"],
+    "risk": 1,
+    "implant": "mind_link",
+    "health_path": "/healthz",
+    "config": [{"id": "url", "label": "Coordinator URL", "type": "url", "allow_local": true}]
+  },
+  {
     "id": "super_ide",
     "name": "X3 Super IDE",
     "type": "ide",

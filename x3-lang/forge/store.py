@@ -11,6 +11,8 @@ The Forge never holds the operator key, the agent key or a NEAR key. It prints t
 from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime, timezone
 import secrets
 import tempfile
 import threading
@@ -24,7 +26,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import near_intents as ni
 from agent_runtime import Runtime
 
-from . import core, proving
+import near_agent
+
+from . import core, inference, proving
 from .connections import ConnectionStore, Transport, urllib_transport
 
 CLAIM_DOMAIN = "X3/FORGE/CLAIM/1"
@@ -55,7 +59,7 @@ def verify_sig(public: bytes, signature: bytes, payload: bytes, what: str) -> No
 class Forge:
     def __init__(self, data_dir: Path, reg: core.Registry, assets: core.Assets, *,
                  transport: Transport = urllib_transport, clock: Callable[[], float] = time.time,
-                 setup_token: Optional[str] = None):
+                 setup_token: Optional[str] = None, mesh_transport: Optional[inference.Transport] = None):
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         (self.dir / "agents").mkdir(exist_ok=True)
@@ -64,6 +68,7 @@ class Forge:
         self.lock = threading.RLock()
         self.pending: Dict[str, Dict[str, Any]] = {}
         self.mesh_rate: Dict[str, List[float]] = {}
+        self.mesh_transport = mesh_transport or ni.urllib_transport
         self.setup_token = setup_token or secrets.token_urlsafe(18)
         self.runtime: Optional[Runtime] = None
         op = self.dir / "operator.json"
@@ -323,12 +328,152 @@ class Forge:
                                "type": kind, "body_sha256": core.sha256_hex(body.encode()), "nonce": nonce,
                                "expires_at": expires_at})
 
-    def _mesh_link(self, record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _link(self, record: Dict[str, Any], connector: str) -> Optional[Dict[str, Any]]:
         for cid in record["connection_ids"]:
             rec = self.connections.get(cid)
-            if rec["connector"] == "forge_mesh":
+            if rec["connector"] == connector:
                 return rec
         return None
+
+    def _mesh_link(self, record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        return self._link(record, "forge_mesh")
+
+    # -- thinking on the GPU mesh, through the gate ------------------------------------------
+    def infer_payload(self, agent_id: str, domain: str, nonce: str, expires_at: int, body: Dict[str, Any]) -> bytes:
+        rt = self._need_runtime()
+        return inference.payload(domain, rt.runtime_id, agent_id, nonce, expires_at, body)
+
+    def _gated(self, agent_id: Any, domain: str, kind: str, body: Dict[str, Any], nonce: Any, expires_at: Any,
+               signature_hex: Any, work: Callable[[Callable[[List[Dict[str, str]]], Dict[str, Any]], Dict[str, Any]],
+                                                  Dict[str, Any]]) -> Dict[str, Any]:
+        """Check the agent's signed request against the gate, run `work` with a mesh call bound to
+        that one authorization, then record what happened. Refusals carry every reason."""
+        self._need_runtime()
+        model, max_tokens = body.get("model"), body.get("max_tokens")
+        if not isinstance(model, str) or not inference.MODEL_RE.fullmatch(model) or type(max_tokens) is not int \
+                or not 1 <= max_tokens <= 8192:
+            raise core.ForgeError("X3_FORGE_INFER", "model: a model name; max_tokens: 1..8192", "infer")
+        if not isinstance(nonce, str) or not 16 <= len(nonce) <= 64 or type(expires_at) is not int:
+            raise core.ForgeError("X3_FORGE_INFER", "nonce: 16..64 characters; expires_at: unix seconds", "infer")
+        with self.lock:
+            record = self._load(agent_id)
+            live = self._live(record)
+            link = self._link(record, inference.MESH_CONNECTOR)
+            usable = self.connections.usable(link) if link else (False, "missing")
+            payload = self.infer_payload(agent_id, domain, nonce, expires_at, body)
+            try:
+                verify_sig(bytes.fromhex(record["agent_public_key"]), _hex(signature_hex, 64, "signature"), payload,
+                           "agent")
+                sig_ok = True
+            except core.ForgeError:
+                sig_ok = False
+            now = self.clock()
+            reasons = inference.decide(record=record, live=live, link=link, link_usable=usable, model=model,
+                                       max_tokens=max_tokens, now=now, reserved=0,
+                                       signature_ok=sig_ok, nonce=nonce, expires_at=expires_at)
+            entry: Dict[str, Any] = {"nonce": nonce, "at": int(now), "kind": kind, "model": model,
+                                     "max_tokens": max_tokens, "tokens": 0, "reasons": reasons}
+            if reasons:
+                entry["verdict"] = "refused"
+                record.setdefault("infer_log", []).append(entry)
+                record["infer_log"] = record["infer_log"][-500:]
+                self._save(record)
+                return {"verdict": "refused", "reasons": reasons, "entry": entry}
+            # Persist the claim now: it reserves max_tokens against the budget and the nonce against
+            # replay, for parallel requests and across a host restart.
+            entry["verdict"] = "running"
+            record.setdefault("infer_log", []).append(entry)
+            self._save(record)
+            app_key = self.connections.read_secret(link["id"])
+            client = inference.MeshClient(link["config"]["url"], app_key, self.mesh_transport)
+        used = {"tokens": 0, "calls": 0}
+
+        def call(messages: List[Dict[str, str]]) -> Dict[str, Any]:
+            if used["calls"]:
+                raise core.ForgeError("X3_FORGE_INFER", "one signed request authorizes one model call", "infer")
+            used["calls"] += 1
+            data = client.complete(model, messages, max_tokens)
+            used["tokens"] = inference.usage_tokens(data, max_tokens)
+            return data
+
+        try:
+            result = work(call)
+            verdict, error = "answered", None
+        except core.ForgeError as exc:
+            result, verdict, error = None, "mesh_error", exc.to_dict()
+        except ni.NearIntentsError as exc:
+            result, verdict, error = None, "run_error", exc.to_dict()
+        except Exception:  # never leave the claim stranded, never leak internals to the caller
+            logging.getLogger("forge").exception("gated %s for %s failed", kind, agent_id)
+            result, verdict = None, "run_error"
+            error = {"code": "X3_FORGE_INTERNAL", "message": "the run failed inside the Forge", "node": kind}
+        with self.lock:
+            record = self._load(agent_id)
+            for e in record.get("infer_log", []):
+                if e.get("nonce") == nonce and e.get("verdict") == "running":
+                    # A call that reached the mesh without a usage report is charged in full.
+                    e.update(verdict=verdict, tokens=used["tokens"] or (max_tokens if used["calls"] else 0))
+                    if error:
+                        e["error"] = error
+                    if isinstance(result, dict) and result.get("status"):
+                        e["status"] = result["status"]
+                    entry = e
+            self._save(record)
+        out = {"verdict": verdict, "reasons": [], "entry": entry, "result": result}
+        if error:
+            out["error"] = error
+        params = inference.mind_params(record) or {}
+        out["budget"] = {"daily_tokens": params.get("daily_tokens"),
+                         "used_24h": inference.tokens_used(record, self.clock())}
+        return out
+
+    def infer(self, agent_id: Any, model: Any, messages: Any, max_tokens: Any, nonce: Any, expires_at: Any,
+              signature_hex: Any) -> Dict[str, Any]:
+        """Raw chat completion for the agent (IDE, Team Six, tools). The answer is untrusted text."""
+        msgs = inference.validate_messages(messages)
+        body = {"model": model, "messages": msgs, "max_tokens": max_tokens}
+
+        def work(call):
+            data = call(msgs)
+            choices = data.get("choices") or [{}]
+            return {"text": ((choices[0] or {}).get("message") or {}).get("content") or "",
+                    "usage": data.get("usage"), "untrusted_output": True, "x3_receipt": data.get("x3")}
+
+        return self._gated(agent_id, inference.INFER_DOMAIN, "infer", body, nonce, expires_at, signature_hex, work)
+
+    def run(self, agent_id: Any, task: Any, model: Any, max_tokens: Any, nonce: Any, expires_at: Any,
+            signature_hex: Any) -> Dict[str, Any]:
+        """One task, end to end: think on the mesh, propose .x3, compile, check against this agent's own
+        mandate. Dry: no quote is requested and nothing is signed or sent."""
+        if not isinstance(task, str) or not task.strip() or len(task.encode()) > near_agent.MAX_REQUEST_BYTES:
+            raise core.ForgeError("X3_FORGE_RUN", f"task: 1..{near_agent.MAX_REQUEST_BYTES} bytes", "run")
+        body = {"model": model, "task": task, "max_tokens": max_tokens}
+        record = self._load(agent_id)
+        source = record["compile"]["source"]
+
+        def work(call):
+            if source is None:
+                data = call([{"role": "system", "content": f"You are the X3 agent {agent_id}. You have no spending "
+                              "rights; answer the task in plain text. Your output is untrusted."},
+                             {"role": "user", "content": task}])
+                choices = data.get("choices") or [{}]
+                return {"status": "answered", "text": ((choices[0] or {}).get("message") or {}).get("content") or "",
+                        "untrusted_output": True, "note": "No Armory Access skill: this agent can't propose payments."}
+            with tempfile.TemporaryDirectory(prefix="forge-run-") as d:
+                mandate = Path(d) / "mandate.x3"
+                mandate.write_text(source)
+                tokens = Path(d) / "tokens.json"
+                tokens.write_text(json.dumps(self.assets.tokens))
+                report, _code = near_agent.run(task, str(mandate), model=inference.GateModel(call, model), client=None,
+                                               tokens_path=str(tokens), out_path=str(Path(d) / "proposal.x3"),
+                                               now=datetime.now(timezone.utc))
+            report.pop("request", None)
+            if isinstance(report.get("program"), dict):
+                report["program"].pop("path", None)
+            report["untrusted_output"] = True
+            return report
+
+        return self._gated(agent_id, inference.RUN_DOMAIN, "run", body, nonce, expires_at, signature_hex, work)
 
     def mesh_send(self, sender: Any, to: Any, kind: Any, body: Any, nonce: Any, expires_at: Any,
                   signature_hex: Any) -> Dict[str, Any]:
