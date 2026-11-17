@@ -10,6 +10,15 @@ CHAIN_DOMAINS = {
     'polygon': {'aliases': {'matic'}, 'address': 'evm'},
     'bitcoin': {'aliases': {'btc'}, 'address': 'btc'},
     'bsc': {'aliases': {'bnb', 'binance', 'bnbchain'}, 'address': 'evm'},
+    # EVM chains routed through NEAR Intents 1Click (`near_intents.CHAIN_TO_BLOCKCHAIN`), each
+    # checked against 1Click's live `GET /v0/tokens` on 2026-11-16.
+    'base': {'aliases': set(), 'address': 'evm'},
+    'optimism': {'aliases': {'op', 'op_mainnet'}, 'address': 'evm'},
+    'avalanche': {'aliases': {'avax', 'avalanche_c'}, 'address': 'evm'},
+    'gnosis': {'aliases': {'xdai', 'gnosis_chain'}, 'address': 'evm'},
+    'scroll': {'aliases': set(), 'address': 'evm'},
+    'monad': {'aliases': set(), 'address': 'evm'},
+    'berachain': {'aliases': {'bera'}, 'address': 'evm'},
     'x3': {'aliases': set(), 'address': 'x3'},
     # NEAR is a destination and origin for `bridge NearIntents` legs, which settle through the
     # NEAR Intents 1Click API (`near_intents.py`). Its receivers are NEAR account IDs.
@@ -27,9 +36,44 @@ ASSETS_BY_CHAIN = {
     'polygon': {'USDC', 'USDT', 'WETH', 'MATIC', 'DAI'},
     'bitcoin': {'BTC', 'WBTC'},
     'bsc': {'BNB', 'USDC', 'USDT'},
+    # Symbols exactly as 1Click lists them on each chain (`GET /v0/tokens`, 2026-11-16).
+    'base': {'ETH', 'WETH', 'USDC', 'cbBTC', 'BRETT', 'KAITO', 'VVV'},
+    'optimism': {'ETH', 'WETH', 'USDC', 'USDT', 'USDT0', 'OP'},
+    'avalanche': {'AVAX', 'USDC', 'USDT'},
+    'gnosis': {'xDAI', 'USDC', 'USDT', 'WETH', 'GNO', 'COW', 'SAFE', 'EURe', 'GBPe'},
+    'scroll': {'ETH', 'USDT'},
+    'monad': {'MON', 'USDC', 'USDT0'},
+    'berachain': {'BERA', 'USDT0'},
     'x3': {'SOL', 'USDC', 'WSOL', 'WETH', 'BTC', 'X3'},
     'near': {'NEAR', 'wNEAR', 'USDC', 'USDT'},
 }
+
+# Chains people ask for that no route adapter here can settle. They are refused **by name**, so
+# a program targeting one gets a reason instead of "unsupported chain", and nothing pretends
+# to route it. Each was absent from 1Click's live `GET /v0/tokens` on 2026-11-16; 1Click's
+# `hypercore` is Hyperliquid's core chain, not HyperEVM. Moving a chain out of here needs a
+# real adapter (or 1Click listing it) and tests, in the same change.
+NOT_ROUTABLE_CHAINS = {
+    'mantle': {'aliases': {'mnt'}},
+    'zksync': {'aliases': {'zksync_era', 'zksyncera'}},
+    'linea': {'aliases': set()},
+    'cronos': {'aliases': {'cro'}},
+    'moonbeam': {'aliases': {'glmr'}},
+    'celo': {'aliases': set()},
+    'plume': {'aliases': set()},
+    'aurora': {'aliases': set()},
+    'hyperevm': {'aliases': {'hyperliquid_evm', 'hyperliquid'}},
+}
+NOT_ROUTABLE_ALIASES = {alias: chain for chain, meta in NOT_ROUTABLE_CHAINS.items() for alias in meta['aliases']}
+NOT_ROUTABLE_ALIASES.update({chain: chain for chain in NOT_ROUTABLE_CHAINS})
+
+
+def not_routable(chain):
+    """The canonical name of a chain known to have no route adapter here, or None."""
+    if chain is None:
+        return None
+    return NOT_ROUTABLE_ALIASES.get(str(chain).lower())
+
 
 KNOWN_DEXS = {'raydium', 'orca', 'uniswap', 'sushiswap', 'curve'}
 # The spellings of the NEAR Intents adapter. The parser lowercases `via`, so `NearIntents` in

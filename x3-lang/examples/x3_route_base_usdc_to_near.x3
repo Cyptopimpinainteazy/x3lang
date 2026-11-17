@@ -1,0 +1,19 @@
+// x3_route_base_usdc_to_near.x3 — 25 USDC on Base to USDC on NEAR, through NEAR Intents 1Click.
+//
+// DRY QUOTE REFERENCE ONLY. `0x...dEaD` is a placeholder refund address and `x3-demo.near`
+// a demo account: replace both before any wallet authorization, and never deposit to a quote
+// produced for them. EVM refund and payout addresses must be complete 20-byte addresses.
+//
+// 25 USDC in base units: 6 decimals, so 25e6.
+intent x3_route_base_usdc_to_near {
+    from Base.USDC amount 25000000 receiver 0x000000000000000000000000000000000000dEaD
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Base.USDC -> Near.USDC min_receive 24800000;
+    }
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused x3_route_base_near_001
+    timeout 10m refund Base.USDC
+    on_fail rollback
+}

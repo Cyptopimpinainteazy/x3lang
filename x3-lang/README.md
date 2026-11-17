@@ -117,6 +117,43 @@ On 2026-11-05, the real 1Click endpoint refused 0.001 BNB with HTTP 400 and a te
 minimum. The refusal evidence is committed; no amount was silently increased. See
 [`docs/hackathon/BSC_TO_NEAR_BOOTSTRAP.md`](../docs/hackathon/BSC_TO_NEAR_BOOTSTRAP.md).
 
+### X3 Route: chains, integrator fees and receipts
+
+**Chains.** A `bridge NearIntents` leg can start or end on NEAR, Solana, Bitcoin, Ethereum,
+Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Gnosis, Scroll, Monad or Berachain:
+each mapped to the code 1Click lists it under (`CHAIN_TO_BLOCKCHAIN`, checked against
+`GET /v0/tokens` on 2026-11-16). Assets resolve from 1Click's live token list at quote time.
+EVM recipients and refund addresses must be full 20-byte addresses. Mantle, zkSync Era, Linea,
+Cronos, Moonbeam, Celo, Plume, Aurora and HyperEVM are known by name and refused with
+`X3_CHAIN_NOT_ROUTABLE`, because 1Click does not route them (its `hypercore` is Hyperliquid's
+core chain, not HyperEVM).
+
+**Integrator fees.** `fee 25 bps to fees.yourapp.near` (up to four, one per recipient) is sent
+as 1Click `appFees`, which 1Click takes from the input before the swap. The program must state
+`require fees <= N bps`, the fees must fit inside it, and the `fees` guard measures the payer's
+*total* cost (your fee plus every 1Click charge) from the signed `amountInUsd`/`amountOutUsd`.
+`appFees` itself is not signed: a quote whose echo drops or changes the fee terms is refused,
+and who receives the fee cannot be proven before the trade. That is the integrator's risk, not the
+payer's. Every fee recipient must be an existing NEAR account. An intent `under mandate` cannot
+carry a fee: the agent would choose who is paid out of the owner's funds. The compiler parses,
+formats and lowers the clause too, as a constraint any host that cannot pay it refuses.
+Example: `examples/x3_route_payment_with_fee.x3`.
+
+**EVM evidence.** `verify-deposit` and `verify-settlement --refund-tx` prove native and ERC-20
+transfers on every routed EVM chain: the token contract's own `Transfer` logs (or the native
+value), a successful receipt, the chain's ID, a block at or below `finalized`, and agreement
+across every endpoint in `X3_EVM_RPC_URLS_<CHAIN>` (comma-separated; BSC keeps its reviewed
+defaults, other chains have none, so an unconfigured chain fails closed). Which contract counts
+comes from the *signed* origin asset and a reviewed table (USDC/USDT/WETH where independently
+confirmed); an asset outside it routes normally, but its evidence is reported
+`X3_EVIDENCE_UNSUPPORTED` rather than guessed.
+
+**Receipts.** `near_intents.py verify-receipt --receipt R [--program P]` re-checks a receipt
+offline: the 1Click signature and every binding, the program's hash and recompiled terms, every
+guard recomputed at the quote's own timestamp, and the fee summary. It reports recorded chain
+evidence as recorded (re-read it with `verify-deposit` / `verify-settlement`) and is never proof
+that a swap settled.
+
 Every quote's 1Click Ed25519 signature is verified first, on dry and live quotes, against the
 manager key the official SDK pins, over the exact payload the SDK signs; a forged or altered
 quote fails with `X3_NEAR_INVALID_SIGNATURE` before anything else is read. Then, enforced on
@@ -132,7 +169,7 @@ First real swap: `x3-lang/near/first-swap.sh` walks one small swap end to end:
 you send the USDC → `deposited <solana-tx>` (track, prove from both chains, record the outcome).
 It never moves your funds and asks before every step that spends NEAR.
 
-Chain evidence: `verify-deposit --receipt R` proves the finalized Solana or BSC origin transfer.
+Chain evidence: `verify-deposit --receipt R` proves the finalized Solana or EVM origin transfer.
 For BSC, transaction and receipt must agree on the exact native-BNB value, destination and
 successful status, and the transaction block must be finalized on every configured BSC RPC.
 `verify-settlement --receipt R [--refund-tx TX]` proves the NEAR delivery (balance rise from a

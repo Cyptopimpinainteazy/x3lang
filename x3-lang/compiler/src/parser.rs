@@ -19,6 +19,9 @@ use x3_lang_ast::{
 use x3_lang_common::{BinOp as CBinOp, IntBase, IntSuffix, Span, Spanned, Symbol, UnOp as CUnOp, X3Error};
 use x3_lang_lexer::token::{Keyword, Token, TokenKind};
 
+/// How many integrator `fee` clauses one intent may carry.
+pub const MAX_APP_FEES: usize = 4;
+
 /// Map a chain prefix string to its VM family name (as used by the x3-atomic-swap VmType enum).
 ///
 /// Returns `None` for unrecognised prefixes – the caller should fall back to
@@ -26,7 +29,8 @@ use x3_lang_lexer::token::{Keyword, Token, TokenKind};
 pub fn parse_vm_family(prefix: &str) -> Option<&'static str> {
     Some(match prefix {
         // evm family
-        "evm" | "eth" | "polygon" | "arb" | "optimism" | "base" | "bsc" | "avax" => "Evm",
+        "evm" | "eth" | "polygon" | "arb" | "optimism" | "base" | "bsc" | "avax" | "gnosis" | "scroll" | "monad"
+        | "berachain" | "bera" => "Evm",
         // svm family
         "svm" | "sol" | "solana" => "Svm",
         // substrate family
@@ -2056,6 +2060,7 @@ impl<'a> Parser<'a> {
             name: Symbol::new(&name),
             constraints,
             mandate: None,
+            app_fees: Vec::new(),
             body,
         }))
     }
@@ -2207,7 +2212,35 @@ impl<'a> Parser<'a> {
         self.expect(Tok::LBrace, "expected '{' after intent name")?;
         let mut stmts: Vec<Statement> = Vec::new();
         let mut mandate = None;
+        let mut app_fees: Vec<AppFee> = Vec::new();
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            if matches!(self.peek(), Tok::Ident(ref word) if word == "fee") {
+                let fee = self.parse_app_fee()?;
+                if app_fees.len() >= MAX_APP_FEES {
+                    return Err(parse_err(
+                        format!("an intent declares at most {MAX_APP_FEES} `fee` clauses"),
+                        self.peek(),
+                    ));
+                }
+                if app_fees.iter().any(|f| f.recipient == fee.recipient) {
+                    return Err(parse_err(
+                        format!(
+                            "`fee` to {} is declared twice; state one fee per recipient",
+                            fee.recipient.as_str()
+                        ),
+                        self.peek(),
+                    ));
+                }
+                let total: u32 = app_fees.iter().map(|f| f.bps).sum::<u32>() + fee.bps;
+                if total > 10_000 {
+                    return Err(parse_err(
+                        format!("`fee` clauses total {total} bps, more than the whole input"),
+                        self.peek(),
+                    ));
+                }
+                app_fees.push(fee);
+                continue;
+            }
             if matches!(self.peek(), Tok::Ident(ref word) if word == "under") {
                 if mandate.is_some() {
                     return Err(parse_err(
@@ -2236,8 +2269,59 @@ impl<'a> Parser<'a> {
             name: Symbol::new(&name),
             constraints: Vec::new(),
             mandate,
+            app_fees,
             body: Block::new(stmts),
         }))
+    }
+
+    /// `fee <bps> bps to <near account>` — one integrator fee on the route's input.
+    fn parse_app_fee(&mut self) -> Result<AppFee, X3Error> {
+        self.advance(); // `fee`
+        let bps = match self.advance() {
+            Tok::Int(value) if (1..=10_000).contains(&value) => value as u32,
+            Tok::Int(value) => {
+                return Err(parse_err(
+                    format!("`fee` of {value} bps is outside 1..=10000"),
+                    self.peek(),
+                ));
+            }
+            other => {
+                return Err(parse_err(
+                    "`fee` needs a whole number of basis points: `fee 25 bps to <account>`".into(),
+                    other,
+                ))
+            }
+        };
+        match self.advance() {
+            Tok::Ident(unit) if unit == "bps" => {}
+            other => {
+                return Err(parse_err(
+                    "`fee` is stated in bps: `fee 25 bps to <account>`".into(),
+                    other,
+                ))
+            }
+        }
+        match self.advance() {
+            Tok::Ident(word) if word == "to" => {}
+            other => return Err(parse_err("expected `fee <n> bps to <account>`".into(), other)),
+        }
+        let mut recipient = self.expect_ident("fee recipient account")?;
+        while self.peek() == Tok::Dot {
+            self.advance();
+            recipient.push('.');
+            recipient.push_str(&self.expect_ident("fee recipient account segment")?);
+        }
+        if !is_valid_near_named_account(&recipient) {
+            return Err(parse_err(
+                format!("`fee` recipient {recipient:?} is not a valid NEAR named account"),
+                self.peek(),
+            ));
+        }
+        self.opt_semi();
+        Ok(AppFee {
+            bps,
+            recipient: Symbol::new(&recipient),
+        })
     }
 
     /// The owner named by `under mandate`. Account parts may contain `-` or

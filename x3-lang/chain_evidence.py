@@ -359,6 +359,189 @@ class BscRpc:
 
 
 # --------------------------------------------------------------------------------------------
+# EVM chains (native and ERC-20 transfers)
+# --------------------------------------------------------------------------------------------
+#
+# The same proof as BSC above, for every EVM chain the 1Click adapter routes, plus ERC-20
+# transfers: the receipt's `Transfer(address,address,uint256)` logs emitted by the token
+# contract itself. Every endpoint must agree, the block must be at or below the chain's
+# `finalized` block, and the chain ID must be the chain's. No endpoint is assumed: each chain's
+# RPCs come from `X3_EVM_RPC_URLS_<CHAIN>` (comma-separated), so an unconfigured chain fails
+# closed instead of trusting a default nobody reviewed. BSC keeps its reviewed defaults.
+
+EVM_CHAIN_IDS = {
+    "ethereum": 1,
+    "optimism": 10,
+    "bsc": 56,
+    "gnosis": 100,
+    "polygon": 137,
+    "monad": 143,
+    "base": 8453,
+    "arbitrum": 42161,
+    "avalanche": 43114,
+    "berachain": 80094,
+    "scroll": 534352,
+}
+EVM_DEFAULT_RPC_URLS = {"bsc": DEFAULT_BSC_RPC_URLS}
+#: keccak256("Transfer(address,address,uint256)")
+ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+
+def _topic_address(topic: Any, field: str) -> str:
+    if not isinstance(topic, str) or len(topic) != 66 or not topic.startswith("0x"):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{field} is not a 32-byte topic: {topic!r}")
+    if topic[2:26].strip("0"):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"{field} is not a left-padded address: {topic!r}")
+    return "0x" + topic[26:].lower()
+
+
+def erc20_transfers(receipt: Dict[str, Any], token: str) -> List[Dict[str, Any]]:
+    """Every `Transfer` the token contract itself logged in this receipt, in log order."""
+    token = token.lower()
+    out = []
+    logs = receipt.get("logs")
+    if not isinstance(logs, list):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "receipt has no logs list")
+    for i, log in enumerate(logs):
+        if not isinstance(log, dict):
+            raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"receipt.logs[{i}] is not an object")
+        if str(log.get("address", "")).lower() != token or log.get("removed") is True:
+            continue
+        topics = log.get("topics") or []
+        if not topics or str(topics[0]).lower() != ERC20_TRANSFER_TOPIC:
+            continue
+        if len(topics) != 3:
+            raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"receipt.logs[{i}] Transfer has {len(topics)} topics")
+        data = log.get("data")
+        if not isinstance(data, str) or not data.startswith("0x") or len(data) != 66:
+            raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"receipt.logs[{i}] Transfer data is not one uint256")
+        out.append({"from": _topic_address(topics[1], f"logs[{i}].topics[1]"),
+                    "to": _topic_address(topics[2], f"logs[{i}].topics[2]"),
+                    "value": _hex_int(data, f"logs[{i}].data")})
+    return out
+
+
+def judge_evm_transfer(facts_by_url: List[Tuple[str, Dict[str, Any], Optional[str]]], *, chain: str,
+                       tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
+                       purpose: str, token: Optional[str] = None,
+                       after_block: Optional[int] = None) -> Dict[str, Any]:
+    """Verify a native (token=None) or ERC-20 transfer only when every endpoint agrees it is final."""
+    expected_chain_id = EVM_CHAIN_IDS[chain]
+    recipient = recipient.lower()
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, ok: bool, **detail: Any) -> None:
+        checks.append({"check": name, "ok": bool(ok), **detail})
+
+    if not facts_by_url:
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"no {chain} RPC endpoints answered")
+    found = all(f.get("found") for _, f, _ in facts_by_url)
+    check("found", found)
+    first = facts_by_url[0][1]
+    observed = None
+    if found:
+        comparable_keys = (
+            "chainId", "hash", "transaction_hash_matches", "succeeded", "from", "to", "value",
+            "blockNumber", "blockHash", "receiptBlockHash", "blockObjectHash", "block_hash_matches",
+            "blockTimestamp", "token_transfers",
+        )
+        comparable = [{k: f.get(k) for k in comparable_keys} for _, f, _ in facts_by_url]
+        check("endpoints_agree", all(value == comparable[0] for value in comparable[1:]),
+              endpoints=len(facts_by_url))
+        check("transaction_hash_matches", first["transaction_hash_matches"] is True)
+        check("chain_id", all(f.get("chainId") == expected_chain_id for _, f, _ in facts_by_url),
+              expected=expected_chain_id, observed=[f.get("chainId") for _, f, _ in facts_by_url])
+        check("block_hash_matches", first["block_hash_matches"] is True,
+              transactionHash=first["blockHash"], receiptHash=first["receiptBlockHash"],
+              blockHash=first["blockObjectHash"])
+        check("succeeded", first["succeeded"] is True)
+        if token is None:
+            observed = first["value"]
+            check("recipient", first["to"] == recipient, expected=recipient, observed=first["to"])
+        else:
+            # The transaction may call a router; what counts is what the token contract logged.
+            observed = sum(t["value"] for t in first["token_transfers"] if t["to"] == recipient)
+            check("token_contract", True, token=token.lower())
+            check("recipient", observed > 0, expected=recipient,
+                  transfers_to_recipient=sum(1 for t in first["token_transfers"] if t["to"] == recipient))
+        check("amount", observed >= min_amount, observed=str(observed), required=str(min_amount))
+        finalized = [f.get("finalizedBlock") for _, f, _ in facts_by_url]
+        check("finalized", all(isinstance(n, int) and n >= first["blockNumber"] for n in finalized),
+              finalizedBlocks=finalized, transactionBlock=first["blockNumber"])
+        if not_after_ms is not None:
+            check("before_deadline", first["blockTimestamp"] * 1000 <= not_after_ms,
+                  blockTimestamp=first["blockTimestamp"], notAfterMs=not_after_ms)
+        if after_block is not None:
+            check("after_deposit", first["blockNumber"] > after_block,
+                  blockNumber=first["blockNumber"], depositBlock=after_block)
+    return {
+        "evidence_version": EVIDENCE_VERSION,
+        "kind": "evm_native_transfer" if token is None else "evm_token_transfer",
+        "chain": chain,
+        "purpose": purpose,
+        "verified": all(c["ok"] for c in checks),
+        "transaction_hash": tx_hash,
+        "chainId": first.get("chainId"),
+        "token": token.lower() if token else None,
+        "recipient": recipient,
+        "required": str(min_amount),
+        "observed": str(observed) if observed is not None else None,
+        "blockNumber": first.get("blockNumber"),
+        "finalizedBlock": first.get("finalizedBlock"),
+        "blockTimestamp": first.get("blockTimestamp"),
+        "commitment": "finalized",
+        "rpcs": [{"url": url, "result_sha256": digest} for url, _, digest in facts_by_url],
+        "checks": checks,
+    }
+
+
+class EvmRpc:
+    """Finalized transfer evidence on one EVM chain, from every configured endpoint."""
+
+    def __init__(self, chain: str, transport: Transport, urls: Optional[Sequence[str]] = None, timeout: float = 20.0):
+        if chain not in EVM_CHAIN_IDS:
+            raise ChainEvidenceError("X3_EVIDENCE_UNSUPPORTED", f"no EVM evidence for chain {chain!r}")
+        self.chain = chain
+        self.urls = rpc_urls(f"X3_EVM_RPC_URLS_{chain.upper()}", EVM_DEFAULT_RPC_URLS.get(chain, ()), urls)
+        self.transport = transport
+        self.timeout = timeout
+
+    def _facts(self, url: str, tx_hash: str, token: Optional[str]) -> Tuple[Dict[str, Any], str]:
+        chain_id = json_rpc(self.transport, url, "eth_chainId", [], self.timeout)
+        tx = json_rpc(self.transport, url, "eth_getTransactionByHash", [tx_hash], self.timeout)
+        receipt = json_rpc(self.transport, url, "eth_getTransactionReceipt", [tx_hash], self.timeout)
+        block = finalized = None
+        if isinstance(tx, dict) and tx.get("blockNumber"):
+            block = json_rpc(self.transport, url, "eth_getBlockByNumber", [tx["blockNumber"], False], self.timeout)
+            finalized = json_rpc(self.transport, url, "eth_getBlockByNumber", ["finalized", False], self.timeout)
+        raw = {"chainId": chain_id, "transaction": tx, "receipt": receipt, "block": block, "finalized": finalized}
+        facts = bsc_native_transfer_facts(tx=tx, receipt=receipt, block=block, finalized=finalized,
+                                          chain_id=chain_id, tx_hash=tx_hash)
+        if facts.get("found"):
+            facts["token_transfers"] = erc20_transfers(receipt, token) if token else None
+        return facts, sha256_json(raw)
+
+    def _verify(self, *, tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
+                purpose: str, token: Optional[str], after_block: Optional[int]) -> Dict[str, Any]:
+        facts = [(url, *self._facts(url, tx_hash, token)) for url in self.urls]
+        return judge_evm_transfer(facts, chain=self.chain, tx_hash=tx_hash, recipient=recipient,
+                                  min_amount=min_amount, not_after_ms=not_after_ms, purpose=purpose,
+                                  token=token, after_block=after_block)
+
+    def verify_native_transfer(self, *, tx_hash: str, recipient: str, min_amount: int,
+                               not_after_ms: Optional[int], purpose: str,
+                               after_block: Optional[int] = None) -> Dict[str, Any]:
+        return self._verify(tx_hash=tx_hash, recipient=recipient, min_amount=min_amount, not_after_ms=not_after_ms,
+                            purpose=purpose, token=None, after_block=after_block)
+
+    def verify_token_transfer(self, *, tx_hash: str, token: str, recipient: str, min_amount: int,
+                              not_after_ms: Optional[int], purpose: str,
+                              after_block: Optional[int] = None) -> Dict[str, Any]:
+        return self._verify(tx_hash=tx_hash, recipient=recipient, min_amount=min_amount, not_after_ms=not_after_ms,
+                            purpose=purpose, token=token, after_block=after_block)
+
+
+# --------------------------------------------------------------------------------------------
 # NEAR
 # --------------------------------------------------------------------------------------------
 

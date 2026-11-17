@@ -76,6 +76,9 @@ pub struct IntentSpecDraft {
     /// draft must either enforce it or reject the draft.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mandate_owner: Option<String>,
+    /// Integrator fees `(bps, recipient)` the settling adapter must pay, or refuse the draft.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub app_fees: Vec<(u32, String)>,
 }
 
 impl IntentSpecDraft {
@@ -105,6 +108,7 @@ impl IntentSpecDraft {
             constraints: Vec::new(),
             timeout_secs: 30 * 60,
             mandate_owner: None,
+            app_fees: Vec::new(),
         }
     }
 
@@ -173,6 +177,11 @@ pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
         "UNKNOWN", 0, "unknown", "x3", "UNKNOWN", "unknown",
     );
     draft.mandate_owner = intent.mandate.as_ref().map(|owner| owner.as_str().to_string());
+    draft.app_fees = intent
+        .app_fees
+        .iter()
+        .map(|f| (f.bps, f.recipient.as_str().to_string()))
+        .collect();
 
     // Walk constraints (from `require` guards) and body statements.
     // Constraints from the `require` annotations are encoded as Expressions

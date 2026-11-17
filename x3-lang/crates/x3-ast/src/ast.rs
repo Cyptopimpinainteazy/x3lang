@@ -472,7 +472,22 @@ pub struct IntentDecl {
     /// host explicitly resolves and enforces this binding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mandate: Option<Symbol>,
+    /// `fee <bps> bps to <account>`: integrator fees the route pays out of the input amount.
+    /// Like `mandate`, adapter metadata rather than a VM step: the NEAR Intents adapter sends
+    /// them as 1Click `appFees` and counts them inside the program's `require fees` cap, and a
+    /// host that cannot pay them must refuse the intent (lowering carries them as constraints).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub app_fees: Vec<AppFee>,
     pub body: Block,
+}
+
+/// One integrator fee on an intent: `fee 25 bps to fees.yourapp.near`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppFee {
+    /// Basis points of the input amount, 1..=10_000.
+    pub bps: u32,
+    /// The NEAR account the fee is paid to.
+    pub recipient: Symbol,
 }
 
 /// An owner's binding policy for an AI agent's NEAR Intents spending.

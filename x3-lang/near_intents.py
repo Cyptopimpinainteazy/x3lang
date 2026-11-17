@@ -223,7 +223,27 @@ CHAIN_TO_BLOCKCHAIN = {
     "polygon": "pol",
     "bitcoin": "btc",
     "bsc": "bsc",
+    # Added 2026-11-16, each present in 1Click's live `GET /v0/tokens` under this code.
+    "base": "base",
+    "optimism": "op",
+    "avalanche": "avax",
+    "gnosis": "gnosis",
+    "scroll": "scroll",
+    "monad": "monad",
+    "berachain": "bera",
 }
+
+# Chains whose 1Click recipients and refunds are EVM addresses. A real deposit or payout is
+# never sent to a short DSL placeholder such as `0xA1`, which the language otherwise accepts
+# (`registry.is_valid_receiver`), so this adapter demands a full 20-byte address.
+EVM_CHAINS = frozenset(c for c in CHAIN_TO_BLOCKCHAIN if registry.CHAIN_DOMAINS[c]["address"] == "evm")
+_FULL_EVM_ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}")
+
+
+def _require_full_evm_address(chain: str, address: str, field: str, code: str) -> None:
+    if chain in EVM_CHAINS and not _FULL_EVM_ADDRESS.fullmatch(str(address)):
+        raise NearIntentsError(code, f"{address!r} is not a full 20-byte {chain} address; 1Click moves real "
+                               "funds to it, so a short placeholder is refused", field)
 
 # X3 asset names that 1Click lists under another symbol. NEAR is deposited and delivered as
 # the wrapped NEP-141 token.
@@ -392,6 +412,14 @@ def _endpoint(intent: Dict[str, Any], key: str) -> Dict[str, Any]:
     if not isinstance(endpoint, dict) or not endpoint.get("chain") or not endpoint.get("asset"):
         raise NearIntentsError("X3_NEAR_ENDPOINT", f"intent has no `{key}` chain.asset", key)
     chain = registry.normalize_chain(endpoint["chain"])
+    known = registry.not_routable(endpoint["chain"])
+    if chain is None and known:
+        raise NearIntentsError(
+            "X3_NEAR_CHAIN_NOT_ROUTABLE",
+            f"{key} chain {endpoint['chain']!r} ({known}) is not routed by NEAR Intents 1Click; "
+            f"routable here: {', '.join(sorted(CHAIN_TO_BLOCKCHAIN))}",
+            f"{key}.chain",
+        )
     if chain not in CHAIN_TO_BLOCKCHAIN:
         raise NearIntentsError(
             "X3_NEAR_CHAIN_UNSUPPORTED",
@@ -444,6 +472,7 @@ def lower(intent: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str
         raise NearIntentsError("X3_NEAR_RECIPIENT", "`to` must name a receiver address", "to.receiver")
     if not registry.is_valid_receiver(dest["chain"], recipient):
         raise NearIntentsError("X3_NEAR_RECIPIENT", f"{recipient!r} is not a {dest['chain']} address", "to.receiver")
+    _require_full_evm_address(dest["chain"], recipient, "to.receiver", "X3_NEAR_RECIPIENT")
 
     # Guards.
     requires = intent.get("requires") or []
@@ -524,6 +553,7 @@ def lower(intent: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str
             )
         if not registry.is_valid_receiver(source["chain"], target):
             raise NearIntentsError("X3_NEAR_REFUND_TO", f"{target!r} is not a {source['chain']} address", "policies")
+        _require_full_evm_address(source["chain"], target, "policies", "X3_NEAR_REFUND_TO")
         if refund_to is not None and refund_to != target:
             raise NearIntentsError("X3_NEAR_REFUND_TO", "timeout and on_fail refund to different addresses; 1Click takes one", "policies")
         refund_to = target
@@ -541,6 +571,34 @@ def lower(intent: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str
         "nonce": nonces[0] if nonces else None,
         "deadline": format_timestamp(now + window),
     }
+    app_fees = intent.get("app_fees") or []
+    if app_fees:
+        if leg_out["fee_cap_bps"] is None:
+            raise NearIntentsError(
+                "X3_NEAR_FEE_CAP_REQUIRED",
+                "a program that charges a `fee` must cap the payer's total cost with `require fees <= <bps>`; "
+                "the cap is what bounds the fee, every 1Click charge and the refund together",
+                "requires",
+            )
+        total_bps = sum(int(f["bps"]) for f in app_fees)
+        if total_bps > leg_out["fee_cap_bps"]:
+            raise NearIntentsError(
+                "X3_NEAR_FEE_OVER_CAP",
+                f"`fee` clauses total {total_bps} bps, more than the program's own cap "
+                f"`require fees <= {leg_out['fee_cap_bps']} bps`",
+                "app_fees",
+            )
+        if intent.get("mandate") is not None:
+            # An agent writes its own program. A fee clause would let it pay itself (or anyone)
+            # out of the owner's funds while staying under the cost cap, and a mandate cannot
+            # grant fee recipients yet, so an agent intent with a fee is refused outright.
+            raise NearIntentsError(
+                "X3_MANDATE_APP_FEE",
+                "an intent under a mandate cannot carry a `fee`: the agent would choose who is paid "
+                "out of the owner's funds, and mandates do not grant fee recipients",
+                "app_fees",
+            )
+        leg_out["app_fees"] = [{"recipient": f["recipient"], "fee": int(f["bps"])} for f in app_fees]
     mandate = intent.get("mandate")
     if mandate is not None:
         owner = (mandate or {}).get("owner")
@@ -594,6 +652,10 @@ def build_quote_request(leg: Dict[str, Any], tokens: List[Dict[str, Any]], *, dr
     }
     if referral:
         request["referral"] = referral.lower()
+    if leg.get("app_fees"):
+        # 1Click charges these from the input before the swap, so the signed amounts already
+        # account for them; `verify_quote` measures the total cost against the program's cap.
+        request["appFees"] = [{"recipient": f["recipient"], "fee": int(f["fee"])} for f in leg["app_fees"]]
     return request
 
 
@@ -794,6 +856,21 @@ def _same(field: str, sent: Any, echoed: Any) -> bool:
     return sent == echoed
 
 
+def _app_fees(value: Any) -> Optional[List[Tuple[str, int]]]:
+    """`appFees` in one comparable shape, or None when it is absent or malformed."""
+    if not isinstance(value, list) or not value:
+        return None
+    out = []
+    for entry in value:
+        if not isinstance(entry, dict) or not isinstance(entry.get("recipient"), str):
+            return None
+        fee = entry.get("fee")
+        if isinstance(fee, bool) or not isinstance(fee, (int, str)) or not str(fee).isdigit():
+            return None
+        out.append((entry["recipient"], int(fee)))
+    return sorted(out)
+
+
 def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[str, Any], *, now: Optional[datetime] = None,
                  manager_public_key: Optional[str] = None) -> List[Dict[str, Any]]:
     """Check a 1Click quote against the program. Raises with every result if any guard fails.
@@ -830,6 +907,13 @@ def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[st
     echoed = response.get("quoteRequest") or {}
     mismatched = [f for f in _ECHO_FIELDS if not _same(f, request.get(f), echoed.get(f))]
     record("quote_request_echo", not mismatched, mismatched=mismatched)
+    if request.get("appFees"):
+        # `appFees` is echoed but not signed. The payer is protected either way: the fee comes
+        # out of the input, so the signed amounts carry it and the `fees` guard below bounds the
+        # total. What the echo shows is that 1Click took *these* fee terms, so a quote that
+        # drops or changes them is refused rather than settled on terms nobody wrote.
+        record("app_fees_echo", _app_fees(echoed.get("appFees")) == _app_fees(request.get("appFees")),
+               requested=request.get("appFees"), echoed=echoed.get("appFees"), signed=False)
 
     try:
         amount_in = int(quote["amountIn"])
@@ -862,9 +946,12 @@ def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[st
             record("fees", False, reason="quote has no USD price for the input, so the cost cannot be measured")
         else:
             cost_bps = max(Decimal(0), (usd_in - usd_out) * 10000 / usd_in)
+            app_fee_bps = sum(int(f["fee"]) for f in leg.get("app_fees") or [])
             record("fees", cost_bps <= leg["fee_cap_bps"], cap_bps=leg["fee_cap_bps"],
                    effective_cost_bps=str(cost_bps.quantize(Decimal("0.01"))),
-                   amount_in_usd=str(usd_in), amount_out_usd=str(usd_out))
+                   amount_in_usd=str(usd_in), amount_out_usd=str(usd_out),
+                   # Included in effective_cost_bps: measured from the signed amounts, not added.
+                   app_fee_bps=app_fee_bps)
         # The refund is a path of this intent too, and 1Click charges for it (`refundFee`, in
         # origin base units). `require fees` bounds every path, so a quote whose refund costs
         # more than the cap is refused even though the happy path is cheap. An absent
@@ -1234,8 +1321,11 @@ class NearRpc:
 def preflight_accounts(leg: Dict[str, Any], rpc: NearRpc) -> List[Dict[str, Any]]:
     """Every NEAR account the swap pays out to must exist before a quote is requested."""
     checks = []
-    for role, chain, account in (("recipient", leg["destination"]["chain"], leg["recipient"]),
-                                 ("refund_to", leg["origin"]["chain"], leg["refund_to"])):
+    payees = [("recipient", leg["destination"]["chain"], leg["recipient"]),
+              ("refund_to", leg["origin"]["chain"], leg["refund_to"])]
+    # A fee paid to an account that does not exist is a fee nobody receives.
+    payees += [("app_fee_recipient", "near", f["recipient"]) for f in leg.get("app_fees") or []]
+    for role, chain, account in payees:
         if chain != "near":
             continue
         exists = rpc.account_exists(account)
@@ -1244,7 +1334,7 @@ def preflight_accounts(leg: Dict[str, Any], rpc: NearRpc) -> List[Dict[str, Any]
             raise NearIntentsError(
                 "X3_NEAR_ACCOUNT_UNKNOWN",
                 f"NEAR account {account!r} ({role}) does not exist; 1Click cannot deliver to it",
-                "to.receiver" if role == "recipient" else "policies.timeout.action.to",
+                {"recipient": "to.receiver", "app_fee_recipient": "app_fees"}.get(role, "policies.timeout.action.to"),
                 checks,
             )
     return checks
@@ -1779,7 +1869,7 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
     _, compiled_leg = compile_program(program_path, now=parse_timestamp(response["timestamp"]))
     stable_fields = (
         "intent", "origin", "destination", "amount", "recipient", "refund_to",
-        "min_receive", "slippage_bps", "fee_cap_bps", "nonce",
+        "min_receive", "slippage_bps", "fee_cap_bps", "nonce", "app_fees",
     )
     changed = [field for field in stable_fields if receipt.get("leg", {}).get(field) != compiled_leg.get(field)]
     if changed:
@@ -1916,6 +2006,12 @@ def _signed_quote(receipt: Dict[str, Any]) -> Dict[str, Any]:
             or parse_timestamp(leg["deadline"]) != parse_timestamp(saved_request["deadline"])):
         raise NearIntentsError("X3_EVIDENCE_BINDING",
                                "receipt leg differs from the request signed by 1Click")
+    if leg.get("app_fees") or saved_request.get("appFees") or signed_request.get("appFees"):
+        terms = _app_fees([{"recipient": f.get("recipient"), "fee": f.get("fee")} for f in leg.get("app_fees") or []])
+        if (terms is None or terms != _app_fees(saved_request.get("appFees"))
+                or terms != _app_fees(signed_request.get("appFees"))):
+            raise NearIntentsError("X3_EVIDENCE_BINDING",
+                                   "receipt fee terms differ from the request 1Click quoted")
     tokens = receipt.get("tokens") or {}
     if ((tokens.get("origin") or {}).get("assetId") != saved_request.get("originAsset")
             or (tokens.get("destination") or {}).get("assetId") != saved_request.get("destinationAsset")):
@@ -1954,6 +2050,116 @@ def _solana_mint(receipt: Dict[str, Any]) -> str:
     return mint
 
 
+# Canonical ERC-20 contracts this adapter will prove a transfer of, reviewed independently of
+# 1Click's token list (an unsigned listing must never choose which contract counts as "USDC").
+# A signed asset outside this table can still be quoted and routed; its deposit and refund
+# evidence is reported unsupported rather than guessed.
+REVIEWED_EVM_TOKENS = {
+    "ethereum": {"USDC": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                 "USDT": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+                 "WETH": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"},
+    "base": {"USDC": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+             "WETH": "0x4200000000000000000000000000000000000006"},
+    "arbitrum": {"USDC": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+                 "WETH": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1"},
+    "optimism": {"USDC": "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
+                 "USDT": "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58",
+                 "WETH": "0x4200000000000000000000000000000000000006"},
+    "polygon": {"USDC": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+                "USDT": "0xc2132d05d31c914a87c6611c10748aeb04b58e8f"},
+    "avalanche": {"USDC": "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
+                  "USDT": "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7"},
+    "gnosis": {"USDC": "0x2a22f9c3b484c3629090feed35f17ff8f88f76f0",
+               "USDT": "0x4ecaba5870353805a9f068101a40e0f32ed605c6"},
+    "bsc": {"USDC": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+            "USDT": "0x55d398326f99059ff775485246999027b3197955"},
+    "scroll": {"USDT": "0xf55bec9cafdbe8730f096aa55dad6d22d44099df"},
+}
+# 1Click's HOT-omni asset IDs (`nep245:v2_1.omni.hot.tg:<chainId>_<id>`) do not carry the
+# contract, so each ERC-20 one is pinned to its signed asset ID (read from `GET /v0/tokens`,
+# 2026-11-16). The native-coin form (`_11111111111111111111`) is recognised structurally.
+REVIEWED_OMNI_ASSETS = {
+    "nep245:v2_1.omni.hot.tg:10_A2ewyUyDp6qsue1jqZsGypkCxRJ": ("optimism", "USDC"),
+    "nep245:v2_1.omni.hot.tg:10_359RPSJVdTxwTJT9TyGssr2rFoWo": ("optimism", "USDT"),
+    "nep245:v2_1.omni.hot.tg:10_vLAiSt9KfUGKpw5cD3vsSyNYBn5": ("optimism", "WETH"),
+    "nep245:v2_1.omni.hot.tg:534352_4RG3Q2wFsMQmd45m5m89RjsLfupA": ("scroll", "USDT"),
+}
+_OMFT_TOKEN = re.compile(r"nep141:([a-z0-9]+)-(0x[0-9a-f]{40})\.(?:omft|omdep)\.near")
+_OMFT_NATIVE = re.compile(r"nep141:([a-z0-9]+)\.(?:omft|omdep)\.near")
+_ONECS_TOKEN = re.compile(r"1cs_v1:([a-z0-9]+):erc20:(0x[0-9a-f]{40})")
+_OMNI = re.compile(r"nep245:v2_1\.omni\.hot\.tg:(\d+)_([1-9A-HJ-NP-Za-km-z]+)")
+
+
+def evm_origin_asset(receipt: Dict[str, Any]) -> Dict[str, Any]:
+    """What the deposit must be, from the *signed* origin asset: `{chain, kind, token?}`.
+
+    Raises X3_EVIDENCE_UNSUPPORTED for an asset with no reviewed binding, and
+    X3_EVIDENCE_BINDING when the receipt's token metadata disagrees with the signed asset.
+    """
+    chain = receipt["leg"]["origin"]["chain"]
+    if chain not in EVM_CHAINS:
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED", f"{chain} is not an EVM origin")
+    code = CHAIN_TO_BLOCKCHAIN[chain]
+    chain_id = chain_evidence.EVM_CHAIN_IDS[chain]
+    signed_asset = str(receipt["quote_response"]["quoteRequest"].get("originAsset") or "")
+    origin = (receipt.get("tokens") or {}).get("origin") or {}
+    if origin.get("assetId") != signed_asset or origin.get("blockchain") != code:
+        raise NearIntentsError("X3_EVIDENCE_BINDING", "receipt origin token metadata differs from the signed asset")
+    token: Optional[str] = None
+    native = False
+    m = _OMFT_TOKEN.fullmatch(signed_asset) or _ONECS_TOKEN.fullmatch(signed_asset)
+    if m:
+        if m.group(1) != code:
+            raise NearIntentsError("X3_EVIDENCE_BINDING", f"signed asset {signed_asset} is not on {code}")
+        token = m.group(2)
+    elif _OMFT_NATIVE.fullmatch(signed_asset):
+        if _OMFT_NATIVE.fullmatch(signed_asset).group(1) != code:
+            raise NearIntentsError("X3_EVIDENCE_BINDING", f"signed asset {signed_asset} is not on {code}")
+        native = True
+    elif _OMNI.fullmatch(signed_asset):
+        omni_chain, ident = _OMNI.fullmatch(signed_asset).groups()
+        if int(omni_chain) != chain_id:
+            raise NearIntentsError("X3_EVIDENCE_BINDING", f"signed asset {signed_asset} is not on chain {chain_id}")
+        if set(ident) == {"1"}:
+            native = True
+        elif signed_asset in REVIEWED_OMNI_ASSETS:
+            pinned_chain, symbol = REVIEWED_OMNI_ASSETS[signed_asset]
+            if pinned_chain != chain:
+                raise NearIntentsError("X3_EVIDENCE_BINDING", f"signed asset {signed_asset} is pinned to {pinned_chain}")
+            token = REVIEWED_EVM_TOKENS[chain][symbol]
+    if native:
+        listed = str(origin.get("contractAddress") or "")
+        # 1Click lists HOT-omni native coins with the omni native marker as their "contract".
+        if listed and set(listed) != {"1"}:
+            raise NearIntentsError("X3_EVIDENCE_BINDING", "a native signed asset has token metadata with a contract")
+        return {"chain": chain, "kind": "native", "token": None}
+    if token is None or token not in REVIEWED_EVM_TOKENS.get(chain, {}).values():
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED",
+                               f"no reviewed {chain} contract for signed asset {signed_asset}; "
+                               "it can be routed, but its deposit cannot be independently proven here")
+    if str(origin.get("contractAddress") or "").lower() != token:
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "receipt token contract differs from the reviewed contract for the signed asset")
+    return {"chain": chain, "kind": "erc20", "token": token}
+
+
+def _evm_rpc(chain: str, evm: Any, bsc: Any):
+    """The evidence source for one EVM chain: an injected one, BSC's, or the configured endpoints."""
+    if isinstance(evm, dict) and chain in evm:
+        return evm[chain]
+    if evm is not None and not isinstance(evm, dict):
+        return evm
+    if chain == "bsc" and bsc is not None:
+        return bsc
+    return chain_evidence.EvmRpc(chain, transport=urllib_transport)
+
+
+def _evm_transfer(rpc: Any, asset: Dict[str, Any], **kw: Any) -> Dict[str, Any]:
+    if asset["kind"] == "native":
+        return rpc.verify_native_transfer(**kw)
+    return rpc.verify_token_transfer(token=asset["token"], **kw)
+
+
 def _record_evidence(receipt: Dict[str, Any], key: str, fn) -> Dict[str, Any]:
     """Run one evidence check; an RPC or format failure is recorded as unverified evidence."""
     try:
@@ -1967,8 +2173,8 @@ def _record_evidence(receipt: Dict[str, Any], key: str, fn) -> Dict[str, Any]:
 
 
 def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = None,
-                   solana=None, bsc=None, helius=None) -> Dict[str, Any]:
-    """Check finalized BSC native transfer or Solana transfer with optional Helius witness."""
+                   solana=None, bsc=None, helius=None, evm=None) -> Dict[str, Any]:
+    """Check a finalized EVM (native or reviewed ERC-20) or Solana deposit to the signed address."""
     quote_obj = _signed_quote(receipt)
     recorded_signature = (receipt.get("deposit") or {}).get("tx_hash")
     if tx_signature and recorded_signature and tx_signature != recorded_signature:
@@ -1977,9 +2183,13 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
     if not signature:
         raise NearIntentsError("X3_EVIDENCE_TX", "no deposit transaction: pass --tx, or record it with submit-deposit --receipt")
     origin_chain = receipt["leg"]["origin"]["chain"]
-    if origin_chain == "bsc":
-        bsc = bsc or bsc_rpc_default()
-        return _record_evidence(receipt, "deposit", lambda: bsc.verify_native_transfer(
+    if origin_chain in EVM_CHAINS:
+        asset = evm_origin_asset(receipt)
+        if origin_chain == "bsc" and asset["kind"] == "native" and bsc is None and evm is None:
+            bsc = bsc_rpc_default()
+        rpc = _evm_rpc(origin_chain, evm, bsc)
+        return _record_evidence(receipt, "deposit", lambda: _evm_transfer(
+            rpc, asset,
             tx_hash=signature,
             recipient=quote_obj["depositAddress"],
             min_amount=int(quote_obj["amountIn"]),
@@ -2007,7 +2217,7 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
 
 
 def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None,
-                      solana=None, bsc=None) -> Dict[str, Any]:
+                      solana=None, bsc=None, evm=None) -> Dict[str, Any]:
     """Observe NEAR balance movement (not settlement proof), or an origin-chain refund."""
     quote_obj = _signed_quote(receipt)
     leg = receipt["leg"]
@@ -2057,10 +2267,16 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
         # A locally saved 'verified' field is not permanent proof. Re-read the
         # actual finalized origin-chain deposit against THIS signed quote, including
         # its quoted address, amount, asset and deadline, before refund evidence.
+        origin_is_evm = receipt["leg"]["origin"]["chain"] in EVM_CHAINS
         try:
-            if receipt["leg"]["origin"]["chain"] == "bsc":
-                bsc = bsc or bsc_rpc_default()
-                fresh_deposit = bsc.verify_native_transfer(
+            if origin_is_evm:
+                evm_asset = evm_origin_asset(receipt)
+                origin_chain = receipt["leg"]["origin"]["chain"]
+                if origin_chain == "bsc" and evm_asset["kind"] == "native" and bsc is None and evm is None:
+                    bsc = bsc_rpc_default()
+                evm_rpc = _evm_rpc(origin_chain, evm, bsc)
+                fresh_deposit = _evm_transfer(
+                    evm_rpc, evm_asset,
                     tx_hash=original_tx,
                     recipient=quote_obj["depositAddress"],
                     min_amount=amount_in,
@@ -2078,7 +2294,7 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
         except chain_evidence.ChainEvidenceError as exc:
             raise NearIntentsError("X3_EVIDENCE_BINDING",
                                    "could not independently recheck the original deposit") from exc
-        if receipt["leg"]["origin"]["chain"] == "bsc":
+        if origin_is_evm:
             if (not fresh_deposit.get("verified")
                     or type(fresh_deposit.get("blockNumber")) is not int
                     or fresh_deposit["blockNumber"] < 0
@@ -2099,8 +2315,9 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
             raise NearIntentsError("X3_EVIDENCE_BINDING",
                                    "original deposit evidence does not match this signed live quote")
         expected = amount_in - fee
-        if receipt["leg"]["origin"]["chain"] == "bsc":
-            return _record_evidence(receipt, "refund", lambda: bsc.verify_native_transfer(
+        if origin_is_evm:
+            return _record_evidence(receipt, "refund", lambda: _evm_transfer(
+                evm_rpc, evm_asset,
                 tx_hash=refund_tx,
                 recipient=refund_target,
                 min_amount=expected,
@@ -2143,6 +2360,82 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
         return observation
 
     return _record_evidence(receipt, "settlement", observe_balance)
+
+
+def verify_receipt(receipt: Dict[str, Any], *, program_path: Optional[str] = None) -> Dict[str, Any]:
+    """Re-check a receipt offline: what 1Click signed, what the program says, and what was decided.
+
+    Nothing here reads a chain. It proves the receipt is internally consistent and that its
+    guards pass when recomputed from the signed quote at the moment 1Click issued it; the chain
+    evidence it reports is what the receipt recorded, to be re-read with verify-deposit and
+    verify-settlement. A valid receipt is not proof that a swap settled (see `conclude`).
+    """
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, ok: bool, **detail: Any) -> None:
+        checks.append({"check": name, "ok": bool(ok), **detail})
+
+    quote_obj: Optional[Dict[str, Any]] = None
+    try:
+        quote_obj = _signed_quote(receipt)
+        check("signed_quote_bound", True, quote_hash=receipt.get("quote_hash"))
+    except NearIntentsError as exc:
+        check("signed_quote_bound", False, code=exc.code, reason=exc.message)
+
+    if program_path is not None:
+        sha = _sha256_file(program_path)
+        check("program_sha256", sha == receipt.get("program_sha256"), expected=receipt.get("program_sha256"), observed=sha)
+        response = receipt.get("quote_response") or {}
+        try:
+            _, compiled = compile_program(program_path, now=parse_timestamp(response["timestamp"]))
+            fields = ("intent", "origin", "destination", "amount", "recipient", "refund_to", "min_receive",
+                      "slippage_bps", "fee_cap_bps", "nonce", "app_fees")
+            changed = [f for f in fields if (receipt.get("leg") or {}).get(f) != compiled.get(f)]
+            check("program_terms", not changed, changed=changed)
+        except (NearIntentsError, KeyError, ValueError) as exc:
+            check("program_terms", False, reason=str(getattr(exc, "message", exc)))
+
+    fees: Dict[str, Any] = {}
+    if quote_obj is not None:
+        response = receipt["quote_response"]
+        try:
+            results = verify_quote(receipt["leg"], receipt["quote_request"], response,
+                                   now=parse_timestamp(response["timestamp"]))
+            check("guards_recomputed", True, guards=[r["guard"] for r in results])
+        except NearIntentsError as exc:
+            results = exc.detail if isinstance(exc.detail, list) else []
+            check("guards_recomputed", False, code=exc.code,
+                  failed=[r["guard"] for r in results if not r.get("ok")])
+        fee = next((r for r in results if r.get("guard") == "fees"), None)
+        if fee:
+            fees = {"cap_bps": fee.get("cap_bps"), "effective_cost_bps": fee.get("effective_cost_bps"),
+                    "app_fee_bps": fee.get("app_fee_bps", 0), "within_cap": fee.get("ok"),
+                    "measured_from": "signed amountInUsd/amountOutUsd"}
+        if receipt["leg"].get("app_fees"):
+            fees["app_fees"] = receipt["leg"]["app_fees"]
+            fees["app_fee_recipients_signed"] = False
+
+    recorded = {}
+    for key, value in ((receipt.get("evidence") or {}).items()):
+        if isinstance(value, dict) and "verified" in value:
+            recorded[key] = {"verified": bool(value.get("verified")), "kind": value.get("kind"),
+                             "transaction": value.get("transaction_hash") or value.get("signature")}
+    outcome = conclude(dict(receipt))
+    return {
+        "status": "valid" if all(c["ok"] for c in checks) else "invalid",
+        "intent": receipt.get("intent"),
+        "route": {"origin": (receipt.get("leg") or {}).get("origin"),
+                  "destination": (receipt.get("leg") or {}).get("destination"),
+                  "amount": str((receipt.get("leg") or {}).get("amount")),
+                  "recipient": (receipt.get("leg") or {}).get("recipient")},
+        "program_sha256": receipt.get("program_sha256"),
+        "checks": checks,
+        "fees": fees,
+        "recorded_evidence": recorded,
+        "verified_outcome": outcome.get("outcome"),
+        "note": "offline check of the receipt's own consistency; chain evidence is as recorded "
+                "(re-read it with verify-deposit / verify-settlement)",
+    }
 
 
 def conclude(receipt: Dict[str, Any]) -> Dict[str, Any]:
@@ -2256,7 +2549,7 @@ def _write_private_json(path: str, payload: Dict[str, Any]) -> None:
 
 def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] = None,
          rpc: Optional[NearRpc] = None, near_views: Optional[Any] = None, solana: Optional[Any] = None,
-         bsc: Optional[Any] = None) -> int:
+         bsc: Optional[Any] = None, evm: Optional[Any] = None) -> int:
     parser = argparse.ArgumentParser(description="Settle X3 intents through NEAR Intents (1Click API)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -2289,6 +2582,10 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
     p_vdep.add_argument("--tx", help="deposit transaction hash/signature (default: the one submit-deposit recorded)")
     p_vdep.add_argument("--helius", action="store_true",
                         help="require Helius Parsed Events for finalized Solana deposits (needs HELIUS_API_KEY)")
+
+    p_vrec = sub.add_parser("verify-receipt", help="re-check a receipt offline: signature, bindings, program, guards, fees")
+    p_vrec.add_argument("--receipt", required=True)
+    p_vrec.add_argument("--program", help="the .x3 the receipt was quoted from: its hash and terms must match")
 
     p_vset = sub.add_parser("verify-settlement", help="prove the delivery on NEAR, or a refund on the origin chain")
     p_vset.add_argument("--receipt", required=True)
@@ -2428,10 +2725,10 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 receipt = _load_receipt(args.receipt)
                 if args.command == "verify-deposit":
                     evidence = verify_deposit(receipt, tx_signature=args.tx, solana=solana,
-                                              bsc=bsc, helius=args.helius)
+                                              bsc=bsc, helius=args.helius, evm=evm)
                 else:
                     evidence = verify_settlement(receipt, refund_tx=args.refund_tx, near_views=near_views,
-                                                 solana=solana, bsc=bsc)
+                                                 solana=solana, bsc=bsc, evm=evm)
                 write_receipt(args.receipt, receipt)
                 verification = receipt["verification"]
                 if args.command == "verify-deposit":
@@ -2439,6 +2736,9 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 else:
                     code = {"settled": 0, "refunded": 2}.get(verification["outcome"], EXIT_UNVERIFIED)
                 return _emit({"evidence": evidence, "verification": verification}, code)
+        if args.command == "verify-receipt":
+            report = verify_receipt(_load_receipt(args.receipt), program_path=args.program)
+            return _emit(report, 0 if report["status"] == "valid" else 1)
         if args.command == "prepare":
             receipt = _load_receipt(args.receipt)
             return _emit(prepare_handoff(

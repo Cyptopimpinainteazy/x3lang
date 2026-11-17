@@ -1147,6 +1147,10 @@ impl X3Formatter {
             self.write(owner.as_str());
             self.write("\n");
         }
+        for fee in &i.app_fees {
+            self.write_indent();
+            self.write(&format!("fee {} bps to {}\n", fee.bps, fee.recipient.as_str()));
+        }
         if !i.constraints.is_empty() {
             self.write_indent();
             self.write("[");

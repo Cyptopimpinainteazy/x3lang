@@ -183,6 +183,12 @@ pub fn lower_program_with_mode(
                     // result is never evidence of mandate authorization.
                     constraints.push(format!("under mandate {}", owner.as_str()));
                 }
+                // An integrator fee is paid by the adapter that settles the route (1Click
+                // `appFees`). A host that cannot pay it must not run the route without it, so it
+                // travels as a constraint the generic adapters refuse, like the mandate above.
+                for fee in &intent.app_fees {
+                    constraints.push(format!("app fee {} bps to {}", fee.bps, fee.recipient.as_str()));
+                }
                 ir.push(Operation::IntentResolve {
                     constraints,
                     resolver: intent.name.as_str().to_string(),
@@ -2990,6 +2996,10 @@ const KNOWN_CHAIN_PREFIXES: &[&str] = &[
     "base",
     "bsc",
     "avax",
+    "gnosis",
+    "scroll",
+    "monad",
+    "bera",
     "sol",
     "solana",
     "svm",

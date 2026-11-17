@@ -373,6 +373,42 @@ def _intent_line_index(lines: List[SourceLine]) -> int:
     return index
 
 
+#: How many integrator `fee` clauses one intent may carry (the compiler's `MAX_APP_FEES`).
+MAX_APP_FEES = 4
+_APP_FEE_RE = re.compile(r"fee\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+?);?")
+
+
+def _parse_app_fee(ln: "SourceLine", existing: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """`fee <bps> bps to <near account>`, with the compiler's rules (`parser.rs::parse_app_fee`)."""
+    m = _APP_FEE_RE.fullmatch(ln.text)
+    if not m:
+        raise X3ParseError("X3_PARSE_FEE", "expected `fee <n> bps to <account>`", ln.no, "app_fees")
+    amount, unit, word, recipient = m.groups()
+    if not amount.isdigit():
+        raise X3ParseError("X3_PARSE_FEE", "`fee` needs a whole number of basis points: `fee 25 bps to <account>`",
+                           ln.no, "app_fees")
+    bps = int(amount)
+    if not 1 <= bps <= 10_000:
+        raise X3ParseError("X3_PARSE_FEE", f"`fee` of {bps} bps is outside 1..=10000", ln.no, "app_fees")
+    if unit != "bps":
+        raise X3ParseError("X3_PARSE_FEE", "`fee` is stated in bps: `fee 25 bps to <account>`", ln.no, "app_fees")
+    if word != "to":
+        raise X3ParseError("X3_PARSE_FEE", "expected `fee <n> bps to <account>`", ln.no, "app_fees")
+    registry = _registry()
+    if not registry.is_valid_near_account(recipient) or recipient.startswith("0x"):
+        raise X3ParseError("X3_PARSE_FEE", f"`fee` recipient {recipient!r} is not a valid NEAR named account",
+                           ln.no, "app_fees")
+    if len(existing) >= MAX_APP_FEES:
+        raise X3ParseError("X3_PARSE_FEE", f"an intent declares at most {MAX_APP_FEES} `fee` clauses", ln.no, "app_fees")
+    if any(f["recipient"] == recipient for f in existing):
+        raise X3ParseError("X3_PARSE_FEE", f"`fee` to {recipient} is declared twice; state one fee per recipient",
+                           ln.no, "app_fees")
+    total = sum(f["bps"] for f in existing) + bps
+    if total > 10_000:
+        raise X3ParseError("X3_PARSE_FEE", f"`fee` clauses total {total} bps, more than the whole input", ln.no, "app_fees")
+    return {"bps": bps, "recipient": recipient}
+
+
 def parse_file(path):
     with open(path, "r", encoding="utf-8") as source:
         return parse_source(source.read())
@@ -472,6 +508,9 @@ def parse_source(source: str):
                 timeout["action"] = _parse_refund(parts[2:], ln.no)
             result["constraints"]["timeout"] = parts[1]
             result["policies"]["timeout"] = timeout
+        elif text == "fee" or text.startswith("fee "):
+            fees = result.setdefault("app_fees", [])
+            fees.append(_parse_app_fee(ln, fees))
         elif text.startswith("under "):
             # `under mandate <owner>`: an agent wrote this intent and spends under the owner's
             # mandate (`near_mandate.py`). The owner is a NEAR account; the adapter validates it.

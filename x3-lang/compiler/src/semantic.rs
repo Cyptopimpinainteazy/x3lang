@@ -76,6 +76,11 @@ pub const KNOWN_CHAINS: &[&str] = &[
     "base",
     "bsc",
     "avalanche",
+    // EVM chains routed through NEAR Intents 1Click since 2026-11-16 (`near_intents.py`).
+    "gnosis",
+    "scroll",
+    "monad",
+    "berachain",
 ];
 
 /// Hard-coded allow-list of bridge adapter names. Anything else must be
@@ -1592,6 +1597,10 @@ pub const SWAP_KNOWN_CHAINS: &[&str] = &[
     "base",
     "bsc",
     "avalanche",
+    "gnosis",
+    "scroll",
+    "monad",
+    "berachain",
 ];
 
 /// Supported hash function names for hashlock in atomic swaps.

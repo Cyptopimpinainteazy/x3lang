@@ -1,0 +1,20 @@
+// x3_route_payment_with_fee.x3 — an X3 Route payment that pays its integrator a fee.
+//
+// 25 USDC on Base to USDC on NEAR. `fee 25 bps to fees.yourapp.near` asks 1Click to take
+// 0.25% of the input for the app that routed it (`appFees`). The payer's cap,
+// `require fees <= 100 bps`, bounds that fee and every 1Click charge together, measured from
+// the amounts 1Click signs. DRY QUOTE REFERENCE ONLY: replace the placeholder refund address,
+// the receiver and the fee account before any wallet authorization.
+intent x3_route_payment_with_fee {
+    from Base.USDC amount 25000000 receiver 0x000000000000000000000000000000000000dEaD
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Base.USDC -> Near.USDC min_receive 24700000;
+    }
+    fee 25 bps to fees.yourapp.near
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused x3_route_fee_001
+    timeout 10m refund Base.USDC
+    on_fail rollback
+}

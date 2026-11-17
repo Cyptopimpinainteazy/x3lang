@@ -38,7 +38,13 @@ def _err(errors, code, message, field, value=None):
 def _norm_chain(errors, chain, field):
     norm = registry.normalize_chain(chain)
     if norm not in ALLOWED_CHAINS:
-        _err(errors, 'X3_INVALID_CHAIN', f'unsupported chain {chain!r}', field, chain)
+        known = registry.not_routable(chain)
+        if known:
+            _err(errors, 'X3_CHAIN_NOT_ROUTABLE',
+                 f'{chain!r} ({known}) is a known chain, but no route adapter here can settle it yet; '
+                 f'NEAR Intents 1Click does not list it', field, chain)
+        else:
+            _err(errors, 'X3_INVALID_CHAIN', f'unsupported chain {chain!r}', field, chain)
         return None
     return norm
 
