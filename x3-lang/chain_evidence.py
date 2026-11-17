@@ -1155,6 +1155,184 @@ class SuiRpc:
 
 
 # --------------------------------------------------------------------------------------------
+# Stellar (native XLM and issued assets)
+# --------------------------------------------------------------------------------------------
+#
+# Horizon REST. A ledger Horizon serves is closed, and Stellar consensus does not reorganize
+# closed ledgers, so a transaction Horizon returns is final; it still counts only when
+# `successful` is true. What arrived is read from the transaction's `account_credited` effects
+# (the amount actually credited, for a plain payment or a path payment alike), never from an
+# operation's requested amount. A credit to a muxed sub-account does not count. The endpoint's
+# `network_passphrase` must be the public network's. When the signed quote carries a deposit
+# memo, the transaction's text or ID memo must equal it. Endpoints come from
+# `X3_STELLAR_HORIZON_URLS`; there are no defaults.
+
+STELLAR_PUBLIC_PASSPHRASE = "Public Global Stellar Network ; September 2015"
+STELLAR_DECIMALS = 7
+#: Issued assets routed here, by issuer account: the asset code each issuer's deposits must carry.
+STELLAR_ISSUED_ASSETS = {"GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN": "USDC"}  # Circle
+_STELLAR_EFFECTS_PAGE = 200
+
+
+def horizon_get(transport: Transport, url: str, path: str, timeout: float = 20.0) -> Optional[Dict[str, Any]]:
+    """One Horizon GET; None for 404 (not found), an error for anything else that is not JSON 200."""
+    status, raw = transport("GET", url.rstrip("/") + path,
+                            {"Accept": "application/hal+json, application/json", "User-Agent": "x3-lang-evidence/1"},
+                            None, timeout)
+    if status == 404:
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url}{path}: HTTP {status} with no JSON body")
+    if status != 200 or not isinstance(data, dict):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url}{path}: HTTP {status}")
+    return data
+
+
+def stellar_units(value: Any, field: str) -> int:
+    """A Horizon amount (`"12.3400000"`) in the smallest unit (1e-7), exactly."""
+    text = str(value)
+    if not re.fullmatch(r"\d+(\.\d{1,7})?", text):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"Stellar {field} is not a 7-decimal amount: {text!r}")
+    whole, _, frac = text.partition(".")
+    return int(whole) * 10 ** STELLAR_DECIMALS + int(frac.ljust(STELLAR_DECIMALS, "0") or "0")
+
+
+def _stellar_time_ms(value: Any) -> Optional[int]:
+    import datetime as _dt
+    try:
+        moment = _dt.datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_dt.timezone.utc)
+    except ValueError:
+        return None
+    return int(moment.timestamp()) * 1000
+
+
+def stellar_transfer_facts(root: Any, tx: Any, effects: Any, *, tx_id: str, issuer: Optional[str]) -> Dict[str, Any]:
+    facts: Dict[str, Any] = {"network_passphrase": (root or {}).get("network_passphrase")}
+    if not isinstance(tx, dict) or not tx.get("hash"):
+        return {**facts, "found": False}
+    records = ((effects or {}).get("_embedded") or {}).get("records")
+    if not isinstance(records, list):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "Horizon effects have no records list")
+    if len(records) >= _STELLAR_EFFECTS_PAGE:
+        # A full page may hide more credits (or debits) on the next one; refuse rather than guess.
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "the transaction has more effects than one Horizon page")
+    code = STELLAR_ISSUED_ASSETS.get(issuer) if issuer is not None else None
+    if issuer is not None and code is None:
+        raise ChainEvidenceError("X3_EVIDENCE_UNSUPPORTED", f"Stellar issuer {issuer} is not a reviewed asset")
+    credits: Dict[str, int] = {}
+    for effect in records:
+        if not isinstance(effect, dict) or effect.get("type") != "account_credited" or effect.get("account_muxed"):
+            continue
+        if issuer is None:
+            if effect.get("asset_type") != "native":
+                continue
+        elif (effect.get("asset_type") not in ("credit_alphanum4", "credit_alphanum12")
+              or effect.get("asset_code") != code or effect.get("asset_issuer") != issuer):
+            continue
+        account = str(effect.get("account"))
+        credits[account] = credits.get(account, 0) + stellar_units(effect.get("amount"), "credited amount")
+    memo_type = tx.get("memo_type")
+    return {
+        **facts,
+        "found": True,
+        "hash": str(tx["hash"]).lower(),
+        "transaction_hash_matches": str(tx["hash"]).lower() == tx_id.lower(),
+        "succeeded": tx.get("successful") is True,
+        "ledger": tx.get("ledger") if type(tx.get("ledger")) is int else None,
+        "created_at_ms": _stellar_time_ms(tx.get("created_at")),
+        "memo": str(tx.get("memo")) if memo_type in ("text", "id") and tx.get("memo") is not None else None,
+        "credits": sorted(credits.items()),
+    }
+
+
+def judge_stellar_transfer(facts_by_url: List[Tuple[str, Dict[str, Any], Optional[str]]], *, tx_id: str,
+                           recipient: str, issuer: Optional[str], min_amount: int, not_after_ms: Optional[int],
+                           purpose: str, memo: Optional[str] = None,
+                           after_block: Optional[int] = None) -> Dict[str, Any]:
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, ok: bool, **detail: Any) -> None:
+        checks.append({"check": name, "ok": bool(ok), **detail})
+
+    if not facts_by_url:
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", "no Horizon endpoints answered")
+    check("mainnet", all(f.get("network_passphrase") == STELLAR_PUBLIC_PASSPHRASE for _, f, _ in facts_by_url),
+          passphrases=[f.get("network_passphrase") for _, f, _ in facts_by_url])
+    found = all(f.get("found") for _, f, _ in facts_by_url)
+    check("found", found)
+    first = facts_by_url[0][1]
+    observed = None
+    if found:
+        keys = ("hash", "transaction_hash_matches", "succeeded", "ledger", "created_at_ms", "memo", "credits")
+        comparable = [{k: f.get(k) for k in keys} for _, f, _ in facts_by_url]
+        check("endpoints_agree", all(c == comparable[0] for c in comparable[1:]), endpoints=len(facts_by_url))
+        check("transaction_hash_matches", first["transaction_hash_matches"] is True)
+        check("finalized", isinstance(first["ledger"], int), ledger=first["ledger"])
+        check("succeeded", first["succeeded"] is True)
+        if memo is not None:
+            check("memo", first["memo"] == memo, expected=memo, observed=first["memo"])
+        observed = dict(first["credits"]).get(recipient, 0)
+        check("recipient", observed > 0, expected=recipient,
+              asset="native" if issuer is None else f"{STELLAR_ISSUED_ASSETS.get(issuer)}:{issuer}")
+        check("amount", observed >= min_amount, observed=str(observed), required=str(min_amount),
+              read_from="account_credited effects")
+        if not_after_ms is not None:
+            check("before_deadline", isinstance(first["created_at_ms"], int) and first["created_at_ms"] <= not_after_ms,
+                  createdAtMs=first["created_at_ms"], notAfterMs=not_after_ms)
+        if after_block is not None:
+            check("after_deposit", isinstance(first["ledger"], int) and first["ledger"] > after_block,
+                  blockNumber=first["ledger"], depositBlock=after_block)
+    return {
+        "evidence_version": EVIDENCE_VERSION,
+        "kind": "stellar_native_transfer" if issuer is None else "stellar_asset_transfer",
+        "chain": "stellar", "purpose": purpose, "verified": all(c["ok"] for c in checks), "transaction_hash": tx_id,
+        "token": issuer, "recipient": recipient, "memo": memo, "required": str(min_amount),
+        "observed": str(observed) if observed is not None else None,
+        "blockNumber": first.get("ledger"), "commitment": "ledger_closed",
+        "rpcs": [{"url": url, "result_sha256": digest} for url, _, digest in facts_by_url], "checks": checks,
+    }
+
+
+class StellarRpc:
+    def __init__(self, transport: Transport, urls: Optional[Sequence[str]] = None, timeout: float = 20.0):
+        self.urls = rpc_urls("X3_STELLAR_HORIZON_URLS", (), urls)
+        self.transport = transport
+        self.timeout = timeout
+
+    def _verify(self, *, tx_hash: str, recipient: str, issuer: Optional[str], min_amount: int,
+                not_after_ms: Optional[int], purpose: str, memo: Optional[str],
+                after_block: Optional[int]) -> Dict[str, Any]:
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", str(tx_hash)):
+            raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "a Stellar transaction hash is 64 hex characters")
+        facts = []
+        for url in self.urls:
+            root = horizon_get(self.transport, url, "/", self.timeout)
+            tx = horizon_get(self.transport, url, f"/transactions/{tx_hash.lower()}", self.timeout)
+            effects = (horizon_get(self.transport, url,
+                                   f"/transactions/{tx_hash.lower()}/effects?limit={_STELLAR_EFFECTS_PAGE}&order=asc",
+                                   self.timeout) if tx is not None else None)
+            facts.append((url, stellar_transfer_facts(root, tx, effects, tx_id=tx_hash, issuer=issuer),
+                          sha256_json({"root": root, "tx": tx, "effects": effects})))
+        return judge_stellar_transfer(facts, tx_id=tx_hash, recipient=recipient, issuer=issuer,
+                                      min_amount=min_amount, not_after_ms=not_after_ms, purpose=purpose,
+                                      memo=memo, after_block=after_block)
+
+    def verify_native_transfer(self, *, tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
+                               purpose: str, after_block: Optional[int] = None,
+                               memo: Optional[str] = None) -> Dict[str, Any]:
+        return self._verify(tx_hash=tx_hash, recipient=recipient, issuer=None, min_amount=min_amount,
+                            not_after_ms=not_after_ms, purpose=purpose, memo=memo, after_block=after_block)
+
+    def verify_token_transfer(self, *, tx_hash: str, token: str, recipient: str, min_amount: int,
+                              not_after_ms: Optional[int], purpose: str, after_block: Optional[int] = None,
+                              memo: Optional[str] = None) -> Dict[str, Any]:
+        return self._verify(tx_hash=tx_hash, recipient=recipient, issuer=token, min_amount=min_amount,
+                            not_after_ms=not_after_ms, purpose=purpose, memo=memo, after_block=after_block)
+
+
+# --------------------------------------------------------------------------------------------
 # NEAR
 # --------------------------------------------------------------------------------------------
 

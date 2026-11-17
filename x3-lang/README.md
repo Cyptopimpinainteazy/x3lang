@@ -121,8 +121,8 @@ minimum. The refusal evidence is committed; no amount was silently increased. Se
 
 **Chains.** A `bridge NearIntents` leg can start or end on NEAR, Solana, Bitcoin, Ethereum,
 Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Gnosis, Scroll, Monad, Berachain,
-Abstract, Plasma, X Layer, Tron, TON, Dogecoin, Litecoin, Bitcoin Cash, Zcash, Dash, XRP, Sui,
-Aptos or Movement:
+Abstract, Plasma, X Layer, Tron, TON, Dogecoin, Litecoin, Bitcoin Cash, Zcash, Dash, XRP, Stellar,
+Sui, Aptos or Movement:
 each mapped to the code 1Click lists it under (`CHAIN_TO_BLOCKCHAIN`, checked against
 `GET /v0/tokens` on 2026-11-16). Assets resolve from 1Click's live token list at quote time.
 EVM recipients and refund addresses must be full 20-byte addresses; Tron addresses must pass
@@ -133,7 +133,9 @@ for Bitcoin Cash, whose legacy form is indistinguishable from Bitcoin's; transpa
 only for Zcash, whose shielded addresses cannot be proven). Bitcoin payouts and refunds on this
 path need a checksummed address even though the language checks Bitcoin addresses by shape.
 XRP takes classic `r…` addresses with their checksum (X-addresses are refused: they fold a tag
-in); Sui, Aptos and Movement take only the full `0x` + 64-hex form, since they have no checksum. Mantle, zkSync Era, Linea,
+in); Stellar takes `G…` account strkeys with their version byte and CRC16 checksum (muxed `M…`
+accounts are refused for the same reason); Sui, Aptos and Movement take only the full `0x` +
+64-hex form, since they have no checksum. Mantle, zkSync Era, Linea,
 Cronos, Moonbeam, Celo, Plume, Aurora and HyperEVM are known by name and refused with
 `X3_CHAIN_NOT_ROUTABLE`, because 1Click does not route them (its `hypercore` is Hyperliquid's
 core chain, not HyperEVM). Every other chain 1Click lists is classified with the reason it is not
@@ -177,12 +179,20 @@ sum of the transaction's outputs to the address, at least `UTXO_MIN_CONFIRMATION
 them agreeing on the transaction and its block. Coin values are parsed as exact decimals and
 must be whole base units. Each chain's native listing is pinned by signed asset ID.
 
+**Stellar evidence.** Horizon (`X3_STELLAR_HORIZON_URLS`, no defaults): a `successful`
+transaction in a closed ledger (Stellar does not reorganize closed ledgers), on the public network
+(`network_passphrase`), whose `account_credited` effects credit the deposit address with at least
+the amount, in native XLM or in Circle's USDC (issuer pinned, not just the code `USDC`); credits
+to a muxed sub-account do not count, and a transaction with a full page of effects is refused
+rather than guessed at. When the signed quote carries a deposit memo, the transaction's text or ID
+memo must equal it.
+
 **XRP and Sui evidence.** XRP (`X3_XRP_RPC_URLS`): a validated `tesSUCCESS` `Payment` to the
 address, the amount read from `meta.delivered_amount` (a partial payment's `Amount` overstates
 it), a non-test `network_id`, and, when the signed quote carries a deposit memo, a
 `DestinationTag` equal to it. Sui (`X3_SUI_RPC_URLS`): a successful transaction in a checkpoint
 (final), on mainnet (`sui_getChainIdentifier` = `35834a8a`), whose balance changes credit the
-address in the reviewed coin type (SUI, or Circle's USDC). On any other chain, a signed quote that
+address in the reviewed coin type (SUI, or Circle's USDC). On any chain other than XRP and Stellar, a signed quote that
 needs a deposit memo gets no evidence, because a deposit missing its memo, which 1Click would not
 credit, must not count as proven. Aptos and Movement route, but their deposit evidence is refused
 by name: a fungible-asset deposit credits a primary store whose owner must be read from chain

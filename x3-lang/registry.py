@@ -36,6 +36,7 @@ CHAIN_DOMAINS = {
     'zcash': {'aliases': {'zec'}, 'address': 'zec'},
     'dash': {'aliases': set(), 'address': 'dash'},
     'xrp': {'aliases': {'ripple', 'xrpl'}, 'address': 'xrp'},
+    'stellar': {'aliases': {'xlm'}, 'address': 'stellar'},
     'sui': {'aliases': set(), 'address': 'move32'},
     'aptos': {'aliases': {'apt'}, 'address': 'move32'},
     'movement': {'aliases': set(), 'address': 'move32'},
@@ -76,6 +77,7 @@ ASSETS_BY_CHAIN = {
     'zcash': {'ZEC'},
     'dash': {'DASH'},
     'xrp': {'XRP'},
+    'stellar': {'XLM', 'USDC'},
     'sui': {'SUI', 'USDC'},
     'aptos': {'APT', 'USDC', 'USDT'},
     'movement': {'MOVE', 'USDCx'},
@@ -231,6 +233,8 @@ def is_valid_receiver(chain, receiver):
         return utxo_address_kind(kind, receiver) is not None
     if kind == 'xrp':
         return is_valid_xrp_address(receiver)
+    if kind == 'stellar':
+        return is_valid_stellar_address(receiver)
     if kind == 'move32':
         return is_valid_move32_address(receiver)
     if kind == 'tron':
@@ -478,6 +482,39 @@ def is_valid_xrp_address(address):
     raw = b'\0' * (len(text) - len(text.lstrip('r'))) + body
     return (len(raw) == 25 and raw[0] == 0x00
             and hashlib.sha256(hashlib.sha256(raw[:21]).digest()).digest()[:4] == raw[21:])
+
+
+def stellar_account_bytes(address):
+    """The 32-byte ed25519 key of a Stellar account (`G…` strkey), or None.
+
+    A strkey is base32 of: version byte (6 << 3 for an account), 32 key bytes, and a CRC16-XModem
+    of those 33 bytes, little-endian. Muxed `M…` accounts are refused: they fold an ID into the
+    address, and this adapter keeps deposit memos explicit. Lowercase is refused, as Stellar does."""
+    text = str(address)
+    if not re.fullmatch(r'G[A-Z2-7]{55}', text):
+        return None
+    try:
+        raw = base64.b32decode(text)
+    except (binascii.Error, ValueError):
+        return None
+    if len(raw) != 35 or raw[0] != 6 << 3:
+        return None
+    if binascii.crc_hqx(raw[:33], 0) != int.from_bytes(raw[33:], 'little'):
+        return None
+    return raw[1:33]
+
+
+def stellar_address(key):
+    """The `G…` strkey for a 32-byte ed25519 key."""
+    body = bytes([6 << 3]) + bytes(key)
+    if len(body) != 33:
+        raise ValueError('a Stellar account key is 32 bytes')
+    return base64.b32encode(body + binascii.crc_hqx(body, 0).to_bytes(2, 'little')).decode()
+
+
+def is_valid_stellar_address(address):
+    """A Stellar account address (`G…`, 56 characters) with its version byte and checksum."""
+    return stellar_account_bytes(address) is not None
 
 
 def is_valid_move32_address(address):

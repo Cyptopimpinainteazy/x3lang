@@ -242,6 +242,7 @@ CHAIN_TO_BLOCKCHAIN = {
     "zcash": "zec",
     "dash": "dash",
     "xrp": "xrp",
+    "stellar": "stellar",
     "sui": "sui",
     "aptos": "aptos",
     "movement": "movement",
@@ -252,7 +253,6 @@ CHAIN_TO_BLOCKCHAIN = {
 # classified here, or when a routed code disappears, so this map cannot silently go stale.
 ONECLICK_UNROUTED = {
     "starknet": "non-EVM: needs Starknet address validation and deposit evidence",
-    "stellar": "non-EVM: needs Stellar address validation and deposit evidence",
     "cardano": "non-EVM: needs Cardano address validation and deposit evidence",
     "aleo": "non-EVM: needs Aleo address validation and deposit evidence",
     "miden": "non-EVM: needs Miden address validation and deposit evidence",
@@ -2236,14 +2236,19 @@ def utxo_origin_asset(receipt: Dict[str, Any]) -> Dict[str, Any]:
     return {"chain": chain, "kind": "native", "token": None}
 
 
-#: XRP and Sui listings, pinned by signed asset ID (1Click /v0/tokens, 2026-11-16) to what a
-#: deposit must transfer: None for the native coin, else the coin type / contract.
+#: XRP, Sui and Stellar listings, pinned by signed asset ID (1Click /v0/tokens, 2026-11-16/17)
+#: to what a deposit must transfer: None for the native coin, else the coin type, contract or
+#: (Stellar) issuer account. 1Click lists Stellar through HOT omni chain 1100, native XLM included.
 REVIEWED_LEDGER_ASSETS = {
     "xrp": {"nep141:xrp.omft.near": None},
     "sui": {"nep141:sui.omft.near": None,
             "nep141:sui-c1b81ecaf27933252d31a963bc5e9458f13c18ce.omft.near":
                 "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"},
+    "stellar": {"nep245:v2_1.omni.hot.tg:1100_111bzQBB5v7AhLyPMDwS8uJgQV24KaAPXtwyVWu2KXbbfQU6NXRCz": None,
+                "nep245:v2_1.omni.hot.tg:1100_111bzQBB65GxAPAVoxqmMcgYo5oS3txhqs1Uh1cgahKQUeTUq1TJu":
+                    "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
 }
+_MAX_STELLAR_MEMO_BYTES = 28  # a text memo; an ID memo is a uint64
 _MAX_XRP_TAG = 2 ** 32 - 1
 
 
@@ -2271,7 +2276,7 @@ def _signed_memo(receipt: Dict[str, Any]) -> Optional[str]:
 
 
 def _block_origin(receipt: Dict[str, Any], *, evm: Any, bsc: Any, tron: Any, utxo: Any = None,
-                  xrp: Any = None, sui: Any = None):
+                  xrp: Any = None, sui: Any = None, stellar: Any = None):
     """(evidence source, asset) for an origin proven by block number (EVM chains, Tron), or None."""
     chain = receipt["leg"]["origin"]["chain"]
     memo = _signed_memo(receipt)
@@ -2284,6 +2289,15 @@ def _block_origin(receipt: Dict[str, Any], *, evm: Any, bsc: Any, tron: Any, utx
                                        f"the signed XRP deposit memo {memo!r} is not a destination tag")
             asset["deposit_tag"] = int(memo)
         return (xrp if xrp is not None else chain_evidence.XrpRpc(transport=urllib_transport)), asset
+    if chain == "stellar":
+        asset = ledger_origin_asset(receipt)
+        if memo is not None:
+            # The signed memo tells 1Click whose deposit this is; the transaction's memo must equal it.
+            if len(memo.encode()) > _MAX_STELLAR_MEMO_BYTES and not (memo.isdigit() and int(memo) < 2 ** 64):
+                raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED",
+                                       f"the signed Stellar deposit memo {memo!r} fits neither a text nor an ID memo")
+            asset["deposit_memo"] = memo
+        return (stellar if stellar is not None else chain_evidence.StellarRpc(transport=urllib_transport)), asset
     if memo is not None:
         # A deposit 1Click credits only with its memo, proven without checking the memo, would be
         # "proven" even when 1Click never credits it. Only chains that check memos accept one.
@@ -2334,9 +2348,11 @@ def _evm_rpc(chain: str, evm: Any, bsc: Any):
 
 
 def _evm_transfer(rpc: Any, asset: Dict[str, Any], **kw: Any) -> Dict[str, Any]:
-    """One transfer proof on a block-numbered chain (EVM, Tron, UTXO, XRP, Sui): native coin, or a token."""
+    """One transfer proof on a block-numbered chain (EVM, Tron, UTXO, XRP, Sui, Stellar): native coin, or a token."""
     if asset.get("deposit_tag") is not None and kw.get("purpose") == "deposit":
         kw["destination_tag"] = asset["deposit_tag"]
+    if asset.get("deposit_memo") is not None and kw.get("purpose") == "deposit":
+        kw["memo"] = asset["deposit_memo"]
     if asset["kind"] == "native":
         return rpc.verify_native_transfer(**kw)
     return rpc.verify_token_transfer(token=asset["token"], **kw)
@@ -2356,7 +2372,7 @@ def _record_evidence(receipt: Dict[str, Any], key: str, fn) -> Dict[str, Any]:
 
 def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = None,
                    solana=None, bsc=None, helius=None, evm=None, tron=None, utxo=None,
-                   xrp=None, sui=None) -> Dict[str, Any]:
+                   xrp=None, sui=None, stellar=None) -> Dict[str, Any]:
     """Check a finalized EVM (native or reviewed ERC-20) or Solana deposit to the signed address."""
     quote_obj = _signed_quote(receipt)
     recorded_signature = (receipt.get("deposit") or {}).get("tx_hash")
@@ -2365,7 +2381,7 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
     signature = tx_signature or recorded_signature
     if not signature:
         raise NearIntentsError("X3_EVIDENCE_TX", "no deposit transaction: pass --tx, or record it with submit-deposit --receipt")
-    block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron, utxo=utxo, xrp=xrp, sui=sui)
+    block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron, utxo=utxo, xrp=xrp, sui=sui, stellar=stellar)
     if block_origin is not None:
         rpc, asset = block_origin
         return _record_evidence(receipt, "deposit", lambda: _evm_transfer(
@@ -2397,7 +2413,8 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
 
 
 def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None,
-                      solana=None, bsc=None, evm=None, tron=None, utxo=None, xrp=None, sui=None) -> Dict[str, Any]:
+                      solana=None, bsc=None, evm=None, tron=None, utxo=None, xrp=None, sui=None,
+                      stellar=None) -> Dict[str, Any]:
     """Observe NEAR balance movement (not settlement proof), or an origin-chain refund."""
     quote_obj = _signed_quote(receipt)
     leg = receipt["leg"]
@@ -2447,7 +2464,7 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
         # A locally saved 'verified' field is not permanent proof. Re-read the
         # actual finalized origin-chain deposit against THIS signed quote, including
         # its quoted address, amount, asset and deadline, before refund evidence.
-        block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron, utxo=utxo, xrp=xrp, sui=sui)
+        block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron, utxo=utxo, xrp=xrp, sui=sui, stellar=stellar)
         origin_is_evm = block_origin is not None  # proven by block number: EVM chains, Tron, UTXO chains
         try:
             if origin_is_evm:
@@ -2727,7 +2744,8 @@ def _write_private_json(path: str, payload: Dict[str, Any]) -> None:
 def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] = None,
          rpc: Optional[NearRpc] = None, near_views: Optional[Any] = None, solana: Optional[Any] = None,
          bsc: Optional[Any] = None, evm: Optional[Any] = None, tron: Optional[Any] = None,
-         utxo: Optional[Any] = None, xrp: Optional[Any] = None, sui: Optional[Any] = None) -> int:
+         utxo: Optional[Any] = None, xrp: Optional[Any] = None, sui: Optional[Any] = None,
+         stellar: Optional[Any] = None) -> int:
     parser = argparse.ArgumentParser(description="Settle X3 intents through NEAR Intents (1Click API)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -2904,11 +2922,11 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 if args.command == "verify-deposit":
                     evidence = verify_deposit(receipt, tx_signature=args.tx, solana=solana,
                                               bsc=bsc, helius=args.helius, evm=evm, tron=tron, utxo=utxo,
-                                              xrp=xrp, sui=sui)
+                                              xrp=xrp, sui=sui, stellar=stellar)
                 else:
                     evidence = verify_settlement(receipt, refund_tx=args.refund_tx, near_views=near_views,
                                                  solana=solana, bsc=bsc, evm=evm, tron=tron, utxo=utxo,
-                                                 xrp=xrp, sui=sui)
+                                                 xrp=xrp, sui=sui, stellar=stellar)
                 write_receipt(args.receipt, receipt)
                 verification = receipt["verification"]
                 if args.command == "verify-deposit":

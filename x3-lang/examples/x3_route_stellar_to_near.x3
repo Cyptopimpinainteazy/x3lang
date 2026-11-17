@@ -1,0 +1,22 @@
+// x3_route_stellar_to_near.x3 — 100 USDC on Stellar to USDC on NEAR, through 1Click.
+//
+// DRY QUOTE REFERENCE ONLY. `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF` is the
+// all-zero Stellar key (no one holds its secret) and `x3-demo.near` a demo account: replace both
+// before any wallet authorization. The deposit proof requires a successful transaction in a
+// closed ledger on the public network whose credits to the deposit address, in Circle's USDC
+// (issuer GA5Z…KZVN), cover the amount; when the signed quote carries a deposit memo, the
+// transaction's memo must equal it.
+//
+// 100 USDC in Stellar units: 7 decimals, so 1e9.
+intent x3_route_stellar_to_near {
+    from Stellar.USDC amount 1000000000 receiver GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Stellar.USDC -> Near.USDC;
+    }
+    require slippage <= 1%
+    require fees <= 100 bps
+    require nonce unused x3_route_stellar_near_001
+    timeout 10m refund Stellar.USDC
+    on_fail rollback
+}

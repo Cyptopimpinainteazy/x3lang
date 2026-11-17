@@ -364,5 +364,22 @@
   "price": 1.0,
   "priceUpdatedAt": "2026-11-16T00:00:00.000Z",
   "contractAddress": "0xba11833544a2f99eec743f41a228ca6ffa7f13c3b6b04681d5a79a8b75ff225e"
+ },
+ {
+  "assetId": "nep245:v2_1.omni.hot.tg:1100_111bzQBB5v7AhLyPMDwS8uJgQV24KaAPXtwyVWu2KXbbfQU6NXRCz",
+  "decimals": 7,
+  "blockchain": "stellar",
+  "symbol": "XLM",
+  "price": 0.139071,
+  "priceUpdatedAt": "2026-11-17T05:04:30.748Z"
+ },
+ {
+  "assetId": "nep245:v2_1.omni.hot.tg:1100_111bzQBB65GxAPAVoxqmMcgYo5oS3txhqs1Uh1cgahKQUeTUq1TJu",
+  "decimals": 7,
+  "blockchain": "stellar",
+  "symbol": "USDC",
+  "price": 0.999676,
+  "priceUpdatedAt": "2026-11-17T05:04:30.748Z",
+  "contractAddress": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
  }
 ]
