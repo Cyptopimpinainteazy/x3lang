@@ -1,0 +1,38 @@
+audit-artifacts/arbitrage-workbench-20261117/review.md
+  h_e41068bed968d7 1-16
+audit-artifacts/arbitrage-workbench-20261117/verification.json
+  h_e41068bed968d7 1-126
+x3-lang/arbitrage/README.md
+  h_e41068bed968d7 206-244
+x3-lang/arbitrage/browser-smoke.mjs
+  h_e41068bed968d7 63,67-74,93-125,166-261,273-288,290-294,306
+x3-lang/arbitrage/server.py
+  h_e41068bed968d7 16-17,113-158
+x3-lang/arbitrage/trader.py
+  h_e41068bed968d7 148-151,437,440-446,449,458-459,474
+x3-lang/arbitrage/web/app.mjs
+  h_e41068bed968d7 1,14-58,104-105,136-143,152-154,158,169-189,193-203,210-218,231,300-304,444,534-683,701-708
+x3-lang/arbitrage/web/format.mjs
+  h_e41068bed968d7 34-54
+x3-lang/arbitrage/web/format.test.mjs
+  h_e41068bed968d7 21-52
+x3-lang/arbitrage/web/index.html
+  h_e41068bed968d7 35,71-85,232-233,235-237,240-242,245-246,308-317,319,321-322,333,376-454
+x3-lang/arbitrage/web/style.css
+  h_e41068bed968d7 785-872
+x3-lang/arbitrage/workbench.py
+  h_e41068bed968d7 1-73
+x3-lang/tests/test_arbitrage_workbench.py
+  h_e41068bed968d7 1-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "205dc451ea6bab90c9e22b00b81179e4515bff97",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
