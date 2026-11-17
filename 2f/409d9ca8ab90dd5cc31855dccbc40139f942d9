@@ -1,0 +1,56 @@
+.github/workflows/x3-arbitrage.yml
+  h_e41068bed968d7 6,10,31-33
+README.md
+  h_e41068bed968d7 81,83-84
+audit-artifacts/arbitrage-automatic-20261117/ci-remediation.md
+  h_e41068bed968d7 1-27
+audit-artifacts/arbitrage-automatic-20261117/paper-scenarios.json
+  h_e41068bed968d7 1-839
+audit-artifacts/arbitrage-automatic-20261117/review.md
+  h_e41068bed968d7 1-20
+audit-artifacts/arbitrage-automatic-20261117/verification.json
+  h_e41068bed968d7 1-135
+scripts/proof/arbitrage_roundtrip.py
+  h_e41068bed968d7 1-53
+x3-lang/arbitrage/AUTOMATIC_TRADING.md
+  h_e41068bed968d7 1-131
+x3-lang/arbitrage/README.md
+  h_e41068bed968d7 99-101,103,132,160-161
+x3-lang/arbitrage/__main__.py
+  h_e41068bed968d7 27-43,46-75,103
+x3-lang/arbitrage/browser-smoke.mjs
+  h_e41068bed968d7 83-90,124
+x3-lang/arbitrage/execution.py
+  h_e41068bed968d7 28-39,66,72,74,82
+x3-lang/arbitrage/live.py
+  h_e41068bed968d7 1-277
+x3-lang/arbitrage/server.py
+  h_e41068bed968d7 14,26,84,109-124
+x3-lang/arbitrage/trader.py
+  h_e41068bed968d7 1-476
+x3-lang/arbitrage/trading_store.py
+  h_e41068bed968d7 1-116
+x3-lang/arbitrage/web/app.mjs
+  h_e41068bed968d7 180-196,253-254,292-313
+x3-lang/arbitrage/web/index.html
+  h_e41068bed968d7 157-169,198-224
+x3-lang/arbitrage/web/style.css
+  h_e41068bed968d7 715-737
+x3-lang/tests/test_arbitrage.py
+  h_e41068bed968d7 257-281
+x3-lang/tests/test_arbitrage_trader.py
+  h_e41068bed968d7 1-248
+x3-lang/tests/test_arbitrage_wallet_gateway.py
+  h_e41068bed968d7 1-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2f409d9ca8ab90dd5cc31855dccbc40139f942d9",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
