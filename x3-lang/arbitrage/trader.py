@@ -145,7 +145,10 @@ class Trader:
             policy, _ = intent_policy(source, strategy.tokens, now)
             checks = ni.mandates().check_mandate(policies[index]['compiled'], policy, now * 1000)
             if not all(check['ok'] for check in checks) or ni.mandates().approvals_needed(policies[index]['compiled'], leg.amount_in):
-                raise ValueError('initial .x3 mandate preflight refused')
+                failed = [check['guard'] for check in checks if not check['ok']]
+                if ni.mandates().approvals_needed(policies[index]['compiled'], leg.amount_in):
+                    failed.append('owner_approval_required')
+                raise ValueError(f'leg {index + 1} .x3 mandate refused: ' + ', '.join(failed))
             compiled_sources.append(source)
         initial = strategy.route.legs[0].amount_in
         origin = strategy.route.legs[0].asset_in.key
@@ -431,12 +434,19 @@ class PaperExchange:
 
 
 def example_strategy(route, tokens, *, now):
-    """Constructed paper-only policy fixture; never a source of live wallet authority."""
+    """Constructed paper fixture; never a source of live wallet authority."""
     if not route.demo:
         raise ValueError('generated example mandates are for constructed demo routes only')
+    return paper_strategy_template(route, tokens, now=now)
+
+
+def paper_strategy_template(route, tokens, *, now, wallets=None, minimum_profit_units=1000000):
+    """Draft policy source for a simulated wallet, including observed provider routes."""
+    if route.kind != 'cross-chain' or len(route.legs) != 2:
+        raise ValueError('two-leg cross-chain route required for .x3 workbench')
     addresses = {'sol': '4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD',
                  'near': 'alice.near', 'eth': '0x1111111111111111111111111111111111111111'}
-    wallets = tuple(addresses[leg.asset_in.network] for leg in route.legs)
+    wallets = tuple(wallets) if wallets is not None else tuple(addresses[leg.asset_in.network] for leg in route.legs)
     inverse = {network: chain for chain, network in ni.CHAIN_TO_BLOCKCHAIN.items()}
     sources = []
     for index, leg in enumerate(route.legs):
@@ -445,6 +455,8 @@ def example_strategy(route, tokens, *, now):
             token = [t for t in tokens if t['assetId'] == asset.asset_id and t['blockchain'] == asset.network]
             if len(token) != 1:
                 raise ValueError('ambiguous demo token')
+            if asset.network not in inverse or not isinstance(token[0].get('symbol'), str):
+                raise ValueError('current .x3 adapter cannot express this chain or token symbol')
             endpoints.append(inverse[asset.network] + '.' + token[0]['symbol'])
         sources.append(f'''mandate automatic_paper_leg_{index} {{
  owner paper-{leg.asset_in.network}-owner.near
@@ -459,7 +471,7 @@ def example_strategy(route, tokens, *, now):
  require fees <= 100 bps
  expires 1d
 }}''')
-    return Strategy(route, tokens, tuple(sources), wallets, 1000000,
+    return Strategy(route, tokens, tuple(sources), wallets, minimum_profit_units,
                     route.external_cost_units, now + 300)
 
 

@@ -203,3 +203,42 @@ This is additive to `x3.arbitrage.v1` and leaves existing compiler/contract APIs
 The optional `X3_CATALOGUE_SMOKE=1` browser gate exercises a real anonymous public catalogue
 load and its chain/search filters, including 18-decimal BSC USDC. It does not request quotes
 or fund anything. Offline CI remains independent of provider availability.
+
+## Click tokens → edit .x3 → run paper
+
+Each token card has **Start here** and **Scan via** actions. These select exact provider
+asset IDs, populate the scanner pair and quote configuration, and lead to the route builder.
+Same-chain pairs are flagged, deprecated entries remain disabled, and selection alone does
+not request quotes or move assets. Supply amount, read-only quote addresses and costs before
+adding a provider scan. The selected pair is visible on the opportunity board.
+
+Each cross-chain opportunity has an **.x3 policy** button, also available from its inspector.
+The workbench opens the actual outbound and return `.x3` mandate sources for editing, plus
+the simulated wallet addresses and human-readable minimum-profit/external-cost ceilings.
+Mandate amounts inside `.x3` source remain integer base units, as in the existing language.
+
+**Compile & validate .x3** uses the existing parser, type checker, lowerer and `Trader.create`
+policy preflight in an isolated real SQLite preview. It returns both generated `.x3` intent
+programs. It does not consume the running wallet's budgets, run transfers or authorize a
+wallet. Registered spending/revocation state is checked again when a paper cycle starts.
+Changing source or limits invalidates the preview in the browser; the run API independently
+compiles/checks submitted input even if a client bypasses that UI control.
+
+**Run validated paper cycle** persists and executes the exact draft through the existing
+coordinator. Original route/token snapshots are owned by the server, not accepted from the
+browser. Idempotency keys bind mandate source, addresses, limits, scenario and expiry; replay
+survives route refresh/server restart, while changed draft inputs cannot reuse a key.
+The older built-in paper demo uses its default fixture mandates and is labeled separately.
+
+The added paper-only endpoints share existing Host/Origin/CSRF/body limits:
+
+| Path | Input | Result |
+|---|---|---|
+| `/api/strategy/template` | `route_id` | Editable draft `.x3` mandate sources and bounded limits |
+| `/api/strategy/compile` | `draft` | Compiled programs and declared policy validation; never wallet authority |
+| `/api/strategy/run` | `draft`, `key`, `scenario` | Exact-draft durable paper execution |
+
+Drafts contain only `route_id`, two `mandates`, two `addresses`, `minimum_profit`,
+`max_external_cost`, and absolute `expires_at`. They cannot supply a backend, live mode,
+provider URL, filesystem path, token substitution or arbitrary route data. Unsupported
+chains/symbols, unknown costs, stale quotes and failed `.x3` policy checks remain refusals.

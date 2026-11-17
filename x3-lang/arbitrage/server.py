@@ -13,6 +13,8 @@ from .execution import export_leg
 from .paper import PaperLedger
 from .trader import Trader, PaperExchange, example_strategy
 from .catalogue import token_report, build_route
+from .workbench import template, compile_draft, strategy_from_draft
+from .trader import strategy_from_document
 import near_intents as ni
 
 WEB = Path(__file__).parent / 'web'
@@ -108,6 +110,52 @@ class App:
     def action(self, path, data):
         if not isinstance(data, dict):
             raise ValueError('JSON object required')
+        if path == '/api/strategy/template':
+            if set(data) != {'route_id'}:
+                raise ValueError('selected route required')
+            with self.lock:
+                route = self.route(data['route_id'])
+                tokens = list(self.tokens if route.demo else self.provider_tokens)
+                addresses = None
+                if not route.demo:
+                    for configured in (self.config or {}).get('routes', []):
+                        if (configured['origin_asset'], configured['destination_asset'], str(configured['amount'])) == (
+                                route.legs[0].asset_in.asset_id, route.legs[0].asset_out.asset_id, str(route.legs[0].amount_in)):
+                            addresses = (configured['origin_address'], configured['destination_address'])
+                            break
+                    if addresses is None:
+                        raise ValueError('route has no configured quote addresses')
+                return {'draft': template(route, tokens, now=int(self.clock()), addresses=addresses),
+                        'paper_only': True, 'eligible_for_wallet_authorization': False}
+        if path == '/api/strategy/compile':
+            if set(data) != {'draft'} or not isinstance(data['draft'], dict):
+                raise ValueError('one editable .x3 draft required')
+            with self.lock:
+                route = self.route(data['draft'].get('route_id'))
+                tokens = list(self.tokens if route.demo else self.provider_tokens)
+            return compile_draft(data['draft'], route, tokens, now=int(self.clock()))
+        if path == '/api/strategy/run':
+            if set(data) != {'draft', 'key', 'scenario'} or not isinstance(data['draft'], dict):
+                raise ValueError('draft, idempotency key and paper scenario required')
+            try:
+                existing = self.trader.get(data['key'])
+            except ValueError:
+                existing = None
+            if existing is not None:
+                stored, _ = self.trader.store.load(data['key'])
+                fields = ('route', 'tokens', 'mandates', 'addresses', 'minimum_profit_units', 'max_external_cost_units', 'expires_at')
+                snapshot = strategy_from_document({field: stored[field] for field in fields})
+                route, tokens = snapshot.route, snapshot.tokens
+            else:
+                with self.lock:
+                    route = self.route(data['draft'].get('route_id'))
+                    tokens = list(self.tokens if route.demo else self.provider_tokens)
+            strategy = strategy_from_draft(data['draft'], route, tokens, now=int(self.clock()))
+            try:
+                self.trader.create(data['key'], strategy, mode='paper', scenario=data['scenario'])
+            except ni.NearIntentsError as exc:
+                raise ValueError(f'{exc.code}: {exc.message}') from exc
+            return self.trader.run(data['key'], PaperExchange(self.trader.store))
         if path == '/api/catalogue':
             if not self.catalogue_lock.acquire(blocking=False):
                 raise ValueError('catalogue request already running')

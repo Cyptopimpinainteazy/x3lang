@@ -60,10 +60,18 @@ try {
     viewport: { width: 1440, height: 1100 },
   });
   const errors = [];
+  let expectedCompileErrors = 0;
   const extraChecks = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    if (message.type() === "error") {
+      if (
+        message.location().url.endsWith("/api/strategy/compile") &&
+        message.text().includes("400 (Bad Request)")
+      )
+        expectedCompileErrors += 1;
+      else errors.push(message.text());
+    }
   });
   await page.goto(base);
   await page.getByText("3 of 3 routes", { exact: true }).waitFor();
@@ -81,6 +89,39 @@ try {
     assert.match(
       await page.locator("#token-list").textContent(),
       /18 decimals/,
+    );
+    const catalogue = await page.evaluate(
+      async () => (await (await fetch("/api/state")).json()).catalogue,
+    );
+    const startToken = catalogue.assets.find(
+      (asset) => asset.network === "bsc" && asset.symbol === "USDC",
+    );
+    await page
+      .getByRole("button", { name: "Start with USDC on BSC", exact: true })
+      .click();
+    assert.equal(
+      await page.locator("#route-origin").inputValue(),
+      startToken.asset_id,
+    );
+    await page.locator("#token-chain").selectOption("near");
+    await page.locator("#token-search").fill("USDT");
+    const viaToken = catalogue.assets.find(
+      (asset) => asset.network === "near" && asset.symbol === "USDT",
+    );
+    await page
+      .getByRole("button", { name: "Scan via USDT on NEAR", exact: true })
+      .click();
+    assert.equal(
+      await page.locator("#route-destination").inputValue(),
+      viaToken.asset_id,
+    );
+    assert.match(
+      await page.locator("#selected-pair").textContent(),
+      /USDC on BSC.*USDT on NEAR/,
+    );
+    await page.locator("#clear-selected").click();
+    extraChecks.push(
+      "exact-ID token-card clicks populate the opportunity scanner pair",
     );
     await page.locator("#token-search").fill("");
     await page.locator("#token-chain").selectOption("");
@@ -122,6 +163,102 @@ try {
     fullPage: true,
   });
   await page.locator("#close-detail").click();
+  await page
+    .getByRole("button", { name: ".x3 policy", exact: true })
+    .first()
+    .click();
+  await page.waitForFunction(() =>
+    document
+      .getElementById("strategy-mandate-0")
+      .value.includes("mandate automatic_paper_leg_0"),
+  );
+  const originalMandate = await page
+    .locator("#strategy-mandate-0")
+    .inputValue();
+  assert.equal(await page.locator("#run-strategy").isDisabled(), true);
+  await page
+    .locator("#strategy-mandate-0")
+    .fill(originalMandate.replace("per_payment 200000000", "per_payment 1"));
+  const refusedCompile = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/strategy/compile") &&
+      response.status() === 400,
+  );
+  await page.locator("#compile-strategy").click();
+  assert.equal((await refusedCompile).status(), 400);
+  await page.waitForFunction(() =>
+    document
+      .getElementById("strategy-result")
+      .textContent.includes("mandate_per_payment"),
+  );
+  assert.equal(await page.locator("#run-strategy").isDisabled(), true);
+  await page.locator("#strategy-mandate-0").fill(originalMandate);
+  await page.locator("#compile-strategy").click();
+  await page
+    .getByText(
+      "Compiled and validated both .x3 legs. Ready for paper execution; no wallet authorization.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.locator("#strategy-profit").fill("0.75");
+  assert.equal(await page.locator("#run-strategy").isDisabled(), true);
+  await page.locator("#compile-strategy").click();
+  await page
+    .getByText(
+      "Compiled and validated both .x3 legs. Ready for paper execution; no wallet authorization.",
+      { exact: true },
+    )
+    .waitFor();
+  let releaseCompilation, compilationReady;
+  const compilationGate = new Promise((resolve) => {
+    releaseCompilation = resolve;
+  });
+  const compilationSeen = new Promise((resolve) => {
+    compilationReady = resolve;
+  });
+  await page.route("**/api/strategy/compile", async (route) => {
+    const response = await route.fetch();
+    compilationReady();
+    await compilationGate;
+    await route.fulfill({ response });
+  });
+  await page.locator("#compile-strategy").click();
+  await compilationSeen;
+  await page
+    .locator("#strategy-mandate-0")
+    .fill(originalMandate.replace("per_payment 200000000", "per_payment 1"));
+  releaseCompilation();
+  await page
+    .getByText(
+      "Draft changed during compilation. Compile the current source again.",
+      { exact: true },
+    )
+    .waitFor();
+  assert.equal(await page.locator("#run-strategy").isDisabled(), true);
+  await page.unroute("**/api/strategy/compile");
+  await page.locator("#strategy-mandate-0").fill(originalMandate);
+  await page.locator("#compile-strategy").click();
+  await page
+    .getByText(
+      "Compiled and validated both .x3 legs. Ready for paper execution; no wallet authorization.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.locator("#run-strategy").click();
+  await page
+    .getByText(
+      "COMPLETED · 2/2 legs under your .x3 mandates · no real funds moved.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.screenshot({
+    path: path.join(artifacts, "x3-workbench.png"),
+    fullPage: true,
+  });
+  await page.locator("#close-strategy").click();
+  extraChecks.push(
+    "editable .x3 mandate cap refusal, compile invalidation, stale-response rejection and full paper execution",
+  );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: path.join(artifacts, "dashboard-mobile.png"),
@@ -133,7 +270,28 @@ try {
     ),
     false,
   );
+  await page
+    .getByRole("button", { name: ".x3 policy", exact: true })
+    .first()
+    .click();
+  await page.waitForFunction(() =>
+    document
+      .getElementById("strategy-mandate-0")
+      .value.includes("mandate automatic_paper_leg_0"),
+  );
+  const mobileEditor = await page.locator("#strategy-dialog").boundingBox();
+  assert.ok(mobileEditor.x >= 0 && mobileEditor.width <= 390);
+  await page.screenshot({
+    path: path.join(artifacts, "x3-workbench-mobile.png"),
+    fullPage: true,
+  });
+  await page.locator("#close-strategy").click();
   assert.deepEqual(errors, []);
+  assert.equal(
+    expectedCompileErrors,
+    1,
+    "only the intentional low-cap compiler refusal may log HTTP400",
+  );
   console.log(
     JSON.stringify({
       browser: "chromium",
@@ -145,7 +303,7 @@ try {
         "full automatic two-leg .x3-mandated paper cycle",
         "compiled x3 download",
         "390px responsive layout",
-        "no page or console errors",
+        "no unexpected page or console errors",
         ...extraChecks,
       ],
       result: "pass",

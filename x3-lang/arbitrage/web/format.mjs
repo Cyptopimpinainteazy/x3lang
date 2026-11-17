@@ -31,3 +31,24 @@ export function matches(
       .includes(search.toLowerCase())
   );
 }
+
+export function selectTokenPair(current, asset, role) {
+  if (
+    !["origin_asset", "destination_asset"].includes(role) ||
+    !asset?.asset_id ||
+    !asset?.network
+  )
+    throw new Error("Select an exact listed token and pair role");
+  if (asset.deprecated)
+    throw new Error("A deprecated token cannot be added to a scan");
+  return { ...current, [role]: asset.asset_id };
+}
+export function pairIssue(pair, assets) {
+  const origin = assets.find((asset) => asset.asset_id === pair.origin_asset);
+  const destination = assets.find(
+    (asset) => asset.asset_id === pair.destination_asset,
+  );
+  if (!origin || !destination) return "CHOOSE_PAIR";
+  if (origin.deprecated || destination.deprecated) return "DEPRECATED";
+  return origin.network === destination.network ? "SAME_CHAIN" : null;
+}

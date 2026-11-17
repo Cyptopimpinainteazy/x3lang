@@ -1,4 +1,4 @@
-import { units, edge, matches } from "./format.mjs";
+import { units, edge, matches, selectTokenPair, pairIssue } from "./format.mjs";
 const $ = (id) => document.getElementById(id);
 const chain = (value) =>
   ({
@@ -11,6 +11,51 @@ const chain = (value) =>
     "cex-inventory": "Exchange inventory",
   })[value] || value;
 let state, selected, pendingKey;
+let selectedPair = {},
+  strategyDraft = null,
+  compiledDraft = null,
+  strategyKey = null;
+let strategyRevision = 0;
+function renderSelection() {
+  const active = !!(
+    selectedPair.origin_asset || selectedPair.destination_asset
+  );
+  $("scanner-selection").hidden = !active;
+  if (!active || !state.catalogue) return;
+  const assets = state.catalogue.assets;
+  const label = (id) => {
+    const asset = assets.find((asset) => asset.asset_id === id);
+    return asset
+      ? `${asset.symbol || "Unnamed"} on ${chain(asset.network)}`
+      : "Choose a token";
+  };
+  $("selected-pair").textContent =
+    `${label(selectedPair.origin_asset)} → ${label(selectedPair.destination_asset)} → origin`;
+  const issue = pairIssue(selectedPair, assets);
+  $("selection-note").textContent =
+    issue === "SAME_CHAIN"
+      ? "Choose tokens on different chains."
+      : issue
+        ? "Complete both token selections."
+        : "Pair selected. Set amount and quote addresses, then add the dry scan.";
+  $("configure-selected").disabled = !!issue;
+}
+function chooseToken(asset, role) {
+  const current = {
+    origin_asset: $("route-origin").value,
+    destination_asset: $("route-destination").value,
+  };
+  selectedPair = selectTokenPair(current, asset, role);
+  $("route-origin").value = selectedPair.origin_asset;
+  $("route-destination").value = selectedPair.destination_asset;
+  renderTokens();
+  renderSelection();
+  if (!pairIssue(selectedPair, state.catalogue.assets)) {
+    $("route-builder").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("route-amount").focus({ preventScroll: true });
+  }
+}
+
 let tokenLimit = 12,
   renderedCatalogue = null;
 function el(tag, text, className) {
@@ -56,6 +101,8 @@ function renderTokens() {
     `${catalogue.asset_count} provider-listed assets across ${Object.keys(catalogue.chains).length} chains · no execution approval`;
   if (renderedCatalogue !== catalogue.loaded_at) {
     renderedCatalogue = catalogue.loaded_at;
+    const previousOrigin = $("route-origin").value,
+      previousDestination = $("route-destination").value;
     const allChains = el("option", "All provider chains");
     allChains.value = "";
     $("token-chain").replaceChildren(allChains);
@@ -86,8 +133,14 @@ function renderTokens() {
     const destination = catalogue.assets.find(
       (asset) => asset.network === "near" && asset.symbol === "USDC",
     );
-    if (origin) $("route-origin").value = origin.asset_id;
-    if (destination) $("route-destination").value = destination.asset_id;
+    if (catalogue.assets.some((asset) => asset.asset_id === previousOrigin))
+      $("route-origin").value = previousOrigin;
+    else if (origin) $("route-origin").value = origin.asset_id;
+    if (
+      catalogue.assets.some((asset) => asset.asset_id === previousDestination)
+    )
+      $("route-destination").value = previousDestination;
+    else if (destination) $("route-destination").value = destination.asset_id;
   }
   const rows = catalogue.assets.filter(
     (asset) =>
@@ -96,9 +149,13 @@ function renderTokens() {
         .toLowerCase()
         .includes($("token-search").value.toLowerCase()),
   );
+  const active = document.activeElement;
+  const focusAsset = active?.closest(".token-card")?.dataset.assetId,
+    focusRole = active?.dataset.pairRole;
   $("token-list").replaceChildren();
   for (const asset of rows.slice(0, tokenLimit)) {
     const card = el("article", undefined, "token-card");
+    card.dataset.assetId = asset.asset_id;
     const id = el("code", asset.asset_id);
     id.title = asset.asset_id;
     card.append(
@@ -109,8 +166,40 @@ function renderTokens() {
       ),
       id,
     );
+    const actions = el("div", undefined, "token-actions");
+    for (const [role, text] of [
+      ["origin_asset", "Start here"],
+      ["destination_asset", "Scan via"],
+    ]) {
+      const button = el("button", text, "secondary");
+      button.type = "button";
+      button.dataset.pairRole = role;
+      button.setAttribute(
+        "aria-label",
+        `${role === "origin_asset" ? "Start with" : "Scan via"} ${asset.symbol || "Unnamed"} on ${chain(asset.network)}`,
+      );
+      button.setAttribute(
+        "aria-pressed",
+        String(selectedPair[role] === asset.asset_id),
+      );
+      button.disabled = asset.deprecated;
+      button.addEventListener("click", () => chooseToken(asset, role));
+      actions.append(button);
+    }
+    card.append(actions);
     if (asset.limitation) card.append(el("small", asset.limitation));
     $("token-list").append(card);
+  }
+  if (focusAsset && focusRole) {
+    const card = [...$("token-list").children].find(
+      (card) => card.dataset.assetId === focusAsset,
+    );
+    const action =
+      card &&
+      [...card.querySelectorAll("button")].find(
+        (button) => button.dataset.pairRole === focusRole,
+      );
+    action?.focus({ preventScroll: true });
   }
   if (!rows.length)
     $("token-list").append(
@@ -118,7 +207,15 @@ function renderTokens() {
     );
   $("more-tokens").hidden = rows.length <= tokenLimit;
   $("add-route").disabled =
-    state.refreshing || state.configured_route_count >= 4;
+    state.refreshing ||
+    state.configured_route_count >= 4 ||
+    !!pairIssue(
+      {
+        origin_asset: $("route-origin").value,
+        destination_asset: $("route-destination").value,
+      },
+      catalogue.assets,
+    );
   const start = catalogue.assets.find(
     (asset) => asset.asset_id === $("route-origin").value,
   );
@@ -131,6 +228,7 @@ function renderTokens() {
 }
 function render() {
   renderTokens();
+  renderSelection();
   $("mode").textContent =
     state.mode === "demo"
       ? "CONSTRUCTED DEMO"
@@ -199,6 +297,11 @@ function render() {
       button = el("button", "Inspect ↗", "inspect");
     button.addEventListener("click", () => inspect(row));
     action.append(button);
+    if (row.kind === "cross-chain") {
+      const policy = el("button", ".x3 policy", "inspect x3-policy");
+      policy.addEventListener("click", () => openStrategy(row));
+      action.append(policy);
+    }
     tr.append(
       name,
       input,
@@ -338,6 +441,7 @@ function inspect(row) {
     $("export-leg").append(option);
   });
   $("export-form").hidden = row.kind !== "cross-chain";
+  $("open-strategy").disabled = row.kind !== "cross-chain";
   $("paper").disabled = !row.paper_eligible;
   $("auto-paper").disabled = !row.paper_eligible || !row.demo;
   $("auto-programs").hidden = true;
@@ -427,6 +531,156 @@ $("export-form").addEventListener("submit", async (event) => {
     $("dialog-result").textContent = error.message;
   }
 });
+function readStrategyDraft() {
+  return {
+    ...strategyDraft,
+    mandates: [$("strategy-mandate-0").value, $("strategy-mandate-1").value],
+    addresses: [
+      $("strategy-origin-address").value,
+      $("strategy-destination-address").value,
+    ],
+    minimum_profit: $("strategy-profit").value,
+    max_external_cost: $("strategy-cost").value,
+  };
+}
+function strategyChanged() {
+  compiledDraft = null;
+  strategyKey = crypto.randomUUID();
+  $("run-strategy").disabled = true;
+  $("strategy-programs").hidden = true;
+  $("strategy-result").textContent =
+    "Draft changed. Compile the .x3 mandates before paper execution.";
+}
+async function openStrategy(row) {
+  const revision = ++strategyRevision;
+  if ($("detail").open) $("detail").close();
+  $("strategy-dialog").showModal();
+  $("strategy-title").textContent = row.label;
+  $("compile-strategy").disabled = true;
+  $("run-strategy").disabled = true;
+  $("strategy-result").textContent = "Preparing editable .x3 mandate sources…";
+  $("strategy-programs").hidden = true;
+  strategyDraft = null;
+  compiledDraft = null;
+  strategyKey = crypto.randomUUID();
+  try {
+    const result = await request("/api/strategy/template", {
+      route_id: row.id,
+    });
+    if (revision !== strategyRevision) return;
+    strategyDraft = result.draft;
+    $("strategy-origin-address").value = strategyDraft.addresses[0];
+    if ($("strategy-profit-unit"))
+      $("strategy-profit-unit").textContent =
+        `Minimum profit (${symbol(row.numeraire)})`;
+    if ($("strategy-cost-unit"))
+      $("strategy-cost-unit").textContent =
+        `External cost ceiling (${symbol(row.numeraire)})`;
+    $("strategy-destination-address").value = strategyDraft.addresses[1];
+    $("strategy-mandate-0").value = strategyDraft.mandates[0];
+    $("strategy-mandate-1").value = strategyDraft.mandates[1];
+    $("strategy-profit").value = strategyDraft.minimum_profit;
+    $("strategy-cost").value = strategyDraft.max_external_cost;
+    $("strategy-result").textContent =
+      "Edit the .x3 policy, then compile and validate both legs. No funds move.";
+    $("compile-strategy").disabled = false;
+  } catch (error) {
+    if (revision !== strategyRevision) return;
+    $("strategy-result").textContent = error.message;
+  }
+}
+$("strategy-dialog").addEventListener("close", () => {
+  strategyRevision += 1;
+});
+$("open-strategy").addEventListener("click", () => openStrategy(selected));
+$("close-strategy").addEventListener("click", () =>
+  $("strategy-dialog").close(),
+);
+for (const id of [
+  "strategy-mandate-0",
+  "strategy-mandate-1",
+  "strategy-origin-address",
+  "strategy-destination-address",
+  "strategy-profit",
+  "strategy-cost",
+])
+  $(id).addEventListener("input", strategyChanged);
+$("compile-strategy").addEventListener("click", async () => {
+  if (!strategyDraft) return;
+  const revision = strategyRevision;
+  const draft = readStrategyDraft(),
+    submitted = JSON.stringify(draft);
+  compiledDraft = null;
+  $("compile-strategy").disabled = true;
+  $("run-strategy").disabled = true;
+  $("strategy-result").textContent =
+    "Compiling .x3 mandates and checking both route legs…";
+  try {
+    const result = await request("/api/strategy/compile", { draft });
+    if (revision !== strategyRevision) return;
+    if (JSON.stringify(readStrategyDraft()) !== submitted)
+      throw new Error(
+        "Draft changed during compilation. Compile the current source again.",
+      );
+    compiledDraft = submitted;
+    $("strategy-source").textContent = result.programs.join(
+      "\n\n// NEXT LEG\n\n",
+    );
+    $("strategy-programs").hidden = false;
+    $("run-strategy").disabled = false;
+    $("strategy-result").textContent =
+      "Compiled and validated both .x3 legs. Ready for paper execution; no wallet authorization.";
+  } catch (error) {
+    if (revision !== strategyRevision) return;
+    $("strategy-result").textContent = error.message;
+    $("strategy-programs").hidden = true;
+  } finally {
+    if (revision === strategyRevision) $("compile-strategy").disabled = false;
+  }
+});
+$("run-strategy").addEventListener("click", async () => {
+  const revision = strategyRevision;
+  const draft = readStrategyDraft();
+  if (JSON.stringify(draft) !== compiledDraft) return strategyChanged();
+  $("run-strategy").disabled = true;
+  try {
+    const result = await request("/api/strategy/run", {
+      draft,
+      key: "x3-" + strategyKey,
+      scenario: "success",
+    });
+    if (revision !== strategyRevision) return;
+    $("strategy-result").textContent =
+      JSON.stringify(readStrategyDraft()) === compiledDraft
+        ? `${result.phase} · ${result.completed_legs.length}/2 legs under your .x3 mandates · no real funds moved.`
+        : `${result.phase} for the submitted draft. Current edits need compilation; no real funds moved.`;
+    await update();
+  } catch (error) {
+    if (revision !== strategyRevision) return;
+    $("strategy-result").textContent = error.message;
+  } finally {
+    if (revision === strategyRevision)
+      $("run-strategy").disabled =
+        JSON.stringify(readStrategyDraft()) !== compiledDraft;
+  }
+});
+$("configure-selected").addEventListener("click", () => {
+  $("route-builder").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("route-amount").focus({ preventScroll: true });
+});
+$("clear-selected").addEventListener("click", () => {
+  selectedPair = {};
+  renderTokens();
+  renderSelection();
+});
+$("route-destination").addEventListener("change", () => {
+  selectedPair = {
+    origin_asset: $("route-origin").value,
+    destination_asset: $("route-destination").value,
+  };
+  renderTokens();
+  renderSelection();
+});
 $("load-tokens").addEventListener("click", async () => {
   $("load-tokens").disabled = true;
   $("token-summary").textContent = "Fetching the public provider catalogue…";
@@ -444,7 +698,14 @@ for (const id of ["token-search", "token-chain"])
     tokenLimit = 12;
     renderTokens();
   });
-$("route-origin").addEventListener("change", renderTokens);
+$("route-origin").addEventListener("change", () => {
+  selectedPair = {
+    origin_asset: $("route-origin").value,
+    destination_asset: $("route-destination").value,
+  };
+  renderTokens();
+  renderSelection();
+});
 $("more-tokens").addEventListener("click", () => {
   tokenLimit += 24;
   renderTokens();
