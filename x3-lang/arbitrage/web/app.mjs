@@ -177,6 +177,23 @@ function render() {
     );
     $("orders").append(node);
   }
+  $("cycles").replaceChildren();
+  for (const cycle of state.cycles || []) {
+    const row = el("div", undefined, "order");
+    row.append(
+      el("b", cycle.id),
+      el("span", cycle.phase.replaceAll("_", " "), "chip"),
+      el(
+        "small",
+        `${cycle.completed_legs.length}/2 legs · ${cycle.paper_profit_units === null ? "P&L not closed" : units(cycle.paper_profit_units, cycle.profit_asset?.decimals ?? 6) + " simulated source-asset profit"}`,
+      ),
+    );
+    $("cycles").append(row);
+  }
+  if (!(state.cycles || []).length)
+    $("cycles").append(
+      el("p", "Inspect a demo route to run both legs automatically.", "empty"),
+    );
   if (!state.orders.length)
     $("orders").append(
       el(
@@ -233,6 +250,8 @@ function inspect(row) {
   });
   $("export-form").hidden = row.kind !== "cross-chain";
   $("paper").disabled = !row.paper_eligible;
+  $("auto-paper").disabled = !row.paper_eligible || !row.demo;
+  $("auto-programs").hidden = true;
   $("refund").value = "";
   $("recipient").value = "";
   $("mandate").value = "";
@@ -269,6 +288,28 @@ $("paper").addEventListener("click", async () => {
   } finally {
     $("paper").disabled = !selected.paper_eligible;
   }
+});
+$("auto-paper").addEventListener("click", async () => {
+  $("auto-paper").disabled = true;
+  try {
+    const result = await request("/api/trade", {
+      route_id: selected.id,
+      key: "auto-" + pendingKey,
+      scenario: $("auto-scenario").value,
+    });
+    $("dialog-result").textContent =
+      `${result.phase} · ${result.completed_legs.length}/2 legs · no real funds moved.`;
+    $("auto-source").textContent = result.programs.join("\n\n// NEXT LEG\n\n");
+    $("auto-programs").hidden = false;
+    await update();
+  } catch (error) {
+    $("dialog-result").textContent = error.message;
+  } finally {
+    $("auto-paper").disabled = !selected.paper_eligible || !selected.demo;
+  }
+});
+$("auto-scenario").addEventListener("change", () => {
+  pendingKey = crypto.randomUUID();
 });
 $("scenario").addEventListener("change", () => {
   pendingKey = crypto.randomUUID();

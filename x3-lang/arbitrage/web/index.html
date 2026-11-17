@@ -154,6 +154,19 @@
         </div>
         <div id="orders" class="orders"></div>
       </section>
+      <section class="board journal">
+        <div class="section-head">
+          <div>
+            <h2>Automatic paper cycles</h2>
+            <p>
+              Both legs, mandate budgets, settlement checkpoints and held
+              inventory.
+            </p>
+          </div>
+          <span class="badge muted">NO REAL FUNDS</span>
+        </div>
+        <div id="cycles" class="orders"></div>
+      </section>
       <footer>
         X3 ARBITRAGE
         <span>Quote evidence ≠ reserved liquidity ≠ settlement proof.</span>
@@ -182,6 +195,33 @@
           <option value="rpc_failure">Simulate RPC failure</option></select
         ><button id="paper" class="primary">Add to paper journal</button>
       </div>
+      <section class="automatic">
+        <h3>Automatic paper round trip</h3>
+        <p>
+          Run both legs with compiled .x3 mandates and a simulated wallet. No
+          real funds.
+        </p>
+        <div class="dialog-actions">
+          <select id="auto-scenario" aria-label="Automatic paper scenario">
+            <option value="success">Complete round trip</option>
+            <option value="return_loss">Return edge disappears</option>
+            <option value="submit_timeout">Lost submission response</option>
+            <option value="return_refund">Return leg refunds</option>
+            <option value="rpc_failure">Observation outage</option>
+          </select>
+          <button type="button" id="auto-paper" class="primary">
+            Run automatic paper cycle
+          </button>
+        </div>
+        <small
+          >Demo mandates reserve both spending budgets. Minimum cycle profit: 1
+          source USDC.</small
+        >
+        <details id="auto-programs" hidden>
+          <summary>Inspect the compiled .x3 programs</summary>
+          <pre id="auto-source"></pre>
+        </details>
+      </section>
       <form id="export-form">
         <h3>Export a compiled .x3 leg</h3>
         <label>Leg<select id="export-leg"></select></label>

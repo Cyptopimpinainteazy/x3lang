@@ -78,10 +78,10 @@ to its evidence and limits.
 
 The separate [X3 Arbitrage prototype](x3-lang/arbitrage/README.md) discovers configured
 NEAR/Solana/EVM round trips with signed dry quotes, compares conservative route economics,
-exports compiled `.x3` legs and keeps a durable paper journal. Start the constructed demo
+exports compiled `.x3` legs and runs durable automatic paper round trips under per-leg `.x3` mandates. Start the constructed demo
 with `PYTHONPATH=x3-lang python3 -m arbitrage serve --mode demo`. Public market discovery
-and explicit mandate-checked live quote preparation are separate modes; automatic wallet
-trading and atomic multi-leg execution are not implemented. This is post-submission work.
+and explicit mandate-checked live quote preparation are separate modes; the live coordinator remains disarmed without an explicitly approved trusted wallet gateway.
+Sequential cross-chain legs are not atomic. This is post-submission work.
 
 ## Local agent-law lifecycle
 

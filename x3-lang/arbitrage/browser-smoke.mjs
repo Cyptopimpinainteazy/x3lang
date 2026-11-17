@@ -80,6 +80,14 @@ try {
       exact: true,
     })
     .waitFor();
+  await page.locator("#auto-paper").click();
+  await page
+    .getByText("COMPLETED · 2/2 legs · no real funds moved.", { exact: true })
+    .waitFor();
+  assert.match(
+    await page.locator("#auto-source").textContent(),
+    /under mandate paper-sol-owner.near/,
+  );
   await page
     .locator("#refund")
     .fill("4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD");
@@ -113,6 +121,7 @@ try {
         "eligibility filter",
         "route inspector",
         "SQLite paper action",
+        "full automatic two-leg .x3-mandated paper cycle",
         "compiled x3 download",
         "390px responsive layout",
         "no page or console errors",

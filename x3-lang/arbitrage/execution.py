@@ -25,6 +25,18 @@ def export_leg(route, index, *, tokens, refund_to, recipient, now,
     assessment = assess(route, now=now)
     if set(assessment['reasons']) - {'BELOW_PROFIT_THRESHOLD'}:
         raise ValueError('route is not exportable: ' + ', '.join(assessment['reasons']))
+    return compile_leg(route.legs[index], cycle_id=route.id, index=index, tokens=tokens,
+                       refund_to=refund_to, recipient=recipient, now=now,
+                       slippage_bps=slippage_bps, fee_bps=fee_bps, mandate_owner=mandate_owner)
+
+
+def compile_leg(leg, *, cycle_id, index, tokens, refund_to, recipient, now,
+                slippage_bps=50, fee_bps=100, mandate_owner=None):
+    """Compile a newly priced leg for the coordinator without inventing a full-route quote."""
+    if not re.fullmatch(r'[a-f0-9]{64}', cycle_id) or type(index) is not int or not 0 <= index < 4:
+        raise ValueError('invalid cycle identity or index')
+    if leg.provider != 'oneclick' or not 0 <= now - leg.observed_at <= 30 or leg.expires_at - now < 10:
+        raise ValueError('fresh oneclick quote required')
     for name, value, maximum in (('slippage_bps', slippage_bps, 500), ('fee_bps', fee_bps, 10000)):
         if uint(value, name) > maximum:
             raise ValueError(f'{name} exceeds limit')
@@ -33,7 +45,6 @@ def export_leg(route, index, *, tokens, refund_to, recipient, now,
     if not all(isinstance(address, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{2,128}', address)
                for address in (refund_to, recipient)):
         raise ValueError('invalid receiver address')
-    leg = route.legs[index]
     endpoints = []
     inverse = {network: chain for chain, network in ni.CHAIN_TO_BLOCKCHAIN.items()}
     for asset in (leg.asset_in, leg.asset_out):
@@ -52,15 +63,15 @@ def export_leg(route, index, *, tokens, refund_to, recipient, now,
     origin, destination = endpoints
     ttl = min(leg.expires_at - now, 600)
     under = f'    under mandate {mandate_owner}\n' if mandate_owner else ''
-    binding = {'route_id': route.id, 'leg': index, 'asset_in': leg.asset_in.to_json(),
+    binding = {'route_id': cycle_id, 'leg': index, 'asset_in': leg.asset_in.to_json(),
                'asset_out': leg.asset_out.to_json(), 'amount': str(leg.amount_in),
                'minimum_out': str(leg.minimum_out), 'expires_at': leg.expires_at,
                'evidence': leg.evidence}
     source = (
         '// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n'
-        f'// Route {route.id}; evidence {leg.evidence}. Refresh and re-evaluate before execution.\n'
+        f'// Route {cycle_id}; evidence {leg.evidence}. Refresh and re-evaluate before execution.\n'
         '// This program bounds one delivery; it does not enforce a round-trip profit.\n'
-        f'intent arb_{route.id[:16]}_{index} {{\n'
+        f'intent arb_{cycle_id[:16]}_{index} {{\n'
         f'    from {origin} amount {leg.amount_in} receiver {refund_to}\n'
         f'    to {destination} receiver {recipient}\n'
         '    route {\n'
@@ -68,7 +79,7 @@ def export_leg(route, index, *, tokens, refund_to, recipient, now,
         '    }\n' + under +
         f'    require slippage <= {slippage_bps} bps\n'
         f'    require fees <= {fee_bps} bps\n'
-        f'    require nonce unused arb_{route.id}_{index}\n'
+        f'    require nonce unused arb_{cycle_id}_{index}\n'
         f'    timeout {ttl}s refund {origin}\n'
         '    on_fail rollback\n}\n')
     binding['program_sha256'] = sha256(source.encode('utf-8')).hexdigest()

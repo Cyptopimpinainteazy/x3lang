@@ -712,3 +712,26 @@ form small {
     flex-wrap: wrap;
   }
 }
+
+.automatic {
+  border-top: 1px solid var(--line);
+  padding: 12px 0 22px;
+}
+.automatic h3 {
+  font-size: 14px;
+}
+.automatic small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+.automatic pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: #0c1118;
+  font-size: 10px;
+}
+.automatic details {
+  margin-top: 12px;
+}

@@ -96,10 +96,11 @@ submit a deposit. It refuses demo data, expired exports, changed source or token
 and uses an immutable program snapshot plus one catalog snapshot throughout the existing mandate/account/signature/fee checks.
 Obtain fresh quotes if the scan has expired; `.x3` files are intentionally short-lived.
 
-**Automatic live round-trip trading is not implemented.** Wallet execution still uses the
-existing separately approved signing/funding workflow. A leg's `on_fail rollback` does not
+**Automatic coordination is implemented** in `trader.py`, with paper and live adapters.
+Live funding remains disarmed in the CLI/dashboard; see [automatic trading](AUTOMATIC_TRADING.md)
+for the tested state machine and external custody-gateway boundary. A leg's `on_fail rollback` does not
 undo a previously settled leg. Reassess the remaining route after every real settlement;
-this adapter does not enforce global round-trip profit or cryptographic cross-chain atomicity.
+each exported leg by itself does not enforce global round-trip profit or cryptographic cross-chain atomicity.
 Live preparation was tested for local refusals; no live deposit quote or wallet trade was
 requested while developing this feature.
 
@@ -128,7 +129,7 @@ or quote API. Unknown external consumers have not been surveyed.
 ## Verification
 
 ```bash
-PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_arbitrage.py \
+PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_arbitrage*.py \
   x3-lang/tests/test_near_liquidity_quotes.py x3-lang/tests/test_near_liquidity_rhea.py -q
 python3 -m compileall -q x3-lang/arbitrage
 node --test x3-lang/arbitrage/web/format.test.mjs
@@ -156,3 +157,5 @@ node x3-lang/arbitrage/browser-smoke.mjs
 This starts and cleans up its own loopback demo server and temporary SQLite database.
 It checks desktop/mobile layout, filters, route inspection, a paper projection, compiled
 program download, and browser console/page errors.
+
+For the complete paper round trip, run `python3 scripts/proof/arbitrage_roundtrip.py --output /tmp/x3-paper-proof.json`.

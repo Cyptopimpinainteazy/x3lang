@@ -11,6 +11,7 @@ from .adapters import demo_routes, scan_cex, scan_cross_chain, validate_config
 from .engine import rank
 from .execution import export_leg
 from .paper import PaperLedger
+from .trader import Trader, PaperExchange, example_strategy
 
 WEB = Path(__file__).parent / 'web'
 
@@ -22,6 +23,7 @@ class App:
         self.mode, self.clock = mode, clock
         self.config = validate_config(config) if config is not None else None
         self.ledger = PaperLedger(database)
+        self.trader = Trader(database, clock=clock)
         self.csrf = secrets.token_urlsafe(32)
         self.lock = threading.RLock()
         self.refresh_lock = threading.Lock()
@@ -79,6 +81,7 @@ class App:
                     'refreshing': self.refreshing,
                     'routes': rank(self.routes, now=int(self.clock())),
                     'errors': list(self.errors), 'orders': self.ledger.orders(),
+                    'cycles': [cycle for cycle in self.trader.cycles() if cycle['mode'] == 'paper'],
                     'asset_symbols': {token['blockchain'] + '/' + token['assetId']: token['symbol']
                                       for token in self.tokens},
                     'live_execution': 'Separate CLI preparation; no signing or deposits from dashboard.'}
@@ -103,6 +106,22 @@ class App:
                 return previous
             return self.ledger.project(self.route(data.get('route_id')), key=data.get('key'),
                                        now=int(self.clock()), scenario=data.get('scenario', 'projection'))
+        if path == '/api/trade':
+            if set(data) != {'route_id', 'key', 'scenario'}:
+                raise ValueError('paper cycle requires route_id, key and scenario only')
+            try:
+                existing = self.trader.get(data['key'])
+            except ValueError:
+                existing = None
+            if existing is not None:
+                spec, _ = self.trader.store.load(data['key'])
+                if existing['route_id'] != data['route_id'] or spec['scenario'] != data['scenario']:
+                    raise ValueError('cycle idempotency key binds another request')
+                return self.trader.run(data['key'], PaperExchange(self.trader.store))
+            route = self.route(data['route_id'])
+            strategy = example_strategy(route, list(self.tokens), now=int(self.clock()))
+            self.trader.create(data['key'], strategy, scenario=data['scenario'])
+            return self.trader.run(data['key'], PaperExchange(self.trader.store))
         if path == '/api/export':
             route = self.route(data.get('route_id'))
             with self.lock:

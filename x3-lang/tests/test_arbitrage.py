@@ -254,3 +254,28 @@ def test_live_preparation_uses_validated_snapshot_when_original_file_changes(tmp
                                 receipt=tmp_path / 'receipt', explicit_live=True,
                                 now=110, client=MutatingCatalog())
     assert result['recipient'] == 'alice.near'
+
+
+def test_http_automatic_cycle_is_paper_only_and_survives_refresh(tmp_path):
+    database = tmp_path / 'trades.sqlite'
+    app = App(mode='demo', database=database, clock=lambda: 1000)
+    body = {'key': 'automatic-api', 'route_id': app.routes[0].id, 'scenario': 'success'}
+    result = app.action('/api/trade', body)
+    assert result['phase'] == 'COMPLETED'
+    assert result['mode'] == 'paper'
+    assert result['real_transactions_submitted'] == 0
+    assert result['paper_profit_units'] == '2000000'
+    restarted = App(mode='demo', database=database, clock=lambda: 2000)
+    assert restarted.action('/api/trade', body) == result
+    with pytest.raises(ValueError, match='only'):
+        restarted.action('/api/trade', dict(body, mode='live'))
+
+
+def test_paper_dashboard_does_not_mislabel_live_cycle_history(tmp_path):
+    from arbitrage.trader import example_strategy
+    from dataclasses import replace
+    app = App(mode='demo', database=tmp_path / 'both.sqlite', clock=lambda: 1000)
+    configured = example_strategy(app.routes[0], app.tokens, now=1000)
+    live_route = replace(configured.route, legs=tuple(replace(leg, evidence='provider_dry_quote') for leg in configured.route.legs))
+    app.trader.create('live-history', replace(configured, route=live_route), mode='live')
+    assert app.state()['cycles'] == []
