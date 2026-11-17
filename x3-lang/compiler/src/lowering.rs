@@ -3009,6 +3009,8 @@ const KNOWN_CHAIN_PREFIXES: &[&str] = &[
     "bitcoincash",
     "zcash",
     "dash",
+    "xrp",
+    "movement",
     "sol",
     "solana",
     "svm",

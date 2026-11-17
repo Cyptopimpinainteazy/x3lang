@@ -1,0 +1,21 @@
+// x3_route_xrp_to_near.x3 — 50 XRP on the XRP Ledger to USDC on NEAR, through 1Click.
+//
+// DRY QUOTE REFERENCE ONLY. `rrrrrrrrrrrrrrrrrrrrBZbvji` is the XRP Ledger's well-known
+// "ACCOUNT_ONE" placeholder (no key) and `x3-demo.near` a demo account: replace both before any
+// wallet authorization. A 1Click XRP deposit carries a destination tag (the signed deposit memo);
+// the deposit proof requires the payment's DestinationTag to equal it, and reads what was
+// actually delivered, not the payment's face Amount.
+//
+// 50 XRP in drops: 6 decimals, so 5e7.
+intent x3_route_xrp_to_near {
+    from Xrp.XRP amount 50000000 receiver rrrrrrrrrrrrrrrrrrrrBZbvji
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Xrp.XRP -> Near.USDC;
+    }
+    require slippage <= 1%
+    require fees <= 100 bps
+    require nonce unused x3_route_xrp_near_001
+    timeout 10m refund Xrp.XRP
+    on_fail rollback
+}

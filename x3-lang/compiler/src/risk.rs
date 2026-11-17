@@ -55,6 +55,8 @@ impl RiskScorer {
         chain_risk.insert("bitcoincash".into(), 30);
         chain_risk.insert("zcash".into(), 35);
         chain_risk.insert("dash".into(), 35);
+        chain_risk.insert("xrp".into(), 30);
+        chain_risk.insert("movement".into(), 45);
         chain_risk.insert("sui".into(), 40);
         chain_risk.insert("aptos".into(), 40);
         chain_risk.insert("starknet".into(), 35);

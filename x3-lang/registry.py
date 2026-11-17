@@ -35,6 +35,10 @@ CHAIN_DOMAINS = {
     'bitcoincash': {'aliases': {'bch', 'bitcoin_cash'}, 'address': 'bch'},
     'zcash': {'aliases': {'zec'}, 'address': 'zec'},
     'dash': {'aliases': set(), 'address': 'dash'},
+    'xrp': {'aliases': {'ripple', 'xrpl'}, 'address': 'xrp'},
+    'sui': {'aliases': set(), 'address': 'move32'},
+    'aptos': {'aliases': {'apt'}, 'address': 'move32'},
+    'movement': {'aliases': set(), 'address': 'move32'},
     'x3': {'aliases': set(), 'address': 'x3'},
     # NEAR is a destination and origin for `bridge NearIntents` legs, which settle through the
     # NEAR Intents 1Click API (`near_intents.py`). Its receivers are NEAR account IDs.
@@ -71,6 +75,10 @@ ASSETS_BY_CHAIN = {
     'bitcoincash': {'BCH'},
     'zcash': {'ZEC'},
     'dash': {'DASH'},
+    'xrp': {'XRP'},
+    'sui': {'SUI', 'USDC'},
+    'aptos': {'APT', 'USDC', 'USDT'},
+    'movement': {'MOVE', 'USDCx'},
     'x3': {'SOL', 'USDC', 'WSOL', 'WETH', 'BTC', 'X3'},
     'near': {'NEAR', 'wNEAR', 'USDC', 'USDT'},
 }
@@ -221,6 +229,10 @@ def is_valid_receiver(chain, receiver):
         return is_valid_near_account(receiver)
     if kind in UTXO_ADDRESS_RULES:
         return utxo_address_kind(kind, receiver) is not None
+    if kind == 'xrp':
+        return is_valid_xrp_address(receiver)
+    if kind == 'move32':
+        return is_valid_move32_address(receiver)
     if kind == 'tron':
         return is_valid_tron_address(receiver)
     if kind == 'ton':
@@ -448,6 +460,30 @@ def canonical_utxo_address(kind, address):
     if UTXO_ADDRESS_RULES[kind].get('hrp') and str(address).lower().startswith(UTXO_ADDRESS_RULES[kind]['hrp'] + '1'):
         return str(address).lower()
     return str(address)
+
+
+_RIPPLE_BASE58 = 'rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz'
+
+
+def is_valid_xrp_address(address):
+    """A classic XRP Ledger account address (`r…`, Ripple-alphabet base58check, version 0x00).
+    X-addresses are refused: they fold a destination tag in, and this adapter keeps tags explicit."""
+    text = str(address)
+    if not re.fullmatch(r'r[' + _RIPPLE_BASE58 + r']{24,34}', text):
+        return False
+    value = 0
+    for char in text:
+        value = value * 58 + _RIPPLE_BASE58.index(char)
+    body = value.to_bytes((value.bit_length() + 7) // 8, 'big') if value else b''
+    raw = b'\0' * (len(text) - len(text.lstrip('r'))) + body
+    return (len(raw) == 25 and raw[0] == 0x00
+            and hashlib.sha256(hashlib.sha256(raw[:21]).digest()).digest()[:4] == raw[21:])
+
+
+def is_valid_move32_address(address):
+    """A full 32-byte Sui/Aptos/Movement account address (`0x` + 64 hex). These chains have no
+    address checksum, so the short special forms (`0x1`) are refused: a payout needs the full form."""
+    return re.fullmatch(r'0x[0-9a-fA-F]{64}', str(address)) is not None
 
 
 def is_valid_ton_address(address):

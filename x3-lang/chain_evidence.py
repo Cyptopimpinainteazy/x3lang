@@ -27,6 +27,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 Transport = Callable[[str, str, Dict[str, str], Optional[bytes], float], Tuple[int, bytes]]
@@ -894,6 +895,263 @@ class UtxoRpc:
 
     def verify_token_transfer(self, **kw: Any) -> Dict[str, Any]:
         raise ChainEvidenceError("X3_EVIDENCE_UNSUPPORTED", f"{self.chain} has no tokens this adapter routes")
+
+
+# --------------------------------------------------------------------------------------------
+# XRP Ledger (native XRP)
+# --------------------------------------------------------------------------------------------
+#
+# rippled JSON-RPC `tx`. A payment counts only when the ledger that holds it is **validated**,
+# the result is `tesSUCCESS`, it is a `Payment` to the address, and — read from
+# `meta.delivered_amount`, never `Amount` — at least the required drops actually arrived: a
+# partial payment's `Amount` overstates what was delivered. When the signed quote carries a
+# deposit memo, the payment's `DestinationTag` must equal it. `server_info` must not report a
+# test network ID. Endpoints come from `X3_XRP_RPC_URLS`; there are no defaults.
+
+RIPPLE_EPOCH = 946684800  # 2000-01-01T00:00:00Z
+
+
+def xrp_rpc(transport: Transport, url: str, method: str, params: Dict[str, Any], timeout: float = 20.0) -> Dict[str, Any]:
+    body = json.dumps({"method": method, "params": [params]}).encode()
+    status, raw = transport("POST", url, {"Content-Type": "application/json", "Accept": "application/json",
+                                          "User-Agent": "x3-lang-evidence/1"}, body, timeout)
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url} {method}: HTTP {status} with no JSON body")
+    result = data.get("result") if isinstance(data, dict) else None
+    if status >= 400 or not isinstance(result, dict):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url} {method}: HTTP {status}")
+    if result.get("status") == "error" and result.get("error") != "txnNotFound":
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url} {method}: {result.get('error')}")
+    return result
+
+
+def xrp_payment_facts(info: Dict[str, Any], tx: Dict[str, Any], *, tx_id: str) -> Dict[str, Any]:
+    network_id = (info.get("info") or {}).get("network_id")
+    facts: Dict[str, Any] = {"network_id": network_id}
+    if tx.get("error") == "txnNotFound" or not tx.get("hash"):
+        return {**facts, "found": False}
+    meta = tx.get("meta") or {}
+    delivered = meta.get("delivered_amount")
+    # Native XRP is a string of drops; an issued currency is an object and is not XRP.
+    drops = int(delivered) if isinstance(delivered, str) and delivered.isdigit() else 0
+    tag = tx.get("DestinationTag")
+    return {
+        **facts,
+        "found": True,
+        "hash": str(tx.get("hash")).upper(),
+        "transaction_hash_matches": str(tx.get("hash")).upper() == tx_id.upper(),
+        "validated": tx.get("validated") is True,
+        "succeeded": meta.get("TransactionResult") == "tesSUCCESS",
+        "is_payment": tx.get("TransactionType") == "Payment",
+        "destination": tx.get("Destination"),
+        "destination_tag": tag if type(tag) is int else None,
+        "delivered_drops": drops,
+        "ledger_index": tx.get("ledger_index"),
+        "close_time_ms": (int(tx["date"]) + RIPPLE_EPOCH) * 1000 if type(tx.get("date")) is int else None,
+    }
+
+
+def judge_xrp_payment(facts_by_url: List[Tuple[str, Dict[str, Any], Optional[str]]], *, tx_id: str, recipient: str,
+                      min_amount: int, not_after_ms: Optional[int], purpose: str,
+                      destination_tag: Optional[int] = None, after_block: Optional[int] = None) -> Dict[str, Any]:
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, ok: bool, **detail: Any) -> None:
+        checks.append({"check": name, "ok": bool(ok), **detail})
+
+    if not facts_by_url:
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", "no XRP Ledger endpoints answered")
+    check("mainnet", all(f.get("network_id") in (None, 0) for _, f, _ in facts_by_url),
+          network_ids=[f.get("network_id") for _, f, _ in facts_by_url])
+    found = all(f.get("found") for _, f, _ in facts_by_url)
+    check("found", found)
+    first = facts_by_url[0][1]
+    observed = None
+    if found:
+        keys = ("hash", "transaction_hash_matches", "validated", "succeeded", "is_payment", "destination",
+                "destination_tag", "delivered_drops", "ledger_index", "close_time_ms")
+        comparable = [{k: f.get(k) for k in keys} for _, f, _ in facts_by_url]
+        check("endpoints_agree", all(c == comparable[0] for c in comparable[1:]), endpoints=len(facts_by_url))
+        check("transaction_hash_matches", first["transaction_hash_matches"] is True)
+        check("validated", first["validated"] is True)
+        check("succeeded", first["succeeded"] is True)
+        check("is_payment", first["is_payment"] is True)
+        check("recipient", first["destination"] == recipient, expected=recipient, observed=first["destination"])
+        if destination_tag is not None:
+            check("destination_tag", first["destination_tag"] == destination_tag, expected=destination_tag,
+                  observed=first["destination_tag"])
+        observed = first["delivered_drops"]
+        check("amount", observed >= min_amount, observed=str(observed), required=str(min_amount),
+              read_from="meta.delivered_amount")
+        if not_after_ms is not None:
+            check("before_deadline", isinstance(first["close_time_ms"], int) and first["close_time_ms"] <= not_after_ms,
+                  closeTimeMs=first["close_time_ms"], notAfterMs=not_after_ms)
+        if after_block is not None:
+            check("after_deposit", isinstance(first["ledger_index"], int) and first["ledger_index"] > after_block,
+                  blockNumber=first["ledger_index"], depositBlock=after_block)
+    return {
+        "evidence_version": EVIDENCE_VERSION, "kind": "xrp_payment", "chain": "xrp", "purpose": purpose,
+        "verified": all(c["ok"] for c in checks), "transaction_hash": tx_id, "recipient": recipient,
+        "destination_tag": destination_tag, "required": str(min_amount),
+        "observed": str(observed) if observed is not None else None,
+        "blockNumber": first.get("ledger_index"), "commitment": "validated",
+        "rpcs": [{"url": url, "result_sha256": digest} for url, _, digest in facts_by_url], "checks": checks,
+    }
+
+
+class XrpRpc:
+    def __init__(self, transport: Transport, urls: Optional[Sequence[str]] = None, timeout: float = 20.0):
+        self.urls = rpc_urls("X3_XRP_RPC_URLS", (), urls)
+        self.transport = transport
+        self.timeout = timeout
+
+    def verify_native_transfer(self, *, tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
+                               purpose: str, after_block: Optional[int] = None,
+                               destination_tag: Optional[int] = None) -> Dict[str, Any]:
+        facts = []
+        for url in self.urls:
+            info = xrp_rpc(self.transport, url, "server_info", {}, self.timeout)
+            tx = xrp_rpc(self.transport, url, "tx", {"transaction": tx_hash, "binary": False}, self.timeout)
+            facts.append((url, xrp_payment_facts(info, tx, tx_id=tx_hash), sha256_json({"info": info, "tx": tx})))
+        return judge_xrp_payment(facts, tx_id=tx_hash, recipient=recipient, min_amount=min_amount,
+                                 not_after_ms=not_after_ms, purpose=purpose, destination_tag=destination_tag,
+                                 after_block=after_block)
+
+    def verify_token_transfer(self, **kw: Any) -> Dict[str, Any]:
+        raise ChainEvidenceError("X3_EVIDENCE_UNSUPPORTED", "XRP Ledger issued currencies are not routed here")
+
+
+# --------------------------------------------------------------------------------------------
+# Sui (SUI and coins)
+# --------------------------------------------------------------------------------------------
+#
+# `sui_getTransactionBlock` with effects and balance changes. Sui transactions are final once
+# they are in a checkpoint, so a transaction with no checkpoint is not yet evidence. The payment
+# is the recipient's positive balance change in the coin type; the endpoint must be Sui mainnet
+# (`sui_getChainIdentifier` == "35834a8a"). Endpoints come from `X3_SUI_RPC_URLS`; no defaults.
+
+SUI_MAINNET_CHAIN_ID = "35834a8a"
+SUI_NATIVE_COIN = "0x2::sui::SUI"
+
+
+def _sui_address(value: Any) -> Optional[str]:
+    text = str(value or "").lower()
+    if not re.fullmatch(r"0x[0-9a-f]{1,64}", text):
+        return None
+    return "0x" + text[2:].rjust(64, "0")
+
+
+def sui_coin_type(value: Any) -> Optional[str]:
+    """`<address>::<module>::<name>` with the address in full 64-hex form, for comparison."""
+    parts = str(value or "").split("::")
+    if len(parts) != 3 or _sui_address(parts[0]) is None:
+        return None
+    return "::".join([_sui_address(parts[0]), parts[1], parts[2]])
+
+
+def sui_transfer_facts(chain_id: Any, tx: Any, *, tx_id: str, coin_type: str) -> Dict[str, Any]:
+    facts: Dict[str, Any] = {"chain_id": chain_id}
+    if not isinstance(tx, dict) or not tx.get("digest"):
+        return {**facts, "found": False}
+    want = sui_coin_type(coin_type)
+    credits: Dict[str, int] = {}
+    for change in tx.get("balanceChanges") or []:
+        owner = _sui_address(((change or {}).get("owner") or {}).get("AddressOwner"))
+        if owner is None or sui_coin_type(change.get("coinType")) != want:
+            continue
+        amount = str(change.get("amount", ""))
+        if not re.fullmatch(r"-?\d+", amount):
+            raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"Sui balance change amount is not an integer: {amount!r}")
+        credits[owner] = credits.get(owner, 0) + int(amount)
+    checkpoint = tx.get("checkpoint")
+    return {
+        **facts,
+        "found": True,
+        "digest": tx.get("digest"),
+        "transaction_hash_matches": tx.get("digest") == tx_id,
+        "succeeded": (((tx.get("effects") or {}).get("status")) or {}).get("status") == "success",
+        "checkpoint": int(checkpoint) if isinstance(checkpoint, str) and checkpoint.isdigit() else None,
+        "timestamp_ms": int(tx["timestampMs"]) if str(tx.get("timestampMs", "")).isdigit() else None,
+        "credits": sorted(credits.items()),
+    }
+
+
+def judge_sui_transfer(facts_by_url: List[Tuple[str, Dict[str, Any], Optional[str]]], *, tx_id: str, recipient: str,
+                       coin_type: str, min_amount: int, not_after_ms: Optional[int], purpose: str,
+                       after_block: Optional[int] = None) -> Dict[str, Any]:
+    recipient = _sui_address(recipient) or recipient
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, ok: bool, **detail: Any) -> None:
+        checks.append({"check": name, "ok": bool(ok), **detail})
+
+    if not facts_by_url:
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", "no Sui endpoints answered")
+    check("mainnet", all(f.get("chain_id") == SUI_MAINNET_CHAIN_ID for _, f, _ in facts_by_url),
+          chain_ids=[f.get("chain_id") for _, f, _ in facts_by_url])
+    found = all(f.get("found") for _, f, _ in facts_by_url)
+    check("found", found)
+    first = facts_by_url[0][1]
+    observed = None
+    if found:
+        keys = ("digest", "transaction_hash_matches", "succeeded", "checkpoint", "timestamp_ms", "credits")
+        comparable = [{k: f.get(k) for k in keys} for _, f, _ in facts_by_url]
+        check("endpoints_agree", all(c == comparable[0] for c in comparable[1:]), endpoints=len(facts_by_url))
+        check("transaction_hash_matches", first["transaction_hash_matches"] is True)
+        check("finalized", isinstance(first["checkpoint"], int), checkpoint=first["checkpoint"])
+        check("succeeded", first["succeeded"] is True)
+        observed = dict(first["credits"]).get(recipient, 0)
+        check("recipient", observed > 0, expected=recipient, coin_type=sui_coin_type(coin_type))
+        check("amount", observed >= min_amount, observed=str(observed), required=str(min_amount))
+        if not_after_ms is not None:
+            check("before_deadline", isinstance(first["timestamp_ms"], int) and first["timestamp_ms"] <= not_after_ms,
+                  timestampMs=first["timestamp_ms"], notAfterMs=not_after_ms)
+        if after_block is not None:
+            check("after_deposit", isinstance(first["checkpoint"], int) and first["checkpoint"] > after_block,
+                  blockNumber=first["checkpoint"], depositBlock=after_block)
+    return {
+        "evidence_version": EVIDENCE_VERSION,
+        "kind": "sui_native_transfer" if sui_coin_type(coin_type) == sui_coin_type(SUI_NATIVE_COIN) else "sui_coin_transfer",
+        "chain": "sui", "purpose": purpose, "verified": all(c["ok"] for c in checks), "transaction_hash": tx_id,
+        "token": None if sui_coin_type(coin_type) == sui_coin_type(SUI_NATIVE_COIN) else coin_type,
+        "recipient": recipient, "required": str(min_amount),
+        "observed": str(observed) if observed is not None else None,
+        "blockNumber": first.get("checkpoint"), "commitment": "checkpointed",
+        "rpcs": [{"url": url, "result_sha256": digest} for url, _, digest in facts_by_url], "checks": checks,
+    }
+
+
+class SuiRpc:
+    def __init__(self, transport: Transport, urls: Optional[Sequence[str]] = None, timeout: float = 20.0):
+        self.urls = rpc_urls("X3_SUI_RPC_URLS", (), urls)
+        self.transport = transport
+        self.timeout = timeout
+
+    def _verify(self, *, tx_hash: str, recipient: str, coin_type: str, min_amount: int, not_after_ms: Optional[int],
+                purpose: str, after_block: Optional[int]) -> Dict[str, Any]:
+        facts = []
+        for url in self.urls:
+            chain_id = json_rpc(self.transport, url, "sui_getChainIdentifier", [], self.timeout)
+            tx = json_rpc(self.transport, url, "sui_getTransactionBlock",
+                          [tx_hash, {"showEffects": True, "showBalanceChanges": True}], self.timeout)
+            facts.append((url, sui_transfer_facts(chain_id, tx, tx_id=tx_hash, coin_type=coin_type),
+                          sha256_json({"chain_id": chain_id, "tx": tx})))
+        return judge_sui_transfer(facts, tx_id=tx_hash, recipient=recipient, coin_type=coin_type,
+                                  min_amount=min_amount, not_after_ms=not_after_ms, purpose=purpose,
+                                  after_block=after_block)
+
+    def verify_native_transfer(self, *, tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
+                               purpose: str, after_block: Optional[int] = None) -> Dict[str, Any]:
+        return self._verify(tx_hash=tx_hash, recipient=recipient, coin_type=SUI_NATIVE_COIN, min_amount=min_amount,
+                            not_after_ms=not_after_ms, purpose=purpose, after_block=after_block)
+
+    def verify_token_transfer(self, *, tx_hash: str, token: str, recipient: str, min_amount: int,
+                              not_after_ms: Optional[int], purpose: str,
+                              after_block: Optional[int] = None) -> Dict[str, Any]:
+        return self._verify(tx_hash=tx_hash, recipient=recipient, coin_type=token, min_amount=min_amount,
+                            not_after_ms=not_after_ms, purpose=purpose, after_block=after_block)
 
 
 # --------------------------------------------------------------------------------------------
