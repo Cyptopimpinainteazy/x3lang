@@ -1,0 +1,42 @@
+README.md
+  h_e41068bed968d7 80-81
+audit-artifacts/arbitrage-token-universe-20261117/provider-catalogue.json
+  h_e41068bed968d7 1-2590
+audit-artifacts/arbitrage-token-universe-20261117/provider-token-routes.json
+  h_e41068bed968d7 1-147
+audit-artifacts/arbitrage-token-universe-20261117/review.md
+  h_e41068bed968d7 1-14
+audit-artifacts/arbitrage-token-universe-20261117/verification.json
+  h_e41068bed968d7 1-138
+x3-lang/arbitrage/README.md
+  h_e41068bed968d7 162-205
+x3-lang/arbitrage/__main__.py
+  h_e41068bed968d7 44-46,49-57
+x3-lang/arbitrage/adapters.py
+  h_e41068bed968d7 10,68,78-81
+x3-lang/arbitrage/browser-smoke.mjs
+  h_e41068bed968d7 63,71-90,149
+x3-lang/arbitrage/catalogue.py
+  h_e41068bed968d7 1-78
+x3-lang/arbitrage/server.py
+  h_e41068bed968d7 15-16,22,30-35,57-68,70-72,90-91,97-98,111-143,173
+x3-lang/arbitrage/web/app.mjs
+  h_e41068bed968d7 14-15,52-131,133,135-139,143-145,430-472
+x3-lang/arbitrage/web/index.html
+  h_e41068bed968d7 120-214
+x3-lang/arbitrage/web/style.css
+  h_e41068bed968d7 738-784
+x3-lang/tests/test_arbitrage_catalogue.py
+  h_e41068bed968d7 1-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3ad2559b5af5aede14c150379971a52e678f4500",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
