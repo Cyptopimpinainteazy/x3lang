@@ -146,7 +146,7 @@ export interface AgentRecord {
 export interface InferEntry {
   nonce: string; at: number; kind: "run" | "infer"; model: string; max_tokens: number; tokens: number;
   verdict: "refused" | "running" | "answered" | "mesh_error" | "run_error"; reasons: string[]; status?: string;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string }; mesh_job?: string;
 }
 export interface RunStage { stage: string; ok: boolean; [k: string]: unknown }
 export interface RunReport {

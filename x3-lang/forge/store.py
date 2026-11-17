@@ -386,7 +386,7 @@ class Forge:
             self._save(record)
             app_key = self.connections.read_secret(link["id"])
             client = inference.MeshClient(link["config"]["url"], app_key, self.mesh_transport)
-        used = {"tokens": 0, "calls": 0}
+        used: Dict[str, Any] = {"tokens": 0, "calls": 0, "job": None}
 
         def call(messages: List[Dict[str, str]]) -> Dict[str, Any]:
             if used["calls"]:
@@ -394,6 +394,9 @@ class Forge:
             used["calls"] += 1
             data = client.complete(model, messages, max_tokens)
             used["tokens"] = inference.usage_tokens(data, max_tokens)
+            mesh = data.get("x3_mesh")
+            if isinstance(mesh, dict) and isinstance(mesh.get("job_id"), str):
+                used["job"] = mesh["job_id"][:64]  # ties this decision to the coordinator's signed receipt
             return data
 
         try:
@@ -413,6 +416,8 @@ class Forge:
                 if e.get("nonce") == nonce and e.get("verdict") == "running":
                     # A call that reached the mesh without a usage report is charged in full.
                     e.update(verdict=verdict, tokens=used["tokens"] or (max_tokens if used["calls"] else 0))
+                    if used["job"]:
+                        e["mesh_job"] = used["job"]
                     if error:
                         e["error"] = error
                     if isinstance(result, dict) and result.get("status"):
@@ -437,7 +442,7 @@ class Forge:
             data = call(msgs)
             choices = data.get("choices") or [{}]
             return {"text": ((choices[0] or {}).get("message") or {}).get("content") or "",
-                    "usage": data.get("usage"), "untrusted_output": True, "x3_receipt": data.get("x3")}
+                    "usage": data.get("usage"), "untrusted_output": True, "x3_mesh": data.get("x3_mesh")}
 
         return self._gated(agent_id, inference.INFER_DOMAIN, "infer", body, nonce, expires_at, signature_hex, work)
 

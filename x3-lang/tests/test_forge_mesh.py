@@ -110,6 +110,7 @@ def test_agent_thinks_on_the_mesh_and_the_mandate_decides(system):
     assert report["effect"]["recipient"] == "x3-demo.near" and report["effect"]["amount"] == 10_000_000
     assert report["model"]["provider"] == "x3-gpu-mesh"
     assert out["entry"]["tokens"] == 18 and out["budget"]["used_24h"] == 18
+    assert len(out["entry"]["mesh_job"]) == 32
     # The coordinator kept a signed, hash-chained receipt for the job.
     assert system["store"].verify_receipts(system["identity"].public_hex)["receipts"] == 1
 
@@ -172,6 +173,9 @@ def test_raw_inference_and_no_secret_leak(system):
     sig = key.sign(forge.infer_payload(AGENT, "X3/FORGE/INFER/1", nonce, exp, body)).hex()
     out = forge.infer(AGENT, MODEL, msgs, 200, nonce, exp, sig)
     assert out["verdict"] == "answered" and out["result"]["untrusted_output"] is True and out["result"]["text"]
+    receipt = out["result"]["x3_mesh"]
+    assert receipt["untrusted_output"] is True and receipt["worker_tier"] == "fleet" and receipt["worker_sig"]
+    assert receipt["job_id"] == out["entry"]["mesh_job"]
     everything = json.dumps(forge.agent(AGENT)) + json.dumps(forge.export(AGENT)) + json.dumps(out)
     assert system["app_key"] not in everything
 

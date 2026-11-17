@@ -145,6 +145,7 @@ export function Profile({ agentId }: { agentId: string }) {
                     <Badge tone={m.verdict === "answered" ? "acid" : m.verdict === "running" ? "gold" : "danger"}>{m.verdict}</Badge>
                     <span className="text-slate-300">{m.kind} · {m.model}</span>
                     <span className="text-slate-500">{m.tokens} tok · {new Date(m.at * 1000).toLocaleTimeString()}</span>
+                    {m.mesh_job && <span title="coordinator job id: its signed receipt is in the mesh receipt chain"><Mono className="text-slate-500">job {short(m.mesh_job, 8)}</Mono></span>}
                     {m.status && <Badge tone={m.status === "allowed" ? "acid" : "danger"}>{m.status}</Badge>}
                     {m.reasons.map((r) => <Badge key={r} tone="danger">{r}</Badge>)}
                   </li>
