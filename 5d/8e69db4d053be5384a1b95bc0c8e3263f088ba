@@ -1,0 +1,36 @@
+audit-artifacts/arbitrage-pools-20261117/provider-probe.json
+  h_e41068bed968d7 1-1723
+audit-artifacts/arbitrage-pools-20261117/review.md
+  h_e41068bed968d7 1
+audit-artifacts/arbitrage-pools-20261117/verification.json
+  h_e41068bed968d7 1-898
+x3-lang/arbitrage/README.md
+  h_e41068bed968d7 245-267
+x3-lang/arbitrage/browser-smoke.mjs
+  h_e41068bed968d7 79-97
+x3-lang/arbitrage/pools.py
+  h_e41068bed968d7 1-192
+x3-lang/arbitrage/server.py
+  h_e41068bed968d7 24,33-39,100,120-138
+x3-lang/arbitrage/web/app.mjs
+  h_e41068bed968d7 9-12,460-461,751-809
+x3-lang/arbitrage/web/index.html
+  h_e41068bed968d7 230-246
+x3-lang/arbitrage/web/style.css
+  h_e41068bed968d7 873-880
+x3-lang/tests/test_arbitrage_pool_api.py
+  h_e41068bed968d7 1-42
+x3-lang/tests/test_arbitrage_pools.py
+  h_e41068bed968d7 1-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5d8e69db4d053be5384a1b95bc0c8e3263f088ba",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
