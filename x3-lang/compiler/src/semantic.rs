@@ -84,6 +84,8 @@ pub const KNOWN_CHAINS: &[&str] = &[
     "abstract",
     "plasma",
     "xlayer",
+    "tron",
+    "ton",
 ];
 
 /// Hard-coded allow-list of bridge adapter names. Anything else must be
@@ -1607,6 +1609,8 @@ pub const SWAP_KNOWN_CHAINS: &[&str] = &[
     "abstract",
     "plasma",
     "xlayer",
+    "tron",
+    "ton",
 ];
 
 /// Supported hash function names for hashlock in atomic swaps.

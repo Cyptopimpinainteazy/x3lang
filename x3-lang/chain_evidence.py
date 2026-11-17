@@ -545,6 +545,179 @@ class EvmRpc:
 
 
 # --------------------------------------------------------------------------------------------
+# Tron (TRX and TRC-20)
+# --------------------------------------------------------------------------------------------
+#
+# Read from a full node's **solidity** API (`/walletsolidity/...`), which answers only for
+# solidified, irreversible blocks: an unconfirmed transaction is "not found", never a guess.
+# A TRC-20 transfer is proven from the token contract's own `Transfer` log in the transaction
+# info; native TRX from the `TransferContract` itself. Endpoints come from `X3_TRON_RPC_URLS`
+# (no default) and must all agree.
+
+TRANSFER_TOPIC_HEX = ERC20_TRANSFER_TOPIC[2:]
+
+
+def _tron_registry():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registry.py")
+    spec = importlib.util.spec_from_file_location("registry_for_evidence", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def tron_post(transport: Transport, url: str, path: str, body: Dict[str, Any], timeout: float = 20.0) -> Any:
+    status, raw = transport("POST", url.rstrip("/") + path,
+                            {"Content-Type": "application/json", "Accept": "application/json",
+                             "User-Agent": "x3-lang-evidence/1"},
+                            json.dumps(body).encode(), timeout)
+    try:
+        data = json.loads(raw.decode() or "{}")
+    except (UnicodeDecodeError, ValueError):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url}{path}: HTTP {status} with no JSON body")
+    if status != 200 or not isinstance(data, dict):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url}{path}: HTTP {status}")
+    if data.get("Error"):
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", f"{url}{path}: {data['Error']}")
+    return data
+
+
+def tron_transfer_facts(tx: Dict[str, Any], info: Dict[str, Any], *, tx_id: str,
+                        token: Optional[str]) -> Dict[str, Any]:
+    """Facts from one Tron endpoint. `token` is the TRC-20 contract (base58), None for TRX."""
+    reg = _tron_registry()
+    if not tx.get("txID") or not info.get("id"):
+        return {"found": False}
+    contracts = ((tx.get("raw_data") or {}).get("contract")) or []
+    ret = (tx.get("ret") or [{}])[0] or {}
+    receipt = info.get("receipt") or {}
+    succeeded = (ret.get("contractRet") == "SUCCESS" and info.get("result") != "FAILED"
+                 and receipt.get("result", "SUCCESS") == "SUCCESS")
+    facts: Dict[str, Any] = {
+        "found": True,
+        "txID": tx.get("txID"),
+        "transaction_hash_matches": tx.get("txID") == info.get("id") == tx_id,
+        "succeeded": succeeded,
+        "blockNumber": info.get("blockNumber"),
+        "blockTimeStampMs": info.get("blockTimeStamp"),
+        "contract_types": [c.get("type") for c in contracts if isinstance(c, dict)],
+    }
+    if not isinstance(facts["blockNumber"], int) or not isinstance(facts["blockTimeStampMs"], int):
+        raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "Tron transaction info has no integer block number/time")
+    if token is None:
+        transfers = []
+        for c in contracts:
+            if isinstance(c, dict) and c.get("type") == "TransferContract":
+                value = ((c.get("parameter") or {}).get("value")) or {}
+                to_hex, amount = value.get("to_address"), value.get("amount")
+                if not isinstance(to_hex, str) or type(amount) is not int:
+                    raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "TransferContract has no to_address/amount")
+                transfers.append({"to": reg.tron_address_from_hex(to_hex), "value": amount})
+        facts["transfers"] = transfers
+    else:
+        token_hex = reg.tron_address_bytes(token).hex()
+        transfers = []
+        for i, log in enumerate(info.get("log") or []):
+            if not isinstance(log, dict) or "41" + str(log.get("address", "")).lower() != token_hex:
+                continue
+            topics = [str(t).lower() for t in log.get("topics") or []]
+            if not topics or topics[0] != TRANSFER_TOPIC_HEX:
+                continue
+            data = str(log.get("data", ""))
+            if len(topics) != 3 or len(topics[2]) != 64 or len(data) != 64:
+                raise ChainEvidenceError("X3_EVIDENCE_FORMAT", f"Tron log[{i}] is not a TRC-20 Transfer")
+            transfers.append({"to": reg.tron_address_from_hex("41" + topics[2][24:]), "value": int(data, 16)})
+        facts["transfers"] = transfers
+    return facts
+
+
+def judge_tron_transfer(facts_by_url: List[Tuple[str, Dict[str, Any], Optional[str]]], *, tx_id: str,
+                        recipient: str, min_amount: int, not_after_ms: Optional[int], purpose: str,
+                        token: Optional[str] = None, after_block: Optional[int] = None) -> Dict[str, Any]:
+    checks: List[Dict[str, Any]] = []
+
+    def check(name: str, ok: bool, **detail: Any) -> None:
+        checks.append({"check": name, "ok": bool(ok), **detail})
+
+    if not facts_by_url:
+        raise ChainEvidenceError("X3_EVIDENCE_RPC", "no Tron endpoints answered")
+    found = all(f.get("found") for _, f, _ in facts_by_url)
+    # The solidity API only knows solidified blocks, so "found" there is finality.
+    check("solidified", found)
+    first = facts_by_url[0][1]
+    observed = None
+    if found:
+        keys = ("txID", "transaction_hash_matches", "succeeded", "blockNumber", "blockTimeStampMs", "transfers")
+        comparable = [{k: f.get(k) for k in keys} for _, f, _ in facts_by_url]
+        check("endpoints_agree", all(c == comparable[0] for c in comparable[1:]), endpoints=len(facts_by_url))
+        check("transaction_hash_matches", first["transaction_hash_matches"] is True)
+        check("succeeded", first["succeeded"] is True)
+        observed = sum(t["value"] for t in first["transfers"] if t["to"] == recipient)
+        check("recipient", observed > 0, expected=recipient,
+              transfers_to_recipient=sum(1 for t in first["transfers"] if t["to"] == recipient))
+        check("amount", observed >= min_amount, observed=str(observed), required=str(min_amount))
+        if not_after_ms is not None:
+            check("before_deadline", first["blockTimeStampMs"] <= not_after_ms,
+                  blockTimeStampMs=first["blockTimeStampMs"], notAfterMs=not_after_ms)
+        if after_block is not None:
+            check("after_deposit", first["blockNumber"] > after_block,
+                  blockNumber=first["blockNumber"], depositBlock=after_block)
+    return {
+        "evidence_version": EVIDENCE_VERSION,
+        "kind": "tron_native_transfer" if token is None else "tron_token_transfer",
+        "chain": "tron",
+        "purpose": purpose,
+        "verified": all(c["ok"] for c in checks),
+        "transaction_hash": tx_id,
+        "token": token,
+        "recipient": recipient,
+        "required": str(min_amount),
+        "observed": str(observed) if observed is not None else None,
+        "blockNumber": first.get("blockNumber"),
+        "blockTimeStampMs": first.get("blockTimeStampMs"),
+        "commitment": "solidified",
+        "rpcs": [{"url": url, "result_sha256": digest} for url, _, digest in facts_by_url],
+        "checks": checks,
+    }
+
+
+class TronRpc:
+    """Solidified TRX and TRC-20 transfer evidence from every configured Tron endpoint."""
+
+    def __init__(self, transport: Transport, urls: Optional[Sequence[str]] = None, timeout: float = 20.0):
+        self.urls = rpc_urls("X3_TRON_RPC_URLS", (), urls)
+        self.transport = transport
+        self.timeout = timeout
+
+    def _verify(self, *, tx_hash: str, recipient: str, min_amount: int, not_after_ms: Optional[int],
+                purpose: str, token: Optional[str], after_block: Optional[int]) -> Dict[str, Any]:
+        reg = _tron_registry()
+        if not reg.is_valid_tron_address(recipient) or (token and not reg.is_valid_tron_address(token)):
+            raise ChainEvidenceError("X3_EVIDENCE_FORMAT", "Tron recipient or token is not a checksummed address")
+        facts = []
+        for url in self.urls:
+            tx = tron_post(self.transport, url, "/walletsolidity/gettransactionbyid", {"value": tx_hash}, self.timeout)
+            info = tron_post(self.transport, url, "/walletsolidity/gettransactioninfobyid", {"value": tx_hash},
+                             self.timeout)
+            facts.append((url, tron_transfer_facts(tx, info, tx_id=tx_hash, token=token),
+                          sha256_json({"transaction": tx, "info": info})))
+        return judge_tron_transfer(facts, tx_id=tx_hash, recipient=recipient, min_amount=min_amount,
+                                   not_after_ms=not_after_ms, purpose=purpose, token=token, after_block=after_block)
+
+    def verify_native_transfer(self, *, tx_hash: str, recipient: str, min_amount: int,
+                               not_after_ms: Optional[int], purpose: str,
+                               after_block: Optional[int] = None) -> Dict[str, Any]:
+        return self._verify(tx_hash=tx_hash, recipient=recipient, min_amount=min_amount, not_after_ms=not_after_ms,
+                            purpose=purpose, token=None, after_block=after_block)
+
+    def verify_token_transfer(self, *, tx_hash: str, token: str, recipient: str, min_amount: int,
+                              not_after_ms: Optional[int], purpose: str,
+                              after_block: Optional[int] = None) -> Dict[str, Any]:
+        return self._verify(tx_hash=tx_hash, recipient=recipient, min_amount=min_amount, not_after_ms=not_after_ms,
+                            purpose=purpose, token=token, after_block=after_block)
+
+
+# --------------------------------------------------------------------------------------------
 # NEAR
 # --------------------------------------------------------------------------------------------
 

@@ -1,4 +1,7 @@
 """Production registries for chains, assets, DEXs, bridges and address validation."""
+import base64
+import binascii
+import hashlib
 import re
 
 CHAIN_DOMAINS = {
@@ -22,6 +25,10 @@ CHAIN_DOMAINS = {
     'abstract': {'aliases': {'abs'}, 'address': 'evm'},
     'plasma': {'aliases': {'xpl'}, 'address': 'evm'},
     'xlayer': {'aliases': {'x_layer', 'okx_layer'}, 'address': 'evm'},
+    # Non-EVM chains routed through 1Click. Each has its own address check below, with its
+    # real checksum: 1Click sends real funds to whatever address the program names.
+    'tron': {'aliases': {'trx'}, 'address': 'tron'},
+    'ton': {'aliases': set(), 'address': 'ton'},
     'x3': {'aliases': set(), 'address': 'x3'},
     # NEAR is a destination and origin for `bridge NearIntents` legs, which settle through the
     # NEAR Intents 1Click API (`near_intents.py`). Its receivers are NEAR account IDs.
@@ -50,6 +57,9 @@ ASSETS_BY_CHAIN = {
     'abstract': {'ETH'},
     'plasma': {'XPL', 'USDT0'},
     'xlayer': {'OKB', 'USDC', 'USDT0'},
+    'tron': {'TRX', 'USDT'},
+    # 1Click lists the native coin as GRAM; `TON` is accepted and resolved to it.
+    'ton': {'TON', 'GRAM', 'USDT'},
     'x3': {'SOL', 'USDC', 'WSOL', 'WETH', 'BTC', 'X3'},
     'near': {'NEAR', 'wNEAR', 'USDC', 'USDT'},
 }
@@ -198,7 +208,82 @@ def is_valid_receiver(chain, receiver):
         return re.fullmatch(r'(x3_[a-zA-Z0-9_]{6,}|0x[a-fA-F0-9]{40})', str(receiver)) is not None
     if kind == 'near':
         return is_valid_near_account(receiver)
+    if kind == 'tron':
+        return is_valid_tron_address(receiver)
+    if kind == 'ton':
+        return is_valid_ton_address(receiver)
     return False
+
+
+_BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+
+def base58_decode(text):
+    """Bitcoin-alphabet base58 to bytes, leading `1`s as zero bytes. Raises ValueError."""
+    value = 0
+    for char in text:
+        index = _BASE58.find(char)
+        if index < 0:
+            raise ValueError(f'{char!r} is not base58')
+        value = value * 58 + index
+    body = value.to_bytes((value.bit_length() + 7) // 8, 'big') if value else b''
+    return b'\0' * (len(text) - len(text.lstrip('1'))) + body
+
+
+def base58_encode(data):
+    value = int.from_bytes(data, 'big')
+    out = ''
+    while value:
+        value, rem = divmod(value, 58)
+        out = _BASE58[rem] + out
+    return '1' * (len(data) - len(data.lstrip(b'\0'))) + out
+
+
+def tron_address_bytes(address):
+    """The 21-byte Tron address (0x41 + 20 bytes) behind a base58check `T…` address, or None."""
+    text = str(address)
+    if not re.fullmatch(r'T[1-9A-HJ-NP-Za-km-z]{33}', text):
+        return None
+    try:
+        raw = base58_decode(text)
+    except ValueError:
+        return None
+    if len(raw) != 25 or raw[0] != 0x41:
+        return None
+    if hashlib.sha256(hashlib.sha256(raw[:21]).digest()).digest()[:4] != raw[21:]:
+        return None
+    return raw[:21]
+
+
+def tron_address_from_hex(hex21):
+    """`41…` (42 hex digits) to the base58check `T…` form."""
+    raw = bytes.fromhex(hex21)
+    if len(raw) != 21 or raw[0] != 0x41:
+        raise ValueError('a Tron address is 0x41 followed by 20 bytes')
+    return base58_encode(raw + hashlib.sha256(hashlib.sha256(raw).digest()).digest()[:4])
+
+
+def is_valid_tron_address(address):
+    """A mainnet Tron base58check address with a correct checksum."""
+    return tron_address_bytes(address) is not None
+
+
+def is_valid_ton_address(address):
+    """A TON mainnet address: raw `<workchain>:<64 hex>` (workchain 0 or -1), or the 48-character
+    user-friendly form (base64 or base64url) with a correct CRC16 and no testnet flag."""
+    text = str(address)
+    if re.fullmatch(r'(0|-1):[0-9a-fA-F]{64}', text):
+        return True
+    if not re.fullmatch(r'[A-Za-z0-9_\-+/]{48}', text):
+        return False
+    try:
+        raw = base64.urlsafe_b64decode(text.replace('+', '-').replace('/', '_'))
+    except (binascii.Error, ValueError):
+        return False
+    if len(raw) != 36 or raw[0] not in (0x11, 0x51) or raw[1] not in (0x00, 0xFF):
+        # 0x11 bounceable, 0x51 non-bounceable; a set 0x80 bit marks a testnet address.
+        return False
+    return binascii.crc_hqx(raw[:34], 0) == int.from_bytes(raw[34:], 'big')
 
 
 # NEAR account ID rules (nomicon "Account ID"): 2–64 characters, lowercase alphanumerics

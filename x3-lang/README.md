@@ -121,10 +121,12 @@ minimum. The refusal evidence is committed; no amount was silently increased. Se
 
 **Chains.** A `bridge NearIntents` leg can start or end on NEAR, Solana, Bitcoin, Ethereum,
 Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Gnosis, Scroll, Monad, Berachain,
-Abstract, Plasma or X Layer:
+Abstract, Plasma, X Layer, Tron or TON:
 each mapped to the code 1Click lists it under (`CHAIN_TO_BLOCKCHAIN`, checked against
 `GET /v0/tokens` on 2026-11-16). Assets resolve from 1Click's live token list at quote time.
-EVM recipients and refund addresses must be full 20-byte addresses. Mantle, zkSync Era, Linea,
+EVM recipients and refund addresses must be full 20-byte addresses; Tron addresses must pass
+their base58check checksum, and TON addresses (raw `0:<hex>` or the 48-character user-friendly
+form) their CRC16, with testnet-flagged addresses refused. Mantle, zkSync Era, Linea,
 Cronos, Moonbeam, Celo, Plume, Aurora and HyperEVM are known by name and refused with
 `X3_CHAIN_NOT_ROUTABLE`, because 1Click does not route them (its `hypercore` is Hyperliquid's
 core chain, not HyperEVM). Every other chain 1Click lists is classified with the reason it is not
@@ -152,6 +154,14 @@ defaults, other chains have none, so an unconfigured chain fails closed). Which 
 comes from the *signed* origin asset and a reviewed table (USDC/USDT/WETH where independently
 confirmed); an asset outside it routes normally, but its evidence is reported
 `X3_EVIDENCE_UNSUPPORTED` rather than guessed.
+
+**Tron evidence.** TRX and TRC-20 USDT deposits and refunds are proven from a full node's
+solidity API (`X3_TRON_RPC_URLS`, no default), which only answers for solidified, irreversible
+blocks: the token contract's own `Transfer` log (or the `TransferContract`), a successful
+result, and agreement across every endpoint. Tron assets are pinned by signed asset ID, because
+the hex inside 1Click's Tron asset IDs is not the token contract. **TON** routes, but its deposit
+evidence is refused by name (`X3_EVIDENCE_UNSUPPORTED`): a jetton transfer settles through the
+receiver's jetton wallet in later, asynchronous transactions and needs a reviewed trace verifier.
 
 **Receipts.** `near_intents.py verify-receipt --receipt R [--program P]` re-checks a receipt
 offline: the 1Click signature and every binding, the program's hash and recompiled terms, every

@@ -3003,6 +3003,7 @@ const KNOWN_CHAIN_PREFIXES: &[&str] = &[
     "abstract",
     "plasma",
     "xlayer",
+    "tron",
     "sol",
     "solana",
     "svm",

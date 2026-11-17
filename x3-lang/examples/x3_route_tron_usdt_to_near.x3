@@ -1,0 +1,20 @@
+// x3_route_tron_usdt_to_near.x3 — 25 USDT (TRC-20) on Tron to USDC on NEAR, through 1Click.
+//
+// DRY QUOTE REFERENCE ONLY. `T9yD14Nj9j7xAB4dbGeiX9h8unkKLxmGkn` is a checksummed placeholder
+// (20-byte body 0x…01, no known key) and `x3-demo.near` a demo account: replace both before any
+// wallet authorization, and never deposit to a quote produced for them. Tron addresses are
+// checked against their base58check checksum, so a typo is refused before a quote is requested.
+//
+// 25 USDT in base units: 6 decimals, so 25e6.
+intent x3_route_tron_usdt_to_near {
+    from Tron.USDT amount 25000000 receiver T9yD14Nj9j7xAB4dbGeiX9h8unkKLxmGkn
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Tron.USDT -> Near.USDC min_receive 24700000;
+    }
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused x3_route_tron_near_001
+    timeout 10m refund Tron.USDT
+    on_fail rollback
+}

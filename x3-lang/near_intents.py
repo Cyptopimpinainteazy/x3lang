@@ -234,14 +234,14 @@ CHAIN_TO_BLOCKCHAIN = {
     "abstract": "abs",
     "plasma": "plasma",
     "xlayer": "xlayer",
+    "tron": "tron",
+    "ton": "ton",
 }
 
 # Every other code in 1Click's live `GET /v0/tokens` (2026-11-16), with why it is not routed.
 # `tools/oneclick_chain_sync.py` fails when 1Click lists a code that is neither routed above nor
 # classified here, or when a routed code disappears, so this map cannot silently go stale.
 ONECLICK_UNROUTED = {
-    "tron": "non-EVM: needs Tron address validation and deposit evidence",
-    "ton": "non-EVM: needs TON address validation and deposit evidence",
     "xrp": "non-EVM: needs XRP Ledger address validation and deposit evidence",
     "sui": "non-EVM: needs Sui address validation and deposit evidence",
     "aptos": "non-EVM: needs Aptos address validation and deposit evidence",
@@ -278,7 +278,7 @@ def _require_full_evm_address(chain: str, address: str, field: str, code: str) -
 
 # X3 asset names that 1Click lists under another symbol. NEAR is deposited and delivered as
 # the wrapped NEP-141 token.
-SYMBOL_ALIASES = {("near", "NEAR"): "wNEAR"}
+SYMBOL_ALIASES = {("near", "NEAR"): "wNEAR", ("ton", "TON"): "GRAM"}
 
 # Guards this adapter enforces. Anything else in `requires` is refused by name.
 ENFORCED_GUARDS = {"slippage", "fees", "nonce"}
@@ -2175,6 +2175,56 @@ def evm_origin_asset(receipt: Dict[str, Any]) -> Dict[str, Any]:
     return {"chain": chain, "kind": "erc20", "token": token}
 
 
+# Tron assets 1Click lists, pinned by signed asset ID. The hex inside 1Click's Tron asset IDs is
+# **not** the token contract (USDT's ID embeds d28a2659…, its contract is 41a614f8… =
+# TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t), so nothing is derived from the ID's shape here.
+REVIEWED_TRON_ASSETS = {
+    "nep141:tron.omft.near": None,  # native TRX
+    "nep141:tron-d28a265909efecdcee7c5028585214ea0b96f015.omft.near": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",  # USDT
+}
+
+
+def tron_origin_asset(receipt: Dict[str, Any]) -> Dict[str, Any]:
+    """What a Tron deposit must be, from the signed origin asset: `{chain, kind, token?}`."""
+    signed_asset = str(receipt["quote_response"]["quoteRequest"].get("originAsset") or "")
+    origin = (receipt.get("tokens") or {}).get("origin") or {}
+    if origin.get("assetId") != signed_asset or origin.get("blockchain") != "tron":
+        raise NearIntentsError("X3_EVIDENCE_BINDING", "receipt origin token metadata differs from the signed asset")
+    if signed_asset not in REVIEWED_TRON_ASSETS:
+        raise NearIntentsError("X3_EVIDENCE_UNSUPPORTED",
+                               f"no reviewed Tron binding for signed asset {signed_asset}; it can be routed, "
+                               "but its deposit cannot be independently proven here")
+    token = REVIEWED_TRON_ASSETS[signed_asset]
+    if token is None:
+        if origin.get("contractAddress"):
+            raise NearIntentsError("X3_EVIDENCE_BINDING", "native TRX token metadata names a contract")
+        return {"chain": "tron", "kind": "native", "token": None}
+    if origin.get("contractAddress") != token:
+        raise NearIntentsError("X3_EVIDENCE_BINDING",
+                               "receipt token contract differs from the reviewed contract for the signed asset")
+    return {"chain": "tron", "kind": "trc20", "token": token}
+
+
+def _block_origin(receipt: Dict[str, Any], *, evm: Any, bsc: Any, tron: Any):
+    """(evidence source, asset) for an origin proven by block number (EVM chains, Tron), or None."""
+    chain = receipt["leg"]["origin"]["chain"]
+    if chain == "tron":
+        return (tron if tron is not None else chain_evidence.TronRpc(transport=urllib_transport)), tron_origin_asset(receipt)
+    if chain in EVM_CHAINS:
+        asset = evm_origin_asset(receipt)
+        if chain == "bsc" and asset["kind"] == "native" and bsc is None and evm is None:
+            bsc = bsc_rpc_default()
+        return _evm_rpc(chain, evm, bsc), asset
+    if chain == "ton":
+        raise NearIntentsError(
+            "X3_EVIDENCE_UNSUPPORTED",
+            "TON deposits can be routed, but not yet independently proven here: a jetton (USDT) transfer "
+            "settles through the receiver's jetton wallet in later, asynchronous transactions, and needs a "
+            "reviewed trace verifier",
+        )
+    return None
+
+
 def _evm_rpc(chain: str, evm: Any, bsc: Any):
     """The evidence source for one EVM chain: an injected one, BSC's, or the configured endpoints."""
     if isinstance(evm, dict) and chain in evm:
@@ -2187,6 +2237,7 @@ def _evm_rpc(chain: str, evm: Any, bsc: Any):
 
 
 def _evm_transfer(rpc: Any, asset: Dict[str, Any], **kw: Any) -> Dict[str, Any]:
+    """One transfer proof on a block-numbered chain (EVM or Tron): native coin, or a token."""
     if asset["kind"] == "native":
         return rpc.verify_native_transfer(**kw)
     return rpc.verify_token_transfer(token=asset["token"], **kw)
@@ -2205,7 +2256,7 @@ def _record_evidence(receipt: Dict[str, Any], key: str, fn) -> Dict[str, Any]:
 
 
 def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = None,
-                   solana=None, bsc=None, helius=None, evm=None) -> Dict[str, Any]:
+                   solana=None, bsc=None, helius=None, evm=None, tron=None) -> Dict[str, Any]:
     """Check a finalized EVM (native or reviewed ERC-20) or Solana deposit to the signed address."""
     quote_obj = _signed_quote(receipt)
     recorded_signature = (receipt.get("deposit") or {}).get("tx_hash")
@@ -2214,12 +2265,9 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
     signature = tx_signature or recorded_signature
     if not signature:
         raise NearIntentsError("X3_EVIDENCE_TX", "no deposit transaction: pass --tx, or record it with submit-deposit --receipt")
-    origin_chain = receipt["leg"]["origin"]["chain"]
-    if origin_chain in EVM_CHAINS:
-        asset = evm_origin_asset(receipt)
-        if origin_chain == "bsc" and asset["kind"] == "native" and bsc is None and evm is None:
-            bsc = bsc_rpc_default()
-        rpc = _evm_rpc(origin_chain, evm, bsc)
+    block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron)
+    if block_origin is not None:
+        rpc, asset = block_origin
         return _record_evidence(receipt, "deposit", lambda: _evm_transfer(
             rpc, asset,
             tx_hash=signature,
@@ -2249,7 +2297,7 @@ def verify_deposit(receipt: Dict[str, Any], *, tx_signature: Optional[str] = Non
 
 
 def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = None, near_views=None,
-                      solana=None, bsc=None, evm=None) -> Dict[str, Any]:
+                      solana=None, bsc=None, evm=None, tron=None) -> Dict[str, Any]:
     """Observe NEAR balance movement (not settlement proof), or an origin-chain refund."""
     quote_obj = _signed_quote(receipt)
     leg = receipt["leg"]
@@ -2299,14 +2347,11 @@ def verify_settlement(receipt: Dict[str, Any], *, refund_tx: Optional[str] = Non
         # A locally saved 'verified' field is not permanent proof. Re-read the
         # actual finalized origin-chain deposit against THIS signed quote, including
         # its quoted address, amount, asset and deadline, before refund evidence.
-        origin_is_evm = receipt["leg"]["origin"]["chain"] in EVM_CHAINS
+        block_origin = _block_origin(receipt, evm=evm, bsc=bsc, tron=tron)
+        origin_is_evm = block_origin is not None  # proven by block number: EVM chains and Tron
         try:
             if origin_is_evm:
-                evm_asset = evm_origin_asset(receipt)
-                origin_chain = receipt["leg"]["origin"]["chain"]
-                if origin_chain == "bsc" and evm_asset["kind"] == "native" and bsc is None and evm is None:
-                    bsc = bsc_rpc_default()
-                evm_rpc = _evm_rpc(origin_chain, evm, bsc)
+                evm_rpc, evm_asset = block_origin
                 fresh_deposit = _evm_transfer(
                     evm_rpc, evm_asset,
                     tx_hash=original_tx,
@@ -2581,7 +2626,7 @@ def _write_private_json(path: str, payload: Dict[str, Any]) -> None:
 
 def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] = None,
          rpc: Optional[NearRpc] = None, near_views: Optional[Any] = None, solana: Optional[Any] = None,
-         bsc: Optional[Any] = None, evm: Optional[Any] = None) -> int:
+         bsc: Optional[Any] = None, evm: Optional[Any] = None, tron: Optional[Any] = None) -> int:
     parser = argparse.ArgumentParser(description="Settle X3 intents through NEAR Intents (1Click API)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -2757,10 +2802,10 @@ def main(argv: Optional[List[str]] = None, *, client: Optional[OneClickClient] =
                 receipt = _load_receipt(args.receipt)
                 if args.command == "verify-deposit":
                     evidence = verify_deposit(receipt, tx_signature=args.tx, solana=solana,
-                                              bsc=bsc, helius=args.helius, evm=evm)
+                                              bsc=bsc, helius=args.helius, evm=evm, tron=tron)
                 else:
                     evidence = verify_settlement(receipt, refund_tx=args.refund_tx, near_views=near_views,
-                                                 solana=solana, bsc=bsc, evm=evm)
+                                                 solana=solana, bsc=bsc, evm=evm, tron=tron)
                 write_receipt(args.receipt, receipt)
                 verification = receipt["verification"]
                 if args.command == "verify-deposit":

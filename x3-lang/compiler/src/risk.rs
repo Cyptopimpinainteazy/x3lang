@@ -48,6 +48,8 @@ impl RiskScorer {
         chain_risk.insert("abstract".into(), 40);
         chain_risk.insert("plasma".into(), 40);
         chain_risk.insert("xlayer".into(), 40);
+        chain_risk.insert("tron".into(), 40);
+        chain_risk.insert("ton".into(), 40);
         chain_risk.insert("sui".into(), 40);
         chain_risk.insert("aptos".into(), 40);
         chain_risk.insert("starknet".into(), 35);
