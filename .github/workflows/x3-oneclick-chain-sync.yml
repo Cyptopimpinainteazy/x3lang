@@ -31,6 +31,8 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r x3-lang/requirements.txt
       - name: Compare 1Click's live chain list with the routed and classified maps
+        # `shell: bash` runs with `-eo pipefail`, so `tee` cannot hide the check's exit code.
+        shell: bash
         run: python x3-lang/tools/oneclick_chain_sync.py | tee chain-sync.json
       - uses: actions/upload-artifact@v4
         if: always()
