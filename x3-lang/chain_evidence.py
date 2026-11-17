@@ -381,6 +381,9 @@ EVM_CHAIN_IDS = {
     "avalanche": 43114,
     "berachain": 80094,
     "scroll": 534352,
+    "xlayer": 196,
+    "abstract": 2741,
+    "plasma": 9745,
 }
 EVM_DEFAULT_RPC_URLS = {"bsc": DEFAULT_BSC_RPC_URLS}
 #: keccak256("Transfer(address,address,uint256)")

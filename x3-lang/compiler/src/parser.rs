@@ -30,7 +30,7 @@ pub fn parse_vm_family(prefix: &str) -> Option<&'static str> {
     Some(match prefix {
         // evm family
         "evm" | "eth" | "polygon" | "arb" | "optimism" | "base" | "bsc" | "avax" | "gnosis" | "scroll" | "monad"
-        | "berachain" | "bera" => "Evm",
+        | "berachain" | "bera" | "abstract" | "plasma" | "xlayer" => "Evm",
         // svm family
         "svm" | "sol" | "solana" => "Svm",
         // substrate family

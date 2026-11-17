@@ -147,5 +147,64 @@
   "price": 1.0,
   "priceUpdatedAt": "2026-11-16T00:00:00.000Z",
   "contractAddress": "0x779ded0c9e1022225f8e0630b35a9b54be713736"
+ },
+ {
+  "assetId": "nep141:abs.omdep.near",
+  "decimals": 18,
+  "blockchain": "abs",
+  "symbol": "ETH",
+  "price": 3000.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep141:plasma.omft.near",
+  "decimals": 18,
+  "blockchain": "plasma",
+  "symbol": "XPL",
+  "price": 0.5,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep245:v2_1.omni.hot.tg:9745_11111111111111111111",
+  "decimals": 18,
+  "blockchain": "plasma",
+  "symbol": "XPL_(DEPRECATED)",
+  "price": 0.5,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep141:plasma-0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb.omft.near",
+  "decimals": 6,
+  "blockchain": "plasma",
+  "symbol": "USDT0",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z",
+  "contractAddress": "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb"
+ },
+ {
+  "assetId": "nep245:v2_1.omni.hot.tg:9745_3aL9skCy1yhPoDB8oKMmRHRN7SJW",
+  "decimals": 6,
+  "blockchain": "plasma",
+  "symbol": "USDT0(DEPRECATED)",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z",
+  "contractAddress": "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb"
+ },
+ {
+  "assetId": "nep245:v2_1.omni.hot.tg:196_11111111111111111111",
+  "decimals": 18,
+  "blockchain": "xlayer",
+  "symbol": "OKB",
+  "price": 100.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z"
+ },
+ {
+  "assetId": "nep245:v2_1.omni.hot.tg:196_2dK9kLNR7Ekq7su8FxNGiUW3djTw",
+  "decimals": 6,
+  "blockchain": "xlayer",
+  "symbol": "USDC",
+  "price": 1.0,
+  "priceUpdatedAt": "2026-11-16T00:00:00.000Z",
+  "contractAddress": "0x74b7f16337b8972027f6196a17a631ac6de26d22"
  }
 ]

@@ -19,6 +19,9 @@ CHAIN_DOMAINS = {
     'scroll': {'aliases': set(), 'address': 'evm'},
     'monad': {'aliases': set(), 'address': 'evm'},
     'berachain': {'aliases': {'bera'}, 'address': 'evm'},
+    'abstract': {'aliases': {'abs'}, 'address': 'evm'},
+    'plasma': {'aliases': {'xpl'}, 'address': 'evm'},
+    'xlayer': {'aliases': {'x_layer', 'okx_layer'}, 'address': 'evm'},
     'x3': {'aliases': set(), 'address': 'x3'},
     # NEAR is a destination and origin for `bridge NearIntents` legs, which settle through the
     # NEAR Intents 1Click API (`near_intents.py`). Its receivers are NEAR account IDs.
@@ -44,6 +47,9 @@ ASSETS_BY_CHAIN = {
     'scroll': {'ETH', 'USDT'},
     'monad': {'MON', 'USDC', 'USDT0'},
     'berachain': {'BERA', 'USDT0'},
+    'abstract': {'ETH'},
+    'plasma': {'XPL', 'USDT0'},
+    'xlayer': {'OKB', 'USDC', 'USDT0'},
     'x3': {'SOL', 'USDC', 'WSOL', 'WETH', 'BTC', 'X3'},
     'near': {'NEAR', 'wNEAR', 'USDC', 'USDT'},
 }

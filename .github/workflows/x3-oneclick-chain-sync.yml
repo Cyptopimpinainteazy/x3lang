@@ -1,0 +1,40 @@
+name: X3 Route — 1Click chain sync
+
+# Weekly, and whenever the routed or classified chain maps change: compare 1Click's live
+# `GET /v0/tokens` chain codes with `near_intents.CHAIN_TO_BLOCKCHAIN` (routed) and
+# `near_intents.ONECLICK_UNROUTED` (classified, with a reason). Fails on a new code nobody has
+# classified, or on a routed chain 1Click stopped listing. Read-only: no key, no quote, no funds.
+
+on:
+  schedule:
+    - cron: '17 14 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [master, 'feat/**', 'fix/**']
+    paths:
+      - 'x3-lang/near_intents.py'
+      - 'x3-lang/registry.py'
+      - 'x3-lang/tools/oneclick_chain_sync.py'
+      - '.github/workflows/x3-oneclick-chain-sync.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r x3-lang/requirements.txt
+      - name: Compare 1Click's live chain list with the routed and classified maps
+        run: python x3-lang/tools/oneclick_chain_sync.py | tee chain-sync.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oneclick-chain-sync
+          path: chain-sync.json
+          if-no-files-found: ignore

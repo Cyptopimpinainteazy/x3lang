@@ -231,6 +231,37 @@ CHAIN_TO_BLOCKCHAIN = {
     "scroll": "scroll",
     "monad": "monad",
     "berachain": "bera",
+    "abstract": "abs",
+    "plasma": "plasma",
+    "xlayer": "xlayer",
+}
+
+# Every other code in 1Click's live `GET /v0/tokens` (2026-11-16), with why it is not routed.
+# `tools/oneclick_chain_sync.py` fails when 1Click lists a code that is neither routed above nor
+# classified here, or when a routed code disappears, so this map cannot silently go stale.
+ONECLICK_UNROUTED = {
+    "tron": "non-EVM: needs Tron address validation and deposit evidence",
+    "ton": "non-EVM: needs TON address validation and deposit evidence",
+    "xrp": "non-EVM: needs XRP Ledger address validation and deposit evidence",
+    "sui": "non-EVM: needs Sui address validation and deposit evidence",
+    "aptos": "non-EVM: needs Aptos address validation and deposit evidence",
+    "movement": "non-EVM (Move): needs address validation and deposit evidence",
+    "doge": "UTXO: needs Dogecoin address validation and deposit evidence",
+    "ltc": "UTXO: needs Litecoin address validation and deposit evidence",
+    "bch": "UTXO: needs Bitcoin Cash address validation and deposit evidence",
+    "dash": "UTXO: needs Dash address validation and deposit evidence",
+    "zec": "UTXO (shielded pools): needs Zcash address validation and deposit evidence",
+    "starknet": "non-EVM: needs Starknet address validation and deposit evidence",
+    "stellar": "non-EVM: needs Stellar address validation and deposit evidence",
+    "cardano": "non-EVM: needs Cardano address validation and deposit evidence",
+    "aleo": "non-EVM: needs Aleo address validation and deposit evidence",
+    "miden": "non-EVM: needs Miden address validation and deposit evidence",
+    "fogo": "SVM: needs a reviewed chain identity before reusing Solana address checks",
+    "hypercore": "Hyperliquid core (not HyperEVM): needs address validation and evidence",
+    "hood": "unidentified chain: 0x tokens, but no confirmed chain identity or chain ID",
+    "adi": "unidentified chain (HOT omni chain 36900): no confirmed chain identity",
+    "prl": "unidentified chain code",
+    "qtc": "unidentified chain code",
 }
 
 # Chains whose 1Click recipients and refunds are EVM addresses. A real deposit or payout is
@@ -2074,6 +2105,7 @@ REVIEWED_EVM_TOKENS = {
     "bsc": {"USDC": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
             "USDT": "0x55d398326f99059ff775485246999027b3197955"},
     "scroll": {"USDT": "0xf55bec9cafdbe8730f096aa55dad6d22d44099df"},
+    "plasma": {"USDT0": "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb"},
 }
 # 1Click's HOT-omni asset IDs (`nep245:v2_1.omni.hot.tg:<chainId>_<id>`) do not carry the
 # contract, so each ERC-20 one is pinned to its signed asset ID (read from `GET /v0/tokens`,

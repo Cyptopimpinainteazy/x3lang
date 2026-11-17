@@ -45,6 +45,9 @@ impl RiskScorer {
         chain_risk.insert("scroll".into(), 35);
         chain_risk.insert("monad".into(), 40);
         chain_risk.insert("berachain".into(), 40);
+        chain_risk.insert("abstract".into(), 40);
+        chain_risk.insert("plasma".into(), 40);
+        chain_risk.insert("xlayer".into(), 40);
         chain_risk.insert("sui".into(), 40);
         chain_risk.insert("aptos".into(), 40);
         chain_risk.insert("starknet".into(), 35);

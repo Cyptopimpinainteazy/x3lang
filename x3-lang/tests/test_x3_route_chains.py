@@ -389,3 +389,76 @@ def test_a_refund_short_of_the_signed_amount_is_not_proven(tmp_path):
     rpc, _ = evm_rpc("base", {"https://base-a.invalid": {EVM_TX: deposit, REFUND_TX: refund}})
     ni.verify_deposit(receipt, tx_signature=EVM_TX, evm={"base": rpc})
     assert ni.verify_settlement(receipt, refund_tx=REFUND_TX, evm={"base": rpc})["verified"] is False
+
+
+# --- the three EVM chains added second, and the 1Click sync check -----------------------------
+
+@pytest.mark.parametrize("source,blockchain,asset_id", [
+    ("Abstract.ETH", "abs", "nep141:abs.omdep.near"),
+    ("Plasma.USDT0", "plasma", "nep141:plasma-0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb.omft.near"),
+    ("Plasma.XPL", "plasma", "nep141:plasma.omft.near"),
+    ("Xlayer.OKB", "xlayer", "nep245:v2_1.omni.hot.tg:196_11111111111111111111"),
+    ("XLayer.USDC", "xlayer", "nep245:v2_1.omni.hot.tg:196_2dK9kLNR7Ekq7su8FxNGiUW3djTw"),
+])
+def test_abstract_plasma_and_xlayer_compile(tmp_path, source, blockchain, asset_id):
+    _, leg = ni.compile_program(program(tmp_path, source=source), now=NOW)
+    assert ni.CHAIN_TO_BLOCKCHAIN[leg["origin"]["chain"]] == blockchain
+    assert ni.build_quote_request(leg, tokens(), dry=True)["originAsset"] == asset_id
+
+
+def test_plasma_usdt0_is_provable_and_xlayer_usdc_is_not_yet():
+    asset = ni.evm_origin_asset(asset_receipt(
+        "plasma", "nep141:plasma-0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb.omft.near",
+        contract="0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb"))
+    assert asset == {"chain": "plasma", "kind": "erc20", "token": "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb"}
+    assert ni.evm_origin_asset(asset_receipt("xlayer", "nep245:v2_1.omni.hot.tg:196_11111111111111111111"))["kind"] == "native"
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.evm_origin_asset(asset_receipt("xlayer", "nep245:v2_1.omni.hot.tg:196_2dK9kLNR7Ekq7su8FxNGiUW3djTw",
+                                          contract="0x74b7f16337b8972027f6196a17a631ac6de26d22"))
+    assert err.value.code == "X3_EVIDENCE_UNSUPPORTED"
+
+
+def test_omni_native_on_the_wrong_chain_is_refused():
+    with pytest.raises(ni.NearIntentsError) as err:
+        ni.evm_origin_asset(asset_receipt("plasma", "nep245:v2_1.omni.hot.tg:196_11111111111111111111"))
+    assert err.value.code == "X3_EVIDENCE_BINDING"
+
+
+def _sync():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("oneclick_chain_sync", ROOT / "tools" / "oneclick_chain_sync.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+#: Every blockchain code in 1Click's live GET /v0/tokens on 2026-11-16 (39).
+LIVE_20261116 = ["abs", "adi", "aleo", "aptos", "arb", "avax", "base", "bch", "bera", "bsc", "btc", "cardano",
+                 "dash", "doge", "eth", "fogo", "gnosis", "hood", "hypercore", "ltc", "miden", "monad", "movement",
+                 "near", "op", "plasma", "pol", "prl", "qtc", "scroll", "sol", "starknet", "stellar", "sui", "ton",
+                 "tron", "xlayer", "xrp", "zec"]
+
+
+def test_every_code_1click_listed_is_routed_or_classified():
+    report = _sync().compare(LIVE_20261116, ni.CHAIN_TO_BLOCKCHAIN, ni.ONECLICK_UNROUTED)
+    assert report["ok"], report
+    assert len(report["routed"]) == 17 and report["live_codes"] == 39
+
+
+def test_the_sync_check_fails_on_a_new_chain_and_on_a_vanished_route():
+    sync = _sync()
+    new = sync.compare(LIVE_20261116 + ["newchain"], ni.CHAIN_TO_BLOCKCHAIN, ni.ONECLICK_UNROUTED)
+    assert not new["ok"] and new["unclassified"] == ["newchain"]
+    gone = sync.compare([c for c in LIVE_20261116 if c != "base"], ni.CHAIN_TO_BLOCKCHAIN, ni.ONECLICK_UNROUTED)
+    assert not gone["ok"] and gone["missing_routed"] == ["base"]
+    stale = sync.compare([c for c in LIVE_20261116 if c != "qtc"], ni.CHAIN_TO_BLOCKCHAIN, ni.ONECLICK_UNROUTED)
+    assert stale["ok"] and stale["stale_unrouted"] == ["qtc"]
+
+
+def test_the_sync_cli_reads_an_archived_list(tmp_path, capsys):
+    path = tmp_path / "tokens.json"
+    path.write_text(json.dumps([{"assetId": f"x:{c}", "blockchain": c} for c in LIVE_20261116]))
+    assert _sync().main(["--tokens", str(path)]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    path.write_text(json.dumps([{"assetId": "x", "blockchain": c} for c in LIVE_20261116 + ["zz"]]))
+    assert _sync().main(["--tokens", str(path)]) == 1

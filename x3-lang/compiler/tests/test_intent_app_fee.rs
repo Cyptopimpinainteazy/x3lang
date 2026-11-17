@@ -117,7 +117,7 @@ fn fees_cannot_exceed_the_whole_input() {
 
 #[test]
 fn the_new_chains_parse() {
-    for chain in ["Gnosis", "Scroll", "Monad", "Berachain"] {
+    for chain in ["Gnosis", "Scroll", "Monad", "Berachain", "Abstract", "Plasma", "Xlayer"] {
         let source = SOURCE.replace("Base.USDC", &format!("{chain}.USDC"));
         parse_source(&source).unwrap_or_else(|e| panic!("{chain}: {e}"));
     }

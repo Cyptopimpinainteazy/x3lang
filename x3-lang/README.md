@@ -120,13 +120,18 @@ minimum. The refusal evidence is committed; no amount was silently increased. Se
 ### X3 Route: chains, integrator fees and receipts
 
 **Chains.** A `bridge NearIntents` leg can start or end on NEAR, Solana, Bitcoin, Ethereum,
-Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Gnosis, Scroll, Monad or Berachain:
+Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Gnosis, Scroll, Monad, Berachain,
+Abstract, Plasma or X Layer:
 each mapped to the code 1Click lists it under (`CHAIN_TO_BLOCKCHAIN`, checked against
 `GET /v0/tokens` on 2026-11-16). Assets resolve from 1Click's live token list at quote time.
 EVM recipients and refund addresses must be full 20-byte addresses. Mantle, zkSync Era, Linea,
 Cronos, Moonbeam, Celo, Plume, Aurora and HyperEVM are known by name and refused with
 `X3_CHAIN_NOT_ROUTABLE`, because 1Click does not route them (its `hypercore` is Hyperliquid's
-core chain, not HyperEVM).
+core chain, not HyperEVM). Every other chain 1Click lists is classified with the reason it is not
+routed yet (`ONECLICK_UNROUTED`: mostly non-EVM chains awaiting address validation and deposit
+evidence, plus four codes with no confirmed chain identity). `tools/oneclick_chain_sync.py`, run
+weekly by `.github/workflows/x3-oneclick-chain-sync.yml`, fails when 1Click lists a code that is
+neither routed nor classified, or stops listing one that is routed.
 
 **Integrator fees.** `fee 25 bps to fees.yourapp.near` (up to four, one per recipient) is sent
 as 1Click `appFees`, which 1Click takes from the input before the swap. The program must state
