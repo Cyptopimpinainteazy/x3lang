@@ -870,3 +870,11 @@ form small {
     grid-template-columns: 1fr;
   }
 }
+
+.pool-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr)); gap:14px; margin:18px 0; max-height:600px; overflow:auto; }
+.pool-card { padding:18px; border:1px solid #293044; border-radius:12px; min-width:0; }
+.pool-card h3 { margin:0 0 8px; }
+.pool-card small { display:block; overflow-wrap:anywhere; margin:8px 0; }
+.pool-card a { color:#78e7c2; }
+.pool-earn { padding:16px 0; }
+.pool-earn summary { cursor:pointer; }

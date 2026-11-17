@@ -242,3 +242,26 @@ Drafts contain only `route_id`, two `mandates`, two `addresses`, `minimum_profit
 `max_external_cost`, and absolute `expires_at`. They cannot supply a backend, live mode,
 provider URL, filesystem path, token substitution or arbitrary route data. Unsupported
 chains/symbols, unknown costs, stale quotes and failed `.x3` policy checks remain refusals.
+
+
+### Public pool discovery
+
+Click **Discover pools** to load bounded read-only observations: USDC markets on
+Solana, Ethereum, Arbitrum and Base from the DEX Screener token-pairs API, plus
+funded pools among the first 100 RHEA pool IDs on NEAR using agreed final-block
+views from two RPC hosts. Results cap at 20 per chain. Source failures are shown
+explicitly; no substitute pool data is generated. Requests are cached/rate-limited
+for 60 seconds and cannot accept provider URLs, fees or wallet parameters.
+
+These observations are separate from the opportunity scanner's size-specific
+quotes and never enter its executable or paper-eligible routes. USD liquidity
+is an indexer estimate with unverified upstream freshness; NEAR reserves have no
+USD valuation here. Loading a pool does not establish token safety or LP yield.
+
+LP fees require an actual liquidity position; pool discovery grants no revenue
+entitlement. App fees require a supported integrator-fee mechanism or a separate
+disclosed service fee. No partner program is assumed. Deposits, withdrawals and
+fee collection remain disabled under the no-real-funds scope.
+
+Source API: https://docs.dexscreener.com/api/reference
+Optional real-browser gate: `X3_POOL_SMOKE=1` with the existing browser smoke script.

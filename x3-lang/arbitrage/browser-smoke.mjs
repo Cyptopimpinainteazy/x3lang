@@ -76,6 +76,25 @@ try {
   await page.goto(base);
   await page.getByText("3 of 3 routes", { exact: true }).waitFor();
   assert.equal(await page.locator("#routes tr").count(), 3);
+  if (process.env.X3_POOL_SMOKE === "1") {
+    await page.locator("#load-pools").click();
+    await page.waitForFunction(() => !document.getElementById("load-pools").disabled, {timeout: 60000});
+    assert.ok(await page.locator(".pool-card").count() > 0, "real public pools must load");
+    assert.match(await page.locator("#pool-status").textContent(), /discovery only/);
+    const poolCount = await page.locator(".pool-card").count();
+    const poolLinks = await page.locator(".pool-card a").evaluateAll(links => links.map(link => link.href));
+    assert.ok(poolLinks.every(link => ["dexscreener.com", "app.rhea.finance"].includes(new URL(link).hostname)));
+    await page.locator("#pool-chain").selectOption("solana");
+    assert.ok(await page.locator(".pool-card").count() > 0);
+    assert.match(await page.locator("#pool-list").textContent(), /Solana/);
+    await page.locator("#pool-chain").selectOption("");
+    await page.locator("#pool-search").fill("this-token-does-not-exist-x3");
+    assert.equal(await page.locator(".pool-card").count(), 0);
+    await page.locator("#pool-search").fill("");
+    assert.equal(await page.locator(".pool-card").count(), poolCount);
+    await page.screenshot({path: path.join(artifacts, "liquidity-pools.png"), fullPage: true});
+    extraChecks.push(`real read-only pool discovery (${poolCount} pools), filtering and safe source links`);
+  }
   if (process.env.X3_CATALOGUE_SMOKE === "1") {
     await page.locator("#load-tokens").click();
     await page.waitForFunction(() =>

@@ -21,7 +21,7 @@ WEB = Path(__file__).parent / 'web'
 
 
 class App:
-    def __init__(self, *, mode, database, config=None, clock=time.time, catalog_client=None):
+    def __init__(self, *, mode, database, config=None, clock=time.time, catalog_client=None, pool_discovery=None):
         if mode not in {'demo', 'live'}:
             raise ValueError('mode must be demo or live')
         self.mode, self.clock = mode, clock
@@ -30,6 +30,13 @@ class App:
         self.trader = Trader(database, clock=clock)
         self.csrf = secrets.token_urlsafe(32)
         self.catalog_client = catalog_client or ni.OneClickClient(timeout=8, api_key='')
+        if pool_discovery is None:
+            from .pools import discover_pools
+            pool_discovery = discover_pools
+        self.pool_discovery = pool_discovery
+        self.pools = None
+        self.pool_lock = threading.Lock()
+        self.last_pool_refresh = None
         self.catalogue = None
         self.provider_tokens = []
         self.catalogue_tokens = []
@@ -90,7 +97,7 @@ class App:
     def state(self):
         with self.lock:
             return {'schema': 'x3.arbitrage.v1', 'mode': ('mixed' if self.mode == 'demo' and any(not route.demo for route in self.routes) else self.mode), 'csrf': self.csrf,
-                    'catalogue': self.catalogue, 'configured_route_count': len(self.config['routes']) if self.config else 0,
+                    'pools': self.pools, 'catalogue': self.catalogue, 'configured_route_count': len(self.config['routes']) if self.config else 0,
                     'now': int(self.clock()), 'updated_at': self.updated_at,
                     'refreshing': self.refreshing,
                     'routes': rank(self.routes, now=int(self.clock())),
@@ -110,6 +117,25 @@ class App:
     def action(self, path, data):
         if not isinstance(data, dict):
             raise ValueError('JSON object required')
+        if path == '/api/pools':
+            if data:
+                raise ValueError('pool discovery accepts no URLs, fees or wallet parameters')
+            if not self.pool_lock.acquire(blocking=False):
+                raise ValueError('pool discovery already running')
+            try:
+                with self.lock:
+                    now = int(self.clock())
+                    if self.last_pool_refresh is not None and now - self.last_pool_refresh < 60:
+                        if self.pools is not None:
+                            return self.pools
+                        raise ValueError('pool discovery 60-second request budget exhausted')
+                    self.last_pool_refresh = now
+                report = self.pool_discovery(now=now)
+                with self.lock:
+                    self.pools = report
+                return report
+            finally:
+                self.pool_lock.release()
         if path == '/api/strategy/template':
             if set(data) != {'route_id'}:
                 raise ValueError('selected route required')

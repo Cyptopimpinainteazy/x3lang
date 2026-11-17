@@ -6,6 +6,10 @@ const chain = (value) =>
     near: "NEAR",
     eth: "Ethereum",
     arb: "Arbitrum",
+    base: "Base",
+    ethereum: "Ethereum",
+    solana: "Solana",
+    arbitrum: "Arbitrum",
     pol: "Polygon",
     bsc: "BSC",
     "cex-inventory": "Exchange inventory",
@@ -453,6 +457,8 @@ function inspect(row) {
 async function update() {
   state = await request("/api/state");
   render();
+  if (state.pools && (!poolReport || state.pools.loaded_at !== poolReport.loaded_at))
+    showPoolReport(state.pools);
 }
 for (const id of ["search", "kind", "edge", "eligible"])
   $(id).addEventListener("input", () => state && render());
@@ -742,3 +748,62 @@ setInterval(
     }),
   5000,
 );
+
+let poolReport = null;
+function renderPools() {
+  if (!poolReport) return;
+  const network = $("pool-chain").value;
+  const search = $("pool-search").value.trim().toLowerCase();
+  const rows = poolReport.pools.filter(pool => (!network || pool.network === network) &&
+    [pool.dex, pool.pair_address, pool.base_token.symbol, pool.base_token.address,
+      pool.quote_token.symbol, pool.quote_token.address].join(" ").toLowerCase().includes(search));
+  $("pool-list").replaceChildren();
+  for (const pool of rows) {
+    const card = document.createElement("article");
+    card.className = "pool-card";
+    const title = document.createElement("h3");
+    title.textContent = `${pool.base_token.symbol} / ${pool.quote_token.symbol}`;
+    const venue = document.createElement("p");
+    venue.textContent = `${chain(pool.network)} · ${pool.dex}`;
+    const liquidity = document.createElement("p");
+    liquidity.textContent = pool.liquidity_usd === null
+      ? "USD liquidity unavailable · on-chain reserves observed"
+      : `Reported liquidity: $${Number(pool.liquidity_usd).toLocaleString(undefined, {maximumFractionDigits: 0})}`;
+    const identity = document.createElement("small");
+    identity.textContent = `Pool: ${pool.pair_address}`;
+    const assets = document.createElement("small");
+    assets.textContent = `${pool.base_token.address} / ${pool.quote_token.address}`;
+    const link = document.createElement("a");
+    link.href = pool.source_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "View pool source ↗";
+    card.append(title, venue, liquidity, identity, assets, link);
+    $("pool-list").append(card);
+  }
+  const errors = poolReport.errors.map(error => `${chain(error.network)}: ${error.message}`).join(" ");
+  $("pool-status").textContent = `${rows.length} of ${poolReport.pools.length} pools · fetched ${new Date(poolReport.loaded_at * 1000).toLocaleTimeString()} · provider observations may lag · discovery only. ${errors}`;
+}
+function showPoolReport(report) {
+  poolReport = report;
+  const selected = $("pool-chain").value;
+  $("pool-chain").replaceChildren(new Option("All chains", ""));
+  for (const network of [...new Set(report.pools.map(pool => pool.network))].sort())
+    $("pool-chain").append(new Option(chain(network), network));
+  if ([...$("pool-chain").options].some(option => option.value === selected))
+    $("pool-chain").value = selected;
+  renderPools();
+}
+$("pool-chain").addEventListener("change", renderPools);
+$("pool-search").addEventListener("input", renderPools);
+$("load-pools").addEventListener("click", async () => {
+  $("load-pools").disabled = true;
+  $("pool-status").textContent = "Reading public pool sources…";
+  try {
+    showPoolReport(await request("/api/pools", {}));
+  } catch (error) {
+    $("pool-status").textContent = error.message;
+  } finally {
+    $("load-pools").disabled = false;
+  }
+});

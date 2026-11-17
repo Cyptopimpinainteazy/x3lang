@@ -227,6 +227,23 @@
           <p id="route-result" role="status"></p>
         </form>
       </section>
+      <section class="board journal" id="pool-browser">
+        <div class="section-head">
+          <div><h2>Liquidity pools</h2><p>Public pool observations across chains. Listings are not executable quotes.</p></div>
+          <button id="load-pools" type="button" class="secondary">Discover pools</button>
+        </div>
+        <p id="pool-status" role="status">Load public pool data. No wallet connection or deposits.</p>
+        <div class="address-grid">
+          <label>Chain<select id="pool-chain"><option value="">All chains</option></select></label>
+          <label>Find a token or DEX<input id="pool-search" type="search" placeholder="USDC, SOL, pool address…" /></label>
+        </div>
+        <div id="pool-list" class="pool-list"></div>
+        <details class="pool-earn"><summary>Can I earn from these pools?</summary>
+          <p>LP fees require depositing assets into a pool. Returns vary with volume, your share and pool rules; asset-price changes and impermanent loss can outweigh fees.</p>
+          <p>App routing fees require a provider-supported integrator fee or a separate disclosed service fee. Discovering pools does not earn a fee. No partner agreement, yield or payout is assumed here.</p>
+          <p>Fee collection, liquidity deposits and withdrawals are disabled. The .x3 workbench remains paper-only.</p>
+        </details>
+      </section>
       <section class="lower">
         <article class="explain">
           <div class="eyebrow">FROM TOKENS TO .X3 POLICY</div>
