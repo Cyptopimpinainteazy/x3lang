@@ -59,6 +59,21 @@ VARIANTS = [
     {"route": "bridge X3 Solana.USDC -> Near.USDC;"},
     {"route": "bridge NearIntents Solana.SOL -> Near.USDC;"},
     {"route": "swap Raydium Solana.USDC -> Solana.SOL amount 25000000 min_output 1;\n        bridge NearIntents Solana.SOL -> Near.USDC;"},
+    # `fee <rate> to <account>`: both surfaces lower it, or refuse it, the same way.
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "require nonce unused n_001", "fee 25 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "require nonce unused n_001", "fee 0.25% to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "require nonce unused n_001", "fee 100 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "require nonce unused n_001", "fee 2.5 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "require nonce unused n_001", "fee 0 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "require nonce unused n_001", "fee 25 to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "require nonce unused n_001", "fee 25 bps to Fees.Near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "require nonce unused n_001", "fee 101 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 10%", "require nonce unused n_001", "fee 501 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees < 25 bps", "require nonce unused n_001", "fee 25 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require nonce unused n_001", "fee 25 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "fee -5 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "fee 1e2 bps to fees.x3-demo.near"]},
+    {"requires": ["require slippage <= 0.5%", "require fees <= 100 bps", "fee 25 BPS to fees.x3-demo.near"]},
 ]
 
 
@@ -244,3 +259,41 @@ def test_an_agent_intent_gets_the_same_mandate_verdict(tmp_path, name, kwargs, e
                                "revoked": False, "spends": []}, policy, NOW_MS)
     assert [(c["guard"], c["ok"]) for c in got["checks"]] == [(c["guard"], c["ok"]) for c in python]
     assert [c["guard"] for c in python if not c["ok"]] == expected
+
+
+FEE_EXAMPLE = ROOT / "examples" / "near_intents_app_fee.x3"
+
+
+def test_the_fee_example_lowers_identically():
+    assert js("lower", FEE_EXAMPLE, TOKENS, NOW_MS) == python_lower(FEE_EXAMPLE)
+
+
+FEE_ECHOES = [
+    "as_sent",
+    None,
+    [{"recipient": "fees.x3-demo.near", "fee": 24}],
+    [{"recipient": "attacker.near", "fee": 25}],
+    [{"recipient": "fees.x3-demo.near", "fee": 25, "limitOrderId": "x"}],
+    [{"recipient": "5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd", "fee": 1, "limitOrderId": None},
+     {"recipient": "fees.x3-demo.near", "fee": 25, "limitOrderId": None}],
+]
+
+
+@pytest.mark.parametrize("echo", FEE_ECHOES, ids=lambda e: "as-sent" if e == "as_sent" else "edited")
+def test_fee_guards_agree(tmp_path, echo):
+    planned = ni.plan(str(FEE_EXAMPLE), client=ni.OneClickClient(jwt=""), tokens_path=str(TOKENS), live=True, now=NOW)
+    leg, req = planned["leg"], planned["quote_request"]
+    response = good_quote(req)
+    if echo is None:
+        response["quoteRequest"].pop("appFees")
+    elif echo != "as_sent":
+        response["quoteRequest"]["appFees"] = echo
+    sign(response)
+    expected = _python_guards(leg, req, response, NOW, TEST_KEY)
+    got = _case(tmp_path, leg, req, response, NOW, TEST_KEY)
+
+    def view(results):
+        return [{**v, **({"undeclared": r.get("undeclared")} if r["guard"] == "app_fee_echo" else {})}
+                for v, r in zip(_guard_view(results), results)]
+    assert view(got["results"]) == view(expected)
+    assert any(r["guard"] == "app_fee_echo" for r in expected)

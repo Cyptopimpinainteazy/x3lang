@@ -190,6 +190,22 @@ def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle
                 }
             ],
         }
+    if intent.get('app_fee') is not None:
+        # The `fee` clause is paid through NEAR Intents' 1Click `appFees`, which only
+        # `near_intents.py` sends and verifies. This runner has no fee-payment step, so
+        # planning the route here would silently drop the fee the program declares.
+        return {
+            'status': 'error',
+            'errors': [
+                {
+                    'code': 'X3_FEE_UNSUPPORTED_SURFACE',
+                    'message': '`fee` is settled by the NEAR Intents adapter (near_intents.py quote); '
+                               'this runner cannot pay it, so it refuses the program instead of dropping the fee',
+                    'line': intent['app_fee'].get('line'),
+                    'field': 'fee',
+                }
+            ],
+        }
     if not no_schema:
         validate_schema(intent, os.path.join(root, 'schema.json'))
 

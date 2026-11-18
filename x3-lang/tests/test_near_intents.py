@@ -372,7 +372,7 @@ def test_a_quote_that_meets_every_guard_passes():
     leg, req = _leg_and_request(live=True)
     results = ni.verify_quote(leg, req, good_quote(req), now=NOW)
     assert {r["guard"] for r in results} == {
-        "quote_signature", "quote_freshness", "quote_request_echo", "amount_in", "min_receive",
+        "quote_signature", "quote_freshness", "quote_request_echo", "app_fee_echo", "amount_in", "min_receive",
         "slippage", "fees", "refund_fee", "deposit_address", "deadline",
     }
     assert results[0]["guard"] == "quote_signature", "the signature is checked before anything is read"

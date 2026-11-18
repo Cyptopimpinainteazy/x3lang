@@ -2056,6 +2056,7 @@ impl<'a> Parser<'a> {
             name: Symbol::new(&name),
             constraints,
             mandate: None,
+            app_fee: None,
             body,
         }))
     }
@@ -2207,7 +2208,16 @@ impl<'a> Parser<'a> {
         self.expect(Tok::LBrace, "expected '{' after intent name")?;
         let mut stmts: Vec<Statement> = Vec::new();
         let mut mandate = None;
+        let mut app_fee = None;
         while self.peek() != Tok::RBrace && self.peek() != Tok::Eof {
+            if matches!(self.peek(), Tok::Ident(ref word) if word == "fee") {
+                if app_fee.is_some() {
+                    return Err(parse_err("an intent declares one `fee` clause".into(), self.peek()));
+                }
+                app_fee = Some(self.parse_intent_fee()?);
+                self.opt_semi();
+                continue;
+            }
             if matches!(self.peek(), Tok::Ident(ref word) if word == "under") {
                 if mandate.is_some() {
                     return Err(parse_err(
@@ -2236,8 +2246,69 @@ impl<'a> Parser<'a> {
             name: Symbol::new(&name),
             constraints: Vec::new(),
             mandate,
+            app_fee,
             body: Block::new(stmts),
         }))
+    }
+
+    /// `fee <n> bps to <account>` or `fee <n>% to <account>`. The rate must be a
+    /// whole number of basis points; the account is a NEAR account, written bare
+    /// (`fees.app.near`) or quoted (`"5880ad…"`, for implicit IDs that begin with
+    /// a digit). Whether the fee fits the intent's `require fees` cap is the
+    /// semantic verifier's check (`verify_app_fees`), which sees every guard.
+    fn parse_intent_fee(&mut self) -> Result<AppFee, X3Error> {
+        self.advance(); // `fee`
+        let usage = "expected `fee <rate> to <account>`, e.g. `fee 25 bps to fees.app.near`";
+        // A rate without its unit is refused, as the adapter refuses it: a bare `25`
+        // could be read as bps or as a percent, and those differ a hundredfold.
+        let has_unit = match (self.peek(), self.peek_n(1)) {
+            (Tok::Int(_), Tok::Ident(ref unit)) => unit == "bps",
+            (Tok::Int(_), Tok::Percent) | (Tok::Float(_), Tok::Percent) => true,
+            (Tok::Int(_), Tok::Dot) => matches!(self.peek_n(2), Tok::Int(_)) && self.peek_n(3) == Tok::Percent,
+            _ => false,
+        };
+        if !has_unit {
+            return Err(parse_err(
+                format!("{usage}: the rate is `<n> bps` or `<n>%`"),
+                self.peek(),
+            ));
+        }
+        let rate = self.parse_guard_bound()?;
+        let bps = crate::semantic::bound_bps_from_expr(&rate).ok_or_else(|| {
+            parse_err(
+                "the fee rate is not a whole number of basis points; 1Click charges integer bps".into(),
+                self.peek(),
+            )
+        })?;
+        if !matches!(self.peek(), Tok::Ident(ref word) if word == "to") {
+            return Err(parse_err(usage.into(), self.peek()));
+        }
+        self.advance(); // `to`
+        let recipient = if let Tok::String_(text) = self.peek() {
+            self.advance();
+            text.as_str().to_string()
+        } else {
+            let mut account = self.expect_ident("fee recipient account")?;
+            while self.peek() == Tok::Dot {
+                self.advance();
+                account.push('.');
+                account.push_str(&self.expect_ident("fee recipient account segment")?);
+            }
+            account
+        };
+        if !is_valid_near_named_account(&recipient) {
+            return Err(parse_err(
+                format!(
+                    "fee recipient {recipient:?} is not a NEAR account; 1Click pays fees to an Intents \
+                     account (2-64 lowercase characters, `-`/`_` inside parts, `.` between them)"
+                ),
+                self.peek(),
+            ));
+        }
+        Ok(AppFee {
+            bps,
+            recipient: Symbol::new(&recipient),
+        })
     }
 
     /// The owner named by `under mandate`. Account parts may contain `-` or

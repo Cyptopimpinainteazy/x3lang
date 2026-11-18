@@ -250,9 +250,12 @@ stale references and any proposal that would erase the user's minimum gain.
 python3 x3-lang/value_fee.py --preview-stdin < x3-lang/examples/fees/verified_savings_preview.json
 ```
 
-This is **not** `.x3` syntax today and is not wired to NEAR 1Click `appFees`;
-`collectible: false` is mandatory because a signed quote is not proof of
-settlement or user authorization. See `../docs/business/COMMERCIAL_MODEL.md` for the
+This savings-share preview is **not** `.x3` syntax and is not wired to NEAR 1Click
+`appFees`; `collectible: false` is mandatory because a signed quote is not proof of
+settlement or user authorization. A fixed integrator fee is a separate, narrower
+feature: `fee <rate> to <account>` in a NEAR Intents program
+(`examples/near_intents_app_fee.x3`), whose enforcement boundaries are listed in the
+[programming guide](../docs/x3-lang/PROGRAMMING_GUIDE.md#integrator-fees-fee-rate-to-account). See `../docs/business/COMMERCIAL_MODEL.md` for the
 commercial API/on-chain design and safeguards.
 
 ## Quick start
