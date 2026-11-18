@@ -151,6 +151,7 @@ READS = {
     "multi_leg_route.x3",
     "near_intents_agent_denied.x3",
     "near_intents_agent_payment.x3",
+    "near_intents_app_fee.x3",
     "near_intents_sol_to_near.x3",
     "route_fallback.x3",
     "simple_swap.x3",

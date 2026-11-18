@@ -3718,6 +3718,7 @@ const ADAPTER_INTENTS: &[&str] = &[
     "near_intents_agent_denied.x3",
     "near_intents_agent_payment.x3",
     "near_intents_agent_refused_payment.x3",
+    "near_intents_app_fee.x3",
     "near_intents_sol_to_near.x3",
 ];
 
@@ -3900,8 +3901,8 @@ fn every_example_checks_and_builds() {
         "the corpus walk must check the testnet draft's named refusal"
     );
     assert_eq!(
-        adapter_intents, 4,
-        "the example walk must find all four NEAR adapter intents"
+        adapter_intents, 5,
+        "the example walk must find all five NEAR adapter intents"
     );
     assert!(
         failures.is_empty(),
