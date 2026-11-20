@@ -1,0 +1,23 @@
+README.md
+  s_31fd028fa06438::t_b0f7daa377918c 335-337
+docs/hackathon/JUDGE_PACKAGE.md
+  s_31fd028fa06438::t_5b003450f72507 16-18
+docs/hackathon/X3LANG_THREE_TRACK_CONTROL.md
+  s_31fd028fa06438::t_f78c7dc7d46487 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3f683562b701430572f6bb497f342b46989347b9",
+  "prompts": {},
+  "sessions": {
+    "s_31fd028fa06438": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69bd2b58-7f31-4914-aa3b-33a64ae821c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

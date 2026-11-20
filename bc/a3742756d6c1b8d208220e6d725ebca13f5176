@@ -1,0 +1,23 @@
+PROOF_CARD.md
+  s_31fd028fa06438::t_afffa748933ac5 50-53
+x3-lang/tests/test_compromised_agent_table.py
+  s_31fd028fa06438::t_c2dff0d9146ba0 1-96
+README.md
+  s_31fd028fa06438::t_c5145d66277285 422-451
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bca3742756d6c1b8d208220e6d725ebca13f5176",
+  "prompts": {},
+  "sessions": {
+    "s_31fd028fa06438": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69bd2b58-7f31-4914-aa3b-33a64ae821c7",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+x3-lang/solana/vault_client.py
+  h_e41068bed968d7 624-627
+x3-lang/tests/test_solana_vault_client.py
+  h_e41068bed968d7 13,50-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dab74ab181b54982d9040ff14d73126e64afe470",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
