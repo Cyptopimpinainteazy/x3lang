@@ -265,3 +265,28 @@ fee collection remain disabled under the no-real-funds scope.
 
 Source API: https://docs.dexscreener.com/api/reference
 Optional real-browser gate: `X3_POOL_SMOKE=1` with the existing browser smoke script.
+
+
+### LI.FI size-specific quote previews
+
+The dashboard can request a bounded outbound/return quote observation from LI.FI.
+Choose a server-owned market, enter an exact human USDC amount and an explicit
+public EVM address. That address is sent to the provider for pricing; no wallet
+connection or signing occurs. Each leg uses a 0.50% slippage tolerance and the
+return request spends only the outbound minimum output. Market assets, decimals,
+chains, sender and recipient are checked against the requested values.
+
+These unsigned observations are displayed separately from the existing signed
+1Click/.x3 route pipeline. They have no execution or paper-eligibility authority;
+raw transaction requests are discarded. Net profit remains unknown because
+external gas and other charges have not been fully valued in the source asset.
+No fee recipient, affiliate fee, approval or submission is configured. API errors
+are visible rather than replaced by synthetic routes.
+
+`POST /api/provider-quotes` accepts only `market_id`, `amount` and `address`.
+Requests are serialized and rate-limited to one attempt per 15 seconds. A fixed
+provider destination, response-size cap and transport timeout bound network use;
+no browser-supplied URLs are accepted. Quotes may become stale or unavailable
+before execution and are not reservations or settlement evidence.
+
+Provider contract: https://docs.li.fi/api-reference/get-a-quote-for-a-token-transfer

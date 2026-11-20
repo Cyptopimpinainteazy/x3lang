@@ -227,6 +227,23 @@
           <p id="route-result" role="status"></p>
         </form>
       </section>
+      <section class="board journal" id="quote-browser">
+        <div class="section-head"><div><h2>Size-specific DEX quotes</h2>
+          <p>LI.FI route observations alongside the signed 1Click scanner. No transaction submission.</p></div>
+          <span class="badge muted">READ ONLY</span></div>
+        <form id="provider-quote-form" class="quote-form">
+          <div class="address-grid">
+            <label>Market<select id="quote-market" required></select></label>
+            <label>Input USDC<input id="quote-amount" required inputmode="decimal" value="100" /></label>
+          </div>
+          <label>Public EVM address for pricing<input id="quote-address" required autocomplete="off" placeholder="0x… (never enter a private key)" /></label>
+          <p>Your public address is sent to LI.FI to price this request. No wallet connection, signing or approval. Slippage tolerance: 0.50% per leg.</p>
+          <button type="submit" id="get-provider-quotes" class="primary">Preview round-trip quotes</button>
+        </form>
+        <p id="quote-status" role="status">Choose a market and size. Pool liquidity alone cannot price your trade.</p>
+        <div id="quote-results" class="orders"></div>
+        <small>Both legs are indicative observations, not reserved liquidity or a guaranteed round trip. Unknown costs keep net profit unknown. These previews cannot be executed or exported as .x3 trades.</small>
+      </section>
       <section class="board journal" id="pool-browser">
         <div class="section-head">
           <div><h2>Liquidity pools</h2><p>Public pool observations across chains. Listings are not executable quotes.</p></div>

@@ -878,3 +878,6 @@ form small {
 .pool-card a { color:#78e7c2; }
 .pool-earn { padding:16px 0; }
 .pool-earn summary { cursor:pointer; }
+
+.quote-form { padding: 0 20px 20px; }
+#quote-results pre { max-height:360px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }

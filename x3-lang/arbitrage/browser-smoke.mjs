@@ -76,6 +76,26 @@ try {
   await page.goto(base);
   await page.getByText("3 of 3 routes", { exact: true }).waitFor();
   assert.equal(await page.locator("#routes tr").count(), 3);
+  if (process.env.X3_QUOTE_SMOKE === "1") {
+    await page.locator("#quote-market").selectOption("base-usdc-weth");
+    await page.locator("#quote-address").fill("0x000000000000000000000000000000000000dEaD");
+    await page.locator("#get-provider-quotes").click();
+    await page.waitForFunction(() => !document.getElementById("get-provider-quotes").disabled, null, {timeout: 60000});
+    assert.equal(await page.locator("#quote-results article").count(), 1, await page.locator("#quote-status").textContent());
+    assert.match(await page.locator("#quote-results").textContent(), /Net profit: unknown/);
+    assert.match(await page.locator("#quote-results").textContent(), /minimum output/);
+    const observed = await page.evaluate(async () => (await (await fetch("/api/state")).json()).provider_quotes);
+    assert.equal(observed.quotes[0].executable, false);
+    assert.equal(observed.quotes[0].paper_eligible, false);
+    assert.equal(observed.fees_enabled, false);
+    assert.equal(observed.transactions_submitted, 0);
+    assert.ok(!JSON.stringify(observed).includes("transactionRequest"));
+    await page.reload();
+    await page.locator("#quote-results article").waitFor();
+    assert.equal(await page.locator("#routes tr").count(), 3);
+    await page.screenshot({path:path.join(artifacts, "provider-quotes.png"),fullPage:true});
+    extraChecks.push("real LI.FI size-specific two-leg quotes, costs unknown, no executable payload, reload persistence");
+  }
   if (process.env.X3_POOL_SMOKE === "1") {
     await page.locator("#load-pools").click();
     await page.waitForFunction(() => !document.getElementById("load-pools").disabled, {timeout: 60000});

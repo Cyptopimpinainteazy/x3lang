@@ -13,6 +13,7 @@ from .execution import export_leg
 from .paper import PaperLedger
 from .trader import Trader, PaperExchange, example_strategy
 from .catalogue import token_report, build_route
+from .provider_quotes import market_catalog
 from .workbench import template, compile_draft, strategy_from_draft
 from .trader import strategy_from_document
 import near_intents as ni
@@ -21,7 +22,7 @@ WEB = Path(__file__).parent / 'web'
 
 
 class App:
-    def __init__(self, *, mode, database, config=None, clock=time.time, catalog_client=None, pool_discovery=None):
+    def __init__(self, *, mode, database, config=None, clock=time.time, catalog_client=None, pool_discovery=None, quote_discovery=None):
         if mode not in {'demo', 'live'}:
             raise ValueError('mode must be demo or live')
         self.mode, self.clock = mode, clock
@@ -33,6 +34,13 @@ class App:
         if pool_discovery is None:
             from .pools import discover_pools
             pool_discovery = discover_pools
+        if quote_discovery is None:
+            from .provider_quotes import quote_markets
+            quote_discovery = quote_markets
+        self.quote_discovery = quote_discovery
+        self.provider_quotes = None
+        self.quote_lock = threading.Lock()
+        self.last_quote_refresh = None
         self.pool_discovery = pool_discovery
         self.pools = None
         self.pool_lock = threading.Lock()
@@ -97,6 +105,7 @@ class App:
     def state(self):
         with self.lock:
             return {'schema': 'x3.arbitrage.v1', 'mode': ('mixed' if self.mode == 'demo' and any(not route.demo for route in self.routes) else self.mode), 'csrf': self.csrf,
+                    'provider_quotes': self.provider_quotes, 'quote_markets': market_catalog(),
                     'pools': self.pools, 'catalogue': self.catalogue, 'configured_route_count': len(self.config['routes']) if self.config else 0,
                     'now': int(self.clock()), 'updated_at': self.updated_at,
                     'refreshing': self.refreshing,
@@ -117,6 +126,21 @@ class App:
     def action(self, path, data):
         if not isinstance(data, dict):
             raise ValueError('JSON object required')
+        if path == '/api/provider-quotes':
+            if not self.quote_lock.acquire(blocking=False):
+                raise ValueError('provider quote request already running')
+            try:
+                with self.lock:
+                    now = int(self.clock())
+                    if self.last_quote_refresh is not None and now - self.last_quote_refresh < 15:
+                        raise ValueError('provider quote 15-second request budget exhausted')
+                    self.last_quote_refresh = now
+                report = self.quote_discovery(data, now=now)
+                with self.lock:
+                    self.provider_quotes = report
+                return report
+            finally:
+                self.quote_lock.release()
         if path == '/api/pools':
             if data:
                 raise ValueError('pool discovery accepts no URLs, fees or wallet parameters')

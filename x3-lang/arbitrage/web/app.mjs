@@ -15,6 +15,7 @@ const chain = (value) =>
     "cex-inventory": "Exchange inventory",
   })[value] || value;
 let state, selected, pendingKey;
+let quoteReport = null, quoteMarketsReady = false;
 let selectedPair = {},
   strategyDraft = null,
   compiledDraft = null,
@@ -457,6 +458,15 @@ function inspect(row) {
 async function update() {
   state = await request("/api/state");
   render();
+  if (!quoteMarketsReady && state.quote_markets) {
+    for (const market of state.quote_markets)
+      $("quote-market").append(new Option(market.label, market.id));
+    if (state.provider_quotes)
+      $("quote-market").value = state.provider_quotes.market_id;
+    quoteMarketsReady = true;
+  }
+  if (state.provider_quotes && (!quoteReport || state.provider_quotes.loaded_at !== quoteReport.loaded_at))
+    showQuoteReport(state.provider_quotes);
   if (state.pools && (!poolReport || state.pools.loaded_at !== poolReport.loaded_at))
     showPoolReport(state.pools);
 }
@@ -805,5 +815,52 @@ $("load-pools").addEventListener("click", async () => {
     $("pool-status").textContent = error.message;
   } finally {
     $("load-pools").disabled = false;
+  }
+});
+
+function showQuoteReport(report) {
+  quoteReport = report;
+  $("quote-results").replaceChildren();
+  for (const quote of report.quotes) {
+    const card = document.createElement("article");
+    card.className = "pool-card";
+    const title = document.createElement("h3");
+    title.textContent = `${report.provider.toUpperCase()} · ${quote.label}`;
+    const amounts = document.createElement("p");
+    amounts.textContent = `Input ${units(quote.amount_in, 6, 6)} USDC · indicative minimum return ${units(quote.roundtrip_floor, 6, 6)} USDC before additional costs`;
+    const profit = document.createElement("p");
+    profit.textContent = "Net profit: unknown · gas and additional costs are not fully valued";
+    card.append(title, amounts, profit);
+    for (const [index, leg] of quote.legs.entries()) {
+      const row = document.createElement("p");
+      row.textContent = `Leg ${index + 1} · ${leg.tool || "LI.FI route"} · minimum output ${leg.minimum_output} base units`;
+      card.append(row);
+    }
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Inspect exact assets, amounts and provider estimates";
+    const source = document.createElement("pre");
+    source.textContent = JSON.stringify(quote, null, 2);
+    details.append(summary, source);
+    card.append(details);
+    $("quote-results").append(card);
+  }
+  const errors = report.errors.map(error => error.message).join(" ");
+  $("quote-status").textContent = `${report.quotes.length} round-trip observations · fetched ${new Date(report.loaded_at * 1000).toLocaleTimeString()} · unsigned, not executable. ${errors}`;
+}
+$("provider-quote-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  $("get-provider-quotes").disabled = true;
+  $("quote-status").textContent = "Fetching outbound and return estimates…";
+  try {
+    showQuoteReport(await request("/api/provider-quotes", {
+      market_id: $("quote-market").value,
+      amount: $("quote-amount").value,
+      address: $("quote-address").value,
+    }));
+  } catch (error) {
+    $("quote-status").textContent = error.message;
+  } finally {
+    $("get-provider-quotes").disabled = false;
   }
 });
