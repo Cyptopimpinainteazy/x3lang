@@ -1,0 +1,37 @@
+pallets/x3-dapp-hub/src/lib.rs
+  s_8fd403fa84d397::t_a1779b4eb69e09 417-422,424-426
+scripts/local-ci.sh
+  s_8fd403fa84d397::t_0d2c180b343bb3 497-500
+crates/x3-revenue-sharing/src/lib.rs
+  s_8fd403fa84d397::t_351019278551cd 67-76
+  s_8fd403fa84d397::t_e0102c0ad183bc 119-123,125-128,130-131
+pallets/x3-dapp-hub/src/tests.rs
+  s_8fd403fa84d397::t_a0a13b2b18e864 523
+  s_1993849ec78820::t_53a8a96f2a1a6b 454-522,524-536
+crates/x3-revenue-sharing/src/tests.rs
+  s_8fd403fa84d397::t_784da667e4b3cb 173-230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d523a74bd6786c928026161d6c0d8950bcae54c6",
+  "prompts": {},
+  "sessions": {
+    "s_1993849ec78820": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5726f212-403c-4fc1-8b19-c334c2b9f44c",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    },
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

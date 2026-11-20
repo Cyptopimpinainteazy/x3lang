@@ -1,0 +1,24 @@
+crates/x3-revenue-sharing/src/lib.rs
+  s_8fd403fa84d397::t_e10b1d46f7364a 11-12
+  s_8fd403fa84d397::t_81b54c8b767c7b 20-24
+crates/x3-revenue-sharing/src/partnership.rs
+  s_8fd403fa84d397::t_eb52668d0e7bb0 1-118
+  s_8fd403fa84d397::t_0762995fdfdfbc 119-266
+  s_8fd403fa84d397::t_200415cb355166 267-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6e6e116ac840b255f5212765ba354a943323fd3e",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
