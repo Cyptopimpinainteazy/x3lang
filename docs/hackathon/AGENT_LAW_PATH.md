@@ -30,7 +30,7 @@ Birth → compile → test → authorize → execute → monitor → judge.
 | Monitor | The log keeps the spend, the refusal, and the route. |
 | Terminate | Operator revocation leaves the receipt in place and the next program returns `revoked`. |
 | Court and jury | The exhibit keeps the proposal, the receipt, and the revocation. The agent's own acquittal is stored and ignored. A jury request to reverse the payment leaves the receipt as it was. |
-| Evolve | The agent cannot file a replacement. An operator proposal is inert until an independent review. Adopting it keeps the birth mandate hash and the birth spending limit. |
+| Evolve | The agent cannot file a replacement. An operator proposal is inert until an operator-selected trusted local review. Adopting it keeps the birth mandate hash and the birth spending limit. |
 
 The forbidden `attacker.near` program is marked privileged by hand before the call. The mandate check still refuses it, and the spend stays at the one permitted receipt. A `route: solana` transfer is refused at the same door.
 
@@ -39,4 +39,5 @@ The forbidden `attacker.near` program is marked privileged by hand before the ca
 - The receipt is local. It does not broadcast a transaction.
 - Solana custody stays outside this path. Holding the X3 signer does not hold the wallet that moved the USDC.
 - A jury finding cannot reverse a receipt that already exists.
+- Reviewer labels are operator-selected local strings. The scripted demonstration does not authenticate independent jury identities or establish independent judgment.
 - This is not the production admission registry in the constitution. Root admission there still fails closed, and the live FullAccess key on the agent account is unchanged.

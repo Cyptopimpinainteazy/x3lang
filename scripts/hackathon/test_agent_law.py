@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -129,6 +130,45 @@ def test_render_names_the_four_results():
     assert "court receipts preserved: 1" in text
 
 
+def test_editor_authorization_expires_after_birth():
+    mandate = (ROOT / "x3-lang/examples/near_mandate_agent.x3").read_text(encoding="utf-8")
+    program = (ROOT / "x3-lang/examples/near_intents_agent_payment.x3").read_text(encoding="utf-8")
+    born_at = datetime(2026, 11, 20, tzinfo=timezone.utc)
+    for elapsed in (timedelta(days=30), timedelta(days=31)):
+        door = agent_law.Door()
+        assert door.act({"act": "birth", "mandate": mandate}, now=born_at)["ok"]
+        assert door.act({"act": "test", "program": program}, now=born_at)["ok"]
+        expired = door.act({"act": "authorize", "program": program}, now=born_at + elapsed)
+        assert expired["ok"] is False
+        assert expired["reason"] == "expiry"
+        assert expired["receipt"] is None
+        assert expired["court_receipts"] == 0
+        assert expired["spent"] == 0
+
+
+def test_editor_authorization_uses_the_trusted_clock_and_requires_a_timezone(monkeypatch):
+    mandate = (ROOT / "x3-lang/examples/near_mandate_agent.x3").read_text(encoding="utf-8")
+    program = (ROOT / "x3-lang/examples/near_intents_agent_payment.x3").read_text(encoding="utf-8")
+    born_at = datetime(2026, 11, 20, tzinfo=timezone.utc)
+    door = agent_law.Door()
+    assert door.act({"act": "birth", "mandate": mandate}, now=born_at)["ok"]
+    assert door.act({"act": "test", "program": program}, now=born_at)["ok"]
+    invalid = door.act({"act": "authorize", "program": program}, now=born_at.replace(tzinfo=None))
+    assert invalid["reason"] == "X3_LAW_CLOCK"
+    assert invalid["receipt"] is None and invalid["spent"] == 0
+
+    class ExpiredClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return (born_at + timedelta(days=31)).astimezone(tz)
+
+    monkeypatch.setattr(agent_law, "datetime", ExpiredClock)
+    expired = door.act({"act": "authorize", "program": program})
+    assert expired["ok"] is False and expired["reason"] == "expiry"
+    assert expired["receipt"] is None and expired["court_receipts"] == 0
+    assert expired["spent"] == 0
+
+
 def test_exhibit_page_matches_the_run_and_the_apps_show_it():
     report = agent_law.demonstrate()
     view = agent_law.public_view(report)
@@ -142,6 +182,7 @@ def test_exhibit_page_matches_the_run_and_the_apps_show_it():
     embedded = page.split('<script type="application/json" id="report">', 1)[1].split("</script>", 1)[0]
     assert json.loads(embedded) == view
     assert "does not settle the payment" in page
+    assert "not an authenticated independent jury" in page
     assert "Settled" not in page
     lab = (ROOT / "docs/hackathon/attack-lab.html").read_text(encoding="utf-8")
     for fact in ("mandate_recipient", "revoked", "agent-law-proof.html", "does not settle invoice_06"):

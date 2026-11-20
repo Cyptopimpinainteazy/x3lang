@@ -5,6 +5,8 @@ program. Test runs that program against adversarial edits before it may
 execute. Authorize is the only door that records a receipt. Revoke stops the
 next call and leaves the log in place. Court can read that evidence. The agent
 cannot judge itself, and a jury finding cannot undo a receipt.
+Reviewer labels are operator-selected local strings, not authenticated
+independent jury identities.
 
 Orchestra's ten-commandment Score and the AGENT_LAW misconduct ladder stay
 where the constitution points. This module does not rename them. The law this
@@ -318,7 +320,7 @@ def judge(
     statement: str,
     verdict: str,
 ) -> Dict[str, Any]:
-    """Record a review. The agent cannot acquit itself, and the receipt stays."""
+    """Record a trusted local review label; no independent identity is authenticated."""
     receipts_before = _freeze(record["receipts"])
     status_before = record["status"]
     entry: Dict[str, Any] = {
@@ -365,7 +367,7 @@ def evolve(record: Dict[str, Any], *, role: str, proposal: str) -> Dict[str, Any
 
 
 def adopt(record: Dict[str, Any], *, role: str) -> Dict[str, Any]:
-    """Adoption follows an independent review and cannot raise the birth ceiling."""
+    """Adoption follows trusted local review and cannot raise the birth ceiling."""
     commandments = record["birth"]["commandments_sha256"]
     if role != "operator":
         return {"ok": False, "reason": "agent_cannot_rewrite_commandments"}
@@ -420,7 +422,6 @@ class Door:
     def __init__(self) -> None:
         self.record: Optional[Dict[str, Any]] = None
         self.compiled_at: Optional[datetime] = None
-        self.now_ms: Optional[int] = None
         self.tokens: Optional[Sequence[Mapping[str, Any]]] = None
 
     def act(self, payload: Mapping[str, Any], *, now: Optional[datetime] = None) -> Dict[str, Any]:
@@ -449,7 +450,7 @@ class Door:
             return self._birth(mandate, now)
         if act in {"test", "authorize"} and not program.strip():
             raise ValueError("program must contain .x3 source")
-        if self.record is None or self.compiled_at is None or self.now_ms is None or self.tokens is None:
+        if self.record is None or self.compiled_at is None or self.tokens is None:
             return {"ok": False, "reason": "no_birth"}
         if act == "test":
             return test_proposal(self.record, program, compiled_at=self.compiled_at, tokens=self.tokens)
@@ -459,7 +460,7 @@ class Door:
                 {"route": ROUTE, "source": program},
                 role="agent",
                 compiled_at=self.compiled_at,
-                now_ms=self.now_ms,
+                now_ms=compiled_at_ms(now or datetime.now(timezone.utc)),
                 tokens=self.tokens,
             )
         return revoke(self.record, role="operator", reason="workbench")
@@ -468,7 +469,7 @@ class Door:
         if not mandate.strip():
             raise ValueError("mandate must contain .x3 source")
         compiled_at = now or datetime.now(timezone.utc)
-        if compiled_at.tzinfo is None:
+        if compiled_at.tzinfo is None or compiled_at.utcoffset() is None:
             raise LawError("X3_LAW_CLOCK", "birth needs a timezone")
         tokens = json.loads(TOKENS.read_text(encoding="utf-8"))
         compiled = forcefield.compile_mandate_source(mandate, tokens, now=compiled_at)
@@ -485,7 +486,6 @@ class Door:
             tokens=tokens,
         )
         self.compiled_at = compiled_at
-        self.now_ms = compiled_at_ms(compiled_at)
         self.tokens = tokens
         return {"ok": True, "reason": "born"}
 
@@ -659,6 +659,7 @@ def demonstrate() -> Dict[str, Any]:
             "This path authorizes an X3-routed call and does not broadcast it.",
             "Solana custody stays outside the path. A manual wallet can still move the funds.",
             "A jury finding does not reverse a recorded receipt.",
+            "Reviewer labels are operator-selected local strings, not an authenticated independent jury.",
             "The birth mandate hash stays in place when a later proposal is adopted.",
             "The archived FullAccess key on the live agent is untouched.",
         ],
@@ -810,7 +811,7 @@ def render(report: Mapping[str, Any]) -> str:
 
 
 def compiled_at_ms(moment: datetime) -> int:
-    if moment.tzinfo is None:
+    if moment.tzinfo is None or moment.utcoffset() is None:
         raise LawError("X3_LAW_CLOCK", "compiled_at needs a timezone")
     utc = moment.astimezone(timezone.utc)
     epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
