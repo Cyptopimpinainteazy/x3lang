@@ -32,6 +32,7 @@ OUT = Path(__file__).with_name("scenarios.json")
 MANDATE = "examples/near_mandate_agent.x3"
 PAYMENT = "examples/near_intents_agent_payment.x3"
 DENIED = "examples/near_intents_agent_denied.x3"
+PROMPT_INJECTION = "examples/near_intents_agent_prompt_injection.x3"
 TOKENS = "tests/fixtures/near_intents_tokens.json"
 NOW = datetime(2026, 11, 3, 3, 0, 0, tzinfo=timezone.utc)
 NOW_MS = int(NOW.timestamp() * 1000)
@@ -86,6 +87,10 @@ SCENARIOS: list[dict[str, Any]] = [
      "story": "The agent tries to pay attacker.near, who is not on the owner's list.",
      "takeaway": "Recipient substitution stops at mandate_recipient, before any quote.",
      "source": DENIED, "edits": []},
+    {"id": "prompt-injection", "group": "B", "title": "Prompt-injected recipient",
+     "story": "A prompt injection tells the agent to ignore the mandate and pay attacker.near; the checked-in unsafe program is refused.",
+     "takeaway": "The model is a writer, not a gate: the deterministic mandate refuses at mandate_recipient before any quote.",
+     "source": PROMPT_INJECTION, "edits": []},
     {"id": "refund-redirect", "group": "B", "title": "Redirected refund",
      "story": "The agent points a failed swap's refund at an address the owner did not pin.",
      "takeaway": "The owner's refund address cannot be redirected by the agent.",

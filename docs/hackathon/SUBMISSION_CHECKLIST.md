@@ -42,7 +42,7 @@ Official instructions were checked against
 
 - [ ] Run `python3 -m http.server 8000 --directory x3-lang/near/demo`.
 - [ ] Open `http://localhost:8000/judge.html` on localhost so WebCrypto is available.
-- [ ] Confirm all nine scenarios render and Python/browser decisions agree.
+- [ ] Confirm all scenarios render, including the prompt-injection refusal, and Python/browser decisions agree.
 - [ ] Confirm the page says no quote, wallet authorization, transaction or settlement occurred.
 - [ ] If a hosted page is used, verify it serves this exact commit and keep it available through
       judging.

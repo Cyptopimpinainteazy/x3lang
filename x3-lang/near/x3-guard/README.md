@@ -79,9 +79,27 @@ key from sending funds directly, so give the agent a NEAR account and never the 
 
 ```bash
 cd x3-lang/near/x3-guard
-cargo test          # 42 unit tests on near-sdk's mocked chain
+cargo test          # 51 unit tests on near-sdk's mocked chain
 cargo clippy --all-targets -- -D warnings
 ```
+
+### Local sandbox integration test
+
+The deployed-WASM test lives in `sandbox-test/`:
+
+From the repository root:
+
+```bash
+bash scripts/guard-sandbox-test.sh
+```
+
+It builds the WASM with plain Cargo, starts a local `near-sandbox`, funds
+sandbox-only accounts, deploys `x3_guard.wasm`, and exercises `create_mandate`,
+an allowed agent registration, a forbidden-recipient refusal (the
+`check_agent_intent` view reports `mandate_recipient: false`, and the
+transaction fails on-chain), and revocation. Every transaction hash and receipt
+it prints is **sandbox-local**; this is not public testnet or mainnet evidence.
+The first run downloads the sandbox binary.
 
 The tests include two real 1Click-signed quotes, verified under the production key, and the
 exact arguments `near_intents.py guard-args` generates (`x3-lang/tests/fixtures/x3_guard_args.json`,

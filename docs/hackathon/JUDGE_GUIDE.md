@@ -26,7 +26,21 @@ Rust/Cargo. Full mode also requires wasm32-unknown-unknown.
 | cat x3-lang/examples/near_mandate_agent.x3 | Owner, limits, recipient allowlists and approvals | Guard policy source, not wallet custody |
 | cat x3-lang/examples/near_intents_agent_payment.x3 | Agent intent under mandate | Example program, not live execution |
 | Open https://x3-guard.pages.dev | Signed dry quote policy checks | No actual payment was sent |
-| bash x3-lang/near/first-swap.sh | Prints the supported commands | Manual swap workflow; no funds moved by this command |
+
+### Local sandbox integration test — not public chain evidence
+
+```bash
+bash scripts/guard-sandbox-test.sh
+```
+
+This builds and deploys the actual `x3_guard.wasm` into a local `near-sandbox` node, funds
+sandbox-only accounts, and exercises `create_mandate`, an allowed agent
+registration, a forbidden-recipient refusal (the `check_agent_intent` view
+reports `mandate_recipient: false`, and the transaction fails on-chain), and
+revocation. It prints sandbox transaction and receipt outcomes for inspection.
+**Every hash is sandbox-local; none is a public testnet or mainnet
+transaction.** It needs `wasm32-unknown-unknown` and downloads the sandbox
+binary on first run.
 
 Set up a Python virtual environment rather than using global/root pip:
 

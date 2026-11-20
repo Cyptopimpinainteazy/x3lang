@@ -2,16 +2,22 @@
 
 These are the hackathon-stage surfaces that sit alongside the core NEAR
 mandate story. They are kept here so the README's first screen stays on
-what works today versus what is deliberately blocked.
+what works today versus what is deliberately blocked. They are **not** part of
+the 3-minute judge path.
+
+**Research-only, not submitted:** the native HTLC/bridge has open storage
+economics (#71) and a failed-claim preimage leak (#42). See
+[HTLC_STATUS.md](research/HTLC_STATUS.md). Do not deploy or claim settlement
+from it.
 
 ## User-first commercial economics (new, opt-in)
 
-[X3Lang's value-fee arithmetic](x3-lang/value_fee.py) provides an inspectable,
+[X3Lang's value-fee arithmetic](../x3-lang/value_fee.py) provides an inspectable,
 **non-billable** preview: an operator can propose a capped share of measurable
 positive net savings, and the user must remain better off after the proposed
-fee. See [COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md) for the transparent
+fee. See [COMMERCIAL_MODEL.md](../COMMERCIAL_MODEL.md) for the transparent
 revenue options, IP/licensing limitations, and missing on-chain authority,
-and the [NEAR value-first rollout gates](docs/plans/NEAR_X3LANG_VALUE_FIRST_IMPLEMENTATION.md)
+and the [NEAR value-first rollout gates](plans/NEAR_X3LANG_VALUE_FIRST_IMPLEMENTATION.md)
 for the planned on-chain enforcement and integration work.
 
 ```bash
@@ -27,7 +33,7 @@ would be needed to collect any future fee.
 
 ## Experimental Solana owner-controlled token vault
 
-The [X3 Solana Mandate Vault](x3-lang/solana/x3-mandate-vault/README.md)
+The [X3 Solana Mandate Vault](../x3-lang/solana/x3-mandate-vault/README.md)
 is a new hackathon-stage, standalone Solana program for **funds already held
 in its PDA-controlled classic SPL Token account**. An owner must approve
 the exact destination token account and its owner, amount, quote digest,
@@ -49,7 +55,7 @@ proof of destination-chain causality.
 
 ## NEAR Intents integration: what works and what remains
 
-**[X3 Guard live dry-quote demo](https://x3-guard.pages.dev/)** · [Example .x3 intent](x3-lang/examples/near_intents_sol_to_near.x3) · [1Click adapter](x3-lang/near_intents.py) · [Guard contract and trust model](x3-lang/near/x3-guard/README.md)
+**[X3 Guard live dry-quote demo](https://x3-guard.pages.dev/)** · [Example .x3 intent](../x3-lang/examples/near_intents_sol_to_near.x3) · [1Click adapter](../x3-lang/near_intents.py) · [Guard contract and trust model](../x3-lang/near/x3-guard/README.md)
 
 | Component | Demonstrable in source | Not yet established |
 | --- | --- | --- |
@@ -57,7 +63,7 @@ proof of destination-chain causality.
 | NEAR Intents 1Click adapter | Plans requests; checks signed quotes, minimum received, slippage, fees, freshness and nonces | A production solver or a completed cross-chain fill |
 | NEAR Guard | On-chain contract source for policy registration, signature checks, mandates and revocation; local tests | Production security audit, independent cross-chain causality proof |
 | Browser demo | Real signed *dry* quote with visible policy verdicts | Wallet authorization, funded swap or settlement |
-| Evidence tooling | Guided first-swap script and chain-verification commands | Publicly verified authorized swap and refund evidence |
+| Evidence tooling | Read-only chain-verification commands and dry-quote checks | Publicly verified authorized swap and refund evidence |
 
 ### NEAR Intents partnership / pilot inquiry
 
@@ -71,4 +77,4 @@ execution costs, and *only then* larger capital or solver admission. This is a
 proposal, **not** an existing sponsorship, solver accreditation, or a claim
 that minimum requirements can be waived.
 
-Technical discussion: [open an issue titled NEAR Intents pilot](https://github.com/Cyptopimpinainteazy/x3lang/issues/new?title=NEAR%20Intents%20pilot). Review the [full adapter README](x3-lang/README.md#near-intents-adapter-near_intentspy) before executing any live commands; no testnet or wallet-free live operation is implied.
+Technical discussion: [open an issue titled NEAR Intents pilot](https://github.com/Cyptopimpinainteazy/x3lang/issues/new?title=NEAR%20Intents%20pilot). Review the [full adapter README](../x3-lang/README.md#near-intents-adapter-near_intentspy) before executing any live commands; no testnet or wallet-free live operation is implied.

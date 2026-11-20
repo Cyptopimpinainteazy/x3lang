@@ -1,11 +1,11 @@
 # X3Lang — verifiable financial policies for cross-chain execution
 
-X3Lang is an existing experimental compiler, transaction-policy VM and
-cross-chain verification toolkit developed as part of the X3 blockchain. It aims to constrain trading and agent instructions with explicit authorization, recipient, fee, expiry and refund policies before funds move.
+**Built for NEAR HACKATHON 2026.**
 
-Unlike NEAR's policy-bound wallets or function-call keys, X3 mandates are a
-typed language that also verifies NEAR Intents' signed quote terms before a
-deposit is authorized.
+X3Lang lets an owner compile spending limits into a policy that an AI agent's
+NEAR payment must satisfy before any deposit. Unlike NEAR's policy-bound
+wallets or function-call keys, X3 mandates are a typed language that also
+verifies NEAR Intents' signed quote terms before a deposit is authorized.
 
 **Works today** — a `.x3` mandate compiles and the same verdict is reproduced
 in Python, the browser, and the NEAR guard contract; the guard's on-chain
@@ -13,9 +13,10 @@ Ed25519 check verifies a real 1Click quote's signed terms (locally tested);
 refusal-first tests cover overspend, wrong recipient, replay, refund
 redirection, and revocation.
 
-**Deliberately blocked** — no wallet transfer, live settlement, or on-chain
-authorization is claimed here. Cross-chain causality stays "unproven" until an
-independently verifiable link exists.
+**Deliberately blocked** — no wallet transfer, live settlement, on-chain
+authorization, or authenticated NEAR consensus is claimed here. This repository
+has no project-owned NEAR testnet transaction or deployment. Cross-chain
+causality stays "unproven" until an independently verifiable link exists.
 
 **Who this protects.** A team runs an AI agent that pays for API inference and
 data through NEAR Intents under one owner mandate
@@ -50,7 +51,7 @@ python3 -m http.server 8000 --directory x3-lang/near/demo
 
 The console shows one owner mandate deciding the allowed, approval-required
 and forbidden actions shown by the checked-in X3 programs. The browser runs
-the same mandate checks as the production adapter, and the page compares its
+the same mandate checks as the Python adapter, and the page compares its
 verdict with Python guard by guard.
 
 For the terminal version:
@@ -101,7 +102,9 @@ report and fails when evidence is stale, dirty or missing.
   and verifier generator used by existing VM integration tests.
 
 The Solana vault, BSC value-fee economics, and the NEAR Intents rollout/pilot
-notes live in [docs/EXTENDED_SURFACES.md](docs/EXTENDED_SURFACES.md).
+notes live in [docs/EXTENDED_SURFACES.md](docs/EXTENDED_SURFACES.md). The
+HTLC/bridge is research-only (storage #71, preimage #42); see
+[docs/research/HTLC_STATUS.md](docs/research/HTLC_STATUS.md).
 
 ### Reproducible local checks
 
@@ -113,6 +116,8 @@ PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 (cd x3-lang && cargo clippy -p x3-lang-vm --all-targets --locked -- -D warnings)
 (cd x3-lang/near/x3-guard && cargo test --locked --quiet)
 node --test x3-lang/near/demo/test/*.test.mjs
+# Optional local sandbox test (not public testnet; downloads a sandbox binary):
+bash scripts/guard-sandbox-test.sh
 ```
 
 ### Public browser demonstration
@@ -168,6 +173,6 @@ acceptance is not wallet authorization, a signed quote or settlement.
 
 ## License
 
-Dual-licensed under **MIT OR Apache-2.0**, matching the SPDX expressions in
-the crate manifests. The MIT text is in [LICENSE](LICENSE); the Apache-2.0
-text is the standard Apache License, Version 2.0.
+Licensed under the **MIT License**; see [LICENSE](LICENSE). The crate
+manifests declare the SPDX expression `MIT OR Apache-2.0`, and this repository
+ships the MIT option.

@@ -3,23 +3,28 @@
 # before every NEAR transaction. This script never moves USDC; the owner's own Solana
 # wallet performs the deposit after the live quote is accepted.
 #
-#   x3-lang/near/agent-demo.sh setup                   write state and the owner's mandate
-#   x3-lang/near/agent-demo.sh mandate                 owner creates the mandate on x3-guard
-#   x3-lang/near/agent-demo.sh pay-dry                 real model writes and checks a payment
-#   x3-lang/near/agent-demo.sh pay-live <sha256>       owner-approved live quote, exact dry program
-#   x3-lang/near/agent-demo.sh register                agent registers + accepts on x3-guard
-#   x3-lang/near/agent-demo.sh deposit <sig> [refund]  verify the owner's deposit and outcome
-#   x3-lang/near/agent-demo.sh refuse                  malicious register call fails on chain
-#   x3-lang/near/agent-demo.sh revoke                  owner revokes the mandate
-#   x3-lang/near/agent-demo.sh post-revoke             valid call fails after revocation
-#   x3-lang/near/agent-demo.sh show                    state, hashes and explorer links
+# OPERATOR-ONLY MAINNET WORKFLOW. Not part of the NEAR hackathon judge demo.
+# 1Click has no testnet. Every transaction asks for confirmation; this repository
+# does not authorize a deployment or transfer. Review docs/operations/README.md first.
+#
+#   docs/operations/agent-demo.sh setup                   write state and the owner's mandate
+#   docs/operations/agent-demo.sh mandate                 owner creates the mandate on x3-guard
+#   docs/operations/agent-demo.sh pay-dry                 real model writes and checks a payment
+#   docs/operations/agent-demo.sh pay-live <sha256>       owner-approved live quote, exact dry program
+#   docs/operations/agent-demo.sh register                agent registers + accepts on x3-guard
+#   docs/operations/agent-demo.sh deposit <sig> [refund]  verify the owner's deposit and outcome
+#   docs/operations/agent-demo.sh refuse                  malicious register call fails on chain
+#   docs/operations/agent-demo.sh revoke                  owner revokes the mandate
+#   docs/operations/agent-demo.sh post-revoke             valid call fails after revocation
+#   docs/operations/agent-demo.sh show                    state, hashes and explorer links
 #
 # Set X3_AGENT_PROVIDER / ANTHROPIC_API_KEY (or an OpenAI-compatible provider) before
 # pay-dry. Keys and state stay in $X3_AGENT_RUN_DIR (default ~/.x3/agent-demo), modes 700/600.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-X3_LANG="$(cd "$HERE/.." && pwd)"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+X3_LANG="$REPO_ROOT/x3-lang"
 ADAPTER="$X3_LANG/near_intents.py"
 AGENT="$X3_LANG/near_agent.py"
 RUN_DIR="${X3_AGENT_RUN_DIR:-$HOME/.x3/agent-demo}"
@@ -34,7 +39,8 @@ POST_REVOKED="$RUN_DIR/agent_post_revoke_payment.x3"
 POST_REVOKED_ARGS="$RUN_DIR/agent-post-revoke-register.json"
 POST_REVOKED_LOG="$RUN_DIR/agent-post-revoke-onchain.log"
 RECEIPT="$RUN_DIR/agent_payment.near-receipt.json"
-NETWORK="mainnet"
+# Operator-only: defaults to mainnet. Review docs/operations/README.md first.
+NETWORK="${X3_NEAR_NETWORK:-mainnet}"
 
 say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }

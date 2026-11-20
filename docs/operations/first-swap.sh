@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # first-swap.sh: one real, small NEAR Intents swap through X3, step by step, with proof at every step.
 #
-#   x3-lang/near/first-swap.sh setup               write the X3 program for this run (asks for each value)
-#   x3-lang/near/first-swap.sh check               tools, NEAR balance, and a dry quote of the program
-#   x3-lang/near/first-swap.sh build               build the x3-guard contract (cargo near)
-#   x3-lang/near/first-swap.sh deploy              deploy x3-guard to your NEAR account     (costs NEAR)
-#   x3-lang/near/first-swap.sh quote               live quote, then register + accept it on NEAR (costs NEAR)
-#   x3-lang/near/first-swap.sh deposited <tx-sig>  after YOU send the USDC: track, verify from both chains, record
-#   x3-lang/near/first-swap.sh show                where everything is, with explorer links
+# OPERATOR-ONLY MAINNET WORKFLOW. Not part of the NEAR hackathon judge demo.
+# 1Click has no testnet. Every transaction asks for confirmation; this repository
+# does not authorize a deployment or transfer. Review docs/operations/README.md first.
+#
+#   docs/operations/first-swap.sh setup               write the X3 program for this run (asks for each value)
+#   docs/operations/first-swap.sh check               tools, NEAR balance, and a dry quote of the program
+#   docs/operations/first-swap.sh build               build the x3-guard contract (cargo near)
+#   docs/operations/first-swap.sh deploy              deploy x3-guard to your NEAR account     (costs NEAR)
+#   docs/operations/first-swap.sh quote               live quote, then register + accept it on NEAR (costs NEAR)
+#   docs/operations/first-swap.sh deposited <tx-sig>  after YOU send the USDC: track, verify from both chains, record
+#   docs/operations/first-swap.sh show                where everything is, with explorer links
 #
 # This script never moves your USDC. The deposit is made by you, from your own Solana wallet,
 # after `quote` prints the address and exact amount. Every step that spends NEAR asks first.
@@ -15,15 +19,17 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-X3_LANG="$(cd "$HERE/.." && pwd)"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+X3_LANG="$REPO_ROOT/x3-lang"
 ADAPTER="$X3_LANG/near_intents.py"
-GUARD_DIR="$HERE/x3-guard"
+GUARD_DIR="$X3_LANG/near/x3-guard"
 WASM="$GUARD_DIR/target/near/x3_guard.wasm"
 RUN_DIR="${X3_RUN_DIR:-$HOME/.x3/first-swap}"
 STATE="$RUN_DIR/state.env"
 PROGRAM="$RUN_DIR/x3_first_swap.x3"
 RECEIPT="$RUN_DIR/x3_first_swap.near-receipt.json"
-NETWORK="mainnet"
+# Operator-only: defaults to mainnet. Review docs/operations/README.md first.
+NETWORK="${X3_NEAR_NETWORK:-mainnet}"
 
 say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }

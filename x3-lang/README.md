@@ -127,10 +127,10 @@ enforced by a local nonce store. Refused by code rather than approximated: multi
 guards 1Click cannot enforce (`finality`, `proof_complete`, …), missing slippage or timeout,
 refunds in another asset, and `on_fail halt`/`quarantine`.
 
-First real swap: `x3-lang/near/first-swap.sh` walks one small swap end to end:
-`setup` → `check` → `build` → `deploy` → `quote` (live quote, registered and accepted on NEAR) →
-you send the USDC → `deposited <solana-tx>` (track, prove from both chains, record the outcome).
-It never moves your funds and asks before every step that spends NEAR.
+Operator-only mainnet workflow: `docs/operations/first-swap.sh` walks one small swap end to end
+(`setup` → `check` → `build` → `deploy` → `quote` → you send the USDC → `deposited <solana-tx>`).
+It is not part of the judge demo; 1Click has no testnet. It never moves your funds and asks before
+every step that spends NEAR.
 
 Chain evidence: `verify-deposit --receipt R` proves the finalized Solana or BSC origin transfer.
 For BSC, transaction and receipt must agree on the exact native-BNB value, destination and
@@ -181,7 +181,7 @@ python3 x3-lang/near_agent.py pay "..." --mandate ... --guard-contract ... \
 python3 x3-lang/near_agent.py redteam --mandate ... --out-dir evidence/   # adversarial requests, real model
 python3 x3-lang/near_agent.py register-args <program.x3> --mandate <mandate.x3> \
   --contract <x3-guard account> --signer <agent account> --key-file <agent key>
-x3-lang/near/agent-demo.sh setup && x3-lang/near/agent-demo.sh show
+docs/operations/agent-demo.sh setup && docs/operations/agent-demo.sh show
 ```
 
 The request and any `--context` document go to the model as untrusted data. The pipeline issues
@@ -203,10 +203,10 @@ to a fixed 0.25 USDC, so on 5 USDC it is about 5%, and the `fees` guard refuses 
 | Anthropic and OpenAI-compatible clients | implemented; tested against recorded request and response shapes; live-model evidence is pending an API key |
 | Pipeline, checks, approval binding, register-args | implemented; regression tests in `tests/test_near_agent.py`, including eight adversarial cases |
 | On-chain refusal path | `register-args` produces `agent_register_intent` arguments without a quote; contract tests confirm they are refused with `X3_MANDATE_DENIED`; no production deployment was verified |
-| Guided live demo | `near/agent-demo.sh` prepares steps and asks before transactions; it can initiate owner-approved on-chain operations and requires live review |
+| Operator-only live demo | `docs/operations/agent-demo.sh` prepares steps and asks before transactions; it can initiate owner-approved on-chain operations and requires live review; not in the judge path |
 | Deployed contract and real payment | not done: needs a deployed x3-guard account, owner-authorized wallet action and funds |
 
-`agent-demo.sh` runs the judge-facing sequence in order: mandate, dry model run, owner-approved
+`docs/operations/agent-demo.sh` runs the operator-only sequence in order: mandate, dry model run, owner-approved
 live quote, agent register/accept, owner deposit, chain verification, one on-chain refusal, and
 owner revocation. Store any committed red-team evidence under `evidence/agent-redteam-<date>/`.
 
