@@ -1,0 +1,19 @@
+x3-lang/tests/test_solana_source_agent.py
+  s_12a3b7d0adff47::t_3e6d6dfd7d7c0b 1-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "46018c9f7f90816651a0b5cbea0f7316e60562b0",
+  "prompts": {},
+  "sessions": {
+    "s_12a3b7d0adff47": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abf0687c-aead-4cf9-b15d-07573b8c9eb7",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
