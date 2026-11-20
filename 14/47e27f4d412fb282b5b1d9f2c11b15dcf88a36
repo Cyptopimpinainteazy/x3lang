@@ -1,0 +1,25 @@
+x3-lang/tests/test_submission_copy.py
+  s_31fd028fa06438::t_bf42442b0a71ac 1-61,63-117
+  s_31fd028fa06438::t_16575750039a31 62
+submission/x-post-draft.md
+  s_31fd028fa06438::t_91c0de144fe29e 3-8
+  s_31fd028fa06438::t_422d372d2d72cb 14,16,18
+  s_31fd028fa06438::t_cdbe12a8592cbf 37
+  s_31fd028fa06438::t_88ec16e338c8b6 43-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1447e27f4d412fb282b5b1d9f2c11b15dcf88a36",
+  "prompts": {},
+  "sessions": {
+    "s_31fd028fa06438": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69bd2b58-7f31-4914-aa3b-33a64ae821c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

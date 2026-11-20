@@ -1,0 +1,36 @@
+audit-artifacts/intent-compiler-parity-20261111/verification.json
+  h_e41068bed968d7 1-155
+x3-lang/README.md
+  h_e41068bed968d7 195-197,200-205
+x3-lang/compiler/src/intent_emit.rs
+  h_e41068bed968d7 21-23,143,145,166-168,242,246,248-262,269-277,293-300,304-350,383-402
+x3-lang/compiler/src/lowering.rs
+  h_e41068bed968d7 178-181
+x3-lang/compiler/src/parser.rs
+  h_e41068bed968d7 6053-6058
+x3-lang/compiler/tests/test_intent_mandate.rs
+  h_e41068bed968d7 53,153-273
+x3-lang/crates/x3-tools/src/bin/x3c.rs
+  h_e41068bed968d7 1810-1817,1829-1831,1839,1842
+x3-lang/crates/x3-tools/tests/intent_export_parity.rs
+  h_e41068bed968d7 1-70
+x3-lang/tests/fixtures/near_intents_named_nonce_payment.x3
+  h_e41068bed968d7 1-13
+x3-lang/vm/src/bridge.rs
+  h_e41068bed968d7 3237-3238,3315-3323
+x3-lang/vm/tests/test_mandate_resolution.rs
+  h_e41068bed968d7 1-41
+x3-lang/vm/tests/test_nonce_replay.rs
+  h_e41068bed968d7 103-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c358f092ededd4ac1c1d58049d16a7db09efe947",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

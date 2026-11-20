@@ -1,0 +1,28 @@
+x3-lang/README.md
+  s_8679c3d363312b::t_e30ca557a40b1b 176
+scripts/hackathon/guard_sandbox_smoke.sh
+  s_8679c3d363312b::t_e30ca557a40b1b 15-17
+  s_8679c3d363312b::t_9110edd7c48a13 18-20
+  s_8679c3d363312b::t_99168144ea224c 21-44,77,83
+docs/hackathon/NEAR_GUARD_LOCAL_SANDBOX.md
+  s_8679c3d363312b::t_9110edd7c48a13 14-20
+  s_8679c3d363312b::t_e30ca557a40b1b 13,21
+docs/hackathon/GUARD_TESTNET_DEPLOYMENT_READINESS.md
+  s_8679c3d363312b::t_e30ca557a40b1b 64-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "24186512a485935603f0a65d592bc4a4d3161c11",
+  "prompts": {},
+  "sessions": {
+    "s_8679c3d363312b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b988-350d-7673-90e1-321c3a80d04a",
+        "model": "deepseek-flash"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+evidence/near-guard-mainnet-invoice06-2026-11-12/README.md
+  h_e41068bed968d7 52-54,60-63,68-70
+evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md
+  h_e41068bed968d7 1-81
+evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/SHA256SUMS
+  h_e41068bed968d7 1-3
+evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/guard-source-verification.json
+  h_e41068bed968d7 1-130
+evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/mandate-proposed.x3
+  h_e41068bed968d7 1-14
+evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/payment-proposed.x3
+  h_e41068bed968d7 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e91d01bf6b76d6c1e4a901a1fcd7baf677afcc2d",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

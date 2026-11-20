@@ -1,0 +1,22 @@
+x3-lang/near/demo/test/x3guard.test.mjs
+  s_1d8a815ba785d0::t_4de4fa10a4ebfc 161-164
+x3-lang/near/demo/x3guard.mjs
+  s_1d8a815ba785d0::t_e9436ff4428c78 603-605
+  s_1d8a815ba785d0::t_4de4fa10a4ebfc 580-595,600,602,610,612,616,933-936
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c90b2a9dd8acd4397a1313262d5ea72d14bdde4b",
+  "prompts": {},
+  "sessions": {
+    "s_1d8a815ba785d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a89c-92cf-7b62-aaea-9357f8f29d03",
+        "model": "deepseek-flash"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

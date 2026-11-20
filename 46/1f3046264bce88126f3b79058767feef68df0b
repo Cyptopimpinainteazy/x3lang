@@ -1,0 +1,19 @@
+docs/hackathon/MAINNET_AGENT_PREFLIGHT.md
+  s_adcfcc08d94360::t_6d219ccbad9f43 239-264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "461f3046264bce88126f3b79058767feef68df0b",
+  "prompts": {},
+  "sessions": {
+    "s_adcfcc08d94360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c478-6807-7522-9694-3fefaf7cd3c5",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

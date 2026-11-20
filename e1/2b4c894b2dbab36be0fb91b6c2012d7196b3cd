@@ -1,0 +1,44 @@
+.github/workflows/x3lang-execution-proof.yml
+  h_e41068bed968d7 12-13,15-17,24-25,33-35,37-40,42-45,61
+.github/workflows/x3lang-peer-parity.yml
+  h_e41068bed968d7 1-53
+.shipframe/profile.md
+  h_e41068bed968d7 41-42
+AGENTS.md
+  h_e41068bed968d7 18-20,45-46
+README.md
+  h_e41068bed968d7 5-9
+audit-artifacts/standalone-ci-policy-20261110/verification.json
+  h_e41068bed968d7 1-54
+audit-artifacts/standalone-ci-policy-20261110/x3-standalone-policy-final-ci-tests.txt
+  h_e41068bed968d7 1-45
+audit-artifacts/standalone-ci-policy-20261110/x3-standalone-policy-final-proof-tests.txt
+  h_e41068bed968d7 1-37
+audit-artifacts/standalone-ci-policy-20261110/x3-standalone-policy-python.txt
+  h_e41068bed968d7 1-11
+docs/security/RUST_GUARD_MUTATION_GATE.md
+  h_e41068bed968d7 60
+docs/security/STANDALONE_CI_POLICY.md
+  h_e41068bed968d7 1-64
+scripts/proof/check_x3lang_checkout.py
+  h_e41068bed968d7 1-48
+tests/ci/test_private_peer_checkout.py
+  h_e41068bed968d7 2,14,66,75-76,78-80,84-101
+tests/ci/test_standalone_checkout.py
+  h_e41068bed968d7 1-97
+wiki/index.md
+  h_e41068bed968d7 45
+wiki/log.md
+  h_e41068bed968d7 15-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e12b4c894b2dbab36be0fb91b6c2012d7196b3cd",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+docs/hackathon/MAINNET_AGENT_PREFLIGHT.md
+  s_adcfcc08d94360::t_74d4a920dc5859 212-227
+evidence/agent-mainnet-route-probe-2026-11-10/SHA256SUMS
+  s_adcfcc08d94360::t_9cf949e0bac8bb 1
+evidence/agent-mainnet-route-probe-2026-11-10/observation.json
+  s_adcfcc08d94360::t_98874315ac93ac 1-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ea78b006b8321fb35e189c88ffd7b0851130954f",
+  "prompts": {},
+  "sessions": {
+    "s_adcfcc08d94360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c478-6807-7522-9694-3fefaf7cd3c5",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

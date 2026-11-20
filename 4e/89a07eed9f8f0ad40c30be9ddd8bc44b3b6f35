@@ -1,0 +1,18 @@
+JUDGES.md
+  h_e41068bed968d7 21-64
+submission/judge-claims.json
+  h_e41068bed968d7 1-89
+submission/submission-copy.md
+  h_e41068bed968d7 9,11,13,15,17,19-21,43-51,74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e89a07eed9f8f0ad40c30be9ddd8bc44b3b6f35",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

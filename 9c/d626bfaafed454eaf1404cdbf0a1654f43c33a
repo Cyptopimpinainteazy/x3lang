@@ -1,0 +1,31 @@
+scripts/hackathon/demo.py
+  s_df378cb98c9181::t_223a660f1cc4fc 118-119,127,140,152,163-164,174-175
+x3-lang/near/demo/judge.html
+  s_df378cb98c9181::t_43745c44d8635f 126-127,138,171,175-176
+x3-lang/near/demo/judge/build_scenarios.py
+  s_df378cb98c9181::t_2cf28de1c0a153 57-61,66-67,90-93
+x3-lang/near/demo/judge/scenarios.json
+  s_df378cb98c9181::t_834eb826c5b7e9 7,9,12-15,18,21-22,124-125,416-418
+x3-lang/tests/test_hackathon_support.py
+  s_df378cb98c9181::t_eb434a2bb035a4 55-59,180,182-183,194
+x3-lang/tests/test_track_control.py
+  s_df378cb98c9181::t_12c1162a663356 20,25
+x3-lang/track_control.py
+  s_df378cb98c9181::t_b28ff95f31863f 2,19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9cd626bfaafed454eaf1404cdbf0a1654f43c33a",
+  "prompts": {},
+  "sessions": {
+    "s_df378cb98c9181": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c47b-069a-7793-bfcb-09c50bffc6d2",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
