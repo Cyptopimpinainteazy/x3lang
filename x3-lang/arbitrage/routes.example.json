@@ -1,0 +1,24 @@
+{
+  "routes": [
+    {
+      "label": "Solana USDC → NEAR USDC → Solana USDC",
+      "origin_asset": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+      "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+      "amount": "100000000",
+      "origin_address": "REPLACE_WITH_YOUR_SOLANA_ADDRESS",
+      "destination_address": "REPLACE_WITH_YOUR_NEAR_ACCOUNT",
+      "external_cost_units": null,
+      "cost_source": "Unknown: estimate all source gas, return gas and other costs in origin USDC base units before paper eligibility"
+    },
+    {
+      "label": "Ethereum USDC → NEAR USDC → Ethereum USDC",
+      "origin_asset": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+      "destination_asset": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+      "amount": "100000000",
+      "origin_address": "REPLACE_WITH_YOUR_ETHEREUM_ADDRESS",
+      "destination_address": "REPLACE_WITH_YOUR_NEAR_ACCOUNT",
+      "external_cost_units": null,
+      "cost_source": "Unknown: estimate all source gas, return gas and other costs in origin USDC base units before paper eligibility"
+    }
+  ]
+}

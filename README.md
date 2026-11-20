@@ -74,6 +74,16 @@ for compile-time versus runtime checks and the evidence boundaries.
 [Why X3 Force Field stands out](docs/hackathon/WHY_X3_SHIELD.md) connects each distinguishing claim
 to its evidence and limits.
 
+## X3 Arbitrage local scanner
+
+The separate [X3 Arbitrage prototype](x3-lang/arbitrage/README.md) discovers configured
+NEAR/Solana/EVM round trips with signed dry quotes, browses exact provider-listed tokens,
+compares conservative route economics,
+exports compiled `.x3` legs and runs durable automatic paper round trips under per-leg `.x3` mandates. Start the constructed demo
+with `PYTHONPATH=x3-lang python3 -m arbitrage serve --mode demo`. Public market discovery
+and explicit mandate-checked live quote preparation are separate modes; the live coordinator remains disarmed without an explicitly approved trusted wallet gateway.
+Sequential cross-chain legs are not atomic. This is post-submission work.
+
 ## Local agent-law lifecycle
 
 A separate [local runtime prototype](docs/security/AGENT_LAW_RUNTIME.md) now binds signed birth records, delegated budgets, capability-scoped actions, durable revocation and independent signed review proposals. Run `python3 scripts/hackathon/agent_law_local_demo.py` in the configured virtual environment. It compiles actual .x3 intent plans; it does not hold or move funds, implement anonymous voting, or establish full ten-commandment enforcement.

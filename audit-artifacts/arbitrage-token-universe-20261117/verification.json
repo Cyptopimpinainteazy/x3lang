@@ -1,0 +1,138 @@
+{
+  "schema": "x3.arbitrage.token-expansion-verification.v1",
+  "at": "2026-11-17T07:47:32.267724+00:00",
+  "base_commit": "2f409d9ca8ab90dd5cc31855dccbc40139f942d9",
+  "source_sha256": {
+    ".github/workflows/x3-arbitrage.yml": "826ca5ea3fb4a9e4095ae4938b6d6a8ec412ed27dd3ee510891a7beac6734b73",
+    "README.md": "17403688e3f1fc8e8a5d026aec891652699d167e9fbc209a8bf8231b2fc13a7a",
+    "scripts/proof/arbitrage_roundtrip.py": "a49e986510f498920c0f278923d94747048ed1d9337412b961a892db61507c6d",
+    "x3-lang/arbitrage/AUTOMATIC_TRADING.md": "aa5e90502ab6d75d40011177f844fef61f3fe9498e202bb4bc27b5d89b1f4cbd",
+    "x3-lang/arbitrage/README.md": "52de236eed939db4bde38400e75593caf9ec4a1da048692e7d0086bdeac8db36",
+    "x3-lang/arbitrage/__init__.py": "74f850ff1e577d2100a47fc5963a855adedaf047ed3bcb8c5ba0308e78570994",
+    "x3-lang/arbitrage/__main__.py": "6f23cd5ab18ed0e722d232cdd6b69080405e06fd273e46afb776cf77a650be3e",
+    "x3-lang/arbitrage/adapters.py": "17c4a4e60c6e82029b1b8548fad0fe50c31eb3f7f34c674e5a72c9173d6f64f4",
+    "x3-lang/arbitrage/browser-smoke.mjs": "425b0a7cfc470cb9271a2d1c84716bb399cbcb7df747d9d27ef80f005d62bdd4",
+    "x3-lang/arbitrage/catalogue.py": "01a8b61faf85da07d80e48b3ab2ebe9715831e2c87fa070b37cd908b4c8d3a03",
+    "x3-lang/arbitrage/engine.py": "27f2d74dcadccb050619cffe52a570447bb4fbf8af76a646d1809e8cc479b8c9",
+    "x3-lang/arbitrage/execution.py": "c474d5ee846ab59ca1a83fcc110f5fd547b03ce3db1153e031bbcccbf85a2822",
+    "x3-lang/arbitrage/live.py": "a0d691528b4377ffbe9769836891ec00246db3c0b9ae6fc6839a1bb7972df57e",
+    "x3-lang/arbitrage/paper.py": "47f9086958f178ef7c83f54587b3b87857b9854350e18a5788ede449892108ac",
+    "x3-lang/arbitrage/routes.example.json": "2024a88e2029ed290a9e0602ace6533d4602ff8336e04ccc45ab1bab988886cc",
+    "x3-lang/arbitrage/server.py": "c5fed0cc24a9ae58af7570dd3f6f37c46bbcfeb8396d51e7a0b68b03f070f2bf",
+    "x3-lang/arbitrage/trader.py": "5c4371ca171ff2038f8922999e8ebe347811c04cbe986e8573be4856189f2f0e",
+    "x3-lang/arbitrage/trading_store.py": "cc08bb7d50a31e48c540797ac4de56f398c4fcb34a211e76433e4b8afc76d933",
+    "x3-lang/arbitrage/web/app.mjs": "b0850698e7dbe5b008b738c0044ea730db4bd1a09a1a991718a465ef4a98db59",
+    "x3-lang/arbitrage/web/format.mjs": "c0b2c196760f6f1922dfcbe15c49010e67d2e5d9a4f137fb9874f6e10f8af010",
+    "x3-lang/arbitrage/web/format.test.mjs": "5dcb245b86b83b12af0e945be38200b8a642ea7157b265d346cbd6a2e377ddfe",
+    "x3-lang/arbitrage/web/icon.svg": "845c5782c3539ecead049df0993b92ed0db0fabf2804a3e55c93c43dd752e6be",
+    "x3-lang/arbitrage/web/index.html": "0318d3b50e3485ad05b07cfb615818b1fc6efe0eada7296f604462560ec83862",
+    "x3-lang/arbitrage/web/style.css": "df44bedc6777843fcd6606367737969bd6eebfe9b13de069fbdc6f37a7db5112",
+    "x3-lang/tests/test_arbitrage.py": "7a52f837eab215786bcc9e8334bf6d4f93edb0ec76742d299edd94aee7d3893a",
+    "x3-lang/tests/test_arbitrage_catalogue.py": "9d73d55bf4c25450f80727091a78adf563dfd1083c2c959d8572e2e52dacd469",
+    "x3-lang/tests/test_arbitrage_trader.py": "5598e687e24c0aa1c55b3a353d0641971293e77570ab038fe2a331a5533a5c46",
+    "x3-lang/tests/test_arbitrage_wallet_gateway.py": "22cb7380b6031f5bb1c02207c69bab5a3cb8ffa3470883bf9fc326fede5edb16"
+  },
+  "environment": {
+    "python": "3.12.3",
+    "node": "v24.22.1",
+    "platform": "Linux-6.8.0-149-generic-x86_64-with-glibc2.39"
+  },
+  "results": [
+    {
+      "command": [
+        "env",
+        "PYTHONPATH=x3-lang",
+        "/home/lojak/Projects/x3lang-worktrees/x3lang-ship-20261106/.venv/bin/python",
+        "-m",
+        "pytest",
+        "x3-lang/tests",
+        "-q"
+      ],
+      "exit_code": 0,
+      "duration_s": 85.041,
+      "output_tail": "........................................................................ [  5%]\n.......................................................................................................................... [ 13%]\n........................................................ [ 17%]\n........................................................................ [ 23%]\n..............................................................s......... [ 28%]\n........................................................................ [ 33%]\n........................................................................ [ 38%]\n............................................. [ 41%]\n................................ [ 44%]\n........................................................................ [ 49%]\n........................................................................ [ 54%]\n........................................................................ [ 59%]\n........................................................................ [ 64%]\n............................................................................................................. [ 72%]\n........................................................................ [ 77%]\n........................................................................ [ 82%]\n........................................................................ [ 87%]\n........................................................................ [ 93%]\n........................................................................ [ 98%]\n........................                                                 [100%]\n1395 passed, 1 skipped, 140 subtests passed in 84.67s (0:01:24)\n"
+    },
+    {
+      "command": [
+        "/home/lojak/Projects/x3lang-worktrees/x3lang-ship-20261106/.venv/bin/python",
+        "-m",
+        "compileall",
+        "-q",
+        "x3-lang/arbitrage",
+        "scripts/proof/arbitrage_roundtrip.py"
+      ],
+      "exit_code": 0,
+      "duration_s": 0.046,
+      "output_tail": ""
+    },
+    {
+      "command": [
+        "/home/lojak/Projects/x3lang-worktrees/x3lang-ship-20261106/.venv/bin/python",
+        "scripts/proof/arbitrage_roundtrip.py",
+        "--output",
+        "/tmp/x3-expanded-paper-proof.json"
+      ],
+      "exit_code": 0,
+      "duration_s": 0.895,
+      "output_tail": "{\"result\": \"pass\", \"scenarios\": 8, \"real_transactions_submitted\": 0}\n"
+    },
+    {
+      "command": [
+        "node",
+        "--test",
+        "x3-lang/arbitrage/web/format.test.mjs"
+      ],
+      "exit_code": 0,
+      "duration_s": 0.131,
+      "output_tail": "\u2714 base units stay exact beyond JS safe integers (15.889806ms)\n\u2714 unknown spreads never pass a positive profit filter (0.225169ms)\n\u2139 tests 2\n\u2139 suites 0\n\u2139 pass 2\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 92.171459\n"
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "x3-lang/arbitrage/web/app.mjs"
+      ],
+      "exit_code": 0,
+      "duration_s": 0.031,
+      "output_tail": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "duration_s": 0.007,
+      "output_tail": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "duration_s": 0.005,
+      "output_tail": ""
+    },
+    {
+      "command": [
+        "env",
+        "X3_PLAYWRIGHT_MODULE=/home/lojak/Projects/apps/x3-desktop/node_modules/playwright",
+        "X3_CHROMIUM=/home/lojak/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome",
+        "X3_ARTIFACT_DIR=audit-artifacts/arbitrage-token-universe-20261117",
+        "X3_CATALOGUE_SMOKE=1",
+        "node",
+        "x3-lang/arbitrage/browser-smoke.mjs"
+      ],
+      "exit_code": 0,
+      "duration_s": 2.899,
+      "output_tail": "{\"browser\":\"chromium\",\"checks\":[\"desktop route table\",\"eligibility filter\",\"route inspector\",\"SQLite paper action\",\"full automatic two-leg .x3-mandated paper cycle\",\"compiled x3 download\",\"390px responsive layout\",\"no page or console errors\",\"real public token catalogue, chain/search filters and BSC USDC18\"],\"result\":\"pass\"}\n"
+    }
+  ],
+  "real_transactions_submitted": 0,
+  "live_integration": "disarmed; public catalogue/dry quotes only; no live custody gateway configured",
+  "hosted_ci": "recheck after final commit push"
+}
