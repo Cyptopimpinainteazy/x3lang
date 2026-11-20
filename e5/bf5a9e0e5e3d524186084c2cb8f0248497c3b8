@@ -1,0 +1,54 @@
+Cargo.lock
+  h_e41068bed968d7 6806,27103-27114
+Cargo.toml
+  h_e41068bed968d7 30
+crates/gpu-swarm/Cargo.toml
+  h_e41068bed968d7 28
+crates/gpu-swarm/src/crown/host_dispatch.rs
+  h_e41068bed968d7 1-2
+crates/gpu-swarm/src/crown/incident_handoff.rs
+  h_e41068bed968d7 1-2
+crates/gpu-swarm/src/crown/protected_gateway.rs
+  h_e41068bed968d7 1-2
+crates/gpu-swarm/src/crown/revocation.rs
+  h_e41068bed968d7 1-2
+crates/gpu-swarm/src/crown/scrapyard.rs
+  h_e41068bed968d7 1-2
+crates/gpu-swarm/src/crown/worker_ipc.rs
+  h_e41068bed968d7 1-2
+crates/x3-protected-gateway/Cargo.lock
+  h_e41068bed968d7 1-525
+crates/x3-protected-gateway/Cargo.toml
+  h_e41068bed968d7 1-18
+crates/x3-protected-gateway/src/fixtures/python_handoff_v1.json
+  h_e41068bed968d7 1
+crates/x3-protected-gateway/src/host_dispatch.rs
+  h_e41068bed968d7 1-200
+crates/x3-protected-gateway/src/incident_handoff.rs
+  h_e41068bed968d7 1-361
+crates/x3-protected-gateway/src/lib.rs
+  h_e41068bed968d7 1-8
+crates/x3-protected-gateway/src/protected_gateway.rs
+  h_e41068bed968d7 1-240
+crates/x3-protected-gateway/src/revocation.rs
+  h_e41068bed968d7 1-486
+crates/x3-protected-gateway/src/scrapyard.rs
+  h_e41068bed968d7 1-964
+crates/x3-protected-gateway/src/worker_ipc.rs
+  h_e41068bed968d7 1-322
+docs/security/X3_WORKER_IPC_BOUNDARY.md
+  h_e41068bed968d7 29-44
+scripts/local-ci.sh
+  h_e41068bed968d7 870
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e5bf5a9e0e5e3d524186084c2cb8f0248497c3b8",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
