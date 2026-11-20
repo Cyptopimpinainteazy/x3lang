@@ -1,0 +1,21 @@
+x3-lang/near/dx3-hackathon-coin/Cargo.toml
+  s_12a3b7d0adff47::t_16e2231d76e1b7 13-15,23
+x3-lang/near/dx3-hackathon-coin/Cargo.lock
+  s_12a3b7d0adff47::t_e5556a83ffddbe 368,464,812,823,1077,1103,1635,2069,2080,2463
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "becaf9cd5274e1817d625aafd062c00bb49f7c90",
+  "prompts": {},
+  "sessions": {
+    "s_12a3b7d0adff47": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abf0687c-aead-4cf9-b15d-07573b8c9eb7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
