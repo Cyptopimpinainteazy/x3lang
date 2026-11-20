@@ -38,8 +38,9 @@ python3 -m http.server 8000 --directory x3-lang/near/demo
 # Open http://localhost:8000/judge.html
 ```
 
-The browser console shows nine scenarios. Python and the browser evaluate the same mandate through
-the same guard order and the tests require identical decisions.
+The browser console shows the full scenario set, including a prompt-injection request that is
+refused at `mandate_recipient`. Python and the browser evaluate the same mandate through the same
+guard order and the tests require identical decisions.
 
 ## Shared architecture
 
@@ -86,6 +87,7 @@ The existing public interfaces are exercised in:
 | Attack | Local boundary | Contract boundary |
 |---|---|---|
 | Unauthorized recipient | `mandate_recipient` | `parent` tests cover the same guard |
+| Prompt injection → unauthorized recipient | `mandate_recipient` on the checked-in unsafe program | same guard; the model is a writer, never a gate |
 | Oversized payment | `mandate_per_payment` | covered in mandate tests |
 | Wrong origin asset | `mandate_asset` | covered in policy cases |
 | Wrong destination asset | `mandate_destination_asset` | covered in policy cases |

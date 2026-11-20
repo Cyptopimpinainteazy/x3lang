@@ -35,7 +35,7 @@ def _scenario_builder():
 
 
 BUILDER = _scenario_builder()
-DEMO_SCENARIOS = ("authorized", "needs-approval", "wrong-recipient")
+DEMO_SCENARIOS = ("authorized", "needs-approval", "wrong-recipient", "prompt-injection")
 
 
 def _cross_chain(source: str, tokens: list[dict[str, Any]]) -> dict[str, Any]:
@@ -141,6 +141,7 @@ def render(report: dict[str, Any]) -> str:
         "  Authorized         -> " + _label(report["scenarios"][0]["decision"]),
         "  Above threshold    -> " + _label(report["scenarios"][1]["decision"]),
         "  Wrong recipient    -> " + _label(report["scenarios"][2]["decision"]),
+        "  Prompt injection   -> " + _label(report["scenarios"][3]["decision"]),
     ])
     for scenario in report["scenarios"]:
         failed = [check["guard"] for check in scenario["checks"] if not check["ok"]]
@@ -186,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
         "authorized": ("preflight_passed", []),
         "needs-approval": ("approval_required", []),
         "wrong-recipient": ("denied_by_policy", ["mandate_recipient"]),
+        "prompt-injection": ("denied_by_policy", ["mandate_recipient"]),
     }
     ok = all(
         (scenario["decision"], scenario["denied_guards"]) == expected[scenario["id"]]

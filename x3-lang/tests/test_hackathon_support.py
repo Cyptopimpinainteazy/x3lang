@@ -69,6 +69,15 @@ def test_offline_demo_json_is_deterministic_and_embeds_the_actual_legs():
     assert by_id["authorized"]["cross_chain"]["amount"] == 25_000_000
 
 
+def test_offline_demo_includes_a_refused_prompt_injection():
+    demo = load_script("scripts/hackathon/demo.py")
+    by_id = {scenario["id"]: scenario for scenario in demo.build_report()["scenarios"]}
+    case = by_id["prompt-injection"]
+    assert case["decision"] == "denied_by_policy"
+    assert case["denied_guards"] == ["mandate_recipient"]
+    assert "prompt injection" in case["story"].lower()
+
+
 def test_oversized_payment_is_denied_by_the_shared_policy(tmp_path):
     result = evaluate_edit(
         tmp_path,

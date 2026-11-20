@@ -40,11 +40,12 @@ python3 -m pytest x3-lang/tests/test_demo_parity.py  # JS and Python agree (need
 
 ## Judge console
 
-`judge.html` (open http://localhost:8000/judge.html) shows one owner mandate deciding nine agent
-payments: two allowed (one held for approval) and seven forbidden. The forbidden ones exceed the
-cap, pay an unlisted recipient, redirect the refund, raise the fee cap, break the 24-hour cap, run
-after revocation, and reuse a nonce. Five panels: the owner's policy, the agent's request, the
-decision with each check marked on its line, the cross-chain leg, and the evidence.
+`judge.html` (open http://localhost:8000/judge.html) shows one owner mandate deciding the
+checked-in agent payments, including a prompt-injection request that is refused at
+`mandate_recipient`. The forbidden cases exceed the cap, pay an unlisted recipient, redirect the
+refund, raise the fee cap, break the 24-hour cap, run after revocation, and reuse a nonce. Five
+panels: the owner's policy, the agent's request, the decision with each check marked on its line,
+the cross-chain leg, and the evidence.
 
 - **One checker.** The page runs `x3guard.mjs`'s `checkMandate`, as the X3 Guard page does.
   `judge/scenarios.json` carries Python's `track_control.evaluate` answer for each scenario, and
