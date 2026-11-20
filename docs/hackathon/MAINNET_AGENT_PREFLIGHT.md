@@ -151,20 +151,14 @@ with the public X post by **November 14, 2026, 23:59 UTC**. Use a video for a
 local-only demo. Hosting is optional. Keep any hosted demo online through
 November 18, ideally November 25. The three-minute cut is our recording target.
 
-**X post draft, local evidence version**
+The X post and submission drafts that were here predate the mainnet
+settlement and said it was unverified. invoice_06 has since settled on mainnet
+(see the [proof card](../../PROOF_CARD.md)), so do not post them. Use the
+current copy, which `x3-lang/tests/test_submission_copy.py` checks:
 
-> Can an AI agent pay an invoice under an owner’s rules? We built X3 Shield at NEAR HACKATHON. Watch a model write a USDC proposal in X3Lang and the policy refuse a recipient change. Mainnet settlement is unverified. @NEARProtocol #NEARHackathon
+- X posts and video storyboard: [`submission/x-post-draft.md`](../../submission/x-post-draft.md)
+- Description and tracks: [`submission/submission-copy.md`](../../submission/submission-copy.md)
 
-Attach the recorded video and the public
-[repository](https://github.com/Cyptopimpinainteazy/x3lang).
-
-**Submission description draft**
-
-> X3 Shield uses X3Lang to check agent payment proposals against an owner-defined recipient allowlist, budget and execution limits. In our staged invoice rehearsal a real model wrote a Solana-to-NEAR USDC proposal. The local compiler and policy checker accepted the allowed proposal and refused a separately mutated recipient. NEAR Guard verifies signed quote terms and applies policy before authorizing a deposit address. The Solana wallet owner signs and retains control of the wallet. Official 1Click mainnet settlement remains unverified.
-
-Review track choices against the evidence in the final recording. Use
-`agents` and `security` for the demonstrated work. Confirm `defi` against
-the final settlement evidence before claiming the intended mainnet path.
 The owner publishes the post and confirms the exact submission separately.
 
 ## Official references and tests

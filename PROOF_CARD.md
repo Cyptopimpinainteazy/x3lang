@@ -10,6 +10,16 @@ the evidence bundle is [`evidence/near-guard-mainnet-invoice06-2026-11-12/`](evi
 past the mainnet Guard's 21 checks on a signed 1Click quote, the owner funded 25 USDC on Solana,
 `intents.near` paid 24.9952 USDC to `x3lang.near`, and the agent recorded the outcome on Guard.
 
+**Check it yourself** (offline, about a second, no packages to install):
+
+```bash
+python3 scripts/hackathon/invoice06_chain.py
+```
+
+It walks the five links below from the committed evidence: it recompiles the `.x3` files,
+compares the output with what Guard stores, checks that eight edited copies of the payment are
+refused, and ends with `5/5 links hold on the committed evidence.`
+
 ## Accounts, keys and code
 
 | What | Value | Note |
