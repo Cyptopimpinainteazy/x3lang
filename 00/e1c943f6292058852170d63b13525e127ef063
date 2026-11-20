@@ -1,0 +1,37 @@
+audit-artifacts/arbitrage-provider-quotes-20261120/provider-probe.json
+  s_12a3b7d0adff47::t_69886bb72ff2c6 1-532
+audit-artifacts/arbitrage-provider-quotes-20261120/review.md
+  s_12a3b7d0adff47::t_5a8580579eefc9 1
+x3-lang/arbitrage/provider_quotes.py
+  s_12a3b7d0adff47::t_d3668950ed4e1c 1-190
+x3-lang/tests/test_arbitrage_provider_quotes.py
+  s_12a3b7d0adff47::t_c3ca2ae620a251 1-129
+x3-lang/tests/test_arbitrage_quote_api.py
+  s_12a3b7d0adff47::t_7a114054c96680 1-35
+x3-lang/arbitrage/browser-smoke.mjs
+  s_12a3b7d0adff47::t_d27eefbd53450e 79-98
+x3-lang/arbitrage/server.py
+  s_12a3b7d0adff47::t_89a3240914b8b6 16,25,37-43,108,129-143
+x3-lang/arbitrage/web/app.mjs
+  s_12a3b7d0adff47::t_b677cbc9c81759 18,461-469,820-866
+x3-lang/arbitrage/web/index.html
+  s_12a3b7d0adff47::t_3a5200c6a64859 230-246
+x3-lang/arbitrage/web/style.css
+  s_12a3b7d0adff47::t_5bb996b48aed04 881-883
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "00e1c943f6292058852170d63b13525e127ef063",
+  "prompts": {},
+  "sessions": {
+    "s_12a3b7d0adff47": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "abf0687c-aead-4cf9-b15d-07573b8c9eb7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
