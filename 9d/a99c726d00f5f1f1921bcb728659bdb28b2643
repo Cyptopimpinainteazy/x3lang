@@ -1,0 +1,24 @@
+scripts/local-ci.sh
+  s_8fd403fa84d397::t_698290ba81ac2f 491-492
+  s_8fd403fa84d397::t_77a03614c9a11e 493
+runtime/Cargo.toml
+  s_8fd403fa84d397::t_1018cdb95c15e1 380-382
+pallets/depin-marketplace/src/benchmarking.rs
+  s_8fd403fa84d397::t_88d2fa3be22601 7-10,12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9da99c726d00f5f1f1921bcb728659bdb28b2643",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

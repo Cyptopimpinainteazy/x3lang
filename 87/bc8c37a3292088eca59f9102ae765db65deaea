@@ -1,0 +1,79 @@
+README.md
+  s_ba4ab3feb85de0::t_13591099870d77 3,5-8,16-19,54,105-107,119-120,176-178
+docs/EXTENDED_SURFACES.md
+  s_6122d79e63f768::t_2536c88790a283 5-11,15,18,20,36,58,66,80
+docs/hackathon/JUDGE_GUIDE.md
+  s_ba4ab3feb85de0::t_599b69c2789d8b 29-43
+docs/operations/README.md
+  s_ba4ab3feb85de0::t_5de6cbefba4035 1-24
+docs/operations/agent-demo.sh
+  s_ba4ab3feb85de0::t_4a039287b7fe75 6-19,26-27,42-43
+docs/operations/first-swap.sh
+  s_ba4ab3feb85de0::t_436b8dba08df01 4-14,22-23,25,31-32
+x3-lang/near/x3-guard/README.md
+  s_ba4ab3feb85de0::t_8d920797c0cd0c 82,86-103
+x3-lang/near/x3-guard/sandbox-test/README.md
+  s_ba4ab3feb85de0::t_9a9c4eed434268 1-54
+x3-lang/near/x3-guard/sandbox-test/tests/mandate_sandbox.rs
+  s_ba4ab3feb85de0::t_664c2c4d597e84 1-258
+COMMERCIAL_MODEL.md
+  s_6122d79e63f768::t_b82865a189552d 92-95
+docs/hackathon/HELIUS_EVIDENCE_INTEGRATION.md
+  s_6122d79e63f768::t_b4421e392292bf 23
+docs/hackathon/JUDGE_PACKAGE.md
+  s_6122d79e63f768::t_74a702fc4cf450 41-43,90
+docs/hackathon/SUBMISSION_CHECKLIST.md
+  s_6122d79e63f768::t_e19f9d891ff53d 45
+docs/research/HTLC_STATUS.md
+  s_6122d79e63f768::t_141cedc9592ea2 1-27
+docs/research/README.md
+  s_6122d79e63f768::t_57e0bf22f2bc39 1-16
+scripts/guard-sandbox-test.sh
+  s_6122d79e63f768::t_5e9bea62cf64f6 1-12
+scripts/hackathon/demo.py
+  s_6122d79e63f768::t_ddbe18739f12ec 38,144,190
+x3-lang/README.md
+  s_6122d79e63f768::t_dc49f959a34a66 130-133,184,206,209
+x3-lang/examples/near_intents_agent_prompt_injection.x3
+  s_6122d79e63f768::t_a6008916a4811a 1-19
+x3-lang/near/demo/README.md
+  s_6122d79e63f768::t_a71fd0ef66b023 43-48
+x3-lang/near/demo/judge/build_scenarios.py
+  s_6122d79e63f768::t_3e07c74aea9dca 35,90-93
+x3-lang/near/demo/judge/scenarios.json
+  s_6122d79e63f768::t_b19d4e2902b749 413-479,944,947
+x3-lang/near/x3-guard/sandbox-test/Cargo.lock
+  s_6122d79e63f768::t_52210ed1b52bbe 1-2986
+x3-lang/near/x3-guard/sandbox-test/Cargo.toml
+  s_6122d79e63f768::t_163665e7e09b6e 1-18
+x3-lang/tests/test_agent_demo_status_flow.py
+  s_6122d79e63f768::t_30095c35d0e2f5 13
+x3-lang/tests/test_hackathon_support.py
+  s_6122d79e63f768::t_d82d1254f8e2aa 72-80
+x3-lang/tests/test_surface_drift.py
+  s_6122d79e63f768::t_15659b7a3c58c0 139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "87bc8c37a3292088eca59f9102ae765db65deaea",
+  "prompts": {},
+  "sessions": {
+    "s_6122d79e63f768": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e7830e55-d6f1-4d09-a669-d9d0db8554ce",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    },
+    "s_ba4ab3feb85de0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b316-d5f4-7261-b6f9-764a76abd01a",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+crates/orchestra/README.md
+  h_e41068bed968d7 1-24
+crates/orchestra/src/agent/on_chain.rs
+  h_e41068bed968d7 98,100-107,126,138,140-145,155-160,168-171,192-197,204-207,224-227,280-403
+crates/orchestra/src/task/executor.rs
+  h_e41068bed968d7 3,87-95,124-127,154-155,337-379
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5715c358b62d606f973f15fdb8802dcb16b870bd",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

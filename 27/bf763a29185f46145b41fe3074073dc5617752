@@ -1,0 +1,35 @@
+scripts/x3-cluster/test_x3cluster.py
+  s_d146e928372ae9::t_c2c0d3c6c9200a 71-72,111-115
+scripts/x3-cluster/x3cluster.py
+  s_d146e928372ae9::t_5363a059292808 284-286,360-362
+services/x3-ai-router/deploy/ollama-rtx.conf
+  s_d146e928372ae9::t_ff8dbdf707324c 16-18
+services/x3-ai-router/deploy/ollama-worker-b.service
+  s_d146e928372ae9::t_3a6880f4bf3e1d 25-27
+services/x3-ai-router/README.md
+  s_6e4aede55b60e4::t_e4e46b35891dbe 435-440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "27bf763a29185f46145b41fe3074073dc5617752",
+  "prompts": {},
+  "sessions": {
+    "s_6e4aede55b60e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_6e4aede55b60e4",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    },
+    "s_d146e928372ae9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17e1f-0f1d-7f20-b216-ab59b0f20997",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

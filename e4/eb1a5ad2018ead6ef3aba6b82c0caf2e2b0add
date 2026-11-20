@@ -1,0 +1,19 @@
+scripts/local-ci.sh
+  s_8fd403fa84d397::t_d6f7360b0273ba 513-516
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e4eb1a5ad2018ead6ef3aba6b82c0caf2e2b0add",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+docs/REPO_MAP.md
+  s_d146e928372ae9::t_2d5dd527a854f6 1-571
+scripts/gen-repo-map.py
+  s_d146e928372ae9::t_7b0fb15edc48d9 1-329
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "acc76c7384ef5ecd2fd5089fdf8071b35b182a53",
+  "prompts": {},
+  "sessions": {
+    "s_d146e928372ae9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17e1f-0f1d-7f20-b216-ab59b0f20997",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
