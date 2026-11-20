@@ -1,0 +1,34 @@
+evidence/near-guard-mainnet-invoice06-2026-11-12/README.md
+  h_e41068bed968d7 52-55,75-77
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md
+  h_e41068bed968d7 1-75
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/SHA256SUMS
+  h_e41068bed968d7 1-8
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/approved-preflight.json
+  h_e41068bed968d7 1-124
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/execution-environment.json
+  h_e41068bed968d7 1-18
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/finalized-outcome-verification.json
+  h_e41068bed968d7 1-345
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/fresh-send-preflight.json
+  h_e41068bed968d7 1-124
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/independent-finalized-readback.json
+  h_e41068bed968d7 1-3269
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/send-journal.jsonl
+  h_e41068bed968d7 1-2
+evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/settlement-reverification.json
+  h_e41068bed968d7 1-35
+evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md
+  h_e41068bed968d7 80-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "adbf47264eacee81bbd634a426594f7d41bb05cc",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+README.md
+  h_e41068bed968d7 281-294
+docs/hackathon/MAINNET_AGENT_PREFLIGHT.md
+  h_e41068bed968d7 58-61
+scripts/hackathon/route_probe.py
+  h_e41068bed968d7 29-31,48,230,293
+scripts/hackathon/test_route_probe.py
+  h_e41068bed968d7 145-151,158-159,161,163-164,166-170
+x3-lang/README.md
+  h_e41068bed968d7 233-234,237-238
+x3-lang/near_intents.py
+  h_e41068bed968d7 72-76,900-908,910-911,913-921,927-940,943-953,959-961,991,1260
+x3-lang/tests/test_near_intents.py
+  h_e41068bed968d7 5,13-14,382-520,627-649
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7a830dde1699f219cb7a2c9ba3d0b1a2b9c2b4f",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

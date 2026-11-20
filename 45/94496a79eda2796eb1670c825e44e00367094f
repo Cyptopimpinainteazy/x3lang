@@ -1,0 +1,24 @@
+audit-artifacts/agent-gas-admission-20261111/verification.json
+  h_e41068bed968d7 1-100
+x3-lang/near/guard-sandbox-tests/src/bin/scoped_agent_boundary.rs
+  h_e41068bed968d7 137-144,147-151,157,159-160,162,223,236-239,267,270-271,276-289
+x3-lang/tests/test_near_agent_key.py
+  h_e41068bed968d7 34-37,136,303,306,346,352,385,396,445-527
+docs/security/GUARD_SCOPED_STORAGE.md
+  h_e41068bed968d7 73-88
+x3-lang/near_agent_key.py
+  h_e41068bed968d7 108-178,209,232,258,265,280-281,288,303,351-352,370
+audit-artifacts/agent-gas-admission-20261111/sandbox.log
+  h_e41068bed968d7 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4594496a79eda2796eb1670c825e44e00367094f",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,52 @@
+.github/workflows/x3guard-real-wasm-sandbox.yml
+  h_e41068bed968d7 12-13,34,57-73
+audit-artifacts/guard-scoped-storage-20261110/README.md
+  h_e41068bed968d7 1-22
+audit-artifacts/guard-scoped-storage-20261110/verification.json
+  h_e41068bed968d7 1-125
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-build-canonical.txt
+  h_e41068bed968d7 1-35
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-clippy.txt
+  h_e41068bed968d7 1-2
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-full-sandbox.txt
+  h_e41068bed968d7 1-12
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-node.txt
+  h_e41068bed968d7 1-538
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-python.txt
+  h_e41068bed968d7 1-11
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-unit.txt
+  h_e41068bed968d7 1-9
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-upgrade-canonical.txt
+  h_e41068bed968d7 1-5
+audit-artifacts/guard-scoped-storage-20261110/x3-scoped-storage-wasm-check.txt
+  h_e41068bed968d7 1-69
+docs/security/GUARD_SCOPED_STORAGE.md
+  h_e41068bed968d7 1-88
+docs/security/NEAR_SCOPED_AGENT_SANDBOX.md
+  h_e41068bed968d7 15,33,42-57
+wiki/index.md
+  h_e41068bed968d7 45
+wiki/log.md
+  h_e41068bed968d7 10-14
+x3-lang/near/guard-sandbox-tests/src/bin/scoped_agent_boundary.rs
+  h_e41068bed968d7 42,63,84-91,110-119,137-343
+x3-lang/near/x3-guard/README.md
+  h_e41068bed968d7 83-86
+x3-lang/near/x3-guard/src/lib.rs
+  h_e41068bed968d7 36-37
+x3-lang/near/x3-guard/src/mandate.rs
+  h_e41068bed968d7 33,43-69,298-316,419-420,506,529,533-609
+x3-lang/near/x3-guard/src/mandate_tests.rs
+  h_e41068bed968d7 546-649
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9dcea3cc72ea77532c1f2678e367d09a85c81e6b",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

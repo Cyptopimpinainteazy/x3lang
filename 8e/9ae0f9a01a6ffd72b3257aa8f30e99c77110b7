@@ -1,0 +1,21 @@
+scripts/hackathon/test_testnet_guard_evidence.py
+  s_8fd403fa84d397::t_d910c55a14d532 14,18,22-23,293-363
+scripts/hackathon/testnet_guard_evidence.py
+  s_8fd403fa84d397::t_30c6710fc998ad 22,24,34,50-67,116-129,132,135-141,143-146,153-154,166-171,381-385,470,485,576,582,593,603,610,619,622,628,630
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8e9ae0f9a01a6ffd72b3257aa8f30e99c77110b7",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

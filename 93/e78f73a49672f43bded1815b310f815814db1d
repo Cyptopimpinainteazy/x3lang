@@ -1,0 +1,24 @@
+audit-artifacts/guard-quote-storage-rollback-20261111/verification.json
+  h_e41068bed968d7 1-87
+docs/security/GUARD_SCOPED_STORAGE.md
+  h_e41068bed968d7 57-67,69
+x3-lang/near/guard-sandbox-tests/Cargo.lock
+  h_e41068bed968d7 2844-2847,2853
+x3-lang/near/guard-sandbox-tests/Cargo.toml
+  h_e41068bed968d7 15-19
+x3-lang/near/guard-sandbox-tests/src/bin/scoped_agent_boundary.rs
+  h_e41068bed968d7 18-20,347-357
+x3-lang/near/guard-sandbox-tests/src/scoped_quote_storage.rs
+  h_e41068bed968d7 1-315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "93e78f73a49672f43bded1815b310f815814db1d",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

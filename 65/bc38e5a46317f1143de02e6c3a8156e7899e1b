@@ -1,0 +1,22 @@
+README.md
+  h_e41068bed968d7 21-27,251,257-265
+docs/hackathon/DEFI_TRACK_EVIDENCE_AND_GAPS.md
+  h_e41068bed968d7 4-8,29
+docs/hackathon/JUDGE_PACKAGE.md
+  h_e41068bed968d7 16-20,48,148
+docs/hackathon/SUBMISSION_CHECKLIST.md
+  h_e41068bed968d7 29-39,68-73,82-85,95-100
+docs/hackathon/X3LANG_THREE_TRACK_CONTROL.md
+  h_e41068bed968d7 14-18,20-21,55-58,65-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "65bc38e5a46317f1143de02e6c3a8156e7899e1b",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
