@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X3 agent law exhibit</title>
+<style>
+body{margin:0;background:#101713;color:#eaf0e9;font:16px/1.5 Inter,Arial,sans-serif}
+main{max-width:820px;margin:auto;padding:32px 20px 64px}
+h1{font-size:32px;letter-spacing:-.5px;margin:0 0 12px}
+p,li{color:#acb8ae}
+.mark{color:#c1f699}
+ol{display:flex;flex-wrap:wrap;gap:8px;padding:0;list-style:none}
+ol li{border:1px solid #34413a;border-radius:99px;padding:4px 10px;font:12px ui-monospace,monospace}
+ol li[data-state="recorded"]{color:#c1f699;border-color:#c1f699}
+dl{display:grid;grid-template-columns:minmax(140px,220px) 1fr;gap:8px 16px;margin:20px 0}
+dt{color:#acb8ae}
+dd{margin:0;font:14px/1.4 ui-monospace,monospace;overflow-wrap:anywhere}
+#check{font:14px ui-monospace,monospace}
+</style>
+</head>
+<body>
+<main>
+<h1>X3 agent law <span id="mark" class="mark">PASS</span></h1>
+<p>This page is the local enforcement exhibit for the archived invoice_06 program. Birth, compile, test, authorize, execute, monitor, and judge are the architecture. The lines below are that run. It does not settle the payment, broadcast a transaction, or hold the Solana wallet.</p>
+<ol id="chain">
+<li data-state="recorded">birth</li>
+<li data-state="recorded">compile</li>
+<li data-state="recorded">test</li>
+<li data-state="recorded">authorize</li>
+<li data-state="recorded">execute</li>
+<li data-state="recorded">monitor</li>
+<li data-state="recorded">terminate</li>
+<li data-state="recorded">judge</li>
+<li data-state="recorded">evolve</li>
+</ol>
+<dl>
+<dt>Permitted X3 call</dt><dd id="permitted">true</dd>
+<dt>Forbidden bypass</dt><dd id="forbidden">mandate_recipient</dd>
+<dt>Outside route</dt><dd id="outside">route</dd>
+<dt>After revocation</dt><dd id="revoked">revoked</dd>
+<dt>Court receipts</dt><dd id="court">1</dd>
+<dt>Spent</dt><dd id="spent">25000000</dd>
+<dt>Receipt method</dt><dd id="method">agent_accept_quote</dd>
+<dt>Receipt amount</dt><dd id="amount">25000000</dd>
+<dt>Receipt recipient</dt><dd id="recipient">x3lang.near</dd>
+<dt>Broadcast</dt><dd id="broadcast">false</dd>
+<dt>Solana custody</dt><dd id="custody">outside_this_path</dd>
+<dt>Settlement</dt><dd id="settlement">false</dd>
+<dt>Agent self-judgment</dt><dd id="self">agent_cannot_judge_itself</dd>
+<dt>Jury reversal</dt><dd id="jury">irreversible_payment</dd>
+<dt>Birth mandate</dt><dd id="mandate">eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515</dd>
+</dl>
+<ul id="limits">
+<li>This path authorizes an X3-routed call and does not broadcast it.</li>
+<li>Solana custody stays outside the path. A manual wallet can still move the funds.</li>
+<li>A jury finding does not reverse a recorded receipt.</li>
+<li>The birth mandate hash stays in place when a later proposal is adopted.</li>
+<li>The archived FullAccess key on the live agent is untouched.</li>
+</ul>
+<p id="check">The exhibit JSON is embedded below. A browser confirms it matches these lines.</p>
+<script type="application/json" id="report">
+{
+  "architecture": [
+    "birth",
+    "compile",
+    "test",
+    "authorize",
+    "execute",
+    "monitor",
+    "terminate",
+    "judge",
+    "evolve"
+  ],
+  "broadcast": false,
+  "commandments_sha256": "eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515",
+  "court_receipts": 1,
+  "forbidden_reason": "mandate_recipient",
+  "jury": "irreversible_payment",
+  "limits": [
+    "This path authorizes an X3-routed call and does not broadcast it.",
+    "Solana custody stays outside the path. A manual wallet can still move the funds.",
+    "A jury finding does not reverse a recorded receipt.",
+    "The birth mandate hash stays in place when a later proposal is adopted.",
+    "The archived FullAccess key on the live agent is untouched."
+  ],
+  "ok": true,
+  "outside_reason": "route",
+  "permitted": true,
+  "receipt_amount": 25000000,
+  "receipt_method": "agent_accept_quote",
+  "receipt_recipient": "x3lang.near",
+  "revoked_reason": "revoked",
+  "self_judgment": "agent_cannot_judge_itself",
+  "settlement": false,
+  "settlement_proven": false,
+  "solana_custody": "outside_this_path",
+  "spent": 25000000,
+  "stages_seen": [
+    "birth",
+    "test",
+    "compile",
+    "authorize",
+    "execute",
+    "monitor",
+    "terminate",
+    "judge",
+    "evolve"
+  ],
+  "wallet_authorized": false
+}
+</script>
+<script>
+var embedded = JSON.parse(document.getElementById("report").textContent);
+var chain = document.querySelectorAll("#chain li");
+var chainOk = chain.length === embedded.architecture.length;
+chain.forEach(function (item, index) {
+  var stage = item.textContent;
+  var recorded = embedded.stages_seen.indexOf(stage) !== -1;
+  if (embedded.architecture[index] !== stage) chainOk = false;
+  if ((item.getAttribute("data-state") === "recorded") !== recorded) chainOk = false;
+});
+var limitNodes = document.querySelectorAll("#limits li");
+var limitsOk = limitNodes.length === embedded.limits.length;
+limitNodes.forEach(function (item, index) {
+  if (item.textContent !== embedded.limits[index]) limitsOk = false;
+});
+function text(id) { return document.getElementById(id).textContent; }
+var ok = chainOk && limitsOk
+  && text("mark") === (embedded.ok ? "PASS" : "FAIL")
+  && text("permitted") === String(embedded.permitted)
+  && text("forbidden") === embedded.forbidden_reason
+  && text("outside") === embedded.outside_reason
+  && text("revoked") === embedded.revoked_reason
+  && text("court") === String(embedded.court_receipts)
+  && text("spent") === String(embedded.spent)
+  && text("method") === embedded.receipt_method
+  && text("amount") === String(embedded.receipt_amount)
+  && text("recipient") === embedded.receipt_recipient
+  && text("broadcast") === String(embedded.broadcast)
+  && text("custody") === embedded.solana_custody
+  && text("settlement") === String(embedded.settlement)
+  && text("self") === embedded.self_judgment
+  && text("jury") === embedded.jury
+  && text("mandate") === embedded.commandments_sha256
+  && embedded.settlement === false
+  && embedded.broadcast === false
+  && embedded.wallet_authorized === false
+  && embedded.settlement_proven === false
+  && embedded.solana_custody === "outside_this_path";
+document.getElementById("check").textContent = ok ? "exhibit matches" : "exhibit differs";
+</script>
+</main>
+</body>
+</html>

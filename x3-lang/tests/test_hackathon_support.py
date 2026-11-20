@@ -204,6 +204,7 @@ def test_one_command_runs_prompt_injection_and_parity():
     ordered = [
         "build_scenarios.py --check",
         "scripts/hackathon/demo.py",
+        "scripts/hackathon/invoice06_sequence.py",
         "node --test x3-lang/near/demo/test/*.test.mjs",
         "scripts/judge_evidence.py --mode quick",
     ]
