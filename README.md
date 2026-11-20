@@ -32,6 +32,33 @@ refused for their own reason, and the owner's ordinary payment still goes throug
 [proof page](https://dotx3.net/proof) with the evidence and its limits, the Attack Lab and
 the video. The [Try it](#try-it-do-x-see-y) steps below need only this repository.
 
+**One sequence, one payment.** The mainnet settlement is not a separate dashboard
+from the language. The same two `.x3` files hash to what Guard stored, the
+compiler refuses edits of that payment, those terms are what the 21 on-chain
+checks enforced, the payment settled, and the agent recorded the outcome:
+
+```bash
+python3 scripts/hackathon/invoice06_sequence.py
+```
+
+**See:** five stages and `PASS`. Offline, no key. The transactions and the limits
+are on [the sequence page](docs/hackathon/INVOICE06_SEQUENCE.md).
+
+The local forcefield runs twenty further checks on that same payment. It does
+not sign or deploy, and the archived FullAccess recovery key stays listed as open:
+
+```bash
+python3 scripts/hackathon/forcefield.py
+```
+
+One local enforcement path runs the same payment through birth, compile, test, authorize, revocation, and court. The receipt stays on the X3 route:
+
+```bash
+python3 scripts/hackathon/agent_law.py
+```
+
+The [exhibit](docs/hackathon/agent-law-proof.html) and the loopback workbench show that run beside the other proof cards. The editors on that page run through the same door. The receipt is local. It does not settle the payment, and it does not hold the Solana wallet.
+
 ## What is new here
 
 - **Policy is a program, not a settings page.** The mandate is typed source that compiles, has a

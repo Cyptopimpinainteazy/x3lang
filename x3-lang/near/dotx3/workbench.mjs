@@ -95,6 +95,80 @@ $('dry').addEventListener('click', async () => {
   } catch (error) { $('dry-status').textContent = error.message; }
   finally { $('dry').disabled = false; lock(false); }
 });
+function lawRow(label, value) {
+  const div = document.createElement('div');
+  const name = document.createElement('span');
+  name.textContent = label;
+  const status = document.createElement('strong');
+  status.textContent = value;
+  div.append(name, status);
+  return div;
+}
+function showLaw(report) {
+  const status = $('law-status');
+  const chain = $('law-chain');
+  const results = $('law-results');
+  const limits = $('law-limits');
+  chain.replaceChildren();
+  results.replaceChildren();
+  limits.replaceChildren();
+  const claimsAuthority = !report
+    || report.settlement === true
+    || report.settlement_proven === true
+    || report.broadcast === true
+    || report.wallet_authorized === true
+    || (typeof report.solana_custody === 'string' && report.solana_custody !== 'outside_this_path');
+  const limited = report
+    && report.settlement === false
+    && report.settlement_proven === false
+    && report.broadcast === false
+    && report.wallet_authorized === false
+    && report.solana_custody === 'outside_this_path';
+  if (claimsAuthority || (report.ok === true && !limited)) {
+    status.dataset.tone = 'fail';
+    status.textContent = 'This screen will not show a path that claims settlement, a broadcast, or Solana custody.';
+    return;
+  }
+  if (!limited) {
+    status.dataset.tone = 'fail';
+    status.textContent = 'The local path did not pass. No receipt was authorized from this screen.';
+    return;
+  }
+  status.dataset.tone = report.ok ? 'pass' : 'fail';
+  status.textContent = report.ok
+    ? 'Local path passed. The receipt was not broadcast, and this intent is still not settled.'
+    : 'The local path did not pass. No receipt was authorized from this screen.';
+  for (const stage of report.architecture || []) {
+    const item = document.createElement('li');
+    item.textContent = stage;
+    if ((report.stages_seen || []).includes(stage)) item.className = 'seen';
+    chain.append(item);
+  }
+  const rows = [
+    ['Permitted X3 call', String(report.permitted)],
+    ['Forbidden bypass', report.forbidden_reason],
+    ['Outside route', report.outside_reason],
+    ['After revocation', report.revoked_reason],
+    ['Court receipts', String(report.court_receipts)],
+    ['Spent', String(report.spent)],
+    ['Receipt', `${report.receipt_method} · ${report.receipt_amount} · ${report.receipt_recipient}`],
+    ['Broadcast', String(report.broadcast)],
+    ['Solana custody', report.solana_custody],
+    ['Agent self-judgment', report.self_judgment],
+    ['Jury reversal', report.jury],
+    ['Birth mandate', report.commandments_sha256],
+  ];
+  for (const [label, value] of rows) {
+    if (value === undefined || value === 'undefined' || value === 'null') continue;
+    results.append(lawRow(label, value));
+  }
+  for (const item of report.limits || []) {
+    const line = document.createElement('li');
+    line.textContent = item;
+    limits.append(line);
+  }
+}
+const lawPromise = request('/api/agent-law');
 try {
   const health = await request('/api/health');
   $('connection').textContent = 'Python .x3 frontend connected · signing disabled';
@@ -102,3 +176,88 @@ try {
   if (health.mainnet_readonly) $('dry-status').textContent = 'Supply reviewed public inputs. Only dry quotes and read-only chain queries are available.';
   await load();
 } catch (error) { $('connection').textContent = `Backend unavailable: ${error.message}`; }
+try { showLaw(await lawPromise); }
+catch (error) {
+  $('law-status').dataset.tone = 'fail';
+  $('law-status').textContent = `Local path unavailable: ${error.message}`;
+}
+function showDoor(report) {
+  const status = $('door-status');
+  const results = $('door-results');
+  const limits = $('door-limits');
+  results.replaceChildren();
+  limits.replaceChildren();
+  const claimsAuthority = !report
+    || report.settlement === true
+    || report.settlement_proven === true
+    || report.broadcast === true
+    || report.wallet_authorized === true
+    || (report.receipt && report.receipt.broadcast === true)
+    || (typeof report.solana_custody === 'string' && report.solana_custody !== 'outside_this_path');
+  if (claimsAuthority) {
+    status.dataset.tone = 'fail';
+    status.textContent = 'This door will not show a session that claims settlement, a broadcast, or Solana custody.';
+    return;
+  }
+  const limited = report.settlement === false
+    && report.settlement_proven === false
+    && report.broadcast === false
+    && report.wallet_authorized === false
+    && report.solana_custody === 'outside_this_path';
+  if (!limited) {
+    status.dataset.tone = 'fail';
+    status.textContent = 'The door returned an incomplete result. No receipt was shown.';
+    return;
+  }
+  status.dataset.tone = report.ok ? 'pass' : 'fail';
+  const lines = {
+    birth: 'Born into a process-local session. The archived invoice_06 run above is unchanged.',
+    test: 'This exact source passed the isolated test. That is not a receipt.',
+    authorize: 'Local receipt recorded. It was not broadcast, and this intent is still not settled.',
+    revoke: 'Revoked. The next call stops, and the archived exhibit stays as it was.',
+  };
+  const refusals = {
+    not_tested: 'Refused: this exact source has not passed the isolated test. No receipt was recorded.',
+    mandate_recipient: 'Refused: the mandate does not allow this recipient. No receipt was recorded.',
+    revoked: 'Refused: revocation stops this call. The earlier receipt stays.',
+    no_birth: 'Birth from this mandate comes first.',
+  };
+  status.textContent = report.ok
+    ? (lines[report.act] || 'The local door accepted this step.')
+    : (refusals[report.reason] || `Refused: ${report.reason || 'the door refused this step'}. No settlement was created.`);
+  const receipt = report.receipt || {};
+  const rows = [
+    ['Act', report.act],
+    ['Reason', report.reason],
+    ['Status', report.status],
+    ['Spent', String(report.spent)],
+    ['Court receipts', String(report.court_receipts)],
+    ['Receipt', receipt.method ? `${receipt.method} · ${receipt.amount} · ${receipt.recipient}` : ''],
+    ['Broadcast', String(report.broadcast)],
+    ['Solana custody', report.solana_custody],
+    ['Agent', report.agent_id],
+  ];
+  for (const [label, value] of rows) {
+    if (value === undefined || value === 'undefined' || value === 'null' || value === '') continue;
+    results.append(lawRow(label, value));
+  }
+  for (const item of report.limits || []) {
+    const line = document.createElement('li');
+    line.textContent = item;
+    limits.append(line);
+  }
+}
+const doorControls = ['law-birth', 'law-test', 'law-authorize', 'law-revoke'];
+for (const id of doorControls) {
+  $(id).addEventListener('click', async () => {
+    const act = id.slice('law-'.length);
+    doorControls.forEach(control => $(control).disabled = true);
+    try { showDoor(await request('/api/agent-law/act', { act, ...source() })); }
+    catch (error) {
+      $('door-status').dataset.tone = 'fail';
+      $('door-status').textContent = error.message;
+    } finally {
+      doorControls.forEach(control => $(control).disabled = false);
+    }
+  });
+}

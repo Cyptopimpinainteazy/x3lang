@@ -13,12 +13,20 @@ for compile-time versus runtime checks and the evidence boundaries.
 
 **An agent can propose a payment. The owner's policy determines whether Guard authorizes the proposed terms.**
 
-X3 Shield brings together an owner-readable `.x3` mandate, deterministic policy checks, and a NEAR contract that checks signed quote terms. The fastest way to judge it is to follow one claim through to its evidence.
+X3 Shield brings together an owner-readable `.x3` mandate, deterministic policy checks, and a NEAR contract that checks signed quote terms. The fastest way to judge it is one payment, in order: written `.x3`, compiler rejection, Guard enforcement, the mainnet transfers, and the recorded outcome.
+
+```bash
+python3 scripts/hackathon/invoice06_sequence.py
+```
+
+That command is offline. [The sequence page](INVOICE06_SEQUENCE.md) names each transaction and the limits. A spending-limit screen can show a cap. This sequence is the same written program at every stage.
 
 ## The proof trail
 
 | What to look at | Evidence | What it establishes |
 | --- | --- | --- |
+| One mainnet payment, five stages | [Sequence](INVOICE06_SEQUENCE.md) and `python3 scripts/hackathon/invoice06_sequence.py` | The invoice_06 `.x3` files match Guard's stored hashes, the compiler refuses edits of that payment, Guard's 21 checks passed before the deposit, 25 USDC settled to 24.9952 USDC, and the agent recorded `Settled`. |
+| One local enforcement path on that payment | [Agent-law path](AGENT_LAW_PATH.md), [exhibit](agent-law-proof.html), and `python3 scripts/hackathon/agent_law.py` | Birth through judge: a permitted X3 call records a local receipt, a forbidden recipient cannot skip the mandate, revocation stops the next call, and the court keeps the receipt. A jury finding does not reverse it. This path does not broadcast and does not custody the Solana wallet. |
 | An owner sets the rules | [Example mandate](../../x3-lang/examples/near_mandate_agent.x3) and [denied request](../../x3-lang/examples/near_intents_agent_denied.x3) | The checked-in policy describes permitted recipients, assets and limits. |
 | A malicious recipient is rejected | [Offline demo](JUDGE_GUIDE.md#1-run-the-offline-policy-demo) | A local fixture targeting `attacker.near` returns `mandate_recipient`. This fixture does not show a live model being attacked. |
 | A real local model was red-teamed | [Local model run](../../evidence/agent-redteam-local-2026-11-06/README.md) | Eight cases: the model refused seven; in the eighth it produced the permitted recipient and an effect check identified the attack as neutralized. This was not a Guard refusal after model compromise. |
@@ -55,7 +63,7 @@ A valid signature authenticates quote terms; it does not mean the owner intended
 - **No wallet custody in Guard.** Someone holding an unrestricted wallet key can transfer outside Guard. Scoped vault work has separate evidence and is not part of the historical Tidepool transfer.
 - **No claim of an official live forbidden quote refused by the agent mandate.** The official forbidden example is a dry quote; the permitted live quote stopped before funding.
 - **No claim of a live-model compromise in the offline fixture.** The [judge guide](JUDGE_GUIDE.md#public-evidence-matrix) separately identifies local model red-team evidence and its outcome.
-- **No claim of mainnet readiness, independent audit, or cryptographic atomic settlement.** The [threat model](../security/X3_SHIELD_THREAT_MODEL.md) describes risks and controls.
+- **One reviewed mainnet settlement, not a production deployment.** [invoice_06](INVOICE06_SEQUENCE.md) is about $25, funded manually. There is no independent audit and no cryptographic atomic settlement. The [threat model](../security/X3_SHIELD_THREAT_MODEL.md) describes risks and controls.
 - **Prior work is disclosed.** The compiler and VM predate the hackathon; see [provenance](../../PRIOR_WORK.md).
 
 For the complete three-minute walkthrough and submission checklist, go to the [judge guide](JUDGE_GUIDE.md).

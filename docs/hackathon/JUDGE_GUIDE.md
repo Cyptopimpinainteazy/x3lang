@@ -11,9 +11,37 @@ Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-ch
 for compile-time versus runtime checks and the evidence boundaries.
 
 
-Start with the evidence for the claim you want to verify. The three checks
-below can be completed without a wallet. They cover the AI Security & Defense
+Start with the one payment that runs through every stage. The checks after it
+can be completed without a wallet. They cover the AI Security & Defense
 and Agent Economy submission.
+
+## 0. Walk the mainnet sequence
+
+From the repo root, with Python 3:
+
+```bash
+python3 scripts/hackathon/invoice06_sequence.py
+```
+
+Expect `PASS` and five stages for nonce `mainnet_demo_nov11_invoice_06`:
+
+1. The written payment and mandate hash to the `program_sha256` values stored on Guard.
+2. That payment compiles. Six edits of the same file are refused by the compiler.
+3. Compiled at the instant implied by the written 74h window, both files lower to the stored terms. `check_mandate` allows that policy and refuses the same payment to `attacker.near`. The archived `agent_accept_quote` receipt returned 21 checks, all passing.
+4. After acceptance, 25 USDC left the owner's Solana wallet and 24.9952 USDC arrived on NEAR.
+5. The restricted agent key later recorded `Settled`, `floor_met: true`, and both transaction hashes.
+
+The page for the transactions and the limits is [INVOICE06_SEQUENCE.md](INVOICE06_SEQUENCE.md). Guard did not compile `.x3`, did not custody the Solana USDC, and does not authenticate the outcome hashes. This command reads the archived evidence. It does not sign or send.
+
+## 0b. Walk the local enforcement path
+
+The same payment also runs through birth, compile, test, authorize, execute, monitor, and judge:
+
+```bash
+python3 scripts/hackathon/agent_law.py
+```
+
+Expect `PASS`. A permitted call records one local receipt. The forbidden recipient returns `mandate_recipient`. Revocation stops the next call. The court keeps that one receipt, and a jury reversal does not apply. The [exhibit](agent-law-proof.html) and the loopback workbench show that run beside the other proof cards. The editors on that page run through the same door: birth, test, authorize, and revoke. That session is process-local and does not replace the archived run. The receipt is not broadcast. It does not settle invoice_06, and it does not hold the Solana wallet. The pending-settlement card stays pending.
 
 ## 1. Run the offline policy demo
 

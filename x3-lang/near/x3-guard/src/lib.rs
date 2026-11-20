@@ -1150,3 +1150,6 @@ mod tests;
 
 #[cfg(test)]
 mod migration_tests;
+
+#[cfg(test)]
+mod forcefield_invariants;
