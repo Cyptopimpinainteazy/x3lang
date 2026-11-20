@@ -20,7 +20,7 @@ Then verify an **actual 1Click live** receipt with its **actual finalized Solana
 
     python3 x3-lang/near_intents.py verify-deposit --receipt /path/to/receipt.json --tx <SOLANA_SIGNATURE> --helius
 
-The guided `near/first-swap.sh` and `near/agent-demo.sh` workflows use `X3_REQUIRE_HELIUS=1` to pass `--helius` automatically. A failed deposit proof halts before attempting a settlement proof.
+The operator-only `docs/operations/first-swap.sh` and `docs/operations/agent-demo.sh` workflows use `X3_REQUIRE_HELIUS=1` to pass `--helius` automatically. A failed deposit proof halts before attempting a settlement proof. These are not part of the judge demo.
 
 Without `--helius`, the existing finalized-Solana-RPC verifier behaves exactly as before. With `--helius` the additional Helius provider gate becomes mandatory; it never silently falls back to RPC-only evidence.
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "near" / "agent-demo.sh"
+SCRIPT = Path(__file__).resolve().parents[2] / "docs" / "operations" / "agent-demo.sh"
 SIGNATURE = "5" * 88
 REFUND_SIGNATURE = "6" * 88
 

@@ -1,11 +1,11 @@
 # X3Lang — verifiable financial policies for cross-chain execution
 
-X3Lang is an existing experimental compiler, transaction-policy VM and
-cross-chain verification toolkit developed as part of the X3 blockchain. It aims to constrain trading and agent instructions with explicit authorization, recipient, fee, expiry and refund policies before funds move.
+**Built for NEAR HACKATHON 2026.**
 
-Unlike NEAR's policy-bound wallets or function-call keys, X3 mandates are a
-typed language that also verifies NEAR Intents' signed quote terms before a
-deposit is authorized.
+X3Lang lets an owner compile spending limits into a policy that an AI agent's
+NEAR payment must satisfy before any deposit. Unlike NEAR's policy-bound
+wallets or function-call keys, X3 mandates are a typed language that also
+verifies NEAR Intents' signed quote terms before a deposit is authorized.
 
 **Works today** — a `.x3` mandate compiles and the same verdict is reproduced
 in Python, the browser, and the NEAR guard contract; the guard's on-chain
@@ -13,17 +13,21 @@ Ed25519 check verifies a real 1Click quote's signed terms (locally tested);
 refusal-first tests cover overspend, wrong recipient, replay, refund
 redirection, and revocation.
 
-**Deliberately blocked** — no wallet transfer, live settlement, or on-chain
-authorization is claimed here. Cross-chain causality stays "unproven" until an
-independently verifiable link exists.
+**Deliberately blocked** — no wallet transfer, live settlement, on-chain
+authorization, or authenticated NEAR consensus is claimed here. This
+repository has no project-owned NEAR testnet transaction or deployment.
+Cross-chain causality stays "unproven" until an independently verifiable link
+exists.
 
 **Hackathon judges:** [Reproduce NEAR tests and inspect real-proof limitations](docs/hackathon/JUDGE_GUIDE.md).
 The read-only “do X, see Y” gate is `python3 scripts/judge_evidence.py --mode quick`;
 public mainnet transaction links remain pending and are **not** fabricated.
 
-**Hackathon disclosure:** the original language and its trading engine were
-created **before** the current NEAR hackathon. This repository preserves their
-real Git history. Start with [PRIOR_WORK.md](PRIOR_WORK.md), including its
+**Disclosure:** X3Lang's compiler, trading VM and much of its language predate
+this hackathon; this submission is the NEAR integration, the `x3-guard` policy
+contract, agent mandates and the judge/evidence tooling. This repository
+preserves the original Git history. Start with [PRIOR_WORK.md](PRIOR_WORK.md),
+including its
 [`baseline...main` historical comparison](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...main).
 
 The exact historical source is
@@ -41,7 +45,7 @@ python3 -m http.server 8000 --directory x3-lang/near/demo
 
 The console shows one owner mandate deciding the allowed, approval-required
 and forbidden actions shown by the checked-in X3 programs. The browser runs
-the same mandate checks as the production adapter, and the page compares its
+the same mandate checks as the Python adapter, and the page compares its
 verdict with Python guard by guard.
 
 For the terminal version:
@@ -91,26 +95,24 @@ report and fails when evidence is stale, dirty or missing.
 - **`docs/x3-lang/fixtures/` and `scripts/proof/`** — archived proof fixtures
   and verifier generator used by existing VM integration tests.
 
-### User-first commercial economics (new, opt-in)
+## Research prototypes (not in the judge path)
 
-[X3Lang's value-fee arithmetic](x3-lang/value_fee.py) provides an inspectable,
-**non-billable** preview: an operator can propose a capped share of measurable
-positive net savings, and the user must remain better off after the proposed
-fee. See [COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md) for the transparent
-revenue options, IP/licensing limitations, and missing on-chain authority,
-and the [NEAR value-first rollout gates](docs/plans/NEAR_X3LANG_VALUE_FIRST_IMPLEMENTATION.md)
-for the planned on-chain enforcement and integration work.
+These are kept for provenance and future work; none are deployed, and none are
+part of the 3-minute judge path:
 
-```bash
-python3 x3-lang/value_fee.py --preview-stdin \
-  < x3-lang/examples/fees/verified_savings_preview.json
-```
+- **NEAR/BSC HTLC and bridge** — research only; storage economics open (issue #71).
+  See [HTLC_STATUS.md](docs/research/HTLC_STATUS.md).
+- **Solana mandate vault** — research only; `program-test` only. See
+  [x3-lang/solana/x3-mandate-vault/README.md](x3-lang/solana/x3-mandate-vault/README.md).
+- **Value-fee preview** — non-billable arithmetic preview; no on-chain fee. See
+  [COMMERCIAL_MODEL.md](COMMERCIAL_MODEL.md) and
+  [x3-lang/value_fee.py](x3-lang/value_fee.py).
+- **BSC → NEAR bootstrap** — read-only notes; no settlement claim. See
+  [docs/hackathon/BSC_TO_NEAR_BOOTSTRAP.md](docs/hackathon/BSC_TO_NEAR_BOOTSTRAP.md).
 
-**This is an optional Python policy-economics primitive, not yet new `.x3`
-compiler syntax, a paid API, or a wallet fee.** The example uses illustrative
-unsigned quotes; it cannot authorize payments. Public source cannot be made
-fork-proof by embedding a revenue check. A separate user-approved service
-would be needed to collect any future fee.
+The submitted on-chain policy surface is [`x3-guard`](x3-lang/near/x3-guard),
+and the judge path is the offline mandate demo. See
+[docs/research/README.md](docs/research/README.md).
 
 ### Reproducible local checks
 
@@ -122,28 +124,6 @@ PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 (cd x3-lang && cargo clippy -p x3-lang-vm --all-targets --locked -- -D warnings)
 (cd x3-lang/near/x3-guard && cargo test --locked --quiet)
 node --test x3-lang/near/demo/test/*.test.mjs
-```
-
-### Experimental Solana owner-controlled token vault
-
-The [X3 Solana Mandate Vault](x3-lang/solana/x3-mandate-vault/README.md)
-is a new hackathon-stage, standalone Solana program for **funds already held
-in its PDA-controlled classic SPL Token account**. An owner must approve
-the exact destination token account and its owner, amount, quote digest,
-nonce and expiry. A designated agent can then execute that single approval
-using a signed `TransferChecked` CPI; revocation, recovery and true
-rolling 24-hour limits are evaluated on-chain.
-
-The vault's test harness invokes the actual X3 and SPL Token processors
-under Solana `program-test`, **not public mainnet**. It has no automatic
-NEAR/1Click authority and does not enforce any unrelated Solana wallet.
-The source-chain event is a basis for a future evidence verifier, not
-proof of destination-chain causality.
-
-```bash
-(cd x3-lang/solana/x3-mandate-vault && cargo test --locked)
-(cd x3-lang/solana/x3-mandate-vault && cargo fmt --all -- --check)
-(cd x3-lang/solana/x3-mandate-vault && cargo clippy --all-targets --locked -- -D warnings)
 ```
 
 ### Public browser demonstration
@@ -164,7 +144,7 @@ does not contact 1Click or NEAR and can be run entirely from the repository.
 | NEAR Intents 1Click adapter | Plans requests; checks signed quotes, minimum received, slippage, fees, freshness and nonces | A production solver or a completed cross-chain fill |
 | NEAR Guard | On-chain contract source for policy registration, signature checks, mandates and revocation; local tests | Production security audit, independent cross-chain causality proof |
 | Browser demo | Real signed *dry* quote with visible policy verdicts | Wallet authorization, funded swap or settlement |
-| Evidence tooling | Guided first-swap script and chain-verification commands | Publicly verified authorized swap and refund evidence |
+| Evidence tooling | Read-only chain-verification commands and dry-quote checks | Publicly verified authorized swap and refund evidence |
 
 **NEAR Intents partnership / pilot inquiry.** We invite NEAR Intents engineers and liquidity providers to review the adapter, assess a capped pilot, and discuss whether reduced minimum solver capital, technical mentorship, a liquidity-partner introduction, or grants/delegated liquidity could be available. We propose progressing from reproducible adversarial checks and signing-boundary review to a separately authorized small live swap, independently verified settlement or refund, measured execution costs, and *only then* larger capital or solver admission. This is a proposal, **not** an existing sponsorship, solver accreditation, or a claim that minimum requirements can be waived.
 
@@ -215,6 +195,6 @@ acceptance is not wallet authorization, a signed quote or settlement.
 
 ## License
 
-Dual-licensed under **MIT OR Apache-2.0**, matching the SPDX expressions in
-the crate manifests. The MIT text is in [LICENSE](LICENSE); the Apache-2.0
-text is the standard Apache License, Version 2.0.
+Licensed under the **MIT License**; see [LICENSE](LICENSE). The crate
+manifests declare the SPDX expression `MIT OR Apache-2.0`, and this repository
+ships the MIT option.

@@ -26,7 +26,6 @@ Rust/Cargo. Full mode also requires wasm32-unknown-unknown.
 | cat x3-lang/examples/near_mandate_agent.x3 | Owner, limits, recipient allowlists and approvals | Guard policy source, not wallet custody |
 | cat x3-lang/examples/near_intents_agent_payment.x3 | Agent intent under mandate | Example program, not live execution |
 | Open https://x3-guard.pages.dev | Signed dry quote policy checks | No actual payment was sent |
-| bash x3-lang/near/first-swap.sh | Prints the supported commands | Manual swap workflow; no funds moved by this command |
 
 Set up a Python virtual environment rather than using global/root pip:
 
