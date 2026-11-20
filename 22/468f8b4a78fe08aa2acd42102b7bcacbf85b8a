@@ -1,0 +1,24 @@
+docs/swarm-governance/REAPER_SCRAPYARD_LIFECYCLE.md
+  s_8fd403fa84d397::t_1865f2ee9430eb 1-142
+scripts/x3-reaper-scrapyard-lifecycle.sh
+  s_8fd403fa84d397::t_a025d85a1eae0d 1-121,123-174,176,179-196,204-207,209,211,213-269
+  s_8fd403fa84d397::t_0e0011641b4d1b 122
+  s_8fd403fa84d397::t_52cf5b45a84905 175,177-178
+  s_8fd403fa84d397::t_8369756375bda9 197-203,208,210,212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22468f8b4a78fe08aa2acd42102b7bcacbf85b8a",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

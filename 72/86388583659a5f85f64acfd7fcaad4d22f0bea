@@ -1,0 +1,22 @@
+tests/test_x3lang_reaper_intake.py
+  s_8fd403fa84d397::t_71243e1bac6eba 299-311
+  s_8fd403fa84d397::t_5e4b46de85c7fe 185-206
+swarm_infrastructure/integrations/x3lang_incident.py
+  s_8fd403fa84d397::t_432a7d86a257a2 152-153,156,159,237-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7286388583659a5f85f64acfd7fcaad4d22f0bea",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

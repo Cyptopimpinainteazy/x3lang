@@ -1,0 +1,23 @@
+scripts/local-ci.sh
+  s_8fd403fa84d397::t_312ac8a7f1998f 462-465
+crates/x3-foundry-core/src/lib.rs
+  s_8fd403fa84d397::t_35408514575f06 25,58
+crates/x3-foundry-core/src/revenue.rs
+  s_8fd403fa84d397::t_4063a2ff29e48c 72-99,101,104-109,147-150,158-162,166,303-307,313-334,432-479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e7c0ed90522d1f7a91b3b4a7e07eb405a1b5114b",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

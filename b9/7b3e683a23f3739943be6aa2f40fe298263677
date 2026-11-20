@@ -1,0 +1,40 @@
+apps/super-ide/README.md
+  h_e41068bed968d7 76-81
+apps/super-ide/backend/super_ide/app.py
+  h_e41068bed968d7 19,48
+apps/super-ide/backend/super_ide/free_models.py
+  h_e41068bed968d7 1-113
+apps/super-ide/backend/tests/test_free_models.py
+  h_e41068bed968d7 1-65
+apps/super-ide/backend/tests/test_remote_access.py
+  h_e41068bed968d7 157-163
+apps/super-ide/src/App.css
+  h_e41068bed968d7 213-225
+apps/super-ide/src/App.tsx
+  h_e41068bed968d7 6,17
+apps/super-ide/src/api/client.ts
+  h_e41068bed968d7 35-37,43,47-48,52,56-75
+apps/super-ide/src/components/FreeModelsPanel.tsx
+  h_e41068bed968d7 1-146
+apps/super-ide/src/components/Shell.tsx
+  h_e41068bed968d7 6,24
+apps/super-ide/src/lib/modelCatalog.ts
+  h_e41068bed968d7 1-20
+apps/super-ide/src/lib/modelChat.test.ts
+  h_e41068bed968d7 1-63
+apps/super-ide/src/lib/modelChat.ts
+  h_e41068bed968d7 1-64
+apps/super-ide/src/state/store.ts
+  h_e41068bed968d7 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b97b3e683a23f3739943be6aa2f40fe298263677",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+docs/economics/GPU_ECONOMY_INTEGRATION_INVENTORY.md
+  s_8fd403fa84d397::t_d7eae033d8ed6a 108,113-124
+  s_8fd403fa84d397::t_f9417d16b61560 129-133
+  s_8fd403fa84d397::t_8aa1fd5a272e91 125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dad01409cbb1606e26e4cbdf808ec35f07172653",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

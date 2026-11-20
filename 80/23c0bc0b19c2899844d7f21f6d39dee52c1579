@@ -1,0 +1,31 @@
+docs/economics/GPU_ECONOMY_INTEGRATION_INVENTORY.md
+  s_8fd403fa84d397::t_dd6ab05526bcf5 76
+  s_8fd403fa84d397::t_12e8788ca560e7 73
+  s_8fd403fa84d397::t_230b54a57cc302 101
+  s_8fd403fa84d397::t_afddaae1928e40 74
+  s_8fd403fa84d397::t_0ea4e40214ffc0 16-19
+  s_8fd403fa84d397::t_b7f460d0083ece 107
+  s_8fd403fa84d397::t_fb8f669927766d 45-46
+  s_8fd403fa84d397::t_9a97fbdd5058e8 81
+  s_8fd403fa84d397::t_56f938245a5ee4 94
+  s_8fd403fa84d397::t_fc17a023fbe56b 140-150
+  s_8fd403fa84d397::t_ed94353e12af51 131-139
+  s_8fd403fa84d397::t_d08a91d90b4a52 1-15,20-44,47-72,75,77-80,82-93,95-100,102-105,108-130
+  s_8fd403fa84d397::t_f99f7dba963723 106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8023c0bc0b19c2899844d7f21f6d39dee52c1579",
+  "prompts": {},
+  "sessions": {
+    "s_8fd403fa84d397": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49ff0d09-e17f-4a15-9e6d-f99cba65b635",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

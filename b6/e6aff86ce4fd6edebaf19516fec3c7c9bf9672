@@ -1,0 +1,20 @@
+x3-lang/near/integration-guidance/intents-planning.test.mjs
+  h_e41068bed968d7 18-45
+x3-lang/near/integration-guidance/planning.ts
+  h_e41068bed968d7 12,40-41,46-48
+x3-lang/near/integration-guidance/shield-reader.test.mjs
+  h_e41068bed968d7 6-51
+x3-lang/near/integration-guidance/shield.mjs
+  h_e41068bed968d7 3-8,16,21-23,26,46-75,103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b6e6aff86ce4fd6edebaf19516fec3c7c9bf9672",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
