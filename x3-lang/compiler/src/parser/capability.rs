@@ -32,19 +32,19 @@ fn number(p: &mut Parser<'_>) -> Result<u128, X3Error> {
 fn semi(p: &mut Parser<'_>) -> Result<(), X3Error> {
     p.expect(Tok::Semicolon, "expected ';'")
 }
-fn hash(p: &mut Parser<'_>) -> Result<[u8; 32], X3Error> {
+fn hex<const N: usize>(p: &mut Parser<'_>) -> Result<[u8; N], X3Error> {
     let s = string(p)?;
-    if s.len() != 64 || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
-        return Err(error(p, "expected 64 lowercase hex digits"));
+    if s.len() != N * 2 || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        return Err(error(p, "invalid fixed-width lowercase hex"));
     }
-    let mut out = [0; 32];
+    let mut out = [0; N];
     for (i, b) in out.iter_mut().enumerate() {
         *b = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).map_err(|_| error(p, "invalid hash"))?;
     }
     Ok(out)
 }
 
-/// Parse exactly one tool capability with explicit no-asset authority.
+/// Parse exactly one tool or EVM capability with explicit no-asset authority.
 /// No executable AST or implicit fallback is produced.
 pub fn parse_capability_source(source: &str) -> Result<Grant, X3Error> {
     if source.is_empty() || source.len() > 65536 {
@@ -71,9 +71,20 @@ pub fn parse_capability_source(source: &str) -> Result<Grant, X3Error> {
     keyword(p, "scope")?;
     let scope = string(p)?;
     semi(p)?;
-    keyword(p, "tool")?;
-    let adapter = string(p)?;
-    let artifact_hash = hash(p)?;
+    let resource = match p.expect_ident("resource")?.as_str() {
+        "tool" => Resource::Tool {
+            adapter: string(p)?,
+            artifact_hash: hex(p)?,
+        },
+        "evm_call" => Resource::EvmCall {
+            chain_id: u64::try_from(number(p)?).map_err(|_| error(p, "chain id exceeds u64"))?,
+            executor: hex(p)?,
+            target: hex(p)?,
+            selector: hex(p)?,
+            calldata_hash: hex(p)?,
+        },
+        _ => return Err(error(p, "unsupported capability resource")),
+    };
     semi(p)?;
     keyword(p, "no_asset")?;
     semi(p)?;
@@ -114,7 +125,7 @@ pub fn parse_capability_source(source: &str) -> Result<Grant, X3Error> {
         subject,
         parent,
         scope,
-        resource: Resource::Tool { adapter, artifact_hash },
+        resource,
         amount: AmountLimit::NoAsset,
         expires_at,
         delegation_depth,
