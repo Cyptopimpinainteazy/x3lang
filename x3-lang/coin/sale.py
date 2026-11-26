@@ -4,6 +4,12 @@ import re
 from . import CoinError, U64_MAX, _fields, _uint
 
 
+def network_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._:-]{0,63}", value):
+        raise CoinError("network id requires a lowercase ASCII identifier of 1..64 characters")
+    return value
+
+
 def plan_sale(spec):
     """Quote one delivery and the economic share assigned to each treasury.
 
@@ -22,9 +28,7 @@ def plan_sale(spec):
     available = {}
     for entry in networks:
         _fields(entry, ("id", "available"), "network")
-        network = entry["id"]
-        if not isinstance(network, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._:-]{0,63}", network):
-            raise CoinError("network id requires a lowercase ASCII identifier of 1..64 characters")
+        network = network_id(entry["id"])
         if network in available:
             raise CoinError(f"duplicate network id: {network}")
         available[network] = _uint(entry["available"], f"{network}.available", U64_MAX)

@@ -29,10 +29,46 @@ The input chain names are scenario labels. The quote checks quotas and destinati
 
 ## Verification
 
+### Reproduce a local inventory hold
+
+The reservation book stores the steward's opening balances in SQLite. The example uses a synthetic asset identifier and 1,000,000 sample coins with six decimals, divided equally across ten networks. The opening balance on each network determines its selling quota and its available delivery balance. These are two views of the same inventory.
+
+From the repository root, this example reserves 100 coins for one buyer. Each command starts a separate process using the same database file.
+
+```sh
+export PYTHONPATH=x3-lang
+example=x3-lang/coin/examples/ten_chain_inventory.json
+work=$(mktemp -d)
+db="$work/inventory.sqlite"
+asset_id=$(python -c 'import json, sys; print(json.load(open(sys.argv[1]))["asset_id"])' "$example")
+python -m coin inventory-init --db "$db" "$example"
+python - "$asset_id" > "$work/order.json" <<'PY'
+import json
+import sys
+import time
+
+print(json.dumps({
+    "asset_id": sys.argv[1], "order_id": "sale-100", "buyer": "buyer-01",
+    "destination": "ethereum", "amount": "100000000", "expires_at": int(time.time()) + 600,
+}))
+PY
+python -m coin reserve --db "$db" "$work/order.json"
+python -m coin reservation --db "$db" "$asset_id" sale-100
+python -m coin inventory --db "$db" "$asset_id"
+python -m coin release --db "$db" "$asset_id" sale-100
+```
+
+While the hold is active, all ten selling quotas have 99,990 coins available. Ethereum has 99,900 coins available for another local delivery. Each other delivery balance still has 100,000. The buyer has received zero coins. Both release and expiry free the reserved capacity once. Retrying the same order ID with its original terms returns the existing status. Reusing it with different terms fails. The fixture's asset identifier labels this example independently of the dual-VM issuance example.
+
+This book coordinates processes sharing the same durable database. Independent copies can each promise the same inventory. The operator supplies the balances and buyer reference. Payment verification, wallet authentication, on-chain escrow and evidence of delivery belong to a future execution component.
+
+### Run the fixtures
+
 The EVM fixture compiles generated Solidity with solc 0.8.28 and executes the bytecode on EthereumJS. The Solana fixture executes the actual System, Token, Associated Token and Memo programs in LiteSVM, with the same .x3 declaration. Both run entirely locally.
 
 ```sh
 PYTHONPATH=x3-lang python -m pytest -q x3-lang/tests/test_coin_authoring.py x3-lang/tests/test_coin_sale.py
+PYTHONPATH=x3-lang python -m pytest -q x3-lang/tests/test_coin_reservations.py x3-lang/tests/test_coin_reservation_cli.py
 (cd x3-lang/coin/integration/evm && npm ci --ignore-scripts && npm test)
 python -m pip install -r x3-lang/coin/integration/svm/requirements.txt
 PYTHONPATH=x3-lang python x3-lang/coin/integration/svm/test_litesvm.py -v
