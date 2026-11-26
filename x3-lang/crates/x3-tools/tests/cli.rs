@@ -4080,7 +4080,11 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
                 .output()
                 .expect("run the coin compiler");
             if !build.status.success() {
-                failures.push(format!("{}: {}", file.display(), String::from_utf8_lossy(&build.stderr)));
+                failures.push(format!(
+                    "{}: {}",
+                    file.display(),
+                    String::from_utf8_lossy(&build.stderr)
+                ));
             }
             if file == &coin_examples.join("dual_vm.x3") {
                 checked_coin_fixture = true;
@@ -4116,7 +4120,10 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         }
     }
 
-    assert!(checked_coin_fixture, "the corpus walk must compile the dual-VM coin example");
+    assert!(
+        checked_coin_fixture,
+        "the corpus walk must compile the dual-VM coin example"
+    );
 
     // The canonical draft lives in examples/. Published copies (the judge-live site serves one)
     // are allowed only as byte-identical mirrors, and each one is checked for the named refusal.
