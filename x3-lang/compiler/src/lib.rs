@@ -478,3 +478,5 @@ fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
 
     Ok(())
 }
+
+pub mod policy_encoding;
