@@ -8,6 +8,7 @@ import time
 
 from . import CoinError, U64_MAX, _fields, _uint
 from .sale import network_id, plan_sale
+from . import delivery as sale_delivery
 
 
 def _asset(value):
@@ -95,6 +96,10 @@ class ReservationBook:
                     raise CoinError("path does not contain an initialized reservation book")
                 for statement in _SCHEMA:
                     db.execute(statement)
+            # Upgrade existing books inside the writer lock before the expiry sweep.
+            # The trigger protects prepared holds even when an older CLI opens the file.
+            for statement in sale_delivery.SCHEMA:
+                db.execute(statement)
             # Observe the operator's clock after acquiring the lock. A terminal
             # state stays terminal even if a subsequent clock reading moves back.
             now = int(self.clock())
@@ -158,10 +163,12 @@ class ReservationBook:
         row = db.execute("SELECT * FROM sale_holds WHERE order_id=?", (order_id,)).fetchone()
         if row is None:
             raise CoinError("unknown reservation order_id")
+        delivery = db.execute("SELECT evidence FROM sale_deliveries WHERE order_id=?", (order_id,)).fetchone()
+        status = row["status"] if delivery is None else ("delivered" if delivery["evidence"] else "awaiting_confirmation")
         return {
             **json.loads(row["terms"]),
-            "status": row["status"],
-            "scope": "local_inventory_hold",
+            "status": status,
+            "scope": "local_inventory_hold" if delivery is None else "evm_sale_delivery",
             "shares": [{"network": n["id"], "charge": row["charge"]} for n in config["networks"]],
         }
 
@@ -204,5 +211,37 @@ class ReservationBook:
         _identifier(order_id, "order_id")
         with self._transaction() as (db, _):
             config = self._config(db, asset_id)
+            if db.execute("SELECT 1 FROM sale_deliveries WHERE order_id=?", (order_id,)).fetchone():
+                raise CoinError("prepared or delivered purchases cannot release their inventory")
             db.execute("UPDATE sale_holds SET status='released' WHERE order_id=? AND status='reserved'", (order_id,))
             return self._receipt(db, config, order_id)
+
+    def prepare_delivery(self, asset_id, order_id, policy):
+        """Persist the purchase identity and freeze its hold before returning wallet calls."""
+        _identifier(order_id, "order_id")
+        with self._transaction() as (db, _):
+            config = self._config(db, asset_id)
+            receipt = self._receipt(db, config, order_id)
+            return sale_delivery.prepare(db, receipt, config["decimals"], policy)
+
+    def delivery(self, asset_id, order_id):
+        _identifier(order_id, "order_id")
+        with self._transaction() as (db, _):
+            self._config(db, asset_id)
+            return sale_delivery.read_delivery(db, order_id)
+
+    def reconcile_delivery(self, asset_id, order_id, rpcs):
+        """Discover the original purchase after a restart. Never submit a transfer."""
+        from .delivery_evidence import confirmed_fill
+
+        previous = self.delivery(asset_id, order_id)
+        if previous["evidence"] is not None:
+            return previous
+        # No network calls while holding the database writer lock. The order
+        # terms cannot change between preparation, observation and commit.
+        observed = confirmed_fill(previous["terms"], rpcs)
+        if observed is None:
+            return self.delivery(asset_id, order_id)
+        with self._transaction() as (db, _):
+            config = self._config(db, asset_id)
+            return sale_delivery.record_confirmation(db, config, order_id, observed)
