@@ -25,3 +25,11 @@ Requires Python 3 and OpenSSL providing `dgst -keccak-256` (locally checked with
 Owner tooling must independently pin source, executor code identity, current chain state, nonce, policy epoch and time; recompile and compare every byte before registering an action. The compiler's supplied context is not authenticated. An owner can still register actions outside this profile; the executor does not evaluate the source semantics. Value cap is not a lifetime spending budget. No token semantic guarantees. The Python tests and static digest vector are not Solidity execution, testnet evidence, or permission to deploy. No live funds.
 
 Next: Solidity vector parity and full executor tests; authenticated owner-side source verification; integration with canonical X3Lang parser/compiler and on-chain enforceable policy semantics.
+
+## Offline ABI inventory
+
+`abi_import.inspect_abi(raw: bytes)` accepts a bounded JSON ABI array (not an artifact wrapper) and returns a source-hash-bound inventory of functions, mutability, supported signatures and selectors. Only canonical elementary one-word argument types are supported. More than 16 input words, view/pure, known selector collisions, or incomplete selector inventory disable candidate nomination. Arrays, tuples, dynamic values, and aliases are not yet supported. ABI metadata is untrusted; outputs and actual bytecode permissions are not validated. Candidate means encoding-compatible only, not safe, authorized, or deployed. No RPC, proxy inspection, signing, automatic policy generation, or execution.
+
+```sh
+python3 -m unittest -v test_compile_action test_abi_import
+```
