@@ -483,3 +483,5 @@ pub mod policy_encoding;
 
 pub mod capability_source;
 pub use capability_source::compile_capability_source;
+
+pub mod evm_capability;
