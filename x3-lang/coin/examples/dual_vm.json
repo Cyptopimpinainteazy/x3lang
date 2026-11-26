@@ -1,0 +1,18 @@
+{
+  "symbol": "DEMO",
+  "name": "X3 Demo Credit",
+  "decimals": 6,
+  "cap": "1000000000",
+  "evm": {
+    "chain_id": "31337",
+    "contract": "0xf2e246bb76df876cef8b38ae84130f4f55de395b",
+    "recipient": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+    "allocation": "600000000"
+  },
+  "svm": {
+    "genesis_hash": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "mint": "F25s3DdjXdCxYBhh2z8FBusVEMT4b9bGNFVKJi3wFoF4",
+    "recipient": "Bow1CGKGDB9mNxeWdw85E2aCthQ1oZX4oFEe7fYT17ew",
+    "allocation": "400000000"
+  }
+}

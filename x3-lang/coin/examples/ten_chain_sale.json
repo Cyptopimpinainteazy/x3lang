@@ -1,0 +1,18 @@
+{
+  "decimals": 6,
+  "networks": [
+    {"id": "ethereum", "available": "100000000000"},
+    {"id": "base", "available": "100000000000"},
+    {"id": "arbitrum", "available": "100000000000"},
+    {"id": "optimism", "available": "100000000000"},
+    {"id": "polygon", "available": "100000000000"},
+    {"id": "bnb", "available": "100000000000"},
+    {"id": "avalanche", "available": "100000000000"},
+    {"id": "solana", "available": "100000000000"},
+    {"id": "near", "available": "100000000000"},
+    {"id": "x3", "available": "100000000000"}
+  ],
+  "destination": "ethereum",
+  "amount": "100000000",
+  "destination_float": "100000000000"
+}
