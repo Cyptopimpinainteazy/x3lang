@@ -2,7 +2,7 @@
 //! Executable programs cannot consume this declaration until runtime lowering exists.
 use super::{parse_err_at, tokenize, Parser, Tok};
 use std::collections::BTreeSet;
-use x3_lang_ast::policy_ir::{AmountLimit, Grant, Requirement, Resource};
+use x3_lang_ast::policy_ir::{AmountLimit, Grant, Requirement, Resource, SettlementOperation};
 use x3_lang_common::X3Error;
 
 fn error(p: &Parser<'_>, msg: &str) -> X3Error {
@@ -44,7 +44,7 @@ fn hex<const N: usize>(p: &mut Parser<'_>) -> Result<[u8; N], X3Error> {
     Ok(out)
 }
 
-/// Parse exactly one tool or EVM capability with explicit no-asset authority.
+/// Parse exactly one tool, EVM or settlement capability with explicit no-asset authority.
 /// No executable AST or implicit fallback is produced.
 pub fn parse_capability_source(source: &str) -> Result<Grant, X3Error> {
     if source.is_empty() || source.len() > 65536 {
@@ -83,6 +83,16 @@ pub fn parse_capability_source(source: &str) -> Result<Grant, X3Error> {
             selector: hex(p)?,
             calldata_hash: hex(p)?,
         },
+        "near_bsc_window" => {
+            let window_id = hex(p)?;
+            let operation = match string(p)?.as_str() {
+                "lock" => SettlementOperation::Lock,
+                "claim" => SettlementOperation::Claim,
+                "refund" => SettlementOperation::Refund,
+                _ => return Err(error(p, "unsupported settlement operation")),
+            };
+            Resource::NearBscWindow { window_id, operation }
+        }
         _ => return Err(error(p, "unsupported capability resource")),
     };
     semi(p)?;
