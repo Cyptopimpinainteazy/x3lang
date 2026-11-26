@@ -1,0 +1,26 @@
+// x3ccp_treasury_guard.x3 — an X3Lang policy that a real Solidity contract enforces on chain.
+//
+// X3ControlledTreasury (x3-lang/x3ccp-evm/src/X3ControlledTreasury.sol) holds ETH. Its owner
+// installs this policy with `installPolicy(bytes)`; from then on every `withdraw` and `sweep`
+// call is checked on chain before the function body runs, and a refusal reverts with
+// `X3Refused(<line in this file>, <reason>)`.
+//
+//   python3 x3-lang/x3ccp.py explain x3-lang/examples/x3ccp_treasury_guard.x3
+//
+// The addresses are the deterministic Foundry test addresses used by
+// x3-lang/x3ccp-evm/test/X3ControlledTreasury.t.sol (chain 31337), so the compiled bytes
+// are a pinned fixture. `sweep` is deliberately not allowed: it is refused by default.
+control treasury_guard {
+    target local 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    owner 0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496
+    allow callers 0x1111111111111111111111111111111111111111, 0x3333333333333333333333333333333333333333
+    allow fn withdraw(address to, uint256 amount)
+    allow fn setMemo(bytes32 memo, bool urgent)
+    limit withdraw.amount <= 50_000_000
+    limit withdraw.amount >= 1_000
+    limit withdraw.to in 0x2222222222222222222222222222222222222222, 0x4444444444444444444444444444444444444444
+    rate withdraw.amount per 24h <= 120_000_000
+    rate withdraw calls per 1h <= 3
+    limit setMemo.urgent == false
+    expires at 2030-01-01T00:00:00Z
+}

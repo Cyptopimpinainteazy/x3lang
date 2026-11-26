@@ -3726,6 +3726,9 @@ const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
 /// near_native_vault.py) and x3-guard; they are not intents the generic VM executes.
 /// Their own Python suites check them (test_surface_drift.py, test_native_vault_binding.py).
 const PYTHON_ONLY_MANDATES: [&str; 2] = ["near_mandate_agent.x3", "near_native_vault_supplier.x3"];
+/// X3CCP `control` policies: compiled by `x3-lang/x3ccp.py` to bytes an `X3Controlled` Solidity
+/// contract enforces; not a program for the generic VM. Their own gate is tests/test_x3ccp.py.
+const PYTHON_ONLY_CONTROL: [&str; 1] = ["x3ccp_treasury_guard.x3"];
 
 /// This historical testnet source is compiled only by the Python Base Sepolia frontend
 /// (scripts/hackathon/base_sepolia_x3_intent.py). Every generic production entry point
@@ -3852,6 +3855,9 @@ fn every_example_checks_and_builds() {
         if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
             // A `mandate` declaration is consumed by the Python tooling and
             // x3-guard; it is not an intent the generic VM can execute.
+            continue;
+        }
+        if PYTHON_ONLY_CONTROL.contains(&name.as_str()) {
             continue;
         }
         if ADAPTER_INTENTS.contains(&name.as_str()) {
@@ -4088,6 +4094,9 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         }
         if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
             python_only.push(name);
+            continue;
+        }
+        if PYTHON_ONLY_CONTROL.contains(&name.as_str()) {
             continue;
         }
         let check = x3c().arg("check").arg(file).output().expect("x3c check");
