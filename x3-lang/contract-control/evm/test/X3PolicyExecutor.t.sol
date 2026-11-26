@@ -115,7 +115,7 @@ contract X3PolicyExecutorTest {
         e.setPaused(false);
         vm.expectRevert(X3PolicyExecutor.Denied.selector); run(a,data);
     }
-    function testFailedCallRollsBack() public {
+    function test_RevertWhen_TargetCallFailsRollsBack() public {
         data=abi.encodeCall(t.set,(99));
         X3PolicyExecutor.Action memory a=action(); e.approve(a);
         vm.expectRevert(X3PolicyExecutor.CallFailed.selector); run(a,data);
