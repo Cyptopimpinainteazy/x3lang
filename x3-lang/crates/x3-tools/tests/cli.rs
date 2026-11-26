@@ -4063,11 +4063,30 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         root.display()
     );
 
+    let coin_examples = root.join("coin").join("examples");
+    let mut checked_coin_fixture = false;
     let mut failures = Vec::new();
     let mut adapter_intents = 0usize;
     let mut testnet_drafts: Vec<std::path::PathBuf> = Vec::new();
     let mut python_only: Vec<String> = Vec::new();
     for file in &found {
+        // Coin declarations emit Solidity and an SPL issuance plan through the Python
+        // compiler. Run that entry point for every fixture in its example directory.
+        if file.starts_with(&coin_examples) {
+            let build = Command::new("python3")
+                .args(["-m", "coin", "build"])
+                .arg(file)
+                .current_dir(&root)
+                .output()
+                .expect("run the coin compiler");
+            if !build.status.success() {
+                failures.push(format!("{}: {}", file.display(), String::from_utf8_lossy(&build.stderr)));
+            }
+            if file == &coin_examples.join("dual_vm.x3") {
+                checked_coin_fixture = true;
+            }
+            continue;
+        }
         let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
         if ADAPTER_INTENTS.contains(&name.as_str()) {
             adapter_intents += 1;
@@ -4096,6 +4115,8 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
             failures.push(format!("{relative}: {}", String::from_utf8_lossy(&check.stdout).trim()));
         }
     }
+
+    assert!(checked_coin_fixture, "the corpus walk must compile the dual-VM coin example");
 
     // The canonical draft lives in examples/. Published copies (the judge-live site serves one)
     // are allowed only as byte-identical mirrors, and each one is checked for the named refusal.
