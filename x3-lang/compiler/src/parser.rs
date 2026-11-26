@@ -7025,3 +7025,5 @@ fn keyword_to_tok(kw: Keyword) -> Option<Tok> {
 /// Re-export the `BinOp` and `UnOp` types the parser uses so callers can
 /// reference them through the compiler crate.
 pub use x3_lang_common::{BinOp, UnOp};
+
+pub mod capability;
