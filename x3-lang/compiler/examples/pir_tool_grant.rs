@@ -17,6 +17,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut input = String::new();
     io::stdin().take(65537).read_to_string(&mut input)?;
     let compiled = compile_capability_source(&input, &scope, &BTreeSet::new(), now)?;
+    if !matches!(compiled.grant.resource, x3_lang_ast::policy_ir::Resource::Tool { .. }) {
+        return Err("tool resource required".into());
+    }
     println!(
         "{}",
         serde_json::json!({"encoded":hex(&compiled.commitment.encoded),"source_sha256":hex(&compiled.source_sha256)})
