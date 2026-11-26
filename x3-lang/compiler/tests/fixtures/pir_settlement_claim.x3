@@ -1,0 +1,10 @@
+capability {
+    subject "relayer";
+    parent none;
+    scope "sandbox:pir07";
+    near_bsc_window "9d66ddfe92e56e993dd87e2f7ca53b87e39ceb35325cc44b404c0a8eb87de110" "claim";
+    no_asset;
+    expires 1700001500;
+    depth 0;
+    requirements [exact_code_identity, authenticated_finality];
+}
