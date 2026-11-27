@@ -74,7 +74,13 @@ reuse those mandates rather than copy unrelated `xxxstar` PR #727 code.
 NEAR's published 1Click API supports an optional `appFees` quote field of
 `[{"recipient": "yourfee.near", "fee": 100}]` (basis points) and a
 `referral` identifier. See the [official NEAR integration guide](https://github.com/near/agent-skills/blob/main/skills/near-intents/rules/api-quote.md).
-**This code does not add any appFees or referral to real transactions.**
+**This code adds `appFees` only when a program declares `fee <rate> to <account>`**
+(see the [programming guide](../x3-lang/PROGRAMMING_GUIDE.md#integrator-fees-fee-rate-to-account)).
+No program in this repository's evidence uses it, no fee account is configured, and
+no referral is added. The clause is a fixed bps fee, not the savings share below,
+and it does not meet the Phase 4 preconditions in
+[the value-first plan](../plans/NEAR_X3LANG_VALUE_FIRST_IMPLEMENTATION.md): the fee is
+not covered by 1Click's signature and nothing proves its recipient was paid.
 
 Before using appFees, the quote request AND its authenticated signed echo,
 fee/cost arithmetic and refund path must be reviewed together. 1Click may
