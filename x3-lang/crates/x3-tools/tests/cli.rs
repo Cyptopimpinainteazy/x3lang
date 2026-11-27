@@ -3734,7 +3734,7 @@ const PYTHON_ONLY_CONTROL: [&str; 1] = ["x3ccp_treasury_guard.x3"];
 /// (`compile_capability_source`); ordinary executable source must reject a capability
 /// declaration (spec/X3_PIR_EVM.md). The walk asserts that `x3c check` refuses each one;
 /// their own gates are the compiler's capability tests and the PIR verify scripts.
-const CAPABILITY_SOURCES: [&str; 1] = ["pir_evm_action.x3"];
+const CAPABILITY_SOURCES: [&str; 2] = ["pir_evm_action.x3", "pir_settlement_claim.x3"];
 
 /// This historical testnet source is compiled only by the Python Base Sepolia frontend
 /// (scripts/hackathon/base_sepolia_x3_intent.py). Every generic production entry point

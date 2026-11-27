@@ -3,7 +3,7 @@ use crate::parser::capability::parse_capability_source;
 use crate::policy_encoding::{encode_grant, Commitment};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
-use x3_lang_ast::policy_ir::{check_support, Grant, Requirement};
+use x3_lang_ast::policy_ir::{check_support, Grant, Requirement, Resource};
 use x3_lang_common::{Span, X3Error};
 
 #[derive(Debug)]
@@ -27,6 +27,11 @@ pub fn compile_capability_source(
         message,
         span: Span::DUMMY,
     };
+    if matches!(&grant.resource, Resource::NearBscWindow { .. }) {
+        return Err(refuse(
+            "settlement requires blocked plan compiler; native verifier unavailable".into(),
+        ));
+    }
     if grant.scope != trusted_scope {
         return Err(refuse("capability scope mismatch".into()));
     }
