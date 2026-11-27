@@ -169,10 +169,13 @@ asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
 asset OTHER = evm.ethereum.0xA0b8 { decimals: 18 }
 "#;
     let errors = analyze(source).expect_err("one canonical asset cannot have conflicting units");
-    assert!(errors.iter().any(|e| {
-        let message = e.to_string();
-        message.contains("X3E2107") && message.contains("USDC") && message.contains("OTHER")
-    }), "{errors:?}");
+    assert!(
+        errors.iter().any(|e| {
+            let message = e.to_string();
+            message.contains("X3E2107") && message.contains("USDC") && message.contains("OTHER")
+        }),
+        "{errors:?}"
+    );
 }
 
 #[test]
