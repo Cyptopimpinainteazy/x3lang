@@ -41,6 +41,9 @@ const MAX_LIVE_SWAPS: u32 = 256;
 const RECORD_OVERHEAD_BYTES: u64 = 40;
 /// Swap IDs are exactly 32 bytes in hexadecimal.
 const SWAP_ID_LEN: u64 = 64;
+const DIRECT_LOCK_PREFIX: &str = "x3-direct-v1:";
+const DIRECT_LOCK_DOMAIN: &[u8] = b"X3-NEAR-DIRECT-LOCK-V1";
+const DIRECT_LOCK_ID_LEN: u64 = SWAP_ID_LEN + DIRECT_LOCK_PREFIX.len() as u64;
 /// Every `LookupMap` key is a one-byte prefix followed by the borsh key.
 const PREFIX_LEN: u64 = 1;
 
@@ -101,6 +104,64 @@ pub struct Swap {
     pub storage_deposit: u128,
 }
 
+// These non-Copy, non-Clone types are transient capabilities inside the
+// vault implementation, not serialized bearer tokens. The persisted Swap
+// state and credit maps remain the authority across separate receipts.
+struct NativeNear;
+
+struct Locked<A> {
+    principal: u128,
+    claimant: AccountId,
+    refund_owner: AccountId,
+    asset: core::marker::PhantomData<A>,
+}
+
+struct Spendable<A> {
+    owner: AccountId,
+    principal: u128,
+    asset: core::marker::PhantomData<A>,
+}
+
+#[derive(Clone, Copy)]
+enum Release {
+    Claim,
+    Refund,
+}
+
+impl<A> Locked<A> {
+    fn release(self, outcome: Release) -> Spendable<A> {
+        let owner = match outcome {
+            Release::Claim => self.claimant,
+            Release::Refund => self.refund_owner,
+        };
+        Spendable {
+            owner,
+            principal: self.principal,
+            asset: core::marker::PhantomData,
+        }
+    }
+}
+
+impl Swap {
+    /// Called only after the public claim/refund entry point checks its
+    /// recipient, preimage and/or time boundary. Consume the persisted lock
+    /// once and derive the credit owner from the original terms.
+    fn release_locked(&mut self, outcome: Release) -> Spendable<NativeNear> {
+        assert_eq!(self.state, SwapState::Locked, "not locked");
+        let locked: Locked<NativeNear> = Locked {
+            principal: self.amount,
+            claimant: self.recipient.clone(),
+            refund_owner: self.initiator.clone(),
+            asset: core::marker::PhantomData,
+        };
+        self.state = match outcome {
+            Release::Claim => SwapState::Claimed,
+            Release::Refund => SwapState::Refunded,
+        };
+        locked.release(outcome)
+    }
+}
+
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
 pub struct NativeNearHtlc {
@@ -133,7 +194,11 @@ fn payout_entry_bytes(account: &AccountId) -> u64 {
 /// a concurrent in-flight withdrawal entry. The payee is the recipient on claim
 /// or the initiator on refund, so reserve for the longer of the two names.
 fn swap_storage_bytes(swap: &Swap) -> (u64, u64) {
-    let record = RECORD_OVERHEAD_BYTES + PREFIX_LEN + 4 + SWAP_ID_LEN + borsh_len(swap);
+    swap_storage_bytes_for_id(swap, SWAP_ID_LEN)
+}
+
+fn swap_storage_bytes_for_id(swap: &Swap, id_bytes: u64) -> (u64, u64) {
+    let record = RECORD_OVERHEAD_BYTES + PREFIX_LEN + 4 + id_bytes + borsh_len(swap);
     let payee = if swap.recipient.as_str().len() >= swap.initiator.as_str().len() {
         &swap.recipient
     } else {
@@ -257,10 +322,36 @@ fn emit_settlement(window_id_hex: &str, outcome: SettlementOutcome) {
     env::log_str(&settlement_log_line(window_id_hex, outcome));
 }
 
+/// Direct locks use a separate namespace, disjoint from the historical
+/// caller-selected 64-hex IDs and from proof-bound settlement window IDs.
+/// The initiator comes from the authenticated NEAR predecessor at creation.
+pub fn derive_direct_lock_id(
+    vault: &AccountId,
+    initiator: &AccountId,
+    recipient: &AccountId,
+    hashlock: &[u8],
+    amount: u128,
+    expires_at_ns: u64,
+    salt: &[u8],
+) -> String {
+    assert_eq!(hashlock.len(), 32, "hashlock length");
+    assert_eq!(salt.len(), 32, "salt must be 32 bytes");
+    let mut buf = Vec::new();
+    buf.extend_from_slice(DIRECT_LOCK_DOMAIN);
+    push_account(&mut buf, vault);
+    push_account(&mut buf, initiator);
+    push_account(&mut buf, recipient);
+    buf.extend_from_slice(hashlock);
+    buf.extend_from_slice(&amount.to_be_bytes());
+    buf.extend_from_slice(&expires_at_ns.to_be_bytes());
+    buf.extend_from_slice(salt);
+    format!("{DIRECT_LOCK_PREFIX}{}", lower_hex(&env::sha256(&buf)))
+}
+
 fn check_swap_id(id: &str) {
     assert!(
-        id.len() as u64 == SWAP_ID_LEN && id.bytes().all(|b| b.is_ascii_hexdigit()),
-        "swap id must be 32 bytes in hexadecimal"
+        id.len() as u64 == SWAP_ID_LEN && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "swap id must be 32 bytes in lowercase hexadecimal"
     );
 }
 
@@ -436,11 +527,46 @@ impl NativeNearHtlc {
         self.windows.get(&id).cloned()
     }
 
-    /// Permissionless lock. `amount` is the escrow principal; the attached
-    /// deposit must cover `amount` plus storage (see `lock_deposit_required`).
+    /// Legacy caller-selected lock ID. Retained for testnet compatibility.
+    /// Prefer lock_authenticated for all new direct locks.
     #[payable]
     pub fn lock(&mut self, id: String, recipient: AccountId, hashlock: Base64VecU8, expires_at_ns: u64, amount: U128) {
         check_swap_id(&id);
+        self.create_direct_lock(id, recipient, hashlock, expires_at_ns, amount);
+    }
+
+    /// Create a term-bound direct lock with an authenticated initiator.
+    /// Returns the derived ID. No caller can choose another owner's ID.
+    #[payable]
+    pub fn lock_authenticated(
+        &mut self,
+        recipient: AccountId,
+        hashlock: Base64VecU8,
+        expires_at_ns: u64,
+        amount: U128,
+        salt: Base64VecU8,
+    ) -> String {
+        let id = derive_direct_lock_id(
+            &env::current_account_id(),
+            &env::predecessor_account_id(),
+            &recipient,
+            &hashlock.0,
+            amount.0,
+            expires_at_ns,
+            &salt.0,
+        );
+        self.create_direct_lock(id.clone(), recipient, hashlock, expires_at_ns, amount);
+        id
+    }
+
+    fn create_direct_lock(
+        &mut self,
+        id: String,
+        recipient: AccountId,
+        hashlock: Base64VecU8,
+        expires_at_ns: u64,
+        amount: U128,
+    ) {
         assert!(
             !self.swaps.contains_key(&id) && !self.windows.contains_key(&id),
             "swap id already used"
@@ -462,7 +588,7 @@ impl NativeNearHtlc {
             state: SwapState::Locked,
             storage_deposit: 0,
         };
-        let (record, reserve) = swap_storage_bytes(&swap);
+        let (record, reserve) = swap_storage_bytes_for_id(&swap, id.len() as u64);
         // Fails here, before any record or liability exists, if underfunded.
         let (storage, excess) = require_deposit(amount.0, record + reserve);
         swap.storage_deposit = storage;
@@ -477,6 +603,19 @@ impl NativeNearHtlc {
 
     /// Exact deposit `lock` needs from `initiator` for `amount` to `recipient`.
     pub fn lock_deposit_required(&self, initiator: AccountId, recipient: AccountId, amount: U128) -> U128 {
+        self.direct_deposit_required(initiator, recipient, amount, SWAP_ID_LEN)
+    }
+
+    pub fn authenticated_lock_deposit_required(
+        &self,
+        initiator: AccountId,
+        recipient: AccountId,
+        amount: U128,
+    ) -> U128 {
+        self.direct_deposit_required(initiator, recipient, amount, DIRECT_LOCK_ID_LEN)
+    }
+
+    fn direct_deposit_required(&self, initiator: AccountId, recipient: AccountId, amount: U128, id_bytes: u64) -> U128 {
         let swap = Swap {
             initiator,
             recipient,
@@ -486,8 +625,11 @@ impl NativeNearHtlc {
             state: SwapState::Locked,
             storage_deposit: 0,
         };
-        let (record, reserve) = swap_storage_bytes(&swap);
-        U128(amount.0 + byte_cost() * (record + reserve) as u128)
+        let (record, reserve) = swap_storage_bytes_for_id(&swap, id_bytes);
+        let storage = byte_cost()
+            .checked_mul((record + reserve) as u128)
+            .expect("storage cost overflow");
+        U128(amount.0.checked_add(storage).expect("deposit overflow"))
     }
 
     /// Storage stake the registrar must attach to `register_window`.
@@ -524,11 +666,9 @@ impl NativeNearHtlc {
         );
         assert!(env::block_timestamp() < swap.expires_at_ns, "swap expired");
         assert_eq!(env::sha256(&preimage.0), swap.hashlock, "invalid preimage");
-        let recipient = swap.recipient.clone();
-        let amount = swap.amount;
-        swap.state = SwapState::Claimed;
+        let credit = swap.release_locked(Release::Claim);
         self.live_swaps -= 1;
-        self.add_credit(recipient, amount);
+        self.add_credit(credit);
         if bound {
             emit_settlement(&id, SettlementOutcome::Claimed);
         }
@@ -545,11 +685,9 @@ impl NativeNearHtlc {
         let swap = self.swaps.get_mut(&id).expect("unknown swap");
         assert_eq!(swap.state, SwapState::Locked, "not locked");
         assert!(env::block_timestamp() >= swap.expires_at_ns, "not expired");
-        let initiator = swap.initiator.clone();
-        let amount = swap.amount;
-        swap.state = SwapState::Refunded;
+        let credit = swap.release_locked(Release::Refund);
         self.live_swaps -= 1;
-        self.add_credit(initiator, amount);
+        self.add_credit(credit);
         if bound {
             emit_settlement(&id, SettlementOutcome::Refunded);
         }
@@ -583,7 +721,12 @@ impl NativeNearHtlc {
                 true
             }
             Err(_) => {
-                self.add_credit(account, amount);
+                // Restore only the amount taken from the persisted in-flight map.
+                self.add_credit(Spendable {
+                    owner: account,
+                    principal: amount,
+                    asset: core::marker::PhantomData,
+                });
                 false
             }
         }
@@ -607,10 +750,12 @@ impl NativeNearHtlc {
         U128(self.storage_deposits)
     }
 
-    fn add_credit(&mut self, account: AccountId, amount: u128) {
-        let existing = self.credits.get(&account).copied().unwrap_or(0);
-        self.credits
-            .insert(account, existing.checked_add(amount).expect("credit overflow"));
+    fn add_credit(&mut self, credit: Spendable<NativeNear>) {
+        let existing = self.credits.get(&credit.owner).copied().unwrap_or(0);
+        self.credits.insert(
+            credit.owner,
+            existing.checked_add(credit.principal).expect("credit overflow"),
+        );
     }
 }
 
@@ -1506,6 +1651,158 @@ mod tests {
     }
 
     #[test]
+    fn fortress_authenticated_lock_binds_actual_caller_and_all_terms() {
+        let mut c = new_testnet_vault();
+        let initiator: AccountId = "lp.testnet".parse().unwrap();
+        let recipient: AccountId = "alice.testnet".parse().unwrap();
+        let vault: AccountId = "x3-vault.testnet".parse().unwrap();
+        let salt = vec![9u8; 32];
+        let hash = env::sha256(secret());
+        let expiry = START + 600_000_000_000;
+        let id = derive_direct_lock_id(&vault, &initiator, &recipient, &hash, ONE, expiry, &salt);
+        assert_eq!(
+            id,
+            "x3-direct-v1:441568db9e648ac82240aa1c9c514e7debee44d923301f564da09604dd10c5ab"
+        );
+        let other: AccountId = "other.testnet".parse().unwrap();
+        assert_ne!(
+            id,
+            derive_direct_lock_id(&other, &initiator, &recipient, &hash, ONE, expiry, &salt)
+        );
+        assert_ne!(
+            id,
+            derive_direct_lock_id(&vault, &other, &recipient, &hash, ONE, expiry, &salt)
+        );
+        assert_ne!(
+            id,
+            derive_direct_lock_id(&vault, &initiator, &other, &hash, ONE, expiry, &salt)
+        );
+        assert_ne!(
+            id,
+            derive_direct_lock_id(&vault, &initiator, &recipient, &[8; 32], ONE, expiry, &salt)
+        );
+        assert_ne!(
+            id,
+            derive_direct_lock_id(&vault, &initiator, &recipient, &hash, ONE + 1, expiry, &salt)
+        );
+        assert_ne!(
+            id,
+            derive_direct_lock_id(&vault, &initiator, &recipient, &hash, ONE, expiry + 1, &salt)
+        );
+        assert_ne!(
+            id,
+            derive_direct_lock_id(&vault, &initiator, &recipient, &hash, ONE, expiry, &[10; 32])
+        );
+        assert!(id.starts_with(DIRECT_LOCK_PREFIX));
+        assert_eq!(id.len() as u64, DIRECT_LOCK_ID_LEN);
+        let deposit = c
+            .authenticated_lock_deposit_required(initiator.clone(), recipient.clone(), U128(ONE))
+            .0;
+        let legacy_deposit = c
+            .lock_deposit_required(initiator.clone(), recipient.clone(), U128(ONE))
+            .0;
+        assert_eq!(deposit - legacy_deposit, byte_cost() * DIRECT_LOCK_PREFIX.len() as u128);
+
+        // The caller-selected legacy path cannot occupy the new namespace.
+        assert!(!try_lock(&mut c, id.clone(), deposit, expiry));
+        set("lp.testnet", deposit - 1, START);
+        assert!(fails(|| c.lock_authenticated(
+            recipient.clone(),
+            Base64VecU8(hash.clone()),
+            expiry,
+            U128(ONE),
+            Base64VecU8(salt.clone())
+        )));
+        assert!(c.get(id.clone()).is_none());
+        set("lp.testnet", deposit, START);
+        let returned = c.lock_authenticated(
+            recipient.clone(),
+            Base64VecU8(hash.clone()),
+            expiry,
+            U128(ONE),
+            Base64VecU8(salt.clone()),
+        );
+        assert_eq!(returned, id);
+        let swap = c.get(id.clone()).unwrap();
+        assert_eq!(swap.initiator, initiator);
+        assert_eq!(swap.recipient, recipient);
+        assert_eq!(swap.state, SwapState::Locked);
+        assert_eq!(c.liability().0, ONE);
+        assert_eq!(c.credit_of(recipient.clone()).0, 0);
+
+        set("alice.testnet", 0, START + 1);
+        c.claim(id.clone(), Base64VecU8(secret()));
+        assert_eq!(c.credit_of(recipient.clone()).0, ONE);
+        assert_eq!(c.liability().0, ONE);
+        // Persist actual vault maps and the Borsh root; reconstruct a new
+        // contract instance before attempting terminal replay.
+        c.swaps.flush();
+        c.windows.flush();
+        c.credits.flush();
+        c.withdrawals_inflight.flush();
+        env::state_write(&c);
+        drop(c);
+        let mut c: NativeNearHtlc = env::state_read().unwrap();
+        assert_eq!(c.get(id.clone()).unwrap().state, SwapState::Claimed);
+        assert_eq!(c.credit_of(recipient.clone()).0, ONE);
+        assert_eq!(c.liability().0, ONE);
+        assert!(fails(|| c.claim(id.clone(), Base64VecU8(secret()))));
+        set("other.testnet", 0, expiry);
+        assert!(fails(|| c.refund(id.clone())));
+        assert!(
+            settlement_logs().is_empty(),
+            "direct lock must not emit window evidence"
+        );
+        set("lp.testnet", deposit, START + 2);
+        assert!(fails(|| c.lock_authenticated(
+            recipient.clone(),
+            Base64VecU8(hash.clone()),
+            expiry,
+            U128(ONE),
+            Base64VecU8(salt.clone())
+        )));
+        assert_eq!(c.get(id).unwrap().state, SwapState::Claimed);
+        assert_eq!(c.liability().0, ONE);
+    }
+
+    #[test]
+    fn fortress_refund_consumes_locked_principal_and_withdrawal_is_conserved() {
+        let mut c = new_testnet_vault();
+        let initiator: AccountId = "lp.testnet".parse().unwrap();
+        let recipient: AccountId = "alice.testnet".parse().unwrap();
+        let expiry = START + 600_000_000_000;
+        let deposit = c
+            .authenticated_lock_deposit_required(initiator.clone(), recipient.clone(), U128(ONE))
+            .0;
+        set("lp.testnet", deposit, START);
+        let id = c.lock_authenticated(
+            recipient.clone(),
+            Base64VecU8(env::sha256(secret())),
+            expiry,
+            U128(ONE),
+            Base64VecU8(vec![11; 32]),
+        );
+        set("other.testnet", 0, expiry);
+        c.refund(id.clone());
+        assert_eq!(c.get(id.clone()).unwrap().state, SwapState::Refunded);
+        assert_eq!(c.credit_of(initiator.clone()).0, ONE);
+        assert_eq!(c.credit_of(recipient.clone()).0, 0);
+        assert!(fails(|| c.refund(id.clone())));
+        set("alice.testnet", 0, expiry);
+        assert!(fails(|| c.claim(id, Base64VecU8(secret()))));
+        set("lp.testnet", 0, expiry);
+        let _promise = c.withdraw();
+        assert_eq!(c.credit_of(initiator.clone()).0, 0);
+        assert_eq!(c.pending_withdrawal_of(initiator.clone()).0, ONE);
+        assert_eq!(c.liability().0, ONE);
+        assert!(fails(|| c.withdraw()));
+        callback(expiry + 1, true);
+        assert!(c.on_withdraw(initiator.clone()));
+        assert_eq!(c.liability().0, 0);
+        assert_eq!(c.pending_withdrawal_of(initiator).0, 0);
+    }
+
+    #[test]
     fn same_hashlock_across_windows_settles_each_window_independently() {
         let mut c = new_testnet_vault();
         let first = register(&mut c, 0, DEADLINE, EXPIRY);
@@ -1533,5 +1830,15 @@ mod tests {
             settlement_log_line(&first, SettlementOutcome::Claimed),
             settlement_log_line(&second, SettlementOutcome::Claimed)
         );
+    }
+}
+
+#[cfg(test)]
+mod fortress_id_regression {
+    use super::*;
+    #[test]
+    fn direct_lock_identifier_requires_canonical_lowercase_hex() {
+        assert!(std::panic::catch_unwind(|| check_swap_id(&"A".repeat(64))).is_err());
+        check_swap_id(&"a".repeat(64));
     }
 }
