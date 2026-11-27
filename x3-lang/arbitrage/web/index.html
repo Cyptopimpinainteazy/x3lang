@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>X3 Arbitrage · Route intelligence</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.mjs"></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="X3 Arbitrage home"
+        ><b>×3</b><span>ARBITRAGE<small>ROUTE INTELLIGENCE</small></span></a
+      >
+      <div class="nav-label">WORKSPACE</div>
+      <a class="nav active" href="#scanner">◈ &nbsp; Opportunity scanner</a
+      ><a class="nav" href="#journal">▤ &nbsp; Paper journal</a>
+      <div class="sidebar-bottom">
+        <span class="dot"></span> LOCAL WORKSPACE<small
+          >Powered by .x3<br />Owner-controlled execution</small
+        >
+      </div>
+    </aside>
+    <main>
+      <header>
+        <span>Markets <span class="slash">/</span> Opportunity scanner</span
+        ><span id="mode" class="badge">CONNECTING</span>
+      </header>
+      <section id="scanner" class="intro">
+        <div>
+          <div class="eyebrow">FIND THE EDGE. KNOW THE COST.</div>
+          <h1>Across chains.<br /><span>Within your rules.</span></h1>
+          <p>
+            Choose tokens, write .x3 rules, and test the route in paper mode.
+          </p>
+        </div>
+        <div class="intro-action">
+          <button id="refresh" class="primary">↻ &nbsp; Refresh markets</button
+          ><small id="updated">Waiting for scanner</small>
+        </div>
+      </section>
+      <div id="notice" class="notice" role="status">Loading market state…</div>
+      <section class="metrics" aria-label="Scanner summary">
+        <article>
+          <span>OBSERVED ROUTES</span><strong id="route-count">—</strong
+          ><small>Full round-trip projections</small>
+        </article>
+        <article>
+          <span>PAPER ELIGIBLE</span><strong id="eligible-count">—</strong
+          ><small>Fresh quotes · known cost estimate</small>
+        </article>
+        <article>
+          <span>BEST PROJECTED EDGE</span><strong id="best-edge">—</strong
+          ><small>After stated costs · not a reserved fill</small>
+        </article>
+        <article>
+          <span>EXECUTION MODE</span
+          ><strong class="small-value">Read & prepare</strong
+          ><small>Wallet signing stays separate</small>
+        </article>
+      </section>
+      <section class="board">
+        <div class="section-head">
+          <div>
+            <h2>Opportunity scanner <span class="live-dot"></span></h2>
+            <p>Route economics with the assumptions left visible.</p>
+          </div>
+          <span class="badge muted">SPOT / CROSS-CHAIN</span>
+        </div>
+        <div id="scanner-selection" class="scanner-selection" hidden>
+          <div>
+            <span class="eyebrow">SELECTED FOR SCANNING</span>
+            <p id="selected-pair"></p>
+            <small id="selection-note"></small>
+          </div>
+          <div>
+            <button id="configure-selected" type="button" class="primary">
+              Configure this scan
+            </button>
+            <button id="clear-selected" type="button" class="secondary">
+              Clear selection
+            </button>
+          </div>
+        </div>
+        <div class="filters">
+          <label
+            ><span>SEARCH</span
+            ><input
+              id="search"
+              type="search"
+              placeholder="Chain, venue, asset…" /></label
+          ><label
+            ><span>ROUTE TYPE</span
+            ><select id="kind">
+              <option value="">All routes</option>
+              <option value="cross-chain">Cross-chain</option>
+              <option value="cex-inventory">CEX inventory</option>
+            </select></label
+          ><label
+            ><span>MIN. EDGE</span
+            ><select id="edge">
+              <option value="">All spreads</option>
+              <option value="0">Positive only</option>
+              <option value="100">Above 1%</option>
+              <option value="200">Above 2%</option>
+            </select></label
+          ><label class="check"
+            ><input id="eligible" type="checkbox" /> Paper eligible only</label
+          >
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>MARKET / ROUTE</th>
+                <th>INPUT</th>
+                <th>PROJECTED NET</th>
+                <th>EDGE</th>
+                <th>STATUS</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="routes"></tbody>
+          </table>
+        </div>
+        <p id="empty" hidden class="empty">
+          No routes match. Adjust the filters or refresh markets.
+        </p>
+        <div class="table-foot">
+          <span id="visible-count">0 routes</span
+          ><span>Exact base-unit math · conservative output floors</span>
+        </div>
+      </section>
+      <section class="board token-universe">
+        <div class="section-head">
+          <div>
+            <h2>Provider token universe</h2>
+            <p id="token-summary">
+              Browse exact token IDs across NEAR, Solana, EVM and other listed
+              chains.
+            </p>
+          </div>
+          <button id="load-tokens" class="secondary">
+            Load provider tokens
+          </button>
+        </div>
+        <div class="filters">
+          <label
+            ><span>FIND TOKEN</span
+            ><input
+              id="token-search"
+              type="search"
+              placeholder="USDT, ETH, SOL, contract…" /></label
+          ><label
+            ><span>CHAIN</span
+            ><select id="token-chain">
+              <option value="">All provider chains</option>
+            </select></label
+          ><small>Listings are not vetted assets or reserved liquidity.</small>
+        </div>
+        <div id="token-list" class="token-grid">
+          <p class="empty">
+            Load the public catalogue to explore more assets. No wallet
+            connection needed.
+          </p>
+        </div>
+        <button id="more-tokens" class="secondary more-tokens" hidden>
+          Show more tokens
+        </button>
+        <form id="route-builder" class="route-builder">
+          <h3>Build a cross-chain round-trip scan</h3>
+          <p>
+            Select exact assets and supply receiver/refund addresses for dry
+            quotes. This never deposits funds.
+          </p>
+          <div class="address-grid">
+            <label
+              >Start asset<select id="route-origin" required></select></label
+            ><label
+              >Intermediate asset<select
+                id="route-destination"
+                required
+              ></select
+            ></label>
+          </div>
+          <div class="address-grid">
+            <label
+              ><span id="route-amount-label">Input amount</span
+              ><input
+                id="route-amount"
+                value="100"
+                inputmode="decimal"
+                required /></label
+            ><label
+              ><span id="route-cost-label"
+                >External cost estimate (optional)</span
+              ><input
+                id="route-cost"
+                inputmode="decimal"
+                placeholder="Blank means unknown, never zero"
+            /></label>
+          </div>
+          <div class="address-grid">
+            <label
+              >Source / refund wallet address<input
+                id="route-source-address"
+                required
+                autocomplete="off"
+                placeholder="Your address on the start chain" /></label
+            ><label
+              >Intermediate wallet address<input
+                id="route-destination-address"
+                required
+                autocomplete="off"
+                placeholder="Your address on the intermediate chain"
+            /></label>
+          </div>
+          <label
+            >Basis of external cost estimate<input
+              id="route-cost-source"
+              value="Operator estimate; verify gas and both-leg costs before execution"
+          /></label>
+          <button id="add-route" type="submit" class="primary" disabled>
+            Add dry-quote route
+          </button>
+          <p id="route-result" role="status"></p>
+        </form>
+      </section>
+      <section class="board journal" id="quote-browser">
+        <div class="section-head"><div><h2>Size-specific DEX quotes</h2>
+          <p>LI.FI route observations alongside the signed 1Click scanner. No transaction submission.</p></div>
+          <span class="badge muted">READ ONLY</span></div>
+        <form id="provider-quote-form" class="quote-form">
+          <div class="address-grid">
+            <label>Market<select id="quote-market" required></select></label>
+            <label>Input USDC<input id="quote-amount" required inputmode="decimal" value="100" /></label>
+          </div>
+          <label>Public EVM address for pricing<input id="quote-address" required autocomplete="off" placeholder="0x… (never enter a private key)" /></label>
+          <p>Your public address is sent to LI.FI to price this request. No wallet connection, signing or approval. Slippage tolerance: 0.50% per leg.</p>
+          <button type="submit" id="get-provider-quotes" class="primary">Preview round-trip quotes</button>
+        </form>
+        <p id="quote-status" role="status">Choose a market and size. Pool liquidity alone cannot price your trade.</p>
+        <div id="quote-results" class="orders"></div>
+        <small>Both legs are indicative observations, not reserved liquidity or a guaranteed round trip. Unknown costs keep net profit unknown. These previews cannot be executed or exported as .x3 trades.</small>
+      </section>
+      <section class="board journal" id="pool-browser">
+        <div class="section-head">
+          <div><h2>Liquidity pools</h2><p>Public pool observations across chains. Listings are not executable quotes.</p></div>
+          <button id="load-pools" type="button" class="secondary">Discover pools</button>
+        </div>
+        <p id="pool-status" role="status">Load public pool data. No wallet connection or deposits.</p>
+        <div class="address-grid">
+          <label>Chain<select id="pool-chain"><option value="">All chains</option></select></label>
+          <label>Find a token or DEX<input id="pool-search" type="search" placeholder="USDC, SOL, pool address…" /></label>
+        </div>
+        <div id="pool-list" class="pool-list"></div>
+        <details class="pool-earn"><summary>Can I earn from these pools?</summary>
+          <p>LP fees require depositing assets into a pool. Returns vary with volume, your share and pool rules; asset-price changes and impermanent loss can outweigh fees.</p>
+          <p>App routing fees require a provider-supported integrator fee or a separate disclosed service fee. Discovering pools does not earn a fee. No partner agreement, yield or payout is assumed here.</p>
+          <p>Fee collection, liquidity deposits and withdrawals are disabled. The .x3 workbench remains paper-only.</p>
+        </details>
+      </section>
+      <section class="lower">
+        <article class="explain">
+          <div class="eyebrow">FROM TOKENS TO .X3 POLICY</div>
+          <h2>Your route. Your .x3 mandates.</h2>
+          <p>
+            Choose tokens for the scanner, open a route's .x3 policy, and edit
+            the actual spending mandates. The compiler checks both legs before
+            paper execution.
+          </p>
+          <div class="steps">
+            <span>01 <b>Choose tokens</b></span
+            ><i>→</i><span>02 <b>Compile .x3</b></span
+            ><i>→</i><span>03 <b>Run paper</b></span>
+          </div>
+          <small
+            >Sequential cross-chain legs are not atomic. Compilation grants no
+            wallet authorization.</small
+          >
+        </article>
+        <article class="health">
+          <h2>Provider observations</h2>
+          <div id="providers"></div>
+        </article>
+      </section>
+      <section id="journal" class="board journal">
+        <div class="section-head">
+          <div>
+            <h2>Paper journal</h2>
+            <p>
+              Durable projections and failure scenarios. No submitted
+              transactions or realized P&amp;L.
+            </p>
+          </div>
+          <span class="badge muted">SIMULATION ONLY</span>
+        </div>
+        <div id="orders" class="orders"></div>
+      </section>
+      <section class="board journal">
+        <div class="section-head">
+          <div>
+            <h2>Automatic paper cycles</h2>
+            <p>
+              Both legs, mandate budgets, settlement checkpoints and held
+              inventory.
+            </p>
+          </div>
+          <span class="badge muted">NO REAL FUNDS</span>
+        </div>
+        <div id="cycles" class="orders"></div>
+      </section>
+      <footer>
+        X3 ARBITRAGE
+        <span>Quote evidence ≠ reserved liquidity ≠ settlement proof.</span>
+      </footer>
+    </main>
+    <dialog id="detail">
+      <div class="dialog-head">
+        <div>
+          <div class="eyebrow">ROUTE INSPECTOR</div>
+          <h2 id="detail-title"></h2>
+        </div>
+        <button
+          id="close-detail"
+          class="icon"
+          aria-label="Close route inspector"
+        >
+          ×
+        </button>
+      </div>
+      <div id="detail-body"></div>
+      <div class="dialog-actions">
+        <select id="scenario" aria-label="Paper scenario">
+          <option value="projection">Project quoted outcome</option>
+          <option value="timeout">Simulate timeout</option>
+          <option value="refund">Simulate refund</option>
+          <option value="rpc_failure">Simulate RPC failure</option></select
+        ><button id="paper" class="primary">Add to paper journal</button>
+      </div>
+      <section class="x3-entry">
+        <h3>Control this route with .x3</h3>
+        <p>
+          Edit both spending mandates, compile their limits, inspect the
+          generated programs, then run in paper mode.
+        </p>
+        <button type="button" id="open-strategy" class="primary">
+          Open .x3 mandate editor
+        </button>
+      </section>
+      <section class="automatic">
+        <h3>Built-in paper demo</h3>
+        <p>
+          Run the default demo mandates with a simulated wallet. Use the .x3
+          editor above for your own draft rules.
+        </p>
+        <div class="dialog-actions">
+          <select id="auto-scenario" aria-label="Automatic paper scenario">
+            <option value="success">Complete round trip</option>
+            <option value="return_loss">Return edge disappears</option>
+            <option value="submit_timeout">Lost submission response</option>
+            <option value="return_refund">Return leg refunds</option>
+            <option value="rpc_failure">Observation outage</option>
+          </select>
+          <button type="button" id="auto-paper" class="primary">
+            Run default paper demo
+          </button>
+        </div>
+        <small
+          >Demo mandates reserve both spending budgets. Minimum cycle profit: 1
+          source USDC.</small
+        >
+        <details id="auto-programs" hidden>
+          <summary>Inspect the compiled .x3 programs</summary>
+          <pre id="auto-source"></pre>
+        </details>
+      </section>
+      <form id="export-form">
+        <h3>Export a compiled .x3 leg</h3>
+        <label>Leg<select id="export-leg"></select></label>
+        <div class="address-grid">
+          <label
+            >Source / refund address<input
+              id="refund"
+              required
+              autocomplete="off"
+              placeholder="Address on source chain" /></label
+          ><label
+            >Destination receiver<input
+              id="recipient"
+              required
+              autocomplete="off"
+              placeholder="Address on destination chain"
+          /></label>
+        </div>
+        <label
+          >Mandate owner (optional for inspection)<input
+            id="mandate"
+            autocomplete="off"
+            placeholder="owner.near" /></label
+        ><button type="submit" class="secondary">↓ Download .x3 program</button
+        ><small
+          >Live quote preparation requires an owner mandate and Guard contract.
+          Trading is never triggered here.</small
+        >
+      </form>
+      <p id="dialog-result" role="status"></p>
+    </dialog>
+    <dialog
+      id="strategy-dialog"
+      class="strategy-dialog"
+      aria-labelledby="strategy-title"
+    >
+      <div class="dialog-head">
+        <div>
+          <div class="eyebrow">.X3 MANDATE WORKBENCH · PAPER ONLY</div>
+          <h2 id="strategy-title">Route policy</h2>
+        </div>
+        <button
+          id="close-strategy"
+          type="button"
+          class="icon"
+          aria-label="Close .x3 mandate editor"
+        >
+          ×
+        </button>
+      </div>
+      <p>
+        These .x3 sources control spending caps, allowed assets, recipients,
+        refunds and expiry. Compilation does not move funds.
+      </p>
+      <div class="address-grid">
+        <label
+          >Simulated source wallet<input
+            id="strategy-origin-address"
+            autocomplete="off" /></label
+        ><label
+          >Simulated intermediate wallet<input
+            id="strategy-destination-address"
+            autocomplete="off"
+        /></label>
+      </div>
+      <div class="address-grid">
+        <label id="strategy-profit-label"
+          ><span id="strategy-profit-unit">Minimum round-trip profit</span
+          ><input id="strategy-profit" inputmode="decimal" /></label
+        ><label
+          ><span id="strategy-cost-unit"
+            >External cost ceiling in the source asset</span
+          ><input id="strategy-cost" inputmode="decimal"
+        /></label>
+      </div>
+      <div class="mandate-editors">
+        <label
+          >Outbound .x3 mandate<textarea
+            id="strategy-mandate-0"
+            spellcheck="false"
+            rows="17"
+            aria-label="Outbound .x3 mandate"
+          ></textarea></label
+        ><label
+          >Return .x3 mandate<textarea
+            id="strategy-mandate-1"
+            spellcheck="false"
+            rows="17"
+            aria-label="Return .x3 mandate"
+          ></textarea>
+        </label>
+      </div>
+      <div class="dialog-actions">
+        <button id="compile-strategy" type="button" class="primary">
+          Compile &amp; validate .x3</button
+        ><button id="run-strategy" type="button" class="secondary" disabled>
+          Run validated paper cycle
+        </button>
+      </div>
+      <p id="strategy-result" role="status"></p>
+      <small
+        >Mandate amounts use integer base units; profit and cost fields use the
+        named token units. Registered budgets and revocation are checked again
+        on execution. The dashboard cannot arm a live wallet.</small
+      >
+      <details id="strategy-programs" hidden>
+        <summary>Inspect compiled .x3 programs</summary>
+        <pre id="strategy-source"></pre>
+      </details>
+    </dialog>
+  </body>
+</html>

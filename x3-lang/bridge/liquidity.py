@@ -17,8 +17,20 @@ class LiquidityError(ValueError):
     pass
 
 
+#: What `reserve` creates: a row in this process's SQLite file. It stops this database
+#: from double-booking an offer; it does not lock, escrow or even observe any on-chain asset.
+INTERNAL_SQLITE_HOLD = "internal_sqlite_hold"
+
+
 @dataclass(frozen=True)
 class Quote:
+    """A local reservation. Never executable and never an on-chain lock.
+
+    Making an LP offer executable needs three things this module does not have: proof that
+    the provider controls both named wallets, NEAR destination inventory reconciled from
+    agreed finalized chain state, and a reservation enforced by an escrow contract. Until a
+    reviewed verifier supplies them, constructing a Quote that claims either property fails.
+    """
     provider_id: str
     source_asset: str
     destination_asset: str
@@ -26,6 +38,17 @@ class Quote:
     destination_amount: int
     fee_amount: int
     expires_at: int
+    hold: str = INTERNAL_SQLITE_HOLD
+    onchain_locked: bool = False
+    executable: bool = False
+
+    def __post_init__(self):
+        if self.hold != INTERNAL_SQLITE_HOLD:
+            raise LiquidityError("only internal SQLite holds exist; no on-chain hold type is implemented")
+        if self.onchain_locked is not False:
+            raise LiquidityError("no escrow verifier exists; an SQLite hold is not an on-chain lock")
+        if self.executable is not False:
+            raise LiquidityError("LP offers stay non-executable until identity, inventory and escrow are verified")
 
 
 class LiquidityBook:
@@ -131,7 +154,8 @@ class LiquidityBook:
             db.execute("""INSERT INTO reservations(id,offer_id,amount_out,expires_at,state)
                 VALUES(?,?,?,?,'reserved')""", (reservation_id, offer_id, amount_out, expiry))
             db.commit()
-            return Quote(pid, src, dst, amount_in, amount_out, fee, expiry)
+            return Quote(pid, src, dst, amount_in, amount_out, fee, expiry,
+                         hold=INTERNAL_SQLITE_HOLD, onchain_locked=False, executable=False)
         except Exception:
             db.rollback()
             raise
@@ -147,4 +171,4 @@ class LiquidityBook:
             db.execute("UPDATE reservations SET state='released' WHERE id=?", (reservation_id,))
 
 
-__all__ = ["LiquidityBook", "LiquidityError", "Quote"]
+__all__ = ["INTERNAL_SQLITE_HOLD", "LiquidityBook", "LiquidityError", "Quote"]

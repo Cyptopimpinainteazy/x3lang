@@ -173,6 +173,14 @@ pub fn from_intent_decl(intent: &IntentDecl) -> IntentSpecDraft {
         "UNKNOWN", 0, "unknown", "x3", "UNKNOWN", "unknown",
     );
     draft.mandate_owner = intent.mandate.as_ref().map(|owner| owner.as_str().to_string());
+    if let Some(fee) = &intent.app_fee {
+        // Carried to the adapter boundary so a downstream that cannot pay the fee sees
+        // it and refuses, instead of settling the route without it.
+        draft.constraints.push(SourceConstraint {
+            kind: "app_fee".to_string(),
+            arg: format!("{} bps to {}", fee.bps, fee.recipient.as_str()),
+        });
+    }
 
     // Walk constraints (from `require` guards) and body statements.
     // Constraints from the `require` annotations are encoded as Expressions

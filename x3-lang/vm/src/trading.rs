@@ -1874,9 +1874,15 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
     // hole that let a receipt net below the floor it claims to have run under (TICKET-150).
     let mut profit_floors: Vec<(AssetKey, u128)> = Vec::new();
 
-    for operation in &receipt.operations {
+    for (index, operation) in receipt.operations.iter().enumerate() {
         match operation {
-            TradingOperation::BeginAtomicTrade { .. } => {}
+            TradingOperation::BeginAtomicTrade { .. } => {
+                if index != 0 {
+                    return Err(ReceiptError::EconomicReplayMismatch(
+                        "BeginAtomicTrade may appear only as the first operation".to_string(),
+                    ));
+                }
+            }
             TradingOperation::OpenDebt {
                 debt_id,
                 asset,
@@ -1917,7 +1923,13 @@ pub fn verify_receipt_economics(receipt: &TradeReceipt) -> Result<(), ReceiptErr
             }
             TradingOperation::AssertInvariant { .. } => {}
             TradingOperation::EmitTradeReceipt => saw_receipt_emit = true,
-            TradingOperation::CommitAtomicTrade => {}
+            TradingOperation::CommitAtomicTrade => {
+                if index != receipt.operations.len() - 1 {
+                    return Err(ReceiptError::EconomicReplayMismatch(
+                        "CommitAtomicTrade may appear only as the terminal operation".to_string(),
+                    ));
+                }
+            }
             TradingOperation::AbortAtomicTrade => {
                 return Err(ReceiptError::EconomicReplayMismatch(
                     "successful receipt cannot contain AbortAtomicTrade".to_string(),

@@ -183,6 +183,13 @@ pub fn lower_program_with_mode(
                     // result is never evidence of mandate authorization.
                     constraints.push(format!("under mandate {}", owner.as_str()));
                 }
+                if let Some(fee) = &intent.app_fee {
+                    // The same boundary as the mandate: only a host that sends the fee
+                    // (the NEAR Intents adapter) can honour it, and a resolver that
+                    // does not recognise the constraint must refuse it rather than
+                    // settle the route without paying the fee the program declared.
+                    constraints.push(format!("fee {} bps to {}", fee.bps, fee.recipient.as_str()));
+                }
                 ir.push(Operation::IntentResolve {
                     constraints,
                     resolver: intent.name.as_str().to_string(),

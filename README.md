@@ -2,6 +2,8 @@
 
 **Judges: [start here — payment, limits, proof and reproduction](JUDGES.md).**
 
+**No install: try it in your browser at [dotx3.net](https://dotx3.net).** [Break the Mandate](https://dotx3.net/labs/force-field/index.html) runs 12 attacks against the mandate, [Agent Court](https://dotx3.net/labs/court/index.html) lets you write a mandate, send an agent through a day of attacks and amend the law, and [Verify](https://dotx3.net/labs/force-field/verify.html) SHA-256-checks the archived invoice_06 mainnet evidence in the page.
+
 **Formerly X3 Shield.** The name changes; deployed `x3-guard`, `.x3` source files, evidence paths, wallet permissions and historical transaction records do not.
 
 **Judges: start with the one-page [proof card](PROOF_CARD.md)** — the five mainnet invoice_06 transactions, the accounts and keys, the matching `.x3` hashes, and the seven limits.
@@ -71,6 +73,16 @@ execution route. Read [the stage-by-stage explanation](docs/hackathon/X3_LANGUAG
 for compile-time versus runtime checks and the evidence boundaries.
 [Why X3 Force Field stands out](docs/hackathon/WHY_X3_SHIELD.md) connects each distinguishing claim
 to its evidence and limits.
+
+## X3 Arbitrage local scanner
+
+The separate [X3 Arbitrage prototype](x3-lang/arbitrage/README.md) discovers configured
+NEAR/Solana/EVM round trips with signed dry quotes, browses exact provider-listed tokens,
+compares conservative route economics,
+exports compiled `.x3` legs and runs durable automatic paper round trips under per-leg `.x3` mandates. Start the constructed demo
+with `PYTHONPATH=x3-lang python3 -m arbitrage serve --mode demo`. Public market discovery
+and explicit mandate-checked live quote preparation are separate modes; the live coordinator remains disarmed without an explicitly approved trusted wallet gateway.
+Sequential cross-chain legs are not atomic. This is post-submission work.
 
 ## Local agent-law lifecycle
 

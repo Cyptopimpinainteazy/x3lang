@@ -25,8 +25,17 @@ from typing import Callable
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from near_merkle import decode_hash, encode_hash, lite_block_hash
-from near_outcome import OutcomeProofError, verify_receipt_outcome
+from near_merkle import (
+    check_inner_lite_encoding,
+    decode_hash,
+    encode_hash,
+    lite_block_hash,
+)
+from near_outcome import (
+    OutcomeProofError,
+    verify_outcome_inclusion,
+    verify_receipt_outcome,
+)
 from near_validator_commitment import compute_next_bps_hash
 
 
@@ -36,6 +45,25 @@ TRUST_POLICY_SCHEMA = "x3.near-light-client-trust-policy.v1"
 STATE_SCHEMA = "x3.near-light-client-state.v1"
 CHECKPOINT_DOMAIN = b"X3_NEAR_LIGHT_CLIENT_CHECKPOINT_V1\x00"
 NETWORKS = frozenset(("testnet", "mainnet"))
+# Genesis hashes pinned from committed `status` RPC evidence:
+#   testnet: evidence/near-proof/testnet/sha256/74/740117588c39...fc1b.json
+#   mainnet: scripts/hackathon/fixtures/invoice06-mainnet-rpc.json
+# A trust policy or checkpoint that pairs a network name with the other
+# network's genesis (or any other genesis) is rejected before trust exists.
+NETWORK_GENESIS = {
+    "testnet": "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+    "mainnet": "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H",
+}
+LIGHT_CLIENT_VIEW_FIELDS = frozenset(
+    (
+        "prev_block_hash",
+        "next_block_inner_hash",
+        "inner_lite",
+        "inner_rest_hash",
+        "next_bps",
+        "approvals_after_next",
+    )
+)
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 BASE58_RE = re.compile(r"[1-9A-HJ-NP-Za-km-z]+")
 ACCOUNT_RE = re.compile(r"[a-z0-9_-]+(?:\.[a-z0-9_-]+)*\Z")
@@ -253,7 +281,6 @@ def _validate_validators(raw: object, label: str) -> list[dict]:
         "validator_stake_struct_version",
     }
     accounts = set()
-    keys = set()
     total = 0
     validators = []
     for item in raw:
@@ -273,9 +300,8 @@ def _validate_validators(raw: object, label: str) -> list[dict]:
         key = _key_bytes(item.get("public_key"), "validator public key")
         if not _valid_ed25519_public_key(key):
             raise AuthenticatedLightClientError("malformed validator public key")
-        if key in keys:
-            raise AuthenticatedLightClientError("duplicate validator public key")
-        keys.add(key)
+        # Distinct accounts may share a consensus key (real mainnet next_bps do);
+        # each slot is counted separately, exactly as nearcore counts approvals.
         stake_raw = item.get("stake")
         if (
             type(stake_raw) is not str
@@ -297,22 +323,20 @@ def _validate_validators(raw: object, label: str) -> list[dict]:
 def _validate_view(raw: object) -> dict:
     if not isinstance(raw, dict):
         raise AuthenticatedLightClientError("invalid light-client view")
-    required = {
-        "prev_block_hash",
-        "next_block_inner_hash",
-        "inner_lite",
-        "inner_rest_hash",
-        "next_bps",
-        "approvals_after_next",
-    }
-    if required - set(raw):
+    if LIGHT_CLIENT_VIEW_FIELDS - set(raw):
         raise AuthenticatedLightClientError("missing light-client view field")
+    if set(raw) - LIGHT_CLIENT_VIEW_FIELDS:
+        raise AuthenticatedLightClientError("unauthenticated light-client view field")
     decode_hash(raw.get("prev_block_hash"))
     decode_hash(raw.get("next_block_inner_hash"))
     decode_hash(raw.get("inner_rest_hash"))
     inner = raw.get("inner_lite")
     if not isinstance(inner, dict):
         raise AuthenticatedLightClientError("missing light-client inner header")
+    try:
+        check_inner_lite_encoding(inner)
+    except ValueError as exc:
+        raise AuthenticatedLightClientError(str(exc)) from exc
     for field in (
         "epoch_id",
         "next_epoch_id",
@@ -390,6 +414,15 @@ def _verify_approvals(
     return approved_stake, total_stake
 
 
+def _require_network_genesis(network: object, genesis_hash: object) -> None:
+    if network not in NETWORK_GENESIS:
+        raise AuthenticatedLightClientError("unsupported NEAR network")
+    if genesis_hash != NETWORK_GENESIS[network]:
+        raise AuthenticatedLightClientError(
+            f"genesis hash is not the pinned NEAR {network} genesis"
+        )
+
+
 def _validate_trust_policy(policy: dict) -> dict:
     if not isinstance(policy, dict):
         raise AuthenticatedLightClientError("trust policy must be an object")
@@ -398,6 +431,7 @@ def _validate_trust_policy(policy: dict) -> dict:
     if policy.get("network") not in NETWORKS:
         raise AuthenticatedLightClientError("unsupported trust-policy network")
     decode_hash(policy.get("genesis_hash"))
+    _require_network_genesis(policy["network"], policy["genesis_hash"])
     versions = policy.get("allowed_protocol_versions")
     if (
         not isinstance(versions, list)
@@ -564,18 +598,32 @@ def _checkpoint_to_state(
     block_hash = _view_block_hash(view)
     if checkpoint.get("block_hash") != block_hash:
         raise AuthenticatedLightClientError("checkpoint block hash mismatch")
-    current_validators = _validate_validators(
-        checkpoint.get("current_validators"), "checkpoint validator set"
-    )
-    current_hash = compute_next_bps_hash(current_validators)
+    # The checkpoint block itself does not commit to its own epoch's producers
+    # (the *preceding* epoch's header does). A checkpoint may therefore omit
+    # them; the verifier then refuses every same-epoch successor and only
+    # accepts a successor in the next epoch, signed by the committed next_bps.
+    if "current_validators" not in checkpoint:
+        raise AuthenticatedLightClientError("checkpoint must state current validators or null")
+    current_validators = checkpoint["current_validators"]
+    current_hash = None
+    if current_validators is not None:
+        current_validators = _validate_validators(
+            current_validators, "checkpoint validator set"
+        )
+        current_hash = compute_next_bps_hash(current_validators)
     commitments = checkpoint.get("validator_commitments")
     if (
         not isinstance(commitments, dict)
+        or set(commitments) != {"current_validators_hash", "next_bp_hash"}
         or commitments.get("current_validators_hash") != current_hash
         or commitments.get("next_bp_hash") != view["inner_lite"]["next_bp_hash"]
     ):
         raise AuthenticatedLightClientError("checkpoint validator commitments mismatch")
     next_validators = view["next_bps"]
+    if current_validators is None and next_validators is None:
+        raise AuthenticatedLightClientError(
+            "checkpoint authenticates no validator set for any successor"
+        )
     if next_validators is not None:
         next_validators = _validate_validators(
             next_validators, "checkpoint next validator set"
@@ -617,6 +665,7 @@ def _validate_state(state: dict) -> dict:
     if state.get("network") not in NETWORKS:
         raise AuthenticatedLightClientError("invalid authenticated-state network")
     decode_hash(state.get("genesis_hash"))
+    _require_network_genesis(state["network"], state["genesis_hash"])
     versions = state.get("allowed_protocol_versions")
     if (
         not isinstance(versions, list)
@@ -637,10 +686,13 @@ def _validate_state(state: dict) -> dict:
     block_hash = _view_block_hash(view)
     if state.get("head_hash") != block_hash:
         raise AuthenticatedLightClientError("authenticated-state head hash mismatch")
-    current = _validate_validators(
-        state.get("current_validators"), "authenticated current validators"
-    )
-    current_hash = compute_next_bps_hash(current)
+    if "current_validators" not in state:
+        raise AuthenticatedLightClientError("missing authenticated current validators")
+    current = state["current_validators"]
+    current_hash = None
+    if current is not None:
+        current = _validate_validators(current, "authenticated current validators")
+        current_hash = compute_next_bps_hash(current)
     if state.get("current_validators_hash") != current_hash:
         raise AuthenticatedLightClientError("authenticated current validator commitment mismatch")
     next_validators = state.get("next_validators")
@@ -655,6 +707,8 @@ def _validate_state(state: dict) -> dict:
             raise AuthenticatedLightClientError("next validators do not match authenticated head")
     elif view["next_bps"] is not None or state.get("next_validators_hash") is not None:
         raise AuthenticatedLightClientError("missing authenticated next validators")
+    if current is None and next_validators is None:
+        raise AuthenticatedLightClientError("authenticated state has no usable validator set")
     sequence = state.get("sequence")
     if type(sequence) is not int or sequence < 0:
         raise AuthenticatedLightClientError("invalid authenticated-state sequence")
@@ -711,8 +765,17 @@ def build_checkpoint_candidate(
     if network not in NETWORKS:
         raise AuthenticatedLightClientError("unsupported checkpoint network")
     decode_hash(genesis_hash)
+    _require_network_genesis(network, genesis_hash)
     view, _ = _candidate_view(candidate_document)
-    validators = _validate_validators(current_validators, "checkpoint validator set")
+    validators = (
+        None
+        if current_validators is None
+        else _validate_validators(current_validators, "checkpoint validator set")
+    )
+    if validators is None and view["next_bps"] is None:
+        raise AuthenticatedLightClientError(
+            "checkpoint authenticates no validator set for any successor"
+        )
     return checkpoint_document(
         network=network,
         genesis_hash=genesis_hash,
@@ -745,11 +808,57 @@ def checkpoint_document(
         "light_client_block": copy.deepcopy(view),
         "current_validators": copy.deepcopy(current_validators),
         "validator_commitments": {
-            "current_validators_hash": compute_next_bps_hash(current_validators),
+            "current_validators_hash": (
+                None
+                if current_validators is None
+                else compute_next_bps_hash(current_validators)
+            ),
             "next_bp_hash": view["inner_lite"]["next_bp_hash"],
         },
         "provenance": copy.deepcopy(provenance),
     }
+
+
+def _successor_validators(state: dict, candidate: dict) -> list[dict]:
+    """Apply height/epoch succession rules and pick the approving validator set.
+
+    Follows the Nomicon `validate_and_update_head` epoch rules and adds the
+    nearcore header invariants a light client can check without the
+    intermediate blocks: within one epoch `next_epoch_id` and `next_bp_hash`
+    never change (nearcore chain.rs `InvalidNextBPHash`), and block timestamps
+    strictly increase with height (`InvalidBlockPastTime`).
+    """
+    old = state["head"]["inner_lite"]
+    new = candidate["inner_lite"]
+    if new["height"] <= old["height"]:
+        raise AuthenticatedLightClientError("candidate does not advance authenticated height")
+    if new["timestamp"] <= old["timestamp"]:
+        raise AuthenticatedLightClientError("candidate timestamp does not advance")
+    if new["epoch_id"] == old["epoch_id"]:
+        if new["next_epoch_id"] != old["next_epoch_id"]:
+            raise AuthenticatedLightClientError(
+                "same-epoch candidate commits a conflicting next epoch"
+            )
+        if new["next_bp_hash"] != old["next_bp_hash"]:
+            raise AuthenticatedLightClientError(
+                "same-epoch candidate commits a conflicting next validator set"
+            )
+        validators = state["current_validators"]
+        if validators is None:
+            raise AuthenticatedLightClientError(
+                "validators of the checkpoint epoch were not authenticated"
+            )
+        return validators
+    if new["epoch_id"] == old["next_epoch_id"]:
+        if new["next_epoch_id"] == old["epoch_id"]:
+            raise AuthenticatedLightClientError("candidate epoch transition loops back")
+        validators = state["next_validators"]
+        if validators is None:
+            raise AuthenticatedLightClientError("candidate crosses into an unknown epoch")
+        if candidate["next_bps"] is None:
+            raise AuthenticatedLightClientError("epoch-crossing update omits next validator set")
+        return validators
+    raise AuthenticatedLightClientError("candidate epoch does not succeed authenticated head")
 
 
 def advance_state(
@@ -772,31 +881,14 @@ def advance_state(
             raise AuthenticatedLightClientError("candidate protocol version is unsupported")
         if protocol_version != state["protocol_version"]:
             raise AuthenticatedLightClientError("candidate changed protocol version without proof")
-    old_head = state["head"]
-    old_height = old_head["inner_lite"]["height"]
-    new_height = candidate["inner_lite"]["height"]
-    if new_height <= old_height:
-        raise AuthenticatedLightClientError("candidate does not advance authenticated height")
-    old_epoch = old_head["inner_lite"]["epoch_id"]
-    next_epoch = old_head["inner_lite"]["next_epoch_id"]
-    candidate_epoch = candidate["inner_lite"]["epoch_id"]
-    if candidate_epoch == old_epoch:
-        validators = state["current_validators"]
-    elif candidate_epoch == next_epoch:
-        validators = state["next_validators"]
-        if validators is None:
-            raise AuthenticatedLightClientError("candidate crosses into an unknown epoch")
-        if candidate["next_bps"] is None:
-            raise AuthenticatedLightClientError("epoch-crossing update omits next validator set")
-    else:
-        raise AuthenticatedLightClientError("candidate epoch does not succeed authenticated head")
+    validators = _successor_validators(state, candidate)
 
     candidate_hash = _view_block_hash(candidate)
     next_block_hash = hashlib.sha256(
         decode_hash(candidate["next_block_inner_hash"])
         + decode_hash(candidate_hash)
     ).digest()
-    message = _approval_message(next_block_hash, new_height)
+    message = _approval_message(next_block_hash, candidate["inner_lite"]["height"])
     approved_stake, total_stake = _verify_approvals(
         validators,
         candidate["approvals_after_next"],
@@ -982,6 +1074,52 @@ def verify_authenticated_inclusion(
     )
 
 
+@dataclass(frozen=True)
+class AuthenticatedOutcome:
+    outcome_id: str
+    executor_id: str
+    status: str
+    block_hash: str
+    authenticated_head: str
+    shard_outcome_root: str
+    block_outcome_root: str
+    authenticated: bool
+    authorized_to_sign: bool = False
+
+
+def verify_authenticated_outcome(
+    state: dict,
+    proof_result: dict,
+    *,
+    outcome_id: str,
+    executor_id: str,
+) -> AuthenticatedOutcome:
+    """Bind any execution outcome status to the authenticated head's block root.
+
+    The returned status (`Unknown`, `Failure`, `SuccessValue`,
+    `SuccessReceiptId`) is authenticated; a `Failure` carries no error detail
+    because PartialExecutionStatus omits it. Not a settlement authorization.
+    """
+    state = _validate_state(state)
+    root = decode_hash(state["head"]["inner_lite"]["block_merkle_root"])
+    try:
+        included = verify_outcome_inclusion(proof_result, head_block_merkle_root=root)
+    except (OutcomeProofError, ValueError) as exc:
+        raise AuthenticatedLightClientError("outcome is not included in authenticated head") from exc
+    if included.outcome_id != outcome_id or included.executor_id != executor_id:
+        raise AuthenticatedLightClientError("proof is for another outcome or executor")
+    return AuthenticatedOutcome(
+        outcome_id=included.outcome_id,
+        executor_id=included.executor_id,
+        status=included.status,
+        block_hash=included.block_hash,
+        authenticated_head=state["head_hash"],
+        shard_outcome_root=included.shard_outcome_root,
+        block_outcome_root=included.block_outcome_root,
+        authenticated=True,
+    )
+
+
 def _print(value: object) -> None:
     if hasattr(value, "__dataclass_fields__"):
         value = asdict(value)
@@ -1006,7 +1144,13 @@ def main(argv: list[str] | None = None) -> int:
         help="build an unsigned checkpoint from a light-client response",
     )
     build.add_argument("--candidate", required=True)
-    build.add_argument("--current-validators", required=True)
+    current_source = build.add_mutually_exclusive_group(required=True)
+    current_source.add_argument("--current-validators")
+    current_source.add_argument(
+        "--no-current-validators",
+        action="store_true",
+        help="checkpoint epoch producers are not reviewed; only next-epoch successors verify",
+    )
     build.add_argument("--network", choices=sorted(NETWORKS), required=True)
     build.add_argument("--genesis-hash", required=True)
     build.add_argument("--protocol-version", required=True, type=int)
@@ -1042,8 +1186,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "build-checkpoint":
-            validators_document = _read_json(args.current_validators)
-            validators = validators_document.get("validators", validators_document)
+            if args.no_current_validators:
+                validators = None
+            else:
+                validators_document = _read_json(args.current_validators)
+                validators = validators_document.get("validators", validators_document)
             candidate = build_checkpoint_candidate(
                 _read_json(args.candidate),
                 validators,

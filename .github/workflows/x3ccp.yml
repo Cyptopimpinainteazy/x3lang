@@ -1,0 +1,63 @@
+name: X3CCP contract control (X3Lang policy enforced by Solidity)
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/x3ccp.py'
+      - 'x3-lang/x3ccp_ai.py'
+      - 'x3-lang/x3ccp_mcp.py'
+      - 'x3-lang/x3ccp.gbnf'
+      - 'x3-lang/x3ccp-evm/**'
+      - 'x3-lang/tools/x3ccp_fixtures.py'
+      - 'x3-lang/examples/x3ccp_*.x3'
+      - 'x3-lang/tests/test_x3ccp*.py'
+      - 'x3-lang/emitter/_keccak.py'
+      - '.github/workflows/x3ccp.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/x3ccp.py'
+      - 'x3-lang/x3ccp_ai.py'
+      - 'x3-lang/x3ccp_mcp.py'
+      - 'x3-lang/x3ccp.gbnf'
+      - 'x3-lang/x3ccp-evm/**'
+      - 'x3-lang/tools/x3ccp_fixtures.py'
+      - 'x3-lang/examples/x3ccp_*.x3'
+      - 'x3-lang/tests/test_x3ccp*.py'
+      - 'x3-lang/emitter/_keccak.py'
+      - '.github/workflows/x3ccp.yml'
+permissions:
+  contents: read
+jobs:
+  x3ccp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python test dependencies
+        run: python3 -m pip install 'pycryptodome>=3.23.0' pytest
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Verify Solidity formatting
+        working-directory: x3-lang/x3ccp-evm
+        run: forge fmt --check
+      - name: Enforcer tests (pinned compiler fixtures, 256 fuzz runs)
+        working-directory: x3-lang/x3ccp-evm
+        run: forge test --fuzz-runs 256 -vv
+      - name: Compiler, grammar and MCP tests; predictor parity vs mined anvil transactions
+        env:
+          PYTHONPATH: x3-lang
+        run: |
+          python3 x3-lang/tools/x3ccp_fixtures.py --check
+          python3 -m pytest x3-lang/tests/test_x3ccp.py x3-lang/tests/test_x3ccp_ai.py x3-lang/tests/test_x3ccp_anvil.py -v
+      - name: Local end-to-end demo (anvil only; no keys, no public network)
+        run: python3 x3-lang/x3ccp-evm/script/x3ccp_demo.py --local --out /tmp/x3ccp-local-run.json
+      - name: Build exact artifact (no signing or deployment)
+        working-directory: x3-lang/x3ccp-evm
+        run: forge build --sizes

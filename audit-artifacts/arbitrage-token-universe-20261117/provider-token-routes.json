@@ -1,0 +1,147 @@
+{
+  "mode": "signed dry discovery only",
+  "observed_at": 1794901447,
+  "duration_s": 3.439,
+  "routes": [
+    {
+      "id": "351d3502d3c6d2654ca7a6892ef5ead9adece736cd2dfc6d9f1322297ab52e31",
+      "label": "NEAR USDT \u2192 Solana SOL \u2192 NEAR USDT",
+      "kind": "cross-chain",
+      "demo": false,
+      "legs": [
+        {
+          "provider": "oneclick",
+          "asset_in": {
+            "network": "near",
+            "asset_id": "nep141:usdt.tether-token.near",
+            "decimals": 6
+          },
+          "asset_out": {
+            "network": "sol",
+            "asset_id": "nep141:sol.omft.near",
+            "decimals": 9
+          },
+          "amount_in": "100000000",
+          "expected_out": "1368544167",
+          "minimum_out": "1361700761",
+          "observed_at": 1794901444,
+          "expires_at": 1794901744,
+          "evidence": "provider_dry_quote",
+          "reference": "59af5dc0-db63-499b-b88c-ddbd0ce7bc57"
+        },
+        {
+          "provider": "oneclick",
+          "asset_in": {
+            "network": "sol",
+            "asset_id": "nep141:sol.omft.near",
+            "decimals": 9
+          },
+          "asset_out": {
+            "network": "near",
+            "asset_id": "nep141:usdt.tether-token.near",
+            "decimals": 6
+          },
+          "amount_in": "1361700761",
+          "expected_out": "99055912",
+          "minimum_out": "98560632",
+          "observed_at": 1794901444,
+          "expires_at": 1794901744,
+          "evidence": "provider_dry_quote",
+          "reference": "45698da4-aca4-4acc-a3ef-aa85212ca393"
+        }
+      ],
+      "input_units": "100000000",
+      "numeraire": {
+        "network": "near",
+        "asset_id": "nep141:usdt.tether-token.near",
+        "decimals": 6
+      },
+      "external_cost_units": null,
+      "cost_source": "Read-only dry probe; illustrative receiver addresses; no external cost estimate",
+      "gross_projected_profit_units": "-1439368",
+      "net_profit_units": null,
+      "net_profit_bps": null,
+      "paper_eligible": false,
+      "reasons": [
+        "UNKNOWN_EXTERNAL_COSTS"
+      ],
+      "eligible_for_wallet_authorization": false,
+      "atomic": false,
+      "risk": "Sequential quotes do not reserve liquidity. Price, bridge and partial-execution risk remain.",
+      "assessed_at": 1794901447,
+      "expires_at": 1794901744
+    },
+    {
+      "id": "f7470651a8cc0a29e933fe61a6a0c1fe993166ef0731df1de35ac6c40193d20a",
+      "label": "Ethereum USDC \u2192 NEAR wNEAR \u2192 Ethereum USDC",
+      "kind": "cross-chain",
+      "demo": false,
+      "legs": [
+        {
+          "provider": "oneclick",
+          "asset_in": {
+            "network": "eth",
+            "asset_id": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+            "decimals": 6
+          },
+          "asset_out": {
+            "network": "near",
+            "asset_id": "nep141:wrap.near",
+            "decimals": 24
+          },
+          "amount_in": "100000000",
+          "expected_out": "30680449661268426724137930",
+          "minimum_out": "30527047412962084590517240",
+          "observed_at": 1794901445,
+          "expires_at": 1794901745,
+          "evidence": "provider_dry_quote",
+          "reference": "1263c477-77d7-4ec2-b1b0-2d7881bab322"
+        },
+        {
+          "provider": "oneclick",
+          "asset_in": {
+            "network": "near",
+            "asset_id": "nep141:wrap.near",
+            "decimals": 24
+          },
+          "asset_out": {
+            "network": "eth",
+            "asset_id": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+            "decimals": 6
+          },
+          "amount_in": "30527047412962084590517240",
+          "expected_out": "98185634",
+          "minimum_out": "97693205",
+          "observed_at": 1794901446,
+          "expires_at": 1794901746,
+          "evidence": "provider_dry_quote",
+          "reference": "4f823e87-4050-4d4e-848d-7d5b39520a39"
+        }
+      ],
+      "input_units": "100000000",
+      "numeraire": {
+        "network": "eth",
+        "asset_id": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+        "decimals": 6
+      },
+      "external_cost_units": null,
+      "cost_source": "Read-only dry probe; illustrative receiver addresses; no external cost estimate",
+      "gross_projected_profit_units": "-2306795",
+      "net_profit_units": null,
+      "net_profit_bps": null,
+      "paper_eligible": false,
+      "reasons": [
+        "UNKNOWN_EXTERNAL_COSTS"
+      ],
+      "eligible_for_wallet_authorization": false,
+      "atomic": false,
+      "risk": "Sequential quotes do not reserve liquidity. Price, bridge and partial-execution risk remain.",
+      "assessed_at": 1794901447,
+      "expires_at": 1794901745
+    }
+  ],
+  "errors": [],
+  "deposit_addresses_requested": false,
+  "real_transactions_submitted": 0,
+  "claim": "Native/alt-token route observations, not executable liquidity or funding. Costs are unknown."
+}

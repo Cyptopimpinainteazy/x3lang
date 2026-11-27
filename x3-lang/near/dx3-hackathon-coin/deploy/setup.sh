@@ -56,7 +56,7 @@ create() {
 }
 create "$TOKEN" '7 NEAR' 'the token contract; ~4.1 NEAR locks the 412 KB code, the rest stores up to 500 holders'
 create "$FAUCET" '0.5 NEAR' 'faucet operator; gas for add_holder and faucet_claim'
-create "$JUDGES" '2 NEAR' 'parent of every judge holder account'
+create "$JUDGES" '0.1 NEAR' 'parent of every judge holder name (the faucet runner creates no accounts under it)'
 
 say "Deploy and initialize"
 if has_contract "$TOKEN"; then

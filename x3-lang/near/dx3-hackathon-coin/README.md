@@ -78,7 +78,8 @@ deploy/lock.sh  mainnet        # permanent; only after the mainnet smoke test pa
 **`setup.sh`**
 
 - *Preflight:* the wasm hash matches; the wasm reports refusal reasons; the args file binds `x3/dx3hack_burn.x3`; the burn is in the future; the accounts in the args file are the expected ones.
-- *Accounts it creates:* `dx3hack.x3lang.<network>` (7 NEAR: about 4.1 locks the 412 KB code, the rest stores up to 500 holders), `faucet.x3lang.<network>` (0.5 NEAR) and `judges.x3lang.<network>` (2 NEAR).
+- *Accounts it creates:* `dx3hack.x3lang.<network>` (7 NEAR: about 4.1 locks the 412 KB code, the rest stores up to 500 holders), `faucet.x3lang.<network>` (0.5 NEAR) and `judges.x3lang.<network>` (0.1 NEAR; holder
+  names under it are checked by the contract, and the faucet runner creates no accounts).
 - *Deploy:* deploys with `init-args.json` (mainnet) or `init-args.testnet.json` (testnet), then reads `hackathon_config` and `ft_metadata` back and compares every field.
 - *Faucet key:* generates the faucet operator key with openssl into `~/.x3/dx3hack/faucet-key.<network>.json` (mode 600, never overwritten), adds it to the faucet account scoped to `add_holder` and `faucet_claim` on the token only, and verifies that scope on chain.
 - *Extra holders:* set `DX3HACK_EXTRA_HOLDERS="merchant.x3lang.near ..."` to allowlist owner-approved accounts.
@@ -129,6 +130,37 @@ faucet_claim {"receiver_id": "j42.judges.x3lang.near"}      -> 100 DX3HACK
 
 Useful views for the site: `hackathon_config`, `is_holder`, `claim_available_at`,
 `transfers_left_today`, `ft_balance_of`, `ft_total_supply`.
+
+## The faucet runner (dotx3.net/faucet)
+
+`x3-lang/dx3hack_faucet/` is the backend for the judge faucet page. It holds the scoped faucet
+key and **refuses to start** unless the key on chain is exactly the FunctionCall key `setup.sh`
+created (receiver `dx3hack.x3lang.<network>`, methods `add_holder` and `faucet_claim`) and the
+contract names its account as faucet operator. A FullAccess key is rejected.
+
+```
+# on x3star, after setup.sh and smoke.sh passed on mainnet:
+sudo install -d -o x3faucet -m 700 /var/lib/dx3hack-faucet
+sudo install -o x3faucet -m 600 ~/.x3/dx3hack/faucet-key.mainnet.json /var/lib/dx3hack-faucet/
+PYTHONPATH=x3-lang TURNSTILE_SECRET=... python3 -m dx3hack_faucet preflight --network mainnet \
+    --key /var/lib/dx3hack-faucet/faucet-key.mainnet.json --db /var/lib/dx3hack-faucet/faucet.db
+# then x3-lang/dx3hack_faucet/deploy/dx3hack-faucet.service, published as https://faucet.dotx3.net
+```
+
+API (CORS for dotx3.net only): `GET /v1/faucet/status`, `GET /v1/faucet/feed`,
+`GET /v1/faucet/holders/<account>`, `POST /v1/faucet/claim {turnstileToken, holder?}`,
+`POST /v1/faucet/forbidden {turnstileToken, case: dex|lookalike|nested}`.
+
+- Each claim allocates `j<n>.judges.x3lang.<network>`, then sends `add_holder` and
+  `faucet_claim`. Holders are names the contract registers; nobody holds their keys.
+- "Try to break it" sends `add_holder` for `v2.ref-finance.near`, `evil-judges.x3lang.near` and
+  `pool.j1.judges.x3lang.near`. The contract must refuse each; the runner logs loudly if it doesn't.
+- Abuse limits on top of the contract's: Turnstile (required on mainnet), 3 new holders per
+  client per day (clients stored as a salted IP hash), 40 refusal demos per day, and a stop when
+  the key's gas allowance falls below 0.02 NEAR.
+- Transactions are signed in Python (`near_tx.py`, byte-identical to `@near-js/transactions`
+  vectors) and broadcast with `send_tx`, so refusals come back with a hash. A send that times
+  out is recorded as `unknown` and never resent.
 
 ## After 2026-11-25 23:59:59 UTC
 

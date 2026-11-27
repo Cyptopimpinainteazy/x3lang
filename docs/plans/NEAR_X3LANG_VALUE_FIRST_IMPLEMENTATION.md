@@ -66,6 +66,16 @@ would violate the user's absolute cap or minimum benefit, and prove provider
 paid exactly one authorized recipient. No silent `appFees`, referral, markup,
 retry billing, or fee on failures/refunds. Respect 1Click partner fee terms.
 
+*Status, 2026-11-18 (branch `feat/app-fee-clause-20261118`, draft):* a narrower
+fixed-bps `fee <rate> to <account>` clause is implemented for owner review. It
+declares the fee in the program (never silent), requires the program's own
+`require fees` cap to cover it, checks 1Click's echo, and bounds the payer's
+total cost by the signed amounts. It does **not** meet this phase's
+preconditions: 1Click does not sign `appFees`, there is no reference-route
+comparison, x3-guard has no fee-recipient check, and per-route payment to the
+recipient is not provable (1Click pools fees). Adopting it means accepting that
+narrower guarantee; that is the owner's decision, not this branch's.
+
 **Phase 5 (not implemented):** independent source deposit+destination receipt
 attribution and proof of realized gain. On-chain or audited service state
 reconciles gas, final amounts, refund, quote expiry, duplicate receipts and

@@ -76,6 +76,50 @@ Owner review, a candidate policy change and passing regression/control tests
 must precede any later activation. Production model training, court-operated
 code changes and automatic promotions are not implemented.
 
+## Incident handoff v1
+
+`x3-lang/agent_runtime_handoff.py` exports one retirement incident as a signed,
+versioned envelope (`x3.incident-handoff`, version 1, payload domain
+`X3/INCIDENT_HANDOFF/1`) for consumers outside this repository, such as the
+Reaper and Scrapyard in xxxstar. This repository imports nothing from them.
+
+- The envelope is canonical JSON. The Ed25519 signature covers the exact
+  payload text. Verification checks the signer against keys the consumer pinned
+  beforehand and checks the signature before it trusts any field.
+- The payload carries the stored action request bytes, the source artifact, the
+  full hash-chained event log, the position of the retirement event, an optional
+  deterministic recheck, the restart observation, an optional court proposal
+  and fixed effect flags.
+- The verifier recomputes the request and artifact digests and the event chain.
+  It checks that the retirement event names this action, that the subject's
+  birth record carries its key, that court findings verify and form a majority,
+  and that the effect flags match version 1 exactly.
+- Export refuses completed actions, subjects that are not retired, a recheck
+  that accepts the artifact, and a court proposal for a different case.
+
+    .venv/bin/python scripts/hackathon/agent_law_local_demo.py \
+      --handoff /tmp/incident-handoff.json --handoff-signer /tmp/incident-handoff.signer
+
+The demo generates a signing key for each run and writes only its public key.
+Pinning a key taken from the same run proves the evidence was not altered
+between steps. It does not prove the producer's identity to a third party.
+
+A regression proposal that comes back from a downstream reviewer
+(`x3.regression-proposal` v1) can be replayed against this compiler:
+
+    .venv/bin/python scripts/hackathon/agent_law_local_demo.py --replay-regression proposal.json
+
+The replay refuses a proposal that names a different policy revision or whose
+source does not match its digest. It exits 0 only when the real compiler still
+rejects the source with the expected error.
+
+The effect flags are fixed in version 1. The runtime refuses the subject's
+future actions. No operating-system process is stopped, no wallet or blockchain
+key is revoked, and no external effect is reversed. The restart observation is
+the producer's signed statement; a consumer cannot re-run it. The producer
+chooses the court electorate. Every handoff carries the full event log, capped
+at 4 MiB; log segments with an externally anchored head are not implemented.
+
 ## Limits
 
 This is a trusted operator wrapper, not OS isolation or a universal contract
