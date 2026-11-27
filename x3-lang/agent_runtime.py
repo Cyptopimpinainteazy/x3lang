@@ -23,6 +23,7 @@ from cryptography.hazmat.primitives import serialization
 from agent_scoped_stamp import (verify_scoped_stamp, issue_scoped_stamp,
                                  StampRequest, SUPPORTED_CHECKS)
 from agent_constitution import AgentManifest
+import pir_agent_gate
 from agent_admission_signed import SignedApproval, _manifest, verify_signed_admission
 
 DOMAIN = "X3/AGENT_RUNTIME/1"
@@ -191,7 +192,7 @@ class Runtime:
 
     def __init__(self, db_path, operator_public_key: bytes, adapters: Mapping[str, Adapter],
                  *, jury_keys=None, clock=time.time, stamp_policies=None,
-                 stamp_enforcement="configured"):
+                 stamp_enforcement="configured", pir_scope=None, pir_grants=None):
         _key(operator_public_key)
         self.operator_key = operator_public_key
         self.adapters = dict(adapters)
@@ -229,6 +230,9 @@ class Runtime:
             trusted_config["stamp_policies"] = {n: p.record() for n, p in self.stamp_policies.items()}
         if self.stamp_enforcement == "all":
             trusted_config["stamp_enforcement"] = "all"
+        pir = pir_agent_gate.configuration(pir_scope, pir_grants, operator_public_key, self.adapters)
+        if pir is not None:
+            trusted_config["pir"] = pir
         config = canonical(trusted_config)
         with self._connection() as db:
             db.executescript("""
@@ -309,6 +313,23 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
         if (stored.get("stamp_policies", {}) != configured
                 or stored.get("stamp_enforcement", "configured") != self.stamp_enforcement):
             raise ValueError("live stamp policy differs from pinned configuration")
+
+    def _assert_pir_grant(self, db, action, manifest, now):
+        # Read pinned configuration from SQLite rather than trusting mutable
+        # request fields or an optional in-memory gate.
+        row = db.execute("SELECT value FROM config WHERE singleton=1").fetchone()
+        if row is None:
+            raise ValueError("missing trusted runtime configuration")
+        stored = json.loads(bytes(row["value"]))
+        config = stored.get("pir")
+        if config is None:
+            return None
+        adapter = self.adapters.get(action.adapter)
+        if adapter is None or stored["adapters"].get(action.adapter) != adapter.policy():
+            raise ValueError("PIR: adapter configuration mismatch")
+        lineage = [_restore(self._agent(db, identity)["manifest"])
+                   for identity in manifest.lineage] + [manifest]
+        return pir_agent_gate.authorize(config, self.operator_key, action, lineage, now)
 
     @staticmethod
     def _verify_log(db):
@@ -492,6 +513,7 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
             _verify(bytes(row["public_key"]), agent_signature, action_request)
             now = self._now()
             manifest = self._active(db, row, now)
+            self._assert_pir_grant(db, action, manifest, now)
             adapter = self.adapters[action.adapter]
             if action.expires_at <= now or action.expires_at > manifest.expires_at:
                 raise ValueError("action expiry invalid")
@@ -527,6 +549,7 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
             _verify(bytes(row["public_key"]), signature, request)
             now = self._now()
             manifest = self._active(db, row, now)
+            pir_commitment = self._assert_pir_grant(db, action, manifest, now)
             if action.expires_at <= now or action.expires_at > manifest.expires_at:
                 raise ValueError("action expired or outlives identity")
             if db.execute("SELECT 1 FROM actions WHERE agent=? AND nonce=?", (action.agent_id, action.nonce)).fetchone():
@@ -578,6 +601,7 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
                            (action_digest, action.agent_id, action.nonce, action.artifact, request, "pending"))
                 self._event(db, "reserved", action.agent_id,
                             {"action": action_digest, "signature": signature.hex(), "cost": adapter.cost,
+                             **({"pir_grant_sha256": pir_commitment} if pir_commitment else {}),
                              "stamp_sha256": digest(canonical(stamp)) if stamp_policy is not None else None,
                              "votes": [{"juror": v.juror_id, "approve": v.approve,
                                         "expires_at": v.expires_at, "signature": v.signature.hex()} for v in jury_votes]})

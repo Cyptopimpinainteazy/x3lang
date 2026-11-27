@@ -479,3 +479,8 @@ fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
 
     Ok(())
 }
+
+pub mod policy_encoding;
+
+pub mod capability_source;
+pub use capability_source::compile_capability_source;
