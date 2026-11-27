@@ -161,3 +161,25 @@ fn integer_with_separators_converts_like_decimal_integer() {
         20_000_000_000_000_000u128
     );
 }
+
+#[test]
+fn conflicting_decimals_for_one_asset_identity_are_refused() {
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset OTHER = evm.ethereum.0xA0b8 { decimals: 18 }
+"#;
+    let errors = analyze(source).expect_err("one canonical asset cannot have conflicting units");
+    assert!(errors.iter().any(|e| {
+        let message = e.to_string();
+        message.contains("X3E2107") && message.contains("USDC") && message.contains("OTHER")
+    }), "{errors:?}");
+}
+
+#[test]
+fn same_identifier_on_distinct_chains_can_have_distinct_decimals() {
+    let source = r#"
+asset USDC = evm.ethereum.0xA0b8 { decimals: 6 }
+asset OTHER = evm.base.0xA0b8 { decimals: 18 }
+"#;
+    assert_eq!(analyze(source).unwrap().assets.len(), 2);
+}
