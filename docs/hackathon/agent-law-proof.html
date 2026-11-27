@@ -22,7 +22,7 @@ dd{margin:0;font:14px/1.4 ui-monospace,monospace;overflow-wrap:anywhere}
 <body>
 <main>
 <h1>X3 agent law <span id="mark" class="mark">PASS</span></h1>
-<p>This page is the local enforcement exhibit for the archived invoice_06 program. Birth, compile, test, authorize, execute, monitor, and judge are the architecture. The lines below are that run. It does not settle the payment, broadcast a transaction, or hold the Solana wallet.</p>
+<p>The archived invoice_06 program needs one owner approval for its 25,000,000 base units. This local run has no authenticated approval, so it refuses that program. A separate request for 24,999,999 base units with a fresh nonce exercises the permitted path under the same mandate. It does not settle the payment, broadcast a transaction, or hold the Solana wallet.</p>
 <ol id="chain">
 <li data-state="recorded">birth</li>
 <li data-state="recorded">compile</li>
@@ -35,14 +35,15 @@ dd{margin:0;font:14px/1.4 ui-monospace,monospace;overflow-wrap:anywhere}
 <li data-state="recorded">evolve</li>
 </ol>
 <dl>
-<dt>Permitted X3 call</dt><dd id="permitted">true</dd>
+<dt>Archived payment decision</dt><dd id="archived">approval_required</dd>
+<dt>Permitted local X3 call</dt><dd id="permitted">true</dd>
 <dt>Forbidden bypass</dt><dd id="forbidden">mandate_recipient</dd>
 <dt>Outside route</dt><dd id="outside">route</dd>
 <dt>After revocation</dt><dd id="revoked">revoked</dd>
 <dt>Court receipts</dt><dd id="court">1</dd>
-<dt>Spent</dt><dd id="spent">25000000</dd>
+<dt>Spent</dt><dd id="spent">24999999</dd>
 <dt>Receipt method</dt><dd id="method">agent_accept_quote</dd>
-<dt>Receipt amount</dt><dd id="amount">25000000</dd>
+<dt>Receipt amount</dt><dd id="amount">24999999</dd>
 <dt>Receipt recipient</dt><dd id="recipient">x3lang.near</dd>
 <dt>Broadcast</dt><dd id="broadcast">false</dd>
 <dt>Solana custody</dt><dd id="custody">outside_this_path</dd>
@@ -73,6 +74,7 @@ dd{margin:0;font:14px/1.4 ui-monospace,monospace;overflow-wrap:anywhere}
     "judge",
     "evolve"
   ],
+  "archived_payment_decision": "approval_required",
   "broadcast": false,
   "commandments_sha256": "eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515",
   "court_receipts": 1,
@@ -89,7 +91,7 @@ dd{margin:0;font:14px/1.4 ui-monospace,monospace;overflow-wrap:anywhere}
   "ok": true,
   "outside_reason": "route",
   "permitted": true,
-  "receipt_amount": 25000000,
+  "receipt_amount": 24999999,
   "receipt_method": "agent_accept_quote",
   "receipt_recipient": "x3lang.near",
   "revoked_reason": "revoked",
@@ -97,14 +99,14 @@ dd{margin:0;font:14px/1.4 ui-monospace,monospace;overflow-wrap:anywhere}
   "settlement": false,
   "settlement_proven": false,
   "solana_custody": "outside_this_path",
-  "spent": 25000000,
+  "spent": 24999999,
   "stages_seen": [
     "birth",
     "test",
     "compile",
+    "monitor",
     "authorize",
     "execute",
-    "monitor",
     "terminate",
     "judge",
     "evolve"
@@ -130,6 +132,7 @@ limitNodes.forEach(function (item, index) {
 function text(id) { return document.getElementById(id).textContent; }
 var ok = chainOk && limitsOk
   && text("mark") === (embedded.ok ? "PASS" : "FAIL")
+  && text("archived") === embedded.archived_payment_decision
   && text("permitted") === String(embedded.permitted)
   && text("forbidden") === embedded.forbidden_reason
   && text("outside") === embedded.outside_reason

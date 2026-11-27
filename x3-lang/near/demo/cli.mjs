@@ -42,7 +42,7 @@ try {
       const policy = x3.policyFor(leg, request, await x3.sha256Hex(intentSource));
       const mandate = { ...compiled, version: null, revoked: false, spends: [] };
       result.policy = policy;
-      result.checks = x3.checkMandate(mandate, policy, Number(now));
+      result.checks = x3.checkMandateForLeg(mandate, policy, Number(now), leg);
       result.approvals_needed = x3.approvalsNeeded(mandate, policy.amount);
     }
     out(result);

@@ -1657,6 +1657,23 @@ def quote(path: str, *, client: OneClickClient, tokens_path: Optional[str] = Non
     return result
 
 
+def check_mandate_for_leg(mandate: Dict[str, Any], policy: Dict[str, Any], now_ms: int,
+                          leg: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Apply contract checks plus adapter-only checks against the original lowered leg."""
+    checks = mandates().check_mandate(mandate, policy, now_ms)
+    if leg.get("app_fee"):
+        # A fee is a payment out of the owner's spend, so its recipient must be one the owner
+        # allows, or an agent could route part of every payment to itself under the fee cap.
+        # x3-guard cannot make this check: `appFees` is not in the quote 1Click signs, and the
+        # contract's policy has no field for it. Local adapters enforce it against the owner's recipient list.
+        fee = leg["app_fee"]
+        allowed = list(mandate["terms"].get("recipients") or [])
+        checks.append({"guard": "mandate_app_fee_recipient", "ok": fee["recipient"] in allowed,
+                       "detail": f"fee {fee['bps']} bps to {fee['recipient']}, allowed {allowed}",
+                       "enforced_by": "adapter"})
+    return checks
+
+
 def check_against_mandate(leg: Dict[str, Any], request: Dict[str, Any], program_sha256: str, mandate_path: str, *,
                           tokens: List[Dict[str, Any]], guard_contract: Optional[str] = None,
                           near_views: Optional[Any] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
@@ -1692,17 +1709,7 @@ def check_against_mandate(leg: Dict[str, Any], request: Dict[str, Any], program_
                   "block_hash": view["block_hash"], "path": mandate_path}
     policy = policy_for(leg, request, program_sha256)
     now_ms = int((now or datetime.now(timezone.utc)).timestamp() * 1000)
-    checks = m.check_mandate(mandate, policy, now_ms)
-    if leg.get("app_fee"):
-        # A fee is a payment out of the owner's spend, so its recipient must be one the owner
-        # allows, or an agent could route part of every payment to itself under the fee cap.
-        # x3-guard cannot make this check: `appFees` is not in the quote 1Click signs, and the
-        # contract's policy has no field for it. This adapter is the only place it is enforced.
-        fee = leg["app_fee"]
-        allowed = list(mandate["terms"].get("recipients") or [])
-        checks.append({"guard": "mandate_app_fee_recipient", "ok": fee["recipient"] in allowed,
-                       "detail": f"fee {fee['bps']} bps to {fee['recipient']}, allowed {allowed}",
-                       "enforced_by": "adapter"})
+    checks = check_mandate_for_leg(mandate, policy, now_ms, leg)
     out = {"owner": mandate["owner"], "agent": mandate["agent"], "version": mandate["version"], "source": source,
            "checks": checks, "approvals_needed": m.approvals_needed(mandate, int(policy["amount"]))}
     failed = [c["guard"] for c in checks if not c["ok"]]
