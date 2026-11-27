@@ -76,6 +76,8 @@ struct FixtureHost {
     /// How many times `swap()` was actually invoked. Lets a test prove a guard
     /// aborted the leg *before* the host was asked to move value.
     swap_calls: usize,
+    bridge_calls: usize,
+    repay_calls: usize,
     fail_on_swap_call: Option<usize>,
     /// Output amount `bridge()` reports received on the destination chain.
     /// Defaults to matching the request's input exactly (a neutral, no-fee
@@ -114,6 +116,8 @@ impl FixtureHost {
             cost_reports: std::cell::Cell::new(0),
             quote_block: 0,
             swap_calls: 0,
+            bridge_calls: 0,
+            repay_calls: 0,
             fail_on_swap_call: None,
             bridge_output: None,
             bridge_fee: 0,
@@ -191,6 +195,7 @@ impl TradingHost for FixtureHost {
     }
 
     fn close_debt(&mut self, request: RepayRequest) -> Result<RepayResult, HostError> {
+        self.repay_calls += 1;
         Ok(RepayResult {
             debt_id: request.debt_id,
             asset: request.asset,
@@ -218,6 +223,7 @@ impl TradingHost for FixtureHost {
     }
 
     fn bridge(&mut self, request: BridgeRequest) -> Result<BridgeTransferResult, HostError> {
+        self.bridge_calls += 1;
         Ok(BridgeTransferResult {
             from: request.from,
             to: request.to.clone(),
@@ -2184,4 +2190,60 @@ fn second_swap_host_failure_rolls_back_first_leg_and_vm_state() {
         vm.trading_state, initial,
         "VM journal must be restored after second-leg failure"
     );
+}
+
+#[test]
+fn journal_spendability_blocks_repeated_debt_amount_before_second_host_swap() {
+    let mut program = ops();
+    let mut repeated = program[2].clone();
+    if let TradingOperation::ExecuteSwap { binding, .. } = &mut repeated {
+        *binding = "repeated".to_string();
+    }
+    program.insert(3, repeated);
+    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
+    let mut host = FixtureHost::new();
+    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+    assert!(result.is_err());
+    assert_eq!(
+        host.swap_calls, 1,
+        "the already consumed balance cannot reach a second swap"
+    );
+    assert!(host.rolled_back && !host.committed);
+}
+
+#[test]
+fn journal_spendability_blocks_oversized_bridge_before_host_transfer() {
+    let mut program = bridge_ops();
+    for op in &mut program {
+        if let TradingOperation::Bridge { input, .. } = op {
+            *input = ValueRef::Literal(1_000_001);
+        }
+    }
+    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
+    let mut host = FixtureHost::new();
+    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+    assert!(result.is_err());
+    assert_eq!(
+        host.bridge_calls, 0,
+        "the bridge must not spend more than the available journal balance"
+    );
+    assert!(host.rolled_back && !host.committed);
+}
+
+#[test]
+fn journal_spendability_blocks_unfunded_principal_before_repayment() {
+    let mut program = ops();
+    for op in &mut program {
+        if let TradingOperation::OpenDebt { principal, .. } = op {
+            *principal = 2_000_000;
+        }
+    }
+    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
+    let mut host = FixtureHost::new();
+    host.swap_output = 1_000_000;
+    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+    assert!(result.is_err());
+    assert_eq!(host.swap_calls, 2);
+    assert_eq!(host.repay_calls, 0, "an unfunded principal cannot reach host repayment");
+    assert!(host.rolled_back && !host.committed);
 }
