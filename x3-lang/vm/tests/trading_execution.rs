@@ -2196,7 +2196,10 @@ fn peer_program_with_conflicting_profit_asset_units_is_refused_before_host_call(
     }
     let mut host = FixtureHost::new();
     let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
-    assert!(matches!(result, Err(x3_lang_vm::trading::TradingExecError::RefusedByVerifier(_))), "{result:?}");
+    assert!(
+        matches!(result, Err(x3_lang_vm::trading::TradingExecError::RefusedByVerifier(_))),
+        "{result:?}"
+    );
     assert!(!host.began && !host.committed);
     assert_eq!(host.swap_calls, 0);
 }

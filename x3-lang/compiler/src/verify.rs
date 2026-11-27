@@ -844,8 +844,9 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
                 assets
             }
             TradingOperation::OpenDebt { asset, .. } => vec![asset],
-            TradingOperation::ExecuteSwap { from, to, .. }
-            | TradingOperation::Bridge { from, to, .. } => vec![from, to],
+            TradingOperation::ExecuteSwap { from, to, .. } | TradingOperation::Bridge { from, to, .. } => {
+                vec![from, to]
+            }
             TradingOperation::AssertMinNetProfit { settlement_asset, .. } => vec![settlement_asset],
             _ => Vec::new(),
         };
