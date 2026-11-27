@@ -10,7 +10,9 @@ repository = "https://github.com/Cyptopimpinainteazy/x3lang"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-near-sdk = "5.30.1"
+# default-features = false drops near-sdk's wee_alloc allocator, which is unmaintained
+# (Dependabot alert #14). The contract then uses Rust's default wasm allocator.
+near-sdk = { version = "5.30.1", default-features = false }
 near-contract-standards = "5.30.1"
 
 # `cfg(near)` is set for wasm32 by .cargo/config.toml (as cargo-near does); see src/lib.rs.
@@ -18,7 +20,7 @@ near-contract-standards = "5.30.1"
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(near)"] }
 
 [dev-dependencies]
-near-sdk = { version = "5.30.1", features = ["unit-testing"] }
+near-sdk = { version = "5.30.1", default-features = false, features = ["unit-testing"] }
 
 # Standalone contract crate, built with cargo-near like x3-guard; not a member of the
 # x3-lang workspace.
