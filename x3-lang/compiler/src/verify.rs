@@ -832,9 +832,36 @@ fn verify_trading_sequences(ops: &[Operation], context: &str, diagnostics: &mut 
     }
 
     let mut state = TradingSequenceState::default();
+    let mut asset_units = BTreeMap::new();
 
     for (index, op) in trading.iter().enumerate() {
         let op_context = format!("{context}.trading[{index}]");
+        let assets: Vec<&AssetKey> = match op {
+            TradingOperation::BeginAtomicTrade { policy, .. } => {
+                let mut assets = vec![&policy.max_gas_asset];
+                assets.extend(policy.minimum_net_profit_asset.iter());
+                assets.extend(policy.max_cumulative_loss_asset.iter());
+                assets
+            }
+            TradingOperation::OpenDebt { asset, .. } => vec![asset],
+            TradingOperation::ExecuteSwap { from, to, .. }
+            | TradingOperation::Bridge { from, to, .. } => vec![from, to],
+            TradingOperation::AssertMinNetProfit { settlement_asset, .. } => vec![settlement_asset],
+            _ => Vec::new(),
+        };
+        for asset in assets {
+            let identity = (&asset.vm_family, &asset.chain, &asset.canonical_id);
+            let first_decimals = *asset_units.entry(identity).or_insert(asset.decimals);
+            if first_decimals != asset.decimals {
+                push_unsafe(
+                    diagnostics,
+                    format!(
+                        "{op_context}: canonical asset '{}' has conflicting decimals ({first_decimals} and {})",
+                        asset.canonical_id, asset.decimals
+                    ),
+                );
+            }
+        }
 
         if state.committed || state.aborted {
             push_unsafe(

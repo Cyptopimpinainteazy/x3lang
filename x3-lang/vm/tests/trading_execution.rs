@@ -2185,3 +2185,18 @@ fn second_swap_host_failure_rolls_back_first_leg_and_vm_state() {
         "VM journal must be restored after second-leg failure"
     );
 }
+
+#[test]
+fn peer_program_with_conflicting_profit_asset_units_is_refused_before_host_call() {
+    let mut program = ops();
+    for op in &mut program {
+        if let TradingOperation::AssertMinNetProfit { settlement_asset, .. } = op {
+            settlement_asset.decimals = 18;
+        }
+    }
+    let mut host = FixtureHost::new();
+    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+    assert!(matches!(result, Err(x3_lang_vm::trading::TradingExecError::RefusedByVerifier(_))), "{result:?}");
+    assert!(!host.began && !host.committed);
+    assert_eq!(host.swap_calls, 0);
+}
