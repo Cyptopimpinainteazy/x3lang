@@ -204,17 +204,19 @@ pub fn performance_fee(
         });
     }
     let net = outcome.net as u128;
-    // Multiply before dividing, in u128: net <= i128::MAX and rate <= 10_000, so the product fits
-    // comfortably. Computing `net / 10_000 * rate` first would floor away most of a small profit.
-    let fee = net
-        .checked_mul(u128::from(rate_bps))
-        .ok_or(EconomicsError::Overflow)?
-        / 10_000;
+    let fee = basis_points_floor(net, u128::from(rate_bps));
     Ok(PerformanceFee {
         asset: outcome.asset,
         fee,
         trader_keeps: net - fee,
     })
+}
+
+// Callers validate that rate <= 10_000. Decompose before multiplying so the
+// exact floor is representable even when amount * rate is not.
+fn basis_points_floor(amount: u128, rate: u128) -> u128 {
+    const SCALE: u128 = 10_000;
+    (amount / SCALE) * rate + ((amount % SCALE) * rate) / SCALE
 }
 
 /// Split a fee between participants according to integer shares that must sum to the fee.
@@ -226,8 +228,12 @@ pub fn split_fee<'a>(
     fee: u128,
     shares: &[(u16, &'a str)],
 ) -> Result<Vec<(u16, &'a str, u128)>, EconomicsError> {
-    let total_bps: u32 = shares.iter().map(|(bps, _)| u32::from(*bps)).sum();
-    if total_bps != 10_000 {
+    let total_bps = shares.iter().try_fold(0u32, |total, (bps, _)| {
+        total
+            .checked_add(u32::from(*bps))
+            .filter(|sum| *sum <= 10_000)
+    });
+    if total_bps != Some(10_000) {
         return Err(EconomicsError::InvalidFeeRate);
     }
     let mut out = Vec::with_capacity(shares.len());
@@ -237,9 +243,7 @@ pub fn split_fee<'a>(
         let amount = if index == last {
             fee.saturating_sub(distributed)
         } else {
-            fee.checked_mul(u128::from(*bps))
-                .ok_or(EconomicsError::Overflow)?
-                / 10_000
+            basis_points_floor(fee, u128::from(*bps))
         };
         distributed = distributed.saturating_add(amount);
         out.push((*bps, *name, amount));
@@ -416,6 +420,24 @@ mod tests {
     }
 
     #[test]
+    fn full_width_performance_fee_is_exact() {
+        let net = i128::MAX as u128;
+        let outcome = price(0, net, vec![]);
+        let all = performance_fee(&outcome, 10_000).unwrap();
+        assert_eq!((all.fee, all.trader_keeps), (net, 0));
+        let half = performance_fee(&outcome, 5_000).unwrap();
+        assert_eq!((half.fee, half.trader_keeps), (net / 2, net - net / 2));
+    }
+
+    #[test]
+    fn full_width_fee_split_conserves_value() {
+        let fee = u128::MAX;
+        let parts = split_fee(fee, &[(5_000, "a"), (5_000, "b")]).unwrap();
+        assert_eq!(parts[0].2, fee / 2);
+        assert_eq!(parts[1].2, fee - fee / 2);
+    }
+
+    #[test]
     fn a_small_profit_is_not_floored_away() {
         let outcome = price(1_000_000, 1_000_010, vec![]);
         assert_eq!(outcome.net, 10);
@@ -468,6 +490,13 @@ mod tests {
             split_fee(100, &[(5_000, "a"), (4_000, "b")]),
             Err(EconomicsError::InvalidFeeRate)
         );
+    }
+
+    #[test]
+    fn oversized_share_sum_is_refused_without_overflow() {
+        let mut shares = vec![(u16::MAX, "a"); 65_537];
+        shares.push((10_001, "b"));
+        assert_eq!(split_fee(1, &shares), Err(EconomicsError::InvalidFeeRate));
     }
 
     #[test]
