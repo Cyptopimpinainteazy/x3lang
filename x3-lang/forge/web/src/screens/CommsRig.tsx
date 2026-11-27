@@ -4,8 +4,9 @@ import type { ConfigField, ConnectionRec, Connector, ForgeErr } from "../schema"
 import { errorsFor, skillMap, useForge } from "../store";
 import { Badge, Button, Errors, Field, Panel, RiskPips, inputCls } from "../ui";
 
-const TYPE_LABEL: Record<Connector["type"], string> = { ide: "IDE", agent: "Agents", pay: "Pay", wallet: "Wallet / account", data: "Data / tools" };
+const TYPE_LABEL: Record<Connector["type"], string> = { compute: "Compute (GPU mesh)", ide: "IDE", agent: "Agents", pay: "Pay", wallet: "Wallet / account", data: "Data / tools" };
 const IMPLANT_LABEL: Record<Connector["implant"], string> = {
+  mind_link: "mind link",
   neural_jack: "neural jack", resonance: "resonance nodes", vault_gem: "vault gem", chain_sigil: "chain sigil", sensor_port: "sensor port",
 };
 // Setup states are one-time and session-bound; they live only in memory.
@@ -25,6 +26,7 @@ export function statusChip(rec?: ConnectionRec) {
 export function confirmedLabel(rec: ConnectionRec) {
   return rec.confirmed_by === "page" ? "setup page returned with a matching state"
     : rec.confirmed_by === "owner" ? "owner confirmed setup (page has no return callback yet)"
+    : rec.confirmed_by === "owner_key" ? "owner stored its key on the Forge host"
     : rec.confirmed_by === "forge" ? "this Forge" : "not confirmed";
 }
 
@@ -180,5 +182,5 @@ function ConfigInput({ f, value, onChange }: { f: ConfigField; value: unknown; o
   if (f.type === "int") {
     return <Field label={f.label}><input className={inputCls} type="number" min={f.min} max={f.max} onChange={(e) => onChange(Number.parseInt(e.target.value || "0", 10))} /></Field>;
   }
-  return <Field label={f.label}><input className={inputCls} placeholder={f.type === "url" ? (f.local ? "http://localhost:…" : "https://…") : "account.near"} onChange={(e) => onChange(e.target.value.trim())} /></Field>;
+  return <Field label={f.label}><input className={inputCls} placeholder={f.type === "url" ? (f.local ? "http://localhost:…" : f.allow_local ? "http://127.0.0.1:8790 or https://gpu.x3star.net" : "https://…") : "account.near"} onChange={(e) => onChange(e.target.value.trim())} /></Field>;
 }

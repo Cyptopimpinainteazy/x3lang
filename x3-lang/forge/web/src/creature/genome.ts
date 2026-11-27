@@ -362,6 +362,19 @@ function growPart(part: string, count: number, level: number, a: Anchors, seed: 
       }
       return;
     }
+    case "crown": {
+      // A halo of thought-nodes floating above the head: one per crown point the build earned.
+      const n = Math.min(count, 9);
+      const top = add(a.head, v(0, a.headR * 1.25, 0));
+      const rad = a.headR * (0.7 + 0.04 * n);
+      meshes.push({ kind: "torus", pos: top, scale: v(rad, rad, rad * 0.6), rot: v(Math.PI / 2, 0, 0), role: "glow", emissive: 0.7, opacity: 0.6, tag, pulse: 0 });
+      for (let i = 0; i < n; i++) {
+        const ang = (i / n) * Math.PI * 2 + r() * 0.15;
+        const p = add(top, v(Math.cos(ang) * rad, 0.04 + r() * 0.06, Math.sin(ang) * rad));
+        meshes.push({ kind: "ico", pos: p, scale: v(0.06, 0.06, 0.06), role: "glow", emissive: 1.5, tag, pulse: i * 0.8 });
+      }
+      return;
+    }
     case "spikes": {
       for (let i = 0; i < Math.min(count, 12); i++) {
         const spinePt = a.spine[i % a.spine.length];
@@ -418,6 +431,16 @@ function implant(kind: string, index: number, state: ImplantState, a: Anchors, t
       const side = a.sides[index % a.sides.length];
       const s = side[0] >= 0 ? 1 : -1;
       meshes.push({ kind: "torus", pos: add(side, v(s * 0.12, 0.1 + o, 0.12)), scale: v(0.16, 0.16, 0.16), rot: v(0, Math.PI / 2, 0), role, emissive: em, tag, pulse: 1 });
+      return;
+    }
+    case "mind_link": {
+      // A conduit from the back of the skull up to the crown: lit while the GPU mesh answers.
+      const p = onHead(a, v(-0.2 - o, 0.75, -0.7), 1.0);
+      const up = add(a.head, v(-0.1 - o, a.headR * 1.25, -0.15));
+      meshes.push({ kind: "cylinder", pos: p, scale: v(0.06, 0.1, 0.06), rot: v(0.9, 0, 0), role: "metal", tag });
+      meshes.push({ kind: "tube", pos: v(0, 0, 0), scale: v(1, 1, 1), points: [p, add(p, v(0, 0.18, -0.1)), up], radius: 0.018, role, emissive: em, tag, pulse: 4 });
+      meshes.push({ kind: "ico", pos: up, scale: v(0.075, 0.075, 0.075), role, emissive: em, tag, pulse: 4 });
+      if (state === "dead") meshes.push({ kind: "box", pos: add(p, v(0, 0.05, 0)), scale: v(0.1, 0.012, 0.02), rot: v(0, 0, 0.7), role: "pupil", tag: tag + ":crack" });
       return;
     }
     case "sensor_port":

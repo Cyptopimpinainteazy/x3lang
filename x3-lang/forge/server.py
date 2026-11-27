@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from . import core
+from . import core, inference
 from .access import AccessVerifier
 from .store import Forge
 
@@ -75,6 +75,19 @@ class Api:
             m.group(1), m.group(2), b.get("reason"), b.get("nonce"), b.get("signature")))
         r("GET", rf"/api/agents/{AGENT_RE}/export", lambda c, m, b: f.export(m.group(1)))
         r("POST", r"/api/import", lambda c, m, b: f.verify_import(b.get("manifest")))
+        r("POST", rf"/api/agents/{AGENT_RE}/infer/payload", lambda c, m, b: {"payload_hex": f.infer_payload(
+            m.group(1), "X3/FORGE/INFER/1", _s(b, "nonce"), _i(b, "expires_at"),
+            {"model": b.get("model"), "messages": inference.validate_messages(b.get("messages")),
+             "max_tokens": b.get("max_tokens")}).hex()})
+        r("POST", rf"/api/agents/{AGENT_RE}/infer", lambda c, m, b: f.infer(
+            m.group(1), b.get("model"), b.get("messages"), b.get("max_tokens"), b.get("nonce"), b.get("expires_at"),
+            b.get("signature")))
+        r("POST", rf"/api/agents/{AGENT_RE}/run/payload", lambda c, m, b: {"payload_hex": f.infer_payload(
+            m.group(1), "X3/FORGE/RUN/1", _s(b, "nonce"), _i(b, "expires_at"),
+            {"model": b.get("model"), "task": b.get("task"), "max_tokens": b.get("max_tokens")}).hex()})
+        r("POST", rf"/api/agents/{AGENT_RE}/run", lambda c, m, b: f.run(
+            m.group(1), b.get("task"), b.get("model"), b.get("max_tokens"), b.get("nonce"), b.get("expires_at"),
+            b.get("signature")))
         r("POST", r"/api/mesh/payload", lambda c, m, b: {"payload_hex": f.mesh_payload(
             _s(b, "from"), _s(b, "to"), _s(b, "type"), _s(b, "body"), _s(b, "nonce"), _i(b, "expires_at")).hex()})
         r("POST", r"/api/mesh/send", lambda c, m, b: f.mesh_send(

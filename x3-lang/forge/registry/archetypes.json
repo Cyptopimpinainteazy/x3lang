@@ -5,7 +5,7 @@
     "body": "serpent",
     "blurb": "Long-bodied market hunter. Starts with payment and market skills.",
     "points": 14,
-    "skill_pool": ["read_balances", "market_watch", "quote_hunter", "cross_chain", "spend", "payees", "cosign", "hive_voice", "brood", "recon_verify"]
+    "skill_pool": ["read_balances", "market_watch", "quote_hunter", "cross_chain", "spend", "payees", "cosign", "hive_voice", "brood", "recon_verify", "mesh_mind"]
   },
   {
     "id": "sentinel",
@@ -13,7 +13,7 @@
     "body": "crustacean",
     "blurb": "Armoured security warden. Starts with monitoring and incident skills.",
     "points": 12,
-    "skill_pool": ["read_balances", "watchdog", "incident", "recon_verify", "hive_voice", "code_read", "brood", "cosign", "spend", "payees"]
+    "skill_pool": ["read_balances", "watchdog", "incident", "recon_verify", "hive_voice", "code_read", "brood", "cosign", "spend", "payees", "mesh_mind"]
   },
   {
     "id": "scout",
@@ -21,7 +21,7 @@
     "body": "insectoid",
     "blurb": "Fast sensor-heavy recon unit. Starts with data and verification skills.",
     "points": 12,
-    "skill_pool": ["read_balances", "market_watch", "recon_verify", "watchdog", "hive_voice", "quote_hunter", "code_read"]
+    "skill_pool": ["read_balances", "market_watch", "recon_verify", "watchdog", "hive_voice", "quote_hunter", "code_read", "mesh_mind"]
   },
   {
     "id": "diplomat",
@@ -29,7 +29,7 @@
     "body": "cephalopod",
     "blurb": "Many-armed negotiator. Starts with cross-chain intents and agent links.",
     "points": 14,
-    "skill_pool": ["read_balances", "market_watch", "quote_hunter", "cross_chain", "hive_voice", "brood", "spend", "payees", "cosign", "recon_verify"]
+    "skill_pool": ["read_balances", "market_watch", "quote_hunter", "cross_chain", "hive_voice", "brood", "spend", "payees", "cosign", "recon_verify", "mesh_mind"]
   },
   {
     "id": "engineer",
@@ -37,6 +37,6 @@
     "body": "titan",
     "blurb": "Heavy builder. Starts with repository, test and deploy skills.",
     "points": 14,
-    "skill_pool": ["code_read", "patch_smith", "test_runner", "deployer", "hive_voice", "brood", "watchdog", "read_balances"]
+    "skill_pool": ["code_read", "patch_smith", "test_runner", "deployer", "hive_voice", "brood", "watchdog", "read_balances", "mesh_mind"]
   }
 ]

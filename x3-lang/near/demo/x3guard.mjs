@@ -195,6 +195,18 @@ function parseRouteStep(ln) {
 }
 
 /** Parse one `intent` (declarations above it are skipped, as in cli.py). */
+/** `fee <rate> to <account>` (cli.py `_parse_app_fee`): shape only; lowering checks it. */
+function parseAppFee(ln) {
+  const words = ln.text.replace(/;$/, "").split(/\s+/);
+  const split = words.indexOf("to", 1);
+  const usage = "expected `fee <rate> to <account>`, e.g. `fee 25 bps to fees.app.near`";
+  if (split < 0) throw new X3Error("X3_PARSE_FEE", usage, { line: ln.no, field: "fee" });
+  const rate = words.slice(1, split).join(" ");
+  const recipient = words.slice(split + 1);
+  if (!rate || recipient.length !== 1) throw new X3Error("X3_PARSE_FEE", usage, { line: ln.no, field: "fee" });
+  return { value: rate, recipient: recipient[0].replace(/"/g, ""), line: ln.no };
+}
+
 export function parse(source) {
   const lines = cleanLines(source);
   if (!lines.length) throw new X3Error("X3_PARSE_EMPTY", "the program is empty");
@@ -238,6 +250,10 @@ export function parse(source) {
       if (intent.mandate) throw new X3Error("X3_PARSE_MANDATE", "an intent is under one mandate", { line: ln.no, field: "mandate" });
       intent.mandate = { owner: p[2].replace(/"/g, "") };
       intent.lines.mandate = ln.no;
+    } else if (t === "fee" || t.startsWith("fee ")) {
+      if (intent.app_fee) throw new X3Error("X3_PARSE_FEE", "an intent declares one `fee` clause", { line: ln.no, field: "fee" });
+      intent.app_fee = parseAppFee(ln);
+      intent.lines.fee = ln.no;
     } else if (t.startsWith("on_fail ")) {
       const p = t.split(/\s+/).slice(1);
       intent.policies.on_fail = ["rollback", "halt", "quarantine"].includes(p[0]) ? { type: p[0] } : parseRefund(p, ln.no);
@@ -333,6 +349,64 @@ function upperBoundBps(req, field) {
 export const CHAIN_TO_BLOCKCHAIN = { near: "near", ethereum: "eth", solana: "sol", arbitrum: "arb", polygon: "pol", bitcoin: "btc", bsc: "bsc" };
 const SYMBOL_ALIASES = { "near/NEAR": "wNEAR" };
 const ENFORCED_GUARDS = ["slippage", "fees", "nonce"];
+/** 1Click's ceiling on all fees of one quote, its own share included (near_intents.MAX_APP_FEE_BPS). */
+export const MAX_APP_FEE_BPS = 500;
+
+/** near_intents.lower_app_fee: `{ recipient, bps }`, or null when the program declares no fee. */
+export function lowerAppFee(declared, feeCapBps, line) {
+  if (declared == null) return null;
+  const text = String(declared.value ?? "").trim();
+  if (!/^\d+(\.\d+)?\s*(bps|%)$/i.test(text)) {
+    if (!/(bps|%)$/i.test(text)) throw new X3Error("X3_NEAR_BOUND_UNIT", `fee '${text}' has no unit; write it in bps (25 bps) or as a percent (0.25%)`, { field: "fee", line });
+    throw new X3Error("X3_NEAR_APP_FEE", `fee '${text}' is not a plain decimal rate in bps or %`, { field: "fee", line });
+  }
+  const { n, d } = toBps(text, "fee");
+  if (n % d !== 0n) throw new X3Error("X3_NEAR_APP_FEE", `fee '${declared.value}' is not a whole number of basis points; 1Click charges integer bps`, { field: "fee", line });
+  const bps = n / d;
+  if (bps < 1n) throw new X3Error("X3_NEAR_APP_FEE", "a `fee` of zero charges nothing; remove the clause instead", { field: "fee", line });
+  if (bps > BigInt(MAX_APP_FEE_BPS)) throw new X3Error("X3_NEAR_APP_FEE", `fee ${bps} bps is above ${MAX_APP_FEE_BPS} bps, the most 1Click quotes in total`, { field: "fee", line });
+  const recipient = declared.recipient;
+  if (typeof recipient !== "string" || !isValidNearAccount(recipient)) {
+    throw new X3Error("X3_NEAR_APP_FEE_RECIPIENT", `fee recipient '${recipient}' is not a NEAR account; 1Click pays fees to an Intents account (named, implicit or 0x-implicit)`, { field: "fee.recipient", line });
+  }
+  if (feeCapBps == null) throw new X3Error("X3_NEAR_APP_FEE_CAP_REQUIRED", "a program that declares `fee` must also state `require fees <= <bound>`: the fee comes out of the payer's input, and nothing else bounds what the route costs them", { field: "requires.fees", line });
+  if (bps > BigInt(feeCapBps)) throw new X3Error("X3_NEAR_APP_FEE_OVER_CAP", `fee ${bps} bps is above the program's own \`require fees\` cap of ${feeCapBps} bps`, { field: "fee", line });
+  return { recipient, bps: Number(bps) };
+}
+
+/** The 1Click `appFees` a lowered leg sends (near_intents.app_fees_for). */
+export function appFeesFor(leg) {
+  return leg.app_fee ? [{ recipient: leg.app_fee.recipient, fee: leg.app_fee.bps }] : [];
+}
+
+/** `appFees` as [recipient, fee] pairs; [] when absent; null when malformed. A key other than
+ * recipient/fee is accepted only while null (1Click echoes `limitOrderId: null`). */
+function appFeesEntries(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) return null;
+  const out = [];
+  for (const e of value) {
+    if (!e || typeof e !== "object" || Array.isArray(e)) return null;
+    if (typeof e.recipient !== "string" || typeof e.fee !== "number" || !Number.isInteger(e.fee)) return null;
+    if (Object.entries(e).some(([k, v]) => k !== "recipient" && k !== "fee" && v !== null)) return null;
+    out.push([e.recipient, e.fee]);
+  }
+  return out;
+}
+
+/** near_intents.app_fees_echoed: every sent fee came back unchanged; extras are 1Click's own. */
+export function appFeesEchoed(sent, echoed) {
+  const s = appFeesEntries(sent);
+  const e = appFeesEntries(echoed);
+  if (s === null || e === null) return { ok: false, undeclared: [] };
+  const remaining = e.slice();
+  for (const [r, f] of s) {
+    const at = remaining.findIndex(([r2, f2]) => r2 === r && f2 === f);
+    if (at < 0) return { ok: false, undeclared: remaining.map(([recipient, fee]) => ({ recipient, fee })) };
+    remaining.splice(at, 1);
+  }
+  return { ok: true, undeclared: remaining.map(([recipient, fee]) => ({ recipient, fee })) };
+}
 
 export function formatTimestamp(ms) {
   return new Date(ms).toISOString(); // YYYY-MM-DDTHH:MM:SS.mmmZ, as Python's format_timestamp
@@ -442,6 +516,8 @@ export function lower(intent, nowMs = Date.now()) {
     nonce: nonces[0] ?? null,
     deadline: formatTimestamp(nowMs + windowMs),
   };
+  const appFee = lowerAppFee(intent.app_fee, out.fee_cap_bps, L.fee);
+  if (appFee) out.app_fee = appFee;
   if (intent.mandate) {
     const owner = intent.mandate.owner;
     if (!owner || !isValidNearAccount(owner)) throw new X3Error("X3_MANDATE_OWNER", `\`under mandate\` names '${owner}', which is not a NEAR account`, { field: "mandate.owner", line: L.mandate });
@@ -463,7 +539,7 @@ export function resolveAsset(tokens, chain, asset) {
 export function buildQuoteRequest(leg, tokens, { dry = true } = {}) {
   const origin = resolveAsset(tokens, leg.origin.chain, leg.origin.asset);
   const destination = resolveAsset(tokens, leg.destination.chain, leg.destination.asset);
-  return {
+  const request = {
     dry,
     swapType: "EXACT_INPUT",
     slippageTolerance: leg.slippage_bps,
@@ -477,6 +553,8 @@ export function buildQuoteRequest(leg, tokens, { dry = true } = {}) {
     recipientType: "DESTINATION_CHAIN",
     deadline: leg.deadline,
   };
+  if (leg.app_fee) request.appFees = appFeesFor(leg);
+  return request;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -681,6 +759,12 @@ export async function verifyQuote(leg, request, response, { nowMs = Date.now(), 
   const echoed = response.quoteRequest ?? {};
   const mismatched = ECHO_FIELDS.filter((f) => !same(f, request[f], echoed[f]));
   record("quote_request_echo", mismatched.length === 0, { mismatched });
+  // `appFees` is not signed: this checks 1Click's echo; the signed amounts bound the payer's cost.
+  const fees = appFeesEchoed(request.appFees, echoed.appFees);
+  record("app_fee_echo", fees.ok, { sent: request.appFees ?? [], echoed: echoed.appFees ?? [], undeclared: fees.undeclared, signed: false });
+  if (leg.app_fee) {
+    record("app_fee_cap", leg.fee_cap_bps != null && leg.app_fee.bps <= leg.fee_cap_bps, { fee_bps: leg.app_fee.bps, recipient: leg.app_fee.recipient, cap_bps: leg.fee_cap_bps });
+  }
 
   const q = response.quote;
   let amountIn, amountOut, minOut;

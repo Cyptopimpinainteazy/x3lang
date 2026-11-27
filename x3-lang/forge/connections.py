@@ -51,7 +51,13 @@ def host_allowed(host: str, *, local: bool = False) -> bool:
     return any(host == d or host.endswith("." + d) for d in allowed_domains())
 
 
-def check_url(url: Any, *, local: bool = False, node: str = "url") -> str:
+def check_url(url: Any, *, local: bool = False, node: str = "url", allow_local: bool = False) -> str:
+    """local: loopback only. allow_local: loopback (http or https) or an allowlisted https host."""
+    if allow_local and isinstance(url, str):
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        if host in LOCAL_HOSTS:
+            return check_url(url, local=True, node=node)
+        return check_url(url, node=node)
     if not isinstance(url, str) or len(url) > 512:
         raise ForgeError("X3_FORGE_URL", "URL must be a string of at most 512 characters", node)
     parts = urllib.parse.urlsplit(url)
@@ -151,7 +157,8 @@ class ConnectionStore:
             node = f"connector.{spec['id']}.{f['id']}"
             v = raw.get(f["id"])
             if f["type"] == "url":
-                out[f["id"]] = check_url(v, local=bool(f.get("local")), node=node)
+                out[f["id"]] = check_url(v, local=bool(f.get("local")), allow_local=bool(f.get("allow_local")),
+                                         node=node)
             elif f["type"] == "near_account":
                 if not isinstance(v, str) or not chain_registry.is_valid_near_account(v):
                     raise ForgeError("X3_FORGE_CONFIG", f"{f['label']}: {v!r} is not a NEAR account", node)
@@ -267,7 +274,7 @@ class ConnectionStore:
             rec["has_secret"] = True
             rec["history"].append({"at": int(self.clock()), "event": "key stored server-side"})
             if spec["setup_url"] is None and rec["status"] == "pending":
-                rec.update(status="linked", confirmed_by="owner")
+                rec.update(status="linked", confirmed_by="owner_key")
             self._save(rec)
         return self.public(rec)
 
@@ -279,8 +286,12 @@ class ConnectionStore:
             result = {"status": "ok" if self_ok else "failed", "detail": "this Forge's own mesh", "checked_at": now}
         else:
             target = rec["setup_url"]
+            if spec.get("health_path") and target:
+                target = target.rstrip("/") + spec["health_path"]
             try:
-                check_url(target, local=any(f.get("local") for f in spec["config"] if f["type"] == "url"))
+                url_fields = [f for f in spec["config"] if f["type"] == "url"]
+                check_url(target, local=any(f.get("local") for f in url_fields),
+                          allow_local=any(f.get("allow_local") for f in url_fields))
                 status, headers = self.transport(target)
                 state, detail = classify(status, headers)
                 result = {"status": state, "detail": detail, "http_status": status, "checked_at": now,
@@ -301,6 +312,13 @@ class ConnectionStore:
             rec["history"] = rec["history"][-50:]
             self._save(rec)
         return self.public(rec)
+
+    def read_secret(self, cid: str) -> str:
+        """Server-internal only: the key a connector forwards with. Never returned to a client."""
+        path = self.secret_dir / self._path(cid).stem
+        if not path.exists():
+            raise ForgeError("X3_FORGE_SECRET", "connection has no stored key", "comms")
+        return path.read_text()
 
     def usable(self, rec: Dict[str, Any]) -> Tuple[bool, str]:
         spec = self.reg.connectors[rec["connector"]]

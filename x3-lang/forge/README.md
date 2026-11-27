@@ -59,12 +59,47 @@ reachable and login-gated, and nothing else is followed. API keys are stored onl
 `<data>/secrets/` with mode 0600. They never appear in manifests, exports or logs, and a test
 checks this.
 
+## Mind: thinking on the X3 GPU mesh
+
+The **Mesh Mind** skill compiles to the runtime capability `ai.infer`, enforced by the Forge
+inference gate (`inference.py`). Its parameters are fixed at birth: the models the agent may use,
+max tokens per request and a token budget per rolling 24 h. The **X3 GPU mesh** connector
+(`gpu_mesh`) points at a `gpu_mesh` coordinator. Its app key is stored server-side like any other
+key, and the coordinator's `/healthz` is the health check.
+
+Every request is signed by the agent's own key, over a payload the host builds:
+`X3/FORGE/INFER/1` for one raw completion, `X3/FORGE/RUN/1` for a task. Before the mesh is
+called, the gate refuses on any of these: signature, expiry, replay, agent not active, missing
+capability or surface, missing or revoked mesh connection, model not on the list, max_tokens over
+the cap, budget exhausted. Refused requests never reach a GPU. The claim (nonce plus full
+`max_tokens`) is persisted before the call. A parallel or replayed request is refused, and a request
+stranded by a crash stays charged. One signed request authorizes exactly one model call.
+
+A **run** is `near_agent.run`, unchanged, with the gate as its model. The model output is untrusted.
+Its `.x3` goes through the real compiler and the agent's own compiled mandate. It is dry: no quote is
+requested, and nothing is signed or sent. An agent without Armory Access gets a plain-text answer
+instead. Revoking the agent, or its GPU-mesh connection, cuts off model access. The Proving Ground
+runs the gate's own `decide` against the build: allowed model, other model, budget spent, revoked
+agent, forged signature.
+
+The profile page has a **Mind** panel, signed in the browser. To run headless, export the agent key
+from its profile:
+
+```bash
+PYTHONPATH=x3-lang python3 -m forge.agent_cli --url http://127.0.0.1:7420 --agent vexa.x3-owner.near \
+  --key vexa.x3-owner.near.agent-key.jwk.json --model qwen3:8b run "Pay x3-demo.near 10 USDC for invoice 77."
+```
+
+The CLI signs locally, and the key never leaves the machine. Exit code 0 means the run was answered
+and allowed. Against an Access-protected Forge, set `FORGE_ACCESS_JWT`.
+
 ## Tests
 
 ```bash
 PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_agent_forge.py -q   # host, compile, proving, births, connections, HTTP
+PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_forge_mesh.py -q    # gate + real gpu_mesh coordinator/worker + CLI
 cd x3-lang/forge/web && npx tsc -b && npx vitest run                        # creature genome determinism
-npm run build && PYTHON=python3 npx playwright test                         # full browser flow (uses /usr/bin/google-chrome)
+npm run build && PYTHON=python3 npx playwright test                         # full browser flow incl. Mind on a real mesh (uses /usr/bin/google-chrome)
 ```
 
 ## Layout
@@ -72,6 +107,8 @@ npm run build && PYTHON=python3 npx playwright test                         # fu
 - `registry/`: skills, connectors and archetypes (JSON, schema-checked at start; a bad entry stops the host)
 - `core.py`: build validation, `.x3` generation, compile, manifest, stats, creature traits
 - `proving.py`: Proving Ground
+- `inference.py`: inference gate (signed payloads, `decide`, mesh client, budget)
+- `agent_cli.py`: headless agent runner (signs with an exported agent key)
 - `connections.py`: Comms Rig (allowlist, setup state, health, server-side secrets)
 - `store.py`: High Command claim, births, roster, revocation, mesh, export/import
 - `server.py`: stdlib HTTP host and JSON API

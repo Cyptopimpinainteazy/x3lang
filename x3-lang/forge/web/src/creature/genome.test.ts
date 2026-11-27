@@ -68,4 +68,14 @@ describe("creature genome", () => {
     expect(roles(live)).not.toEqual(roles(dead));
     expect(tagCount(dead, "implant:x3_general:crack")).toBe(1);
   });
+
+  it("a mesh mind grows a crown and a mind-link conduit", () => {
+    const t: Traits = { ...traits, parts: [...traits.parts, { part: "crown", count: 5, level: 0, sources: ["mesh_mind"] }],
+      implants: [...traits.implants, { implant: "mind_link", connector: "gpu_mesh" }] };
+    const live = genome({ traits: t, implantStates: { gpu_mesh: "live" } });
+    expect(tagCount(live, "crown")).toBe(1 + 5); // halo + one node per crown point
+    expect(tagCount(live, "implant:gpu_mesh")).toBe(3);
+    const dead = genome({ traits: t, implantStates: { gpu_mesh: "dead" } });
+    expect(tagCount(dead, "implant:gpu_mesh:crack")).toBe(1);
+  });
 });

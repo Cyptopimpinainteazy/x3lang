@@ -169,6 +169,7 @@ function SkillEditor({ skill, onRemove }: { skill: Skill; onRemove: () => void }
               </div></Field>;
             case "receiver_list":
             case "near_account_list":
+            case "model_list":
               return <Field key={p.id} label={`${label} (comma separated)`} error={err}>
                 <textarea className={inputCls} rows={2} defaultValue={listText(v)} key={listText(v)}
                           onBlur={(e) => set(p.id, e.target.value.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean))} />
