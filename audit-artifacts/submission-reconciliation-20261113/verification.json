@@ -1,0 +1,47 @@
+{
+  "base_commit": "c8ec458bbae25c823e057783850faccfce39d86f",
+  "classification": "DOCS_TESTS_AND_EVIDENCE_NAVIGATION_NO_CHAIN_ACTION",
+  "reconciled_prs": {
+    "225": "Carry forward all-three-track selection and corrected DeFi mainnet evidence; preserve newer Force Field description from merged #236.",
+    "226": "Port submission validation tests; strengthen exact-three-track assertions and judge-surface coverage. Existing newer X posts already pass tag/link/length checks; preserve them. Add final-tag/hosting checklist gates without claiming uncreated tags or verified hosted media.",
+    "236": "Merged as c8ec458; preserve nine-path judge navigation and 1923-character form description."
+  },
+  "selected_tracks": [
+    "security",
+    "agents",
+    "defi"
+  ],
+  "checks": [
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests scripts/hackathon/test_agent_law_doc.py scripts/hackathon/test_invoice06_chain.py -q",
+      "result": "1068 passed, 1 skipped, 102 subtests passed"
+    },
+    {
+      "command": "node --test x3-lang/near/demo/test/*.test.mjs",
+      "result": "101 passed, 0 failed"
+    },
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests/test_submission_copy.py scripts/hackathon/test_agent_law_doc.py -q",
+      "result": "13 passed after review correction"
+    },
+    {
+      "command": "python3 scripts/hackathon/invoice06_chain.py",
+      "result": "5/5 archived links hold"
+    },
+    {
+      "command": "python3 scripts/hackathon/agent_law_local_demo.py",
+      "result": "replay refused; retirement persists across restart"
+    },
+    {
+      "command": "Markdown target/fragment and claim-path validation",
+      "result": "181 local Markdown targets; judge/submission fragments and all nine claim evidence paths valid"
+    }
+  ],
+  "review": "Independent read-only review corrected child-admission label from CHECK ONLY to OFFLINE; other new claims match code and archived evidence.",
+  "limitations": [
+    "No new chain execution; vault node was not rerun.",
+    "No production custody or OS-isolation claims.",
+    "No merge, old-PR closure, public post or final submission.",
+    "Exact-head hosted CI must be checked separately."
+  ]
+}

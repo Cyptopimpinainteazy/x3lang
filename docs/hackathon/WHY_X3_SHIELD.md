@@ -1,10 +1,12 @@
-# Why X3 Shield stands out
+# Why X3 Force Field stands out
+
+**Formerly X3 Shield.** Historical filenames, contract names, receipts and source hashes are intentionally unchanged.
 
 ## Competition framing
 
 **.x3 is an owner-controlled, typed intent language for AI-agent payments, combining compiler checks with Guard enforcement of signed quote terms.**
 
-An intent states the desired outcome. The owner’s `.x3` mandate sets the limits.
+A typed `.x3` intent states the requested payment. A separately written owner `.x3` mandate states its limits. The written language and compiler are the differentiation: programs can be reviewed, type-checked, rejected and hashed rather than granting authority through a mutable prompt.
 The compiler rejects invalid programs; deterministic mandate checks and NEAR Guard
 refuse prohibited terms. NEAR Intents / 1Click supplies the supported execution route.
 Read [the stage-by-stage explanation](X3_LANGUAGE.md#x3-intents-with-compiler-checks-and-guard-enforcement)
@@ -13,18 +15,20 @@ for compile-time versus runtime checks and the evidence boundaries.
 
 **An agent can propose a payment. The owner's policy determines whether Guard authorizes the proposed terms.**
 
-X3 Shield brings together an owner-readable `.x3` mandate, deterministic policy checks, and a NEAR contract that checks signed quote terms. The fastest way to judge it is one payment, in order: written `.x3`, compiler rejection, Guard enforcement, the mainnet transfers, and the recorded outcome.
+X3 Force Field brings together an owner-readable `.x3` mandate, deterministic policy checks, and a NEAR contract that checks signed quote terms. The fastest way to judge it is to follow one claim through to its evidence. The one-payment route through every stage runs offline:
 
 ```bash
 python3 scripts/hackathon/invoice06_sequence.py
 ```
 
-That command is offline. [The sequence page](INVOICE06_SEQUENCE.md) names each transaction and the limits. A spending-limit screen can show a cap. This sequence is the same written program at every stage.
+[The sequence page](INVOICE06_SEQUENCE.md) names each transaction and the limits.
 
 ## The proof trail
 
 | What to look at | Evidence | What it establishes |
 | --- | --- | --- |
+| The mainnet payment and mandate `.x3` sources match on-chain identities | [Source recovery](../../evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md) | Exact original source bytes match the hashes stored in NEAR Guard mandate v4 and invoice_06; matching hashes do not prove that native X3VM executed on-chain. |
+| A restricted agent records a real mainnet payment | [Mainnet invoice_06 evidence](../../evidence/near-guard-mainnet-invoice06-2026-11-12/README.md) and [final outcome](../../evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md) | Owner-approved quote passed 21 Guard checks; manual Solflare funding sent 25 USDC, 24.9952 arrived on NEAR, and the restricted agent recorded `Settled`. Guard does not custody source tokens or authenticate outcome hashes. |
 | One mainnet payment, five stages | [Sequence](INVOICE06_SEQUENCE.md) and `python3 scripts/hackathon/invoice06_sequence.py` | The invoice_06 `.x3` files match Guard's stored hashes, the compiler refuses edits of that payment, Guard's 21 checks passed before the deposit, 25 USDC settled to 24.9952 USDC, and the agent recorded `Settled`. |
 | One local enforcement path on that payment | [Agent-law path](AGENT_LAW_PATH.md), [exhibit](agent-law-proof.html), and `python3 scripts/hackathon/agent_law.py` | Birth through judge: a permitted X3 call records a local receipt, a forbidden recipient cannot skip the mandate, revocation stops the next call, and the court keeps the receipt. A jury finding does not reverse it. This path does not broadcast and does not custody the Solana wallet. |
 | An owner sets the rules | [Example mandate](../../x3-lang/examples/near_mandate_agent.x3) and [denied request](../../x3-lang/examples/near_intents_agent_denied.x3) | The checked-in policy describes permitted recipients, assets and limits. |
@@ -56,14 +60,14 @@ The offline replay checks archived signed evidence; the trusted-relay boundary r
 
 ## Why this is more than an agent prompt
 
-A valid signature authenticates quote terms; it does not mean the owner intended to pay that recipient. Guard checks signed terms against a stored policy before authorizing a deposit address. NEAR function-call keys and policy-bound wallets provide other valuable controls; X3's focus is the separate, inspectable transaction-policy and signed-quote check. See the [comparison and its scope](JUDGE_GUIDE.md#why-x3-shield-is-different-from-the-near-agent-api).
+A valid signature authenticates quote terms; it does not mean the owner intended to pay that recipient. Guard checks signed terms against a stored policy before authorizing a deposit address. NEAR function-call keys and policy-bound wallets provide other valuable controls; X3's focus is the separate, inspectable transaction-policy and signed-quote check. See the [comparison and its scope](JUDGE_GUIDE.md#why-x3-force-field-is-different-from-the-near-agent-api).
 
 ## Boundaries worth showing judges
 
 - **No wallet custody in Guard.** Someone holding an unrestricted wallet key can transfer outside Guard. Scoped vault work has separate evidence and is not part of the historical Tidepool transfer.
 - **No claim of an official live forbidden quote refused by the agent mandate.** The official forbidden example is a dry quote; the permitted live quote stopped before funding.
 - **No claim of a live-model compromise in the offline fixture.** The [judge guide](JUDGE_GUIDE.md#public-evidence-matrix) separately identifies local model red-team evidence and its outcome.
-- **One reviewed mainnet settlement, not a production deployment.** [invoice_06](INVOICE06_SEQUENCE.md) is about $25, funded manually. There is no independent audit and no cryptographic atomic settlement. The [threat model](../security/X3_SHIELD_THREAT_MODEL.md) describes risks and controls.
+- **One small mainnet settlement is recorded, not general production readiness, an independent audit, or cryptographic atomic settlement.** The [threat model](../security/X3_SHIELD_THREAT_MODEL.md) describes risks and controls.
 - **Prior work is disclosed.** The compiler and VM predate the hackathon; see [provenance](../../PRIOR_WORK.md).
 
 For the complete three-minute walkthrough and submission checklist, go to the [judge guide](JUDGE_GUIDE.md).

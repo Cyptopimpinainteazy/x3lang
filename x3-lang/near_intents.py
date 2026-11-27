@@ -176,6 +176,9 @@ def _load(name: str):
 registry = _load("registry")
 ed25519 = _load("ed25519")
 chain_evidence = _load("chain_evidence")
+numeric = _load("numeric")
+NumericParseError = numeric.NumericParseError
+split_rate = numeric.split_rate
 helius_evidence = importlib.import_module("helius_evidence")
 _MANDATE_MODULE = None
 _CLI_MODULE = None
@@ -228,6 +231,12 @@ SYMBOL_ALIASES = {("near", "NEAR"): "wNEAR"}
 
 # Guards this adapter enforces. Anything else in `requires` is refused by name.
 ENFORCED_GUARDS = {"slippage", "fees", "nonce"}
+
+#: 1Click refuses a quote whose fees total more than 500 bps, its own share included, so no
+#: declared `fee` above this can ever be quoted. 1Click's share is added on top of (or split
+#: from) this number, depending on the credential, which is why the payer-facing bound is the
+#: program's `require fees` cap checked against the signed amounts, never this constant.
+MAX_APP_FEE_BPS = 500
 
 STATUS_OUTCOMES = {
     "PENDING_DEPOSIT": "awaiting_deposit",
@@ -334,21 +343,26 @@ def base_units(value: Any, field: str) -> int:
 
 
 def to_bps(value: Any, field: str) -> Decimal:
-    """`0.5%`, `50 bps`, `50bps`, or a bare fraction (`0.005`) -> basis points."""
-    text = str(value).strip().lower().replace(" ", "")
-    if text.endswith("bps"):
-        bps = _decimal(text[:-3], field)
-    elif text.endswith("%"):
-        bps = _decimal(text[:-1], field) * 100
-    else:
-        fraction = _decimal(text, field)
-        if fraction >= 1:
-            raise NearIntentsError(
-                "X3_NEAR_BOUND_UNIT",
-                f"{field} {value!r} has no unit; write it as a percent (0.5%) or in bps (50 bps)",
-                field,
-            )
-        bps = fraction * 10000
+    """`0.5%`, `50 bps` or `50bps` -> basis points.
+
+    A bound with no unit is refused (issue #241): a bare `0.5` read as a fraction is 50%,
+    100x looser than someone writing "0.5" for 0.5% intended, and nothing else would catch it
+    on a program with no owner mandate."""
+    try:
+        number, unit = split_rate(value)
+    except NumericParseError:
+        raise NearIntentsError(
+            "X3_NEAR_BOUND_UNIT",
+            f"{field} {value!r} is not a number with a unit; write it as a percent (0.5%) or in bps (50 bps)",
+            field,
+        )
+    if unit is None:
+        raise NearIntentsError(
+            "X3_NEAR_BOUND_UNIT",
+            f"{field} {value!r} has no unit; write it as a percent (0.5%) or in bps (50 bps)",
+            field,
+        )
+    bps = number * 100 if unit == "%" else number
     if bps < 0:
         raise NearIntentsError("X3_NEAR_BOUND_UNIT", f"{field} must not be negative", field)
     return bps
@@ -533,6 +547,10 @@ def lower(intent: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str
         "nonce": nonces[0] if nonces else None,
         "deadline": format_timestamp(now + window),
     }
+    app_fee = lower_app_fee(intent.get("app_fee"), leg_out["fee_cap_bps"])
+    if app_fee is not None:
+        # Only present when declared, so every program without a `fee` lowers exactly as before.
+        leg_out["app_fee"] = app_fee
     mandate = intent.get("mandate")
     if mandate is not None:
         owner = (mandate or {}).get("owner")
@@ -545,6 +563,58 @@ def lower(intent: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str
         # Only present for agent intents, so every other program lowers exactly as before.
         leg_out["mandate_owner"] = owner
     return leg_out
+
+
+_PLAIN_RATE = re.compile(r"\d+(\.\d+)?\s*(bps|%)", re.IGNORECASE)
+_RATE_UNIT = re.compile(r"(bps|%)$", re.IGNORECASE)
+
+
+def lower_app_fee(declared: Optional[Dict[str, Any]], fee_cap_bps: Optional[int]) -> Optional[Dict[str, Any]]:
+    """`fee <rate> to <account>` -> `{"recipient", "bps"}`, or None when the program has none.
+
+    The fee is paid from the payer's input, so it is a cost the payer's own `require fees`
+    cap has to cover. A program that declares a fee without that cap, or a fee larger than it,
+    is refused here: the first could charge without any ceiling, the second can never quote.
+    """
+    if declared is None:
+        return None
+    if not isinstance(declared, dict):
+        raise NearIntentsError("X3_NEAR_APP_FEE", "`fee` is malformed", "fee")
+    text = str(declared.get("value") or "").strip()
+    # Plain decimal digits and a unit only, as the browser demo and `x3c` read a rate: `to_bps`
+    # also takes an exponent (`1e2 bps`), and a spelling one surface reads and another refuses
+    # is a drift. A missing unit gets the same code a `require` bound gets for it.
+    if not _PLAIN_RATE.fullmatch(text):
+        if not _RATE_UNIT.search(text):
+            raise NearIntentsError("X3_NEAR_BOUND_UNIT",
+                                   f"fee {text!r} has no unit; write it in bps (25 bps) or as a percent (0.25%)", "fee")
+        raise NearIntentsError("X3_NEAR_APP_FEE", f"fee {text!r} is not a plain decimal rate in bps or %", "fee")
+    rate = to_bps(text, "fee")
+    if rate != rate.to_integral_value():
+        raise NearIntentsError("X3_NEAR_APP_FEE",
+                               f"fee {declared.get('value')!r} is not a whole number of basis points; "
+                               "1Click charges integer bps", "fee")
+    bps = int(rate)
+    if bps < 1:
+        raise NearIntentsError("X3_NEAR_APP_FEE", "a `fee` of zero charges nothing; remove the clause instead", "fee")
+    if bps > MAX_APP_FEE_BPS:
+        raise NearIntentsError("X3_NEAR_APP_FEE",
+                               f"fee {bps} bps is above {MAX_APP_FEE_BPS} bps, the most 1Click quotes in total", "fee")
+    recipient = declared.get("recipient")
+    if not isinstance(recipient, str) or not registry.is_valid_near_account(recipient):
+        raise NearIntentsError("X3_NEAR_APP_FEE_RECIPIENT",
+                               f"fee recipient {recipient!r} is not a NEAR account; 1Click pays fees to an Intents "
+                               "account (named, implicit or 0x-implicit)", "fee.recipient")
+    if fee_cap_bps is None:
+        raise NearIntentsError("X3_NEAR_APP_FEE_CAP_REQUIRED",
+                               "a program that declares `fee` must also state `require fees <= <bound>`: the fee comes "
+                               "out of the payer's input, and nothing else bounds what the route costs them",
+                               "requires.fees")
+    if bps > fee_cap_bps:
+        raise NearIntentsError("X3_NEAR_APP_FEE_OVER_CAP",
+                               f"fee {bps} bps is above the program's own `require fees` cap of {fee_cap_bps} bps",
+                               "fee")
+    return {"recipient": recipient, "bps": bps}
 
 
 def resolve_asset(tokens: List[Dict[str, Any]], chain: str, asset: str) -> Dict[str, Any]:
@@ -586,7 +656,63 @@ def build_quote_request(leg: Dict[str, Any], tokens: List[Dict[str, Any]], *, dr
     }
     if referral:
         request["referral"] = referral.lower()
+    if leg.get("app_fee"):
+        request["appFees"] = app_fees_for(leg)
     return request
+
+
+def app_fees_for(leg: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The 1Click `appFees` a lowered leg sends: its declared fee, or nothing."""
+    fee = leg.get("app_fee")
+    return [{"recipient": fee["recipient"], "fee": int(fee["bps"])}] if fee else []
+
+
+def _app_fees_entries(value: Any) -> Optional[List[Tuple[str, int]]]:
+    """`appFees` as `(recipient, bps)` pairs, `[]` when absent, None when malformed.
+
+    1Click echoes extra keys on each entry (`limitOrderId: null` on live quotes); an extra key
+    is accepted only while it is null, because a set one could change what the fee means.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return None
+    out: List[Tuple[str, int]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            return None
+        recipient, fee = entry.get("recipient"), entry.get("fee")
+        if not isinstance(recipient, str) or isinstance(fee, bool) or not isinstance(fee, int):
+            return None
+        if any(v is not None for k, v in entry.items() if k not in ("recipient", "fee")):
+            return None
+        out.append((recipient, fee))
+    return out
+
+
+def same_app_fees(a: Any, b: Any) -> bool:
+    """Whether two `appFees` lists are the same fees, absent and empty being the same."""
+    x, y = _app_fees_entries(a), _app_fees_entries(b)
+    return x is not None and y is not None and x == y
+
+
+def app_fees_echoed(sent: Any, echoed: Any) -> Tuple[bool, List[Dict[str, Any]]]:
+    """Whether every fee that was sent came back unchanged, and which echoed fees were not sent.
+
+    1Click echoes fee entries of its own that the request never carried (captured 2026-11-03
+    on a keyless request: `{"recipient": "5880ad…", "fee": 1}`), so an extra entry is not a
+    mismatch: it is part of what 1Click charges, which the signed amounts and `require fees`
+    already bound. A sent fee that is missing, re-priced or re-addressed is a mismatch.
+    """
+    s, e = _app_fees_entries(sent), _app_fees_entries(echoed)
+    if s is None or e is None:
+        return False, []
+    remaining = list(e)
+    for entry in s:
+        if entry not in remaining:
+            return False, [{"recipient": r, "fee": f} for r, f in remaining]
+        remaining.remove(entry)
+    return True, [{"recipient": r, "fee": f} for r, f in remaining]
 
 
 # --------------------------------------------------------------------------------------------
@@ -822,6 +948,15 @@ def verify_quote(leg: Dict[str, Any], request: Dict[str, Any], response: Dict[st
     echoed = response.get("quoteRequest") or {}
     mismatched = [f for f in _ECHO_FIELDS if not _same(f, request.get(f), echoed.get(f))]
     record("quote_request_echo", not mismatched, mismatched=mismatched)
+    # `appFees` is outside what 1Click signs, so this compares its echo, nothing stronger: it
+    # catches a quote priced for different fees than this program declared (or for fees it
+    # never declared). What the payer can lose is bounded by `fees` below, from signed amounts.
+    fees_echoed, undeclared_fees = app_fees_echoed(request.get("appFees"), echoed.get("appFees"))
+    record("app_fee_echo", fees_echoed, sent=request.get("appFees") or [], echoed=echoed.get("appFees") or [],
+           undeclared=undeclared_fees, signed=False)
+    if leg.get("app_fee"):
+        record("app_fee_cap", leg.get("fee_cap_bps") is not None and leg["app_fee"]["bps"] <= leg["fee_cap_bps"],
+               fee_bps=leg["app_fee"]["bps"], recipient=leg["app_fee"]["recipient"], cap_bps=leg.get("fee_cap_bps"))
 
     try:
         amount_in = int(quote["amountIn"])
@@ -1226,8 +1361,13 @@ class NearRpc:
 def preflight_accounts(leg: Dict[str, Any], rpc: NearRpc) -> List[Dict[str, Any]]:
     """Every NEAR account the swap pays out to must exist before a quote is requested."""
     checks = []
-    for role, chain, account in (("recipient", leg["destination"]["chain"], leg["recipient"]),
-                                 ("refund_to", leg["origin"]["chain"], leg["refund_to"])):
+    payees = [("recipient", leg["destination"]["chain"], leg["recipient"]),
+              ("refund_to", leg["origin"]["chain"], leg["refund_to"])]
+    if leg.get("app_fee"):
+        # 1Click pools app fees and withdraws them to this account, with no refund if that fails.
+        payees.append(("app_fee_recipient", "near", leg["app_fee"]["recipient"]))
+    fields = {"recipient": "to.receiver", "refund_to": "policies.timeout.action.to", "app_fee_recipient": "fee.recipient"}
+    for role, chain, account in payees:
         if chain != "near":
             continue
         exists = rpc.account_exists(account)
@@ -1236,7 +1376,7 @@ def preflight_accounts(leg: Dict[str, Any], rpc: NearRpc) -> List[Dict[str, Any]
             raise NearIntentsError(
                 "X3_NEAR_ACCOUNT_UNKNOWN",
                 f"NEAR account {account!r} ({role}) does not exist; 1Click cannot deliver to it",
-                "to.receiver" if role == "recipient" else "policies.timeout.action.to",
+                fields[role],
                 checks,
             )
     return checks
@@ -1553,6 +1693,16 @@ def check_against_mandate(leg: Dict[str, Any], request: Dict[str, Any], program_
     policy = policy_for(leg, request, program_sha256)
     now_ms = int((now or datetime.now(timezone.utc)).timestamp() * 1000)
     checks = m.check_mandate(mandate, policy, now_ms)
+    if leg.get("app_fee"):
+        # A fee is a payment out of the owner's spend, so its recipient must be one the owner
+        # allows, or an agent could route part of every payment to itself under the fee cap.
+        # x3-guard cannot make this check: `appFees` is not in the quote 1Click signs, and the
+        # contract's policy has no field for it. This adapter is the only place it is enforced.
+        fee = leg["app_fee"]
+        allowed = list(mandate["terms"].get("recipients") or [])
+        checks.append({"guard": "mandate_app_fee_recipient", "ok": fee["recipient"] in allowed,
+                       "detail": f"fee {fee['bps']} bps to {fee['recipient']}, allowed {allowed}",
+                       "enforced_by": "adapter"})
     out = {"owner": mandate["owner"], "agent": mandate["agent"], "version": mandate["version"], "source": source,
            "checks": checks, "approvals_needed": m.approvals_needed(mandate, int(policy["amount"]))}
     failed = [c["guard"] for c in checks if not c["ok"]]
@@ -1755,6 +1905,8 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
     signed_request = (response or {}).get("quoteRequest") or {}
     saved_request = receipt.get("quote_request") or {}
     mismatched = [field for field in _ECHO_FIELDS if not _same(field, saved_request.get(field), signed_request.get(field))]
+    if not app_fees_echoed(saved_request.get("appFees"), signed_request.get("appFees"))[0]:
+        mismatched.append("appFees")
     if (not valid
             or signed_request.get("dry") is not False
             or mismatched
@@ -1771,7 +1923,7 @@ def prepare_handoff(receipt: Dict[str, Any], *, receipt_path: str, program_path:
     _, compiled_leg = compile_program(program_path, now=parse_timestamp(response["timestamp"]))
     stable_fields = (
         "intent", "origin", "destination", "amount", "recipient", "refund_to",
-        "min_receive", "slippage_bps", "fee_cap_bps", "nonce",
+        "min_receive", "slippage_bps", "fee_cap_bps", "nonce", "app_fee",
     )
     changed = [field for field in stable_fields if receipt.get("leg", {}).get(field) != compiled_leg.get(field)]
     if changed:
@@ -1878,6 +2030,8 @@ def _signed_quote(receipt: Dict[str, Any]) -> Dict[str, Any]:
         field for field in _ECHO_FIELDS
         if not _same(field, saved_request.get(field), signed_request.get(field))
     ]
+    if not app_fees_echoed(saved_request.get("appFees"), signed_request.get("appFees"))[0]:
+        mismatched.append("appFees")
     if (signed_request.get("dry") is not False
             or saved_request.get("dry") is not False
             or mismatched
@@ -1901,13 +2055,22 @@ def _signed_quote(receipt: Dict[str, Any]) -> Dict[str, Any]:
         raise NearIntentsError("X3_EVIDENCE_BINDING",
                                "receipt deposit metadata differs from the signed live quote")
     leg = receipt.get("leg") or {}
+    # These two deadlines are separate claims about authorization. Never use
+    # the provider's later deposit deadline to silently extend the signed
+    # request or a compiled leg. In particular, the Nov 14 source-vault pilot
+    # recorded a later compiled-leg expiry than its signed 1Click request.
+    leg_deadline_mismatch = (
+        not leg.get("deadline")
+        or parse_timestamp(leg["deadline"]) != parse_timestamp(saved_request["deadline"])
+    )
     if (str(leg.get("amount")) != str(saved_request.get("amount"))
+            or not same_app_fees(app_fees_for(leg), saved_request.get("appFees"))
             or leg.get("recipient") != saved_request.get("recipient")
             or leg.get("refund_to") != saved_request.get("refundTo")
-            or not leg.get("deadline")
-            or parse_timestamp(leg["deadline"]) != parse_timestamp(saved_request["deadline"])):
+            or leg_deadline_mismatch):
+        reason = " (deadline mismatch)" if leg_deadline_mismatch else ""
         raise NearIntentsError("X3_EVIDENCE_BINDING",
-                               "receipt leg differs from the request signed by 1Click")
+                               "receipt leg differs from the request signed by 1Click" + reason)
     tokens = receipt.get("tokens") or {}
     if ((tokens.get("origin") or {}).get("assetId") != saved_request.get("originAsset")
             or (tokens.get("destination") or {}).get("assetId") != saved_request.get("destinationAsset")):

@@ -1147,6 +1147,19 @@ impl X3Formatter {
             self.write(owner.as_str());
             self.write("\n");
         }
+        if let Some(fee) = &i.app_fee {
+            self.write_indent();
+            self.write(&format!("fee {} bps to ", fee.bps));
+            // An account whose first part begins with a digit (an implicit ID) does
+            // not lex as one identifier, so it is written quoted; both parsers read it.
+            let recipient = fee.recipient.as_str();
+            if recipient.starts_with(|c: char| c.is_ascii_lowercase()) {
+                self.write(recipient);
+            } else {
+                self.write(&format!("{recipient:?}"));
+            }
+            self.write("\n");
+        }
         if !i.constraints.is_empty() {
             self.write_indent();
             self.write("[");

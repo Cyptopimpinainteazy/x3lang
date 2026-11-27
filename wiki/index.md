@@ -35,6 +35,8 @@ not duplicate source code or evidence.
 | NEAR Intents | Signed quote checks, limits, and adapter behavior | `README.md`, `x3-lang/near_intents.py` |
 | BSC bridge | Escrow, formatting, and bridge tests | `x3-lang/bridge/bsc/` |
 | NEAR bridge | Light-client and bridge prototype behavior | `x3-lang/bridge/near/` |
+| NEAR liquidity discovery | Read-only provider quotes, RHEA pools, like-for-like ranking (issue #40, draft) | `x3-lang/near_liquidity/README.md` |
+| X3 Arbitrage | Local cross-chain scanner, compiled leg exports, persistent paper projections and explicit live quote preparation | `x3-lang/arbitrage/README.md` |
 
 ## Security
 
@@ -55,3 +57,5 @@ not duplicate source code or evidence.
 | Release rules | Branching, review, evidence, and agent ownership | `.shipframe/profile.md` |
 
 - [Standalone source admission](../docs/security/STANDALONE_CI_POLICY.md): exact local source identity, execution proofs and manual peer parity.
+
+- [Local agent-law runtime](../docs/security/AGENT_LAW_RUNTIME.md): signed birth, SQLite authority, bounded compiler adapter, incident review and explicit limits.

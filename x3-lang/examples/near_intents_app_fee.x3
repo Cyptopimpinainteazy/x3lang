@@ -1,0 +1,37 @@
+// near_intents_app_fee.x3 — the `near_intents_sol_to_near.x3` swap, paying the app that routed it.
+//
+// `fee 25 bps to fees.x3-demo.near` is sent to 1Click as `appFees`. It comes out of the payer's
+// 25 USDC before the swap is priced, so the quote's signed `amountOut` already shows it, and
+// the program's own `require fees <= 100 bps` caps the total cost the payer can be charged:
+// this fee, 1Click's own share and the route's spread together.
+//
+// Rules the adapter (`near_intents.py`) enforces before any quote is requested:
+//
+// - the rate is a whole number of basis points, at least 1 and at most 500 (1Click's ceiling);
+// - the recipient is a NEAR account that exists on chain (1Click pools fees and withdraws them
+//   there, with no refund if the withdrawal fails);
+// - a program with a `fee` must have a `require fees` cap, and the fee must fit under it;
+// - under a mandate, the fee recipient must be one of the owner's `allow recipients`.
+//
+// What it cannot prove: `appFees` is not part of the payload 1Click signs. The adapter checks
+// that 1Click echoed the fee it was sent, and bounds the payer's cost from the signed amounts,
+// but only the fee recipient's own balance shows what it was actually paid. 1Click also takes a
+// share: with a partner API key your fee is split 50/50 with a 20 bps floor on 1Click's half
+// (1 bp on stablecoin pairs); without one, 1Click adds 25 bps on top. Check current terms at
+// docs.near-intents.org before you charge anyone.
+//
+// Amounts are base units. The receivers and the fee account are placeholders: replace all three
+// with accounts you control, or the adapter refuses them as X3_NEAR_ACCOUNT_UNKNOWN.
+intent near_intents_app_fee {
+    from Solana.USDC amount 25000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD
+    to Near.USDC receiver x3-demo.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24700000;
+    }
+    fee 25 bps to fees.x3-demo.near
+    require slippage <= 0.5%
+    require fees <= 100 bps
+    require nonce unused near_intents_app_fee_001
+    timeout 10m refund Solana.USDC
+    on_fail rollback
+}

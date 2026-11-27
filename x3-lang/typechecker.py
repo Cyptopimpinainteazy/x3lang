@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 import importlib.util
 import os
-from numeric import NumericParseError, parse_decimal, parse_positive_decimal
+from numeric import NumericParseError, parse_decimal, parse_positive_decimal, split_rate
 
 
 def load_registry():
@@ -138,7 +138,10 @@ def typecheck(intent: dict) -> Tuple[bool, List[Any]]:
         for key in ('min_profit', 'max_slippage'):
             if constraints.get(key) is not None:
                 try:
-                    parse_decimal(constraints[key], allow_unit_suffix=True)
+                    if key == 'max_slippage':
+                        split_rate(constraints[key])
+                    else:
+                        parse_decimal(constraints[key], allow_unit_suffix=True)
                 except NumericParseError:
                     _err(errors, 'X3_INVALID_CONSTRAINT', f'{key} must be numeric', f'constraints.{key}', constraints[key])
     for key in ('timeout', 'on_fail'):

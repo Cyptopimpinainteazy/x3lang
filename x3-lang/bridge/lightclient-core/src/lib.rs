@@ -3,7 +3,6 @@
 
 use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 
 /// One caller-provided validator in the epoch. **Untrusted** until a real
 /// checkpoint and next_bps commitment have been authenticated separately.
@@ -59,12 +58,14 @@ pub fn verify_approvals(
     {
         return Err("invalid approval shape");
     }
-    let mut keys = HashSet::new();
     let mut total_stake: u128 = 0;
     let mut approved_stake: u128 = 0;
     for (i, validator) in validators.iter().enumerate() {
-        if validator.stake == 0 || !keys.insert(validator.public_key) {
-            return Err("zero stake or repeated validator public key");
+        // Distinct validator accounts may share one consensus key (real NEAR
+        // mainnet next_bps do: nearcrowd.poolv1.near / nc2.poolv1.near). Each
+        // slot is counted on its own signature, exactly as nearcore does.
+        if validator.stake == 0 {
+            return Err("zero validator stake");
         }
         let public = strict_validator_key(&validator.public_key)?;
         total_stake = total_stake.checked_add(validator.stake).ok_or("stake overflow")?;
@@ -163,15 +164,19 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_keys_and_empty_quorum_fail() {
+    fn shared_key_slots_count_separately_and_empty_quorum_fails() {
         let (keys, mut validators) = voters();
         let message = approval_message([7u8; 32], 42).unwrap();
-        let approvals = keys
-            .iter()
-            .map(|k| Some(k.sign(&message).to_bytes()))
-            .collect::<Vec<_>>();
+        // Two slots share keys[0]; keys[1] is no longer a validator key.
         validators[1].public_key = validators[0].public_key;
-        assert!(verify_approvals(&validators, &approvals, &message).is_err());
+        let shared = Some(keys[0].sign(&message).to_bytes());
+        let third = Some(keys[2].sign(&message).to_bytes());
+        // Each shared-key slot needs its own approval entry.
+        assert!(verify_approvals(&validators, &[shared, None, third], &message).is_err());
+        assert!(verify_approvals(&validators, &[shared, shared, third], &message).is_ok());
+        // keys[1]'s signature cannot stand in for the shared key's slot.
+        let wrong = Some(keys[1].sign(&message).to_bytes());
+        assert!(verify_approvals(&validators, &[shared, wrong, third], &message).is_err());
         assert!(verify_approvals(&[], &[], &message).is_err());
     }
 

@@ -29,16 +29,19 @@ def _n(value: int, width: int) -> bytes:
 
 
 def compute_next_bps_hash(validators: list) -> str:
-    """SHA256(Borsh(Vec<ValidatorStake::V1>)) for current known V1 layout.
+    """SHA256(Borsh(Vec<ValidatorStake>)) in nearcore's *versioned* bp-hash format.
 
-    Fail closed on V2 or future schema changes until their correct protocol
-    encoding is independently reviewed and covered by live-chain fixtures.
+    nearcore `compute_bp_hash_from_validator_stakes(.., use_versioned_bp_hash_format)`
+    hashes the enum-tagged `ValidatorStake::V1` (tag byte 0) for every header
+    since BlockHeaderV3; only pre-BlockHeaderV3 headers hashed the untagged
+    struct. `ValidatorStakeView` has a single `V1` variant at nearcore 592a264.
+    The untagged legacy format and any future variant are rejected here: there
+    are no committed real vectors for them, so they fail closed.
     """
     if type(validators) is not list or not 1 <= len(validators) <= 4096:
         raise ValueError('empty or oversized validator list')
     raw = bytearray(_n(len(validators), 4))
     accounts = set()
-    keys = set()
     for validator in validators:
         if type(validator) is not dict or validator.get('validator_stake_struct_version') != 'V1':
             raise ValueError('unsupported validator stake encoding')
@@ -50,10 +53,11 @@ def compute_next_bps_hash(validators: list) -> str:
         key = validator.get('public_key')
         if type(key) is not str or not key.startswith('ed25519:'):
             raise ValueError('unsupported validator key algorithm')
+        # Distinct validator accounts MAY share one consensus key: real NEAR
+        # mainnet next_bps (nearcrowd.poolv1.near and nc2.poolv1.near, see
+        # fixtures/near-light-client-522f940/main_0.json slots 17 and 42) do.
+        # nearcore counts every slot separately, so the commitment must too.
         key_raw = decode_hash(key.removeprefix('ed25519:'))
-        if key_raw in keys:
-            raise ValueError('duplicate validator key')
-        keys.add(key_raw)
         stake = validator.get('stake')
         if type(stake) is not str or not re.fullmatch(r'[1-9][0-9]*', stake):
             raise ValueError('invalid or zero validator stake')

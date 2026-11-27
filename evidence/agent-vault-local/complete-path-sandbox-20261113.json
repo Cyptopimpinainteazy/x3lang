@@ -1,0 +1,92 @@
+{
+  "schema": "x3.shield.scoped_agent_vault.local_sandbox.v2",
+  "captured_utc": "2026-11-13T19:09:02Z",
+  "source_base_commit": "aa8e3aeedf79fa0f8d00a95afc7e21afc1ccfc70",
+  "classification": "REAL_LOCAL_NEAR_SANDBOX_COMPLETE_PATH_EVIDENCE_NOT_PUBLIC_CHAIN",
+  "contract": "x3-lang/near/x3-agent-vault",
+  "runner": "scripts/hackathon/vault_sandbox_smoke.sh",
+  "compiled_wasm_sha256": "705038833fad93e0b0e4573aa1bf8d69d896823bb9fe049214262abf7292c2a0",
+  "sandbox_log": "evidence/agent-vault-local/complete-path-sandbox-20261113.txt",
+  "sandbox_log_sha256": "dd5a3d54746fa62cd72b8b7f26e6b732b838c8002d3df9d3500ca6b979124b95",
+  "test_network": "ephemeral local NEAR Sandbox 2.14.0",
+  "sandbox_binary_sha256": "797b9d7a9a23907048d68a427e86a55c94f1de232dbfb8b8a1eec09ecef3bf13",
+  "execution": {
+    "contract_build": "PASS",
+    "harness_build": "PASS",
+    "sandbox_exit_code": 0,
+    "exact_head_ci": "NOT RUN: the vault workflow compiles the harness but does not start a node"
+  },
+  "complete_path": {
+    "permitted_action_executes": [
+      "X3_VAULT_SANDBOX_ALLOWED_PAYMENT_SUCCESS"
+    ],
+    "forbidden_action_cannot_bypass": [
+      "X3_VAULT_SANDBOX_SCOPED_DIRECT_TRANSFER_REFUSED",
+      "X3_VAULT_SANDBOX_ATTACHED_DEPOSIT_REFUSED",
+      "X3_VAULT_SANDBOX_RECIPIENT_AND_CAP_REFUSED",
+      "X3_VAULT_SANDBOX_AGENT_RECOVERY_REFUSED"
+    ],
+    "revocation_stops_later_actions": [
+      "X3_VAULT_SANDBOX_REPLAY_AND_REVOCATION_REFUSED",
+      "X3_VAULT_SANDBOX_EXPIRY_REFUSED"
+    ],
+    "evidence_preserved": "dd5a3d54746fa62cd72b8b7f26e6b732b838c8002d3df9d3500ca6b979124b95"
+  },
+  "verified_refusals": [
+    {
+      "action": "direct native transfer with the FunctionCall-only agent key",
+      "typed_rejection": "RequiresFullAccess",
+      "balance_unchanged": true
+    },
+    {
+      "action": "agent function call with an attached deposit",
+      "typed_rejection": "DepositWithFunctionCall"
+    },
+    {
+      "action": "wrong recipient",
+      "typed_rejection": "X3_VAULT_DENIED: recipient not allowlisted"
+    },
+    {
+      "action": "amount above the per-payment cap",
+      "typed_rejection": "X3_VAULT_DENIED: per-payment cap exceeded"
+    },
+    {
+      "action": "replayed nonce",
+      "typed_rejection": "X3_VAULT_DENIED: nonce already used"
+    },
+    {
+      "action": "owner recovery while the mandate is active",
+      "typed_rejection": "X3_VAULT_DENIED: revoke or expire mandate before recovery"
+    },
+    {
+      "action": "fresh nonce after owner revocation",
+      "typed_rejection": "X3_VAULT_DENIED: owner revoked mandate"
+    },
+    {
+      "action": "owner recovery called with the agent's FunctionCall key",
+      "typed_rejection": "MethodNameMismatch:recover_available"
+    },
+    {
+      "action": "fresh nonce after the mandate expired, not revoked",
+      "typed_rejection": "X3_VAULT_DENIED: owner mandate expired"
+    },
+    {
+      "action": "the same payment under a tighter cap generated from .x3 source",
+      "typed_rejection": "X3_VAULT_DENIED: per-payment cap exceeded"
+    }
+  ],
+  "verified_controls": [
+    "allowed 0.1 NEAR payment reached Paid state",
+    "original payment remained Paid after replay and revocation refusals",
+    "owner recovered 0.5 NEAR after revocation, with the owner key only",
+    "the base policy generated from .x3 source allowed the same payment that the tighter cap refused"
+  ],
+  "limitations": [
+    "local disposable Sandbox, not public testnet or mainnet",
+    "runner observations are not independently authenticated consensus proof; raw captures record cryptographic_proof false",
+    "the owner's FullAccess key is trusted and was excluded from the adversary",
+    "this is the NEAR agent vault, not the mainnet invoice_06 path, where Guard held no funds",
+    "the expiry case advances the Sandbox by 50,000 blocks; it does not test wall-clock behaviour on a public chain",
+    "no public deployment, custody audit or production storage economics"
+  ]
+}

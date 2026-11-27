@@ -59,7 +59,7 @@ use parser::parse_source;
 use semantic::verify_atomic_swap_decls;
 use semantic::verify_with_config as verify_semantics;
 use semantic::{
-    verify_atomic_choice_decls, verify_bridge_liquidity_declared, verify_declarations_have_a_reader,
+    verify_app_fees, verify_atomic_choice_decls, verify_bridge_liquidity_declared, verify_declarations_have_a_reader,
     verify_fee_guards_declared, verify_finality_guards_declared, verify_guard_kinds_are_checkable,
     verify_invariant_guards_declared, verify_mandate_bindings, verify_parallel_decls, verify_privacy_decls,
     verify_proof_complete_declared, verify_relayer_quorum_declared, verify_risk_policy_bounds_guards,
@@ -214,6 +214,7 @@ fn ast_level_errors(program: &Program) -> Vec<X3Error> {
     verify_bridge_liquidity_declared(program, &mut acc);
     verify_guard_kinds_are_checkable(program, &mut acc);
     verify_mandate_bindings(program, &mut acc);
+    verify_app_fees(program, &mut acc);
     // A hedge's legs are only a hedge if they net: the exposure is computed here,
     // before anything is lowered (PHASE 9).
     hedge::verify(program, &mut acc);
@@ -478,3 +479,8 @@ fn verify_bytecode(bytecode: &[u8]) -> Result<(), X3Error> {
 
     Ok(())
 }
+
+pub mod policy_encoding;
+
+pub mod capability_source;
+pub use capability_source::compile_capability_source;

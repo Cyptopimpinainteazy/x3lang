@@ -1,0 +1,37 @@
+{
+  "classification": "LOCAL_ONLY_NOT_CHAIN_CUSTODY",
+  "base_commit": "aa8e3aeedf79fa0f8d00a95afc7e21afc1ccfc70",
+  "source_state": "feature code verified before follow-up commit; source hashes bind final tested files",
+  "python": "3.12.3",
+  "sqlite": "3.45.1",
+  "source_sha256": {
+    "x3-lang/agent_runtime_intents.py": "d1c011c684dbdc1d8d53d6cca3a1df6e5d78f00335a62a5c1867095e3e506910",
+    "x3-lang/agent_runtime_court.py": "a3d331494977d1b46bd76565f1fb6d2349857eea502d47f957a5a99f92775505",
+    "x3-lang/agent_runtime.py": "f17cd201220ad0cc0c0c8350689b5e8c8d489b8c4cf8315e99d1c30afb29563b",
+    "x3-lang/tests/test_agent_runtime_court.py": "85058e529d9e35198225d46d7d3c1555a312917ab9dce2dde069a3cabaf3206b",
+    "x3-lang/tests/test_agent_runtime.py": "5fb7d496e40dcb97d5899df0e835e706692e55cfbf0bdbc94b7b61957efa2529",
+    "x3-lang/tests/test_agent_runtime_intents.py": "afa6fd597a339400ba05095e17666e1903a0057b1118e32e16387b7515b1e15d",
+    "scripts/hackathon/agent_law_local_demo.py": "40106fc294a1f93e1e6e6451fd2ac7de284c33b1734ecea48f3dd59a46ed0789"
+  },
+  "checks": [
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests -q",
+      "exit": 0,
+      "result": "1028 passed, 1 skipped, 102 subtests passed in 25.67s"
+    },
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m compileall -q x3-lang/agent_runtime*.py scripts/hackathon/agent_law_local_demo.py",
+      "exit": 0
+    },
+    {
+      "command": ".venv/bin/python scripts/hackathon/agent_law_local_demo.py --output audit-artifacts/agent-law-local-20261113/lifecycle.json",
+      "exit": 0
+    }
+  ],
+  "limits": [
+    "Scripted jury signers, no independent model judgments",
+    "No wallet/signing adapter or chain execution",
+    "Hash chain is not externally anchored",
+    "No performance or full constitutional enforcement claim"
+  ]
+}

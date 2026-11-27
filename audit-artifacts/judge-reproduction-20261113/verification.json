@@ -1,0 +1,33 @@
+{
+  "schema": "x3.judge.reproduction.v1",
+  "pinned_snapshot": "cd1923318d6f47701e4969d841320459605a131f",
+  "tested_docs_head": "e34fe36d7bbd",
+  "source_identity": "Tested verifier/runtime bytes match the pinned snapshot; docs changes do not change execution.",
+  "python": "Python 3.12.14",
+  "commands": [
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest scripts/hackathon/test_invoice06_chain.py x3-lang/tests/test_submission_copy.py x3-lang/tests/test_agent_runtime*.py x3-lang/tests/test_agent_constitution.py x3-lang/tests/test_agent_admission_signed.py x3-lang/tests/test_vault_complete_path_evidence.py -q",
+      "result": "96 passed in 1.64s"
+    },
+    {
+      "command": ".venv/bin/python scripts/hackathon/invoice06_chain.py --json",
+      "result": "ok=true; all five links=true"
+    },
+    {
+      "command": ".venv/bin/python scripts/hackathon/agent_law_local_demo.py",
+      "result": "replay_blocked=true; retired_after_policy_violation=true; retirement_survives_restart=true"
+    }
+  ],
+  "source_sha256": {
+    "scripts/hackathon/invoice06_chain.py": "f357e50a76fd8b275252d289a699d7c7baabc9699bc3a37d068e40386c8460fe",
+    "scripts/hackathon/agent_law_local_demo.py": "40106fc294a1f93e1e6e6451fd2ac7de284c33b1734ecea48f3dd59a46ed0789",
+    "x3-lang/agent_runtime.py": "f17cd201220ad0cc0c0c8350689b5e8c8d489b8c4cf8315e99d1c30afb29563b",
+    "x3-lang/agent_runtime_intents.py": "d1c011c684dbdc1d8d53d6cca3a1df6e5d78f00335a62a5c1867095e3e506910",
+    "x3-lang/agent_runtime_court.py": "a3d331494977d1b46bd76565f1fb6d2349857eea502d47f957a5a99f92775505"
+  },
+  "limits": [
+    "Local execution; no fresh RPC check",
+    "Vault tests validate archived Sandbox evidence, not a rerun of the node",
+    "Not independent official judging or proof of universal security"
+  ]
+}

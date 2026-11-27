@@ -148,6 +148,26 @@ def _parse_endpoint(ln: SourceLine, keyword: str) -> Dict[str, Any]:
     return endpoint
 
 
+def _parse_app_fee(ln: SourceLine) -> Dict[str, Any]:
+    """`fee <rate> to <account>`: the integrator fee this program pays on its route.
+
+    The rate keeps its unit (`25 bps`, `0.25%`) so the adapter that settles the route decides,
+    with the same bound parser it uses for `require fees`, whether it is a whole number of
+    basis points. Only the shape is read here; a surface that cannot pay the fee refuses it.
+    """
+    words = ln.text.rstrip(";").split()
+    if "to" not in words[1:]:
+        raise X3ParseError("X3_PARSE_FEE", "expected `fee <rate> to <account>`, e.g. `fee 25 bps to fees.app.near`",
+                           ln.no, "fee")
+    split = words.index("to", 1)
+    rate = " ".join(words[1:split])
+    recipient = words[split + 1:]
+    if not rate or len(recipient) != 1:
+        raise X3ParseError("X3_PARSE_FEE", "expected `fee <rate> to <account>`, e.g. `fee 25 bps to fees.app.near`",
+                           ln.no, "fee")
+    return {"value": rate, "recipient": recipient[0].strip('"'), "line": ln.no}
+
+
 def _parse_refund(tokens: List[str], line: int) -> Dict[str, Any]:
     # `to <receiver>` is optional, and its absence means `sender` — the compiler's own
     # default (`formatter::is_sender_default`), which is why `x3c fmt` writes
@@ -181,7 +201,9 @@ def _parse_require(ln: SourceLine) -> Dict[str, Any]:
     if kind == "finality" and len(tokens) >= 5:
         return {"kind": "finality", "chain": tokens[2].lower(), "op": tokens[3], "value": tokens[4]}
     if kind == "slippage" and len(tokens) >= 4:
-        return {"kind": "slippage", "op": tokens[2], "value": tokens[3]}
+        # The whole bound: `require slippage <= 50 bps` is four words after `require`, and
+        # keeping only the first one turned it into a bare `50` (issue #241).
+        return {"kind": "slippage", "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind == "profit" and len(tokens) >= 4:
         return {"kind": "profit", "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind == "nonce" and len(tokens) >= 3:
@@ -479,6 +501,10 @@ def parse_source(source: str):
             if "mandate" in result:
                 raise X3ParseError("X3_PARSE_MANDATE", "an intent is under one mandate", ln.no, "mandate")
             result["mandate"] = {"owner": parts[2].strip('"')}
+        elif text == "fee" or text.startswith("fee "):
+            if "app_fee" in result:
+                raise X3ParseError("X3_PARSE_FEE", "an intent declares one `fee` clause", ln.no, "fee")
+            result["app_fee"] = _parse_app_fee(ln)
         elif text.startswith("on_fail "):
             parts = text.split()[1:]
             if parts and parts[0] == "rollback":

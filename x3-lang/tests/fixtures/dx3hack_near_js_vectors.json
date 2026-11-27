@@ -1,0 +1,36 @@
+{
+  "source": "@near-js/transactions 2.5.1, @near-js/crypto",
+  "seed_hex": "0707070707070707070707070707070707070707070707070707070707070707",
+  "cases": [
+    {
+      "signer": "faucet.x3lang.near",
+      "receiver": "dx3hack.x3lang.near",
+      "nonce": "12345678901234",
+      "method": "add_holder",
+      "args": {
+        "account_id": "j42.judges.x3lang.near"
+      },
+      "gas": "30000000000000",
+      "deposit": "0",
+      "public_key": "ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB",
+      "block_hash": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+      "tx_hash": "Ez6KFnvVLadYRgPjE88n9Eb5qk3ps6qmajz33cuY3Tio",
+      "signed_tx_base64": "EgAAAGZhdWNldC54M2xhbmcubmVhcgDqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLPIvznM6CwAAEwAAAGR4M2hhY2sueDNsYW5nLm5lYXIJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQEAAAACCgAAAGFkZF9ob2xkZXInAAAAeyJhY2NvdW50X2lkIjoiajQyLmp1ZGdlcy54M2xhbmcubmVhciJ9AOBX60gbAAAAAAAAAAAAAAAAAAAAAAAAAOX78im202yNrZ74D3HPRZVQ87CafH/D1yl0CVcbDO6iHHR//M0djB1ZwF6felBuaYSm9ZoOjDejZnsfZ308igQ="
+    },
+    {
+      "signer": "faucet.x3lang.testnet",
+      "receiver": "dx3hack.x3lang.testnet",
+      "nonce": "1",
+      "method": "faucet_claim",
+      "args": {
+        "receiver_id": "j1.judges.x3lang.testnet"
+      },
+      "gas": "300000000000000",
+      "deposit": "1",
+      "public_key": "ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB",
+      "block_hash": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN",
+      "tx_hash": "Hpypxdz6TcJuEMCp4zeQQsXhGMmMsG3dN1Eh7KcvModL",
+      "signed_tx_base64": "FQAAAGZhdWNldC54M2xhbmcudGVzdG5ldADqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLAEAAAAAAAAAFgAAAGR4M2hhY2sueDNsYW5nLnRlc3RuZXQJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQEAAAACDAAAAGZhdWNldF9jbGFpbSoAAAB7InJlY2VpdmVyX2lkIjoiajEuanVkZ2VzLngzbGFuZy50ZXN0bmV0In0AwG4x2RABAAEAAAAAAAAAAAAAAAAAAAAADpJ9RGkGJnNnEzO+VoaRk8eQYZdJxJPxDGcyWQslVRaFgVc33arnAS1K7THuuKR+LuxwPzpvnIwJG05/3MrmDw=="
+    }
+  ]
+}

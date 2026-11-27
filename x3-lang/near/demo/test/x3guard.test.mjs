@@ -63,7 +63,21 @@ test("slippage bounds round toward the stricter side, exactly", () => {
   assert.equal(bps("require slippage <= 0.29%"), 29); // a float would give 28
   assert.equal(bps("require slippage < 0.5%"), 49);
   assert.equal(bps("require slippage <= 0.125%"), 12);
-  assert.equal(bps("require slippage <= 0.003"), 30);
+  assert.equal(bps("require slippage <= 30 bps"), 30);
+});
+
+test("slippage bounds need a unit, and bps reaches the bound (issue #241)", () => {
+  const lower = (bound) => {
+    try { return x3.lower(x3.parse(EXAMPLE.replace("require slippage <= 0.5%", `require slippage <= ${bound}`)), NOW).slippage_bps; }
+    catch (e) { return e.code; }
+  };
+  for (const [bound, expected] of [["0.5%", 50], ["0.5 %", 50], ["50 bps", 50], ["50bps", 50], ["50 BPS", 50]]) {
+    assert.equal(lower(bound), expected, bound);
+  }
+  // A bare number was a guessed fraction (0.5 -> 50%); trailing words were dropped.
+  for (const bound of ["0.5", "0.005", "50", "50 bps extra", "50 percent", "bps"]) {
+    assert.equal(lower(bound), "X3_NEAR_BOUND_UNIT", bound);
+  }
 });
 
 test("BNB Chain aliases resolve and refunds require a complete EVM address", () => {
@@ -191,4 +205,45 @@ test("without WebCrypto a real quote still fails closed, with the real reason", 
   assert.equal(check.valid, false);
   assert.match(check.reason, /turned off WebCrypto/);
   assert.equal((await x3.checkQuoteSignature(r)).valid, true);
+});
+
+const FEE_EXAMPLE = readFileSync(join(here, "..", "..", "..", "examples", "near_intents_app_fee.x3"), "utf8");
+
+test("the fee clause lowers to appFees, and a program without one sends none", () => {
+  const leg = x3.lower(x3.parse(FEE_EXAMPLE), NOW);
+  assert.deepEqual(leg.app_fee, { recipient: "fees.x3-demo.near", bps: 25 });
+  assert.deepEqual(x3.buildQuoteRequest(leg, TOKENS).appFees, [{ recipient: "fees.x3-demo.near", fee: 25 }]);
+  const plain = x3.lower(x3.parse(EXAMPLE), NOW);
+  assert.equal(plain.app_fee, undefined);
+  assert.equal("appFees" in x3.buildQuoteRequest(plain, TOKENS), false);
+});
+
+test("a fee the route cannot honour is refused by name", () => {
+  const cases = [
+    ["fee 25 bps to fees.x3-demo.near\n    fee 1 bps to a.near", "X3_PARSE_FEE"],
+    ["fee 25 bps", "X3_PARSE_FEE"],
+    ["fee 2.5 bps to fees.x3-demo.near", "X3_NEAR_APP_FEE"],
+    ["fee 101 bps to fees.x3-demo.near", "X3_NEAR_APP_FEE_OVER_CAP"],
+    ["fee 25 bps to Fees.Near", "X3_NEAR_APP_FEE_RECIPIENT"],
+  ];
+  for (const [line, code] of cases) {
+    const source = FEE_EXAMPLE.replace("\n    fee 25 bps to fees.x3-demo.near\n", `\n    ${line}\n`);
+    assert.notEqual(source, FEE_EXAMPLE);
+    assert.throws(() => x3.lower(x3.parse(source), NOW), (e) => e.code === code, line);
+  }
+  const noCap = FEE_EXAMPLE.replace("\n    require fees <= 100 bps\n", "\n");
+  assert.notEqual(noCap, FEE_EXAMPLE);
+  assert.throws(() => x3.lower(x3.parse(noCap), NOW), (e) => e.code === "X3_NEAR_APP_FEE_CAP_REQUIRED");
+});
+
+test("an echo that drops or re-addresses the declared fee fails; 1Click's own extra entries pass", () => {
+  const sent = [{ recipient: "fees.x3-demo.near", fee: 25 }];
+  assert.equal(x3.appFeesEchoed(sent, sent).ok, true);
+  assert.equal(x3.appFeesEchoed(sent, undefined).ok, false);
+  assert.equal(x3.appFeesEchoed(sent, [{ recipient: "attacker.near", fee: 25 }]).ok, false);
+  assert.equal(x3.appFeesEchoed(sent, [{ recipient: "fees.x3-demo.near", fee: 25, limitOrderId: "x" }]).ok, false);
+  const extra = { recipient: "5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd", fee: 1, limitOrderId: null };
+  assert.deepEqual(x3.appFeesEchoed(sent, [extra, { ...sent[0], limitOrderId: null }]),
+    { ok: true, undeclared: [{ recipient: extra.recipient, fee: 1 }] });
+  assert.equal(x3.appFeesEchoed(undefined, [extra]).ok, true, "a program with no fee accepts 1Click's own entries");
 });

@@ -1,6 +1,6 @@
 # X3 Agent Constitution — admission boundary v1
 
-Status: **pure policy checks implemented; runtime enforcement NOT implemented**.
+Status: **pure policy and signed admission checks implemented; a separate local durable runtime now exists**. See [local runtime scope and limits](AGENT_LAW_RUNTIME.md). The original pure functions remain preflight-only; they grant no authority by themselves.
 
 ## Provenance
 
@@ -31,7 +31,11 @@ All privileged execution adapters must check live identity status and capability
 - Missing trusted approval and duplicate IDs fail closed.
 - Root admission is not handled by this child-admission function and always fails closed.
 
-## Not yet implemented
+## Original preflight gaps and local runtime follow-up
+
+The local runtime now implements atomic signed admission, durable identities, budget reservation and revocation. Production adapters, full constitutional enforcement and on-chain integration remain unimplemented. The following list describes the original preflight boundary, not the guarantees of the new runtime.
+
+### Original preflight gaps
 
 - Atomic admission with cryptographic proof verification tied to the current parent registry state (the pure Ed25519 preflight exists, but is not yet wired into durable admission).
 - Durable identity registry, atomic budget reservations and race safety.
@@ -40,6 +44,33 @@ All privileged execution adapters must check live identity status and capability
 - Cross-VM deterministic parity, multi-agent tests, and on-chain evidence.
 
 These are mandatory preconditions before describing this code as production agent admission. The separate Scrapyard workstream must not assume a `check_admission` success is equivalent to live enforcement.
+
+## Where the agent-law chain stands (2026-11-13)
+
+The chain this constitution aims for is birth → compile → test → authorize → execute → monitor → judge. This table records what exists at each stage today and how strong the evidence is. The [local runtime](AGENT_LAW_RUNTIME.md) governs agents' birth, actions, retirement and incident review. Spending enforcement (Guard and the vault) is separate, and the two are not yet connected.
+
+| Stage | What exists | Evidence | Missing |
+|---|---|---|---|
+| Birth | The owner creates the Guard mandate (recipients, assets, caps, refund address, approvals, expiry) and gives the agent a key limited to three Guard methods. The local runtime records signed root and child births in a durable registry and reserves each child's budget against its parent's. | Mainnet for the mandate and key ([proof card](../../PROOF_CARD.md#accounts-keys-and-code)). Runtime: `scripts/hackathon/agent_law_local_demo.py` and its tests. | A runtime birth does not create a Guard mandate or a NEAR key. The ten commandments are not enforced in code here. |
+| Compile | The `.x3` compiler refuses unsafe payments. | Local: `scripts/hackathon/x3_wont_compile.py`, 9/9 refused. | — |
+| Test | Red-team and replay suites in which the model complies with every attack. | Local: `compromised_agent_redteam.py` 8/8 and `replay_grok_wallet_drain.py` 3/3 refused. | Passing them is not required before an agent receives a key. |
+| Authorize and execute | Guard checks Guard-mediated actions and holds no funds. The NEAR agent vault holds the funds and pays only inside its mandate. The local runtime authorizes exact-source actions, with jury approval for major ones, and emits compiled plans only. | Guard: mainnet invoice_06. Vault: local Sandbox, below. Runtime: local demo and tests. | The invoice_06 funds moved from a wallet outside Guard. The vault is not publicly deployed. The Solana vault is source and local tests only. A wallet key held outside the runtime bypasses it. |
+| Terminate | Owner revocation in Guard (`revoke_mandate`) and in the vault (`revoke`), and expiry in both. The local runtime retires an agent automatically when it breaks a policy, and the retirement survives a restart. | Guard: unit test `revoking_stops_the_agent_at_once_and_replacing_voids_old_intents`. Vault: local Sandbox, below. Runtime: local demo and tests. | Automatic retirement exists only in the local runtime, not in Guard or the vault. Revocation does not undo an effect that was already authorized. |
+| Court | Typed refusals, hashed logs and fail-closed evidence checkers. The local runtime freezes an incident packet (source bytes, request and outcome), and a fixed jury signs findings; the subject, its ancestors and its descendants cannot vote. | Runtime: local demo and tests. CI. | The jurors are scripted signing identities, not independent reviewers, and voting is not anonymous. On Guard the agent still records its own outcome, and Guard does not authenticate it (proof card limit 4). |
+| Evolve | Mandates are versioned, and only the owner can replace one. Court findings become proposals. | Guard unit tests. Runtime court tests. | A proposal changes nothing by itself; adopting one is a separate reviewed change. |
+
+### One complete path, on a local NEAR node
+
+[`evidence/agent-vault-local/complete-path-sandbox-20261113.json`](../../evidence/agent-vault-local/complete-path-sandbox-20261113.json) records a run of `scripts/hackathon/vault_sandbox_smoke.sh` on commit `aa8e3ae` against an ephemeral NEAR Sandbox 2.14.0 node:
+
+- **A permitted action executes.** The 0.1 NEAR payment reached `Paid`.
+- **A forbidden action cannot bypass enforcement.** A direct transfer with the agent's key failed with `RequiresFullAccess`, and attaching a deposit failed with `DepositWithFunctionCall`; balances were unchanged. A wrong recipient, an over-cap amount and a replayed payment each got a typed `X3_VAULT_DENIED` refusal. The agent could not call the owner's recovery method (`MethodNameMismatch`).
+- **Revocation stops later actions.** A fresh payment after the owner revoked was refused (`owner revoked mandate`), and the earlier payment stayed `Paid`. A fresh payment under an expired mandate was refused as well.
+- **The evidence is preserved.** The harness output is committed with its SHA-256, next to the compiled contract's SHA-256.
+
+Limits: this is a disposable local chain, not testnet or mainnet. Runner observations are not consensus proofs. The owner's FullAccess key is trusted and was outside the adversary's reach. It is not the mainnet invoice_06 path, where Guard held no funds.
+
+`x3-lang/tests/test_vault_complete_path_evidence.py` checks the committed log against its hash and the contract's refusal reasons.
 
 ## Focused verification
 

@@ -20,8 +20,10 @@ import time
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-NEAR_RPCS = ("https://free.rpc.fastnear.com", "https://rpc.mainnet.near.org",
-             "https://archival-rpc.mainnet.fastnear.com")
+#: Archival first: invoice_06 is older than the ~2.5-day window regular nodes keep, and
+#: their slow misses made the observer stall. Regular nodes stay as fallbacks.
+NEAR_RPCS = ("https://archival-rpc.mainnet.fastnear.com", "https://free.rpc.fastnear.com",
+             "https://rpc.mainnet.near.org")
 SOLANA_RPCS = ("https://api.mainnet-beta.solana.com",)
 
 GUARD = "x3lang.near"

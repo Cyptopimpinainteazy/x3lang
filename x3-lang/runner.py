@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import importlib.util
-from numeric import NumericParseError, parse_decimal
+from numeric import NumericParseError, parse_decimal, split_rate
 
 
 def load_module(path):
@@ -80,11 +80,13 @@ def evaluate_constraints(plan):
 
     if constraints['max_slippage'] is not None and start_amount is not None:
         try:
-            s = str(constraints['max_slippage']).strip()
-            if s.endswith('%'):
-                max_slippage_pct = float(parse_decimal(s[:-1])) / 100.0
+            number, unit = split_rate(constraints['max_slippage'])
+            if unit == '%':
+                max_slippage_pct = float(number) / 100.0
+            elif unit == 'bps':
+                max_slippage_pct = float(number) / 10000.0
             else:
-                max_slippage_pct = float(parse_decimal(s))
+                max_slippage_pct = float(number)
             actual_pct = slippage_usd / start_amount if start_amount else None
             if actual_pct is not None and actual_pct > max_slippage_pct:
                 results.append({
@@ -185,6 +187,22 @@ def run(input_path, no_schema=False, mock_rpc=False, dry_run=False, proof_bundle
                     'message': error.message,
                     'line': error.line,
                     'field': error.field,
+                }
+            ],
+        }
+    if intent.get('app_fee') is not None:
+        # The `fee` clause is paid through NEAR Intents' 1Click `appFees`, which only
+        # `near_intents.py` sends and verifies. This runner has no fee-payment step, so
+        # planning the route here would silently drop the fee the program declares.
+        return {
+            'status': 'error',
+            'errors': [
+                {
+                    'code': 'X3_FEE_UNSUPPORTED_SURFACE',
+                    'message': '`fee` is settled by the NEAR Intents adapter (near_intents.py quote); '
+                               'this runner cannot pay it, so it refuses the program instead of dropping the fee',
+                    'line': intent['app_fee'].get('line'),
+                    'field': 'fee',
                 }
             ],
         }

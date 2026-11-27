@@ -1,0 +1,900 @@
+{
+  "base_head": "5d8e69db4d053be5384a1b95bc0c8e3263f088ba",
+  "dirty": true,
+  "environment": {
+    "python": "Python 3.12.3",
+    "node": "v24.22.1"
+  },
+  "source_sha256": {
+    "x3-lang/arbitrage/trader.py": "1b92da3b6ce17c23e89faff99e9c5ac9ae052bee9f5f1f2ee6acc2755a88b461",
+    "x3-lang/arbitrage/pools.py": "b7171a8f0e50b81a12b84b0ba60ca2faf940e26dbf8a885c893651912b6961b2",
+    "x3-lang/arbitrage/__init__.py": "74f850ff1e577d2100a47fc5963a855adedaf047ed3bcb8c5ba0308e78570994",
+    "x3-lang/arbitrage/paper.py": "47f9086958f178ef7c83f54587b3b87857b9854350e18a5788ede449892108ac",
+    "x3-lang/arbitrage/server.py": "a684cddfbf49fce853df92cd8e39977c5a7e81c8429e0d94c99d2b02ed5cba50",
+    "x3-lang/arbitrage/live.py": "a0d691528b4377ffbe9769836891ec00246db3c0b9ae6fc6839a1bb7972df57e",
+    "x3-lang/arbitrage/adapters.py": "17c4a4e60c6e82029b1b8548fad0fe50c31eb3f7f34c674e5a72c9173d6f64f4",
+    "x3-lang/arbitrage/workbench.py": "247f03daa516d64314d0857cb6a686d084ee4b0254315ac2b636f6fa39eaf548",
+    "x3-lang/arbitrage/provider_quotes.py": "19e6708097625a4d5e0cc2a3e45cc691af8085c5faec44ddc0c4986c9c0bb822",
+    "x3-lang/arbitrage/__main__.py": "6f23cd5ab18ed0e722d232cdd6b69080405e06fd273e46afb776cf77a650be3e",
+    "x3-lang/arbitrage/catalogue.py": "01a8b61faf85da07d80e48b3ab2ebe9715831e2c87fa070b37cd908b4c8d3a03",
+    "x3-lang/arbitrage/trading_store.py": "cc08bb7d50a31e48c540797ac4de56f398c4fcb34a211e76433e4b8afc76d933",
+    "x3-lang/arbitrage/execution.py": "c474d5ee846ab59ca1a83fcc110f5fd547b03ce3db1153e031bbcccbf85a2822",
+    "x3-lang/arbitrage/engine.py": "27f2d74dcadccb050619cffe52a570447bb4fbf8af76a646d1809e8cc479b8c9",
+    "x3-lang/arbitrage/web/icon.svg": "845c5782c3539ecead049df0993b92ed0db0fabf2804a3e55c93c43dd752e6be",
+    "x3-lang/arbitrage/web/app.mjs": "60a3e490a23a23afa7402bb440ddd77f786019813db8592651e6abb6ea527953",
+    "x3-lang/arbitrage/web/format.test.mjs": "5f1941239df003b633767648fc7929355ec0b75f9a9e482bc6168d149dda2a61",
+    "x3-lang/arbitrage/web/format.mjs": "1c4109851b27de5718e0133497585631f6d471ef2b14a9818a26e424c901ad0c",
+    "x3-lang/arbitrage/web/style.css": "963978b386dea4f7fc50ffa6c92cb1fb9ade07f5177af4664e78b75e57b53af6",
+    "x3-lang/arbitrage/web/index.html": "13255c7635a661e64461f03e7581c82baa13ffb4ab41a9972317963440c8c58c",
+    "x3-lang/tests/test_arbitrage_provider_quotes.py": "5febc04188e2864c64eafe39bcae3c2770ca272eed7a220dddc827ae725bf5de",
+    "x3-lang/tests/test_arbitrage_quote_api.py": "c64c481a9ba23e701afc97781da86474df0dc1e1cc9f419cb36d18361d93d7b7"
+  },
+  "verification": {
+    "full_python_command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests -q",
+    "full_python_result": "1443 passed, 1 skipped, 140 subtests passed in 191.08s (0:03:11)",
+    "new_backend_api_tests": "25 passed; independent reviewer",
+    "browser": {
+      "browser": "chromium",
+      "checks": [
+        "desktop route table",
+        "eligibility filter",
+        "route inspector",
+        "SQLite paper action",
+        "full automatic two-leg .x3-mandated paper cycle",
+        "compiled x3 download",
+        "390px responsive layout",
+        "no unexpected page or console errors",
+        "real LI.FI size-specific two-leg quotes, costs unknown, no executable payload, reload persistence",
+        "editable .x3 mandate cap refusal, compile invalidation, stale-response rejection and full paper execution"
+      ],
+      "result": "pass"
+    },
+    "paper_roundtrip": {
+      "schema": "x3.arbitrage.automatic-paper-proof.v1",
+      "at": 1795206287,
+      "execution": "real compiler, .x3 mandate checks, SQLite transactions; simulated wallets and fills",
+      "real_transactions_submitted": 0,
+      "network_calls": 0,
+      "scenarios": [
+        {
+          "scenario": "success",
+          "result": {
+            "id": "proof-success",
+            "route_id": "ba7f9123d45bf76a335f4d8a9830ecbdcd581bdf21c4a7c423b9c152457d5302",
+            "identity": "e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67",
+            "phase": "COMPLETED",
+            "mode": "paper",
+            "leg_index": 1,
+            "completed_legs": [
+              {
+                "operation": "d20cde1ace159d5d8f025bc7725d6faca13cd8a1e89be8d488fa9b563854de8c",
+                "status": "settled",
+                "cycle": "proof-success",
+                "leg": 0,
+                "quote": {
+                  "provider": "oneclick",
+                  "asset_in": {
+                    "network": "sol",
+                    "asset_id": "demo:sol-usdc",
+                    "decimals": 6
+                  },
+                  "asset_out": {
+                    "network": "near",
+                    "asset_id": "demo:near-usdc",
+                    "decimals": 6
+                  },
+                  "amount_in": "100000000",
+                  "expected_out": "102000000",
+                  "minimum_out": "101000000",
+                  "observed_at": 1795206287,
+                  "expires_at": 1795206347,
+                  "evidence": "constructed_demo",
+                  "reference": "simulated fresh quote"
+                },
+                "amount_out": "101000000",
+                "asset_out": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "evidence": "simulated SQLite wallet settlement",
+                "observed_at": 1795206287
+              },
+              {
+                "operation": "3e62c7e36122da62e5285d708ce8e92778007e6d0dcd82a5eea7d7f7874584b5",
+                "status": "settled",
+                "cycle": "proof-success",
+                "leg": 1,
+                "quote": {
+                  "provider": "oneclick",
+                  "asset_in": {
+                    "network": "near",
+                    "asset_id": "demo:near-usdc",
+                    "decimals": 6
+                  },
+                  "asset_out": {
+                    "network": "sol",
+                    "asset_id": "demo:sol-usdc",
+                    "decimals": 6
+                  },
+                  "amount_in": "101000000",
+                  "expected_out": "102700000",
+                  "minimum_out": "102500000",
+                  "observed_at": 1795206287,
+                  "expires_at": 1795206347,
+                  "evidence": "constructed_demo",
+                  "reference": "simulated fresh quote"
+                },
+                "amount_out": "102500000",
+                "asset_out": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "evidence": "simulated SQLite wallet settlement",
+                "observed_at": 1795206287
+              }
+            ],
+            "funded_operations": [],
+            "prepared": {
+              "leg": {
+                "provider": "oneclick",
+                "asset_in": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "asset_out": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "amount_in": "101000000",
+                "expected_out": "102700000",
+                "minimum_out": "102500000",
+                "observed_at": 1795206287,
+                "expires_at": 1795206347,
+                "evidence": "constructed_demo",
+                "reference": "simulated fresh quote"
+              },
+              "source": "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"7d6fc3a4eba2936a2ac0cdbbf5fcdc55a4468fa986cf06cc430d9d7fa047bb80\",\"route_id\":\"e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_e46202f5e9d549db_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67_1\n    timeout 60s refund near.USDC\n    on_fail rollback\n}\n",
+              "policy": {
+                "program_sha256": "ed0eb86bb0f99fa8f2c8a81ab02ac0306e83f6b2063658bb525b48d5e04ee69d",
+                "origin_asset": "demo:near-usdc",
+                "destination_asset": "demo:sol-usdc",
+                "amount": "101000000",
+                "min_receive": "102500000",
+                "slippage_bps": 50,
+                "fee_cap_bps": 100,
+                "recipient": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+                "refund_to": "alice.near",
+                "deadline_ms": 1795206347000
+              },
+              "operation": "3e62c7e36122da62e5285d708ce8e92778007e6d0dcd82a5eea7d7f7874584b5",
+              "mandate_id": "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            },
+            "polls": 0,
+            "mandate_ids": [
+              "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499",
+              "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            ],
+            "programs": [
+              "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"e310bb564e21029a4d88c911c754df26a86c054509debb35f6512a2806301612\",\"route_id\":\"e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_e46202f5e9d549db_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"7d6fc3a4eba2936a2ac0cdbbf5fcdc55a4468fa986cf06cc430d9d7fa047bb80\",\"route_id\":\"e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_e46202f5e9d549db_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_e46202f5e9d549dbfdc35d20a90f580eb97b729544e6d9f6dfe1a08cd628eb67_1\n    timeout 60s refund near.USDC\n    on_fail rollback\n}\n"
+            ],
+            "initial_equity_units": "100500000",
+            "profit_asset": {
+              "network": "sol",
+              "asset_id": "demo:sol-usdc",
+              "decimals": 6
+            },
+            "paper_profit_units": "2000000",
+            "real_transactions_submitted": 0,
+            "inventory": {
+              "near/demo:near-usdc": "0",
+              "sol/demo:sol-usdc": "102500000"
+            },
+            "reason": null,
+            "simulation_only": true,
+            "next_poll_at": 0
+          }
+        },
+        {
+          "scenario": "submit_timeout",
+          "result": {
+            "id": "proof-submit_timeout",
+            "route_id": "ba7f9123d45bf76a335f4d8a9830ecbdcd581bdf21c4a7c423b9c152457d5302",
+            "identity": "51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239",
+            "phase": "COMPLETED",
+            "mode": "paper",
+            "leg_index": 1,
+            "completed_legs": [
+              {
+                "operation": "27f16b3df7414c25fdfbb4fb844c8fb87fce32a16952f560ac23cf89deec9556",
+                "status": "settled",
+                "cycle": "proof-submit_timeout",
+                "leg": 0,
+                "quote": {
+                  "provider": "oneclick",
+                  "asset_in": {
+                    "network": "sol",
+                    "asset_id": "demo:sol-usdc",
+                    "decimals": 6
+                  },
+                  "asset_out": {
+                    "network": "near",
+                    "asset_id": "demo:near-usdc",
+                    "decimals": 6
+                  },
+                  "amount_in": "100000000",
+                  "expected_out": "102000000",
+                  "minimum_out": "101000000",
+                  "observed_at": 1795206287,
+                  "expires_at": 1795206347,
+                  "evidence": "constructed_demo",
+                  "reference": "simulated fresh quote"
+                },
+                "amount_out": "101000000",
+                "asset_out": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "evidence": "simulated SQLite wallet settlement",
+                "observed_at": 1795206287
+              },
+              {
+                "operation": "a4d031da0faf718e3ab2f5468fc6aee366de5d7716d9bd4fcb7a3e1348365e82",
+                "status": "settled",
+                "cycle": "proof-submit_timeout",
+                "leg": 1,
+                "quote": {
+                  "provider": "oneclick",
+                  "asset_in": {
+                    "network": "near",
+                    "asset_id": "demo:near-usdc",
+                    "decimals": 6
+                  },
+                  "asset_out": {
+                    "network": "sol",
+                    "asset_id": "demo:sol-usdc",
+                    "decimals": 6
+                  },
+                  "amount_in": "101000000",
+                  "expected_out": "102700000",
+                  "minimum_out": "102500000",
+                  "observed_at": 1795206287,
+                  "expires_at": 1795206347,
+                  "evidence": "constructed_demo",
+                  "reference": "simulated fresh quote"
+                },
+                "amount_out": "102500000",
+                "asset_out": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "evidence": "simulated SQLite wallet settlement",
+                "observed_at": 1795206287
+              }
+            ],
+            "funded_operations": [],
+            "prepared": {
+              "leg": {
+                "provider": "oneclick",
+                "asset_in": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "asset_out": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "amount_in": "101000000",
+                "expected_out": "102700000",
+                "minimum_out": "102500000",
+                "observed_at": 1795206287,
+                "expires_at": 1795206347,
+                "evidence": "constructed_demo",
+                "reference": "simulated fresh quote"
+              },
+              "source": "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"918b8cb14e79258cc5ed43c8a768e04f524b2a4a847ed51069edd519ddecf1c0\",\"route_id\":\"51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_51a17833ad837691_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239_1\n    timeout 60s refund near.USDC\n    on_fail rollback\n}\n",
+              "policy": {
+                "program_sha256": "cde7a1087799895af6706cffb0dfd8fd258b680c38d6f9612ac36c3605382593",
+                "origin_asset": "demo:near-usdc",
+                "destination_asset": "demo:sol-usdc",
+                "amount": "101000000",
+                "min_receive": "102500000",
+                "slippage_bps": 50,
+                "fee_cap_bps": 100,
+                "recipient": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+                "refund_to": "alice.near",
+                "deadline_ms": 1795206347000
+              },
+              "operation": "a4d031da0faf718e3ab2f5468fc6aee366de5d7716d9bd4fcb7a3e1348365e82",
+              "mandate_id": "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            },
+            "polls": 0,
+            "mandate_ids": [
+              "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499",
+              "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            ],
+            "programs": [
+              "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"c91d137bcad2888ae2249eb119b1d3dc6de271f36226e5d6d4757261d6ab1ebf\",\"route_id\":\"51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_51a17833ad837691_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"918b8cb14e79258cc5ed43c8a768e04f524b2a4a847ed51069edd519ddecf1c0\",\"route_id\":\"51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_51a17833ad837691_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_51a17833ad837691828e163fb9b0a6ac71114cbe08fb913d778ad183f1342239_1\n    timeout 60s refund near.USDC\n    on_fail rollback\n}\n"
+            ],
+            "initial_equity_units": "100500000",
+            "profit_asset": {
+              "network": "sol",
+              "asset_id": "demo:sol-usdc",
+              "decimals": 6
+            },
+            "paper_profit_units": "2000000",
+            "real_transactions_submitted": 0,
+            "inventory": {
+              "near/demo:near-usdc": "0",
+              "sol/demo:sol-usdc": "102500000"
+            },
+            "reason": null,
+            "simulation_only": true,
+            "next_poll_at": 0
+          }
+        },
+        {
+          "scenario": "outbound_overfill",
+          "result": {
+            "id": "proof-outbound_overfill",
+            "route_id": "ba7f9123d45bf76a335f4d8a9830ecbdcd581bdf21c4a7c423b9c152457d5302",
+            "identity": "a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8",
+            "phase": "COMPLETED",
+            "mode": "paper",
+            "leg_index": 1,
+            "completed_legs": [
+              {
+                "operation": "d59276325c375e6dc4b2df747370a7f4066b851e0835a1a9a57200aafaa15321",
+                "status": "settled",
+                "cycle": "proof-outbound_overfill",
+                "leg": 0,
+                "quote": {
+                  "provider": "oneclick",
+                  "asset_in": {
+                    "network": "sol",
+                    "asset_id": "demo:sol-usdc",
+                    "decimals": 6
+                  },
+                  "asset_out": {
+                    "network": "near",
+                    "asset_id": "demo:near-usdc",
+                    "decimals": 6
+                  },
+                  "amount_in": "100000000",
+                  "expected_out": "102000000",
+                  "minimum_out": "101000000",
+                  "observed_at": 1795206287,
+                  "expires_at": 1795206347,
+                  "evidence": "constructed_demo",
+                  "reference": "simulated fresh quote"
+                },
+                "amount_out": "102000000",
+                "asset_out": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "evidence": "simulated SQLite wallet settlement",
+                "observed_at": 1795206287
+              },
+              {
+                "operation": "7086531fb5b52cd8a78b1da7ab428b6a49d4bdd96e35b5994a638910f0561f48",
+                "status": "settled",
+                "cycle": "proof-outbound_overfill",
+                "leg": 1,
+                "quote": {
+                  "provider": "oneclick",
+                  "asset_in": {
+                    "network": "near",
+                    "asset_id": "demo:near-usdc",
+                    "decimals": 6
+                  },
+                  "asset_out": {
+                    "network": "sol",
+                    "asset_id": "demo:sol-usdc",
+                    "decimals": 6
+                  },
+                  "amount_in": "102000000",
+                  "expected_out": "103716831",
+                  "minimum_out": "103514851",
+                  "observed_at": 1795206287,
+                  "expires_at": 1795206347,
+                  "evidence": "constructed_demo",
+                  "reference": "simulated fresh quote"
+                },
+                "amount_out": "103514851",
+                "asset_out": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "evidence": "simulated SQLite wallet settlement",
+                "observed_at": 1795206287
+              }
+            ],
+            "funded_operations": [],
+            "prepared": {
+              "leg": {
+                "provider": "oneclick",
+                "asset_in": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "asset_out": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "amount_in": "102000000",
+                "expected_out": "103716831",
+                "minimum_out": "103514851",
+                "observed_at": 1795206287,
+                "expires_at": 1795206347,
+                "evidence": "constructed_demo",
+                "reference": "simulated fresh quote"
+              },
+              "source": "// x3-arbitrage-binding: {\"amount\":\"102000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":1,\"minimum_out\":\"103514851\",\"program_sha256\":\"766a30c6e2d28b1d00f649bcda7ed892feadee4f7ff2d9b961df49a463b29dd4\",\"route_id\":\"a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_a2db6ef96036ad99_1 {\n    from near.USDC amount 102000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 103514851;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8_1\n    timeout 60s refund near.USDC\n    on_fail rollback\n}\n",
+              "policy": {
+                "program_sha256": "3943779a994971967727010b3b656fa9840dc158f5eb1ebf06299ab6d2d36f50",
+                "origin_asset": "demo:near-usdc",
+                "destination_asset": "demo:sol-usdc",
+                "amount": "102000000",
+                "min_receive": "103514851",
+                "slippage_bps": 50,
+                "fee_cap_bps": 100,
+                "recipient": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+                "refund_to": "alice.near",
+                "deadline_ms": 1795206347000
+              },
+              "operation": "7086531fb5b52cd8a78b1da7ab428b6a49d4bdd96e35b5994a638910f0561f48",
+              "mandate_id": "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            },
+            "polls": 0,
+            "mandate_ids": [
+              "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499",
+              "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            ],
+            "programs": [
+              "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"45322b5e4c6123fb2f8cc36b02ab5fdf2dd96ae28ba01f842bd434fad2feecfa\",\"route_id\":\"a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_a2db6ef96036ad99_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "// x3-arbitrage-binding: {\"amount\":\"102000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":1,\"minimum_out\":\"103514851\",\"program_sha256\":\"766a30c6e2d28b1d00f649bcda7ed892feadee4f7ff2d9b961df49a463b29dd4\",\"route_id\":\"a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_a2db6ef96036ad99_1 {\n    from near.USDC amount 102000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 103514851;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_a2db6ef96036ad99e911062d8e5013c5b9782ecc903c20a0350e3b49d72731a8_1\n    timeout 60s refund near.USDC\n    on_fail rollback\n}\n"
+            ],
+            "initial_equity_units": "100500000",
+            "profit_asset": {
+              "network": "sol",
+              "asset_id": "demo:sol-usdc",
+              "decimals": 6
+            },
+            "paper_profit_units": "3014851",
+            "real_transactions_submitted": 0,
+            "inventory": {
+              "near/demo:near-usdc": "0",
+              "sol/demo:sol-usdc": "103514851"
+            },
+            "reason": null,
+            "simulation_only": true,
+            "next_poll_at": 0
+          }
+        },
+        {
+          "scenario": "return_loss",
+          "result": {
+            "id": "proof-return_loss",
+            "route_id": "ba7f9123d45bf76a335f4d8a9830ecbdcd581bdf21c4a7c423b9c152457d5302",
+            "identity": "85818694176fe2ce35ddfe34d30573770da9b7dc1e18dec994830e58e9ea4078",
+            "phase": "HOLDING",
+            "mode": "paper",
+            "leg_index": 1,
+            "completed_legs": [
+              {
+                "operation": "69703e457b7aef3444bee7f12d4f653796d5ce62e08ea3f9af43e06542193d36",
+                "status": "settled",
+                "cycle": "proof-return_loss",
+                "leg": 0,
+                "quote": {
+                  "provider": "oneclick",
+                  "asset_in": {
+                    "network": "sol",
+                    "asset_id": "demo:sol-usdc",
+                    "decimals": 6
+                  },
+                  "asset_out": {
+                    "network": "near",
+                    "asset_id": "demo:near-usdc",
+                    "decimals": 6
+                  },
+                  "amount_in": "100000000",
+                  "expected_out": "102000000",
+                  "minimum_out": "101000000",
+                  "observed_at": 1795206287,
+                  "expires_at": 1795206347,
+                  "evidence": "constructed_demo",
+                  "reference": "simulated fresh quote"
+                },
+                "amount_out": "101000000",
+                "asset_out": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "evidence": "simulated SQLite wallet settlement",
+                "observed_at": 1795206287
+              }
+            ],
+            "funded_operations": [],
+            "prepared": null,
+            "polls": 0,
+            "mandate_ids": [
+              "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499",
+              "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            ],
+            "programs": [
+              "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"6b93bf4615dfc60f4a860e8d5ea57d817112a975256489fbd3c5fe441bbd896b\",\"route_id\":\"85818694176fe2ce35ddfe34d30573770da9b7dc1e18dec994830e58e9ea4078\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 85818694176fe2ce35ddfe34d30573770da9b7dc1e18dec994830e58e9ea4078; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_85818694176fe2ce_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_85818694176fe2ce35ddfe34d30573770da9b7dc1e18dec994830e58e9ea4078_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206407,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"4d235b05a727b8af35f45c87f0be17b8ddf76c5f4c338e12b933cb1543adb504\",\"route_id\":\"85818694176fe2ce35ddfe34d30573770da9b7dc1e18dec994830e58e9ea4078\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 85818694176fe2ce35ddfe34d30573770da9b7dc1e18dec994830e58e9ea4078; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_85818694176fe2ce_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_85818694176fe2ce35ddfe34d30573770da9b7dc1e18dec994830e58e9ea4078_1\n    timeout 120s refund near.USDC\n    on_fail rollback\n}\n"
+            ],
+            "initial_equity_units": "100500000",
+            "profit_asset": {
+              "network": "sol",
+              "asset_id": "demo:sol-usdc",
+              "decimals": 6
+            },
+            "paper_profit_units": null,
+            "real_transactions_submitted": 0,
+            "inventory": {
+              "near/demo:near-usdc": "101000000",
+              "sol/demo:sol-usdc": "0"
+            },
+            "reason": "fresh quote does not meet delivery/profit floor; holding inventory",
+            "simulation_only": true,
+            "next_poll_at": 0
+          }
+        },
+        {
+          "scenario": "outbound_refund",
+          "result": {
+            "id": "proof-outbound_refund",
+            "route_id": "ba7f9123d45bf76a335f4d8a9830ecbdcd581bdf21c4a7c423b9c152457d5302",
+            "identity": "d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b",
+            "phase": "REFUNDED",
+            "mode": "paper",
+            "leg_index": 0,
+            "completed_legs": [],
+            "funded_operations": [],
+            "prepared": {
+              "leg": {
+                "provider": "oneclick",
+                "asset_in": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "asset_out": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "amount_in": "100000000",
+                "expected_out": "102000000",
+                "minimum_out": "101000000",
+                "observed_at": 1795206287,
+                "expires_at": 1795206347,
+                "evidence": "constructed_demo",
+                "reference": "simulated fresh quote"
+              },
+              "source": "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"4a5fe4d3f901421cabf90dc09cf78eea4b9363578c101c5c4a1165b82ed9ccf9\",\"route_id\":\"d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_d27a0731a2b580a2_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "policy": {
+                "program_sha256": "a06bdebe997ceec73e5c7a31a786f32062c92e3e528ba20ed1f783f3a26e3551",
+                "origin_asset": "demo:sol-usdc",
+                "destination_asset": "demo:near-usdc",
+                "amount": "100000000",
+                "min_receive": "101000000",
+                "slippage_bps": 50,
+                "fee_cap_bps": 100,
+                "recipient": "alice.near",
+                "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+                "deadline_ms": 1795206347000
+              },
+              "operation": "d04c6918c11c6bf255d2d8c9f9c02dafe3f0781613a5314754821e15bf4dfa27",
+              "mandate_id": "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499"
+            },
+            "polls": 0,
+            "mandate_ids": [
+              "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499",
+              "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            ],
+            "programs": [
+              "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"4a5fe4d3f901421cabf90dc09cf78eea4b9363578c101c5c4a1165b82ed9ccf9\",\"route_id\":\"d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_d27a0731a2b580a2_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206407,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"b681278f37301ad760fe84cfc0acfc5e25b83ac2f3c958996ba74e3b204a5530\",\"route_id\":\"d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_d27a0731a2b580a2_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_d27a0731a2b580a2dc3e9efd7b2812761b1d771a0f2fb0c4150d9503967ebe3b_1\n    timeout 120s refund near.USDC\n    on_fail rollback\n}\n"
+            ],
+            "initial_equity_units": "100500000",
+            "profit_asset": {
+              "network": "sol",
+              "asset_id": "demo:sol-usdc",
+              "decimals": 6
+            },
+            "paper_profit_units": null,
+            "real_transactions_submitted": 0,
+            "inventory": {
+              "near/demo:near-usdc": "0",
+              "sol/demo:sol-usdc": "99900000"
+            },
+            "reason": "confirmed refund; previous settled legs remain committed",
+            "simulation_only": true
+          }
+        },
+        {
+          "scenario": "return_refund",
+          "result": {
+            "id": "proof-return_refund",
+            "route_id": "ba7f9123d45bf76a335f4d8a9830ecbdcd581bdf21c4a7c423b9c152457d5302",
+            "identity": "2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb",
+            "phase": "HOLDING",
+            "mode": "paper",
+            "leg_index": 1,
+            "completed_legs": [
+              {
+                "operation": "6ae727f1b4cd73b0ff9d616659c11940e580dd4b98aa2f690506c4fcc5500594",
+                "status": "settled",
+                "cycle": "proof-return_refund",
+                "leg": 0,
+                "quote": {
+                  "provider": "oneclick",
+                  "asset_in": {
+                    "network": "sol",
+                    "asset_id": "demo:sol-usdc",
+                    "decimals": 6
+                  },
+                  "asset_out": {
+                    "network": "near",
+                    "asset_id": "demo:near-usdc",
+                    "decimals": 6
+                  },
+                  "amount_in": "100000000",
+                  "expected_out": "102000000",
+                  "minimum_out": "101000000",
+                  "observed_at": 1795206287,
+                  "expires_at": 1795206347,
+                  "evidence": "constructed_demo",
+                  "reference": "simulated fresh quote"
+                },
+                "amount_out": "101000000",
+                "asset_out": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "evidence": "simulated SQLite wallet settlement",
+                "observed_at": 1795206287
+              }
+            ],
+            "funded_operations": [],
+            "prepared": {
+              "leg": {
+                "provider": "oneclick",
+                "asset_in": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "asset_out": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "amount_in": "101000000",
+                "expected_out": "102700000",
+                "minimum_out": "102500000",
+                "observed_at": 1795206287,
+                "expires_at": 1795206347,
+                "evidence": "constructed_demo",
+                "reference": "simulated fresh quote"
+              },
+              "source": "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"133b5ae8d3328b5210b21b757b05b35717a71501f54433416ae48c91eef23a7a\",\"route_id\":\"2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_2ca6f58a05f72999_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb_1\n    timeout 60s refund near.USDC\n    on_fail rollback\n}\n",
+              "policy": {
+                "program_sha256": "92e824912a9d1597224af7ac31842e08ffc4ac11de9ca3644ca2331c4bee8ec6",
+                "origin_asset": "demo:near-usdc",
+                "destination_asset": "demo:sol-usdc",
+                "amount": "101000000",
+                "min_receive": "102500000",
+                "slippage_bps": 50,
+                "fee_cap_bps": 100,
+                "recipient": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+                "refund_to": "alice.near",
+                "deadline_ms": 1795206347000
+              },
+              "operation": "47113400fec73eae7a2badad28aac751e9833512e443db902f2f72f8755521aa",
+              "mandate_id": "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            },
+            "polls": 0,
+            "mandate_ids": [
+              "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499",
+              "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            ],
+            "programs": [
+              "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"e2ed2b25d1163188ea9a345317672524bb2452762471034b8f444b999b82b75d\",\"route_id\":\"2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_2ca6f58a05f72999_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"133b5ae8d3328b5210b21b757b05b35717a71501f54433416ae48c91eef23a7a\",\"route_id\":\"2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_2ca6f58a05f72999_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_2ca6f58a05f7299915fa514aea8b7cfb247c4d6c75132a6e60ca4ad26af576cb_1\n    timeout 60s refund near.USDC\n    on_fail rollback\n}\n"
+            ],
+            "initial_equity_units": "100500000",
+            "profit_asset": {
+              "network": "sol",
+              "asset_id": "demo:sol-usdc",
+              "decimals": 6
+            },
+            "paper_profit_units": null,
+            "real_transactions_submitted": 0,
+            "inventory": {
+              "near/demo:near-usdc": "100900000",
+              "sol/demo:sol-usdc": "0"
+            },
+            "reason": "confirmed refund; previous settled legs remain committed",
+            "simulation_only": true,
+            "next_poll_at": 0
+          }
+        },
+        {
+          "scenario": "rpc_failure",
+          "result": {
+            "id": "proof-rpc_failure",
+            "route_id": "ba7f9123d45bf76a335f4d8a9830ecbdcd581bdf21c4a7c423b9c152457d5302",
+            "identity": "92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2",
+            "phase": "RESOLUTION_REQUIRED",
+            "mode": "paper",
+            "leg_index": 0,
+            "completed_legs": [],
+            "funded_operations": [],
+            "prepared": {
+              "leg": {
+                "provider": "oneclick",
+                "asset_in": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "asset_out": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "amount_in": "100000000",
+                "expected_out": "102000000",
+                "minimum_out": "101000000",
+                "observed_at": 1795206287,
+                "expires_at": 1795206347,
+                "evidence": "constructed_demo",
+                "reference": "simulated fresh quote"
+              },
+              "source": "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"1674baa882f875839d5c1e1eeeb35c83e2d7065322b8a12bd4cef578cb759f77\",\"route_id\":\"92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_92aab1ab5c9ab35e_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "policy": {
+                "program_sha256": "a06eb6530805740c9523e765b0c07a745df267f3c1debfc8a49e547182b38660",
+                "origin_asset": "demo:sol-usdc",
+                "destination_asset": "demo:near-usdc",
+                "amount": "100000000",
+                "min_receive": "101000000",
+                "slippage_bps": 50,
+                "fee_cap_bps": 100,
+                "recipient": "alice.near",
+                "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+                "deadline_ms": 1795206347000
+              },
+              "operation": "0426b985d18dcacf720d380e636fb3e36ee490b011609960d04bbd94ff8c955d",
+              "mandate_id": "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499"
+            },
+            "polls": 4,
+            "mandate_ids": [
+              "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499",
+              "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            ],
+            "programs": [
+              "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"1674baa882f875839d5c1e1eeeb35c83e2d7065322b8a12bd4cef578cb759f77\",\"route_id\":\"92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_92aab1ab5c9ab35e_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206407,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"28a697a63ea73a1ba3f6fc2f7a34376c6c3ac4259e5572d171af09369da15a81\",\"route_id\":\"92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route 92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_92aab1ab5c9ab35e_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_92aab1ab5c9ab35efa21ea22a8447a24ac9099addf7ea3aaf0f23d391b7a88a2_1\n    timeout 120s refund near.USDC\n    on_fail rollback\n}\n"
+            ],
+            "initial_equity_units": "100500000",
+            "profit_asset": {
+              "network": "sol",
+              "asset_id": "demo:sol-usdc",
+              "decimals": 6
+            },
+            "paper_profit_units": null,
+            "real_transactions_submitted": 0,
+            "inventory": {
+              "near/demo:near-usdc": "0",
+              "sol/demo:sol-usdc": "0"
+            },
+            "reason": "observation failed; no return funding permitted",
+            "simulation_only": true
+          }
+        },
+        {
+          "scenario": "timeout",
+          "result": {
+            "id": "proof-timeout",
+            "route_id": "ba7f9123d45bf76a335f4d8a9830ecbdcd581bdf21c4a7c423b9c152457d5302",
+            "identity": "c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca",
+            "phase": "RESOLUTION_REQUIRED",
+            "mode": "paper",
+            "leg_index": 0,
+            "completed_legs": [],
+            "funded_operations": [],
+            "prepared": {
+              "leg": {
+                "provider": "oneclick",
+                "asset_in": {
+                  "network": "sol",
+                  "asset_id": "demo:sol-usdc",
+                  "decimals": 6
+                },
+                "asset_out": {
+                  "network": "near",
+                  "asset_id": "demo:near-usdc",
+                  "decimals": 6
+                },
+                "amount_in": "100000000",
+                "expected_out": "102000000",
+                "minimum_out": "101000000",
+                "observed_at": 1795206287,
+                "expires_at": 1795206347,
+                "evidence": "constructed_demo",
+                "reference": "simulated fresh quote"
+              },
+              "source": "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"a9659b1d6f4f154e45e13e32c3550ac4bbe06167b70e2d4221884b13b47261e9\",\"route_id\":\"c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_c5d1273777e038bf_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "policy": {
+                "program_sha256": "dbf6bd499b4a07281aeaec34f55defaf838f8d79e6dfcf45a6539fde4a96fd18",
+                "origin_asset": "demo:sol-usdc",
+                "destination_asset": "demo:near-usdc",
+                "amount": "100000000",
+                "min_receive": "101000000",
+                "slippage_bps": 50,
+                "fee_cap_bps": 100,
+                "recipient": "alice.near",
+                "refund_to": "4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD",
+                "deadline_ms": 1795206347000
+              },
+              "operation": "7922ef328490ad8993f94795bb3c1b241048ef7dd5819dc2d8291ac9ca4d1948",
+              "mandate_id": "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499"
+            },
+            "polls": 4,
+            "mandate_ids": [
+              "995015b33c058997d87715d2fb909774de7f387158ec1be721c4e1cdd52ed499",
+              "55d06fd0e1f2bde8cd312937cfff9d8c0c495a7595045fab2370f9b0122e4cde"
+            ],
+            "programs": [
+              "// x3-arbitrage-binding: {\"amount\":\"100000000\",\"asset_in\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"asset_out\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206347,\"leg\":0,\"minimum_out\":\"101000000\",\"program_sha256\":\"a9659b1d6f4f154e45e13e32c3550ac4bbe06167b70e2d4221884b13b47261e9\",\"route_id\":\"c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_c5d1273777e038bf_0 {\n    from solana.USDC amount 100000000 receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    to near.USDC receiver alice.near\n    route {\n        bridge NearIntents solana.USDC -> near.USDC min_receive 101000000;\n    }\n    under mandate paper-sol-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca_0\n    timeout 60s refund solana.USDC\n    on_fail rollback\n}\n",
+              "// x3-arbitrage-binding: {\"amount\":\"101000000\",\"asset_in\":{\"asset_id\":\"demo:near-usdc\",\"decimals\":6,\"network\":\"near\"},\"asset_out\":{\"asset_id\":\"demo:sol-usdc\",\"decimals\":6,\"network\":\"sol\"},\"evidence\":\"constructed_demo\",\"expires_at\":1795206407,\"leg\":1,\"minimum_out\":\"102500000\",\"program_sha256\":\"3a9aeb655c634fb99218cee423421947869f212f7c5abb9e1bc81d7ea61394d5\",\"route_id\":\"c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca\"}\n// X3 Arbitrage: individual leg; multi-leg execution is not atomic.\n// Route c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca; evidence constructed_demo. Refresh and re-evaluate before execution.\n// This program bounds one delivery; it does not enforce a round-trip profit.\nintent arb_c5d1273777e038bf_1 {\n    from near.USDC amount 101000000 receiver alice.near\n    to solana.USDC receiver 4Nd1mzi8Y1QYxJt9wZWBYZpG7S4pYkZs6YzD3Vt9aBcD\n    route {\n        bridge NearIntents near.USDC -> solana.USDC min_receive 102500000;\n    }\n    under mandate paper-near-owner.near\n    require slippage <= 50 bps\n    require fees <= 100 bps\n    require nonce unused arb_c5d1273777e038bfe3e1634fb6c801fae3aab2cfdfaab17f1b6bd534dd4d27ca_1\n    timeout 120s refund near.USDC\n    on_fail rollback\n}\n"
+            ],
+            "initial_equity_units": "100500000",
+            "profit_asset": {
+              "network": "sol",
+              "asset_id": "demo:sol-usdc",
+              "decimals": 6
+            },
+            "paper_profit_units": null,
+            "real_transactions_submitted": 0,
+            "inventory": {
+              "near/demo:near-usdc": "0",
+              "sol/demo:sol-usdc": "0"
+            },
+            "reason": "bounded polling exhausted; never resubmit an ambiguous transfer",
+            "simulation_only": true
+          }
+        }
+      ]
+    },
+    "javascript_tests": "3 passed",
+    "compileall_syntax_whitespace": "passed"
+  },
+  "limits": [
+    "Unsigned quote observations only; no execution/paper eligibility",
+    "Net profit unknown; gas and additional costs not fully valued",
+    "No affiliate/integrator fee activated or funds moved",
+    "Quotes are sequential estimates, not reservations or cryptographic atomicity"
+  ]
+}

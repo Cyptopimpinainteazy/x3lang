@@ -180,5 +180,9 @@ fi
 "$PYTHON" scripts/hackathon/invoice06_sequence.py
 # 3. Browser parity: Python and the console must agree guard by guard.
 node --test x3-lang/near/demo/test/*.test.mjs
+# 3b. Mainnet invoice_06, link by link, from committed evidence: the .x3 files Guard
+# hashed, compiled to exactly the policy and mandate Guard stores; edited copies refused.
+# Exits 1 if any of the five links breaks.
+"$PYTHON" scripts/hackathon/invoice06_chain.py
 # 4. Judge evidence gate (quick): Python, browser, Guard and allocator checks.
 "$PYTHON" scripts/judge_evidence.py --mode quick --report-dir "$REPORT_DIR"

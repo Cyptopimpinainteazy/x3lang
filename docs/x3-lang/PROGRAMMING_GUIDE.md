@@ -114,6 +114,19 @@ require slippage <= 50      // 50 bps = 0.5%
 require slippage <= 0.5%    // the same bound
 ```
 
+**NEAR Intents programs (`near_intents.py`, the path Guard enforces) require a unit.** Write
+the bound as a percentage or in basis points:
+
+```text
+require slippage <= 0.5%    // 50 bps
+require slippage <= 50 bps  // the same bound; 50bps also works
+```
+
+On the NEAR path every bound without a unit is refused (`X3_NEAR_BOUND_UNIT`): `50`, `0.005`
+and `0.5` alike. A bare `0.5` used to be read as a fraction, which is 5000 bps (50%), 100×
+looser than "0.5%" (issue #241). Words after the unit, such as `50 bps extra`, are refused
+rather than ignored.
+
 Fee ceilings accept the unit-bearing spelling:
 
 ```text
@@ -181,6 +194,52 @@ backed. Do not claim VM or wallet enforcement from the clause alone.
 
 The Guard holds no funds. A wallet key holder can bypass Guard by using the
 wallet outside the Guard methods.
+
+### Integrator fees: `fee <rate> to <account>`
+
+A NEAR Intents program can pay the app that routed it
+([`near_intents_app_fee.x3`](../../x3-lang/examples/near_intents_app_fee.x3)):
+
+```text
+    fee 25 bps to fees.yourapp.near
+    require fees <= 100 bps
+```
+
+`near_intents.py` sends the clause as 1Click `appFees`
+(`[{"recipient": "fees.yourapp.near", "fee": 25}]`). The fee comes out of the
+payer's input before the swap is priced, so the quote's signed `amountOut`
+already reflects it. What the tooling enforces, and where:
+
+| Rule | Python adapter | Browser demo | `x3c` | x3-guard |
+|---|---|---|---|---|
+| Whole bps, 1 to 500 (1Click's ceiling) | yes | yes | yes | no |
+| Recipient is a NEAR account (bare, or quoted for implicit IDs) | yes | yes | yes | no |
+| A `require fees` cap exists and the fee fits under it | yes | yes | yes | no |
+| Recipient account exists on chain before quoting | yes | no | no | no |
+| 1Click's echo carries the declared fee unchanged | yes | yes | n/a | no |
+| Signed cost (`amountInUsd` vs `amountOutUsd`, refund fee) within the cap | yes | yes | n/a | yes |
+| Under a mandate, the recipient is in `allow recipients` | yes | no | n/a | no |
+| Receipt and Guard hand-off rebind the fee to the program | yes | n/a | n/a | no |
+
+The limits are real and are the reason for the table:
+
+- `appFees` is **not** in the payload 1Click signs. The echo check catches a
+  quote priced for different fees than declared, but it is an echo, not a proof.
+  The payer's protection is the signed amounts held to the program's cap, which
+  x3-guard re-checks on chain. Nothing proves on chain who received the fee.
+- x3-guard's policy has no fee-recipient field and cannot see `appFees`, so the
+  mandate's recipient rule for fees is enforced only by this adapter. An agent
+  that runs its own adapter can bypass that rule; it cannot exceed the signed
+  cost cap the Guard checks.
+- 1Click pools app fees and withdraws them to the recipient once the pool is
+  worth $1,000, so a single route's fee is not observable on chain.
+- 1Click also charges. With a partner API key your fee is split 50/50 and
+  1Click's half has a 20 bps floor (1 bp on stablecoin pairs and same-asset
+  routes); without a key, 1Click adds 25 bps on top. The program's cap must
+  leave room for that, or every quote is refused.
+- The generic runner (`runner.py`) refuses a program with a fee
+  (`X3_FEE_UNSUPPORTED_SURFACE`), and `x3c` lowers it only as an
+  `IntentResolve` constraint (`fee 25 bps to …`) for a host that can pay it.
 
 ## 8. Functions, variables and control flow
 
