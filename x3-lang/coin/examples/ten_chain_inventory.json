@@ -1,0 +1,47 @@
+{
+  "asset_id": "9f4bd5120a7c4c035e7890d8a60e53755b5c268d839846834addb0a5edbcd420",
+  "decimals": 6,
+  "total_inventory": "1000000000000",
+  "networks": [
+    {
+      "id": "ethereum",
+      "opening": "100000000000"
+    },
+    {
+      "id": "base",
+      "opening": "100000000000"
+    },
+    {
+      "id": "arbitrum",
+      "opening": "100000000000"
+    },
+    {
+      "id": "optimism",
+      "opening": "100000000000"
+    },
+    {
+      "id": "polygon",
+      "opening": "100000000000"
+    },
+    {
+      "id": "bnb",
+      "opening": "100000000000"
+    },
+    {
+      "id": "avalanche",
+      "opening": "100000000000"
+    },
+    {
+      "id": "solana",
+      "opening": "100000000000"
+    },
+    {
+      "id": "near",
+      "opening": "100000000000"
+    },
+    {
+      "id": "x3",
+      "opening": "100000000000"
+    }
+  ]
+}

@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: '24'
       - run: python -m pip install pytest -r x3-lang/coin/integration/svm/requirements.txt
-      - run: python -m pytest x3-lang/tests/test_coin_authoring.py x3-lang/tests/test_coin_sale.py -q
+      - run: python -m pytest x3-lang/tests/test_coin_*.py -q
         env:
           PYTHONPATH: x3-lang
       - run: npm ci --ignore-scripts && npm test
