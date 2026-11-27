@@ -1,0 +1,38 @@
+name: X3 coin authoring and local VM execution
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/coin/**'
+      - 'x3-lang/tests/test_coin_*.py'
+      - 'x3-lang/ed25519.py'
+      - 'x3-lang/emitter/_keccak.py'
+      - '.github/workflows/x3-coin-authoring.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python -m pip install pytest -r x3-lang/coin/integration/svm/requirements.txt
+      - run: python -m pytest x3-lang/tests/test_coin_authoring.py x3-lang/tests/test_coin_sale.py -q
+        env:
+          PYTHONPATH: x3-lang
+      - run: npm ci --ignore-scripts && npm test
+        working-directory: x3-lang/coin/integration/evm
+      - run: python x3-lang/coin/integration/svm/test_litesvm.py -v
+        env:
+          PYTHONPATH: x3-lang

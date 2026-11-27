@@ -53,6 +53,10 @@ refused for their own reason, and the owner's ordinary payment still goes throug
   NEAR contract evaluate the same mandate guard by guard
   ([step 7](#7-browser-and-python-agree-guard-by-guard)).
 
+### Coin contracts and shared treasury sales
+
+The [coin authoring guide](x3-lang/coin/README.md) shows how an agent can generate a fixed-supply `.x3` declaration, compile ERC-20 and Solana issuance artifacts, and quote an equal-share treasury sale across several networks. The example programs execute on local virtual machines.
+
 ## Who it is for
 
 - **Teams shipping agents that pay**, such as invoice, shopping and treasury agents, who need to

@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "@ethereumjs/common": "4.4.0",
+    "@ethereumjs/util": "9.1.0",
+    "@ethereumjs/vm": "8.1.1",
+    "ethers": "6.15.0",
+    "solc": "0.8.28"
+  },
+  "name": "x3-coin-evm-integration",
+  "scripts": {
+    "test": "node --test coin.test.mjs"
+  },
+  "private": true
+}
