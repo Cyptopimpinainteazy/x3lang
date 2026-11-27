@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>invoice_06 source hashes</title>
+</head>
+<body>
+<h1>invoice_06 source hashes</h1>
+<p>This page recomputes SHA-256 of the two embedded files. It uses the script next to it. The deployed Guard stored these hashes and compiled neither file.</p>
+<pre id="out">computing</pre>
+<script type="text/plain" id="payment-source">intent pay_x3_demo_near {
+    from Solana.USDC amount 25000000 receiver 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ
+    to Near.USDC receiver x3lang.near
+    route {
+        bridge NearIntents Solana.USDC -> Near.USDC min_receive 24750000;
+    }
+    under mandate x3lang.near
+    require slippage <= 0.9%
+    require fees <= 100 bps
+    require nonce mainnet_demo_nov11_invoice_06
+    timeout 74h refund Solana.USDC
+    on_fail rollback
+}
+</script>
+<script type="text/plain" id="mandate-source">mandate x3_mainnet_owner_reviewed {
+    owner x3lang.near
+    agent x3-agent.x3lang.near
+    spend Solana.USDC
+    per_payment 25000000
+    per_24h 25000000
+    allow recipients x3lang.near
+    allow assets Near.USDC
+    refund_to 58tbMfadmi8HWzUndLqkX3prBbkiZMEaYMTDYSzhB3cQ
+    require slippage <= 1%
+    require fees <= 100 bps
+    approve above 24999999 by 1 of x3lang.near
+    expires 74h
+}
+</script>
+<script src="forcefield-sha256.js"></script>
+<script>
+var expected = {
+  payment: "9ee29a5603cfa1e7d9fdbd866cf330ce35e6b5f0907c6844dd2ef1a213768ba0",
+  mandate: "eea021d5cc1118801f4e1d3b9c0efe89fc59a7f654031f9ff1951aa1f2f3d515"
+};
+var paymentText = document.getElementById("payment-source").textContent;
+var mandateText = document.getElementById("mandate-source").textContent;
+var paymentGot = sha256Hex(paymentText);
+var mandateGot = sha256Hex(mandateText);
+var ok = paymentGot === expected.payment && mandateGot === expected.mandate;
+document.getElementById("out").textContent = [
+  "payment " + paymentGot,
+  "mandate " + mandateGot,
+  ok ? "match" : "differ"
+].join("\n");
+</script>
+</body>
+</html>

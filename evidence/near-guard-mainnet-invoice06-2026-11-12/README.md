@@ -6,7 +6,14 @@
 A restricted agent key accepted a signed 1Click quote on the mainnet X3 Guard after Guard ran
 21 checks against the owner's mandate, all passing. The owner's wallet then funded the
 authorized deposit address on Solana and NEAR Intents paid out to `x3lang.near` 84 seconds
-later.
+later. Judges can run the five stages offline, from the written `.x3` files through compiler
+rejection, these Guard checks, the transfers, and the recorded outcome:
+
+```bash
+python3 scripts/hackathon/invoice06_sequence.py
+```
+
+The walkthrough is [INVOICE06_SEQUENCE.md](../../docs/hackathon/INVOICE06_SEQUENCE.md).
 
 [`public-rpc-observation.json`](public-rpc-observation.json) is the raw output of
 [`scripts/hackathon/observe_mainnet_invoice06.py`](../../scripts/hackathon/observe_mainnet_invoice06.py),

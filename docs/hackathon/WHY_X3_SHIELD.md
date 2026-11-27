@@ -15,7 +15,13 @@ for compile-time versus runtime checks and the evidence boundaries.
 
 **An agent can propose a payment. The owner's policy determines whether Guard authorizes the proposed terms.**
 
-X3 Force Field brings together an owner-readable `.x3` mandate, deterministic policy checks, and a NEAR contract that checks signed quote terms. The fastest way to judge it is to follow one claim through to its evidence.
+X3 Force Field brings together an owner-readable `.x3` mandate, deterministic policy checks, and a NEAR contract that checks signed quote terms. The fastest way to judge it is to follow one claim through to its evidence. The one-payment route through every stage runs offline:
+
+```bash
+python3 scripts/hackathon/invoice06_sequence.py
+```
+
+[The sequence page](INVOICE06_SEQUENCE.md) names each transaction and the limits.
 
 ## The proof trail
 
@@ -23,6 +29,8 @@ X3 Force Field brings together an owner-readable `.x3` mandate, deterministic po
 | --- | --- | --- |
 | The mainnet payment and mandate `.x3` sources match on-chain identities | [Source recovery](../../evidence/near-guard-mainnet-invoice06-2026-11-12/source-recovery/README.md) | Exact original source bytes match the hashes stored in NEAR Guard mandate v4 and invoice_06; matching hashes do not prove that native X3VM executed on-chain. |
 | A restricted agent records a real mainnet payment | [Mainnet invoice_06 evidence](../../evidence/near-guard-mainnet-invoice06-2026-11-12/README.md) and [final outcome](../../evidence/near-guard-mainnet-invoice06-2026-11-12/outcome-recording/README.md) | Owner-approved quote passed 21 Guard checks; manual Solflare funding sent 25 USDC, 24.9952 arrived on NEAR, and the restricted agent recorded `Settled`. Guard does not custody source tokens or authenticate outcome hashes. |
+| One mainnet payment, five stages | [Sequence](INVOICE06_SEQUENCE.md) and `python3 scripts/hackathon/invoice06_sequence.py` | The invoice_06 `.x3` files match Guard's stored hashes, the compiler refuses edits of that payment, Guard's 21 checks passed before the deposit, 25 USDC settled to 24.9952 USDC, and the agent recorded `Settled`. |
+| One local enforcement path on that payment | [Agent-law path](AGENT_LAW_PATH.md), [exhibit](agent-law-proof.html), and `python3 scripts/hackathon/agent_law.py` | Birth through judge: a permitted X3 call records a local receipt, a forbidden recipient cannot skip the mandate, revocation stops the next call, and the court keeps the receipt. A jury finding does not reverse it. This path does not broadcast and does not custody the Solana wallet. |
 | An owner sets the rules | [Example mandate](../../x3-lang/examples/near_mandate_agent.x3) and [denied request](../../x3-lang/examples/near_intents_agent_denied.x3) | The checked-in policy describes permitted recipients, assets and limits. |
 | A malicious recipient is rejected | [Offline demo](JUDGE_GUIDE.md#1-run-the-offline-policy-demo) | A local fixture targeting `attacker.near` returns `mandate_recipient`. This fixture does not show a live model being attacked. |
 | A real local model was red-teamed | [Local model run](../../evidence/agent-redteam-local-2026-11-06/README.md) | Eight cases: the model refused seven; in the eighth it produced the permitted recipient and an effect check identified the attack as neutralized. This was not a Guard refusal after model compromise. |

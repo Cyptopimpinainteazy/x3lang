@@ -38,6 +38,33 @@ steps of that incident with a model that falls for every one. All three attack p
 refused for their own reason, and the owner's ordinary payment still goes through
 ([step 5b](#5b-replay-a-real-wallet-drain)).
 
+**One sequence, one payment.** The mainnet settlement is not a separate dashboard
+from the language. The same two `.x3` files hash to what Guard stored, the
+compiler refuses edits of that payment, those terms are what the 21 on-chain
+checks enforced, the payment settled, and the agent recorded the outcome:
+
+```bash
+python3 scripts/hackathon/invoice06_sequence.py
+```
+
+**See:** five stages and `PASS`. Offline, no key. The transactions and the limits
+are on [the sequence page](docs/hackathon/INVOICE06_SEQUENCE.md).
+
+The local forcefield runs twenty further checks on that same payment. It does
+not sign or deploy, and the archived FullAccess recovery key stays listed as open:
+
+```bash
+python3 scripts/hackathon/forcefield.py
+```
+
+One local enforcement path runs the same payment through birth, compile, test, authorize, revocation, and court. The receipt stays on the X3 route:
+
+```bash
+python3 scripts/hackathon/agent_law.py
+```
+
+The [exhibit](docs/hackathon/agent-law-proof.html) and the loopback workbench show that run beside the other proof cards. The editors on that page run through the same door. The receipt is local. It does not settle the payment, and it does not hold the Solana wallet.
+
 ## What makes the language and compiler different
 
 - **Policy is a program, not a settings page.** The mandate is typed source that compiles, has a
@@ -170,9 +197,9 @@ For one tested snapshot containing all nine capabilities, start with the
 Commit IDs and test counts below describe historical runs, not current-head results.
 
 All steps run from the repository root. Steps 1 to 8 are offline, need no wallet, no API key
-and no network after install, and sign or send nothing. Each was run on Linux x86_64 with
-Python 3.13 and Node 22 at commit `48f650a`. Test counts grow as regressions are added;
-the pass condition is zero failures, not an exact count.
+and no network after install, and sign or send nothing. Each was re-run from a fresh clone
+of commit `efb514f` on Linux x86_64 with Python 3.12 and Node 24. Test counts grow as
+regressions are added; the pass condition is zero failures, not an exact count.
 
 Setup for steps 2 to 8 (Python 3.11+):
 
@@ -278,7 +305,8 @@ list containing `"guard": "mandate_recipient", "ok": false` with detail
 node --test x3-lang/near/demo/test/*.test.mjs
 ```
 
-**See:** `# fail 0` (at `48f650a`: `# pass 92`). To look at it, run
+**See:** `fail 0`. Node 23 and later print `ℹ fail 0`; Node 22 prints `# fail 0`
+(at `efb514f`: 101 tests pass). To look at it, run
 `python3 -m http.server 8000 --directory x3-lang/near/demo` and open
 `http://localhost:8000/judge.html`. The [Attack Lab](docs/hackathon/attack-lab.html) page
 evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases in the browser.
@@ -289,8 +317,8 @@ evaluates wrong-recipient, payment-cap, nonce-replay and revoked-policy cases in
 PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 ```
 
-**See:** a final line with no failures; at `48f650a` it reads `636 passed, 1 skipped`
-(about 12 seconds).
+**See:** a final line with no failures; at `efb514f` it reads
+`986 passed, 1 skipped, 102 subtests passed` (about 25 seconds).
 
 ### 9. NEAR contract tests (Rust)
 
@@ -298,7 +326,7 @@ PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests -q
 (cd x3-lang/near/x3-guard && cargo test --locked --quiet)
 ```
 
-**See:** `test result: ok. 62 passed; 0 failed`. The folder pins Rust 1.99.1 with the
+**See:** `test result: ok. 68 passed; 0 failed` (at `efb514f`). The folder pins Rust 1.99.1 with the
 `wasm32-unknown-unknown` target, so `rustup` downloads that toolchain on first run. In a
 sandbox that blocks `static.rust-lang.org` this step fails with a download error before any
 test runs; steps 1 to 8 are unaffected.
@@ -476,6 +504,11 @@ Where this goes next, with each stage of the agent lifecycle labeled enforced on
 ### Custody, quotes and evidence
 
 A holder of an unrestricted wallet key can bypass Guard and transfer funds directly.
+For invoice_06 that includes the owner's Solana wallet that funded the deposit and the
+owner's FullAccess recovery key on `x3-agent.x3lang.near`; the agent's own key is
+FunctionCall-only and limited to three Guard methods. `agent_record_outcome` stores the
+settlement hashes the agent reports without verifying them; `verify_mainnet_payment.py`
+checks both legs off-chain.
 The deployed contract checks Guard-mediated actions and does not custody swap tokens.
 The scoped-storage source adds bounded owner-funded native NEAR credit for contract
 storage and owner withdrawal; deployment of this source is a separate approval gate.
@@ -524,7 +557,9 @@ controls and open risks.
   `baseline` tag (last commit before 2026-10-19 00:00 UTC):
   [`baseline...master`](https://github.com/Cyptopimpinainteazy/x3lang/compare/baseline...master).
   PRIOR_WORK.md lists six pre-cutoff commits that appear in that diff because they were
-  merged later.
+  merged later. Following the organizer's naming, the same commit is also tagged
+  `pre-hackathon`, and `hackathon-submission` marks the submitted commit:
+  [`pre-hackathon...hackathon-submission`](https://github.com/Cyptopimpinainteazy/x3lang/compare/pre-hackathon...hackathon-submission).
 - **Libraries.** `near-sdk` 5.30 (contracts); `pycryptodome` and `cryptography` (Python);
   `pytest` (tests); Node.js 22 built-in test runner (browser parity tests).
 - **AI-generated code.** Hackathon-window code and documentation were written with AI coding
