@@ -529,16 +529,11 @@ def test_pending_and_revoked_contributors_get_no_work(coord):
 
 
 def test_result_from_another_contributor_is_refused(coord):
-    a, b = Direct(coord, "a"), Direct(coord, "b")
+    owner = Direct(coord, "a")
     thread, out = start_completion(coord)
-    job = None
-    for _ in range(20):
-        job = a.poll() or b.poll()
-        if job:
-            break
+    job = owner.poll()
     assert job
-    owner = a if coord._jobs[job["job_id"]].worker == a.id.public_hex else b
-    other = b if owner is a else a
+    other = Direct(coord, "b")
     with pytest.raises(ProtocolError) as exc:
         coord.submit_result(seal(other.id, "result", other.result_payload(job)))
     assert exc.value.code == "wrong_worker"
@@ -754,15 +749,11 @@ def chunk(direct, job, seq, delta, identity=None):
 
 
 def test_streamed_text_must_match_the_signed_answer(coord):
-    a, b = Direct(coord, "a"), Direct(coord, "b")
+    owner = Direct(coord, "a")
     thread, out, _ = start_stream(coord)
-    job = None
-    for _ in range(20):
-        job = a.poll() or b.poll()
-        if job:
-            break
+    job = owner.poll()
     assert job and job["stream"] is True
-    owner, other = (a, b) if coord._jobs[job["job_id"]].worker == a.id.public_hex else (b, a)
+    other = Direct(coord, "b")
     coord.submit_chunk(chunk(owner, job, 0, "pay 1 USDC to "))
     with pytest.raises(ProtocolError) as exc:
         coord.submit_chunk(chunk(owner, job, 2, "skipped"))
