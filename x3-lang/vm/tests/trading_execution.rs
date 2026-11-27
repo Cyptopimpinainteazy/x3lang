@@ -2135,6 +2135,62 @@ mod receipt_replay_of_gas_and_oracle {
 }
 
 #[test]
+fn journal_spendability_blocks_repeated_debt_amount_before_second_host_swap() {
+    let mut program = ops();
+    let mut repeated = program[2].clone();
+    if let TradingOperation::ExecuteSwap { binding, .. } = &mut repeated {
+        *binding = "repeated".to_string();
+    }
+    program.insert(3, repeated);
+    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
+    let mut host = FixtureHost::new();
+    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+    assert!(result.is_err());
+    assert_eq!(
+        host.swap_calls, 1,
+        "the already consumed balance cannot reach a second swap"
+    );
+    assert!(host.rolled_back && !host.committed);
+}
+
+#[test]
+fn journal_spendability_blocks_oversized_bridge_before_host_transfer() {
+    let mut program = bridge_ops();
+    for op in &mut program {
+        if let TradingOperation::Bridge { input, .. } = op {
+            *input = ValueRef::Literal(1_000_001);
+        }
+    }
+    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
+    let mut host = FixtureHost::new();
+    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+    assert!(result.is_err());
+    assert_eq!(
+        host.bridge_calls, 0,
+        "the bridge must not spend more than the available journal balance"
+    );
+    assert!(host.rolled_back && !host.committed);
+}
+
+#[test]
+fn journal_spendability_blocks_unfunded_principal_before_repayment() {
+    let mut program = ops();
+    for op in &mut program {
+        if let TradingOperation::OpenDebt { principal, .. } = op {
+            *principal = 2_000_000;
+        }
+    }
+    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
+    let mut host = FixtureHost::new();
+    host.swap_output = 1_000_000;
+    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
+    assert!(result.is_err());
+    assert_eq!(host.swap_calls, 2);
+    assert_eq!(host.repay_calls, 0, "an unfunded principal cannot reach host repayment");
+    assert!(host.rolled_back && !host.committed);
+}
+
+#[test]
 fn atomic_preflight_expired_deadline_never_opens_host_transaction() {
     let mut vm = TradingVm::new();
     let mut host = FixtureHost::new();
@@ -2190,60 +2246,4 @@ fn second_swap_host_failure_rolls_back_first_leg_and_vm_state() {
         vm.trading_state, initial,
         "VM journal must be restored after second-leg failure"
     );
-}
-
-#[test]
-fn journal_spendability_blocks_repeated_debt_amount_before_second_host_swap() {
-    let mut program = ops();
-    let mut repeated = program[2].clone();
-    if let TradingOperation::ExecuteSwap { binding, .. } = &mut repeated {
-        *binding = "repeated".to_string();
-    }
-    program.insert(3, repeated);
-    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
-    let mut host = FixtureHost::new();
-    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
-    assert!(result.is_err());
-    assert_eq!(
-        host.swap_calls, 1,
-        "the already consumed balance cannot reach a second swap"
-    );
-    assert!(host.rolled_back && !host.committed);
-}
-
-#[test]
-fn journal_spendability_blocks_oversized_bridge_before_host_transfer() {
-    let mut program = bridge_ops();
-    for op in &mut program {
-        if let TradingOperation::Bridge { input, .. } = op {
-            *input = ValueRef::Literal(1_000_001);
-        }
-    }
-    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
-    let mut host = FixtureHost::new();
-    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
-    assert!(result.is_err());
-    assert_eq!(
-        host.bridge_calls, 0,
-        "the bridge must not spend more than the available journal balance"
-    );
-    assert!(host.rolled_back && !host.committed);
-}
-
-#[test]
-fn journal_spendability_blocks_unfunded_principal_before_repayment() {
-    let mut program = ops();
-    for op in &mut program {
-        if let TradingOperation::OpenDebt { principal, .. } = op {
-            *principal = 2_000_000;
-        }
-    }
-    assert!(x3_lang_compiler::verify::verify_trading_program(&program).is_ok());
-    let mut host = FixtureHost::new();
-    host.swap_output = 1_000_000;
-    let result = TradingVm::new().execute_atomic(&program, &mut host, context(ExecutionMode::Development));
-    assert!(result.is_err());
-    assert_eq!(host.swap_calls, 2);
-    assert_eq!(host.repay_calls, 0, "an unfunded principal cannot reach host repayment");
-    assert!(host.rolled_back && !host.committed);
 }
