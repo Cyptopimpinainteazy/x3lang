@@ -740,3 +740,31 @@ mod signed_registry {
         assert!(error.contains("does not verify"), "{error}");
     }
 }
+
+#[test]
+fn trusted_receipt_rejects_a_second_atomic_begin() {
+    let key = signing_key();
+    let mut receipt = sample_receipt();
+    receipt.operations.insert(1, receipt.operations[0].clone());
+    let receipt = sign_receipt(receipt, "executor-1", &key).unwrap();
+
+    let result = verify_receipt_trusted(&receipt, &trusted_keys(&key));
+    assert!(
+        matches!(result, Err(ReceiptError::EconomicReplayMismatch(_))),
+        "invalid atomic boundary must be refused: {result:?}"
+    );
+}
+
+#[test]
+fn trusted_receipt_rejects_a_commit_before_the_terminal_operation() {
+    let key = signing_key();
+    let mut receipt = sample_receipt();
+    receipt.operations.insert(1, TradingOperation::CommitAtomicTrade);
+    let receipt = sign_receipt(receipt, "executor-1", &key).unwrap();
+
+    let result = verify_receipt_trusted(&receipt, &trusted_keys(&key));
+    assert!(
+        matches!(result, Err(ReceiptError::EconomicReplayMismatch(_))),
+        "invalid atomic boundary must be refused: {result:?}"
+    );
+}

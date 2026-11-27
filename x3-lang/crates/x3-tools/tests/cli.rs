@@ -3718,6 +3718,7 @@ const ADAPTER_INTENTS: &[&str] = &[
     "near_intents_agent_denied.x3",
     "near_intents_agent_payment.x3",
     "near_intents_agent_refused_payment.x3",
+    "near_intents_app_fee.x3",
     "near_intents_sol_to_near.x3",
 ];
 
@@ -3726,6 +3727,14 @@ const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
 /// near_native_vault.py) and x3-guard; they are not intents the generic VM executes.
 /// Their own Python suites check them (test_surface_drift.py, test_native_vault_binding.py).
 const PYTHON_ONLY_MANDATES: [&str; 2] = ["near_mandate_agent.x3", "near_native_vault_supplier.x3"];
+/// X3CCP `control` policies: compiled by `x3-lang/x3ccp.py` to bytes an `X3Controlled` Solidity
+/// contract enforces; not a program for the generic VM. Their own gate is tests/test_x3ccp.py.
+const PYTHON_ONLY_CONTROL: [&str; 1] = ["x3ccp_treasury_guard.x3"];
+/// X3-PIR `capability` grant sources: compiled only by the capability compiler
+/// (`compile_capability_source`); ordinary executable source must reject a capability
+/// declaration (spec/X3_PIR_EVM.md). The walk asserts that `x3c check` refuses each one;
+/// their own gates are the compiler's capability tests and the PIR verify scripts.
+const CAPABILITY_SOURCES: [&str; 1] = ["pir_evm_action.x3"];
 
 /// This historical testnet source is compiled only by the Python Base Sepolia frontend
 /// (scripts/hackathon/base_sepolia_x3_intent.py). Every generic production entry point
@@ -3854,6 +3863,9 @@ fn every_example_checks_and_builds() {
             // x3-guard; it is not an intent the generic VM can execute.
             continue;
         }
+        if PYTHON_ONLY_CONTROL.contains(&name.as_str()) {
+            continue;
+        }
         if ADAPTER_INTENTS.contains(&name.as_str()) {
             adapter_intents += 1;
             let intent = x3c().arg("intent").arg(example).output().expect("x3c intent");
@@ -3900,8 +3912,8 @@ fn every_example_checks_and_builds() {
         "the corpus walk must check the testnet draft's named refusal"
     );
     assert_eq!(
-        adapter_intents, 4,
-        "the example walk must find all four NEAR adapter intents"
+        adapter_intents, 5,
+        "the example walk must find all five NEAR adapter intents"
     );
     assert!(
         failures.is_empty(),
@@ -4067,6 +4079,7 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
     let mut adapter_intents = 0usize;
     let mut testnet_drafts: Vec<std::path::PathBuf> = Vec::new();
     let mut python_only: Vec<String> = Vec::new();
+    let mut capability_sources: Vec<String> = Vec::new();
     for file in &found {
         let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
         if ADAPTER_INTENTS.contains(&name.as_str()) {
@@ -4088,6 +4101,20 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
         }
         if PYTHON_ONLY_MANDATES.contains(&name.as_str()) {
             python_only.push(name);
+            continue;
+        }
+        if PYTHON_ONLY_CONTROL.contains(&name.as_str()) {
+            continue;
+        }
+        if CAPABILITY_SOURCES.contains(&name.as_str()) {
+            let check = x3c().arg("check").arg(file).output().expect("x3c check");
+            if check.status.success() {
+                let relative = file.strip_prefix(&root).unwrap_or(file).display().to_string();
+                failures.push(format!(
+                    "{relative}: a capability grant source must be refused by the generic `x3c check`"
+                ));
+            }
+            capability_sources.push(name);
             continue;
         }
         let check = x3c().arg("check").arg(file).output().expect("x3c check");
@@ -4124,6 +4151,11 @@ fn every_x3_file_the_tooling_walks_is_a_program() {
     assert_eq!(
         python_only, PYTHON_ONLY_MANDATES,
         "the tree walk must find each Python-only mandate declaration exactly once"
+    );
+    capability_sources.sort();
+    assert_eq!(
+        capability_sources, CAPABILITY_SOURCES,
+        "the tree walk must find each capability grant source exactly once"
     );
     assert!(
         failures.is_empty(),

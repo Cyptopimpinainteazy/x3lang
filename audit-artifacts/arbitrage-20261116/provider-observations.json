@@ -1,0 +1,289 @@
+{
+  "base_commit": "b41801b",
+  "mode": "live_read_only",
+  "observed_at": 1794894444,
+  "duration_s": 3.561,
+  "cross_chain_routes": [
+    {
+      "id": "8d87d048779257931913240a52651dc1777b9f1552dedbd735730381b327fc24",
+      "label": "Solana \u2192 NEAR \u2192 Solana dry probe",
+      "kind": "cross-chain",
+      "demo": false,
+      "legs": [
+        {
+          "provider": "oneclick",
+          "asset_in": {
+            "network": "sol",
+            "asset_id": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+            "decimals": 6
+          },
+          "asset_out": {
+            "network": "near",
+            "asset_id": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "decimals": 6
+          },
+          "amount_in": "100000000",
+          "expected_out": "99988612",
+          "minimum_out": "99488668",
+          "observed_at": 1794894441,
+          "expires_at": 1794894741,
+          "evidence": "provider_dry_quote",
+          "reference": "a15b9bd3-6516-4861-ad00-3768ce2dd3b8"
+        },
+        {
+          "provider": "oneclick",
+          "asset_in": {
+            "network": "near",
+            "asset_id": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "decimals": 6
+          },
+          "asset_out": {
+            "network": "sol",
+            "asset_id": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+            "decimals": 6
+          },
+          "amount_in": "99488668",
+          "expected_out": "99091949",
+          "minimum_out": "98595520",
+          "observed_at": 1794894441,
+          "expires_at": 1794894741,
+          "evidence": "provider_dry_quote",
+          "reference": "61ae0600-b79d-4996-be2b-e925022e9239"
+        }
+      ],
+      "input_units": "100000000",
+      "numeraire": {
+        "network": "sol",
+        "asset_id": "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",
+        "decimals": 6
+      },
+      "external_cost_units": null,
+      "cost_source": "No external cost estimate; illustrative dry-quote receiver addresses only",
+      "gross_projected_profit_units": "-1404480",
+      "net_profit_units": null,
+      "net_profit_bps": null,
+      "paper_eligible": false,
+      "reasons": [
+        "UNKNOWN_EXTERNAL_COSTS"
+      ],
+      "eligible_for_wallet_authorization": false,
+      "atomic": false,
+      "risk": "Sequential quotes do not reserve liquidity. Price, bridge and partial-execution risk remain.",
+      "assessed_at": 1794894444,
+      "expires_at": 1794894741
+    },
+    {
+      "id": "8ed06df4e2f71f515d78a8f432afd21742285538cd005fb9d89dc12142da620a",
+      "label": "Ethereum \u2192 NEAR \u2192 Ethereum dry probe",
+      "kind": "cross-chain",
+      "demo": false,
+      "legs": [
+        {
+          "provider": "oneclick",
+          "asset_in": {
+            "network": "eth",
+            "asset_id": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+            "decimals": 6
+          },
+          "asset_out": {
+            "network": "near",
+            "asset_id": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "decimals": 6
+          },
+          "amount_in": "100000000",
+          "expected_out": "99991825",
+          "minimum_out": "99491865",
+          "observed_at": 1794894442,
+          "expires_at": 1794894742,
+          "evidence": "provider_dry_quote",
+          "reference": "d2be704a-43ff-4cc3-a667-6a4e6bd3bce4"
+        },
+        {
+          "provider": "oneclick",
+          "asset_in": {
+            "network": "near",
+            "asset_id": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "decimals": 6
+          },
+          "asset_out": {
+            "network": "eth",
+            "asset_id": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+            "decimals": 6
+          },
+          "amount_in": "99491865",
+          "expected_out": "98872223",
+          "minimum_out": "98376361",
+          "observed_at": 1794894442,
+          "expires_at": 1794894742,
+          "evidence": "provider_dry_quote",
+          "reference": "0d15f458-0db7-4fb5-b3eb-d92497afdae2"
+        }
+      ],
+      "input_units": "100000000",
+      "numeraire": {
+        "network": "eth",
+        "asset_id": "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near",
+        "decimals": 6
+      },
+      "external_cost_units": null,
+      "cost_source": "No external cost estimate; illustrative dry-quote receiver addresses only",
+      "gross_projected_profit_units": "-1623639",
+      "net_profit_units": null,
+      "net_profit_bps": null,
+      "paper_eligible": false,
+      "reasons": [
+        "UNKNOWN_EXTERNAL_COSTS"
+      ],
+      "eligible_for_wallet_authorization": false,
+      "atomic": false,
+      "risk": "Sequential quotes do not reserve liquidity. Price, bridge and partial-execution risk remain.",
+      "assessed_at": 1794894444,
+      "expires_at": 1794894742
+    }
+  ],
+  "cex_routes": [
+    {
+      "id": "65c67fb3ef8cfe844372f89f4d4cc549d366003fdb1985a6cb78211f1d629828",
+      "label": "BTC/USD \u00b7 kraken \u2192 coinbase",
+      "kind": "cex-inventory",
+      "demo": false,
+      "legs": [
+        {
+          "provider": "kraken",
+          "asset_in": {
+            "network": "cex-inventory",
+            "asset_id": "USD",
+            "decimals": 6
+          },
+          "asset_out": {
+            "network": "cex-inventory",
+            "asset_id": "BTC",
+            "decimals": 8
+          },
+          "amount_in": "1000000000",
+          "expected_out": "1525964",
+          "minimum_out": "1525964",
+          "observed_at": 1794894443,
+          "expires_at": 1794894473,
+          "evidence": "public_orderbook",
+          "reference": ""
+        },
+        {
+          "provider": "coinbase",
+          "asset_in": {
+            "network": "cex-inventory",
+            "asset_id": "BTC",
+            "decimals": 8
+          },
+          "asset_out": {
+            "network": "cex-inventory",
+            "asset_id": "USD",
+            "decimals": 6
+          },
+          "amount_in": "1525964",
+          "expected_out": "980081538",
+          "minimum_out": "980081538",
+          "observed_at": 1794894443,
+          "expires_at": 1794894473,
+          "evidence": "public_orderbook",
+          "reference": ""
+        }
+      ],
+      "input_units": "1000000000",
+      "numeraire": {
+        "network": "cex-inventory",
+        "asset_id": "USD",
+        "decimals": 6
+      },
+      "external_cost_units": null,
+      "cost_source": "100bps taker assumption per side included; inventory/rebalance costs unknown",
+      "gross_projected_profit_units": "-19918462",
+      "net_profit_units": null,
+      "net_profit_bps": null,
+      "paper_eligible": false,
+      "reasons": [
+        "PREFUNDED_INVENTORY_AND_REBALANCE_REQUIRED",
+        "UNKNOWN_EXTERNAL_COSTS"
+      ],
+      "eligible_for_wallet_authorization": false,
+      "atomic": false,
+      "risk": "Sequential quotes do not reserve liquidity. Price, bridge and partial-execution risk remain.",
+      "assessed_at": 1794894444,
+      "expires_at": 1794894473
+    },
+    {
+      "id": "8f786e5c816b38bafe092f67e9c8481969c38459d74e41c9718245a717c79f85",
+      "label": "BTC/USD \u00b7 coinbase \u2192 kraken",
+      "kind": "cex-inventory",
+      "demo": false,
+      "legs": [
+        {
+          "provider": "coinbase",
+          "asset_in": {
+            "network": "cex-inventory",
+            "asset_id": "USD",
+            "decimals": 6
+          },
+          "asset_out": {
+            "network": "cex-inventory",
+            "asset_id": "BTC",
+            "decimals": 8
+          },
+          "amount_in": "1000000000",
+          "expected_out": "1525884",
+          "minimum_out": "1525884",
+          "observed_at": 1794894443,
+          "expires_at": 1794894473,
+          "evidence": "public_orderbook",
+          "reference": ""
+        },
+        {
+          "provider": "kraken",
+          "asset_in": {
+            "network": "cex-inventory",
+            "asset_id": "BTC",
+            "decimals": 8
+          },
+          "asset_out": {
+            "network": "cex-inventory",
+            "asset_id": "USD",
+            "decimals": 6
+          },
+          "amount_in": "1525884",
+          "expected_out": "980046773",
+          "minimum_out": "980046773",
+          "observed_at": 1794894443,
+          "expires_at": 1794894473,
+          "evidence": "public_orderbook",
+          "reference": ""
+        }
+      ],
+      "input_units": "1000000000",
+      "numeraire": {
+        "network": "cex-inventory",
+        "asset_id": "USD",
+        "decimals": 6
+      },
+      "external_cost_units": null,
+      "cost_source": "100bps taker assumption per side included; inventory/rebalance costs unknown",
+      "gross_projected_profit_units": "-19953227",
+      "net_profit_units": null,
+      "net_profit_bps": null,
+      "paper_eligible": false,
+      "reasons": [
+        "PREFUNDED_INVENTORY_AND_REBALANCE_REQUIRED",
+        "UNKNOWN_EXTERNAL_COSTS"
+      ],
+      "eligible_for_wallet_authorization": false,
+      "atomic": false,
+      "risk": "Sequential quotes do not reserve liquidity. Price, bridge and partial-execution risk remain.",
+      "assessed_at": 1794894444,
+      "expires_at": 1794894473
+    }
+  ],
+  "errors": [],
+  "token_count": 231,
+  "deposit_addresses_requested": false,
+  "transactions_submitted": 0,
+  "claim_boundary": "Signed dry quotes and public orderbook observations; no external-cost estimate, reservation, signing or settlement proof."
+}

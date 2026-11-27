@@ -36,6 +36,7 @@ not duplicate source code or evidence.
 | BSC bridge | Escrow, formatting, and bridge tests | `x3-lang/bridge/bsc/` |
 | NEAR bridge | Light-client and bridge prototype behavior | `x3-lang/bridge/near/` |
 | NEAR liquidity discovery | Read-only provider quotes, RHEA pools, like-for-like ranking (issue #40, draft) | `x3-lang/near_liquidity/README.md` |
+| X3 Arbitrage | Local cross-chain scanner, compiled leg exports, persistent paper projections and explicit live quote preparation | `x3-lang/arbitrage/README.md` |
 
 ## Security
 

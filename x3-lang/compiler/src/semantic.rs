@@ -1093,6 +1093,90 @@ pub fn verify_mandate_bindings(program: &Program, acc: &mut ErrorAccumulator) {
     }
 }
 
+/// 1Click refuses a quote whose fees total more than 500 bps, its own share
+/// included, so no declared fee above this can ever be quoted
+/// (`near_intents.MAX_APP_FEE_BPS`).
+pub const MAX_APP_FEE_BPS: u32 = 500;
+
+/// A declared `fee` must be payable and must be covered by the intent's own
+/// `require fees` cap.
+///
+/// The fee comes out of the payer's input, so it is part of the cost the cap
+/// bounds. An intent that declares a fee and no cap would let the route charge
+/// without a ceiling; one whose fee exceeds its cap can never be quoted. The
+/// NEAR adapter refuses both (`near_intents.lower_app_fee`), and this check
+/// keeps the compiler in lockstep so `x3c check` does not bless an intent the
+/// adapter will reject.
+pub fn verify_app_fees(program: &Program, acc: &mut ErrorAccumulator) {
+    for item in &program.items {
+        let Item::IntentDecl(intent) = &item.node else {
+            continue;
+        };
+        let Some(fee) = &intent.app_fee else {
+            continue;
+        };
+        let name = intent.name.as_str();
+        if fee.bps == 0 {
+            acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!("intent '{name}' declares a `fee` of zero, which charges nothing; remove the clause"),
+            ));
+            continue;
+        }
+        if fee.bps > MAX_APP_FEE_BPS {
+            acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "intent '{name}' declares a fee of {} bps, above {MAX_APP_FEE_BPS} bps, the most 1Click quotes in \
+                     total",
+                    fee.bps
+                ),
+            ));
+            continue;
+        }
+        // The tightest upper bound the intent states, in whole bps, rounded toward the
+        // payer the way the adapter rounds it (`< 25 bps` allows at most 24).
+        let cap = intent
+            .body
+            .stmts
+            .iter()
+            .filter_map(|statement| match statement {
+                x3_lang_ast::ast::Statement::Require(guard)
+                    if guard.kind == x3_lang_ast::ast::RequireKind::Fees
+                        && guard.comparison.is_some_and(|op| op.is_upper_bound()) =>
+                {
+                    let bound = guard.value.as_ref().and_then(bound_bps_from_expr)?;
+                    if guard.comparison == Some(x3_lang_ast::ast::ComparisonOp::Less) {
+                        bound.checked_sub(1)
+                    } else {
+                        Some(bound)
+                    }
+                }
+                _ => None,
+            })
+            .min();
+        match cap {
+            None => acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "intent '{name}' declares `fee {} bps to {}` but no `require fees <= <bound>`: the fee comes \
+                     out of the payer's input, and nothing else bounds what the route costs them",
+                    fee.bps,
+                    fee.recipient.as_str()
+                ),
+            )),
+            Some(cap) if fee.bps > cap => acc.add_error(err(
+                DiagnosticCode::GuardClaimUnbacked,
+                format!(
+                    "intent '{name}' declares a fee of {} bps, above its own `require fees` cap of {cap} bps",
+                    fee.bps
+                ),
+            )),
+            Some(_) => {}
+        }
+    }
+}
+
 /// A `require proof_complete <name>` guard needs that proof to be declared.
 ///
 /// The guard asserts a proof of the named type was completed;
