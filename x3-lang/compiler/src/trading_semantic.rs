@@ -12,7 +12,7 @@ use std::fmt;
 use indexmap::IndexMap;
 use x3_lang_ast::ast::{Expression, Item, LiteralExpr, Program};
 use x3_lang_ast::{AmountExpr, AssetId, AtomicTradeDecl, RoundingMode, TradeRiskPolicy, TradeStmt};
-use x3_lang_common::{Bps, Span, Symbol, X3Error};
+use x3_lang_common::{BinOp, Bps, Span, Symbol, X3Error};
 
 use crate::semantic::CompilationMode;
 
@@ -30,12 +30,52 @@ pub struct TypedAmount {
     pub asset: AssetId,
 }
 
-/// Errors produced by decimal-to-base-unit conversion.
+impl TypedAmount {
+    /// Add only matching declared assets, without wrapping or rescaling.
+    pub fn checked_add(&self, other: &Self) -> Result<Self, TradingTypeError> {
+        self.require_same_asset(other)?;
+        let base_units = self
+            .base_units
+            .checked_add(other.base_units)
+            .ok_or(TradingTypeError::Overflow)?;
+        Ok(Self {
+            base_units,
+            asset: self.asset.clone(),
+        })
+    }
+
+    /// Subtract only matching declared assets, refusing negative balances.
+    pub fn checked_sub(&self, other: &Self) -> Result<Self, TradingTypeError> {
+        self.require_same_asset(other)?;
+        let base_units = self
+            .base_units
+            .checked_sub(other.base_units)
+            .ok_or(TradingTypeError::Underflow)?;
+        Ok(Self {
+            base_units,
+            asset: self.asset.clone(),
+        })
+    }
+
+    fn require_same_asset(&self, other: &Self) -> Result<(), TradingTypeError> {
+        if self.asset != other.asset {
+            return Err(TradingTypeError::AssetMismatch);
+        }
+        if self.asset.decimals > MAX_DECIMALS {
+            return Err(TradingTypeError::InvalidDecimals(self.asset.decimals));
+        }
+        Ok(())
+    }
+}
+
+/// Errors produced by checked asset arithmetic and decimal conversion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TradingTypeError {
     InvalidLiteral(String),
     PrecisionLoss,
     Overflow,
+    Underflow,
+    AssetMismatch,
     InvalidDecimals(u8),
 }
 
@@ -44,7 +84,9 @@ impl fmt::Display for TradingTypeError {
         match self {
             Self::InvalidLiteral(raw) => write!(f, "invalid decimal literal '{raw}'"),
             Self::PrecisionLoss => write!(f, "decimal literal loses precision for the asset decimals"),
-            Self::Overflow => write!(f, "decimal literal overflows u128 base units"),
+            Self::Overflow => write!(f, "asset amount overflows u128 base units"),
+            Self::Underflow => write!(f, "asset amount underflow: subtraction would be negative"),
+            Self::AssetMismatch => write!(f, "asset amount identity mismatch"),
             Self::InvalidDecimals(decimals) => {
                 write!(f, "asset decimals {decimals} exceed the supported maximum of 38")
             }
@@ -403,7 +445,9 @@ fn referenced_value_asset(
     debts: &HashMap<Symbol, Symbol>,
 ) -> Result<Option<(String, Symbol)>, String> {
     match expr {
-        Expression::Literal(_) => Ok(None),
+        // Binary expressions have already been checked by validate_amount as
+        // constant, same-denomination arithmetic; dynamic operands fail there.
+        Expression::Literal(_) | Expression::Binary { .. } => Ok(None),
         Expression::Ident(name) => bindings
             .get(name)
             .cloned()
@@ -446,8 +490,8 @@ fn validate_amount(
         ));
         return;
     };
-    if let Some(literal) = amount_literal_text(&amount.value) {
-        if let Err(err) = decimal_to_base_units(&literal, asset.decimals, RoundingMode::Exact) {
+    if matches!(amount.value, Expression::Binary { .. }) || amount_literal_text(&amount.value).is_some() {
+        if let Err(err) = evaluate_constant_amount(&amount.value, asset) {
             errors.push(coded_error(
                 crate::diagnostic::DiagnosticCode::AssetTypeMismatch,
                 format!("{context}: {err}"),
@@ -462,6 +506,32 @@ fn amount_literal_text(expr: &Expression) -> Option<String> {
         Expression::Literal(LiteralExpr::Int { value, .. }) => Some(value.to_string()),
         Expression::Literal(LiteralExpr::Float { raw, .. }) => Some(raw.as_str().to_string()),
         _ => None,
+    }
+}
+
+// The one explicit denomination applies to every numeric leaf. No implicit
+// conversion, variable evaluation, multiplication, or division is performed.
+fn evaluate_constant_amount(expr: &Expression, asset: &AssetId) -> Result<TypedAmount, TradingTypeError> {
+    if let Some(literal) = amount_literal_text(expr) {
+        return Ok(TypedAmount {
+            base_units: decimal_to_base_units(&literal, asset.decimals, RoundingMode::Exact)?,
+            asset: asset.clone(),
+        });
+    }
+    match expr {
+        Expression::Binary {
+            op: BinOp::Plus,
+            lhs,
+            rhs,
+        } => evaluate_constant_amount(lhs, asset)?.checked_add(&evaluate_constant_amount(rhs, asset)?),
+        Expression::Binary {
+            op: BinOp::Minus,
+            lhs,
+            rhs,
+        } => evaluate_constant_amount(lhs, asset)?.checked_sub(&evaluate_constant_amount(rhs, asset)?),
+        _ => Err(TradingTypeError::InvalidLiteral(
+            "expected a constant numeric amount using + or -".to_string(),
+        )),
     }
 }
 
@@ -548,7 +618,5 @@ pub fn amount_base_units(amount: &AmountExpr, assets: &TradingSymbols) -> Result
         .assets
         .get(&amount.asset)
         .ok_or_else(|| TradingTypeError::InvalidLiteral(amount.asset.as_str().to_string()))?;
-    let literal = amount_literal_text(&amount.value)
-        .ok_or_else(|| TradingTypeError::InvalidLiteral("binding amount".to_string()))?;
-    decimal_to_base_units(&literal, asset.decimals, RoundingMode::Exact)
+    Ok(evaluate_constant_amount(&amount.value, asset)?.base_units)
 }
