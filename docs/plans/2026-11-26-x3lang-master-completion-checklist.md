@@ -221,7 +221,9 @@ Master snapshot: `b41801bc455324e1f4c202f32205c50c263b0adf`. Existing PRs are dr
 - [x] Run selected compiler control-flow and guard baseline: 5/5 control-flow, 61/61 guard declarations, 16/16 require guards, total 82/82. Initial three fixture-loading failures were resolved by restoring the exact committed examples directory. Full native bytecode parity is a separate open gate.
 - [x] Reproduce and patch trusted receipt atomic-boundary validation on isolated draft PR #292: commit f8255e3fec30bbdbe030a578dc9a5324323e4dfb. Both regressions returned Ok before the fix; both refused afterward. Selected VM matrix 114/114 on the patched source.
 - [x] Run entire native VM crate suite on exact PR #292 head f8255e3fec30bbdbe030a578dc9a5324323e4dfb: 391 passed, zero failed, ignored or filtered. Initial isolated runner omitted docs/ and scripts/ (seven fixture-loading failures); corrected read-only mounts and reran all tests.
-- [ ] Complete independent review and exact-head CI for #292; merge only with owner approval.
+- [x] Full native compiler crate suite on exact PR #292 head f8255e3fec30bbdbe030a578dc9a5324323e4dfb: 922 passed, zero failed, ignored or filtered, exit 0. Command: `cargo test --offline --locked -p x3-lang-compiler -- --test-threads=1`.
+- [x] Check GitHub CI rollup for exact PR #292 head: both remaining rust-vm jobs completed successfully; no failed or pending checks reported; manual advisory WASM comparison skipped.
+- [ ] Complete independent review and resolve UNSTABLE merge status for #292; merge only with owner approval.
 - [x] Inspect exact PR #275 head becaf9cd5274e1817d625aafd062c00bb49f7c90: diff is confined to coin Cargo.toml/Cargo.lock, disables near-sdk default features for normal and test dependencies, removes wee_alloc from lockfile. Existing build-unsigned and applicable CI checks report success; fresh allocator contract build not performed here.
 - [ ] Resolve open critical dependency advisory #14 through reviewed and approved PR #275; no deployment or merge yet.
 - [ ] Verify end-to-end policy binding and fail-closed unsupported guards against actual compiled artifacts.
