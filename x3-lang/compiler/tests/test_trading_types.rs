@@ -122,47 +122,6 @@ atomic trade BadProfit using P {
 }
 
 #[test]
-fn decimal_exact_rejects_precision_loss() {
-    let decimals = 6u8;
-    assert_eq!(
-        decimal_to_base_units("1.000000", decimals, RoundingMode::Exact).unwrap(),
-        1_000_000
-    );
-    assert!(matches!(
-        decimal_to_base_units("1.0000001", decimals, RoundingMode::Exact),
-        Err(x3_lang_compiler::trading_semantic::TradingTypeError::PrecisionLoss)
-    ));
-    assert_eq!(
-        decimal_to_base_units("1.0000001", decimals, RoundingMode::Down).unwrap(),
-        1_000_000
-    );
-    assert_eq!(
-        decimal_to_base_units("1.0000001", decimals, RoundingMode::Up).unwrap(),
-        1_000_001
-    );
-}
-
-#[test]
-fn decimal_overflow_is_rejected() {
-    assert!(matches!(
-        decimal_to_base_units("340282366920938463463374607431768211456", 6, RoundingMode::Down),
-        Err(x3_lang_compiler::trading_semantic::TradingTypeError::Overflow)
-    ));
-}
-
-#[test]
-fn integer_with_separators_converts_like_decimal_integer() {
-    assert_eq!(
-        decimal_to_base_units("1_000_000", 6, RoundingMode::Exact).unwrap(),
-        1_000_000_000_000u128
-    );
-    assert_eq!(
-        decimal_to_base_units("0.02", 18, RoundingMode::Exact).unwrap(),
-        20_000_000_000_000_000u128
-    );
-}
-
-#[test]
 fn checked_constant_amounts_lower_to_exact_base_units() {
     let source = VALID_TRADING_SOURCE
         .replace("borrow 1_000_000 USDC", "borrow (999999.5 + 0.5) USDC")
@@ -276,4 +235,45 @@ fn checked_amount_arithmetic_refuses_precision_loss_and_unsupported_operators() 
         let source = VALID_TRADING_SOURCE.replace("borrow 1_000_000 USDC", &format!("borrow {expression} USDC"));
         assert!(analyze(&source).is_err());
     }
+}
+
+#[test]
+fn decimal_exact_rejects_precision_loss() {
+    let decimals = 6u8;
+    assert_eq!(
+        decimal_to_base_units("1.000000", decimals, RoundingMode::Exact).unwrap(),
+        1_000_000
+    );
+    assert!(matches!(
+        decimal_to_base_units("1.0000001", decimals, RoundingMode::Exact),
+        Err(x3_lang_compiler::trading_semantic::TradingTypeError::PrecisionLoss)
+    ));
+    assert_eq!(
+        decimal_to_base_units("1.0000001", decimals, RoundingMode::Down).unwrap(),
+        1_000_000
+    );
+    assert_eq!(
+        decimal_to_base_units("1.0000001", decimals, RoundingMode::Up).unwrap(),
+        1_000_001
+    );
+}
+
+#[test]
+fn decimal_overflow_is_rejected() {
+    assert!(matches!(
+        decimal_to_base_units("340282366920938463463374607431768211456", 6, RoundingMode::Down),
+        Err(x3_lang_compiler::trading_semantic::TradingTypeError::Overflow)
+    ));
+}
+
+#[test]
+fn integer_with_separators_converts_like_decimal_integer() {
+    assert_eq!(
+        decimal_to_base_units("1_000_000", 6, RoundingMode::Exact).unwrap(),
+        1_000_000_000_000u128
+    );
+    assert_eq!(
+        decimal_to_base_units("0.02", 18, RoundingMode::Exact).unwrap(),
+        20_000_000_000_000_000u128
+    );
 }
