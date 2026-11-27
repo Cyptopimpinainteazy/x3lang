@@ -1,10 +1,23 @@
 """Exercise compiler behavior and the workbench's HTTP trust boundary."""
 import http.client
 import json
+from pathlib import Path
+import subprocess
+import sys
 from threading import Thread
 from http.server import ThreadingHTTPServer
 import pytest
 import dotx3_workbench as wb
+
+
+def test_hosted_compiler_import_does_not_start_the_workbench():
+    code = """
+import sys
+from offline_compiler import compile_sources
+assert callable(compile_sources)
+assert not {'dotx3_workbench', 'agent_law', 'forcefield', 'mainnet_agent_preflight'}.intersection(sys.modules)
+"""
+    subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).parent, check=True)
 
 
 def test_real_compiler_and_policy_are_distinct():
