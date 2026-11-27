@@ -15,7 +15,7 @@ This path is the missing local sequence for an X3-routed call:
 python3 scripts/hackathon/agent_law.py
 ```
 
-The [exhibit](agent-law-proof.html) is that run, generated from the same report. The loopback workbench shows it beside the proof cards at `http://127.0.0.1:8793`. The pending-settlement card stays pending. Do not hand-edit the exhibit; regenerate it with `agent_law.proof_page`.
+The [exhibit](agent-law-proof.html) records two local decisions under the unchanged invoice_06 mandate. The original 25,000,000-base-unit payment requires an authenticated approval, which this offline path cannot provide. A separate request for 24,999,999 base units with a fresh nonce reaches the exact approval threshold and receives one local receipt. The loopback workbench shows it beside the proof cards at `http://127.0.0.1:8793`. The pending-settlement card stays pending. Do not hand-edit the exhibit; regenerate it with `agent_law.proof_page`.
 
 The same page has a second control, under the editors. Birth, test, authorize, and revoke run that source through the same functions. The adversary is the recipient named in the program, plus one look-alike of that account. The client cannot submit a role, a privilege hash, or a receipt. The session lives in the workbench process and clears when that process stops. It does not replace the archived invoice_06 exhibit.
 

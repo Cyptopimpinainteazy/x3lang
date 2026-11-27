@@ -1070,6 +1070,18 @@ export function checkMandate(mandate, policy, nowMs) {
   return out;
 }
 
+/** Local adapter checks include the fee payee, which is absent from the signed Guard policy. */
+export function checkMandateForLeg(mandate, policy, nowMs, leg) {
+  const checks = checkMandate(mandate, policy, nowMs);
+  if (leg.app_fee) {
+    const { recipient, bps } = leg.app_fee;
+    const allowed = mandate.terms.recipients ?? [];
+    checks.push({ guard: "mandate_app_fee_recipient", ok: allowed.includes(recipient),
+      detail: `fee ${bps} bps to ${recipient}, allowed ${allowed.join(", ")}`, enforced_by: "adapter" });
+  }
+  return checks;
+}
+
 export function approvalsNeeded(mandate, amount) {
   const above = mandate.terms.approval_above;
   return above != null && BigInt(amount) > BigInt(above) ? mandate.terms.approval_threshold : 0;

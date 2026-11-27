@@ -69,7 +69,7 @@ def evaluate(mandate_path: str, intent_path: str, tokens: list[dict[str, Any]], 
     request = ni.build_quote_request(leg, tokens, dry=True)
     policy = ni.policy_for(leg, request, intent_sha)
     preview_state = {**mandate, "version": None, **state}
-    checks = ni.mandates().check_mandate(preview_state, policy, int(now.timestamp() * 1000))
+    checks = ni.check_mandate_for_leg(preview_state, policy, int(now.timestamp() * 1000), leg)
     denied = [check["guard"] for check in checks if not check["ok"]]
     approvals = ni.mandates().approvals_needed(preview_state, int(policy["amount"]))
     result.update(checks=checks, denied_guards=denied, approvals_needed=approvals)

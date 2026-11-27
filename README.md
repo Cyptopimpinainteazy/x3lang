@@ -57,7 +57,7 @@ not sign or deploy, and the archived FullAccess recovery key stays listed as ope
 python3 scripts/hackathon/forcefield.py
 ```
 
-One local enforcement path runs the same payment through birth, compile, test, authorize, revocation, and court. The receipt stays on the X3 route:
+One local enforcement path holds the archived payment for owner approval and runs a separate payment at the approval threshold through authorization, revocation, and court. The receipt stays on the X3 route:
 
 ```bash
 python3 scripts/hackathon/agent_law.py

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove one X3 agent-law path on the archived invoice_06 payment.
+"""Replay the archived invoice_06 approval requirement and a separate local threshold payment.
 
     python3 scripts/hackathon/agent_law.py
     python3 scripts/hackathon/agent_law.py --json

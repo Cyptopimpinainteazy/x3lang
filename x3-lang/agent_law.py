@@ -52,6 +52,7 @@ ARCHITECTURE = (
 PUBLIC_FIELDS = (
     "ok",
     "permitted",
+    "archived_payment_decision",
     "forbidden_reason",
     "outside_reason",
     "revoked_reason",
@@ -180,6 +181,10 @@ def authorize(
     if nonce in record["nonces"]:
         return _refuse(record, "nonce", "this nonce is already consumed", program_sha=program_sha, source=source)
     amount = int(proposal["policy"]["amount"])
+    approvals = forcefield._near().mandates().approvals_needed(record["mandate"], amount)
+    if approvals:
+        return _refuse(record, "approval_required", f"the mandate requires {approvals} authenticated approval(s)",
+                       program_sha=program_sha, source=source)
     if record["spent"] + amount > int(record["birth"]["spending_limit"]):
         return _refuse(record, "limit", "the payment exceeds the remaining mandate limit", program_sha=program_sha, source=source)
     receipt = {
@@ -295,7 +300,7 @@ def compile_proposal(
     if owner != record["birth"]["owner"]:
         return {"ok": False, "reason": "authority", "detail": f"under mandate {owner}", "policy": None, "nonce": leg.get("nonce")}
     policy = _policy(leg, tokens, hashlib.sha256(source.encode("utf-8")).hexdigest())
-    checks = forcefield._near().mandates().check_mandate(record["mandate"], policy, compiled_at_ms(compiled_at))
+    checks = forcefield._near().check_mandate_for_leg(record["mandate"], policy, compiled_at_ms(compiled_at), leg)
     failed = [row["guard"] for row in checks if not row["ok"]]
     if failed:
         return {"ok": False, "reason": failed[0], "detail": ",".join(failed), "policy": policy, "nonce": leg.get("nonce")}
@@ -552,6 +557,15 @@ def demonstrate() -> Dict[str, Any]:
         compiled_at=compiled_at,
         tokens=tokens,
     )
+    test_proposal(record, payment, compiled_at=compiled_at, tokens=tokens)
+    archived = authorize(
+        record, {"route": ROUTE, "source": payment},
+        role="agent", compiled_at=compiled_at, now_ms=now_ms, tokens=tokens,
+    )
+    # Keep the invoice and birth mandate unchanged. A fresh local request at
+    # the exact approval threshold demonstrates execution without an approval.
+    payment = payment.replace("amount 25000000 ", "amount 24999999 ", 1).replace(
+        "require nonce mainnet_demo_nov11_invoice_06", "require nonce local_invoice06_threshold", 1)
     tested = test_proposal(record, payment, compiled_at=compiled_at, tokens=tokens)
     permitted = authorize(
         record, {"route": ROUTE, "source": payment},
@@ -571,8 +585,8 @@ def demonstrate() -> Dict[str, Any]:
     spent_after_block = record["spent"]
     revoked = revoke(record, role="operator", reason="demonstration")
     later = payment.replace(
-        "require nonce mainnet_demo_nov11_invoice_06",
-        "require nonce mainnet_demo_nov11_invoice_06_after_revoke",
+        "require nonce local_invoice06_threshold",
+        "require nonce local_invoice06_after_revoke",
         1,
     )
     test_proposal(record, later, compiled_at=compiled_at, tokens=tokens)
@@ -596,23 +610,25 @@ def demonstrate() -> Dict[str, Any]:
     record["receipts"].append({"tamper": True})
     receipt = permitted.get("receipt") or {}
     ok = (
-        tested["ok"]
+        archived["reason"] == "approval_required"
+        and archived["receipt"] is None
+        and tested["ok"]
         and permitted["ok"]
         and receipt.get("broadcast") is False
         and receipt.get("solana_custody") == "outside_this_path"
         and receipt.get("method") == X3_METHOD
-        and receipt.get("amount") == 25_000_000
+        and receipt.get("amount") == 24_999_999
         and not forbidden["ok"]
         and forbidden["reason"] == "mandate_recipient"
         and not outside["ok"]
         and outside["reason"] == "route"
-        and spent_after_block == 25_000_000
+        and spent_after_block == 24_999_999
         and revoked["ok"]
         and revoked["receipts"] == 1
         and not stopped["ok"]
         and stopped["reason"] == "revoked"
         and len(record["receipts"]) == 2
-        and record["receipts"][0]["amount"] == 25_000_000
+        and record["receipts"][0]["amount"] == 24_999_999
         and self_judgment["applied"] is False
         and self_judgment["reason"] == "agent_cannot_judge_itself"
         and jury["applied"] is False
@@ -639,6 +655,7 @@ def demonstrate() -> Dict[str, Any]:
     return {
         "ok": ok,
         "permitted": permitted["ok"],
+        "archived_payment_decision": archived["reason"],
         "forbidden_reason": forbidden["reason"],
         "outside_reason": outside["reason"],
         "revoked_reason": stopped["reason"],
@@ -718,12 +735,13 @@ dd{{margin:0;font:14px/1.4 ui-monospace,monospace;overflow-wrap:anywhere}}
 <body>
 <main>
 <h1>X3 agent law <span id="mark" class="mark">{mark}</span></h1>
-<p>This page is the local enforcement exhibit for the archived invoice_06 program. Birth, compile, test, authorize, execute, monitor, and judge are the architecture. The lines below are that run. It does not settle the payment, broadcast a transaction, or hold the Solana wallet.</p>
+<p>The archived invoice_06 program needs one owner approval for its 25,000,000 base units. This local run has no authenticated approval, so it refuses that program. A separate request for 24,999,999 base units with a fresh nonce exercises the permitted path under the same mandate. It does not settle the payment, broadcast a transaction, or hold the Solana wallet.</p>
 <ol id="chain">
 {stages}
 </ol>
 <dl>
-<dt>Permitted X3 call</dt><dd id="permitted">{_visible(view["permitted"])}</dd>
+<dt>Archived payment decision</dt><dd id="archived">{_visible(view["archived_payment_decision"])}</dd>
+<dt>Permitted local X3 call</dt><dd id="permitted">{_visible(view["permitted"])}</dd>
 <dt>Forbidden bypass</dt><dd id="forbidden">{_visible(view["forbidden_reason"])}</dd>
 <dt>Outside route</dt><dd id="outside">{_visible(view["outside_reason"])}</dd>
 <dt>After revocation</dt><dd id="revoked">{_visible(view["revoked_reason"])}</dd>
@@ -764,6 +782,7 @@ limitNodes.forEach(function (item, index) {{
 function text(id) {{ return document.getElementById(id).textContent; }}
 var ok = chainOk && limitsOk
   && text("mark") === (embedded.ok ? "PASS" : "FAIL")
+  && text("archived") === embedded.archived_payment_decision
   && text("permitted") === String(embedded.permitted)
   && text("forbidden") === embedded.forbidden_reason
   && text("outside") === embedded.outside_reason
@@ -796,6 +815,7 @@ def render(report: Mapping[str, Any]) -> str:
     mark = "PASS" if report["ok"] else "FAIL"
     lines = [
         f"X3 agent law  {mark}",
+        f"archived payment: {report['archived_payment_decision']}",
         f"permitted X3 call: {report['permitted']}",
         f"forbidden bypass: {report['forbidden_reason']}",
         f"outside route: {report['outside_reason']}",
