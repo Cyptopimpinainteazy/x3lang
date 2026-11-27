@@ -49,7 +49,7 @@ sends money, or consumes a nonce.
    forbidden recipient, amount, fee, slippage and expired mandate in the existing test suite.
 2. **Agent Economy:** the agent's `.x3` payment references the owner's `.x3` spending mandate;
    amounts above the approval threshold are reported as `approval_required`, never authorized.
-3. **DeFi perspective, proposed:** the local intent lowers to one NEAR Intents leg
+3. **Unstoppable DeFi:** the local intent lowers to one NEAR Intents leg
    with source/destination assets, minimum receipt, slippage, refund address and
    timeout preserved. This preview does not reproduce the separate historical
    Base Sepolia → NEAR Tidepool transfer or establish official 1Click settlement.
@@ -58,16 +58,20 @@ This document describes the local policy slice only. Separately, the committed
 testnet evidence contains finalized deployment, registration, refusal,
 revocation and an allowed `accept_quote`; that acceptance authorizes a deposit
 address only. The live `agent_register_intent` request to a forbidden recipient
-is now recorded as a `mandate_recipient` refusal. A fresh live manager-signed
-quote refused at final `agent_accept_quote` and funded official 1Click settlement
-remain unproven. Separately, the [first-swap walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md)
-records a historical funded Base Sepolia transfer and finalized NEAR testnet
-delivery through the trusted Tidepool relay. That evidence does not establish
-provider-independent cryptographic cross-chain causality or atomicity. Do not
-promote local preflight results or official quote acceptance into those claims.
+is recorded as a `mandate_recipient` refusal. A fresh live manager-signed
+quote refused at final `agent_accept_quote` still needs its own receipt.
+
+On mainnet, [invoice_06](../../evidence/near-guard-mainnet-invoice06-2026-11-12/README.md)
+has a restricted-agent quote acceptance, a 25 USDC owner-signed Solana deposit,
+and a 24.9952 USDC payout to `x3lang.near`. The agent subsequently recorded
+the outcome. The public chains establish the two transfers individually.
+The association between them comes from provider status.
+
+The [first-swap walkthrough](FIRST_SWAP_JUDGE_WALKTHROUGH.md) covers a separate
+Base Sepolia transfer and NEAR testnet delivery through the Tidepool relay.
 
 ## Change isolation
 
 The language grammar, compiler, VM and Guard state are unchanged. This adds a read-only
 control-surface entrypoint and tests so one policy can be exercised across the
-two evidence-backed hackathon categories without implementing separate products.
+security, agent and DeFi demonstrations.

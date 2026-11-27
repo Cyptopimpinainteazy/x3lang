@@ -621,10 +621,10 @@ def describe_error(err: Any) -> Optional[str]:
 def tty_confirm(prompt: str) -> bool:
     """Read the answer from the controlling terminal, so piped input cannot approve a send."""
     try:
-        with open("/dev/tty", "r+", encoding="utf-8") as tty:
-            tty.write(prompt)
-            tty.flush()
-            return tty.readline().strip() == "yes"
+        with open("/dev/tty", "w", encoding="utf-8") as writer:
+            writer.write(prompt)
+        with open("/dev/tty", "r", encoding="utf-8") as reader:
+            return reader.readline().strip() == "yes"
     except OSError:
         return False
 

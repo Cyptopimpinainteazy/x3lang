@@ -11,11 +11,15 @@ accept localhost HTTP for tests but require HTTPS for non-local RPC.
 from __future__ import annotations
 
 import json
+import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import threading
+from urllib.error import HTTPError
 
 import pytest
+
+import testnet_guard_evidence as evidence
 
 from testnet_guard_evidence import (
     EXPECTED_TESTNET_GENESIS,
@@ -286,3 +290,87 @@ def test_verify_fails_when_the_exact_historical_block_is_unavailable(fake_rpc, t
     fake_rpc.responses["query"] = query
     with pytest.raises(EvidenceError, match="historical|block unavailable"):
         verify_evidence(path, rpc_url=fake_rpc.url, wasm=wasm)
+
+
+@pytest.mark.parametrize("override", [None, "http://127.0.0.1:12345"])
+def test_cli_uses_archive_for_verification_and_respects_override(monkeypatch, override):
+    urls = []
+
+    def verify(path, url, wasm=None):
+        urls.append(url)
+        return {"verified": True}
+
+    monkeypatch.setattr(evidence, "verify_evidence", verify)
+    options = ["--rpc-url", override] if override else []
+    assert evidence.main(["--verify", "manifest.json", *options]) == 0
+    assert urls == [override or "https://archival-rpc.testnet.fastnear.com"]
+
+
+@pytest.mark.parametrize(("recover", "expected_calls"), [(True, 2), (False, 3)])
+def test_quota_reads_retry_boundedly(fake_rpc, monkeypatch, recover, expected_calls):
+    attempts = []
+    delays = []
+    monkeypatch.setattr("time.sleep", delays.append)
+
+    def quota(params):
+        attempts.append(params)
+        if recover and len(attempts) == 2:
+            return {"chain_id": "testnet"}
+        return {"error": {"code": -32000, "message": "Rate limits exceeded."}}
+
+    fake_rpc.responses["EXPERIMENTAL_chain"] = quota
+    if recover:
+        assert _valid_tx_record(fake_rpc)["final_execution_status"] == "FINAL"
+    else:
+        with pytest.raises(EvidenceError, match="(?i)rate limit"):
+            _valid_tx_record(fake_rpc)
+    assert len(attempts) == expected_calls
+    assert len(delays) == expected_calls - 1
+    assert all(0 < delay <= 30 for delay in delays)
+
+
+def test_collection_checks_network_identity_once_for_the_same_endpoint(fake_rpc, tmp_path):
+    record = _valid_tx_record(fake_rpc)
+    queries = []
+
+    def identity(params):
+        queries.append(params)
+        return {"chain_id": "testnet"}
+
+    fake_rpc.responses["EXPERIMENTAL_chain"] = identity
+    assert verify_evidence(fixture("list.json", [record, record], tmp_path), fake_rpc.url)["count"] == 2
+    assert len(queries) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "retry_after", "delays"),
+    [(429, "22", [22, 22]), (429, "120", []), (503, None, [5, 15]), (403, None, [])],
+)
+def test_http_quota_and_permanent_errors(monkeypatch, status, retry_after, delays):
+    calls = []
+    sleeps = []
+
+    def unavailable(request, timeout):
+        calls.append(request.full_url)
+        headers = {"Retry-After": retry_after} if retry_after else {}
+        raise HTTPError(request.full_url, status, "unavailable", headers, io.BytesIO(b""))
+
+    monkeypatch.setattr(evidence, "urlopen", unavailable)
+    monkeypatch.setattr("time.sleep", sleeps.append)
+    with pytest.raises(EvidenceError, match=f"HTTP {status}"):
+        record_transaction("historical-tx", "https://archive.example.org")
+    assert sleeps == delays
+    assert calls == ["https://archive.example.org"] * (1 + len(delays))
+
+
+@pytest.mark.parametrize(("tx_hash", "signer", "reason"), [
+    ("   ", None, "transaction hash must not be empty"),
+    ("historical-tx", "Invalid Account", "invalid signer_id"),
+])
+def test_record_invalid_transaction_never_queries_rpc(monkeypatch, tx_hash, signer, reason):
+    def unexpected_request(*args, **kwargs):
+        pytest.fail("invalid local input triggered an RPC request")
+
+    monkeypatch.setattr(evidence, "urlopen", unexpected_request)
+    with pytest.raises(EvidenceError, match=reason):
+        record_transaction(tx_hash, "https://archive.example.org", sender_id=signer)
