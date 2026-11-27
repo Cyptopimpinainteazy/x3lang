@@ -220,8 +220,10 @@ Master snapshot: `b41801bc455324e1f4c202f32205c50c263b0adf`. Existing PRs are dr
 - [x] Run isolated offline native VM baseline: economic_types 7/7, trading_execution 76/76, trading_receipts 29/29, total 112/112.
 - [x] Run selected compiler control-flow and guard baseline: 5/5 control-flow, 61/61 guard declarations, 16/16 require guards, total 82/82. Initial three fixture-loading failures were resolved by restoring the exact committed examples directory. Full native bytecode parity is a separate open gate.
 - [x] Reproduce and patch trusted receipt atomic-boundary validation on isolated draft PR #292: commit f8255e3fec30bbdbe030a578dc9a5324323e4dfb. Both regressions returned Ok before the fix; both refused afterward. Selected VM matrix 114/114 on the patched source.
+- [x] Run entire native VM crate suite on exact PR #292 head f8255e3fec30bbdbe030a578dc9a5324323e4dfb: 391 passed, zero failed, ignored or filtered. Initial isolated runner omitted docs/ and scripts/ (seven fixture-loading failures); corrected read-only mounts and reran all tests.
 - [ ] Complete independent review and exact-head CI for #292; merge only with owner approval.
-- [ ] Verify and resolve open critical dependency advisory #14 (wee_alloc); existing draft PR #275 is the candidate fix, not yet merged.
+- [x] Inspect exact PR #275 head becaf9cd5274e1817d625aafd062c00bb49f7c90: diff is confined to coin Cargo.toml/Cargo.lock, disables near-sdk default features for normal and test dependencies, removes wee_alloc from lockfile. Existing build-unsigned and applicable CI checks report success; fresh allocator contract build not performed here.
+- [ ] Resolve open critical dependency advisory #14 through reviewed and approved PR #275; no deployment or merge yet.
 - [ ] Verify end-to-end policy binding and fail-closed unsupported guards against actual compiled artifacts.
 - [ ] Reconcile draft stacks in dependency order; preserve owner decisions and stop at failed gates.
 - [ ] Record all subsequent evidence with exact commit, command, result, scope limitations and rollback procedure.
@@ -229,6 +231,8 @@ Master snapshot: `b41801bc455324e1f4c202f32205c50c263b0adf`. Existing PRs are dr
 Baseline command (from x3-lang workspace, isolated archive with committed lock, Rust 1.99.1): `cargo test --offline --locked -p x3-lang-vm --test economic_types --test trading_receipts --test trading_execution -- --test-threads=1`. Local fixture execution only. The original workspace and production systems are unchanged.
 
 Compiler baseline command: `cargo test --offline --locked -p x3-lang-compiler --test test_control_flow_e2e --test test_require_guards --test test_guard_declarations -- --test-threads=1`. The 194 baseline tests are local fixture evidence, not a full workspace or chain release pass. The separate fix branch adds two receipt regression cases.
+
+Full VM command on PR #292: `cargo test --offline --locked -p x3-lang-vm -- --test-threads=1`, with read-only source, docs and scripts in the isolated worker. Standalone CI is not cross-repository parity. Rollback: leave draft unmerged or revert its focused source/test commit through review; no live state was changed.
 
 ## Product integration map
 
