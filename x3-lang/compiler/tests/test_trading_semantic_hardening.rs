@@ -224,3 +224,72 @@ fn bridge_receiver_must_be_a_string_literal() {
         "the diagnostic must explain the receiver must be a string literal: {errors:?}"
     );
 }
+
+#[test]
+fn linear_debt_cannot_be_read_after_repayment() {
+    let source = source_with_trade(
+        r#"    borrow 1 USDC from aave_v3 as debt
+    repay debt
+    let weth = swap debt.amount USDC -> WETH via uniswap_v3 min_out 1 WETH
+    require net_profit >= 1 USDC
+    require all_debts_repaid
+    emit receipt"#,
+    );
+    let errors = analyze(&source).expect_err("repaid debt is no longer an available amount");
+    assert!(has_message(&errors, "debt.amount"));
+}
+
+#[test]
+fn linear_debt_cannot_be_repaid_twice() {
+    let source = source_with_trade(
+        r#"    borrow 1 USDC from aave_v3 as debt
+    repay debt
+    repay debt
+    require net_profit >= 1 USDC
+    require all_debts_repaid
+    emit receipt"#,
+    );
+    let errors = analyze(&source).expect_err("repayment consumes the obligation");
+    assert!(has_message(&errors, "debt") && has_message(&errors, "more than once"));
+}
+
+#[test]
+fn linear_debt_identifier_cannot_be_reopened_after_repayment() {
+    let source = source_with_trade(
+        r#"    borrow 1 USDC from aave_v3 as debt
+    repay debt
+    borrow 1 USDC from aave_v3 as debt
+    repay debt
+    require net_profit >= 1 USDC
+    require all_debts_repaid
+    emit receipt"#,
+    );
+    let error = parse_source(&source).expect_err("the parser rejects reused debt identifiers");
+    assert!(error.to_string().contains("duplicate debt"));
+
+    // A caller can supply a parsed AST directly, so retain the semantic check too.
+    let mut program = parse_source(&source_with_trade(
+        "borrow 1 USDC from aave_v3 as debt\nrepay debt\nrequire net_profit >= 1 USDC\nrequire all_debts_repaid\nemit receipt",
+    )).unwrap();
+    for item in &mut program.items {
+        if let x3_lang_ast::Item::AtomicTrade(trade) = &mut item.node {
+            trade.body.insert(2, trade.body[0].clone());
+            break;
+        }
+    }
+    assert!(analyze_trading(&program, CompilationMode::Dev).is_err());
+}
+
+#[test]
+fn linear_debt_distinct_obligations_can_each_be_repaid_once() {
+    let source = source_with_trade(
+        r#"    borrow 1 USDC from aave_v3 as first
+    repay first
+    borrow 2 USDC from aave_v3 as second
+    repay second
+    require net_profit >= 1 USDC
+    require all_debts_repaid
+    emit receipt"#,
+    );
+    assert!(analyze(&source).is_ok());
+}
