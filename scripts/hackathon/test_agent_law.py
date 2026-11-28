@@ -16,6 +16,8 @@ def test_the_invoice_path_permits_blocks_revokes_and_preserves():
     report = agent_law.demonstrate()
     assert report["ok"] is True
     assert report["permitted"] is True
+    assert report["archived_payment_decision"] == "approval_required"
+    assert report["receipt_amount"] == 24_999_999
     assert report["forbidden_reason"] == "mandate_recipient"
     assert report["outside_reason"] == "route"
     assert report["revoked_reason"] == "revoked"

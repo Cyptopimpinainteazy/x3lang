@@ -3,6 +3,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
+import agent_law
 import track_control as tc
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,3 +103,43 @@ def test_judge_console_scenarios_are_current():
     script = ROOT / "near" / "demo" / "judge" / "build_scenarios.py"
     proc = subprocess.run([sys.executable, str(script), "--check"], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
+
+
+@pytest.mark.parametrize(("recipient", "decision"), [
+    ("x3-demo.near", "preflight_passed"),
+    ("unlisted.near", "denied_by_policy"),
+])
+def test_preview_and_local_door_agree_on_declared_fee_recipient(tmp_path, recipient, decision):
+    source = ALLOWED.read_text().replace("    require fees", f"    fee 25 bps to {recipient}\n    require fees")
+    path = tmp_path / "fee.x3"
+    path.write_text(source)
+    preview = evaluate(path)
+    assert preview["decision"] == decision
+    fee_check, = (c for c in preview["checks"] if c["guard"] == "mandate_app_fee_recipient")
+    assert fee_check["enforced_by"] == "adapter"
+    assert fee_check["ok"] == (decision == "preflight_passed")
+
+    door = agent_law.Door()
+    assert door.act({"act": "birth", "mandate": MANDATE.read_text()}, now=NOW)["ok"]
+    tested = door.act({"act": "test", "program": source}, now=NOW)
+    assert tested["ok"] == fee_check["ok"]
+    if not tested["ok"]:
+        assert tested["reason"] == "mandate_app_fee_recipient"
+        assert tested["court_receipts"] == 0
+
+
+@pytest.mark.parametrize(("amount", "accepted"), [(30_000_000, True), (30_000_001, False)])
+def test_local_door_refuses_approval_required_payments_before_consumption(amount, accepted):
+    program = ALLOWED.read_text().replace("amount 25000000", f"amount {amount}")
+    door = agent_law.Door()
+    assert door.act({"act": "birth", "mandate": MANDATE.read_text()}, now=NOW)["ok"]
+    assert door.act({"act": "test", "program": program}, now=NOW)["ok"]
+    result = door.act({"act": "authorize", "program": program}, now=NOW)
+    assert result["ok"] == accepted
+    assert result["reason"] == ("executed" if accepted else "approval_required")
+    assert result["spent"] == (amount if accepted else 0)
+    assert result["court_receipts"] == (1 if accepted else 0)
+    if not accepted:
+        assert result["receipt"] is None
+        again = door.act({"act": "authorize", "program": program}, now=NOW)
+        assert again["reason"] == "approval_required"
