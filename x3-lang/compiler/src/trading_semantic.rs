@@ -5,7 +5,7 @@
 //! validates the typed statements of every atomic trade before later
 //! lowering or verification can proceed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 
@@ -257,13 +257,14 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
 
     // debt name -> asset symbol; binding name -> asset symbol
     let mut debts: HashMap<Symbol, Symbol> = HashMap::new();
+    let mut closed_debts = HashSet::new();
     let mut bindings: HashMap<Symbol, Symbol> = HashMap::new();
 
     for stmt in &trade.body {
         match stmt {
             TradeStmt::Borrow { amount, debt, .. } => {
                 validate_amount(amount, &symbols.assets, "borrow amount", span, errors);
-                if debts.insert(debt.0.clone(), amount.asset.clone()).is_some() {
+                if debts.contains_key(&debt.0) || closed_debts.contains(&debt.0) {
                     errors.push(coded_error(
                         crate::diagnostic::DiagnosticCode::DebtLifecycle,
                         format!(
@@ -273,6 +274,8 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                         ),
                         span,
                     ));
+                } else {
+                    debts.insert(debt.0.clone(), amount.asset.clone());
                 }
             }
             TradeStmt::Swap {
@@ -437,14 +440,25 @@ fn validate_atomic_trade(trade: &AtomicTradeDecl, symbols: &TradingSymbols, span
                 }
             }
             TradeStmt::Repay { debt } => {
-                if !debts.contains_key(&debt.0) {
-                    errors.push(coded_error(
-                        crate::diagnostic::DiagnosticCode::DebtLifecycle,
+                if debts.remove(&debt.0).is_some() {
+                    closed_debts.insert(debt.0.clone());
+                } else {
+                    let message = if closed_debts.contains(&debt.0) {
+                        format!(
+                            "atomic trade '{}' repays debt '{}' more than once",
+                            trade.name.as_str(),
+                            debt.0.as_str()
+                        )
+                    } else {
                         format!(
                             "atomic trade '{}' repays undeclared debt '{}'",
                             trade.name.as_str(),
                             debt.0.as_str()
-                        ),
+                        )
+                    };
+                    errors.push(coded_error(
+                        crate::diagnostic::DiagnosticCode::DebtLifecycle,
+                        message,
                         span,
                     ));
                 }
