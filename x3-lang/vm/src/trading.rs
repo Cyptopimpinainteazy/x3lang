@@ -397,6 +397,11 @@ pub enum TradingExecError {
     },
     MissingReceipt,
     AccountingOverflow,
+    InsufficientJournalBalance {
+        asset: AssetKey,
+        requested: u128,
+        available: u128,
+    },
     InvariantViolated {
         kind: InvariantKind,
         asset: AssetKey,
@@ -548,6 +553,9 @@ impl fmt::Display for TradingExecError {
             }
             Self::MissingReceipt => write!(f, "borrowed-capital trade did not emit a receipt"),
             Self::AccountingOverflow => write!(f, "checked trading accounting overflowed"),
+            Self::InsufficientJournalBalance { asset, requested, available } => write!(
+                f, "insufficient journal balance for {}: requested {requested}, available {available}", asset.symbol
+            ),
             Self::InvariantViolated { kind, asset, deficit } => write!(
                 f,
                 "invariant '{}' violated: {} nets to a deficit of {}",
@@ -870,6 +878,7 @@ impl TradingVm {
                             }
                         }
                     };
+                    self.require_journal_balance(from, input_units)?;
                     // Quote first, before the swap actually executes, so the
                     // reference price can't be influenced by the swap's own
                     // effects.
@@ -978,6 +987,7 @@ impl TradingVm {
                             }
                         }
                     };
+                    self.require_journal_balance(from, input_units)?;
                     let result = host
                         .bridge(BridgeRequest {
                             via: via.clone(),
@@ -1019,6 +1029,8 @@ impl TradingVm {
                         .principal
                         .checked_add(record.fee)
                         .ok_or(TradingExecError::AccountingOverflow)?;
+                    // Principal is debited from the journal; fees have their own cost ledger.
+                    self.require_journal_balance(&record.asset, record.principal)?;
                     let result = host
                         .close_debt(RepayRequest {
                             debt_id: debt_id.clone(),
@@ -1399,6 +1411,20 @@ impl TradingVm {
             }
         }
         Ok(largest_bps)
+    }
+
+    /// Refuse spending beyond this trade's credited and unspent balance before host dispatch.
+    /// This is a local journal check, not an attestation of an external wallet's lock state.
+    fn require_journal_balance(&self, asset: &AssetKey, requested: u128) -> Result<(), TradingExecError> {
+        let available = self.trading_state.balances.get(asset).copied().unwrap_or(0);
+        if requested > available {
+            return Err(TradingExecError::InsufficientJournalBalance {
+                asset: asset.clone(),
+                requested,
+                available,
+            });
+        }
+        Ok(())
     }
 
     fn credit(&mut self, asset: &AssetKey, amount: u128) -> Result<(), TradingExecError> {
