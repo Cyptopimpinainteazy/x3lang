@@ -1,0 +1,24 @@
+audit-artifacts/native-liquidation-20261128/benchmark.json
+  h_e41068bed968d7 2,10-12,14-16
+audit-artifacts/native-liquidation-20261128/cli-proof.json
+  h_e41068bed968d7 1-52
+audit-artifacts/native-liquidation-20261128/independent-receipt-check.json
+  h_e41068bed968d7 2,9-10
+audit-artifacts/native-liquidation-20261128/native-proof.json
+  h_e41068bed968d7 6,8,23-24,27-40,42-58,869,890-891,893-895,897,899-906,908-909,911-915,917-921,924,959,965,1013,1033,1035,1696,1698,1700-1703,1707,1709,1719,1724,1726,1736,1743,1750
+audit-artifacts/native-liquidation-20261128/rust-gates.json
+  h_e41068bed968d7 12,14,34,36,54,56,70,72,92,94,108,110,128,130,142,144,155,157
+audit-artifacts/native-liquidation-20261128/verification.json
+  h_e41068bed968d7 3,5,33,70,89,91,111,113,131,133,147,149,169,171,185,187,205,207,219,221,232,234,237-246,258-259,263-264,269,271,286-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c11603d20add4684427b14b0d13f00be5394f53f",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
