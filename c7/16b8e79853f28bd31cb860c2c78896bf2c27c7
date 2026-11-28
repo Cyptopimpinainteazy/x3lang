@@ -1,0 +1,136 @@
+.github/workflows/x3-native-liquidation.yml
+  h_e41068bed968d7 1-64
+.github/workflows/x3lang-history-ci.yml
+  h_e41068bed968d7 86-89
+docs/x3-lang/native-liquidation.md
+  h_e41068bed968d7 1-144
+x3-lang/Cargo.lock
+  h_e41068bed968d7 11-211,268-545,552-562,569-574,623-658,665-676,686-739,746-757,763-780,798-826,858,873-884,891-920,956-997,1008-1016,1024,1026,1028,1041-1110,1123-1174,1181-1194,1205-1225,1253-1289,1299-1318,1332,1341-1372,1385-1406,1419-1424,1442,1444,1449-1454,1512,1547,1552-1568,1581,1588-1593,1602,1610-1614,1622-1660,1700-1708,1787-1810,1899-1904,1927-2067,2069,2071-2074,2078-2079,2081,2083-2086,2090-2091,2093,2096-2097,2099,2102-2103,2105-2117,2131-2143,2150-2180,2183-2188,2207-2212,2252,2304-2328,2336-2369,2406,2427-2460,2467-2487,2510-2524,2534-2539,2556-2576,2598-2599,2607-2616,2644-2660,2667,2669-2690,2719,2722-2727,2737-2765,2814-2823,2838-2883,2890-2910,2917,2930,2999-3095,3119-3127,3134-3142,3170,3175,3177,3198-3231,3239-3240,3249-3270,3285,3327-3345,3358-3368,3380-3390,3408,3432-3437,3448,3457-3466,3477-3527,3540-3545,3593-3622,3699-3716,3729-3734,3749,3751,3771-3776,3873,3903,3916-3917,3930-3964,4082-4090,4125,4127,4143,4156,4175,4177,4191-4199,4204,4207,4216,4219,4227,4232,4247,4255-4257,4261,4263,4267,4283,4318,4339,4359,4368-4381,4413
+x3-lang/README.md
+  h_e41068bed968d7 21-29
+x3-lang/compiler/src/emitter.rs
+  h_e41068bed968d7 112-122,760-764,1141,1787
+x3-lang/compiler/src/formatter.rs
+  h_e41068bed968d7 199,213-253
+x3-lang/compiler/src/ir.rs
+  h_e41068bed968d7 69-85,89-92
+x3-lang/compiler/src/lowering.rs
+  h_e41068bed968d7 79-109,1156-1158
+x3-lang/compiler/src/parser.rs
+  h_e41068bed968d7 338,356-477
+x3-lang/compiler/src/verify.rs
+  h_e41068bed968d7 15-26,92-102
+x3-lang/compiler/tests/native_liquidation.rs
+  h_e41068bed968d7 1-247
+x3-lang/compiler/tests/test_bytecode_version_gate.rs
+  h_e41068bed968d7 22-23,40,139-142,154,162,165,173,180,182,185-188
+x3-lang/crates/x3-ast/src/ast.rs
+  h_e41068bed968d7 66-67,93-98
+x3-lang/crates/x3-common/src/capability.rs
+  h_e41068bed968d7 3,8-10,343,477-502,913-937,1137-1146
+x3-lang/crates/x3-common/src/lib.rs
+  h_e41068bed968d7 9
+x3-lang/crates/x3-common/src/liquidation.rs
+  h_e41068bed968d7 1-108
+x3-lang/crates/x3-tools/src/bin/x3_liquidation.rs
+  h_e41068bed968d7 1-86
+x3-lang/crates/x3-tools/tests/native_liquidation_cli.rs
+  h_e41068bed968d7 1-57
+x3-lang/examples/native_liquidation.x3
+  h_e41068bed968d7 1-23
+x3-lang/spec/opcodes.rs
+  h_e41068bed968d7 142-143,181-182,198,243,248-251,292,299,306,729,855,947
+x3-lang/spec/opcodes.yaml
+  h_e41068bed968d7 7-11
+x3-lang/tests/test_surface_drift.py
+  h_e41068bed968d7 186-187
+x3-lang/vm/Cargo.toml
+  h_e41068bed968d7 26-29,32
+x3-lang/vm/src/executor.rs
+  h_e41068bed968d7 702,724-730,1341-1365
+x3-lang/vm/src/lib.rs
+  h_e41068bed968d7 7-8
+x3-lang/vm/src/liquidation.rs
+  h_e41068bed968d7 1-298
+x3-lang/vm/src/liquidation_evm.rs
+  h_e41068bed968d7 1-580
+x3-lang/vm/src/verifier.rs
+  h_e41068bed968d7 310-326
+x3-lang/vm/src/x3_lang_vm.rs
+  h_e41068bed968d7 232-234,261-263,356-358,366-371
+x3-lang/vm/tests/fixtures/native-liquidation/.gitignore
+  h_e41068bed968d7 1-3
+x3-lang/vm/tests/fixtures/native-liquidation/README.md
+  h_e41068bed968d7 1-97
+x3-lang/vm/tests/fixtures/native-liquidation/build.mjs
+  h_e41068bed968d7 1-47
+x3-lang/vm/tests/fixtures/native-liquidation/fixture.mjs
+  h_e41068bed968d7 1-299
+x3-lang/vm/tests/fixtures/native-liquidation/fixture.test.mjs
+  h_e41068bed968d7 1-109
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/LICENSE
+  h_e41068bed968d7 1-103
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/Morpho.sol
+  h_e41068bed968d7 1-557
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IERC20.sol
+  h_e41068bed968d7 1-9
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IIrm.sol
+  h_e41068bed968d7 1-19
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IMorpho.sol
+  h_e41068bed968d7 1-353
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IMorphoCallbacks.sol
+  h_e41068bed968d7 1-52
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IOracle.sol
+  h_e41068bed968d7 1-15
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/LICENSE
+  h_e41068bed968d7 1-389
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/ConstantsLib.sol
+  h_e41068bed968d7 1-21
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/ErrorsLib.sol
+  h_e41068bed968d7 1-80
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/EventsLib.sol
+  h_e41068bed968d7 1-150
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/LICENSE
+  h_e41068bed968d7 1-389
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/MarketParamsLib.sol
+  h_e41068bed968d7 1-21
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/MathLib.sol
+  h_e41068bed968d7 1-45
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/SafeTransferLib.sol
+  h_e41068bed968d7 1-36
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/SharesMathLib.sol
+  h_e41068bed968d7 1-45
+x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/UtilsLib.sol
+  h_e41068bed968d7 1-38
+x3-lang/vm/tests/fixtures/native-liquidation/package-lock.json
+  h_e41068bed968d7 1-325
+x3-lang/vm/tests/fixtures/native-liquidation/package.json
+  h_e41068bed968d7 1-15
+x3-lang/vm/tests/fixtures/native-liquidation/pins.mjs
+  h_e41068bed968d7 1-29
+x3-lang/vm/tests/fixtures/native-liquidation/source-pins.json
+  h_e41068bed968d7 1-135
+x3-lang/vm/tests/fixtures/native-liquidation/src/MonkeyLiquidator.sol
+  h_e41068bed968d7 1-168
+x3-lang/vm/tests/fixtures/native-liquidation/src/MonkeyLiquidatorSwap.sol
+  h_e41068bed968d7 1-209
+x3-lang/vm/tests/fixtures/native-liquidation/test/mocks/Mocks.sol
+  h_e41068bed968d7 1-196
+x3-lang/vm/tests/native_evm_anvil.rs
+  h_e41068bed968d7 1-491
+x3-lang/vm/tests/native_evm_transport.rs
+  h_e41068bed968d7 1-191
+x3-lang/vm/tests/native_liquidation.rs
+  h_e41068bed968d7 1-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
