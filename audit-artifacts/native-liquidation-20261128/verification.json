@@ -1,8 +1,8 @@
 {
   "schema": "x3-native-liquidation-local-evidence/v1",
-  "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+  "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
   "base_commit": "7d246dd0f4e0b5bb6538301b2ecd342e2053e6de",
-  "observed_utc": "2026-11-28T09:10:01.241858+00:00",
+  "observed_utc": "2026-11-28T09:20:48.778305+00:00",
   "scope": "Off-chain X3 compiler/VM and owned loopback Anvil31337. Genuine Morpho/Profit Monkey executor; fixture ERC20/oracle/DEX. No public signing, public deployment or win-rate proof.",
   "git_source_state": "committed source checked unchanged before and after final gates; evidence generated afterward",
   "source_sha256": {
@@ -30,7 +30,7 @@
     "x3-lang/spec/opcodes.yaml": "58d4ce661472c9349c048fe3a95a822a4f6a1fdd22ee7688de1a50376a655aeb",
     "x3-lang/tests/test_surface_drift.py": "0cf958afd53f7c9e426a0763f1b8fed6056c8dff9f1d826890160048e5248f6b",
     "x3-lang/vm/Cargo.toml": "38571258193f8c2968b3b746c20958078eaee3a3c683ffb4ebfe22a31ce7c5d0",
-    "x3-lang/vm/src/executor.rs": "a33827bec3d2739ec097c771030d784d8ab824d278ded51eebe7aa3dc6ad54c5",
+    "x3-lang/vm/src/executor.rs": "52619415eaa6a15ae19105ba7960277b3591d044c7613aed14157718a53da2b4",
     "x3-lang/vm/src/lib.rs": "c3f502225f2ca568b0fff1a38ae812466b21b8aaa49e33e6ffb642550ea544fa",
     "x3-lang/vm/src/liquidation.rs": "d57f18f4925b51353b1d20dc28341c72c133188855cc7d40cb586c955a019b38",
     "x3-lang/vm/src/liquidation_evm.rs": "3ab9ffd0572e63361f1d11fad5b306d4f90267739abf0ac6b2095ea8d03b8492",
@@ -67,7 +67,7 @@
     "x3-lang/vm/tests/fixtures/native-liquidation/test/mocks/Mocks.sol": "86476b4edd25ccf27d9bdb5505dae2602bdb80f049609ff284c47eac84820e17",
     "x3-lang/vm/tests/native_evm_anvil.rs": "a5bd61a4837de5cb458b6f8a55afe72e0adce17319d3760fa49ae5cfc061f9a4",
     "x3-lang/vm/tests/native_evm_transport.rs": "2f4a558182f1f819f6c9b58593253fd07c13d6317e90b51a680ed5e33ab5ca77",
-    "x3-lang/vm/tests/native_liquidation.rs": "ba4c6a8abd9684eb2a6fe69ff79d043ed504d8dc017cca31c57fcb392261fee7"
+    "x3-lang/vm/tests/native_liquidation.rs": "b1fb4053bddbd9a4994c84401c2cfd27cdd4667a56193f1ed61f4515da3b2e9a"
   },
   "toolchain": {
     "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
@@ -86,9 +86,9 @@
         "--quiet"
       ],
       "cwd": "x3-lang",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 9.292,
+      "elapsed_seconds": 24.846,
       "build_jobs": 2,
       "debug_symbols": false
     },
@@ -108,9 +108,9 @@
         "--test-threads=1"
       ],
       "cwd": "x3-lang",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 11.2,
+      "elapsed_seconds": 10.451,
       "build_jobs": 2,
       "debug_symbols": false
     },
@@ -128,9 +128,9 @@
         "warnings"
       ],
       "cwd": "x3-lang",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 0.342,
+      "elapsed_seconds": 10.05,
       "build_jobs": 2,
       "debug_symbols": false
     },
@@ -144,9 +144,9 @@
         "--check"
       ],
       "cwd": "x3-lang",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 1.051,
+      "elapsed_seconds": 1.165,
       "build_jobs": 2,
       "debug_symbols": false
     },
@@ -166,9 +166,9 @@
         "--nocapture"
       ],
       "cwd": "x3-lang",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 3.06,
+      "elapsed_seconds": 3.059,
       "build_jobs": 2,
       "debug_symbols": false
     },
@@ -182,9 +182,9 @@
         "tests/test_surface_drift.py"
       ],
       "cwd": "x3-lang",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 1.335,
+      "elapsed_seconds": 0.43,
       "build_jobs": 2,
       "debug_symbols": false
     },
@@ -202,9 +202,9 @@
         "-q"
       ],
       "cwd": ".",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 1.657,
+      "elapsed_seconds": 0.788,
       "build_jobs": 2,
       "debug_symbols": false
     },
@@ -216,9 +216,9 @@
         "build"
       ],
       "cwd": "x3-lang/vm/tests/fixtures/native-liquidation",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 4.761,
+      "elapsed_seconds": 4.432,
       "build_jobs": 2,
       "debug_symbols": false
     },
@@ -229,11 +229,21 @@
         "test"
       ],
       "cwd": "x3-lang/vm/tests/fixtures/native-liquidation",
-      "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
       "exit_code": 0,
-      "elapsed_seconds": 3.913,
+      "elapsed_seconds": 2.528,
       "build_jobs": 2,
       "debug_symbols": false
+    },
+    {
+      "gate": "native-cli-readonly",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "commands": [
+        "x3c build policy.x3 --out policy.x3b",
+        "x3_liquidation --artifact policy.x3b --approved-artifact-hash APPROVED --batch batch.json"
+      ],
+      "exit_code": 0,
+      "scope": "actual x3c build and x3_liquidation CLI on owned Anvil31337; unsigned/read-only"
     }
   ],
   "results": {
@@ -245,19 +255,20 @@
     "fixture_contract_tests_passed": 4,
     "python_surface_passed": 6,
     "source_checkout_policy_passed": 13,
-    "mined_gas_used": 228526,
-    "native_fee_wei": "241711663171344",
+    "mined_gas_used": 231032,
+    "native_fee_wei": "244361858848768",
     "owner_profit_raw": "3089769985",
     "repaid_raw": "79999990450",
     "loan_token": "fixture FUSD, 6 decimals",
-    "negative_native_preflights": 10
+    "negative_native_preflights": 10,
+    "cli_unsigned_success": true
   },
   "security_review": {
     "independent_read_only_review": true,
     "staged_secret_scan": {
-      "command": "git diff --cached --no-ext-diff | gitleaks stdin --redact --no-banner --no-color",
+      "command": "git diff 7d246dd..9bbe637 -- .github docs x3-lang | gitleaks stdin --redact --no-banner --no-color",
       "exit_code": 0,
-      "bytes_scanned": 421988
+      "bytes_scanned": 422988
     },
     "dependency_audit": {
       "exit_code": 1,
@@ -272,7 +283,8 @@
       "post-effect timeout closed by terminal execution",
       "bytecode v3 definition helper corrected",
       "Python corpus classifies the Rust-only example",
-      "RNG moved into the test host; VM determinism scan unchanged"
+      "RNG moved into the test host; VM determinism scan unchanged",
+      "generic recovery handlers cannot swallow a native refusal or uncertain submission error"
     ],
     "evidence_secret_scan": {
       "exit_code": 1,

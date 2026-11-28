@@ -1,5 +1,5 @@
 {
-  "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+  "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
   "profile": {
     "opt_level": 1,
     "debug_symbols": false
@@ -7,13 +7,13 @@
   "measurement": {
     "candidates": 64,
     "direct_authorize_baseline": {
-      "p50_ns": 275895,
-      "p95_ns": 482129,
-      "p99_ns": 549422
+      "p50_ns": 274320,
+      "p95_ns": 478235,
+      "p99_ns": 550452
     },
-    "p50_ns": 336020,
-    "p95_ns": 580396,
-    "p99_ns": 658255,
+    "p50_ns": 334063,
+    "p95_ns": 576132,
+    "p99_ns": 654134,
     "samples": 2000,
     "scope": "verified VM selection plus fixture native effect; no network or signing",
     "warmup": 100

@@ -9,9 +9,9 @@
       "--quiet"
     ],
     "cwd": "x3-lang",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 9.292,
+    "elapsed_seconds": 24.846,
     "build_jobs": 2,
     "debug_symbols": false
   },
@@ -31,9 +31,9 @@
       "--test-threads=1"
     ],
     "cwd": "x3-lang",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 11.2,
+    "elapsed_seconds": 10.451,
     "build_jobs": 2,
     "debug_symbols": false
   },
@@ -51,9 +51,9 @@
       "warnings"
     ],
     "cwd": "x3-lang",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 0.342,
+    "elapsed_seconds": 10.05,
     "build_jobs": 2,
     "debug_symbols": false
   },
@@ -67,9 +67,9 @@
       "--check"
     ],
     "cwd": "x3-lang",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 1.051,
+    "elapsed_seconds": 1.165,
     "build_jobs": 2,
     "debug_symbols": false
   },
@@ -89,9 +89,9 @@
       "--nocapture"
     ],
     "cwd": "x3-lang",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 3.06,
+    "elapsed_seconds": 3.059,
     "build_jobs": 2,
     "debug_symbols": false
   },
@@ -105,9 +105,9 @@
       "tests/test_surface_drift.py"
     ],
     "cwd": "x3-lang",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 1.335,
+    "elapsed_seconds": 0.43,
     "build_jobs": 2,
     "debug_symbols": false
   },
@@ -125,9 +125,9 @@
       "-q"
     ],
     "cwd": ".",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 1.657,
+    "elapsed_seconds": 0.788,
     "build_jobs": 2,
     "debug_symbols": false
   },
@@ -139,9 +139,9 @@
       "build"
     ],
     "cwd": "x3-lang/vm/tests/fixtures/native-liquidation",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 4.761,
+    "elapsed_seconds": 4.432,
     "build_jobs": 2,
     "debug_symbols": false
   },
@@ -152,9 +152,9 @@
       "test"
     ],
     "cwd": "x3-lang/vm/tests/fixtures/native-liquidation",
-    "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
     "exit_code": 0,
-    "elapsed_seconds": 3.913,
+    "elapsed_seconds": 2.528,
     "build_jobs": 2,
     "debug_symbols": false
   }

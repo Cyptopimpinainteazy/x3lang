@@ -1,0 +1,52 @@
+{
+  "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+  "scope": "actual x3c build and x3_liquidation CLI on owned Anvil31337; unsigned/read-only",
+  "commands": [
+    "x3c build policy.x3 --out policy.x3b",
+    "x3_liquidation --artifact policy.x3b --approved-artifact-hash APPROVED --batch batch.json"
+  ],
+  "exit_code": 0,
+  "artifact_hash": "0x5098e9e7a549f05e88cf7c054e7e5ef319c9268694260bc05b6f3469f23ceec1",
+  "effect": {
+    "request_hash": [
+      213,
+      1,
+      242,
+      217,
+      152,
+      243,
+      142,
+      34,
+      32,
+      150,
+      98,
+      147,
+      33,
+      114,
+      121,
+      165,
+      162,
+      156,
+      17,
+      170,
+      81,
+      130,
+      225,
+      133,
+      134,
+      235,
+      102,
+      15,
+      109,
+      231,
+      36,
+      208
+    ],
+    "transaction_hash": null,
+    "status": "Prepared"
+  },
+  "selected_candidate": "cli-local-readonly",
+  "state_unchanged": true,
+  "keeper_nonce_before": 0,
+  "keeper_nonce_after": 0
+}

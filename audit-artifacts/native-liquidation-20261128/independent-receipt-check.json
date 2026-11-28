@@ -1,11 +1,11 @@
 {
-  "source_commit": "c716b8e79853f28bd31cb860c2c78896bf2c27c7",
+  "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
   "tool": "independent Node/viem Keccak and BigInt receipt checks",
   "artifact_verified": true,
   "authorization_artifact_verified": true,
   "owner_profit_verified": true,
   "repayment_verified": true,
   "native_fee_verified": true,
-  "gas_used": "228526",
-  "native_fee_wei": "241711663171344"
+  "gas_used": "231032",
+  "native_fee_wei": "244361858848768"
 }
