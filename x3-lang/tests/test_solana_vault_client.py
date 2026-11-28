@@ -157,9 +157,17 @@ def test_policy_state_decodes_every_field():
     assert str(state["bump"]) == V["policy_bump"]
 
 
-def test_policy_state_refuses_wrong_size_version_and_booleans():
-    with pytest.raises(vc.VaultClientError):
-        vc.decode_policy(POLICY_STATE[:-1])
+@pytest.mark.parametrize("data", [
+    pytest.param(b"", id="empty"),
+    pytest.param(POLICY_STATE[:-1], id="truncated"),
+    pytest.param(POLICY_STATE + bytes(1), id="trailing-byte"),
+])
+def test_policy_state_refuses_wrong_size(data):
+    with pytest.raises(vc.VaultClientError, match="policy account must be"):
+        vc.decode_policy(data)
+
+
+def test_policy_state_refuses_invalid_version_and_booleans():
     with pytest.raises(vc.VaultClientError):
         vc.decode_policy(b"\x02" + POLICY_STATE[1:])
     revoked_offset = 2 + 32 * 4 + 8 * 3
