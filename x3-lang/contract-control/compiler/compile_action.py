@@ -1,7 +1,12 @@
 """Offline bounded X3CCP EVM source profile; no signing or RPC."""
 import hashlib
 import re
-import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from emitter._keccak import keccak_256 as keccak
+
 
 class PolicyError(ValueError):
     pass
@@ -29,17 +34,6 @@ def address(value):
     raw = bytes.fromhex(value[2:])
     require(any(raw), 'zero address')
     return bytes(12) + raw
-
-
-def keccak(data):
-    # OpenSSL 3 with KECCAK-256 support is required; never fall back to SHA3.
-    try:
-        result = subprocess.run(['openssl', 'dgst', '-keccak-256', '-binary'],
-                                input=data, capture_output=True, check=True, timeout=5)
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise PolicyError('Keccak-256 unavailable') from exc
-    require(len(result.stdout) == 32, 'invalid Keccak digest')
-    return result.stdout
 
 
 def compile_action(source, *, value, nonce, policy_version, now):

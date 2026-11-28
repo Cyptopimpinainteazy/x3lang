@@ -20,11 +20,11 @@ These are fictional fixture addresses and an expired fixture timestamp. One targ
 cd x3-lang/contract-control/compiler
 python -m unittest -v test_compile_action
 ```
-Requires Python 3 and OpenSSL providing `dgst -keccak-256` (locally checked with OpenSSL 3.5.5). No SHA3 fallback. Treat the executable and PATH as trusted; missing algorithm fails closed.
+Requires Python 3. The profile uses the repository’s Ethereum Keccak-256 implementation; the cross-language test checks an independently computed Solidity action vector.
 
 Owner tooling must independently pin source, executor code identity, current chain state, nonce, policy epoch and time; recompile and compare every byte before registering an action. The compiler's supplied context is not authenticated. An owner can still register actions outside this profile; the executor does not evaluate the source semantics. Value cap is not a lifetime spending budget. No token semantic guarantees. The Python tests and static digest vector are not Solidity execution, testnet evidence, or permission to deploy. No live funds.
 
-Next: Solidity vector parity and full executor tests; authenticated owner-side source verification; integration with canonical X3Lang parser/compiler and on-chain enforceable policy semantics.
+The Solidity vectors and the separate canonical Rust PIR compiler are exercised by the contract-control CI job. The strict Python profile uses the source SHA-256 as its policy hash; the Rust PIR compiler binds source and typed grant in its own policy commitment. Owners must select and verify the intended profile. Authenticated owner-side source verification and on-chain policy semantics remain separate release work.
 
 ## Offline ABI inventory
 
