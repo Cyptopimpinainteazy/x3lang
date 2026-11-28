@@ -26,6 +26,39 @@ X3 Lang mainnet roadmap).
 ## Python MVP files
 - `cli.py`, `registry.py`, `typechecker.py`, `planner.py`, `simulator.py`, `emitter/`, `schema.json`, `runner.py`, `tests/`, `examples/arb_solana_eth.x3`
 
+## Offline address format checker
+
+From the repository root, run the experimental checker with a named encoding and
+a public address. The JSON contains only the profile and the boolean result.
+Exit 0 means the text matches, 1 means a mismatch, and 2 means a usage error.
+
+```sh
+python3 x3-lang/address_format.py --help
+python3 x3-lang/address_format.py stellar-g GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF
+```
+
+| Profile | Accepted syntax |
+|---|---|
+| `btc`, `ltc` | Mainnet-version Base58Check or the chain's SegWit HRP. Version zero uses Bech32, later versions use Bech32m. Bitcoin and Litecoin share a legacy script-hash prefix. |
+| `doge`, `dash`, `zec-transparent` | Chain-specific Base58Check public-key and script hashes. The Zcash profile covers transparent addresses only. |
+| `bch-cashaddr` | Bitcoin Cash 160-bit P2PKH/P2SH CashAddr with the mainnet prefix or its prefixless form. |
+| `tron-base58`, `xrp-classic` | TRON's 21-byte address payload and XRP's classic 20-byte account ID in their respective checksummed alphabets. |
+| `stellar-g` | Uppercase Stellar Ed25519 account StrKey with its checksum. |
+| `ton-friendly`, `ton-raw` | Friendly form with its checksum and without the test-only flag, or raw workchain 0/−1 plus 32 hex bytes. Raw has no checksum. |
+| `move32` | `0x` plus exactly 64 hex digits. This checks a full-width encoding shared by several networks and has no checksum. |
+
+For a TON raw address beginning with a minus sign, put `--` before the address.
+The checker runs offline. A format match alone establishes no chain identity,
+ownership, account existence, memo, liquidity or authority to send a payment.
+Registry and browser support are defined separately in their normal adapters.
+
+Format references include [BIP-350](https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki),
+[CashAddr](https://github.com/bitcoincashorg/bitcoincash.org/blob/master/spec/cashaddr.md),
+[TRON accounts](https://developers.tron.network/docs/account),
+[XRPL addresses](https://xrpl.org/docs/references/protocol/data-types/basic-data-types),
+[Stellar SEP-23](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0023.md)
+and [TON TEP-2](https://github.com/ton-blockchain/TEPs/blob/master/text/0002-address.md).
+
 ## Rust workspace files
 - `Cargo.toml`, `compiler/`, `vm/`, `spec/`, `crates/x3-ast`, `crates/x3-common`, `crates/x3-lexer`, `crates/x3-tools`
 
