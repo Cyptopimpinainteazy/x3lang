@@ -1,0 +1,305 @@
+{
+  "schema": "x3-native-liquidation-local-evidence/v1",
+  "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+  "base_commit": "7d246dd0f4e0b5bb6538301b2ecd342e2053e6de",
+  "observed_utc": "2026-11-28T09:20:48.778305+00:00",
+  "scope": "Off-chain X3 compiler/VM and owned loopback Anvil31337. Genuine Morpho/Profit Monkey executor; fixture ERC20/oracle/DEX. No public signing, public deployment or win-rate proof.",
+  "git_source_state": "committed source checked unchanged before and after final gates; evidence generated afterward",
+  "source_sha256": {
+    ".github/workflows/x3-native-liquidation.yml": "998829bb1b14d5cbaffe3d783ab65d147bff940803888ee5948d69b47951551f",
+    ".github/workflows/x3lang-history-ci.yml": "73baa768a0844a7a35fabf6ad578ae54c0c7d1193ce58e64663c02b2206bef97",
+    "docs/x3-lang/native-liquidation.md": "a76bab5e197286a683147766d04660dda93784729287eb5c3724201f65a3d15c",
+    "x3-lang/Cargo.lock": "4a1bf890abf3d629ad20c3a3fa152ec69970c890da5e46f0cdc5b2931ac6b7bd",
+    "x3-lang/README.md": "3183f30942bb46b0df8ddc6d250cc2859d24f5e3840718d4683af970b38784d3",
+    "x3-lang/compiler/src/emitter.rs": "62ca63fda8cdae6ca41709be1b228afdab36671d797f7cadee81cff2bfbf4226",
+    "x3-lang/compiler/src/formatter.rs": "e53f51979a7a4d253f4da14d52ccb0fdddff2f2e7beef7db1bdcd1e24ae2dae0",
+    "x3-lang/compiler/src/ir.rs": "2996e6135178e97ba1fb7f3a5190d38101a5a51f0b116fefb13ceaa80f6b84fc",
+    "x3-lang/compiler/src/lowering.rs": "30b9867295c3d65e8cd5f90acc4fa12df6f6203f66fb7036562209dc09c16511",
+    "x3-lang/compiler/src/parser.rs": "b2983b377c491338636d52b01001cdd6496b2adc9bb550fcbd42f995133afd3e",
+    "x3-lang/compiler/src/verify.rs": "d221b8cc8439ed9ea17cba3c457e07b45258f3088565eea391e62b64b9be1e26",
+    "x3-lang/compiler/tests/native_liquidation.rs": "dcef08df9464e86675486bf6ce8c890a8980eaf7496cf42033f10a2cf8b5f43a",
+    "x3-lang/compiler/tests/test_bytecode_version_gate.rs": "d1da0710e493b1e528d65d501371bcc577cec69fb027506b95cf8fa435a0ebfb",
+    "x3-lang/crates/x3-ast/src/ast.rs": "174ac5c23556da86ede7b6fe61422a3cd3e6ecb6cd70a4b41c6857d0da921f45",
+    "x3-lang/crates/x3-common/src/capability.rs": "79c0e2b817a56f06732651bd12181c5debf7eb6705ee3eb5e5cbd7e439f8e090",
+    "x3-lang/crates/x3-common/src/lib.rs": "091ac128c36d74a30b7a34db54a4678f0bde010011e6840e2822e4047aa775c6",
+    "x3-lang/crates/x3-common/src/liquidation.rs": "5766272a2dcf8690c65b637aed668a5f499b5031dd416c5d98a4b961f85265cd",
+    "x3-lang/crates/x3-tools/src/bin/x3_liquidation.rs": "2f542e565a639fb021209a82f334f73afab89016c46e747fc6c8e940e2e2ff21",
+    "x3-lang/crates/x3-tools/tests/native_liquidation_cli.rs": "59a6331ebdb22389a24c38dcb01cdee6bf6dd50662be644bfed93713ce479963",
+    "x3-lang/examples/native_liquidation.x3": "4d7604c57997c439bb1021249a048958fb37bc76df7d99c302ebe6fef0f05055",
+    "x3-lang/spec/opcodes.rs": "04d2b55569c2cb032e39c7dd4c68016d721e5400f791330f24530784bb94d350",
+    "x3-lang/spec/opcodes.yaml": "58d4ce661472c9349c048fe3a95a822a4f6a1fdd22ee7688de1a50376a655aeb",
+    "x3-lang/tests/test_surface_drift.py": "0cf958afd53f7c9e426a0763f1b8fed6056c8dff9f1d826890160048e5248f6b",
+    "x3-lang/vm/Cargo.toml": "38571258193f8c2968b3b746c20958078eaee3a3c683ffb4ebfe22a31ce7c5d0",
+    "x3-lang/vm/src/executor.rs": "52619415eaa6a15ae19105ba7960277b3591d044c7613aed14157718a53da2b4",
+    "x3-lang/vm/src/lib.rs": "c3f502225f2ca568b0fff1a38ae812466b21b8aaa49e33e6ffb642550ea544fa",
+    "x3-lang/vm/src/liquidation.rs": "d57f18f4925b51353b1d20dc28341c72c133188855cc7d40cb586c955a019b38",
+    "x3-lang/vm/src/liquidation_evm.rs": "3ab9ffd0572e63361f1d11fad5b306d4f90267739abf0ac6b2095ea8d03b8492",
+    "x3-lang/vm/src/verifier.rs": "344a53d242da466637316f6c709ae31d380da3e50d74f3f9d07d83c6f348101e",
+    "x3-lang/vm/src/x3_lang_vm.rs": "da28bc6dc506f988e9bd8016455942c80e3f4c6c7edd0677ffba0ca63f3f79ea",
+    "x3-lang/vm/tests/fixtures/native-liquidation/.gitignore": "083a40852f294f9007ee2a840529c25234fa9f1852b748632ff52abea745b10c",
+    "x3-lang/vm/tests/fixtures/native-liquidation/README.md": "cbe45697d45a0d779a90aeeef19ddf59cb10cc2c318c4a66060817f97f4a3442",
+    "x3-lang/vm/tests/fixtures/native-liquidation/build.mjs": "b55477fc27453bc8ddffce11b636291e88d99cec3ddf3e66504b924276ff770a",
+    "x3-lang/vm/tests/fixtures/native-liquidation/fixture.mjs": "036d29af074914563dffebcff0e4a3d9abac0971d0d6bfc37bf046687c68af56",
+    "x3-lang/vm/tests/fixtures/native-liquidation/fixture.test.mjs": "738b6a25bba4a64cdfacd892b8e2241f0d194db95ea7fc0ba5b35986183b2e8e",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/LICENSE": "7a58f621fc71e7e5ed6f6ad5fcb8a56c145b77cea444a3066c530c9f40d8f89d",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/Morpho.sol": "7f66c064ad0bdc046382fa65f449bb5a0b9181d5d03b65e3c8438226d437b9ce",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IERC20.sol": "6e2b44aa15626cde7e33adc20c8a424ba91aaec47fab9170efaeea54104e565d",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IIrm.sol": "3ba6e6164cd0ed25d2b1d8d3766667ef016712705fe30094a97fe3801d14e915",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IMorpho.sol": "24f96c2860c42cd5834c56cdb159c56435acaee0716d34d54ca18bd755edc97c",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IMorphoCallbacks.sol": "3fa10015bd49e04e3c14e63bcf0abefb3ebac5759b030d32784cb1bd4773e0c4",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/IOracle.sol": "757c9870385af7a880cb12ae47b4aba8a936bab4a7bdeff50647d605237fc178",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/interfaces/LICENSE": "30ebd886d34d00443fbe6e2b1d65f8c17ddf3ccb08dea4d5d0279520eb8efb47",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/ConstantsLib.sol": "d450cc5f56d70f6460ed81c5e2e7a294f5b7644307a4c742754e0d41a8789567",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/ErrorsLib.sol": "0a54375182b5cfbb4f1101da4900c45ee96ba74962853168daf0d6281580666c",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/EventsLib.sol": "c267b23c5a3086ed00a712b841ef12b674be508ac8b8cf2e3f289ae09bd1677a",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/LICENSE": "30ebd886d34d00443fbe6e2b1d65f8c17ddf3ccb08dea4d5d0279520eb8efb47",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/MarketParamsLib.sol": "94af290e2a2094b8547b925449484d247bce87cce4fed8902ecf82dd2b49242e",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/MathLib.sol": "2c6728d1bc8f5db81f2a7946f226c3c4a8cffe4134c55450ca445b05727011bc",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/SafeTransferLib.sol": "bee3d6375591947edc45a28f46569e969df9ab434b91530e5bb4560aa61e3675",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/SharesMathLib.sol": "4580deb1b1a3f2ea0b60f2305708428975613d1e94d404d647bcc573a7b2a2f0",
+    "x3-lang/vm/tests/fixtures/native-liquidation/lib/morpho-blue/src/libraries/UtilsLib.sol": "9d0c8a0855b2f9e9f92111cdf32bdbbd1ff97b7584f0f958b695f2c4cb0d1b34",
+    "x3-lang/vm/tests/fixtures/native-liquidation/package-lock.json": "0c4ff2c39889fcb9c0df05a3e1324232f93e83f457926b92edc59e64755f7f0a",
+    "x3-lang/vm/tests/fixtures/native-liquidation/package.json": "0dd6d0a8c9b9e08ce855d80c9c65507d58f09cf3f9ccd530cd09e017c37f25e8",
+    "x3-lang/vm/tests/fixtures/native-liquidation/pins.mjs": "c63ff741418bd9c780929c53597be259a79e795849a57279869cc233e2ba2735",
+    "x3-lang/vm/tests/fixtures/native-liquidation/source-pins.json": "2514b4ea6122e76845f3f313f383d6cdafccb3187a9b8ed7e7b626916786e101",
+    "x3-lang/vm/tests/fixtures/native-liquidation/src/MonkeyLiquidator.sol": "c351ddf24bacc31aa4f966098408e15cf778ff7ba92156bacced251d60c7436d",
+    "x3-lang/vm/tests/fixtures/native-liquidation/src/MonkeyLiquidatorSwap.sol": "590e64fbfa060e803fea2d6067c6d38cf5838122cf7e413351cf449cb2383d1f",
+    "x3-lang/vm/tests/fixtures/native-liquidation/test/mocks/Mocks.sol": "86476b4edd25ccf27d9bdb5505dae2602bdb80f049609ff284c47eac84820e17",
+    "x3-lang/vm/tests/native_evm_anvil.rs": "a5bd61a4837de5cb458b6f8a55afe72e0adce17319d3760fa49ae5cfc061f9a4",
+    "x3-lang/vm/tests/native_evm_transport.rs": "2f4a558182f1f819f6c9b58593253fd07c13d6317e90b51a680ed5e33ab5ca77",
+    "x3-lang/vm/tests/native_liquidation.rs": "b1fb4053bddbd9a4994c84401c2cfd27cdd4667a56193f1ed61f4515da3b2e9a"
+  },
+  "toolchain": {
+    "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+    "cargo": "cargo 1.90.0 (840b83a10 2025-07-30)",
+    "node": "v24.22.1",
+    "anvil": "anvil Version: 1.8.3"
+  },
+  "gates": [
+    {
+      "gate": "rust-workspace-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--locked",
+        "--quiet"
+      ],
+      "cwd": "x3-lang",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 24.846,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "native-anvil-proof",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "x3-lang-vm",
+        "--test",
+        "native_evm_anvil",
+        "--locked",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "cwd": "x3-lang",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 10.451,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "strict-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "x3-lang",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 10.05,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "rust-format",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "cwd": "x3-lang",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 1.165,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "vm-selection-benchmark",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "x3-lang-vm",
+        "--test",
+        "native_liquidation",
+        "benchmark_compiled_vm_selection_64_candidates",
+        "--locked",
+        "--",
+        "--ignored",
+        "--nocapture"
+      ],
+      "cwd": "x3-lang",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 3.059,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "python-surface",
+      "command": [
+        "python3",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_surface_drift.py"
+      ],
+      "cwd": "x3-lang",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 0.43,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "source-checkout-policy",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests/ci",
+        "-p",
+        "test_*checkout*.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 0.788,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "fixture-build",
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "x3-lang/vm/tests/fixtures/native-liquidation",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 4.432,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "fixture-contract-tests",
+      "command": [
+        "npm",
+        "test"
+      ],
+      "cwd": "x3-lang/vm/tests/fixtures/native-liquidation",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "exit_code": 0,
+      "elapsed_seconds": 2.528,
+      "build_jobs": 2,
+      "debug_symbols": false
+    },
+    {
+      "gate": "native-cli-readonly",
+      "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+      "commands": [
+        "x3c build policy.x3 --out policy.x3b",
+        "x3_liquidation --artifact policy.x3b --approved-artifact-hash APPROVED --batch batch.json"
+      ],
+      "exit_code": 0,
+      "scope": "actual x3c build and x3_liquidation CLI on owned Anvil31337; unsigned/read-only"
+    }
+  ],
+  "results": {
+    "rust_passed": 1534,
+    "rust_failed": 0,
+    "rust_ignored": 2,
+    "ignored_scope": "native EVM integration and decision benchmark are run explicitly as separate gates",
+    "native_anvil_passed": 1,
+    "fixture_contract_tests_passed": 4,
+    "python_surface_passed": 6,
+    "source_checkout_policy_passed": 13,
+    "mined_gas_used": 231032,
+    "native_fee_wei": "244361858848768",
+    "owner_profit_raw": "3089769985",
+    "repaid_raw": "79999990450",
+    "loan_token": "fixture FUSD, 6 decimals",
+    "negative_native_preflights": 10,
+    "cli_unsigned_success": true
+  },
+  "security_review": {
+    "independent_read_only_review": true,
+    "staged_secret_scan": {
+      "command": "git diff 7d246dd..9bbe637 -- .github docs x3-lang | gitleaks stdin --redact --no-banner --no-color",
+      "exit_code": 0,
+      "bytes_scanned": 422988
+    },
+    "dependency_audit": {
+      "exit_code": 1,
+      "remaining_advisory": "RUSTSEC-2026-0387 / optional crypto-bigint0.5.5 lock entry; cargo tree reports no active path",
+      "signing_backend": "libsecp256k1; typed host key; no file/string loading; unsigned mode rejects signers",
+      "informational_warnings": "four unmaintained package warnings and one pre-existing rustix xattr unsoundness warning retained in raw audit report"
+    },
+    "resolved_findings": [
+      "direct-host policy substitution closed by decoding the approved artifact",
+      "HTTP proxy bypass closed",
+      "read/submit chain-state mismatch closed",
+      "post-effect timeout closed by terminal execution",
+      "bytecode v3 definition helper corrected",
+      "Python corpus classifies the Rust-only example",
+      "RNG moved into the test host; VM determinism scan unchanged",
+      "generic recovery handlers cannot swallow a native refusal or uncertain submission error"
+    ],
+    "evidence_secret_scan": {
+      "exit_code": 1,
+      "raw_findings": 4,
+      "triage": "Four generic-api-key matches are public 20-byte ERC20 contract identities under loan_token/collateral_token in native-proof.json; verified against fixture deployment and ABI. No scanner rule was disabled. Source diff scan separately passed.",
+      "public_fixture_addresses": [
+        "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+        "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"
+      ]
+    }
+  },
+  "remaining": [
+    "Public chains support unsigned preflight only",
+    "Independent live fee valuation, durable signing/nonce recovery and state feed are outside this local proof",
+    "Current executor enforces gross profit on chain; repay caps and expiry are submission-time checks",
+    "Optional lockfile advisory remains; no claim of a clean dependency audit"
+  ]
+}

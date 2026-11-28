@@ -1,0 +1,161 @@
+[
+  {
+    "gate": "rust-workspace-tests",
+    "command": [
+      "cargo",
+      "test",
+      "--workspace",
+      "--locked",
+      "--quiet"
+    ],
+    "cwd": "x3-lang",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 24.846,
+    "build_jobs": 2,
+    "debug_symbols": false
+  },
+  {
+    "gate": "native-anvil-proof",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "x3-lang-vm",
+      "--test",
+      "native_evm_anvil",
+      "--locked",
+      "--",
+      "--ignored",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "cwd": "x3-lang",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 10.451,
+    "build_jobs": 2,
+    "debug_symbols": false
+  },
+  {
+    "gate": "strict-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--all-features",
+      "--locked",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "cwd": "x3-lang",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 10.05,
+    "build_jobs": 2,
+    "debug_symbols": false
+  },
+  {
+    "gate": "rust-format",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "cwd": "x3-lang",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 1.165,
+    "build_jobs": 2,
+    "debug_symbols": false
+  },
+  {
+    "gate": "vm-selection-benchmark",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "x3-lang-vm",
+      "--test",
+      "native_liquidation",
+      "benchmark_compiled_vm_selection_64_candidates",
+      "--locked",
+      "--",
+      "--ignored",
+      "--nocapture"
+    ],
+    "cwd": "x3-lang",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 3.059,
+    "build_jobs": 2,
+    "debug_symbols": false
+  },
+  {
+    "gate": "python-surface",
+    "command": [
+      "python3",
+      "-m",
+      "pytest",
+      "-q",
+      "tests/test_surface_drift.py"
+    ],
+    "cwd": "x3-lang",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 0.43,
+    "build_jobs": 2,
+    "debug_symbols": false
+  },
+  {
+    "gate": "source-checkout-policy",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests/ci",
+      "-p",
+      "test_*checkout*.py",
+      "-q"
+    ],
+    "cwd": ".",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 0.788,
+    "build_jobs": 2,
+    "debug_symbols": false
+  },
+  {
+    "gate": "fixture-build",
+    "command": [
+      "npm",
+      "run",
+      "build"
+    ],
+    "cwd": "x3-lang/vm/tests/fixtures/native-liquidation",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 4.432,
+    "build_jobs": 2,
+    "debug_symbols": false
+  },
+  {
+    "gate": "fixture-contract-tests",
+    "command": [
+      "npm",
+      "test"
+    ],
+    "cwd": "x3-lang/vm/tests/fixtures/native-liquidation",
+    "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+    "exit_code": 0,
+    "elapsed_seconds": 2.528,
+    "build_jobs": 2,
+    "debug_symbols": false
+  }
+]

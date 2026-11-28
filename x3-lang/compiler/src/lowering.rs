@@ -76,6 +76,37 @@ pub fn lower_program_with_mode(
     ctx: LowerCtx,
     mode: CompilationMode,
 ) -> Result<X3IR, x3_lang_common::X3Error> {
+    fn contains_native(items: &[x3_lang_common::Spanned<Item>]) -> bool {
+        items.iter().any(|item| match &item.node {
+            Item::NativeLiquidation(_) => true,
+            Item::Mod(module) => contains_native(&module.items),
+            _ => false,
+        })
+    }
+    if contains_native(&program.items) {
+        let [item] = program.items.as_slice() else {
+            return Err(semantic("native_liquidation must be the program's only declaration"));
+        };
+        let Item::NativeLiquidation(decl) = &item.node else {
+            return Err(semantic(
+                "native_liquidation must be a standalone top-level declaration",
+            ));
+        };
+        if ctx.nonce.is_some() || ctx.chain_id.is_some() {
+            return Err(semantic(
+                "native_liquidation carries its own execution context; metadata overrides are forbidden",
+            ));
+        }
+        decl.policy.validate().map_err(|message| semantic(&message))?;
+        if decl.name.as_str().is_empty() {
+            return Err(semantic("native_liquidation name must not be empty"));
+        }
+        let mut ir = X3IR::new();
+        ir.push(Operation::NativeLiquidation {
+            policy: decl.policy.clone(),
+        });
+        return Ok(ir);
+    }
     let mut ir = X3IR::new();
     ir.metadata.nonce = ctx.nonce;
     ir.metadata.chain_id = ctx.chain_id;
@@ -1121,6 +1152,9 @@ pub fn lower_program_with_mode(
                     comparison: Some(floor.comparison),
                 });
                 ir.push(Operation::AtomicEnd);
+            }
+            Item::NativeLiquidation(_) => {
+                return Err(semantic("native_liquidation must be the program's only declaration"));
             }
             Item::AtomicLiquidation(liquidation_decl) => {
                 // The declaration lowers to the *plan*: the two venue calls, the conversion

@@ -1,0 +1,22 @@
+{
+  "source_commit": "9bbe6371ce9f752803170c77e1216540208c1697",
+  "profile": {
+    "opt_level": 1,
+    "debug_symbols": false
+  },
+  "measurement": {
+    "candidates": 64,
+    "direct_authorize_baseline": {
+      "p50_ns": 274320,
+      "p95_ns": 478235,
+      "p99_ns": 550452
+    },
+    "p50_ns": 334063,
+    "p95_ns": 576132,
+    "p99_ns": 654134,
+    "samples": 2000,
+    "scope": "verified VM selection plus fixture native effect; no network or signing",
+    "warmup": 100
+  },
+  "cpu_model": "Intel(R) Core(TM) i7-6700K CPU @ 4.00GHz"
+}

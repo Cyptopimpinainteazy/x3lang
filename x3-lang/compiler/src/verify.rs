@@ -12,6 +12,18 @@ use x3_lang_common::{Bps, Span};
 pub fn verify_ir(ir: &X3IR) -> Result<(), Vec<CompilerDiagnostic>> {
     let mut diagnostics = Vec::new();
 
+    if crate::ir::contains_native_liquidation(&ir.operations)
+        && (!matches!(ir.operations.as_slice(), [Operation::NativeLiquidation { .. }])
+            || ir.metadata.nonce.is_some()
+            || ir.metadata.chain_id.is_some()
+            || ir.metadata.timeout_blocks.is_some())
+    {
+        push_unsafe(
+            &mut diagnostics,
+            "native liquidation must be standalone without metadata overrides",
+        );
+    }
+
     if matches!(ir.metadata.nonce.as_deref(), Some("")) {
         push_unsafe(&mut diagnostics, "IR metadata nonce must not be empty");
     }
@@ -77,6 +89,17 @@ fn verify_sequence(ops: &[Operation], context: &str, diagnostics: &mut Vec<Compi
     for (index, op) in ops.iter().enumerate() {
         let op_context = format!("{context}[{index}]");
         match op {
+            Operation::NativeLiquidation { policy } => {
+                if context != "program" || ops.len() != 1 {
+                    push_unsafe(
+                        diagnostics,
+                        "native liquidation must be the sole top-level IR operation",
+                    );
+                }
+                if let Err(message) = policy.validate() {
+                    push_unsafe(diagnostics, message);
+                }
+            }
             Operation::AtomicBegin => {
                 locks_in_block = 0;
                 if atomic_depth > 0 {

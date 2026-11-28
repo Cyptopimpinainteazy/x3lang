@@ -18,6 +18,15 @@ but it cannot be submitted to the chain. Compiling x3-lang to X3BC, with the tra
 oracle-firewall logic as host modules of the one engine, is the next unification step (PR 4 of the
 X3 Lang mainnet roadmap).
 
+## Native liquidation host effect
+
+`native_liquidation` now compiles to a typed terminal VM instruction. The VM
+selects a bounded candidate and invokes an in-process Rust EVM adapter; its
+local Anvil proof signs and submits an actual Morpho liquidation. Public-chain
+access is unsigned preflight only. This does not deploy X3 bytecode on chain.
+See [native liquidation execution](../docs/x3-lang/native-liquidation.md) for
+the mandate, trust boundaries, commands and reproducible local proof.
+
 ## Source-of-truth rules
 
 - Python files: authoritative for the shipping intent DSL and MVP pipeline.

@@ -307,6 +307,23 @@ pub fn verify_with_register_limit(
             return Err(VerifyError::JumpToNonBoundary(source, target));
         }
     }
+    // Broadcasting is irreversible from the VM. A native effect is an entire
+    // standalone program, never an instruction followed by fallible work or a
+    // jump/handler that could resend it. Enforce this on bytecode as well as AST.
+    let mut native = boundaries.iter().copied().filter(|pc| bytes[*pc] == NATIVE_LIQUIDATION);
+    if let Some(native_pc) = native.next() {
+        let payload = read_payload(bytes, native_pc)?;
+        let halt_pc = align4(native_pc + 3 + payload.len());
+        if !compiler_stream
+            || native.next().is_some()
+            || boundaries.len() != 2
+            || native_pc != first_instruction_pc(bytes)
+            || bytes.get(halt_pc..halt_pc + 4) != Some(&[HALT, 0, 0, 0])
+            || bytes[halt_pc + 4..].iter().any(|byte| *byte != 0)
+        {
+            return Err(VerifyError::InvalidOperand(native_pc));
+        }
+    }
     Ok(boundaries)
 }
 

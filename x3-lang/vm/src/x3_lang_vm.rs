@@ -229,6 +229,9 @@ pub struct VM {
     pub state: VMState,
     pub code: InstructionStream,
     pub bridge: Box<dyn crate::bridge::BridgeAdapter>,
+    pub(crate) liquidation_host: Option<Box<dyn crate::liquidation::LiquidationHost>>,
+    pub(crate) liquidation_attempted: bool,
+    pub liquidation_receipt: Option<crate::liquidation::DecisionReceipt>,
 }
 
 impl std::fmt::Debug for VM {
@@ -255,6 +258,9 @@ impl VM {
             state: VMState::new(&cfg, gas),
             code: InstructionStream::new(code),
             bridge: Box::new(crate::bridge::DryRunBridge::default()),
+            liquidation_host: None,
+            liquidation_attempted: false,
+            liquidation_receipt: None,
         }
     }
 
@@ -347,11 +353,20 @@ impl VM {
             state: VMState::new(&cfg, gas),
             code: InstructionStream::new(code),
             bridge,
+            liquidation_host: None,
+            liquidation_attempted: false,
+            liquidation_receipt: None,
         })
     }
 
     pub fn execute(&mut self) -> ExecResult<()> {
         self.verify_and_execute()
+    }
+
+    /// Install a native effect whose trusted configuration pins this artifact.
+    /// Installing a host does not grant authority to any other bytecode.
+    pub fn set_liquidation_host(&mut self, host: Box<dyn crate::liquidation::LiquidationHost>) {
+        self.liquidation_host = Some(host);
     }
 
     pub fn verify_and_execute(&mut self) -> ExecResult<()> {

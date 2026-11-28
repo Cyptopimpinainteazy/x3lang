@@ -1,0 +1,23 @@
+// Replace every placeholder identity and expiry with reviewed configuration.
+// Raw loan-token units; this example assumes a six-decimal loan token.
+native_liquidation ProfitMonkey {
+    chain_id: 8453;
+    executor: "0x1111111111111111111111111111111111111111";
+    executor_code_hash: "0x2222222222222222222222222222222222222222222222222222222222222222";
+    keeper: "0x3333333333333333333333333333333333333333";
+    owner: "0x4444444444444444444444444444444444444444";
+    morpho: "0x5555555555555555555555555555555555555555";
+    loan_token: "0x6666666666666666666666666666666666666666";
+    markets: ["0x7777777777777777777777777777777777777777777777777777777777777777"];
+    routers: ["0x8888888888888888888888888888888888888888"];
+    min_repay: 1_000_000_000;
+    max_repay: 100_000_000_000;
+    min_profit: 5_000_000;
+    max_gas: 1_000_000;
+    max_fee_per_gas: 2_000_000_000;
+    max_priority_fee_per_gas: 1_000_000;
+    max_total_fee_wei: 3_000_000_000_000_000;
+    max_age_blocks: 1;
+    expires_at_block: 70_000_000;
+    max_candidates: 64;
+}
