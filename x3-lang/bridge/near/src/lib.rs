@@ -1766,6 +1766,55 @@ mod tests {
     }
 
     #[test]
+    fn fortress_opens_pre_upgrade_storage_and_settles_legacy_keys() {
+        // Exact synthetic storage bytes from the contract at 0aced7e; no new() or migration.
+        set("alice.testnet", 0, START + 2);
+        let rows: Vec<(Base64VecU8, Base64VecU8)> =
+            near_sdk::serde_json::from_str(include_str!("../tests/fixtures/pre_fortress_state.json")).unwrap();
+        for (key, value) in rows {
+            env::storage_write(&key.0, &value.0);
+        }
+        let mut c: NativeNearHtlc = env::state_read().unwrap();
+        let alice: AccountId = "alice.testnet".parse().unwrap();
+        let bob: AccountId = "bob.testnet".parse().unwrap();
+        let charlie: AccountId = "charlie.testnet".parse().unwrap();
+        let lp: AccountId = "lp.testnet".parse().unwrap();
+        assert_eq!(c.live_swaps, 2);
+        assert_eq!(c.liability().0, 4 * ONE);
+        assert_eq!(c.credit_of(charlie.clone()).0, ONE);
+        assert_eq!(c.pending_withdrawal_of(bob.clone()).0, ONE);
+        let upper = "A".repeat(64);
+        let lower = "a".repeat(64);
+        assert_eq!(c.get(upper.clone()).unwrap().state, SwapState::Locked);
+        assert_eq!(c.get(lower.clone()).unwrap().state, SwapState::Locked);
+        c.claim(upper.clone(), Base64VecU8(secret()));
+        let expiry = START + 600_000_000_000;
+        set("other.testnet", 0, expiry);
+        c.refund(lower.clone());
+        assert_eq!(c.live_swaps, 0);
+        assert_eq!(c.credit_of(alice).0, ONE);
+        assert_eq!(c.credit_of(lp).0, ONE);
+        assert_eq!(c.get(upper.clone()).unwrap().state, SwapState::Claimed);
+        assert_eq!(c.get(lower.clone()).unwrap().state, SwapState::Refunded);
+        assert!(fails(|| c.refund(upper)));
+        assert!(fails(|| c.refund(lower)));
+
+        // A pre-upgrade withdrawal can still fail and be retried exactly once.
+        callback(expiry + 1, false);
+        assert!(!c.on_withdraw(bob.clone()));
+        assert_eq!(c.pending_withdrawal_of(bob.clone()).0, 0);
+        assert_eq!(c.credit_of(bob.clone()).0, ONE);
+        assert_eq!(c.liability().0, 4 * ONE);
+        set("bob.testnet", 0, expiry + 2);
+        let _promise = c.withdraw();
+        callback(expiry + 3, true);
+        assert!(c.on_withdraw(bob.clone()));
+        assert_eq!(c.pending_withdrawal_of(bob).0, 0);
+        assert_eq!(c.credit_of(charlie).0, ONE);
+        assert_eq!(c.liability().0, 3 * ONE);
+    }
+
+    #[test]
     fn fortress_refund_consumes_locked_principal_and_withdrawal_is_conserved() {
         let mut c = new_testnet_vault();
         let initiator: AccountId = "lp.testnet".parse().unwrap();

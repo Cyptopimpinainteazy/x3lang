@@ -47,3 +47,9 @@ they cannot produce authenticated-window settlement logs. Retiring that
 entry point and migrating clients/state requires a separate approved release.
 The new ID is scoped to the vault's chain environment, not a global
 genesis-bound cross-chain proof. Issue #56 remains a release blocker.
+
+## Pre-upgrade compatibility fixture
+
+`x3-lang/bridge/near/tests/fixtures/pre_fortress_state.json` contains the seven synthetic NEAR SDK storage entries produced by the previous contract source at `0aced7e76a86ce801248bacd67753e30c92ec0b1`. In a fresh SDK environment, `lp.testnet` locked one NEAR at each of the 64-character keys comprising repeated A, a, b, and c. Alice owned the first two claims. Bob claimed b and initiated a withdrawal. Charlie claimed c and retained the credit. The generator persisted the root, dropped the contract to flush its maps, sorted the storage key/value pairs, and encoded each side in base64. The fixture SHA-256 is `f7415858cfe00cea02631553be46c1dd9f15b4b28c8de5c55123586961beef5c`.
+
+The compatibility test loads those bytes directly without initialization or a conversion. It settles the two differently cased historical keys, checks terminal replay refusals, restores and retries the in-flight withdrawal, and checks the remaining liability. A live contract upgrade still requires a separate deployment decision and verification of that account’s state.
