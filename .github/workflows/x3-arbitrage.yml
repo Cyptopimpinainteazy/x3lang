@@ -31,5 +31,6 @@ jobs:
           PYTHONPATH=x3-lang python -m pytest x3-lang/tests/test_arbitrage*.py x3-lang/tests/test_near_liquidity_quotes.py x3-lang/tests/test_near_liquidity_rhea.py -q
           python -m compileall -q x3-lang/arbitrage scripts/proof/arbitrage_roundtrip.py
           python scripts/proof/arbitrage_roundtrip.py --output /tmp/x3-automatic-paper-proof.json
-          node --test x3-lang/arbitrage/web/format.test.mjs
+          node --test x3-lang/arbitrage/web/*.test.mjs
           node --check x3-lang/arbitrage/web/app.mjs
+          node --check x3-lang/arbitrage/web/wallet-ui.mjs

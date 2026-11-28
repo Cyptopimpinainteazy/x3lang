@@ -231,13 +231,25 @@
         <div class="section-head"><div><h2>Size-specific DEX quotes</h2>
           <p>LI.FI route observations alongside the signed 1Click scanner. No transaction submission.</p></div>
           <span class="badge muted">READ ONLY</span></div>
+        <section class="wallet-connect" aria-label="EVM wallet connection">
+          <h3>Connect an EVM wallet</h3>
+          <p>Share your public address for quote previews. No signing, approvals or trades.</p>
+          <label>Detected wallet<select id="wallet-provider" aria-label="Detected EVM wallet"></select></label>
+          <div class="dialog-actions">
+            <button id="wallet-connect" type="button" class="secondary">Connect wallet</button>
+            <button id="wallet-use-address" type="button" class="secondary" disabled>Use wallet address</button>
+            <button id="wallet-disconnect" type="button" class="secondary" disabled>Disconnect locally</button>
+          </div>
+          <p id="wallet-status" role="status">Looking for an injected EVM wallet…</p>
+          <small>Wallet names are supplied by extensions. Local disconnect clears this app's connection; revoke site access in your wallet if needed.</small>
+        </section>
         <form id="provider-quote-form" class="quote-form">
           <div class="address-grid">
             <label>Market<select id="quote-market" required></select></label>
             <label>Input USDC<input id="quote-amount" required inputmode="decimal" value="100" /></label>
           </div>
           <label>Public EVM address for pricing<input id="quote-address" required autocomplete="off" placeholder="0x… (never enter a private key)" /></label>
-          <p>Your public address is sent to LI.FI to price this request. No wallet connection, signing or approval. Slippage tolerance: 0.50% per leg.</p>
+          <p>Your public address is sent to LI.FI to price this request. Wallet connection is optional; no signing or approval. Slippage tolerance: 0.50% per leg.</p>
           <button type="submit" id="get-provider-quotes" class="primary">Preview round-trip quotes</button>
         </form>
         <p id="quote-status" role="status">Choose a market and size. Pool liquidity alone cannot price your trade.</p>
