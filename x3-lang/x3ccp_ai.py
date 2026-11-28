@@ -35,7 +35,7 @@ LANGUAGE_CARD = """X3CCP `control` — an X3Lang policy that a Solidity contract
 One block per file. Every clause is one line. `//` starts a comment.
 
 control <name> {
-    target <base-sepolia|local> <contract address>      // the X3Controlled contract, nothing else
+    target <chain> <contract address>                   // the X3Controlled contract, nothing else
     owner <address>                                     // must equal the contract's owner
     allow callers <address>, <address>                  // who may call controlled functions
     allow fn <name>(<type> <param>, ...)                // types: address bool bytes32 uint8..uint256
@@ -48,6 +48,7 @@ control <name> {
     expires <duration> | expires at <YYYY-MM-DDTHH:MM:SSZ>
 }
 
+Chains: base-sepolia, local (testnets); base, ethereum (alias mainnet), optimism, arbitrum, bsc (mainnets).
 Durations: 30s, 10m, 1h, 7d (rate windows 1s..365d, fixed and epoch-aligned, not rolling).
 Numbers are base units: 50 USDC at 6 decimals is 50_000_000. Underscores are allowed.
 Every controlled function not listed in `allow fn` is refused. With no policy, everything is refused.
@@ -55,7 +56,8 @@ A refusal reverts with X3Refused(<line of the clause>, <reason code>).
 
 Rules for writing policies:
 - Never invent an address. Use only addresses the owner gave you; checksum or all-lowercase.
-- Mainnets are refused in v1. Use base-sepolia or local.
+- Use a mainnet only when the owner names one. Mainnet policies compile with an X3CCP_MAINNET_UNAUDITED
+  warning: tell the owner the enforcer is unaudited before they sign.
 - State the tightest bounds the owner asked for; do not add permissions they did not ask for.
 - After compiling, show the owner explain() output. The owner signs, not you.
 """

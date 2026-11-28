@@ -38,13 +38,20 @@ def test_grammar_accepts_every_compilable_source(source):
     assert x3ccp_ai.grammar_accepts(source)
 
 
+@pytest.mark.parametrize("chain", sorted(x3ccp.CHAINS))
+def test_grammar_and_compiler_agree_on_every_chain(chain):
+    source = EXAMPLE.replace("target local", f"target {chain}")
+    assert x3ccp_ai.grammar_accepts(source)
+    assert x3ccp.compile_source(source, now=NOW)["chain_id"] == x3ccp.CHAINS[chain]
+
+
 @pytest.mark.parametrize("broken", [
     EXAMPLE.replace("allow fn withdraw", "alow fn withdraw"),
     EXAMPLE.replace("control treasury_guard {", "control treasury guard {"),
     EXAMPLE.replace("limit withdraw.amount <= 50_000_000", "limit withdraw.amount < 50_000_000"),
     EXAMPLE.replace("rate withdraw calls per 1h <= 3", "rate withdraw calls per hour <= 3"),
     EXAMPLE.replace("0x1111111111111111111111111111111111111111", "0x11111"),
-    EXAMPLE.replace("target local", "target ethereum"),
+    EXAMPLE.replace("target local", "target solana"),
     EXAMPLE.replace("allow fn setMemo(bytes32 memo, bool urgent)", "allow fn setMemo(string memo)"),
     EXAMPLE.rstrip().rstrip("}"),
     EXAMPLE.replace("expires at 2030-01-01T00:00:00Z", "expires at 2030-01-01"),

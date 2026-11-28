@@ -61,8 +61,9 @@ if keccak256(b"").hex() != "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfa
 MAGIC = b"X3CP"
 VERSION = 1
 
-CHAINS = {"base-sepolia": 84532, "local": 31337}
+TESTNET_CHAINS = {"base-sepolia": 84532, "local": 31337}
 MAINNET_NAMES = {"base": 8453, "ethereum": 1, "mainnet": 1, "bsc": 56, "optimism": 10, "arbitrum": 42161}
+CHAINS = {**TESTNET_CHAINS, **MAINNET_NAMES}
 
 MAX_CALLERS = 16
 MAX_FUNCTIONS = 32
@@ -286,9 +287,6 @@ def parse(source: str) -> Dict[str, Any]:
                 raise X3CCPError("X3CCP_PARSE", "expected `target <chain> <contract address>`", ln.no, "target",
                                  "e.g. `target base-sepolia 0x…`")
             chain = m.group(1)
-            if chain in MAINNET_NAMES:
-                raise X3CCPError("X3CCP_MAINNET_REFUSED", f"`{chain}` is a mainnet; X3CCP v1 is testnet-only",
-                                 ln.no, "target", "use `base-sepolia` or `local` until the enforcer is audited")
             if chain not in CHAINS:
                 raise X3CCPError("X3CCP_CHAIN", f"unknown chain `{chain}`", ln.no, "target",
                                  f"supported chains: {', '.join(sorted(CHAINS))}")
@@ -440,6 +438,11 @@ def compile_source(source: str, *, now: Optional[datetime] = None) -> Dict[str, 
     if len(fns) > MAX_FUNCTIONS:
         raise X3CCPError("X3CCP_LIMIT", f"at most {MAX_FUNCTIONS} functions", None, "allow fn")
     warnings: List[Dict[str, Any]] = []
+    if parsed["chain"] in MAINNET_NAMES:
+        warnings.append({"code": "X3CCP_MAINNET_UNAUDITED", "line": parsed["target_line"],
+                         "message": f"`{parsed['chain']}` is a mainnet. The X3Controlled enforcer is unaudited and "
+                                    "the owner key can replace or revoke this policy at any time with no timelock; "
+                                    "this policy guards real funds"})
     for lim in parsed["limits"]:
         line = lim["line"]
         fn = fns.get(lim["fn"])
@@ -852,7 +855,9 @@ def explain(compiled: Dict[str, Any]) -> List[Dict[str, Any]]:
     expires = datetime.fromtimestamp(compiled["expires_at"], timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     out = [
         {"line": lines["target_line"], "text": f"This policy controls contract {compiled['target']} on "
-                                               f"{compiled['chain']} (chain {compiled['chain_id']}) and nothing else."},
+                                               f"{compiled['chain']} (chain {compiled['chain_id']}) and nothing else."
+                                               + (" This is a mainnet: real funds, unaudited enforcer."
+                                                  if compiled["chain_id"] in MAINNET_NAMES.values() else "")},
         {"line": lines["owner_line"], "text": f"Only {compiled['owner']}, the contract's owner, can install or "
                                               "revoke it."},
         {"line": lines["callers_line"], "text": "Only these callers may use controlled functions: "
