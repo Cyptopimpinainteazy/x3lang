@@ -1,0 +1,49 @@
+name: X3 Solana Pilot Offline Archive
+on:
+  pull_request:
+    paths:
+      - 'scripts/hackathon/*solana_pilot_archive.py'
+      - 'x3-lang/*.py'
+      - 'x3-lang/solana/*.py'
+      - '.github/workflows/x3-solana-pilot-archive.yml'
+  push:
+    branches: [master, 'fix/**']
+    paths:
+      - 'scripts/hackathon/*solana_pilot_archive.py'
+      - 'x3-lang/*.py'
+      - 'x3-lang/solana/*.py'
+      - '.github/workflows/x3-solana-pilot-archive.yml'
+permissions:
+  contents: read
+jobs:
+  archived-pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Get immutable public archive data
+        uses: actions/checkout@v4
+        with:
+          ref: 9ec3b48000bcada0ceb20df85d0d7e5eeed744bb
+          path: archive-input
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /evidence/solana-vault-mainnet-2026-11-14/*.json
+            /evidence/solana-vault-mainnet-2026-11-14/*.x3
+            /evidence/solana-vault-mainnet-2026-11-14/README.md
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install archive decoder
+        run: |
+          python -m pip install --only-binary=:all: solders==0.26.0
+      - name: Replay and check archived records using the current verifier
+        env:
+          PILOT_ARCHIVE: archive-input/evidence/solana-vault-mainnet-2026-11-14
+        run: |
+          set -euo pipefail
+          python scripts/hackathon/verify_solana_pilot_archive.py --evidence "$PILOT_ARCHIVE"
+          python scripts/hackathon/check_solana_pilot_archive.py --evidence "$PILOT_ARCHIVE"
