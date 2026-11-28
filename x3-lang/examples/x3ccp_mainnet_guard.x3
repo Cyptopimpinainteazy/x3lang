@@ -1,0 +1,14 @@
+// Illustrative addresses only: this example has not been deployed.
+// Replace target, owner, callers and recipient with your intended addresses.
+// Amounts below are raw native-token units, not USD.
+control mainnet_guard {
+    target base 0x1111111111111111111111111111111111111111
+    owner 0x2222222222222222222222222222222222222222
+    allow callers 0x3333333333333333333333333333333333333333
+    allow fn withdraw(address to, uint256 amount)
+    limit withdraw.amount <= 50_000_000
+    limit withdraw.to in 0x4444444444444444444444444444444444444444
+    rate withdraw.amount per 24h <= 200_000_000
+    rate withdraw calls per 1h <= 10
+    expires 30d
+}

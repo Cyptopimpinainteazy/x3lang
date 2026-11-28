@@ -1,0 +1,82 @@
+{
+  "mode": "local",
+  "chain_id": 31337,
+  "started": "2026-11-28T07:02:18.207196+00:00",
+  "classification": "local EVM run, not public-chain evidence",
+  "steps": [
+    {
+      "step": "deploy X3ControlledTreasury",
+      "tx": "0x6581abb03190af13f64bfe7b2ec118ec875fdc49687beecee19a7697122bdb38",
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+    },
+    {
+      "step": "fund treasury",
+      "tx": "0xd964f97c13c8f49418cc7cb2f141bba9a8ec67f11d6ee3b5f3fb71dc958f1c48",
+      "status": "0x1"
+    },
+    {
+      "step": "install policy",
+      "tx": "0x1e50e92135a817f7a6dff6626bcccff977bef4b07a59b636deab5ba55299f9f0",
+      "status": "0x1"
+    },
+    {
+      "step": "allowed withdrawal",
+      "tx": "0x9c4e8587a56910ef4f3eab6898c4a69ca64155f6a1b644ca470c8df8a536b074",
+      "block": 4,
+      "status": "0x1",
+      "predicted": {
+        "allowed": true,
+        "clause": null,
+        "code": 0,
+        "reason": "ALLOWED"
+      },
+      "paid_wei": 10000000000000,
+      "matches_prediction": true
+    },
+    {
+      "step": "refused: above per-call max",
+      "tx": "0x9ec90a60b7b476b269e7e20b07d8789bc52487956c2c21c30f86eaab74c282f1",
+      "block": 5,
+      "status": "0x0",
+      "predicted": {
+        "allowed": false,
+        "clause": 6,
+        "code": 7,
+        "reason": "ABOVE_MAX"
+      },
+      "paid_wei": 0,
+      "revert_data_replayed_at_parent_block": "0xb203108e00000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000007",
+      "decoded": {
+        "clause": 6,
+        "code": 7,
+        "reason": "ABOVE_MAX"
+      },
+      "matches_prediction": true
+    },
+    {
+      "step": "refused: recipient not allowed",
+      "tx": "0x67bb2fcaef4a74b5c36c4f579c9e03629d4f0047b6ff542b1d99c75325465403",
+      "block": 6,
+      "status": "0x0",
+      "predicted": {
+        "allowed": false,
+        "clause": 7,
+        "code": 10,
+        "reason": "NOT_IN_SET"
+      },
+      "paid_wei": 0,
+      "revert_data_replayed_at_parent_block": "0xb203108e0000000000000000000000000000000000000000000000000000000000000007000000000000000000000000000000000000000000000000000000000000000a",
+      "decoded": {
+        "clause": 7,
+        "code": 10,
+        "reason": "NOT_IN_SET"
+      },
+      "matches_prediction": true
+    }
+  ],
+  "policy_source": "control x3ccp_demo_treasury {\n    target local 0x5FbDB2315678afecb367f032d93F642f64180aa3\n    owner 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\n    allow callers 0x70997970C51812dc3A010C7d01b50e0d17dc79C8\n    allow fn withdraw(address to, uint256 amount)\n    limit withdraw.amount <= 20000000000000\n    limit withdraw.to in 0x2222222222222222222222222222222222222222\n    rate withdraw calls per 1h <= 3\n    expires 7d\n}\n",
+  "policy_hash": "0xf3ae7b763694d5f5cd974cf352f2a5dffd19229c7119a14ad64dc36c3069acae",
+  "on_chain_policy_hash": "0xf3ae7b763694d5f5cd974cf352f2a5dffd19229c7119a14ad64dc36c3069acae",
+  "all_match": true,
+  "finished": "2026-11-28T07:02:21.411958+00:00"
+}

@@ -937,13 +937,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         with open(args.file, encoding="utf-8") as fh:
             compiled = compile_source(fh.read(), now=_now_arg(args.now))
         if args.cmd == "compile":
-            print(json.dumps(compiled, indent=2))
+            output = json.dumps(compiled, indent=2)
         elif args.cmd == "explain":
-            for item in explain(compiled):
-                print(f"line {item['line']:>3}: {item['text']}")
+            output = "\n".join(f"line {item['line']:>3}: {item['text']}" for item in explain(compiled))
         else:
             with open(args.calls, encoding="utf-8") as fh:
-                print(json.dumps(simulate(compiled, json.load(fh)), indent=2))
+                output = json.dumps(simulate(compiled, json.load(fh)), indent=2)
+        for warning in compiled["warnings"]:
+            print(json.dumps({"warning": warning}), file=sys.stderr)
+        print(output)
         return 0
     except X3CCPError as exc:
         print(json.dumps({"error": exc.to_dict()}), file=sys.stderr)

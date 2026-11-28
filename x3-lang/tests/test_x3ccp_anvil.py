@@ -1,13 +1,14 @@
 """X3CCP parity: x3ccp.predict() against real mined transactions on a local anvil EVM.
 
-Deploys the compiled X3ControlledTreasury to a fresh anvil chain (31337), compiles a `control`
-policy for that exact address, installs it in a transaction, then mines a seeded randomized
+Deploys the compiled X3ControlledTreasury to fresh local Anvil chains, compiles a `control`
+policy for each exact address, and installs it in a transaction. Chain 31337 runs a seeded randomized
 corpus of calls. Every mined call must match the predictor: success or failure, the exact
 revert data (`X3Refused(clause, code)`, or empty when Solidity's ABI decoder refuses first),
 and the ETH actually paid out.
 
 This is a LOCAL EVM run: real bytecode and real transactions, but not a public chain and not
-evidence of any Base Sepolia deployment. It is skipped when anvil or forge is unavailable.
+evidence of any public deployment. Additional cases use mainnet chain IDs while remaining
+fully local. It is skipped when anvil or forge is unavailable.
 """
 
 from __future__ import annotations
@@ -66,12 +67,13 @@ class Rpc:
 
 
 @pytest.fixture(scope="module")
-def chain():
+def chain(request):
+    chain_id = getattr(request, "param", 31337)
     subprocess.run([FORGE, "build", "--offline"], cwd=EVM, check=True, capture_output=True)
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    proc = subprocess.Popen([ANVIL, "--port", str(port), "--chain-id", "31337", "--auto-impersonate",
+    proc = subprocess.Popen([ANVIL, "--port", str(port), "--chain-id", str(chain_id), "--auto-impersonate",
                              "--timestamp", str(T0 - 1000), "--silent"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     rpc = Rpc(f"http://127.0.0.1:{port}")
@@ -84,9 +86,11 @@ def chain():
     else:
         proc.kill()
         pytest.skip("anvil did not start")
-    yield rpc
-    proc.kill()
-    proc.wait()
+    try:
+        yield rpc
+    finally:
+        proc.kill()
+        proc.wait()
 
 
 def _send(rpc, sender, to, data, ts, value=0):
@@ -211,3 +215,79 @@ def test_predictor_matches_mined_transactions(chain):
     assert stats["allowed"] >= 25 and stats["refused"] >= 40 and stats["decoder"] >= 3, stats
     assert {"CALLER_NOT_ALLOWED", "FUNCTION_NOT_ALLOWED", "BAD_CALLDATA", "ABOVE_MAX", "BELOW_MIN", "NOT_IN_SET",
             "NOT_EQUAL", "RATE_SUM_EXCEEDED", "RATE_CALLS_EXCEEDED"} <= reasons, reasons
+
+
+@pytest.mark.parametrize("chain", [1, 8453, 10, 42161, 56], indirect=True)
+def test_mainnet_chain_ids_enforce_real_compiler_policy(chain):
+    """Local Anvil only: mainnet IDs do not relax policy installation or calls."""
+    rpc = chain
+    chain_id = int(rpc("eth_chainId"), 16)
+    name = {1: "ethereum", 8453: "base", 10: "optimism", 42161: "arbitrum", 56: "bsc"}[chain_id]
+    with open(os.path.join(EVM, "out", "X3ControlledTreasury.sol", "X3ControlledTreasury.json")) as fh:
+        bytecode = json.load(fh)["bytecode"]["object"]
+    ts = T0
+    receipt, _ = _send(rpc, DEPLOYER, None, bytecode, ts)
+    assert receipt["status"] == "0x1"
+    target = x3ccp.to_checksum(receipt["contractAddress"])
+    for who in (CALLERS[0], OUTSIDER):
+        rpc("anvil_setBalance", who, hex(10**21))
+    ts += 1
+    receipt, _ = _send(rpc, DEPLOYER, target, "0x", ts, value=10**18)
+    assert receipt["status"] == "0x1"
+
+    source = f"""control mainnet_id_check {{
+    target {name} {target}
+    owner {DEPLOYER}
+    allow callers {CALLERS[0]}
+    allow fn withdraw(address to, uint256 amount)
+    limit withdraw.amount <= 400_000
+    limit withdraw.to in {RECIPIENTS[0]}
+    expires at 2031-01-01T00:00:00Z
+}}
+"""
+    compiled = x3ccp.compile_source(source)
+    assert compiled["chain_id"] == chain_id
+    assert compiled["warnings"][0]["code"] == "X3CCP_MAINNET_UNAUDITED"
+
+    def installation(policy):
+        raw = bytes.fromhex(policy["policy_hex"][2:])
+        padded = raw + bytes((32 - len(raw) % 32) % 32)
+        return "0x" + (x3ccp.keccak256(b"installPolicy(bytes)")[:4]
+                       + (32).to_bytes(32, "big") + len(raw).to_bytes(32, "big") + padded).hex()
+
+    wrong_chain = x3ccp.compile_source(source.replace(f"target {name}", "target local"))
+    ts += 1
+    receipt, trace = _send(rpc, DEPLOYER, target, installation(wrong_chain), ts)
+    assert receipt["status"] == "0x0"
+    assert trace["output"] == "0x" + (x3ccp.keccak256(b"X3BadPolicy(uint8)")[:4]
+                                        + (3).to_bytes(32, "big")).hex()
+    hash_call = {"to": target, "data": "0x" + x3ccp.keccak256(b"x3PolicyHash()")[:4].hex()}
+    assert int(rpc("eth_call", hash_call, "latest"), 16) == 0
+
+    ts += 1
+    receipt, _ = _send(rpc, DEPLOYER, target, installation(compiled), ts)
+    assert receipt["status"] == "0x1"
+    assert rpc("eth_call", hash_call, "latest") == compiled["policy_hash"]
+    chain_call = {"to": target, "data": "0x" + x3ccp.keccak256(b"x3ChainId()")[:4].hex()}
+    assert int(rpc("eth_call", chain_call, "latest"), 16) == chain_id
+
+    state = x3ccp.EnforcerState()
+    for sender, amount, reason in [(CALLERS[0], 400_000, None),
+                                   (CALLERS[0], 400_001, "ABOVE_MAX"),
+                                   (OUTSIDER, 1_000, "CALLER_NOT_ALLOWED")]:
+        ts += 1
+        call = x3ccp.encode_call(compiled, "withdraw", [RECIPIENTS[0], amount])
+        expected = x3ccp.predict(compiled, state, sender=sender, calldata=call, timestamp=ts, chain_id=chain_id)
+        recipient_before, treasury_before = _balance(rpc, RECIPIENTS[0]), _balance(rpc, target)
+        receipt, trace = _send(rpc, sender, target, "0x" + call.hex(), ts)
+        if reason is None:
+            assert expected["allowed"] and receipt["status"] == "0x1"
+            assert _balance(rpc, RECIPIENTS[0]) - recipient_before == amount
+            assert treasury_before - _balance(rpc, target) == amount
+        else:
+            assert not expected["allowed"] and expected["reason"] == reason
+            assert receipt["status"] == "0x0"
+            assert x3ccp.decode_refusal(bytes.fromhex(trace["output"][2:])) == {
+                "clause": expected["clause"], "code": expected["code"], "reason": reason}
+            assert _balance(rpc, RECIPIENTS[0]) == recipient_before
+            assert _balance(rpc, target) == treasury_before

@@ -251,3 +251,59 @@ def test_mainnet_policy_still_refuses_on_the_wrong_chain():
                             timestamp=int(NOW.timestamp()), chain_id=84532)
     assert verdict["allowed"] is False
     assert verdict["reason"] == "WRONG_CHAIN"
+
+
+@pytest.mark.parametrize("command", ["compile", "explain", "simulate"])
+@pytest.mark.parametrize("chain", sorted(x3ccp.MAINNET_NAMES))
+def test_mainnet_cli_warns_without_blocking_or_changing_stdout(command, chain, tmp_path):
+    source = tmp_path / f"{chain}.x3"
+    chain_id = x3ccp.CHAINS[chain]
+    source.write_text(_src("limit withdraw.amount <= 10").replace("target local", f"target {chain}"))
+    argv = [sys.executable, os.path.join(ROOT, "x3ccp.py"), command, str(source)]
+    if command == "simulate":
+        calls = tmp_path / "calls.json"
+        calls.write_text(json.dumps([{"sender": AGENT, "fn": "withdraw", "args": [STORE, 5],
+                                      "timestamp": int(NOW.timestamp()), "chain_id": chain_id}]))
+        argv.append(str(calls))
+    result = subprocess.run(argv + ["--now", NOW.isoformat()], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    notices = [json.loads(line)["warning"] for line in result.stderr.splitlines()]
+    assert [notice["code"] for notice in notices] == ["X3CCP_MAINNET_UNAUDITED"]
+    if command == "compile":
+        assert json.loads(result.stdout)["chain_id"] == chain_id
+    elif command == "simulate":
+        assert json.loads(result.stdout)[0]["allowed"] is True
+    else:
+        assert f"{chain} (chain {chain_id})" in result.stdout
+
+
+def test_ethereum_mainnet_aliases_emit_identical_canonical_policy_bytes():
+    ethereum = x3ccp.compile_source(_src().replace("target local", "target ethereum"), now=NOW)
+    alias = x3ccp.compile_source(_src().replace("target local", "target mainnet"), now=NOW)
+    assert ethereum["policy_hex"] == alias["policy_hex"]
+    assert ethereum["policy_hash"] == alias["policy_hash"]
+
+
+@pytest.mark.parametrize("chain", ["local", "base"])
+def test_warning_bearing_simulation_errors_remain_a_single_json_object(chain, tmp_path):
+    source = _src("limit withdraw.amount <= 10", "rate withdraw.amount per 24h <= 1")
+    policy = tmp_path / "warning.x3"
+    policy.write_text(source.replace("target local", f"target {chain}"), encoding="utf-8")
+    calls = tmp_path / "calls.json"
+    calls.write_text(json.dumps([{"fn": "missing", "sender": AGENT, "timestamp": T0}]), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "x3ccp.py"), "simulate", str(policy), str(calls),
+         "--now", NOW.isoformat()], capture_output=True, text=True,
+    )
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert json.loads(result.stderr)["error"]["code"] == "X3CCP_UNKNOWN_FN"
+
+
+@pytest.mark.parametrize("chain,chain_id", list(x3ccp.MAINNET_NAMES.items()))
+def test_mainnet_prediction_preserves_limits_and_chain_binding(chain, chain_id):
+    compiled = x3ccp.compile_source(_src("limit withdraw.amount <= 10").replace("target local", f"target {chain}"), now=NOW)
+    stamp = int(NOW.timestamp())
+    assert _call(compiled, x3ccp.EnforcerState(), AGENT, "withdraw", [STORE, 10], ts=stamp, chain=chain_id)["allowed"]
+    assert _call(compiled, x3ccp.EnforcerState(), AGENT, "withdraw", [STORE, 11], ts=stamp, chain=chain_id)["reason"] == "ABOVE_MAX"
+    assert _call(compiled, x3ccp.EnforcerState(), AGENT, "withdraw", [STORE, 10], ts=stamp, chain=31337)["reason"] == "WRONG_CHAIN"

@@ -3,7 +3,10 @@
 **Stage:** X3CCP-01 (language + compiler) and X3CCP-02 (on-chain enforcer). Experimental and
 unaudited. The compiler accepts testnet targets (`base-sepolia`, `local`) and, by owner decision,
 mainnet targets (`base`, `ethereum`/`mainnet`, `optimism`, `arbitrum`, `bsc`). A mainnet policy
-compiles with an `X3CCP_MAINNET_UNAUDITED` warning and `explain()` says so on the target line.
+compiles with a nonblocking `X3CCP_MAINNET_UNAUDITED` warning and `explain()` says so on the target line.
+The CLI also emits warning JSON lines to stderr for compile, explain and simulate; stdout keeps
+its existing format and successful compilation exits 0. MCP compile, explain and simulate
+responses include structured `warnings`.
 Not deployed to any public chain by this change.
 
 X3CCP moves X3Lang from an agent *authorization* language toward a cross-chain smart contract
@@ -96,6 +99,27 @@ python3 x3-lang/tools/x3ccp_fixtures.py --check
 PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_x3ccp*.py -v
 python3 x3-lang/x3ccp-evm/script/x3ccp_demo.py --local
 ```
+
+## Compile a mainnet policy
+
+The [Base example](../examples/x3ccp_mainnet_guard.x3) uses illustrative addresses. Replace them
+with the intended deployed contract, owner, keeper and recipient before installation:
+
+```bash
+python3 x3-lang/x3ccp.py compile x3-lang/examples/x3ccp_mainnet_guard.x3 > policy.json
+python3 x3-lang/x3ccp.py explain x3-lang/examples/x3ccp_mainnet_guard.x3
+```
+
+Supported mainnet names and chain IDs are `ethereum` / `mainnet` (1), `base` (8453),
+`optimism` (10), `arbitrum` (42161) and `bsc` (56). Ethereum aliases produce identical canonical
+policy bytes for otherwise identical source. Unknown chains remain errors. The compiler does
+not use RPCs, keys or funds; compiling a policy does not install it or deploy a contract.
+
+Tests deploy the existing treasury bytecode on local Anvil chains with IDs 1, 8453, 10, 42161
+and 56. They install compiler-produced bytes, reject mismatched-chain policies, enforce caller
+and size bounds, and check payouts against the predictor. These are local EVM tests, not public
+mainnet deployments or proof of production readiness. The existing 320-call local parity test
+and pinned testnet fixtures remain in place.
 
 ## Base Sepolia pilot — NOT RUN, needs owner approval
 

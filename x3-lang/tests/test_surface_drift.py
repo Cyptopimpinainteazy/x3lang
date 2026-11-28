@@ -115,7 +115,7 @@ def test_every_example_the_suite_uses_is_readable_by_this_surface():
 MANDATE_FILES = {"near_mandate_agent.x3"}
 NATIVE_MANDATE_FILES = {"near_native_vault_supplier.x3"}
 #: Examples that declare an X3CCP `control` policy, read by `x3ccp.py` (not this surface).
-CONTROL_FILES = {"x3ccp_treasury_guard.x3"}
+CONTROL_FILES = {"x3ccp_treasury_guard.x3", "x3ccp_mainnet_guard.x3"}
 
 
 def test_control_examples_compile_with_their_own_surface():
@@ -193,6 +193,7 @@ REFUSES = {
     "trading_effects.x3": "X3_PARSE_NO_INTENT",
     "x3chain_flash_arb.x3": "X3_PARSE_NO_INTENT",
     # An X3CCP `control` block holds no `intent`; x3ccp.py reads it (gate below).
+    "x3ccp_mainnet_guard.x3": "X3_PARSE_NO_INTENT",
     "x3ccp_treasury_guard.x3": "X3_PARSE_NO_INTENT",
 }
 

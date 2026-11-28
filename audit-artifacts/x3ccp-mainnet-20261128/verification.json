@@ -1,0 +1,124 @@
+{
+  "schema": "x3.x3ccp-mainnet.verification.v1",
+  "recorded_at_utc": "2026-11-28T07:05:10.168044+00:00",
+  "base_commit": "ccec0364fc82fd66f2ff48a4a35a6097085a0f25",
+  "branch": "feat/x3ccp-mainnet-support-20261128",
+  "tested_tree": "Scoped changes atop 7c038bf7d682a23cc4ee8801dafb73bfca5957bd; exact tested source hashes below.",
+  "source_sha256": {
+    "x3-lang/examples/x3ccp_mainnet_guard.x3": "74dc5a28adf8fc133ea95b4307239c3d084d2d1809de0f13c4939ccf4b82bba4",
+    "x3-lang/tests/test_surface_drift.py": "9f0060c725be852671a62a65e4da74d984430a8256c1e0099f060661d87002a9",
+    "x3-lang/tests/test_x3ccp.py": "51973b5ac81c73c67cf661d8ab90605a1ef58311d9dc555bec8fe79002538af7",
+    "x3-lang/tests/test_x3ccp_ai.py": "4912b4a677b31f9bba8dad16fcf6a8bd914b4120563bf3acaab48c23960498d4",
+    "x3-lang/tests/test_x3ccp_anvil.py": "98e8338e55853496987b4e9eee98839d9ba5218099885d61a426d05b02c85cef",
+    "x3-lang/x3ccp-evm/README.md": "7ed1867a03166635b0cd7d62cdf3587f740f62c8633000102eb90a5ba64df25d",
+    "x3-lang/x3ccp-evm/src/X3Controlled.sol": "59071ea38699acdbaa10d419016a4eef508373254147a8d8567c744951dbbe99",
+    "x3-lang/x3ccp-evm/src/X3ControlledTreasury.sol": "9d77dc2a7a693bf5f5ace926494e488131ec2cbdd1695bee7f0eada548449417",
+    "x3-lang/x3ccp.gbnf": "cfadc379886e6c981bb751c67f1e6a7d5bcddc27f2f51d02b0b2b7aea750e02e",
+    "x3-lang/x3ccp.py": "46e724af41def8835d51d7b31e1476396835cbe3479c5755993b1f5cc8246457",
+    "x3-lang/x3ccp_ai.py": "4f583a63df208bb6ea11999200a28aff2b30f0b6cd6a9d30f584e953158094b5",
+    "x3-lang/x3ccp_mcp.py": "69eb405860314810b08ba2115b76b92573f2702164e68e52a56058c9fac5ec76"
+  },
+  "environment": {
+    "python": "3.12.3",
+    "pytest": "9.2.0",
+    "pycryptodome": "4.6.0",
+    "cryptography": "50.0.2",
+    "foundry": "1.8.3 (cae51ad458f6abb64852b7709eb784352429825d)",
+    "solc": "0.8.24; optimizer enabled, 200 runs"
+  },
+  "mainnet_names": {
+    "ethereum": 1,
+    "mainnet": 1,
+    "base": 8453,
+    "optimism": 10,
+    "arbitrum": 42161,
+    "bsc": 56
+  },
+  "regressions": [
+    "Baseline origin/master refuses the illustrative Base policy with X3CCP_MAINNET_REFUSED; changed compiler succeeds with a nonblocking X3CCP_MAINNET_UNAUDITED warning.",
+    "CLI warning-bearing simulation errors first failed with multiple stderr JSON objects; now preserve one JSON error for local and Base policies.",
+    "New control example is classified in the surface-drift gate and compiled with its own surface."
+  ],
+  "checks": [
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests -q",
+      "exit_code": 0,
+      "passed": 1830,
+      "skipped": 13,
+      "subtests_passed": 168,
+      "duration_seconds": 115.33,
+      "skip_reasons": [
+        "12 PIR tests require X3_PIR_COMPILER",
+        "1 unmodified-quote case is deliberately not a tampering case"
+      ]
+    },
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests/test_x3ccp.py x3-lang/tests/test_x3ccp_ai.py x3-lang/tests/test_x3ccp_anvil.py x3-lang/tests/test_surface_drift.py -q",
+      "exit_code": 0,
+      "passed": 112,
+      "duration_seconds": 15.84
+    },
+    {
+      "command": "forge fmt --check (cwd x3-lang/x3ccp-evm)",
+      "exit_code": 0
+    },
+    {
+      "command": "forge test --offline --fuzz-runs 256 (cwd x3-lang/x3ccp-evm)",
+      "exit_code": 0,
+      "passed": 27,
+      "fuzz_runs": 256
+    },
+    {
+      "command": "forge build --offline --sizes (cwd x3-lang/x3ccp-evm)",
+      "exit_code": 0,
+      "treasury_runtime_bytes": 6971,
+      "note": "Existing Forge advisory lint warnings remain in unchanged Solidity; no audit or warning-free claim."
+    },
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python x3-lang/tools/x3ccp_fixtures.py --check",
+      "exit_code": 0
+    },
+    {
+      "command": ".venv/bin/python x3-lang/x3ccp-evm/script/x3ccp_demo.py --local --out /tmp/x3ccp-mainnet-local-demo.json",
+      "exit_code": 0,
+      "evidence": "local-demo.json",
+      "scope": "Disposable local Anvil only; policy hash, success/refusals, and payouts match prediction."
+    },
+    {
+      "command": ".venv/bin/python -m compileall -q (changed Python source and tests)",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "local_evm_scope": {
+    "mainnet_chain_ids": [
+      1,
+      8453,
+      10,
+      42161,
+      56
+    ],
+    "checks": [
+      "matching policy installs",
+      "wrong-chain policy installation reverts",
+      "exact-cap payment succeeds",
+      "over-cap and outsider calls revert without payouts"
+    ],
+    "existing_seeded_parity_calls": 320,
+    "public_rpc_or_fork": false
+  },
+  "independent_review": {
+    "mode": "Read-only child agent diff and security/API review",
+    "remaining_findings": 0,
+    "independent_final_tests": "106 compiler, AI/MCP and surface-drift tests passed"
+  },
+  "limits": [
+    "Compiler support only; no public deployment, owner-key signing or live transaction.",
+    "Solidity enforcer and v1 policy wire format unchanged; enforcer remains experimental and unaudited.",
+    "Owner can replace/revoke policy without a timelock; replacement resets fixed epoch-aligned rate usage.",
+    "Exact-head hosted CI is recorded in the draft PR, separately from this source-hash-bound local record."
+  ]
+}
