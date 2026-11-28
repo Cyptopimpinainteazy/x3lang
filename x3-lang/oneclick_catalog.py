@@ -30,6 +30,17 @@ def catalog(tokens):
     return result
 
 
+def chain_coverage(tokens):
+    """Compare an exact token catalog with the compiled adapter's provider codes."""
+    listed = {token['blockchain'] for token in catalog(tokens).values()}
+    if not listed:
+        raise ValueError('token catalog is empty')
+    mapped = set(ni.CHAIN_TO_BLOCKCHAIN.values())
+    return dict(mode='chain_coverage', listed_mapped_codes=sorted(listed & mapped),
+                catalog_only_codes=sorted(listed - mapped), missing_mapped_codes=sorted(mapped - listed),
+                eligible_for_wallet_authorization=False)
+
+
 def limit_advisory(request, tokens):
     if any(not isinstance(request.get(k), str) for k in ('originAsset', 'destinationAsset', 'swapType')):
         raise ValueError('asset IDs and swapType must be strings')
@@ -108,12 +119,20 @@ def dry_quote(client, request):
     return result
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--request', help='JSON file with an explicit dry quote request; omit to list tokens')
-    args = parser.parse_args()
-    client = ni.OneClickClient()
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--request', help='JSON file with an explicit dry quote request; omit to list tokens')
+    modes.add_argument('--chain-coverage', metavar='TOKENS_JSON', nargs='?', const='',
+                       help='compare compiled adapter codes with a saved token list or the public catalog')
+    args = parser.parse_args(argv)
     try:
+        if args.chain_coverage is not None:
+            tokens = ni.load_tokens(ni.OneClickClient(jwt=''), args.chain_coverage)
+            result = chain_coverage(tokens)
+            print(json.dumps(result, indent=2))
+            return 1 if result['missing_mapped_codes'] else 0
+        client = ni.OneClickClient()
         if args.request:
             with open(args.request, encoding='utf-8') as stream:
                 result = dry_quote(client, json.load(stream))
