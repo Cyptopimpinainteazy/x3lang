@@ -63,6 +63,7 @@ const MAX_DECIMALS: u8 = 38;
 pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<TradingSymbols, Vec<X3Error>> {
     let mut symbols = TradingSymbols::default();
     let mut errors = Vec::new();
+    let mut asset_units: HashMap<(&str, &str, &str), (&str, u8)> = HashMap::new();
 
     // Collect declarations before resolving references so policies and trades
     // do not depend on source declaration order.
@@ -89,6 +90,23 @@ pub fn analyze_trading(program: &Program, _mode: CompilationMode) -> Result<Trad
                         format!(
                             "asset '{}' must declare a non-empty vm family, chain, and canonical identifier",
                             decl.name.as_str()
+                        ),
+                        item.span,
+                    ));
+                }
+                let identity = (
+                    decl.asset.vm_family.as_str(),
+                    decl.asset.chain.as_str(),
+                    decl.asset.canonical_id.as_str(),
+                );
+                let (first_name, first_decimals) = *asset_units
+                    .entry(identity)
+                    .or_insert((decl.name.as_str(), decl.asset.decimals));
+                if first_decimals != decl.asset.decimals {
+                    errors.push(asset_mismatch_error(
+                        format!(
+                            "asset '{}' declares {} decimals, conflicting with '{}' ({} decimals) for the same canonical asset",
+                            decl.name.as_str(), decl.asset.decimals, first_name, first_decimals
                         ),
                         item.span,
                     ));
