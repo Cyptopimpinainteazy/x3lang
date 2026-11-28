@@ -206,6 +206,8 @@ def _parse_require(ln: SourceLine) -> Dict[str, Any]:
         return {"kind": "slippage", "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind == "profit" and len(tokens) >= 4:
         return {"kind": "profit", "op": tokens[2], "value": " ".join(tokens[3:])}
+    if kind in ("min_net_bps", "min_profit_bps") and len(tokens) >= 4:
+        return {"kind": kind, "op": tokens[2], "value": " ".join(tokens[3:])}
     if kind == "nonce" and len(tokens) >= 3:
         return {"kind": "nonce", "value": " ".join(tokens[2:])}
     if kind in {"proof", "proof_complete"} and len(tokens) >= 3:
@@ -360,184 +362,99 @@ def _intent_line_index(lines: List[SourceLine]) -> int:
     finality.
 
     A declaration is skipped as a *whole* — its header line plus a brace-balanced
-    body — rather than line by line, so a body that is never closed is an error
-    here instead of silently eating the intent. `error <Name>` is the one
-    brace-less top-level declaration the corpus writes, and it is matched
-    explicitly: a line that is neither a declaration nor the intent is left for
-    the caller to refuse, so a misspelled declaration still fails loudly.
+    body — rather than line by line, so a `risk_policy` whose body happens to
+    contain the word `intent` does not start an intent early.
     """
-    index = 0
-    while index < len(lines):
-        text = lines[index].text
-        if re.match(r"intent\s+[A-Za-z_]", text):
-            return index
-        if re.match(r"error\s+[A-Za-z_][A-Za-z0-9_]*$", text):
-            index += 1
-            continue
-        if not re.match(r"[A-Za-z_][A-Za-z0-9_-]*(\s+[A-Za-z_][A-Za-z0-9_.-]*)*\s*\{", text):
-            return index
-        header = lines[index]
-        depth = 0
-        while index < len(lines):
-            depth += lines[index].text.count("{") - lines[index].text.count("}")
-            index += 1
-            if depth <= 0:
-                break
-        if depth > 0:
-            raise X3ParseError(
-                "X3_PARSE_DECLARATION",
-                f"declaration {header.text!r} is never closed",
-                header.no,
-                "declaration",
-            )
-    return index
+    i = 0
+    while i < len(lines):
+        text = lines[i].text
+        if text.startswith("intent "):
+            return i
+        # Skip a top-level declaration block.
+        depth = text.count("{") - text.count("}")
+        i += 1
+        while i < len(lines) and depth > 0:
+            depth += lines[i].text.count("{") - lines[i].text.count("}")
+            i += 1
+    raise X3ParseError("X3_PARSE_NO_INTENT", "no `intent` declaration found", None, "intent")
 
 
-def parse_file(path):
-    with open(path, "r", encoding="utf-8") as source:
-        return parse_source(source.read())
-
-
-def parse_source(source: str):
-    lines = _clean_source_lines(source.replace("\r\n", "\n").replace("\r", "\n"))
+def parse_intent(path: str) -> Dict[str, Any]:
+    lines = _clean_lines(path)
     if not lines:
-        raise X3ParseError("X3_PARSE_EMPTY", "input file is empty")
+        raise X3ParseError("X3_PARSE_EMPTY", "empty intent file")
     start = _intent_line_index(lines)
-    if start >= len(lines):
-        # `_intent_line_index` walks past the last line when a file declares no `intent` at
-        # all — every top-level item is a declaration it skips — and it returned that index
-        # to here, where `lines[start]` raised `IndexError`. Five of the repository's
-        # examples are shaped that way, so this surface *crashed* on valid input instead of
-        # refusing it: a parser with no error surface is worse than a narrow one. Its own
-        # docstring already said the caller refuses what it does not recognise, and this is
-        # that refusal.
-        raise X3ParseError(
-            "X3_PARSE_NO_INTENT",
-            "this file declares no `intent`: this surface reads one intent per file, and every "
-            "top-level item here is a declaration it skips. A file whose subject is a bare "
-            "`atomic_choice`, `strategy`, `objective` or `parallel` block is a program for the "
-            "compiler, not an intent for this surface",
-            lines[-1].no,
-            "intent",
-        )
-
-    first = lines[start].text
-    m = re.match(r"intent\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{?", first)
-    if not m:
-        # The line is neither an intent nor a declaration `_intent_line_index` skips, so the
-        # file has no intent to read. Saying "expected intent <name> {" at that line sent a
-        # reader looking for a typo in a construct that is correct in the language and
-        # simply is not what this surface reads.
-        raise X3ParseError(
-            "X3_PARSE_NO_INTENT",
-            f"this file declares no `intent`; the first top-level item this surface does not "
-            f"recognise is {first!r}. It reads one intent per file, so a program built from "
-            f"`atomic_choice`, `objective`, `parallel`, `strategy` or similar declarations is "
-            f"for the compiler rather than for this surface",
-            lines[start].no,
-            "intent",
-        )
-    result: Dict[str, Any] = {"intent": m.group(1), "from": {}, "to": {}, "route": [], "path": [], "requires": [], "constraints": {}, "policies": {}}
-
+    head = re.fullmatch(r"intent\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{", lines[start].text)
+    if not head:
+        raise X3ParseError("X3_PARSE_INTENT", "expected `intent <name> {`", lines[start].no, "intent")
+    intent: Dict[str, Any] = {
+        "name": head.group(1),
+        "from": None,
+        "to": None,
+        "route": [],
+        "requires": [],
+        "timeout": None,
+        "on_fail": None,
+        "fee": None,
+        "under_mandate": None,
+    }
     i = start + 1
     while i < len(lines):
         ln = lines[i]
         text = ln.text
         if text == "}":
-            i += 1
-            continue
+            break
         if text.startswith("from "):
-            result["from"] = _parse_endpoint(ln, "from")
+            intent["from"] = _parse_endpoint(ln, "from")
         elif text.startswith("to "):
-            result["to"] = _parse_endpoint(ln, "to")
-        elif (text.startswith("route") or text.startswith("path")) and "{" in text:
+            intent["to"] = _parse_endpoint(ln, "to")
+        elif text.startswith("route "):
             i += 1
             while i < len(lines) and lines[i].text != "}":
-                if lines[i].text.startswith("fallback") and "{" in lines[i].text:
+                if lines[i].text.startswith("fallback"):
                     step, i = _parse_fallback(lines, i)
-                    result["route"].append(step)
-                    result["path"].append(step)  # compatibility with planner/schema
+                    intent["route"].append(step)
                     continue
-                step = _parse_route_step(lines[i])
-                result["route"].append(step)
-                result["path"].append(step)  # compatibility with planner/schema
+                intent["route"].append(_parse_route_step(lines[i]))
                 i += 1
         elif text.startswith("require "):
-            req = _parse_require(ln)
-            result["requires"].append(req)
-            # keep common MVP constraints populated for existing planner/simulator
-            if req["kind"] == "slippage":
-                result["constraints"]["max_slippage"] = req["value"]
-            if req["kind"] == "profit":
-                result["constraints"]["min_profit"] = req["value"]
-        elif text.startswith("constraints") and "{" in text:
-            i += 1
-            while i < len(lines) and lines[i].text != "}":
-                c = lines[i].text
-                if c.startswith("min_profit"):
-                    result["constraints"]["min_profit"] = c.replace("min_profit", "", 1).strip()
-                elif c.startswith("max_slippage"):
-                    result["constraints"]["max_slippage"] = c.replace("max_slippage", "", 1).strip()
-                elif c.startswith("timeout"):
-                    result["constraints"]["timeout"] = c.replace("timeout", "", 1).strip()
-                elif c.startswith("atomic"):
-                    result["constraints"]["atomic"] = c.split()[-1].lower() == "true"
-                i += 1
+            intent["requires"].append(_parse_require(ln))
         elif text.startswith("timeout "):
+            # timeout 30s refund Solana.USDC to sender
             parts = text.split()
             if len(parts) < 2:
-                raise X3ParseError("X3_PARSE_TIMEOUT", "timeout requires a duration", ln.no, "timeout")
-            timeout = {"duration": parts[1]}
-            if len(parts) > 2:
-                timeout["action"] = _parse_refund(parts[2:], ln.no)
-            result["constraints"]["timeout"] = parts[1]
-            result["policies"]["timeout"] = timeout
-        elif text.startswith("under "):
-            # `under mandate <owner>`: an agent wrote this intent and spends under the owner's
-            # mandate (`near_mandate.py`). The owner is a NEAR account; the adapter validates it.
-            parts = text.split()
-            if len(parts) != 3 or parts[1] != "mandate":
-                raise X3ParseError("X3_PARSE_MANDATE", "expected `under mandate <owner account>`", ln.no, "mandate")
-            if "mandate" in result:
-                raise X3ParseError("X3_PARSE_MANDATE", "an intent is under one mandate", ln.no, "mandate")
-            result["mandate"] = {"owner": parts[2].strip('"')}
-        elif text == "fee" or text.startswith("fee "):
-            if "app_fee" in result:
-                raise X3ParseError("X3_PARSE_FEE", "an intent declares one `fee` clause", ln.no, "fee")
-            result["app_fee"] = _parse_app_fee(ln)
+                raise X3ParseError("X3_PARSE_TIMEOUT", "expected timeout <duration>", ln.no, "timeout")
+            intent["timeout"] = {"duration": parts[1], "refund": _parse_refund(parts[2:], ln.no) if len(parts) > 2 else None}
         elif text.startswith("on_fail "):
-            parts = text.split()[1:]
-            if parts and parts[0] == "rollback":
-                result["policies"]["on_fail"] = {"type": "rollback"}
-            elif parts and parts[0] == "halt":
-                result["policies"]["on_fail"] = {"type": "halt"}
-            elif parts and parts[0] == "quarantine":
-                result["policies"]["on_fail"] = {"type": "quarantine"}
-            else:
-                result["policies"]["on_fail"] = _parse_refund(parts, ln.no)
+            intent["on_fail"] = _parse_refund(text.split()[1:], ln.no)
+        elif text.startswith("fee "):
+            if intent["fee"] is not None:
+                raise X3ParseError("X3_PARSE_FEE", "an intent states one `fee`; a second fee is ambiguous", ln.no, "fee")
+            intent["fee"] = _parse_app_fee(ln)
+        elif text.startswith("under mandate "):
+            parts = text.split()
+            if len(parts) != 3:
+                raise X3ParseError("X3_PARSE_MANDATE", "expected `under mandate <owner>`", ln.no, "under_mandate")
+            intent["under_mandate"] = parts[2]
+        else:
+            raise X3ParseError("X3_PARSE_CLAUSE", f"unsupported clause {text!r}", ln.no, "intent")
         i += 1
+    if intent["from"] is None or intent["to"] is None:
+        raise X3ParseError("X3_PARSE_ENDPOINT", "an intent must state `from` and `to`", None, "intent")
+    return intent
 
-    return result
 
-
-def main():
-    p = argparse.ArgumentParser(description='X3 production intent parser -> stable JSON')
-    p.add_argument('input', help='input .x3 intent file')
-    p.add_argument('-o', '--output', help='output json file (stdout if omitted)')
-    args = p.parse_args()
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Parse an X3 intent file to JSON")
+    parser.add_argument("path", help="path to a .x3 intent")
+    args = parser.parse_args(argv)
     try:
-        out = parse_file(args.input)
-        dumped = json.dumps(out, indent=2)
+        print(json.dumps(parse_intent(args.path), indent=2))
+        return 0
     except X3ParseError as exc:
-        dumped = json.dumps({"status": "error", "errors": [exc.to_dict()]}, indent=2)
-        print(dumped, file=sys.stderr)
-        sys.exit(1)
-    if args.output:
-        with open(args.output, 'w', encoding='utf-8') as f:
-            f.write(dumped)
-    else:
-        print(dumped)
+        print(json.dumps(exc.to_dict(), indent=2))
+        return 1
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    raise SystemExit(main())
