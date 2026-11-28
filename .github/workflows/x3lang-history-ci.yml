@@ -53,6 +53,33 @@ jobs:
       - name: Offline three-track judge demo
         run: python scripts/hackathon/demo.py
 
+  local-pir-receipts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang
+      - name: Verify signed local receipts with this revision's Rust grant compiler
+        working-directory: x3-lang
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-agent-security.txt
+          cargo build -p x3-lang-compiler --example pir_tool_grant --locked
+          export X3_PIR_COMPILER="$PWD/target/debug/examples/pir_tool_grant"
+          test -x "$X3_PIR_COMPILER"
+          PYTHONPATH=. python -m unittest discover -s tests -p 'test_pir*.py' -v
+
   rust-vm:
     runs-on: ubuntu-latest
     timeout-minutes: 40
