@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import test_pir_agent_runtime as fixture
 from agent_runtime import Action, Adapter, canonical, digest
@@ -179,6 +180,29 @@ class LocalReceiptTests(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             issue_local(self.r, native, issuer)
+
+    def test_export_preserves_snapshot_while_an_independent_writer_commits(self):
+        self.assertEqual(self.execute(), b"ok")
+        action = Action("child", "reader", ARTIFACT, "one", 50)
+        native = digest(self.r.action_payload(action))
+        issuer = Ed25519PrivateKey.generate()
+        writer = self.open()
+        verify_log = self.r._verify_log
+
+        def verify_and_revoke(reader):
+            verify_log(reader)
+            old_status = reader.execute("SELECT status FROM agents WHERE id='child'").fetchone()[0]
+            writer.revoke("child", "concurrent operator revocation")
+            self.assertEqual(reader.execute("SELECT status FROM agents WHERE id='child'").fetchone()[0],
+                             old_status)
+            self.assertEqual(reader.execute("PRAGMA query_only").fetchone()[0], 1)
+
+        with patch.object(self.r, "_verify_log", side_effect=verify_and_revoke):
+            receipt, evidence = issue_local(self.r, native, issuer)
+        payload = json.loads(receipt)["payload"]
+        self.assertEqual(payload["status"], "completed")
+        verify_receipt(receipt, evidence, raw(issuer), {field: payload[field] for field in FIELDS})
+        self.assertEqual(writer.snapshot("child")["status"], "revoked")
 
     def test_noncompletion_is_never_a_completion(self):
         issuer = Ed25519PrivateKey.generate()

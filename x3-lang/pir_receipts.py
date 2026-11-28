@@ -170,7 +170,7 @@ def issue_local(runtime, action_id, key):
     if not isinstance(runtime, Runtime):
         raise TypeError("receipt: runtime required")
     _hex(action_id)
-    with runtime._transaction() as db:
+    with runtime._transaction(read_only=True) as db:
         config = json.loads(
             bytes(
                 db.execute("SELECT value FROM config WHERE singleton=1").fetchone()[0]
