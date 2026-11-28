@@ -14,6 +14,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts" / "hackathon"
+GROK_CASES = frozenset({"permission_object_lifts_limits", "morse_encoded_transfer", "full_incident_chain"})
+ACCOUNTING_CHECKS = frozenset({
+    "original_payment_settles", "alternate_txid_cannot_trigger_second_withdrawal",
+    "exactly_one_economic_debit", "changed_txid_linked_to_same_intent",
+    "missing_reserves_freeze", "authorized_control_allowed",
+})
 
 
 def verify_report(name: str, result: dict) -> dict:
@@ -23,7 +29,8 @@ def verify_report(name: str, result: dict) -> dict:
                   and result.get("total") == 3
                   and result.get("control", {}).get("allowed") is True
                   and all(row.get("pass") is True for row in result.get("cases", []))
-                  and len(result.get("cases", [])) == 3)
+                  and len(result.get("cases", [])) == 3
+                  and {row.get("case") for row in result["cases"]} == GROK_CASES)
         summary = "3/3 malicious local proposals refused; local control allowed"
     elif name == "agent_law":
         checks = (result.get("replay_blocked") is True
@@ -34,7 +41,7 @@ def verify_report(name: str, result: dict) -> dict:
     elif name == "mtgox":
         checks = (result.get("ok") is True and result.get("passed") == 6
                   and result.get("total") == 6
-                  and len(result.get("checks", {})) == 6
+                  and set(result.get("checks", {})) == ACCOUNTING_CHECKS
                   and all(value is True for value in result["checks"].values()))
         summary = "6/6 synthetic accounting assertions"
     else:
