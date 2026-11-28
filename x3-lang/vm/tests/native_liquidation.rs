@@ -245,9 +245,13 @@ fn unconfigured_invalid_unfunded_or_composed_program_never_reaches_effect() {
     assert_eq!(*effects.borrow(), 0);
     let mut failed = host;
     failed.fail = true;
+    let halt_pc = code.len() - 4;
     let mut vm = VM::new(code, VMConfig::default(), 1_000_000);
     vm.set_liquidation_host(Box::new(failed));
-    assert!(vm.execute().is_err());
+    // Embedders can seed generic VM recovery handlers. A native effect's
+    // uncertain submission must remain an error even if HALT is a handler.
+    vm.state.failure_handlers.push(halt_pc);
+    assert!(format!("{:?}", vm.execute().unwrap_err()).contains("uncertain submission"));
     assert!(format!("{:?}", vm.execute().unwrap_err()).contains("ALREADY_ATTEMPTED"));
     assert_eq!(*effects.borrow(), 1);
 }

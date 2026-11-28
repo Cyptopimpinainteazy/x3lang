@@ -712,6 +712,12 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 let result = match dispatch_host_opcode(vm, opcode, &payload) {
                     Ok(v) => v,
                     Err(e) => {
+                        // Generic recovery cannot turn an uncertain native
+                        // submission into success. Native programs are terminal
+                        // and expose their refusal/uncertainty to the caller.
+                        if opcode == NATIVE_LIQUIDATION {
+                            return Err(e);
+                        }
                         if try_dispatch_handler(vm) {
                             continue;
                         }
