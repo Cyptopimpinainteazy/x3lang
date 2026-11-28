@@ -196,6 +196,7 @@ impl X3Formatter {
             Item::FinalityPolicy(f) => self.format_finality_policy(f),
             Item::AtomicHedge(hedge) => self.format_atomic_hedge(hedge),
             Item::AtomicLiquidation(liquidation) => self.format_atomic_liquidation(liquidation),
+            Item::NativeLiquidation(decl) => self.format_native_liquidation(decl),
             Item::Rebalance(rebalance) => self.format_rebalance(rebalance),
             Item::Netting(netting) => self.format_netting(netting),
             Item::Arb(arb) => self.format_arb(arb),
@@ -207,6 +208,47 @@ impl X3Formatter {
             Item::AtomicTrade(decl) => self.format_atomic_trade(decl),
             Item::Mandate(decl) => self.format_mandate(decl),
         }
+    }
+
+    fn format_native_liquidation(&mut self, decl: &NativeLiquidationDecl) {
+        let policy = &decl.policy;
+        self.write_line(&format!("native_liquidation {} {{", decl.name.as_str()));
+        self.indent();
+        self.write_line(&format!("chain_id: {};", policy.chain_id));
+        for (name, value) in [
+            ("executor", &policy.executor),
+            ("executor_code_hash", &policy.executor_code_hash),
+            ("keeper", &policy.keeper),
+            ("owner", &policy.owner),
+            ("morpho", &policy.morpho),
+            ("loan_token", &policy.loan_token),
+        ] {
+            self.write_line(&format!("{name}: \"{value}\";"));
+        }
+        for (name, values) in [("markets", &policy.markets), ("routers", &policy.routers)] {
+            let entries = values
+                .iter()
+                .map(|value| format!("\"{value}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.write_line(&format!("{name}: [{entries}];"));
+        }
+        for (name, value) in [
+            ("min_repay", policy.min_repay),
+            ("max_repay", policy.max_repay),
+            ("min_profit", policy.min_profit),
+            ("max_gas", u128::from(policy.max_gas)),
+            ("max_fee_per_gas", policy.max_fee_per_gas),
+            ("max_priority_fee_per_gas", policy.max_priority_fee_per_gas),
+            ("max_total_fee_wei", policy.max_total_fee_wei),
+            ("max_age_blocks", u128::from(policy.max_age_blocks)),
+            ("expires_at_block", u128::from(policy.expires_at_block)),
+            ("max_candidates", u128::from(policy.max_candidates)),
+        ] {
+            self.write_line(&format!("{name}: {value};"));
+        }
+        self.dedent();
+        self.write_line("}");
     }
 
     fn format_asset_decl(&mut self, decl: &AssetDecl) {

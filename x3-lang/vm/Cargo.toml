@@ -23,8 +23,13 @@ sha2 = { workspace = true }
 sha3 = { workspace = true }
 ed25519-dalek = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "json"] }
+alloy-consensus = { version = "=1.6.3", default-features = false, features = ["std"] }
+alloy-eips = { version = "=1.6.3", default-features = false, features = ["std"] }
+alloy-primitives = { version = "1.2", default-features = false, features = ["std"] }
+secp256k1 = { workspace = true }
 
 [dev-dependencies]
+rand = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 

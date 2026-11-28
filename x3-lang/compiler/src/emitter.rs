@@ -109,6 +109,17 @@ fn write_if_measured(
 
 /// Emit X3IR to bytecode suitable for the X3 runtime
 pub fn emit_x3ir(ir: &X3IR) -> Result<Vec<u8>, X3Error> {
+    if crate::ir::contains_native_liquidation(&ir.operations)
+        && (!matches!(ir.operations.as_slice(), [Operation::NativeLiquidation { .. }])
+            || ir.metadata.nonce.is_some()
+            || ir.metadata.chain_id.is_some()
+            || ir.metadata.timeout_blocks.is_some())
+    {
+        return Err(X3Error::CodegenError {
+            message: "native liquidation must be the sole top-level operation without metadata overrides".into(),
+            span: None,
+        });
+    }
     let mut bytecode = Vec::new();
 
     // Header: version + metadata. The version is written as the greatest this writer may write and
@@ -746,6 +757,11 @@ fn emit_operation(op: &Operation, bytecode: &mut Vec<u8>) -> Result<(), X3Error>
             bytecode.write_all(&(payload.len() as u16).to_le_bytes())?;
             bytecode.write_all(payload.as_bytes())?;
         }
+        Operation::NativeLiquidation { .. } => {
+            emit_payload_op(NATIVE_LIQUIDATION, op, bytecode)?;
+            pad_to_4(bytecode);
+            bytecode.write_all(&[HALT, 0, 0])?;
+        }
         Operation::VenueOrder { .. } => emit_payload_op(VENUE_ORDER, op, bytecode)?,
         Operation::Rebalance { .. } => emit_payload_op(REBALANCE_TARGET, op, bytecode)?,
         Operation::GpuDispatch { .. } => emit_payload_op(GPU_DISPATCH, op, bytecode)?,
@@ -1122,6 +1138,7 @@ fn operation_to_asset_payload(op: &Operation) -> Result<AssetOpPayload, X3Error>
 
 fn operation_to_payload(op: &Operation) -> Result<CapabilityPayload, X3Error> {
     let payload = match op {
+        Operation::NativeLiquidation { policy } => CapabilityPayload::NativeLiquidation { policy: policy.clone() },
         Operation::Rebalance {
             name,
             holdings,
@@ -1767,7 +1784,7 @@ fn decode_payload(opcode: u8, payload: &[u8]) -> Result<String, X3Error> {
     // `EMIT` and `CALL_HOST` are capability records too — they are the two this range used to
     // leave out, so a reader saw the raw payload as lossy UTF-8 instead of the event or the call
     // it states.
-    if opcode == EMIT || opcode == CALL_HOST || (0x80..=0x9C).contains(&opcode) || (0xA0..=0xAB).contains(&opcode) {
+    if opcode == EMIT || opcode == CALL_HOST || (0x80..=0x9C).contains(&opcode) || (0xA0..=0xAC).contains(&opcode) {
         let p = decode_capability_payload(opcode, payload).map_err(|_| X3Error::CodegenError {
             message: "bad capability payload".into(),
             span: None,

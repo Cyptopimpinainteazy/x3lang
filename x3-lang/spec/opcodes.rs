@@ -139,6 +139,8 @@ pub const VM_ADAPTER_CALL: u8 = 0xA8;
 pub const MODE_CHECK: u8 = 0xA9;
 pub const PACKAGE_IMPORT: u8 = 0xAA;
 pub const REFUND_POLICY: u8 = 0xAB;
+/// A typed standalone liquidation policy; never an untyped EVM or SVM call.
+pub const NATIVE_LIQUIDATION: u8 = 0xAC;
 
 pub const TRADING_BEGIN: u8 = 0xB0;
 pub const TRADING_OPEN_DEBT: u8 = 0xB1;
@@ -176,6 +178,8 @@ pub const BYTECODE_VERSION_1: u8 = 0x01;
 /// (TICKET-105). An artifact carries it exactly when it contains a version-2 opcode; one that uses
 /// only the original set stays at version 1 and remains readable by a version-1 reader.
 pub const BYTECODE_VERSION_2: u8 = 0x02;
+/// Introduces the terminal typed native liquidation capability.
+pub const BYTECODE_VERSION_3: u8 = 0x03;
 
 /// The greatest version this writer may write — the ceiling, not what every artifact carries.
 ///
@@ -191,7 +195,7 @@ pub const BYTECODE_VERSION_2: u8 = 0x02;
 /// that classifies a payload-carrying instruction as fixed-width advances four bytes and then
 /// reads bytes that are not instructions" — a refusal is visible and a misparse is a different
 /// program.
-pub const CURRENT_BYTECODE_VERSION: u8 = BYTECODE_VERSION_2;
+pub const CURRENT_BYTECODE_VERSION: u8 = BYTECODE_VERSION_3;
 
 /// Every opcode this format defines, as `(opcode, the version that introduced it)`.
 ///
@@ -236,15 +240,15 @@ pub const OPCODE_SET: &[(u8, u8)] = &[
     (TRADING_ASSERT_MIN_PROFIT, BYTECODE_VERSION_1), (TRADING_ASSERT_ALL_DEBTS, BYTECODE_VERSION_1), (TRADING_EMIT_RECEIPT, BYTECODE_VERSION_1),
     (TRADING_COMMIT, BYTECODE_VERSION_1), (TRADING_ABORT, BYTECODE_VERSION_1), (TRADING_ASSERT_INVARIANT, BYTECODE_VERSION_1),
     (TRADING_BRIDGE, BYTECODE_VERSION_1), (HALT, BYTECODE_VERSION_1),
+    (NATIVE_LIQUIDATION, BYTECODE_VERSION_3),
 ];
 
 /// The versions this reader knows how to walk.
 ///
-/// Version 2 is where `IF_MEASURED` was introduced, so this build emits artifacts that carry it and
-/// reads artifacts that carry it. Version 1 stays supported: narrowing the version byte per
-/// artifact is what lets a program that uses nothing new remain readable by a reader that never
-/// learned version 2 (TICKET-105).
-pub const SUPPORTED_BYTECODE_VERSIONS: &[u8] = &[BYTECODE_VERSION_1, BYTECODE_VERSION_2];
+/// Versions 2 and 3 introduce measured branches and native liquidation respectively.
+/// Earlier artifacts remain readable; the emitter narrows each artifact's version
+/// to the greatest version its actual opcode set requires.
+pub const SUPPORTED_BYTECODE_VERSIONS: &[u8] = &[BYTECODE_VERSION_1, BYTECODE_VERSION_2, BYTECODE_VERSION_3];
 
 /// The opcode set's own version: the greatest version any registered opcode was introduced in.
 ///
@@ -285,21 +289,21 @@ pub const fn is_supported_version(version: u8) -> bool {
     false
 }
 
-/// Whether `version` is a *named* bytecode version in this build — the two this file declares, as
+/// Whether `version` is a *named* bytecode version in this build, as
 /// opposed to the wider space [`is_reserved_version_byte`] claims.
 ///
 /// Distinct from [`is_supported_version`] on purpose. A build that declares a version normally
 /// supports it; the two differ when a version is reserved for a change that is not implemented yet,
 /// which is how `BYTECODE_VERSION_2` began (TICKET-097).
 pub const fn is_defined_version(version: u8) -> bool {
-    version == BYTECODE_VERSION_1 || version == BYTECODE_VERSION_2
+    version == BYTECODE_VERSION_1 || version == BYTECODE_VERSION_2 || version == BYTECODE_VERSION_3
 }
 
 /// The byte values this format reserves for the bytecode version byte.
 ///
 /// A **reservation**, not a list of the versions that exist: a reader cannot know which versions will
 /// exist, and the only way it can refuse one is to have claimed the space in advance. `0x01` and
-/// `0x02` are versions this build knows; a stream that starts with any other reserved byte and a
+/// `0x02` and `0x03` are versions this build knows; a stream that starts with any other reserved byte and a
 /// non-zero second byte is a versioned artifact from a build this one cannot read, and it is refused
 /// *by name* rather than walked as raw instructions — which is the misparse TICKET-097 exists to
 /// prevent, and the hole that opened when version 2 became supported: with `is_defined_version` as
@@ -722,7 +726,7 @@ pub const fn is_payload_opcode(opcode: u8, compiler_stream: bool) -> bool {
                 | NONCE_UNUSED
                 | IF_MEASURED
                 | GPU_DISPATCH..=REBALANCE_TARGET
-                | ROUTE_SCORE..=REFUND_POLICY
+                | ROUTE_SCORE..=NATIVE_LIQUIDATION
                 | TRADING_BEGIN..=TRADING_BRIDGE
         )
 }
@@ -848,6 +852,7 @@ pub const fn opcode_name(opcode: u8) -> &'static str {
         MULTI_HOP_SWAP => "MULTI_HOP_SWAP",
         VENUE_ORDER => "VENUE_ORDER",
         REBALANCE_TARGET => "REBALANCE_TARGET",
+        NATIVE_LIQUIDATION => "NATIVE_LIQUIDATION",
         VECTOR_MATH => "VECTOR_MATH",
         ROLE_CHECK => "ROLE_CHECK",
         MULTISIG_CHECK => "MULTISIG_CHECK",
@@ -939,6 +944,7 @@ pub const fn base_gas_cost(opcode: u8) -> u128 {
         MULTI_HOP_SWAP => 200,
         VENUE_ORDER => 200,
         REBALANCE_TARGET => 200,
+        NATIVE_LIQUIDATION => 200,
         VECTOR_MATH => 5,
         ROLE_CHECK | MULTISIG_CHECK | VERSION_META | STORAGE_NAMESPACE | ABI_EXPORT | DOC_EMBED => 10,
         GAS_ADAPTIVE => 50,

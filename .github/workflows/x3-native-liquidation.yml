@@ -1,0 +1,64 @@
+name: X3 native liquidation local EVM proof
+
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/**'
+      - 'docs/x3-lang/native-liquidation.md'
+      - '.github/workflows/x3-native-liquidation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-local-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      X3_NATIVE_PROOF_OUTPUT: ${{ github.workspace }}/native-liquidation-proof.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: x3-lang/vm/tests/fixtures/native-liquidation/package-lock.json
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.3
+      - name: Build verified public-source local fixture
+        working-directory: x3-lang/vm/tests/fixtures/native-liquidation
+        run: |
+          npm ci
+          npm run build
+          npm test
+      - name: Test real compiler and native effect boundaries
+        working-directory: x3-lang
+        run: |
+          cargo test -p x3-lang-compiler --test native_liquidation --locked
+          cargo test -p x3-lang-vm --test native_liquidation --test native_evm_transport --locked
+      - name: Execute compiled X3 through native signing and real local Morpho
+        working-directory: x3-lang
+        run: cargo test -p x3-lang-vm --test native_evm_anvil --locked -- --ignored --nocapture --test-threads=1
+      - name: Publish local execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-liquidation-local-evm-proof
+          path: native-liquidation-proof.json
+          if-no-files-found: error
+          retention-days: 14

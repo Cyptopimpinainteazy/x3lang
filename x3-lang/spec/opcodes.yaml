@@ -4,6 +4,11 @@
 # to ensure a single source of truth.
 
 opcodes:
+  - code: 0xAC
+    name: NATIVE_LIQUIDATION
+    category: Native effect
+    description: "Standalone bounded native liquidation selection and host effect (bytecode version 3)"
+
   - code: 0x00
     name: NOP
     category: Misc

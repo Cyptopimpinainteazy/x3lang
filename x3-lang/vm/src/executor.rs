@@ -699,7 +699,7 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
             }
-            ROUTE_SCORE..=REFUND_POLICY => {
+            ROUTE_SCORE..=NATIVE_LIQUIDATION => {
                 let payload = match read_len_payload(vm.code.as_slice(), vm.state.pc) {
                     Ok(p) => p.to_vec(),
                     Err(e) => {
@@ -720,6 +720,13 @@ pub(crate) fn execute(vm: &mut VM) -> ExecResult<()> {
                 };
                 if !result.is_empty() {
                     vm.state.registers[0] = bytes_to_register(&result);
+                }
+                if opcode == NATIVE_LIQUIDATION {
+                    // Verification made this the sole terminal effect. Do not
+                    // run even HALT through a subsequent timeout/paused-state
+                    // check after an irreversible submission has succeeded.
+                    vm.state.pc = vm.code.len();
+                    return Ok(());
                 }
                 vm.state.pc = align4(vm.state.pc + 3 + payload.len());
                 continue;
@@ -1331,6 +1338,31 @@ fn read_len_payload(bytes: &[u8], pc: usize) -> ExecResult<&[u8]> {
 fn dispatch_host_opcode(vm: &mut VM, opcode: u8, payload: &[u8]) -> ExecResult<Vec<u8>> {
     let decoded = decode_capability_payload(opcode, payload).map_err(|_| ExecError::InvalidOperand)?;
     let result = match decoded {
+        CapabilityPayload::NativeLiquidation { policy } => {
+            use crate::liquidation::{artifact_hash, authorize, DecisionReceipt};
+            let digest = artifact_hash(vm.code.as_slice());
+            if vm.liquidation_attempted {
+                return Err(ExecError::Panic("X3_LIQUIDATION_ALREADY_ATTEMPTED".into()));
+            }
+            let host = vm
+                .liquidation_host
+                .as_mut()
+                .ok_or_else(|| ExecError::Panic("X3_LIQUIDATION_HOST_REQUIRED".into()))?;
+            if host.artifact_hash() != digest {
+                return Err(ExecError::Panic("X3_LIQUIDATION_ARTIFACT_NOT_APPROVED".into()));
+            }
+            let batch = host.candidates(&policy).map_err(ExecError::Panic)?;
+            let authorized = authorize(&policy, digest, &batch).map_err(ExecError::Panic)?;
+            // A failed/uncertain external effect is not rolled back or automatically
+            // retried by resetting VM state. Only the host may reconcile its nonce.
+            vm.liquidation_attempted = true;
+            let effect = host.execute(&authorized).map_err(ExecError::Panic)?;
+            vm.liquidation_receipt = Some(DecisionReceipt {
+                authorization: authorized,
+                effect,
+            });
+            Ok(Vec::new())
+        }
         CapabilityPayload::GpuDispatch { kernel, args, .. } => {
             bridge_result(vm.bridge.gpu_dispatch(&kernel, args.join("\0").as_bytes()))
         }

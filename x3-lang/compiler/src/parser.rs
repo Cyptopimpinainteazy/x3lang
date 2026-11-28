@@ -335,6 +335,7 @@ impl<'a> Parser<'a> {
             Tok::Ident(ref s) if s == "finality_policy" => self.parse_finality_policy_item(),
             Tok::Ident(ref s) if s == "atomic_hedge" => self.parse_atomic_hedge_item(),
             Tok::Ident(ref s) if s == "atomic_liquidation" => self.parse_atomic_liquidation_item(),
+            Tok::Ident(ref s) if s == "native_liquidation" => self.parse_native_liquidation_item(),
             Tok::Ident(ref s) if s == "rebalance" => self.parse_rebalance_item(),
             Tok::Ident(ref s) if s == "netting" => self.parse_netting_item(),
             Tok::Ident(ref s) if s == "arb" => self.parse_arb_item(),
@@ -351,6 +352,128 @@ impl<'a> Parser<'a> {
     // ------------------------------------------------------------------
     // Items
     // ------------------------------------------------------------------
+
+    fn parse_native_liquidation_item(&mut self) -> Result<Item, X3Error> {
+        use std::collections::{BTreeMap, BTreeSet};
+        use x3_lang_common::liquidation::LiquidationPolicy;
+
+        self.advance();
+        let name = Symbol::new(&self.expect_ident("native liquidation name")?);
+        self.expect(Tok::LBrace, "expected '{' after native liquidation name")?;
+        let mut seen = BTreeSet::new();
+        let mut strings = BTreeMap::new();
+        let mut numbers = BTreeMap::new();
+        let mut arrays = BTreeMap::new();
+        while self.peek() != Tok::RBrace {
+            let field = self.expect_ident("native liquidation field")?;
+            if !seen.insert(field.clone()) {
+                return Err(parse_err(
+                    format!("duplicate native liquidation field '{field}'"),
+                    self.peek(),
+                ));
+            }
+            self.expect(Tok::Colon, "expected ':' after native liquidation field")?;
+            match field.as_str() {
+                "executor" | "executor_code_hash" | "keeper" | "owner" | "morpho" | "loan_token" => {
+                    let Tok::String_(value) = self.advance() else {
+                        return Err(parse_err(
+                            format!("native liquidation {field} requires a string literal"),
+                            self.peek(),
+                        ));
+                    };
+                    strings.insert(field, value);
+                }
+                "markets" | "routers" => {
+                    self.expect(Tok::LBracket, "expected '[' for native liquidation list")?;
+                    let mut values = Vec::new();
+                    while self.peek() != Tok::RBracket {
+                        let Tok::String_(value) = self.advance() else {
+                            return Err(parse_err(
+                                format!("native liquidation {field} entries require string literals"),
+                                self.peek(),
+                            ));
+                        };
+                        values.push(value);
+                        if values.len() > 32 {
+                            return Err(parse_err(
+                                format!("native liquidation {field} exceeds 32 entries"),
+                                self.peek(),
+                            ));
+                        }
+                        if self.peek() != Tok::RBracket {
+                            self.expect(Tok::Comma, "expected ',' between native liquidation list entries")?;
+                        }
+                    }
+                    self.advance();
+                    arrays.insert(field, values);
+                }
+                "chain_id"
+                | "min_repay"
+                | "max_repay"
+                | "min_profit"
+                | "max_gas"
+                | "max_fee_per_gas"
+                | "max_priority_fee_per_gas"
+                | "max_total_fee_wei"
+                | "max_age_blocks"
+                | "expires_at_block"
+                | "max_candidates" => {
+                    let value = self.expect_uint(&field)?;
+                    numbers.insert(field, value);
+                }
+                _ => {
+                    return Err(parse_err(
+                        format!("unknown native liquidation field '{field}'"),
+                        self.peek(),
+                    ))
+                }
+            }
+            match self.peek() {
+                Tok::Semicolon | Tok::Comma => {
+                    self.advance();
+                }
+                Tok::RBrace => {}
+                _ => {
+                    return Err(parse_err(
+                        "expected ';' or ',' between native liquidation fields".into(),
+                        self.peek(),
+                    ))
+                }
+            }
+        }
+        self.advance();
+        let missing = |field: &str| parse_err(format!("missing native liquidation field '{field}'"), self.peek());
+        let mut text = |field: &str| strings.remove(field).ok_or_else(|| missing(field));
+        let number = |field: &str| numbers.get(field).copied().ok_or_else(|| missing(field));
+        let uint64 = |field: &str| {
+            u64::try_from(number(field)?)
+                .map_err(|_| parse_err(format!("native liquidation {field} exceeds u64"), self.peek()))
+        };
+        let policy = LiquidationPolicy {
+            chain_id: uint64("chain_id")?,
+            executor: text("executor")?,
+            executor_code_hash: text("executor_code_hash")?,
+            keeper: text("keeper")?,
+            owner: text("owner")?,
+            morpho: text("morpho")?,
+            loan_token: text("loan_token")?,
+            markets: arrays.remove("markets").ok_or_else(|| missing("markets"))?,
+            routers: arrays.remove("routers").ok_or_else(|| missing("routers"))?,
+            min_repay: number("min_repay")?,
+            max_repay: number("max_repay")?,
+            min_profit: number("min_profit")?,
+            max_gas: uint64("max_gas")?,
+            max_fee_per_gas: number("max_fee_per_gas")?,
+            max_priority_fee_per_gas: number("max_priority_fee_per_gas")?,
+            max_total_fee_wei: number("max_total_fee_wei")?,
+            max_age_blocks: uint64("max_age_blocks")?,
+            expires_at_block: uint64("expires_at_block")?,
+            max_candidates: u32::try_from(number("max_candidates")?)
+                .map_err(|_| parse_err("native liquidation max_candidates exceeds u32".into(), self.peek()))?,
+        };
+        policy.validate().map_err(|message| parse_err(message, self.peek()))?;
+        Ok(Item::NativeLiquidation(NativeLiquidationDecl { name, policy }))
+    }
 
     fn parse_function_item(&mut self) -> Result<Item, X3Error> {
         let is_async = if self.peek() == Tok::KwAsync {

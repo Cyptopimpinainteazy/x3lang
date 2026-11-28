@@ -63,6 +63,8 @@ pub enum Item {
     AtomicHedge(AtomicHedgeDecl),
     /// `atomic_liquidation { … }` — spec PHASE 10.
     AtomicLiquidation(AtomicLiquidationDecl),
+    /// A standalone, bounded native EVM liquidation selection and host effect.
+    NativeLiquidation(NativeLiquidationDecl),
     /// `rebalance <name> { … }` — spec PHASE 11.
     Rebalance(RebalanceDecl),
     /// `netting <name> { … }` — spec PHASE 22.
@@ -86,6 +88,12 @@ pub enum Item {
 pub struct UseDecl {
     pub path: Vec<Symbol>,
     pub alias: Option<Symbol>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeLiquidationDecl {
+    pub name: Symbol,
+    pub policy: x3_lang_common::liquidation::LiquidationPolicy,
 }
 
 /// An `import` declaration for FFI or runtime adapters

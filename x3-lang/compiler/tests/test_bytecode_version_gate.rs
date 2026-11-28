@@ -19,8 +19,8 @@
 use x3_lang_compiler::emitter::{emit_x3ir, first_instruction_offset, instructions};
 use x3_lang_compiler::semantic::CompilationMode;
 use x3_lang_compiler::spec::opcodes::{
-    is_supported_version, max_opcode_version, opcode_version, BYTECODE_VERSION_1, BYTECODE_VERSION_2,
-    CURRENT_BYTECODE_VERSION, IF_MEASURED, OPCODE_SET,
+    is_defined_version, is_supported_version, max_opcode_version, opcode_version, BYTECODE_VERSION_1,
+    BYTECODE_VERSION_2, CURRENT_BYTECODE_VERSION, IF_MEASURED, OPCODE_SET,
 };
 use x3_lang_vm::verifier::{verify, VerifyError};
 use x3_lang_vm::x3_lang_vm::InstructionStream;
@@ -37,6 +37,7 @@ const SPEC_SOURCE: &str = include_str!("../../spec/opcodes.rs");
 const NON_OPCODE_BYTE_CONSTANTS: &[(&str, &str)] = &[
     ("BYTECODE_VERSION_1", "the first bytecode version's own value"),
     ("BYTECODE_VERSION_2", "the second bytecode version's own value"),
+    ("BYTECODE_VERSION_3", "the third bytecode version's own value"),
     ("REQUIRE_COMPARE_MASK", "a bit mask over `REQUIRE`'s flags byte"),
     (
         "CAPABILITY_REPLY_MEASURED_TAG",
@@ -136,6 +137,10 @@ fn the_version_the_writer_writes_is_the_greatest_version_in_the_opcode_set() {
         "a pipeline that writes a version it cannot read back is a pipeline with no round trip"
     );
     assert!(
+        OPCODE_SET.iter().all(|(_, version)| is_defined_version(*version)),
+        "every registered opcode version must be a defined format version"
+    );
+    assert!(
         OPCODE_SET
             .iter()
             .any(|(opcode, version)| *opcode == IF_MEASURED && *version == BYTECODE_VERSION_2),
@@ -146,7 +151,7 @@ fn the_version_the_writer_writes_is_the_greatest_version_in_the_opcode_set() {
     assert!(
         OPCODE_SET
             .iter()
-            .all(|(_, version)| *version == BYTECODE_VERSION_1 || *version == BYTECODE_VERSION_2),
+            .all(|(_, version)| is_supported_version(*version) && *version <= CURRENT_BYTECODE_VERSION),
         "no opcode may be registered against a version above the one this writer may write"
     );
 }
@@ -154,10 +159,10 @@ fn the_version_the_writer_writes_is_the_greatest_version_in_the_opcode_set() {
 #[test]
 fn an_artifact_whose_version_this_reader_does_not_know_is_refused_by_name() {
     let mut bytes = artifact();
-    // A version from a *future* build. Version 2 is one this reader supports, and the point of the
+    // A version from a *future* build. The current version is one this reader supports, and the point of the
     // reservation is that a byte the format claims but does not implement is still refused rather
     // than read as an instruction — the hole that opened when version 2 became supported (TICKET-105).
-    let future_version = BYTECODE_VERSION_2 + 1;
+    let future_version = CURRENT_BYTECODE_VERSION + 1;
     bytes[0] = future_version;
 
     // The compiler's walker — `x3c explain`, `x3c inspect`.
@@ -165,19 +170,22 @@ fn an_artifact_whose_version_this_reader_does_not_know_is_refused_by_name() {
         .err()
         .expect("a version this reader does not know must be refused");
     assert!(
-        error.to_string().contains("version 3"),
+        error.to_string().contains(&format!("version {future_version}")),
         "the refusal must name the version, or its reader cannot tell which one to rebuild for: \
          {error}"
     );
 
     // And the VM's, which must refuse it *before* walking rather than reading the version byte as
     // an instruction. The message is the same one, from `spec::opcodes::version_refusal`.
-    let error = verify(&InstructionStream::new(bytes)).expect_err("version 3 must not be executed");
+    let error = verify(&InstructionStream::new(bytes)).expect_err("a future version must not be executed");
     assert!(
-        matches!(error, VerifyError::UnsupportedBytecodeVersion(3)),
+        matches!(error, VerifyError::UnsupportedBytecodeVersion(version) if version == future_version),
         "a reserved version this reader does not know has its own refusal: {error:?}"
     );
-    assert!(error.to_string().contains("version 3"), "{error}");
+    assert!(
+        error.to_string().contains(&format!("version {future_version}")),
+        "{error}"
+    );
 }
 
 #[test]

@@ -1,9 +1,13 @@
 //! Typed binary payloads for X3 capability opcodes.
 
+use crate::liquidation::LiquidationPolicy;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CapabilityPayload {
+    NativeLiquidation {
+        policy: LiquidationPolicy,
+    },
     GpuDispatch {
         kernel: String,
         args: Vec<String>,
@@ -336,6 +340,7 @@ pub struct BridgePayload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CapabilityCodecError {
+    InvalidPolicy(String),
     UnexpectedEof,
     InvalidUtf8,
     InvalidOpcode(u8),
@@ -468,6 +473,32 @@ pub fn encode_capability_payload(payload: &CapabilityPayload) -> Result<Vec<u8>,
         CapabilityPayload::Bounty { amount, condition } => {
             write_u128(&mut out, *amount);
             write_string(&mut out, condition)?;
+        }
+        CapabilityPayload::NativeLiquidation { policy } => {
+            policy.validate().map_err(CapabilityCodecError::InvalidPolicy)?;
+            write_u64(&mut out, policy.chain_id);
+            for value in [
+                &policy.executor,
+                &policy.executor_code_hash,
+                &policy.keeper,
+                &policy.owner,
+                &policy.morpho,
+                &policy.loan_token,
+            ] {
+                write_string(&mut out, value)?;
+            }
+            write_string_vec(&mut out, &policy.markets)?;
+            write_string_vec(&mut out, &policy.routers)?;
+            write_u128(&mut out, policy.min_repay);
+            write_u128(&mut out, policy.max_repay);
+            write_u128(&mut out, policy.min_profit);
+            write_u64(&mut out, policy.max_gas);
+            write_u128(&mut out, policy.max_fee_per_gas);
+            write_u128(&mut out, policy.max_priority_fee_per_gas);
+            write_u128(&mut out, policy.max_total_fee_wei);
+            write_u64(&mut out, policy.max_age_blocks);
+            write_u64(&mut out, policy.expires_at_block);
+            write_u32(&mut out, policy.max_candidates);
         }
         CapabilityPayload::VenueOrder {
             action,
@@ -879,6 +910,31 @@ pub fn decode_capability_payload(opcode: u8, bytes: &[u8]) -> Result<CapabilityP
             amount: reader.read_u128()?,
             condition: reader.read_string()?,
         },
+        0xAC => {
+            let policy = LiquidationPolicy {
+                chain_id: reader.read_u64()?,
+                executor: reader.read_string()?,
+                executor_code_hash: reader.read_string()?,
+                keeper: reader.read_string()?,
+                owner: reader.read_string()?,
+                morpho: reader.read_string()?,
+                loan_token: reader.read_string()?,
+                markets: reader.read_bounded_string_vec(32)?,
+                routers: reader.read_bounded_string_vec(32)?,
+                min_repay: reader.read_u128()?,
+                max_repay: reader.read_u128()?,
+                min_profit: reader.read_u128()?,
+                max_gas: reader.read_u64()?,
+                max_fee_per_gas: reader.read_u128()?,
+                max_priority_fee_per_gas: reader.read_u128()?,
+                max_total_fee_wei: reader.read_u128()?,
+                max_age_blocks: reader.read_u64()?,
+                expires_at_block: reader.read_u64()?,
+                max_candidates: reader.read_u32()?,
+            };
+            policy.validate().map_err(CapabilityCodecError::InvalidPolicy)?;
+            CapabilityPayload::NativeLiquidation { policy }
+        }
         0x9D => CapabilityPayload::VenueOrder {
             action: reader.read_string()?,
             subject: reader.read_string()?,
@@ -1078,6 +1134,16 @@ struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
+    fn read_bounded_string_vec(&mut self, max: usize) -> Result<Vec<String>, CapabilityCodecError> {
+        let count = usize::from(self.read_u16()?);
+        if count > max {
+            return Err(CapabilityCodecError::InvalidPolicy(
+                "native liquidation array exceeds bound".into(),
+            ));
+        }
+        (0..count).map(|_| self.read_string()).collect()
+    }
+
     fn read_exact(&mut self, len: usize) -> Result<&'a [u8], CapabilityCodecError> {
         let end = self.pos.checked_add(len).ok_or(CapabilityCodecError::UnexpectedEof)?;
         if end > self.bytes.len() {

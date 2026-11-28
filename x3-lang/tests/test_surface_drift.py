@@ -183,6 +183,8 @@ REFUSES = {
     "events_and_host_calls.x3": "X3_PARSE_NO_INTENT",
     "flagship_b52.x3": "X3_PARSE_NO_INTENT",
     "mainnet_safe_swap.x3": "X3_PARSE_NO_INTENT",
+    # This declaration belongs to the Rust compiler/native VM surface.
+    "native_liquidation.x3": "X3_PARSE_NO_INTENT",
     "near_mandate_agent.x3": "X3_PARSE_NO_INTENT",
     "near_native_vault_supplier.x3": "X3_PARSE_NO_INTENT",
     "objective_routing.x3": "X3_PARSE_NO_INTENT",

@@ -1,0 +1,135 @@
+{
+  "schema": "x3.native-liquidation.fixture-source.v1",
+  "classification": "local Anvil only; genuine pinned Morpho and executor, mock ERC20/oracle/DEX; not public-chain evidence",
+  "compiler": {
+    "package": "solc",
+    "version": "0.8.19+commit.7dd6d404.Emscripten.clang",
+    "optimizer": {
+      "enabled": true,
+      "runs": 999999
+    },
+    "evmVersion": "paris"
+  },
+  "sources": {
+    "lib/morpho-blue/LICENSE": {
+      "sha256": "7a58f621fc71e7e5ed6f6ad5fcb8a56c145b77cea444a3066c530c9f40d8f89d",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "LICENSE"
+    },
+    "lib/morpho-blue/src/Morpho.sol": {
+      "sha256": "7f66c064ad0bdc046382fa65f449bb5a0b9181d5d03b65e3c8438226d437b9ce",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/Morpho.sol"
+    },
+    "lib/morpho-blue/src/interfaces/IERC20.sol": {
+      "sha256": "6e2b44aa15626cde7e33adc20c8a424ba91aaec47fab9170efaeea54104e565d",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/interfaces/IERC20.sol"
+    },
+    "lib/morpho-blue/src/interfaces/IIrm.sol": {
+      "sha256": "3ba6e6164cd0ed25d2b1d8d3766667ef016712705fe30094a97fe3801d14e915",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/interfaces/IIrm.sol"
+    },
+    "lib/morpho-blue/src/interfaces/IMorpho.sol": {
+      "sha256": "24f96c2860c42cd5834c56cdb159c56435acaee0716d34d54ca18bd755edc97c",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/interfaces/IMorpho.sol"
+    },
+    "lib/morpho-blue/src/interfaces/IMorphoCallbacks.sol": {
+      "sha256": "3fa10015bd49e04e3c14e63bcf0abefb3ebac5759b030d32784cb1bd4773e0c4",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/interfaces/IMorphoCallbacks.sol"
+    },
+    "lib/morpho-blue/src/interfaces/IOracle.sol": {
+      "sha256": "757c9870385af7a880cb12ae47b4aba8a936bab4a7bdeff50647d605237fc178",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/interfaces/IOracle.sol"
+    },
+    "lib/morpho-blue/src/interfaces/LICENSE": {
+      "sha256": "30ebd886d34d00443fbe6e2b1d65f8c17ddf3ccb08dea4d5d0279520eb8efb47",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/interfaces/LICENSE"
+    },
+    "lib/morpho-blue/src/libraries/ConstantsLib.sol": {
+      "sha256": "d450cc5f56d70f6460ed81c5e2e7a294f5b7644307a4c742754e0d41a8789567",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/ConstantsLib.sol"
+    },
+    "lib/morpho-blue/src/libraries/ErrorsLib.sol": {
+      "sha256": "0a54375182b5cfbb4f1101da4900c45ee96ba74962853168daf0d6281580666c",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/ErrorsLib.sol"
+    },
+    "lib/morpho-blue/src/libraries/EventsLib.sol": {
+      "sha256": "c267b23c5a3086ed00a712b841ef12b674be508ac8b8cf2e3f289ae09bd1677a",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/EventsLib.sol"
+    },
+    "lib/morpho-blue/src/libraries/LICENSE": {
+      "sha256": "30ebd886d34d00443fbe6e2b1d65f8c17ddf3ccb08dea4d5d0279520eb8efb47",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/LICENSE"
+    },
+    "lib/morpho-blue/src/libraries/MarketParamsLib.sol": {
+      "sha256": "94af290e2a2094b8547b925449484d247bce87cce4fed8902ecf82dd2b49242e",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/MarketParamsLib.sol"
+    },
+    "lib/morpho-blue/src/libraries/MathLib.sol": {
+      "sha256": "2c6728d1bc8f5db81f2a7946f226c3c4a8cffe4134c55450ca445b05727011bc",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/MathLib.sol"
+    },
+    "lib/morpho-blue/src/libraries/SafeTransferLib.sol": {
+      "sha256": "bee3d6375591947edc45a28f46569e969df9ab434b91530e5bb4560aa61e3675",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/SafeTransferLib.sol"
+    },
+    "lib/morpho-blue/src/libraries/SharesMathLib.sol": {
+      "sha256": "4580deb1b1a3f2ea0b60f2305708428975613d1e94d404d647bcc573a7b2a2f0",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/SharesMathLib.sol"
+    },
+    "lib/morpho-blue/src/libraries/UtilsLib.sol": {
+      "sha256": "9d0c8a0855b2f9e9f92111cdf32bdbbd1ff97b7584f0f958b695f2c4cb0d1b34",
+      "repository": "https://github.com/morpho-org/morpho-blue",
+      "commit": "55d2d99304fb3fb930c688462ae2ccabb1d533ad",
+      "path": "src/libraries/UtilsLib.sol"
+    },
+    "src/MonkeyLiquidator.sol": {
+      "sha256": "c351ddf24bacc31aa4f966098408e15cf778ff7ba92156bacced251d60c7436d",
+      "repository": "https://github.com/Cyptopimpinainteazy/profit-monkey",
+      "commit": "1a8ead1ff4b67899b48d9cadc979373710e57592",
+      "path": "contracts/src/MonkeyLiquidator.sol"
+    },
+    "src/MonkeyLiquidatorSwap.sol": {
+      "sha256": "590e64fbfa060e803fea2d6067c6d38cf5838122cf7e413351cf449cb2383d1f",
+      "repository": "https://github.com/Cyptopimpinainteazy/profit-monkey",
+      "commit": "1a8ead1ff4b67899b48d9cadc979373710e57592",
+      "path": "contracts/src/MonkeyLiquidatorSwap.sol"
+    },
+    "test/mocks/Mocks.sol": {
+      "sha256": "86476b4edd25ccf27d9bdb5505dae2602bdb80f049609ff284c47eac84820e17",
+      "repository": "https://github.com/Cyptopimpinainteazy/profit-monkey",
+      "commit": "1a8ead1ff4b67899b48d9cadc979373710e57592",
+      "path": "contracts/test/mocks/Mocks.sol"
+    }
+  }
+}

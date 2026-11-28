@@ -66,9 +66,30 @@ impl Default for X3IR {
     }
 }
 
+pub(crate) fn contains_native_liquidation(ops: &[Operation]) -> bool {
+    ops.iter().any(|op| match op {
+        Operation::NativeLiquidation { .. } => true,
+        Operation::If { then_ops, else_ops, .. } => {
+            contains_native_liquidation(then_ops)
+                || else_ops.as_ref().is_some_and(|ops| contains_native_liquidation(ops))
+        }
+        Operation::Loop { body, .. } | Operation::Simulate { body, .. } => contains_native_liquidation(body),
+        Operation::ScheduledDispatch { entry, .. } => contains_native_liquidation(entry),
+        Operation::GasAdaptive {
+            high_gas_ops,
+            low_gas_ops,
+        } => contains_native_liquidation(high_gas_ops) || contains_native_liquidation(low_gas_ops),
+        _ => false,
+    })
+}
+
 /// A single IR operation - the atomic unit of execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Operation {
+    /// Terminal standalone native liquidation effect, with compiled policy bounds.
+    NativeLiquidation {
+        policy: x3_lang_common::liquidation::LiquidationPolicy,
+    },
     // ===== Asset Transfer Operations =====
     /// Lock assets on source chain (begin settlement)
     Lock {
