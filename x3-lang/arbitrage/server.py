@@ -16,6 +16,10 @@ from .catalogue import token_report, build_route
 from .provider_quotes import market_catalog
 from .workbench import template, compile_draft, strategy_from_draft
 from .trader import strategy_from_document
+from .mandate_proof import MandateProof
+from .cycle_closer import CycleCloser
+from .liquidity_listing import LiquidityListing
+from .fee_splitter import FeeSplitter
 import near_intents as ni
 
 WEB = Path(__file__).parent / 'web'
@@ -29,6 +33,10 @@ class App:
         self.config = validate_config(config) if config is not None else None
         self.ledger = PaperLedger(database)
         self.trader = Trader(database, clock=clock)
+        self.proof = MandateProof(self.trader.store)
+        self.closer = CycleCloser(self.trader)
+        self.listing = LiquidityListing(self.proof)
+        self.splitter = FeeSplitter()
         self.csrf = secrets.token_urlsafe(32)
         self.catalog_client = catalog_client or ni.OneClickClient(timeout=8, api_key='')
         if pool_discovery is None:
@@ -126,6 +134,20 @@ class App:
     def action(self, path, data):
         if not isinstance(data, dict):
             raise ValueError('JSON object required')
+        if path == '/api/mandate/proof':
+            if set(data) != {'mandate_id'}:
+                raise ValueError('mandate_id required')
+            return self.proof.snapshot(data['mandate_id'], int(self.clock()) * 1000)
+        if path == '/api/liquidity/listing':
+            ids = data.get('mandate_ids', [])
+            if not isinstance(ids, list) or len(ids) > 20:
+                raise ValueError('mandate_ids must be a short list')
+            return self.listing.listing(ids, int(self.clock()) * 1000)
+        if path == '/api/cycle/close':
+            if set(data) != {'key'}:
+                raise ValueError('cycle key required')
+            # Paper backend only from the dashboard
+            return self.closer.close_or_unwind(data['key'], PaperExchange(self.trader.store), int(self.clock()))
         if path == '/api/provider-quotes':
             if not self.quote_lock.acquire(blocking=False):
                 raise ValueError('provider quote request already running')
