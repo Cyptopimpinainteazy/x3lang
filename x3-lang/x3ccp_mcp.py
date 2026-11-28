@@ -115,8 +115,9 @@ def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         try:
             compiled = x3ccp.compile_source(args["source"], now=_now(args))
             if name == "x3ccp_explain":
-                return _result({"policy_hash": compiled["policy_hash"], "explain": x3ccp.explain(compiled)})
-            return _result({"policy_hash": compiled["policy_hash"],
+                return _result({"policy_hash": compiled["policy_hash"], "warnings": compiled["warnings"],
+                                "explain": x3ccp.explain(compiled)})
+            return _result({"policy_hash": compiled["policy_hash"], "warnings": compiled["warnings"],
                             "results": x3ccp.simulate(compiled, args["calls"])})
         except x3ccp.X3CCPError as exc:
             return _result({"ok": False, "errors": [exc.to_dict()]}, is_error=True)

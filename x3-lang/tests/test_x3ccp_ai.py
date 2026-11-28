@@ -25,6 +25,8 @@ STORE = "0x2222222222222222222222222222222222222222"
 
 def _valid_sources():
     yield EXAMPLE
+    with open(os.path.join(ROOT, "examples", "x3ccp_mainnet_guard.x3"), encoding="utf-8") as source:
+        yield source.read()
     yield from x3ccp_fixtures.sources().values()
     yield ("control minimal {\n  target base-sepolia 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f\n"
            "  owner 0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496\n  allow callers " + AGENT + "\n"
@@ -38,13 +40,20 @@ def test_grammar_accepts_every_compilable_source(source):
     assert x3ccp_ai.grammar_accepts(source)
 
 
+@pytest.mark.parametrize("chain", sorted(x3ccp.CHAINS))
+def test_grammar_and_compiler_agree_on_every_chain(chain):
+    source = EXAMPLE.replace("target local", f"target {chain}")
+    assert x3ccp_ai.grammar_accepts(source)
+    assert x3ccp.compile_source(source, now=NOW)["chain_id"] == x3ccp.CHAINS[chain]
+
+
 @pytest.mark.parametrize("broken", [
     EXAMPLE.replace("allow fn withdraw", "alow fn withdraw"),
     EXAMPLE.replace("control treasury_guard {", "control treasury guard {"),
     EXAMPLE.replace("limit withdraw.amount <= 50_000_000", "limit withdraw.amount < 50_000_000"),
     EXAMPLE.replace("rate withdraw calls per 1h <= 3", "rate withdraw calls per hour <= 3"),
     EXAMPLE.replace("0x1111111111111111111111111111111111111111", "0x11111"),
-    EXAMPLE.replace("target local", "target ethereum"),
+    EXAMPLE.replace("target local", "target solana"),
     EXAMPLE.replace("allow fn setMemo(bytes32 memo, bool urgent)", "allow fn setMemo(string memo)"),
     EXAMPLE.rstrip().rstrip("}"),
     EXAMPLE.replace("expires at 2030-01-01T00:00:00Z", "expires at 2030-01-01"),
@@ -146,3 +155,23 @@ def test_oversized_input_is_refused_before_any_work():
     assert not report["ok"] and report["errors"][0]["code"] == "X3CCP_LIMIT"
     with pytest.raises(x3ccp.X3CCPError):
         x3ccp.compile_source(huge, now=NOW)
+
+
+@pytest.mark.parametrize("chain", sorted(x3ccp.MAINNET_NAMES))
+def test_mainnet_mcp_tools_preserve_nonblocking_warnings(chain):
+    source = EXAMPLE.replace("target local", f"target {chain}")
+    shared = {"source": source, "now": NOW.isoformat()}
+    replies = _session([
+        _call(1, "x3ccp_compile", shared),
+        _call(2, "x3ccp_explain", shared),
+        _call(3, "x3ccp_simulate", {**shared, "calls": [
+            {"sender": AGENT, "fn": "withdraw", "args": [STORE, 5_000],
+             "timestamp": int(NOW.timestamp()), "chain_id": x3ccp.CHAINS[chain]},
+        ]}),
+    ])
+    for reply in replies:
+        result = reply["result"]
+        assert not result["isError"]
+        notices = result["structuredContent"]["warnings"]
+        assert [notice["code"] for notice in notices] == ["X3CCP_MAINNET_UNAUDITED"]
+    assert replies[2]["result"]["structuredContent"]["results"][0]["allowed"] is True
