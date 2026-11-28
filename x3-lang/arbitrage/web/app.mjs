@@ -1,3 +1,4 @@
+import { mountWallet } from "./wallet-ui.mjs";
 import { units, edge, matches, selectTokenPair, pairIssue } from "./format.mjs";
 const $ = (id) => document.getElementById(id);
 const chain = (value) =>
@@ -864,3 +865,5 @@ $("provider-quote-form").addEventListener("submit", async event => {
     $("get-provider-quotes").disabled = false;
   }
 });
+
+mountWallet();

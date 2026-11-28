@@ -881,3 +881,6 @@ form small {
 
 .quote-form { padding: 0 20px 20px; }
 #quote-results pre { max-height:360px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+
+.wallet-connect { padding:20px; margin:0 20px 18px; border:1px solid #293044; border-radius:12px; }
+#wallet-status { overflow-wrap:anywhere; }

@@ -317,6 +317,8 @@ def create_server(app, *, port=8787):
             files = {'/': ('index.html', 'text/html; charset=utf-8'),
                      '/app.mjs': ('app.mjs', 'text/javascript'),
                      '/format.mjs': ('format.mjs', 'text/javascript'),
+                     '/wallet.mjs': ('wallet.mjs', 'text/javascript'),
+                     '/wallet-ui.mjs': ('wallet-ui.mjs', 'text/javascript'),
                      '/style.css': ('style.css', 'text/css'),
                      '/icon.svg': ('icon.svg', 'image/svg+xml')}
             if path not in files:

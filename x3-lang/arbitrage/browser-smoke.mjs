@@ -76,6 +76,83 @@ try {
   await page.goto(base);
   await page.getByText("3 of 3 routes", { exact: true }).waitFor();
   assert.equal(await page.locator("#routes tr").count(), 3);
+  if (process.env.X3_WALLET_SMOKE === "1") {
+    assert.match(await page.locator("#wallet-status").textContent(), /No injected EVM wallet/);
+    assert.equal(await page.locator("#wallet-connect").isDisabled(), true);
+    await page.evaluate(() => {
+      const listeners = new Map();
+      const calls = [];
+      const provider = {
+        on(name, handler) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(handler); },
+        removeListener(name, handler) { listeners.get(name)?.delete(handler); },
+        async request({method}) {
+          calls.push(method);
+          if (method === "eth_requestAccounts") {
+            if (window.__walletFixture.rejectNext) {
+              window.__walletFixture.rejectNext = false;
+              throw {code:4001,message:"untrusted private error must not display"};
+            }
+            if (window.__walletFixture.hold)
+              return await new Promise(resolve => { window.__walletFixture.resolve = resolve; });
+            return ["0x1111111111111111111111111111111111111111"];
+          }
+          if (method === "eth_chainId") return "0x1";
+          throw new Error("Forbidden wallet RPC requested: " + method);
+        },
+      };
+      window.__walletFixture = {calls, rejectNext:false,
+        emit(name, value) { for (const fn of [...(listeners.get(name) || [])]) fn(value); },
+        listenerCount() { return [...listeners.values()].reduce((n, set) => n + set.size, 0); }};
+      const announce = (name, wallet) => window.dispatchEvent(new CustomEvent("eip6963:announceProvider", {detail:{info:{name},provider:wallet}}));
+      announce("Fixture EVM wallet", provider);
+      announce("Duplicate must deduplicate", provider);
+      announce("<img src=x onerror=alert(1)>", {...provider});
+    });
+    assert.equal(await page.locator("#wallet-provider option").count(), 2);
+    assert.equal(await page.locator(".wallet-connect img").count(), 0);
+    assert.deepEqual(await page.evaluate(() => window.__walletFixture.calls), []);
+    await page.locator("#wallet-connect").click();
+    await page.waitForFunction(() => document.getElementById("quote-address").value === "0x" + "1".repeat(40));
+    assert.match(await page.locator("#wallet-status").textContent(), /Ethereum/);
+    await page.evaluate(() => {
+      window.__walletFixture.emit("accountsChanged", ["0x"+"2".repeat(40)]);
+      window.__walletFixture.emit("chainChanged", "0x2105");
+    });
+    assert.equal(await page.locator("#quote-address").inputValue(), "0x"+"2".repeat(40));
+    assert.match(await page.locator("#wallet-status").textContent(), /Base/);
+    await page.locator("#quote-address").fill("0x"+"3".repeat(40));
+    await page.evaluate(() => window.__walletFixture.emit("accountsChanged", ["0x"+"4".repeat(40)]));
+    assert.equal(await page.locator("#quote-address").inputValue(), "0x"+"3".repeat(40));
+    await page.locator("#wallet-use-address").click();
+    assert.equal(await page.locator("#quote-address").inputValue(), "0x"+"4".repeat(40));
+    await page.locator("#wallet-disconnect").click();
+    assert.equal(await page.locator("#quote-address").inputValue(), "");
+    assert.equal(await page.evaluate(() => window.__walletFixture.listenerCount()), 0);
+    await page.evaluate(() => { window.__walletFixture.rejectNext = true; });
+    await page.locator("#wallet-connect").click();
+    await page.waitForFunction(() => !document.getElementById("wallet-connect").disabled);
+    assert.ok(!(await page.locator("#wallet-status").textContent()).includes("untrusted private"));
+    await page.evaluate(() => { window.__walletFixture.hold = true; });
+    await page.locator("#wallet-connect").click();
+    await page.waitForFunction(() => !!window.__walletFixture.resolve);
+    const promptCalls = await page.evaluate(() => window.__walletFixture.calls.length);
+    await page.locator("#wallet-disconnect").click();
+    await page.locator("#wallet-connect").click();
+    assert.equal(await page.evaluate(() => window.__walletFixture.calls.length), promptCalls,
+      "local disconnect/reconnect must not duplicate a pending wallet prompt");
+    await page.evaluate(() => {
+      window.__walletFixture.hold = false;
+      window.__walletFixture.resolve(["0x"+"1".repeat(40)]);
+    });
+    assert.equal(await page.locator("#quote-address").inputValue(), "");
+    const calls = await page.evaluate(() => window.__walletFixture.calls);
+    assert.ok(calls.length >= 3 && calls.every(method => ["eth_requestAccounts", "eth_chainId"].includes(method)));
+    const fixtureState = await page.evaluate(async () => await (await fetch("/api/state")).json());
+    assert.equal(fixtureState.provider_quotes, null, "wallet connection does not contact quote provider");
+    assert.equal(fixtureState.cycles.length, 0, "wallet connection cannot start paper or live execution");
+    await page.screenshot({path:path.join(artifacts, "wallet-connection.png"),fullPage:true});
+    extraChecks.push("injected-wallet protocol fixtures: discovery, consent-only RPC, account/chain changes, manual address preservation, disconnect and rejection (no real wallet signed)");
+  }
   if (process.env.X3_QUOTE_SMOKE === "1") {
     await page.locator("#quote-market").selectOption("base-usdc-weth");
     await page.locator("#quote-address").fill("0x000000000000000000000000000000000000dEaD");

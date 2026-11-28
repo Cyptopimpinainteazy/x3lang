@@ -290,3 +290,29 @@ no browser-supplied URLs are accepted. Quotes may become stale or unavailable
 before execution and are not reservations or settlement evidence.
 
 Provider contract: https://docs.li.fi/api-reference/get-a-quote-for-a-token-transfer
+
+### EVM wallet address adapter
+
+The **Connect an EVM wallet** panel discovers EIP-6963 injected providers with a
+legacy `window.ethereum` fallback. Select your extension and connect explicitly
+to share its public address for LI.FI pricing. No wallet RPC occurs on page load;
+the adapter only requests `eth_requestAccounts` and `eth_chainId`. It never asks
+for signatures, approvals, transactions, network switches or fee activation.
+No keys, wallet sessions or public addresses are stored in browser storage.
+
+Account and network changes update the connection display. A wallet-filled quote
+address follows account changes and clears on disconnect; manually edited quote
+addresses remain under your control. **Use wallet address** restores autofill.
+**Disconnect locally** detaches this app's listeners and discards its connection;
+it does not revoke the wallet's existing site permission. Revoke site access in
+your extension if desired. Names supplied by extensions are unverified; no wallet
+icons or HTML are rendered. Unsupported/absent providers leave manual quote entry
+available. An in-app browser without extension injection must open this local URL
+in a wallet-enabled browser to connect. Solana, NEAR and WalletConnect QR/session
+adapters are not included in this EVM-only address connector.
+
+Validation uses Node protocol fixtures and Chromium injection fixtures; those
+checks prove UI/protocol behavior, not real-extension approval or on-chain trading.
+Run `node --test x3-lang/arbitrage/web/*.test.mjs`; optional browser integration:
+`X3_WALLET_SMOKE=1` with the existing smoke script. Standards:
+https://eips.ethereum.org/EIPS/eip-1193 and https://eips.ethereum.org/EIPS/eip-6963.
