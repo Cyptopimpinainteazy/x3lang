@@ -1,0 +1,37 @@
+.github/workflows/x3-arbitrage.yml
+  h_e41068bed968d7 34,36
+x3-lang/arbitrage/web/app.mjs
+  h_e41068bed968d7 1,868-869
+x3-lang/arbitrage/web/wallet-ui.mjs
+  h_e41068bed968d7 1-80
+x3-lang/arbitrage/server.py
+  h_e41068bed968d7 320-321
+x3-lang/arbitrage/web/wallet.mjs
+  h_e41068bed968d7 1-106
+x3-lang/arbitrage/web/wallet.test.mjs
+  h_e41068bed968d7 1-186
+x3-lang/arbitrage/web/style.css
+  h_e41068bed968d7 884-886
+x3-lang/arbitrage/browser-smoke.mjs
+  h_e41068bed968d7 79-94,97-134,148-155
+  h_e41068bed968d7 95-96,135-147
+x3-lang/arbitrage/README.md
+  h_e41068bed968d7 293-318
+x3-lang/arbitrage/web/index.html
+  h_e41068bed968d7 234-245,252
+audit-artifacts/arbitrage-wallet-20261127/review.md
+  h_e41068bed968d7 1
+audit-artifacts/arbitrage-wallet-20261127/verification.json
+  h_e41068bed968d7 1-883
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e5bdac1b00d45b5f197efa39df44c641488e6b1f",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
