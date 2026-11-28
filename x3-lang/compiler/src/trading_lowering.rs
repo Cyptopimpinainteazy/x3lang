@@ -3,14 +3,14 @@
 use std::{collections::BTreeSet, fmt};
 
 use x3_lang_ast::ast::{Expression, LiteralExpr};
-use x3_lang_ast::{AtomicTradeDecl, RoundingMode, TradeRiskPolicy, TradeStmt};
+use x3_lang_ast::{AtomicTradeDecl, TradeRiskPolicy, TradeStmt};
 use x3_lang_common::{Symbol, X3Error};
 
 use crate::ir::{
     AssetKey, CompiledTradingPolicy, CostKind, Operation, StateBindingMode, SubmissionProfile, TradingOperation,
     ValueRef,
 };
-use crate::trading_semantic::{decimal_to_base_units, TradingSymbols};
+use crate::trading_semantic::{amount_base_units, TradingSymbols};
 
 /// Errors produced while lowering a verified atomic trade.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,13 +244,7 @@ fn literal_amount(
     symbols: &TradingSymbols,
     context: &str,
 ) -> Result<u128, LowerError> {
-    let asset = symbols.assets.get(&amount.asset).ok_or_else(|| LowerError {
-        message: format!("{context} references undeclared asset '{}'", amount.asset.as_str()),
-    })?;
-    let literal = literal_text(&amount.value).ok_or_else(|| LowerError {
-        message: format!("{context} must be a literal amount before lowering"),
-    })?;
-    decimal_to_base_units(&literal, asset.decimals, RoundingMode::Exact).map_err(|err| LowerError {
+    amount_base_units(amount, symbols).map_err(|err| LowerError {
         message: format!("{context}: {err}"),
     })
 }
@@ -264,7 +258,7 @@ fn binding_ref(value: &Expression, symbols: &TradingSymbols, asset_symbol: &Symb
                 message: "swap input field access must reference a named debt binding".to_string(),
             }),
         },
-        Expression::Literal(_) => {
+        Expression::Literal(_) | Expression::Binary { .. } => {
             let amount = x3_lang_ast::AmountExpr {
                 value: value.clone(),
                 asset: asset_symbol.clone(),
@@ -274,14 +268,6 @@ fn binding_ref(value: &Expression, symbols: &TradingSymbols, asset_symbol: &Symb
         _ => Err(LowerError {
             message: "swap input must be a literal, binding, or debt amount".to_string(),
         }),
-    }
-}
-
-fn literal_text(expr: &Expression) -> Option<String> {
-    match expr {
-        Expression::Literal(LiteralExpr::Int { value, .. }) => Some(value.to_string()),
-        Expression::Literal(LiteralExpr::Float { raw, .. }) => Some(raw.as_str().to_string()),
-        _ => None,
     }
 }
 
