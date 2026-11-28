@@ -1,7 +1,10 @@
 # X3CCP — X3Lang policies enforced by a Solidity contract
 
-**Stage:** X3CCP-01 (language + compiler) and X3CCP-02 (on-chain enforcer). Experimental,
-testnet-only, unaudited. Not deployed to any public chain by this change.
+**Stage:** X3CCP-01 (language + compiler) and X3CCP-02 (on-chain enforcer). Experimental and
+unaudited. The compiler accepts testnet targets (`base-sepolia`, `local`) and, by owner decision,
+mainnet targets (`base`, `ethereum`/`mainnet`, `optimism`, `arbitrum`, `bsc`). A mainnet policy
+compiles with an `X3CCP_MAINNET_UNAUDITED` warning and `explain()` says so on the target line.
+Not deployed to any public chain by this change.
 
 X3CCP moves X3Lang from an agent *authorization* language toward a cross-chain smart contract
 *control* language. An owner writes a `control` block; it compiles to canonical policy bytes; a
@@ -105,8 +108,10 @@ passes through the script. It refuses to send anything without `--broadcast
 
 ## Security limitations
 
-- Unaudited. The constructor does not restrict chains; the compiler refuses mainnet targets and
-  `installPolicy` requires `block.chainid` to match the policy.
+- Unaudited, and mainnet targets are allowed. Neither the constructor nor the compiler restricts a
+  policy to testnets; `installPolicy` requires `block.chainid` to match the policy, so a policy
+  compiled for one chain cannot be installed on another. A mainnet policy guards real funds with
+  an enforcer that has had no external review.
 - The owner key is all-powerful: it installs, replaces and revokes policies. Compromise of the
   owner key defeats the policy. There is no timelock on policy changes in v1.
 - Installing a new policy starts a new epoch and resets rate usage.

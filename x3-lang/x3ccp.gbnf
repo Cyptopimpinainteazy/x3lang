@@ -12,7 +12,7 @@ blank     ::= ows comment? eol
 clause    ::= target | owner | callers | fn | limit | rate | expires
 
 target    ::= "target" sp chain sp addr
-chain     ::= "base-sepolia" | "local"
+chain     ::= "base-sepolia" | "local" | "base" | "ethereum" | "mainnet" | "optimism" | "arbitrum" | "bsc"
 owner     ::= "owner" sp addr
 callers   ::= "allow" sp "callers" sp addr (ows "," ows addr)*
 fn        ::= "allow" sp "fn" sp ident ows "(" ows params? ows ")"
