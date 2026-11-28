@@ -286,9 +286,13 @@ CREATE TABLE IF NOT EXISTS stamp_revocations (nonce TEXT PRIMARY KEY, reason TEX
             db.close()
 
     @contextmanager
-    def _transaction(self):
+    def _transaction(self, *, read_only=False):
         with self._connection() as db:
-            db.execute("BEGIN IMMEDIATE")
+            if read_only:
+                db.execute("PRAGMA query_only=ON")
+                db.execute("BEGIN")
+            else:
+                db.execute("BEGIN IMMEDIATE")
             self._verify_log(db)
             yield db
             db.commit()
