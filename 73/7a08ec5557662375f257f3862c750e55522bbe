@@ -1,0 +1,16 @@
+audit-artifacts/x3ccp-mainnet-20261128/verification.json
+  h_e41068bed968d7 3,6,8,41-42,96-114,137-138
+x3-lang/crates/x3-tools/tests/cli.rs
+  h_e41068bed968d7 3732
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "737a08ec5557662375f257f3862c750e55522bbe",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
