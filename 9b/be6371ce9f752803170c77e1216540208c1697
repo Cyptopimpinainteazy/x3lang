@@ -1,0 +1,16 @@
+x3-lang/vm/src/executor.rs
+  h_e41068bed968d7 715-720
+x3-lang/vm/tests/native_liquidation.rs
+  h_e41068bed968d7 248,251-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9bbe6371ce9f752803170c77e1216540208c1697",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
