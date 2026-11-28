@@ -21,6 +21,25 @@ and slippageTolerance (0..500 bps). Unknown fields are rejected. Addresses must
 be supplied by the caller; this discovery layer does not validate chain-specific
 address formats or prove account existence. The provider can refuse them.
 
+## Compare provider and compiler chain codes
+
+```sh
+python3 x3-lang/oneclick_catalog.py --chain-coverage
+python3 x3-lang/oneclick_catalog.py --chain-coverage /path/to/saved-v0-tokens.json
+```
+
+With a file, the comparison runs offline. Without a file, it reads the public
+token list anonymously. The report groups distinct provider codes into three
+sorted lists. `listed_mapped_codes` occur in both the token list and the current
+compiled adapter map. `catalog_only_codes` appear only in the provider list.
+`missing_mapped_codes` are configured in the adapter and absent from the supplied
+list. Use a complete provider snapshot to check for missing mappings. A filtered
+list can report omissions caused by the filter.
+
+The command exits 0 when every mapped code appears, 1 when any are missing,
+and 2 on invalid input or a fetch error. Newly listed codes remain available
+for discovery. The report makes no quote and grants no payment authorization.
+
 ## Limits
 
 The advisory snapshot supplied by the owner on 2026-11-11 says:

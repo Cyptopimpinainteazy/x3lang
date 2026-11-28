@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 import pytest
 import oneclick_catalog as oc
 
@@ -90,3 +91,58 @@ def test_json_arrays_are_structured_validation_errors(field):
     r=request(); r[field]=[]; client=Client()
     with pytest.raises(ValueError): oc.dry_quote(client,r)
     assert client.calls==[]
+
+
+def test_coverage_reports_provider_codes_separately_from_adapter_mappings():
+    mapped = set(oc.ni.CHAIN_TO_BLOCKCHAIN.values())
+    # Multiple exact assets can belong to one provider chain.
+    extra_near = dict(token('near'), assetId='near:other')
+    result = oc.chain_coverage([token(chain) for chain in mapped] + [token('stellar'), extra_near])
+    assert result['listed_mapped_codes'] == sorted(mapped)
+    assert result['catalog_only_codes'] == ['stellar']
+    assert result['missing_mapped_codes'] == []
+    assert result['eligible_for_wallet_authorization'] is False
+
+
+def test_saved_coverage_checks_only_local_data(tmp_path, monkeypatch, capsys):
+    def no_transport(*args, **kwargs):
+        pytest.fail("an archived catalog must not use the network")
+    monkeypatch.setattr(oc.ni.OneClickClient, 'tokens', no_transport)
+    monkeypatch.setattr(oc.ni.OneClickClient, 'quote', no_transport)
+    path = tmp_path / 'tokens.json'
+    path.write_text(json.dumps([token('eth'), token('future-chain')]))
+    assert oc.main(['--chain-coverage', str(path)]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report['listed_mapped_codes'] == ['eth']
+    assert report['missing_mapped_codes'] == sorted(set(oc.ni.CHAIN_TO_BLOCKCHAIN.values()) - {'eth'})
+    assert report['catalog_only_codes'] == ['future-chain']
+
+
+@pytest.mark.parametrize('bad', [[], {}, [None], [token('near'), token('near')]])
+def test_invalid_coverage_snapshot_fails(tmp_path, capsys, bad):
+    path = tmp_path / 'bad.json'
+    path.write_text(json.dumps(bad))
+    assert oc.main(['--chain-coverage', str(path)]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert 'error' in result
+    assert result['eligible_for_wallet_authorization'] is False
+
+
+def test_live_coverage_only_reads_the_public_token_list(monkeypatch, capsys):
+    calls = []
+    def tokens(client):
+        assert not client.authenticated
+        calls.append('tokens')
+        return [token(code) for code in oc.ni.CHAIN_TO_BLOCKCHAIN.values()] + [token('new-code')]
+    monkeypatch.setenv('NEAR_INTENTS_API_KEY', 'example-test-value')
+    monkeypatch.setattr(oc.ni.OneClickClient, 'tokens', tokens)
+    monkeypatch.setattr(oc.ni.OneClickClient, 'quote', lambda *args: pytest.fail('unexpected quote'))
+    assert oc.main(['--chain-coverage']) == 0
+    assert calls == ['tokens']
+    assert json.loads(capsys.readouterr().out)['catalog_only_codes'] == ['new-code']
+
+
+def test_coverage_and_quote_request_are_mutually_exclusive():
+    with pytest.raises(SystemExit) as error:
+        oc.main(['--request', 'quote.json', '--chain-coverage'])
+    assert error.value.code == 2
