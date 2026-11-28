@@ -1,10 +1,11 @@
 {
   "schema": "x3.x3ccp-mainnet.verification.v1",
-  "recorded_at_utc": "2026-11-28T07:05:10.168044+00:00",
+  "recorded_at_utc": "2026-11-28T07:11:07.366063+00:00",
   "base_commit": "ccec0364fc82fd66f2ff48a4a35a6097085a0f25",
   "branch": "feat/x3ccp-mainnet-support-20261128",
-  "tested_tree": "Scoped changes atop 7c038bf7d682a23cc4ee8801dafb73bfca5957bd; exact tested source hashes below.",
+  "tested_tree": "Runtime/Python sources tested at 3d6a38cd7c7d80a0190356cd2ea6676550d7750d; subsequent Rust corpus registry correction tested in this scoped tree. Exact source hashes below; final-head hosted CI is recorded in the PR.",
   "source_sha256": {
+    "x3-lang/crates/x3-tools/tests/cli.rs": "d773073e8885e9c3a7ef1709836857ea07194d49ca833584a3f14bfc7c747a9a",
     "x3-lang/examples/x3ccp_mainnet_guard.x3": "74dc5a28adf8fc133ea95b4307239c3d084d2d1809de0f13c4939ccf4b82bba4",
     "x3-lang/tests/test_surface_drift.py": "9f0060c725be852671a62a65e4da74d984430a8256c1e0099f060661d87002a9",
     "x3-lang/tests/test_x3ccp.py": "51973b5ac81c73c67cf661d8ab90605a1ef58311d9dc555bec8fe79002538af7",
@@ -37,7 +38,8 @@
   "regressions": [
     "Baseline origin/master refuses the illustrative Base policy with X3CCP_MAINNET_REFUSED; changed compiler succeeds with a nonblocking X3CCP_MAINNET_UNAUDITED warning.",
     "CLI warning-bearing simulation errors first failed with multiple stderr JSON objects; now preserve one JSON error for local and Base policies.",
-    "New control example is classified in the surface-drift gate and compiled with its own surface."
+    "New control example is classified in the surface-drift gate and compiled with its own surface.",
+    "The Rust example and source-tree corpus walks classify both X3CCP control examples under the existing Python-only control boundary; all 81 Rust CLI tests pass after adding the mainnet example to that registry."
   ],
   "checks": [
     {
@@ -91,6 +93,25 @@
     {
       "command": "git diff --check",
       "exit_code": 0
+    },
+    {
+      "command": "PYTHONPATH=x3-lang .venv/bin/python -m pytest x3-lang/tests -q -ra",
+      "tested_commit": "3d6a38cd7c7d80a0190356cd2ea6676550d7750d",
+      "exit_code": 0,
+      "passed": 1830,
+      "skipped": 13,
+      "subtests_passed": 168,
+      "duration_seconds": 242.05
+    },
+    {
+      "command": "cargo fmt --all -- --check (cwd x3-lang)",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo test -p x3-tools --test cli --locked (cwd x3-lang)",
+      "exit_code": 0,
+      "passed": 81,
+      "duration_seconds": 1.28
     }
   ],
   "local_evm_scope": {
@@ -113,7 +134,8 @@
   "independent_review": {
     "mode": "Read-only child agent diff and security/API review",
     "remaining_findings": 0,
-    "independent_final_tests": "106 compiler, AI/MCP and surface-drift tests passed"
+    "independent_final_tests": "106 compiler, AI/MCP and surface-drift tests passed",
+    "corpus_registration_review": "No findings; own-surface coverage retained; independent Python surface/AI rerun: 40 passed."
   },
   "limits": [
     "Compiler support only; no public deployment, owner-key signing or live transaction.",

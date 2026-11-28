@@ -3729,7 +3729,7 @@ const TESTNET_DRAFT_ONLY: &str = "base_sepolia_to_near_testnet_1usdc.x3";
 const PYTHON_ONLY_MANDATES: [&str; 2] = ["near_mandate_agent.x3", "near_native_vault_supplier.x3"];
 /// X3CCP `control` policies: compiled by `x3-lang/x3ccp.py` to bytes an `X3Controlled` Solidity
 /// contract enforces; not a program for the generic VM. Their own gate is tests/test_x3ccp.py.
-const PYTHON_ONLY_CONTROL: [&str; 1] = ["x3ccp_treasury_guard.x3"];
+const PYTHON_ONLY_CONTROL: [&str; 2] = ["x3ccp_mainnet_guard.x3", "x3ccp_treasury_guard.x3"];
 /// X3-PIR `capability` grant sources: compiled only by the capability compiler
 /// (`compile_capability_source`); ordinary executable source must reject a capability
 /// declaration (spec/X3_PIR_EVM.md). The walk asserts that `x3c check` refuses each one;
