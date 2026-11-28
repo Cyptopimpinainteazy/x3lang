@@ -10,12 +10,12 @@ See compiler/tests/fixtures/pir_evm_action.x3 (fictional, expired test fixture).
 
 ## Reproduce integration
 
-From x3-lang, with the reviewed PR #279 checkout at exact commit a1d5a5f35cb6687e2114617cdd413cc42386f1c6 and installed Foundry:
+From x3-lang, with the repository checkout and installed Foundry:
 ```sh
 cargo test -p x3-lang-compiler --test evm_capability --locked --offline
-FORGE=forge bash scripts/verify_pir06.sh /path/to/pinned/checkout
+FORGE=forge bash scripts/verify_pir06.sh
 ```
-The script builds the Rust exporter, compiles the fixture into action bytes and ID, retrieves the executor source/config from the pinned Git object, and runs Foundry in a disposable directory. It uses vm.chainId, vm.warp and vm.etch to simulate the chain and fixed fixture addresses with constructor immutables; these are not deployed addresses. The Solidity test independently computes action ID, requires it equals Rust, owner installs policy/rule/approval, and the agent executes the approved target call. Direct bypass, replay, changed arguments, wrong sender, modified policy hash, nonzero value, expiry and revocation are tested. No broadcasts or credentials.
+The script builds the Rust exporter, compiles the fixture into action bytes and ID, retrieves the executor source/config from the same commit (or the original reviewed a1d5a5f35cb6687e2114617cdd413cc42386f1c6 checkout when passed explicitly), and runs Foundry in a disposable directory. It uses vm.chainId, vm.warp and vm.etch to simulate the chain and fixed fixture addresses with constructor immutables; these are not deployed addresses. The Solidity test independently computes action ID, requires it equals Rust, owner installs policy/rule/approval, and the agent executes the approved target call. Direct bypass, replay, changed arguments, wrong sender, modified policy hash, nonzero value, expiry and revocation are tested. No broadcasts or credentials.
 
 ## Release hold
-Stacked on #285; executor dependency remains separate #279. Existing Foundry lint warnings, owner authorization boundary, proxy/code-dependency risks, token semantic success, arbitrary asset effects, signed action authorization, policy rotation and independent audit remain unresolved. No general EVM source semantics, delegated EVM permissions, production deployment, native value transfers, or cross-chain finality claim. Dedicated CI, stronger adversarial tests, actual testnet deployment approval and real integration audit required. Next: cross-chain policy lowering and verified settlement checks, keeping native finality requirements mandatory.
+The build uses the in-tree executor first proposed in #279. Existing Foundry lint warnings, owner authorization boundary, proxy/code-dependency risks, token semantic success, arbitrary asset effects, signed action authorization, policy rotation and independent audit remain unresolved. No general EVM source semantics, delegated EVM permissions, production deployment, native value transfers, or cross-chain finality claim. Dedicated CI exercises the two compilers and the Solidity fixtures. External audit and separate testnet deployment approval remain release gates. Next: cross-chain policy lowering and verified settlement checks, keeping native finality requirements mandatory.

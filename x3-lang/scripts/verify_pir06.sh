@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
-# Local integration only. Never broadcasts. Requires a reviewed checkout of PR #279.
+# Local EVM simulation; reads the executor from the candidate commit and never broadcasts.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-executor_checkout="$(realpath "$1")"
-pin=a1d5a5f35cb6687e2114617cdd413cc42386f1c6
-test "$(git -C "$executor_checkout" rev-parse HEAD)" = "$pin"
+if (( $# > 1 )); then
+    echo "usage: verify_pir06.sh [historical-pinned-checkout]" >&2
+    exit 2
+fi
+if (( $# == 0 )); then
+    executor_checkout="$(git rev-parse --show-toplevel)"
+    pin="$(git rev-parse HEAD)"
+else
+    executor_checkout="$(realpath "$1")"
+    pin=a1d5a5f35cb6687e2114617cdd413cc42386f1c6
+    test "$(git -C "$executor_checkout" rev-parse HEAD)" = "$pin"
+fi
 forge_bin="${FORGE:-forge}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

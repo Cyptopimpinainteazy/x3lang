@@ -1,0 +1,57 @@
+name: X3 contract-control compiler and executor
+on:
+  pull_request:
+    paths:
+      - 'x3-lang/contract-control/**'
+      - 'x3-lang/compiler/**'
+      - 'x3-lang/crates/**'
+      - 'crates/x3bc-core/**'
+      - 'x3-lang/emitter/_keccak.py'
+      - 'x3-lang/integration/pir06/**'
+      - 'x3-lang/scripts/verify_pir06.sh'
+      - 'x3-lang/Cargo.*'
+      - '.github/workflows/x3-contract-control.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'x3-lang/contract-control/**'
+      - 'x3-lang/compiler/**'
+      - 'x3-lang/crates/**'
+      - 'crates/x3bc-core/**'
+      - 'x3-lang/emitter/_keccak.py'
+      - 'x3-lang/integration/pir06/**'
+      - 'x3-lang/scripts/verify_pir06.sh'
+      - 'x3-lang/Cargo.*'
+      - '.github/workflows/x3-contract-control.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-action:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: x3-lang
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.3
+      - name: Offline ABI and independent action-vector tests
+        run: python3 -m unittest discover -s x3-lang/contract-control/compiler -v
+      - name: Solidity executor unit tests
+        working-directory: x3-lang/contract-control/evm
+        run: forge test -vv
+      - name: Compare the canonical Rust proposal with Solidity execution
+        working-directory: x3-lang
+        run: |
+          cargo fetch --locked
+          cargo test -p x3-lang-compiler --test evm_capability --locked --offline
+          bash scripts/verify_pir06.sh
