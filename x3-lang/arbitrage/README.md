@@ -4,6 +4,18 @@ A local scanner for cross-chain round trips, conservative route economics, compi
 leg exports, persistent paper projections and explicit policy-checked live quote preparation.
 It extends `near_liquidity` and `near_intents`; it is separate from the frozen hackathon submission.
 
+## Complementary Mandate Bots (new)
+
+Five small modules sit on the existing sequential inventory and TradingStore. They do not open new cycles or introduce new custody.
+
+- `MandateProof` — hash-bound snapshot of remaining incomplete notional, allowed assets/recipients, revocation.
+- `CycleCloser` — only closes or unwinds open sequential cycles (re-quote or refund path).
+- `FeeSplitter` — splits verified positive net profit after settlement (default 80/20).
+- `LiquidityListing` — public constrained-room advertisement for other agents.
+- `MandateDiff` — paper-vs-live predicate alignment checker.
+
+All are paper-first and reuse the existing store. No new language features or Guard changes required.
+
 ## Run
 
 From the repository root, with the existing Python runtime dependencies installed:
@@ -120,6 +132,9 @@ wallet calls or signing endpoints are accepted by the HTTP API.
 | `/api/refresh` | `{}` | Bounded background refresh |
 | `/api/paper` | `route_id`, `key`, optional `scenario` | Durable projection or idempotent replay |
 | `/api/export` | `route_id`, `leg`, `refund_to`, `recipient`, optional `mandate_owner` | Compiled source and filename |
+| `/api/mandate/proof` | `mandate_id` | Hash-bound remaining-room proof |
+| `/api/liquidity/listing` | `mandate_ids` | Constrained liquidity advertisement |
+| `/api/cycle/close` | `key` | One closer tick on an open cycle |
 
 Route IDs bind the entire observed route, including timestamps and cost estimate. Refresh
 changes IDs. Replaying an existing paper key uses its stored route even after refresh;
@@ -130,7 +145,8 @@ or quote API. Unknown external consumers have not been surveyed.
 
 ```bash
 PYTHONPATH=x3-lang python3 -m pytest x3-lang/tests/test_arbitrage*.py \
-  x3-lang/tests/test_near_liquidity_quotes.py x3-lang/tests/test_near_liquidity_rhea.py -q
+  x3-lang/tests/test_near_liquidity_quotes.py x3-lang/tests/test_near_liquidity_rhea.py \
+  x3-lang/tests/test_complementary_bots.py -q
 python3 -m compileall -q x3-lang/arbitrage
 node --test x3-lang/arbitrage/web/format.test.mjs
 node --check x3-lang/arbitrage/web/app.mjs
