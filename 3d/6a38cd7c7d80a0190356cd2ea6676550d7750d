@@ -1,0 +1,19 @@
+x3-lang/x3ccp.py
+  s_aac431aeeac21f::t_530c1ce83137bd 940,942,945-948
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3d6a38cd7c7d80a0190356cd2ea6676550d7750d",
+  "prompts": {},
+  "sessions": {
+    "s_aac431aeeac21f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa1b218d-2ae7-4838-a362-738a61028906",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
