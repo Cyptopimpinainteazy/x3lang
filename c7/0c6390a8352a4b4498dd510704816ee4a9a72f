@@ -1,0 +1,82 @@
+scripts/hackathon/test_agent_law.py
+  s_de7a1b8fb24e4a::t_fe21adfebbe547 1-129
+  s_12a5a67fdae7a4::t_ea1a0cf67fe742 130-157
+x3-lang/forcefield.py
+  s_de7a1b8fb24e4a::t_dbadfe4e4b4218 1-1544
+  s_de7a1b8fb24e4a::t_c3d32a6845f3ed 1545-1547
+x3-lang/agent_law.py
+  s_de7a1b8fb24e4a::t_dea895ca46c56d 1-519
+  s_de7a1b8fb24e4a::t_6f44be5348f373 520-522
+scripts/hackathon/forcefield.py
+  s_de7a1b8fb24e4a::t_a4317011294301 1-38
+x3-lang/near/x3-guard/src/forcefield_invariants.rs
+  s_de7a1b8fb24e4a::t_ec02a0fd02fba4 1-63
+  s_de7a1b8fb24e4a::t_9ccaf9d5d6e7e3 64-66
+docs/hackathon/forcefield-sha256.js
+  s_de7a1b8fb24e4a::t_5c3913b1c55e3e 1-112
+scripts/hackathon/test_forcefield.py
+  s_de7a1b8fb24e4a::t_7dace8bee19f34 1-360
+  s_de7a1b8fb24e4a::t_b782fd2760cf71 361-363
+docs/hackathon/AGENT_LAW_PATH.md
+  s_de7a1b8fb24e4a::t_a36a288bd9a0c7 1-42
+scripts/hackathon/agent_law.py
+  s_de7a1b8fb24e4a::t_628c3968adf7b8 1-39
+docs/hackathon/agent-law-proof.html
+  s_31fd028fa06438::t_5b64644652b618 1-155
+evidence/near-guard-mainnet-invoice06-2026-11-12/README.md
+  s_9c34202c037927::t_8a39d6c7e41402 9-16
+scripts/hackathon/judge_one_command.sh
+  s_9c34202c037927::t_5046b5e714d6d9 3-4,178-180
+scripts/hackathon/test_dotx3_workbench.py
+  s_12a5a67fdae7a4::t_2b7226c3132666 41,73-159
+x3-lang/tests/test_hackathon_support.py
+  s_9c34202c037927::t_6a97bb6b34db5b 207
+docs/hackathon/INVOICE06_SEQUENCE.md
+  s_31fd028fa06438::t_1bd131bcc8123c 1-92
+docs/hackathon/WHY_X3_SHIELD.md
+  s_31fd028fa06438::t_6a97304e262e11 16-22,28-29,66
+docs/security/X3_AGENT_CONSTITUTION_V1.md
+  s_31fd028fa06438::t_74118059743560 68-73
+scripts/hackathon/dotx3_workbench.py
+  s_12a5a67fdae7a4::t_c0345f82e6c74d 14,20,92-145,186-187,199,212-217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c70c6390a8352a4b4498dd510704816ee4a9a72f",
+  "prompts": {},
+  "sessions": {
+    "s_12a5a67fdae7a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9cfee257-2eb7-4ddb-ba4f-4b7f5c7bb2eb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    },
+    "s_31fd028fa06438": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69bd2b58-7f31-4914-aa3b-33a64ae821c7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    },
+    "s_9c34202c037927": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4fc4dd66-472d-4b47-9345-3d2f0ee264ae",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    },
+    "s_de7a1b8fb24e4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a1d5f1-cae3-7db2-88b5-ce577b0a4b6a",
+        "model": "unknown"
+      },
+      "human_author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+docs/hackathon/AGENT_LAW_PATH.md
+  h_e41068bed968d7 33,42
+docs/hackathon/agent-law-proof.html
+  h_e41068bed968d7 58,85
+scripts/hackathon/test_agent_law.py
+  h_e41068bed968d7 6,133-171,185
+x3-lang/agent_law.py
+  h_e41068bed968d7 8-9,323,370,453,463,472,662,814
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f549f49b022ed09d106d17014f24da4c36476350",
+  "prompts": {},
+  "humans": {
+    "h_e41068bed968d7": {
+      "author": "crypto pimpim <cryptopimpinainteazy@gmail.com>"
+    }
+  }
+}
