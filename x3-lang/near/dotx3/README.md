@@ -43,6 +43,8 @@ Its same-origin API contract is:
 | Method / path | Inputs | Behavior |
 | --- | --- | --- |
 | `GET /api/health` | None | Reports compiler availability and whether read-only mainnet checks are enabled |
+| `GET /api/agent-law` | None | Runs the local invoice_06 agent-law path and returns its public exhibit. `wallet_authorized` and `settlement_proven` are false. No broadcast and no Solana custody |
+| `POST /api/agent-law/act` | JSON `act` of `birth`, `test`, `authorize`, or `revoke`, plus editor `program` and `mandate` source | Runs that source through the same local door. The role, privilege list, and receipt come from the server. The session is process-local and does not change the archived exhibit. `wallet_authorized`, `settlement`, and `broadcast` stay false |
 | `GET /api/examples` | None | Labeled checked-in mandate and payment sources |
 | `POST /api/compile` | JSON `program`, `mandate` source strings | Actual Python compile/lower and deterministic policy evaluation |
 | `POST /api/dry-preflight` | Sources plus `max_input_usdc`, `guard`, `expected_guard_code_hash` | Opt-in read-only preflight; never wallet authorization |

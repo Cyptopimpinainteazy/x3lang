@@ -1,0 +1,18 @@
+// Disposable test identities, in base units (1 whole token = 1000000).
+coin DEMO {
+  name "X3 Demo Credit"
+  decimals 6
+  cap 1000000000
+  evm {
+    chain_id 31337
+    contract 0xF2E246BB76DF876Cef8b38ae84130F4F55De395b
+    recipient 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf
+    allocation 600000000
+  }
+  svm {
+    genesis_hash 4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4
+    mint F25s3DdjXdCxYBhh2z8FBusVEMT4b9bGNFVKJi3wFoF4
+    recipient Bow1CGKGDB9mNxeWdw85E2aCthQ1oZX4oFEe7fYT17ew
+    allocation 400000000
+  }
+}

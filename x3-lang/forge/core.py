@@ -25,15 +25,16 @@ REGISTRY_DIR = FORGE_DIR / "registry"
 DEFAULT_TOKENS = FORGE_DIR.parent / "tests" / "fixtures" / "near_intents_tokens.json"
 
 BUILD_VERSION = 1
-ENFORCERS = {"x3-guard", "agent-runtime"}
+ENFORCERS = {"x3-guard", "agent-runtime", "forge-gate"}
 PARAM_TYPES = {"asset", "amount", "address", "percent", "bps", "int", "asset_list", "receiver_list",
-               "near_account_list"}
+               "near_account_list", "model_list"}
+MODEL_RE = re.compile(r"[A-Za-z0-9._:/-]{1,64}")
 CONFIG_TYPES = {"url", "near_account", "text_list", "choice_list", "int"}
-CONNECTOR_TYPES = {"ide", "agent", "pay", "wallet", "data"}
+CONNECTOR_TYPES = {"ide", "agent", "pay", "wallet", "data", "compute"}
 AUTH_TYPES = {"cloudflare_access", "api_key", "near_account", "forge_session", "none"}
-IMPLANTS = {"neural_jack", "resonance", "vault_gem", "chain_sigil", "sensor_port"}
+IMPLANTS = {"neural_jack", "resonance", "vault_gem", "chain_sigil", "sensor_port", "mind_link"}
 PARTS = {"eyes", "feelers", "antennae", "core", "tendrils", "shield", "egg_sacs", "carapace", "sensor_fins",
-         "brain_lobes", "claws", "gills", "spikes"}
+         "brain_lobes", "claws", "gills", "spikes", "crown"}
 BODIES = {"serpent", "crustacean", "insectoid", "cephalopod", "titan"}
 # Chain names the mandate grammar accepts, in the spelling the UI shows.
 CHAIN_LABELS = {"solana": "Solana", "near": "Near", "ethereum": "Ethereum", "bsc": "BSC", "arbitrum": "Arbitrum",
@@ -133,7 +134,8 @@ def validate_registry(archetypes: Any, skills: Any, connectors: Any) -> Registry
         else:
             cap = s["compiles_to"].get("capability")
             _need(isinstance(cap, str) and re.fullmatch(r"[a-z]+\.[a-z_]+", cap) is not None, where, "bad capability")
-            _need(s["enforced_by"] == "agent-runtime", where, "capabilities are enforced by the agent runtime")
+            _need(s["enforced_by"] in ("agent-runtime", "forge-gate"), where,
+                  "capabilities are enforced by the agent runtime or the Forge gate")
         _need(s["mutation"].get("part") in PARTS, where, f"mutation.part must be one of {sorted(PARTS)}")
         ids = set()
         for p in s["params"]:
@@ -176,8 +178,14 @@ def validate_registry(archetypes: Any, skills: Any, connectors: Any) -> Registry
     surfaces = set()
     for c in connectors:
         where = f"connector {c.get('id') if isinstance(c, dict) else c!r}"
+        _need(isinstance(c, dict), where, "must be an object")
+        c = dict(c)
+        health_path = c.pop("health_path", None)
+        _need(health_path is None or (isinstance(health_path, str) and re.fullmatch(r"/[A-Za-z0-9/_-]{0,63}", health_path)
+                                      is not None), where, "health_path must be an absolute path")
         _keys(c, ("id", "name", "type", "description", "setup_url", "auth", "scopes", "surface", "requires_skills",
                   "risk", "implant", "config"), where)
+        c["health_path"] = health_path
         _ident(c["id"], where)
         _need(c["id"] not in co, where, "duplicate id")
         _need(c["type"] in CONNECTOR_TYPES, where, f"type must be one of {sorted(CONNECTOR_TYPES)}")
@@ -333,6 +341,12 @@ def _param_value(reg_param: Dict[str, Any], raw: Any, node: str, ctx: Dict[str, 
         bad = [x for x in items if x not in assets.by_ref]
         if bad:
             errs.add("X3_FORGE_PARAM", f"{label}: {bad} not in the loaded 1Click token list", where)
+            return None
+        return items
+    if t == "model_list":
+        bad = [x for x in items if not MODEL_RE.fullmatch(x)]
+        if bad:
+            errs.add("X3_FORGE_PARAM", f"{label}: {bad} are not model names", where)
             return None
         return items
     if t == "near_account_list":

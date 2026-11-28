@@ -1,0 +1,1723 @@
+{
+  "kind": "read-only-public-pool-discovery",
+  "command": "PYTHONPATH=x3-lang python -c \"from arbitrage.pools import discover_pools; discover_pools()\"",
+  "head_before_changes": "205dc451ea6bab90c9e22b00b81179e4515bff97",
+  "dirty": true,
+  "duration_s": 3.106,
+  "source_sha256": "b7171a8f0e50b81a12b84b0ba60ca2faf940e26dbf8a885c893651912b6961b2",
+  "report": {
+    "pools": [
+      {
+        "id": "solana:6qz7THwQvcjF3HyDGLuKaLBUk6EyJKeZXZMWLAeiwfjd",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "meteora",
+        "pair_address": "6qz7THwQvcjF3HyDGLuKaLBUk6EyJKeZXZMWLAeiwfjd",
+        "base_token": {
+          "address": "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy",
+          "symbol": "BP"
+        },
+        "quote_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "liquidity_usd": "6606976.3",
+        "volume_24h_usd": "13063895.78",
+        "source_url": "https://dexscreener.com/solana/6qz7THwQvcjF3HyDGLuKaLBUk6EyJKeZXZMWLAeiwfjd",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:DJNtGuBGEQiUCWE8F981M2C3ZghZt2XLD8f2sQdZ6rsZ",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "pancakeswap",
+        "pair_address": "DJNtGuBGEQiUCWE8F981M2C3ZghZt2XLD8f2sQdZ6rsZ",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "So11111111111111111111111111111111111111112",
+          "symbol": "SOL"
+        },
+        "liquidity_usd": "2259664.91",
+        "volume_24h_usd": "11089327.02",
+        "source_url": "https://dexscreener.com/solana/DJNtGuBGEQiUCWE8F981M2C3ZghZt2XLD8f2sQdZ6rsZ",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "raydium",
+        "pair_address": "BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "1622338.35",
+        "volume_24h_usd": "2357633.97",
+        "source_url": "https://dexscreener.com/solana/BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:4fuUiYxTQ6QCrdSq9ouBYcTM7bqSwYTSyLueGZLTy4T4",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "orca",
+        "pair_address": "4fuUiYxTQ6QCrdSq9ouBYcTM7bqSwYTSyLueGZLTy4T4",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "607725.68",
+        "volume_24h_usd": "840749.1",
+        "source_url": "https://dexscreener.com/solana/4fuUiYxTQ6QCrdSq9ouBYcTM7bqSwYTSyLueGZLTy4T4",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:4QU2NpRaqmKMvPSwVKQDeW4V6JFEKJdkzbzdauumD9qN",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "pancakeswap",
+        "pair_address": "4QU2NpRaqmKMvPSwVKQDeW4V6JFEKJdkzbzdauumD9qN",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "So11111111111111111111111111111111111111112",
+          "symbol": "SOL"
+        },
+        "liquidity_usd": "462805.06",
+        "volume_24h_usd": "3739289.61",
+        "source_url": "https://dexscreener.com/solana/4QU2NpRaqmKMvPSwVKQDeW4V6JFEKJdkzbzdauumD9qN",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:32D4zRxNc1EssbJieVHfPhZM3rH6CzfUPrWUuWxD9prG",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "meteora",
+        "pair_address": "32D4zRxNc1EssbJieVHfPhZM3rH6CzfUPrWUuWxD9prG",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "421398.11",
+        "volume_24h_usd": "79873.17",
+        "source_url": "https://dexscreener.com/solana/32D4zRxNc1EssbJieVHfPhZM3rH6CzfUPrWUuWxD9prG",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:B4Cp45PGifVM5FAXfh6AeV8QZ3eUNQnqGBw7KuC7MHnB",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "pumpswap",
+        "pair_address": "B4Cp45PGifVM5FAXfh6AeV8QZ3eUNQnqGBw7KuC7MHnB",
+        "base_token": {
+          "address": "DtcicPCKTKeAh7TDEzTym3hXeoHAoMiBdYJhMYxZpump",
+          "symbol": "CBUCKS"
+        },
+        "quote_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "liquidity_usd": "254262.75",
+        "volume_24h_usd": "420482.46",
+        "source_url": "https://dexscreener.com/solana/B4Cp45PGifVM5FAXfh6AeV8QZ3eUNQnqGBw7KuC7MHnB",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:ARwi1S4DaiTG5DX7S4M4ZsrXqpMD1MrTmbu9ue2tpmEq",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "meteora",
+        "pair_address": "ARwi1S4DaiTG5DX7S4M4ZsrXqpMD1MrTmbu9ue2tpmEq",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "242549.96",
+        "volume_24h_usd": "41489.76",
+        "source_url": "https://dexscreener.com/solana/ARwi1S4DaiTG5DX7S4M4ZsrXqpMD1MrTmbu9ue2tpmEq",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:7CNC9gGegzEfFK8fLXiYUhdtMEeFPQZoND56U1Mxhnor",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "pumpswap",
+        "pair_address": "7CNC9gGegzEfFK8fLXiYUhdtMEeFPQZoND56U1Mxhnor",
+        "base_token": {
+          "address": "FVzqGqRmr4UH1Fif6dewmwbJ1p4YUZCu8dcw4Efopump",
+          "symbol": "HOGE"
+        },
+        "quote_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "liquidity_usd": "87195.95",
+        "volume_24h_usd": "1676900.89",
+        "source_url": "https://dexscreener.com/solana/7CNC9gGegzEfFK8fLXiYUhdtMEeFPQZoND56U1Mxhnor",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:F13xvvx45jVGd84ynK3c8T89UejQVxjCLtmHfPmAXAHP",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "orca",
+        "pair_address": "F13xvvx45jVGd84ynK3c8T89UejQVxjCLtmHfPmAXAHP",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "45032.1",
+        "volume_24h_usd": "228.79",
+        "source_url": "https://dexscreener.com/solana/F13xvvx45jVGd84ynK3c8T89UejQVxjCLtmHfPmAXAHP",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:5NopLqBDdWXeWCmZrHctgvFboozrjHJzSLwfkyTg2rqw",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "pumpswap",
+        "pair_address": "5NopLqBDdWXeWCmZrHctgvFboozrjHJzSLwfkyTg2rqw",
+        "base_token": {
+          "address": "G9ZMir6uh66Y7viPkXAy7myA9jjE4T1YgheVUmGDpump",
+          "symbol": "GTA"
+        },
+        "quote_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "liquidity_usd": "37054.35",
+        "volume_24h_usd": "529504.77",
+        "source_url": "https://dexscreener.com/solana/5NopLqBDdWXeWCmZrHctgvFboozrjHJzSLwfkyTg2rqw",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:3NeUgARDmFgnKtkJLqUcEUNCfknFCcGsFfMJCtx6bAgx",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "raydium",
+        "pair_address": "3NeUgARDmFgnKtkJLqUcEUNCfknFCcGsFfMJCtx6bAgx",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "36726.75",
+        "volume_24h_usd": "951.86",
+        "source_url": "https://dexscreener.com/solana/3NeUgARDmFgnKtkJLqUcEUNCfknFCcGsFfMJCtx6bAgx",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:FX5UWkujjpU4yKB4yvKVEzG2Z8r2PLmLpyVmv12yqAUQ",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "orca",
+        "pair_address": "FX5UWkujjpU4yKB4yvKVEzG2Z8r2PLmLpyVmv12yqAUQ",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "3691.33",
+        "volume_24h_usd": "18.13",
+        "source_url": "https://dexscreener.com/solana/FX5UWkujjpU4yKB4yvKVEzG2Z8r2PLmLpyVmv12yqAUQ",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:4nkJrNo9yEaGXqPKdB8PqJoyRZiVKzgRitqnrkx1Qotc",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "meteora",
+        "pair_address": "4nkJrNo9yEaGXqPKdB8PqJoyRZiVKzgRitqnrkx1Qotc",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "2575.58",
+        "volume_24h_usd": "238.86",
+        "source_url": "https://dexscreener.com/solana/4nkJrNo9yEaGXqPKdB8PqJoyRZiVKzgRitqnrkx1Qotc",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:FPPHjpjBk98pd5Z3xXQuDcrZdUdqfraCRJU8yvdT1ZKR",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "orca",
+        "pair_address": "FPPHjpjBk98pd5Z3xXQuDcrZdUdqfraCRJU8yvdT1ZKR",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "2472.83",
+        "volume_24h_usd": "117.67",
+        "source_url": "https://dexscreener.com/solana/FPPHjpjBk98pd5Z3xXQuDcrZdUdqfraCRJU8yvdT1ZKR",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:CxF3jKhGrauHQjFk8L5XUkLTjmeLFqHUYHLCYYSautMC",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "orca",
+        "pair_address": "CxF3jKhGrauHQjFk8L5XUkLTjmeLFqHUYHLCYYSautMC",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "2164.42",
+        "volume_24h_usd": "7.24",
+        "source_url": "https://dexscreener.com/solana/CxF3jKhGrauHQjFk8L5XUkLTjmeLFqHUYHLCYYSautMC",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:8kvGYkeqDnb21b2BnSb9BMS2gJSfqF91EhpvAtzExCfM",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "meteora",
+        "pair_address": "8kvGYkeqDnb21b2BnSb9BMS2gJSfqF91EhpvAtzExCfM",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "1609.77",
+        "volume_24h_usd": "750.15",
+        "source_url": "https://dexscreener.com/solana/8kvGYkeqDnb21b2BnSb9BMS2gJSfqF91EhpvAtzExCfM",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:ELqXddRqcnRJXQnqZdPwBXEEBpQ6SEbCQrBe12wpHBU",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "orca",
+        "pair_address": "ELqXddRqcnRJXQnqZdPwBXEEBpQ6SEbCQrBe12wpHBU",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "1266.22",
+        "volume_24h_usd": "97.9",
+        "source_url": "https://dexscreener.com/solana/ELqXddRqcnRJXQnqZdPwBXEEBpQ6SEbCQrBe12wpHBU",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:FcjjezXg8afwpVWxdVcXALLkqSXAAoGLuWaS6LmtNoZG",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "meteora",
+        "pair_address": "FcjjezXg8afwpVWxdVcXALLkqSXAAoGLuWaS6LmtNoZG",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "845.8",
+        "volume_24h_usd": "26.93",
+        "source_url": "https://dexscreener.com/solana/FcjjezXg8afwpVWxdVcXALLkqSXAAoGLuWaS6LmtNoZG",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "solana:4bg8UDLXEm4T6pCyoW7iUizAz9HMoxhTAtMquSXigFZu",
+        "provider": "dexscreener",
+        "network": "solana",
+        "dex": "meteora",
+        "pair_address": "4bg8UDLXEm4T6pCyoW7iUizAz9HMoxhTAtMquSXigFZu",
+        "base_token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "578.13",
+        "volume_24h_usd": "364.99",
+        "source_url": "https://dexscreener.com/solana/4bg8UDLXEm4T6pCyoW7iUizAz9HMoxhTAtMquSXigFZu",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x3416cf6c708da44db2624d63ea0aaef7113527c6",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "uniswap",
+        "pair_address": "0x3416cf6c708da44db2624d63ea0aaef7113527c6",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "33678989.71",
+        "volume_24h_usd": "12151424.63",
+        "source_url": "https://dexscreener.com/ethereum/0x3416cf6c708da44db2624d63ea0aaef7113527c6",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x04c8577958ccc170eb3d2cca76f9d51bc6e42d8f",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "pancakeswap",
+        "pair_address": "0x04c8577958ccc170eb3d2cca76f9d51bc6e42d8f",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "17628034.61",
+        "volume_24h_usd": "368335.17",
+        "source_url": "https://dexscreener.com/ethereum/0x04c8577958ccc170eb3d2cca76f9d51bc6e42d8f",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0xaef2ad7abb651945e6d24276715f25bded0ad41e",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "metric",
+        "pair_address": "0xaef2ad7abb651945e6d24276715f25bded0ad41e",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "6204599.64",
+        "volume_24h_usd": "159273286.98",
+        "source_url": "https://dexscreener.com/ethereum/0xaef2ad7abb651945e6d24276715f25bded0ad41e",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x4f493b7de8aac7d55f71853688b1f7c8f0243c85",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "curve",
+        "pair_address": "0x4f493b7de8aac7d55f71853688b1f7c8f0243c85",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "5106877.96",
+        "volume_24h_usd": "1452133.75",
+        "source_url": "https://dexscreener.com/ethereum/0x4f493b7de8aac7d55f71853688b1f7c8f0243c85",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x2d90ebffc87bbe29e4d78e7627adfe9d0f3d7978",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "aero",
+        "pair_address": "0x2d90ebffc87bbe29e4d78e7627adfe9d0f3d7978",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "3669114.12",
+        "volume_24h_usd": "45690809.19",
+        "source_url": "https://dexscreener.com/ethereum/0x2d90ebffc87bbe29e4d78e7627adfe9d0f3d7978",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x3041cbd36888becc7bbcbc0045e3b1f144466f5f",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "uniswap",
+        "pair_address": "0x3041cbd36888becc7bbcbc0045e3b1f144466f5f",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "3340397.75",
+        "volume_24h_usd": "1458.16",
+        "source_url": "https://dexscreener.com/ethereum/0x3041cbd36888becc7bbcbc0045e3b1f144466f5f",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0xdcf7612fca2093a607e797238f47f804eca25728",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "0x956920F97690Bdd76a6a10C7ba931DEC14f61169",
+        "pair_address": "0xdcf7612fca2093a607e797238f47f804eca25728",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "578411.88",
+        "volume_24h_usd": "6343390.8",
+        "source_url": "https://dexscreener.com/ethereum/0xdcf7612fca2093a607e797238f47f804eca25728",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x7858e59e0c01ea06df3af3d20ac7b0003275d4bf",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "uniswap",
+        "pair_address": "0x7858e59e0c01ea06df3af3d20ac7b0003275d4bf",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "506648.19",
+        "volume_24h_usd": "59473.81",
+        "source_url": "https://dexscreener.com/ethereum/0x7858e59e0c01ea06df3af3d20ac7b0003275d4bf",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x070d7f265a48307d9988da191e479782030dc7ab",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "metric",
+        "pair_address": "0x070d7f265a48307d9988da191e479782030dc7ab",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xe343167631d89b6ffc58b88d6b7fb0228795491d",
+          "symbol": "USDG"
+        },
+        "liquidity_usd": "236218.33",
+        "volume_24h_usd": "3036754.37",
+        "source_url": "https://dexscreener.com/ethereum/0x070d7f265a48307d9988da191e479782030dc7ab",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x509c6c89fbf48b968b52c8069607c729464c78b6",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "curve",
+        "pair_address": "0x509c6c89fbf48b968b52c8069607c729464c78b6",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "48428.28",
+        "volume_24h_usd": "1257.44",
+        "source_url": "https://dexscreener.com/ethereum/0x509c6c89fbf48b968b52c8069607c729464c78b6",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x2beb35e78c9427899353c41c96bcc96c5647ec63",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "supernova",
+        "pair_address": "0x2beb35e78c9427899353c41c96bcc96c5647ec63",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "46533.39",
+        "volume_24h_usd": "55016.87",
+        "source_url": "https://dexscreener.com/ethereum/0x2beb35e78c9427899353c41c96bcc96c5647ec63",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x706ddbd9f2aad43f50162a89a1cff30a7942ca97",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "curve",
+        "pair_address": "0x706ddbd9f2aad43f50162a89a1cff30a7942ca97",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "37900.99",
+        "volume_24h_usd": "1124",
+        "source_url": "https://dexscreener.com/ethereum/0x706ddbd9f2aad43f50162a89a1cff30a7942ca97",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x18042f2fab99af6e374e4f5f3c2218102993cc23",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "curve",
+        "pair_address": "0x18042f2fab99af6e374e4f5f3c2218102993cc23",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x6b175474e89094c44da98b954eedeac495271d0f",
+          "symbol": "DAI"
+        },
+        "liquidity_usd": "10153.61",
+        "volume_24h_usd": "92.57",
+        "source_url": "https://dexscreener.com/ethereum/0x18042f2fab99af6e374e4f5f3c2218102993cc23",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0xac463bdc09361de85cf6b359b85c874a3b858534",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "0x88695A239A0A3F70729C4CB30fd32F9b4978513D",
+        "pair_address": "0xac463bdc09361de85cf6b359b85c874a3b858534",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "6017.96",
+        "volume_24h_usd": "7409.76",
+        "source_url": "https://dexscreener.com/ethereum/0xac463bdc09361de85cf6b359b85c874a3b858534",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0x63a65a174cc725824188940255ad41c371f28f28",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "solidlycom",
+        "pair_address": "0x63a65a174cc725824188940255ad41c371f28f28",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "4577.65",
+        "volume_24h_usd": "7.98",
+        "source_url": "https://dexscreener.com/ethereum/0x63a65a174cc725824188940255ad41c371f28f28",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "ethereum:0xfa6e8e97ececdc36302eca534f63439b1e79487b",
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "dex": "sushiswap",
+        "pair_address": "0xfa6e8e97ececdc36302eca534f63439b1e79487b",
+        "base_token": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "1201.96",
+        "volume_24h_usd": "4583.27",
+        "source_url": "https://dexscreener.com/ethereum/0xfa6e8e97ececdc36302eca534f63439b1e79487b",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xc6962004f452be9203591991d15f6b388e09e8d0",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "uniswap",
+        "pair_address": "0xc6962004f452be9203591991d15f6b388e09e8d0",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "26740122.47",
+        "volume_24h_usd": "30821107.33",
+        "source_url": "https://dexscreener.com/arbitrum/0xc6962004f452be9203591991d15f6b388e09e8d0",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xc473e2aee3441bf9240be85eb122abb059a3b57c",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "uniswap",
+        "pair_address": "0xc473e2aee3441bf9240be85eb122abb059a3b57c",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "3658027.38",
+        "volume_24h_usd": "678331.47",
+        "source_url": "https://dexscreener.com/arbitrum/0xc473e2aee3441bf9240be85eb122abb059a3b57c",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x412cf90dc0e435e9f68d2d810b24fe7d2904085b",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "aero",
+        "pair_address": "0x412cf90dc0e435e9f68d2d810b24fe7d2904085b",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+          "symbol": "USD\u20ae0"
+        },
+        "liquidity_usd": "1591889.1",
+        "volume_24h_usd": "6702573.78",
+        "source_url": "https://dexscreener.com/arbitrum/0x412cf90dc0e435e9f68d2d810b24fe7d2904085b",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xbe3ad6a5669dc0b8b12febc03608860c31e2eef6",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "uniswap",
+        "pair_address": "0xbe3ad6a5669dc0b8b12febc03608860c31e2eef6",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+          "symbol": "USD\u20ae0"
+        },
+        "liquidity_usd": "832598.18",
+        "volume_24h_usd": "1789008.85",
+        "source_url": "https://dexscreener.com/arbitrum/0xbe3ad6a5669dc0b8b12febc03608860c31e2eef6",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xd9e2a1a61b6e61b275cec326465d417e52c1b95c",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "pancakeswap",
+        "pair_address": "0xd9e2a1a61b6e61b275cec326465d417e52c1b95c",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "472280.89",
+        "volume_24h_usd": "724472.77",
+        "source_url": "https://dexscreener.com/arbitrum/0xd9e2a1a61b6e61b275cec326465d417e52c1b95c",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x7fcdc35463e3770c2fb992716cd070b63540b947",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "pancakeswap",
+        "pair_address": "0x7fcdc35463e3770c2fb992716cd070b63540b947",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "246093.35",
+        "volume_24h_usd": "272794.4",
+        "source_url": "https://dexscreener.com/arbitrum/0x7fcdc35463e3770c2fb992716cd070b63540b947",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x843ac8dc6d34aeb07a56812b8b36429ee46bdd07",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "pancakeswap",
+        "pair_address": "0x843ac8dc6d34aeb07a56812b8b36429ee46bdd07",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f",
+          "symbol": "WBTC"
+        },
+        "liquidity_usd": "221469.25",
+        "volume_24h_usd": "545682.94",
+        "source_url": "https://dexscreener.com/arbitrum/0x843ac8dc6d34aeb07a56812b8b36429ee46bdd07",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xb1026b8e7276e7ac75410f1fcbbe21796e8f7526",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "camelot",
+        "pair_address": "0xb1026b8e7276e7ac75410f1fcbbe21796e8f7526",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "198739.38",
+        "volume_24h_usd": "80022.34",
+        "source_url": "https://dexscreener.com/arbitrum/0xb1026b8e7276e7ac75410f1fcbbe21796e8f7526",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xf3eb87c1f6020982173c908e7eb31aa66c1f0296",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "sushiswap",
+        "pair_address": "0xf3eb87c1f6020982173c908e7eb31aa66c1f0296",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "157753.72",
+        "volume_24h_usd": "290835.41",
+        "source_url": "https://dexscreener.com/arbitrum/0xf3eb87c1f6020982173c908e7eb31aa66c1f0296",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x42fc852a750ba93d5bf772ecdc857e87a86403a9",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "uniswap",
+        "pair_address": "0x42fc852a750ba93d5bf772ecdc857e87a86403a9",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "117142.97",
+        "volume_24h_usd": "2916.74",
+        "source_url": "https://dexscreener.com/arbitrum/0x42fc852a750ba93d5bf772ecdc857e87a86403a9",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x45fae8d0d2ace73544baab452f9020925afccc75",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "camelot",
+        "pair_address": "0x45fae8d0d2ace73544baab452f9020925afccc75",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1",
+          "symbol": "DAI"
+        },
+        "liquidity_usd": "106293.97",
+        "volume_24h_usd": "68442.95",
+        "source_url": "https://dexscreener.com/arbitrum/0x45fae8d0d2ace73544baab452f9020925afccc75",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x6f38e884725a116c9c7fbf208e79fe8828a2595f",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "uniswap",
+        "pair_address": "0x6f38e884725a116c9c7fbf208e79fe8828a2595f",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "103667.4",
+        "volume_24h_usd": "57726.14",
+        "source_url": "https://dexscreener.com/arbitrum/0x6f38e884725a116c9c7fbf208e79fe8828a2595f",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x7e928afb59f5de9d2f4d162f754c6eb40c88aa8e",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "pancakeswap",
+        "pair_address": "0x7e928afb59f5de9d2f4d162f754c6eb40c88aa8e",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+          "symbol": "USD\u20ae0"
+        },
+        "liquidity_usd": "67700.04",
+        "volume_24h_usd": "232144.9",
+        "source_url": "https://dexscreener.com/arbitrum/0x7e928afb59f5de9d2f4d162f754c6eb40c88aa8e",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xc86eb7b85807020b4548ee05b54bfc956eebbfcd",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "camelot",
+        "pair_address": "0xc86eb7b85807020b4548ee05b54bfc956eebbfcd",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8",
+          "symbol": "USDC"
+        },
+        "liquidity_usd": "64392.32",
+        "volume_24h_usd": "698169.69",
+        "source_url": "https://dexscreener.com/arbitrum/0xc86eb7b85807020b4548ee05b54bfc956eebbfcd",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x7cf803e8d82a50504180f417b8bc7a493c0a0503",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "uniswap",
+        "pair_address": "0x7cf803e8d82a50504180f417b8bc7a493c0a0503",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1",
+          "symbol": "DAI"
+        },
+        "liquidity_usd": "56175.29",
+        "volume_24h_usd": "8249.71",
+        "source_url": "https://dexscreener.com/arbitrum/0x7cf803e8d82a50504180f417b8bc7a493c0a0503",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x30c83aaecc7ceabea96b881a62729a1df366efd5",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "aero",
+        "pair_address": "0x30c83aaecc7ceabea96b881a62729a1df366efd5",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "43519.1",
+        "volume_24h_usd": "463788.77",
+        "source_url": "https://dexscreener.com/arbitrum/0x30c83aaecc7ceabea96b881a62729a1df366efd5",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xf64dfe17c8b87f012fcf50fbda1d62bfa148366a",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "uniswap",
+        "pair_address": "0xf64dfe17c8b87f012fcf50fbda1d62bfa148366a",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "40259.62",
+        "volume_24h_usd": "1539.13",
+        "source_url": "https://dexscreener.com/arbitrum/0xf64dfe17c8b87f012fcf50fbda1d62bfa148366a",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xdb86e7fe4074e3c29d2fd0ed1d104c00e11a196b",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "swapr",
+        "pair_address": "0xdb86e7fe4074e3c29d2fd0ed1d104c00e11a196b",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "32178.14",
+        "volume_24h_usd": "1264.03",
+        "source_url": "https://dexscreener.com/arbitrum/0xdb86e7fe4074e3c29d2fd0ed1d104c00e11a196b",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0x8e295789c9465487074a65b1ae9ce0351172393f",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "uniswap",
+        "pair_address": "0x8e295789c9465487074a65b1ae9ce0351172393f",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8",
+          "symbol": "USDC"
+        },
+        "liquidity_usd": "27339.98",
+        "volume_24h_usd": "2300.78",
+        "source_url": "https://dexscreener.com/arbitrum/0x8e295789c9465487074a65b1ae9ce0351172393f",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "arbitrum:0xb7236b927e03542ac3be0a054f2bea8868af9508",
+        "provider": "dexscreener",
+        "network": "arbitrum",
+        "dex": "traderjoe",
+        "pair_address": "0xb7236b927e03542ac3be0a054f2bea8868af9508",
+        "base_token": {
+          "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+          "symbol": "WETH"
+        },
+        "liquidity_usd": "25809.34",
+        "volume_24h_usd": "0.02",
+        "source_url": "https://dexscreener.com/arbitrum/0xb7236b927e03542ac3be0a054f2bea8868af9508",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x85f1aa3a70fedd1c52705c15baed143e675cd626",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "aerodrome",
+        "pair_address": "0x85f1aa3a70fedd1c52705c15baed143e675cd626",
+        "base_token": {
+          "address": "0x9b5e262cf9bb04869ab40b19af91d2dc85761722",
+          "symbol": "NOCK"
+        },
+        "quote_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "liquidity_usd": "756114.9",
+        "volume_24h_usd": "370216.22",
+        "source_url": "https://dexscreener.com/base/0x85f1aa3a70fedd1c52705c15baed143e675cd626",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x8e859b6cf564c4ac2b848693c85c496e81dbf6c8",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "aero",
+        "pair_address": "0x8e859b6cf564c4ac2b848693c85c496e81dbf6c8",
+        "base_token": {
+          "address": "0x44b63af715d5ef02cc3646a6ce96875e11d69e85",
+          "symbol": "RSGP"
+        },
+        "quote_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "liquidity_usd": "165275.81",
+        "volume_24h_usd": "121100.57",
+        "source_url": "https://dexscreener.com/base/0x8e859b6cf564c4ac2b848693c85c496e81dbf6c8",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x0e635f8eeed4f7279d56692d552f034ece136019",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "alien-base",
+        "pair_address": "0x0e635f8eeed4f7279d56692d552f034ece136019",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "86196.3",
+        "volume_24h_usd": "1101.1",
+        "source_url": "https://dexscreener.com/base/0x0e635f8eeed4f7279d56692d552f034ece136019",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x5d0bc342178c8fe2c2f9a9fcc9d52555c99936db",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "quickswap",
+        "pair_address": "0x5d0bc342178c8fe2c2f9a9fcc9d52555c99936db",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "53635.71",
+        "volume_24h_usd": "107124.66",
+        "source_url": "https://dexscreener.com/base/0x5d0bc342178c8fe2c2f9a9fcc9d52555c99936db",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x98c7a2338336d2d354663246f64676009c7bda97",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "aerodrome",
+        "pair_address": "0x98c7a2338336d2d354663246f64676009c7bda97",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "52029.6",
+        "volume_24h_usd": "165357.44",
+        "source_url": "https://dexscreener.com/base/0x98c7a2338336d2d354663246f64676009c7bda97",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x06959273e9a65433de71f5a452d529544e07ddd0",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "uniswap",
+        "pair_address": "0x06959273e9a65433de71f5a452d529544e07ddd0",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "17425.7",
+        "volume_24h_usd": "60514.28",
+        "source_url": "https://dexscreener.com/base/0x06959273e9a65433de71f5a452d529544e07ddd0",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x29ed55b18af0add137952cb3e29fb77b32fce426",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "pancakeswap",
+        "pair_address": "0x29ed55b18af0add137952cb3e29fb77b32fce426",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "15173.03",
+        "volume_24h_usd": "30988.52",
+        "source_url": "https://dexscreener.com/base/0x29ed55b18af0add137952cb3e29fb77b32fce426",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x27a8afa3bd49406e48a074350fb7b2020c43b2bd",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "aerodrome",
+        "pair_address": "0x27a8afa3bd49406e48a074350fb7b2020c43b2bd",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "10798.49",
+        "volume_24h_usd": "67.16",
+        "source_url": "https://dexscreener.com/base/0x27a8afa3bd49406e48a074350fb7b2020c43b2bd",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0xf2ada40abcaa2f5054cef81f9e5be4e13f48344d",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "aero",
+        "pair_address": "0xf2ada40abcaa2f5054cef81f9e5be4e13f48344d",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "7287.29",
+        "volume_24h_usd": "9368.59",
+        "source_url": "https://dexscreener.com/base/0xf2ada40abcaa2f5054cef81f9e5be4e13f48344d",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x96508ae8037c6bd16162620187691f1c1e3e07c1",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "aerodrome",
+        "pair_address": "0x96508ae8037c6bd16162620187691f1c1e3e07c1",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+          "symbol": "USDT"
+        },
+        "liquidity_usd": "4022.72",
+        "volume_24h_usd": "25.04",
+        "source_url": "https://dexscreener.com/base/0x96508ae8037c6bd16162620187691f1c1e3e07c1",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x0484ae96984bcadf6476811974eeb6c7975b483f",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "infusion",
+        "pair_address": "0x0484ae96984bcadf6476811974eeb6c7975b483f",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "3851.32",
+        "volume_24h_usd": "4.95",
+        "source_url": "https://dexscreener.com/base/0x0484ae96984bcadf6476811974eeb6c7975b483f",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x7a74e19e223faaabf5498d72e6c2b46c1931e4c3",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "swapbased",
+        "pair_address": "0x7a74e19e223faaabf5498d72e6c2b46c1931e4c3",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "2783.58",
+        "volume_24h_usd": "0.09",
+        "source_url": "https://dexscreener.com/base/0x7a74e19e223faaabf5498d72e6c2b46c1931e4c3",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x88492051e18a65fe00241a93699a6082ae95c828",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "baseswap",
+        "pair_address": "0x88492051e18a65fe00241a93699a6082ae95c828",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "1017.24",
+        "volume_24h_usd": "104.36",
+        "source_url": "https://dexscreener.com/base/0x88492051e18a65fe00241a93699a6082ae95c828",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0xf6062550e8711dd6a38ca87299b14dcd6d45d783",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "swapbased",
+        "pair_address": "0xf6062550e8711dd6a38ca87299b14dcd6d45d783",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "680.33",
+        "volume_24h_usd": "430.83",
+        "source_url": "https://dexscreener.com/base/0xf6062550e8711dd6a38ca87299b14dcd6d45d783",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0xb53d89f9ff727e9c73ef54ff4081f5103aa60cc1",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "iziswap",
+        "pair_address": "0xb53d89f9ff727e9c73ef54ff4081f5103aa60cc1",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "590.9",
+        "volume_24h_usd": "19.23",
+        "source_url": "https://dexscreener.com/base/0xb53d89f9ff727e9c73ef54ff4081f5103aa60cc1",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0xd3f749ada01af29a713545fb6b8e782b49a75a20",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "sushiswap",
+        "pair_address": "0xd3f749ada01af29a713545fb6b8e782b49a75a20",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "589.84",
+        "volume_24h_usd": "333.27",
+        "source_url": "https://dexscreener.com/base/0xd3f749ada01af29a713545fb6b8e782b49a75a20",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x113c60516d44b17870071158109b89541c4b0573",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "dackieswap",
+        "pair_address": "0x113c60516d44b17870071158109b89541c4b0573",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "250.08",
+        "volume_24h_usd": "99.52",
+        "source_url": "https://dexscreener.com/base/0x113c60516d44b17870071158109b89541c4b0573",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x7a8d53466144e1f75de2e70ec908e18f771b49fb",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "solidlycom",
+        "pair_address": "0x7a8d53466144e1f75de2e70ec908e18f771b49fb",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "189.33",
+        "volume_24h_usd": "3105.48",
+        "source_url": "https://dexscreener.com/base/0x7a8d53466144e1f75de2e70ec908e18f771b49fb",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x92722287d2819012dd8ec07b4e426ac00dd11103",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "uniswap",
+        "pair_address": "0x92722287d2819012dd8ec07b4e426ac00dd11103",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "146.56",
+        "volume_24h_usd": "5.5",
+        "source_url": "https://dexscreener.com/base/0x92722287d2819012dd8ec07b4e426ac00dd11103",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      },
+      {
+        "id": "base:0x27d8d938d9cfb97a85ca70defa4d44762a2e1884",
+        "provider": "dexscreener",
+        "network": "base",
+        "dex": "sushiswap",
+        "pair_address": "0x27d8d938d9cfb97a85ca70defa4d44762a2e1884",
+        "base_token": {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC"
+        },
+        "quote_token": {
+          "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+          "symbol": "USDbC"
+        },
+        "liquidity_usd": "101.08",
+        "volume_24h_usd": "14.79",
+        "source_url": "https://dexscreener.com/base/0x27d8d938d9cfb97a85ca70defa4d44762a2e1884",
+        "observed_at": 1794905939,
+        "chain_timestamp": null,
+        "executable": false,
+        "limitation": "Indexer estimate; upstream freshness, trade output and LP yield are unverified."
+      }
+    ],
+    "pool_count": 76,
+    "errors": [
+      {
+        "provider": "dexscreener",
+        "network": "solana",
+        "code": "POOLS_REJECTED",
+        "message": "1 malformed or unrelated pool rows rejected."
+      },
+      {
+        "provider": "dexscreener",
+        "network": "ethereum",
+        "code": "POOLS_REJECTED",
+        "message": "14 malformed or unrelated pool rows rejected."
+      },
+      {
+        "provider": "dexscreener",
+        "network": "base",
+        "code": "POOLS_REJECTED",
+        "message": "6 malformed or unrelated pool rows rejected."
+      },
+      {
+        "provider": "rhea-v2",
+        "network": "near",
+        "code": "POOLS_UNAVAILABLE",
+        "message": "Fresh agreed RHEA pool state unavailable; no substitute data used."
+      }
+    ],
+    "loaded_at": 1794905939,
+    "source": "DEX Screener public token-pairs API and agreed NEAR RHEA contract views",
+    "claim": "Read-only pool discovery. Listing is not a trade quote, LP position, fee entitlement or approval.",
+    "coverage": "USDC markets on Solana, Ethereum, Arbitrum and Base; first 100 RHEA pool IDs on NEAR.",
+    "fees_enabled": false,
+    "transactions_submitted": 0
+  },
+  "limits": {
+    "max_response_bytes": 1048576,
+    "max_pool_rows_per_network": 20,
+    "rpc_timeout_s": 3
+  },
+  "proof_boundary": "Public indexer observations plus attempted agreed NEAR RPC state; not executable liquidity, LP fees, funding, trade execution or on-chain settlement."
+}

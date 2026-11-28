@@ -54,7 +54,7 @@ export async function evaluate(data, scenario) {
   const policy = x3.policyFor(leg, request, await x3.sha256Hex(scenario.intent.source));
   const state = { revoked: false, spends: [], ...(scenario.assumed_guard_state ?? {}) };
   const preview = { ...mandate, version: null, ...state };
-  const checks = x3.checkMandate(preview, policy, nowMs);
+  const checks = x3.checkMandateForLeg(preview, policy, nowMs, leg);
   const denied = checks.filter((c) => !c.ok).map((c) => c.guard);
   const approvals = x3.approvalsNeeded(preview, policy.amount);
   const decision = denied.length ? "denied_by_policy" : approvals ? "approval_required" : "preflight_passed";

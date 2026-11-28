@@ -151,6 +151,53 @@ def token_delta(sol: Dict[str, Any], owner: str) -> Optional[int]:
     return post - pre if seen else None
 
 
+def final_success(tx: Dict[str, Any]) -> bool:
+    """NEAR query responses can include an execution result before finality."""
+    status = tx.get("status")
+    receipts = tx.get("receipts")
+    if tx.get("final_execution_status") != "FINAL" or not isinstance(status, dict) or set(status) != {"SuccessValue"}:
+        return False
+    if not isinstance(receipts, list) or not receipts:
+        return False
+    for receipt in receipts:
+        result = receipt.get("status")
+        if not isinstance(result, dict) or set(result) != {"SuccessValue"}:
+            return False
+    return True
+
+
+def payout_events(tx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collect all native USDC transfer rows, preserving the emitting receipt as evidence."""
+    matches = []
+    for receipt in tx.get("receipts", []):
+        if receipt.get("executor") != NEAR_USDC:
+            continue
+        for log in receipt.get("logs", []):
+            if not log.startswith("EVENT_JSON:"):
+                continue
+            try:
+                event = json.loads(log[len("EVENT_JSON:"):])
+            except ValueError:
+                continue
+            if not isinstance(event, dict) or (event.get("standard"), event.get("event")) != ("nep141", "ft_transfer"):
+                continue
+            rows = event.get("data")
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                matches.append({"receipt_id": receipt["id"], "executor": NEAR_USDC, "transfer": row})
+    return matches
+
+
+def invoice_payout_matches(transfers: List[Dict[str, Any]]) -> bool:
+    if len(transfers) != 1:
+        return False
+    row = transfers[0]["transfer"]
+    return isinstance(row, dict) and (
+        row.get("old_owner_id"), row.get("new_owner_id"), row.get("amount")
+    ) == ("intents.near", GUARD, "24995200")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", default="observation.json")
@@ -181,13 +228,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         checks.append({"check": name, "result": "not_checked" if ok is None else ("pass" if ok else "FAIL"),
                        "detail": detail})
 
-    def success(t):
-        st = t.get("status")
-        return isinstance(st, dict) and "SuccessValue" in st and not any(
-            isinstance(r["status"], dict) and "Failure" in r["status"] for r in t.get("receipts", []))
-
     for name, t in txs.items():
-        check(f"{name}_final_success", success(t) if "signer_id" in t else False,
+        check(f"{name}_final_success", final_success(t) if "signer_id" in t else False,
               {"status": t.get("status"), "final": t.get("final_execution_status"), "errors": t.get("errors")})
     acc = txs["agent_accept_quote"]
     method = (((acc.get("actions") or [{}])[0]).get("FunctionCall") or {}).get("method_name")
@@ -218,10 +260,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     check("sol_25_usdc_funder_to_deposit_address",
           (d_funder == -25_000_000 and d_deposit == 25_000_000) if sol.get("found") else False,
           {"funder_delta": d_funder, "deposit_address_delta": d_deposit})
-    payout_logs = " ".join(" ".join(r["logs"]) for r in txs["payout"].get("receipts", []))
-    check("payout_logs_name_recipient_and_amount",
-          (GUARD in payout_logs and "24995200" in payout_logs) if payout_logs else False,
-          [l for r in txs["payout"].get("receipts", []) for l in r["logs"] if "ft_transfer" in l or "24995200" in l][:6])
+    transfers = payout_events(txs["payout"])
+    check("payout_logs_name_recipient_and_amount", final_success(txs["payout"]) and invoice_payout_matches(transfers), transfers)
     check("controller_of_funding_wallet", None, "not readable on-chain; owner must state who controls " + SOL_FUNDER)
 
     report = {"schema": "x3.mainnet.invoice06.public-rpc-observation.v1", "observed_at_unix": int(time.time()),

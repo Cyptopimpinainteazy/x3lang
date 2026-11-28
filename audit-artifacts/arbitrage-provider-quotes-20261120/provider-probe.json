@@ -1,0 +1,532 @@
+{
+  "kind": "read-only-lifi-size-specific-quotes",
+  "source_sha256": "19e6708097625a4d5e0cc2a3e45cc691af8085c5faec44ddc0c4986c9c0bb822",
+  "base_head": "5d8e69db4d053be5384a1b95bc0c8e3263f088ba",
+  "dirty": true,
+  "observation_address": "0x1111111111111111111111111111111111111111",
+  "amount_usdc": "100",
+  "results": [
+    {
+      "market_id": "ethereum-usdc-weth",
+      "duration_s": 1.182,
+      "report": {
+        "provider": "lifi",
+        "market_id": "ethereum-usdc-weth",
+        "loaded_at": 1795206266,
+        "quotes": [
+          {
+            "provider": "lifi",
+            "market_id": "ethereum-usdc-weth",
+            "network": "ethereum",
+            "label": "Ethereum USDC \u2192 WETH \u2192 USDC",
+            "legs": [
+              {
+                "provider": "lifi",
+                "tool": "sushiswap",
+                "asset_in": {
+                  "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                  "chainId": 1,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "asset_out": {
+                  "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                  "chainId": 1,
+                  "decimals": 18,
+                  "symbol": "WETH"
+                },
+                "amount_in": "100000000",
+                "expected_output": "62049247814828672",
+                "minimum_output": "61739001575754528",
+                "costs": [
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                      "chain_id": 1,
+                      "decimals": 6
+                    },
+                    "amount": "250000",
+                    "included": true
+                  },
+                  {
+                    "kind": "gasCosts",
+                    "asset": {
+                      "address": "0x0000000000000000000000000000000000000000",
+                      "chain_id": 1,
+                      "decimals": 18
+                    },
+                    "amount": "696154368790530",
+                    "included": false
+                  }
+                ],
+                "observed_at": 1795206266,
+                "commitment": "unsigned_provider_observation",
+                "executable": false
+              },
+              {
+                "provider": "lifi",
+                "tool": "sushiswap",
+                "asset_in": {
+                  "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                  "chainId": 1,
+                  "decimals": 18,
+                  "symbol": "WETH"
+                },
+                "asset_out": {
+                  "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                  "chainId": 1,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "amount_in": "61739001575754528",
+                "expected_output": "98958446",
+                "minimum_output": "98463653",
+                "costs": [
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                      "chain_id": 1,
+                      "decimals": 18
+                    },
+                    "amount": "154347503939386",
+                    "included": true
+                  },
+                  {
+                    "kind": "gasCosts",
+                    "asset": {
+                      "address": "0x0000000000000000000000000000000000000000",
+                      "chain_id": 1,
+                      "decimals": 18
+                    },
+                    "amount": "658719017350524",
+                    "included": false
+                  }
+                ],
+                "observed_at": 1795206266,
+                "commitment": "unsigned_provider_observation",
+                "executable": false
+              }
+            ],
+            "amount_in": "100000000",
+            "roundtrip_floor": "98463653",
+            "gross_delta": "-1536347",
+            "source_decimals": 6,
+            "net_profit": null,
+            "executable": false,
+            "paper_eligible": false,
+            "limitation": "Unsigned sequential projection. Gas/approval/final fees and market impact unknown; no guaranteed net profit."
+          }
+        ],
+        "errors": [],
+        "source": "https://li.quest/v1/quote",
+        "fees_enabled": false,
+        "transactions_submitted": 0,
+        "claim": "Read-only unsigned size-specific quotes; no signing or transaction preparation."
+      }
+    },
+    {
+      "market_id": "arbitrum-usdc-weth",
+      "duration_s": 1.834,
+      "report": {
+        "provider": "lifi",
+        "market_id": "arbitrum-usdc-weth",
+        "loaded_at": 1795206267,
+        "quotes": [
+          {
+            "provider": "lifi",
+            "market_id": "arbitrum-usdc-weth",
+            "network": "arbitrum",
+            "label": "Arbitrum USDC \u2192 WETH \u2192 USDC",
+            "legs": [
+              {
+                "provider": "lifi",
+                "tool": "nordstern",
+                "asset_in": {
+                  "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+                  "chainId": 42161,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "asset_out": {
+                  "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+                  "chainId": 42161,
+                  "decimals": 18,
+                  "symbol": "WETH"
+                },
+                "amount_in": "100000000",
+                "expected_output": "62068008667443491",
+                "minimum_output": "61757668624106274",
+                "costs": [
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+                      "chain_id": 42161,
+                      "decimals": 6
+                    },
+                    "amount": "250000",
+                    "included": true
+                  },
+                  {
+                    "kind": "gasCosts",
+                    "asset": {
+                      "address": "0x0000000000000000000000000000000000000000",
+                      "chain_id": 42161,
+                      "decimals": 18
+                    },
+                    "amount": "9263467920000",
+                    "included": false
+                  }
+                ],
+                "observed_at": 1795206267,
+                "commitment": "unsigned_provider_observation",
+                "executable": false
+              },
+              {
+                "provider": "lifi",
+                "tool": "okx",
+                "asset_in": {
+                  "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+                  "chainId": 42161,
+                  "decimals": 18,
+                  "symbol": "WETH"
+                },
+                "asset_out": {
+                  "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+                  "chainId": 42161,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "amount_in": "61757668624106274",
+                "expected_output": "98965779",
+                "minimum_output": "98470950",
+                "costs": [
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+                      "chain_id": 42161,
+                      "decimals": 18
+                    },
+                    "amount": "154394171560265",
+                    "included": true
+                  },
+                  {
+                    "kind": "gasCosts",
+                    "asset": {
+                      "address": "0x0000000000000000000000000000000000000000",
+                      "chain_id": 42161,
+                      "decimals": 18
+                    },
+                    "amount": "7485999108000",
+                    "included": false
+                  }
+                ],
+                "observed_at": 1795206267,
+                "commitment": "unsigned_provider_observation",
+                "executable": false
+              }
+            ],
+            "amount_in": "100000000",
+            "roundtrip_floor": "98470950",
+            "gross_delta": "-1529050",
+            "source_decimals": 6,
+            "net_profit": null,
+            "executable": false,
+            "paper_eligible": false,
+            "limitation": "Unsigned sequential projection. Gas/approval/final fees and market impact unknown; no guaranteed net profit."
+          }
+        ],
+        "errors": [],
+        "source": "https://li.quest/v1/quote",
+        "fees_enabled": false,
+        "transactions_submitted": 0,
+        "claim": "Read-only unsigned size-specific quotes; no signing or transaction preparation."
+      }
+    },
+    {
+      "market_id": "base-usdc-weth",
+      "duration_s": 1.198,
+      "report": {
+        "provider": "lifi",
+        "market_id": "base-usdc-weth",
+        "loaded_at": 1795206269,
+        "quotes": [
+          {
+            "provider": "lifi",
+            "market_id": "base-usdc-weth",
+            "network": "base",
+            "label": "Base USDC \u2192 WETH \u2192 USDC",
+            "legs": [
+              {
+                "provider": "lifi",
+                "tool": "nordstern",
+                "asset_in": {
+                  "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                  "chainId": 8453,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "asset_out": {
+                  "address": "0x4200000000000000000000000000000000000006",
+                  "chainId": 8453,
+                  "decimals": 18,
+                  "symbol": "WETH"
+                },
+                "amount_in": "100000000",
+                "expected_output": "62002341423995105",
+                "minimum_output": "61692329716875129",
+                "costs": [
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                      "chain_id": 8453,
+                      "decimals": 6
+                    },
+                    "amount": "250000",
+                    "included": true
+                  },
+                  {
+                    "kind": "gasCosts",
+                    "asset": {
+                      "address": "0x0000000000000000000000000000000000000000",
+                      "chain_id": 8453,
+                      "decimals": 18
+                    },
+                    "amount": "2129432375616",
+                    "included": false
+                  }
+                ],
+                "observed_at": 1795206269,
+                "commitment": "unsigned_provider_observation",
+                "executable": false
+              },
+              {
+                "provider": "lifi",
+                "tool": "bitget",
+                "asset_in": {
+                  "address": "0x4200000000000000000000000000000000000006",
+                  "chainId": 8453,
+                  "decimals": 18,
+                  "symbol": "WETH"
+                },
+                "asset_out": {
+                  "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                  "chainId": 8453,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "amount_in": "61692329716875129",
+                "expected_output": "98879407",
+                "minimum_output": "98385009",
+                "costs": [
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0x4200000000000000000000000000000000000006",
+                      "chain_id": 8453,
+                      "decimals": 18
+                    },
+                    "amount": "154230824292187",
+                    "included": true
+                  },
+                  {
+                    "kind": "gasCosts",
+                    "asset": {
+                      "address": "0x0000000000000000000000000000000000000000",
+                      "chain_id": 8453,
+                      "decimals": 18
+                    },
+                    "amount": "4331906160972",
+                    "included": false
+                  }
+                ],
+                "observed_at": 1795206269,
+                "commitment": "unsigned_provider_observation",
+                "executable": false
+              }
+            ],
+            "amount_in": "100000000",
+            "roundtrip_floor": "98385009",
+            "gross_delta": "-1614991",
+            "source_decimals": 6,
+            "net_profit": null,
+            "executable": false,
+            "paper_eligible": false,
+            "limitation": "Unsigned sequential projection. Gas/approval/final fees and market impact unknown; no guaranteed net profit."
+          }
+        ],
+        "errors": [],
+        "source": "https://li.quest/v1/quote",
+        "fees_enabled": false,
+        "transactions_submitted": 0,
+        "claim": "Read-only unsigned size-specific quotes; no signing or transaction preparation."
+      }
+    },
+    {
+      "market_id": "ethereum-base-usdc",
+      "duration_s": 3.105,
+      "report": {
+        "provider": "lifi",
+        "market_id": "ethereum-base-usdc",
+        "loaded_at": 1795206270,
+        "quotes": [
+          {
+            "provider": "lifi",
+            "market_id": "ethereum-base-usdc",
+            "network": "ethereum-base",
+            "label": "Ethereum USDC \u2192 Base USDC \u2192 Ethereum USDC",
+            "legs": [
+              {
+                "provider": "lifi",
+                "tool": "across",
+                "asset_in": {
+                  "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                  "chainId": 1,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "asset_out": {
+                  "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                  "chainId": 8453,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "amount_in": "100000000",
+                "expected_output": "99737212",
+                "minimum_output": "99737212",
+                "costs": [
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                      "chain_id": 1,
+                      "decimals": 6
+                    },
+                    "amount": "250000",
+                    "included": true
+                  },
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                      "chain_id": 1,
+                      "decimals": 6
+                    },
+                    "amount": "9975",
+                    "included": true
+                  },
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                      "chain_id": 1,
+                      "decimals": 6
+                    },
+                    "amount": "2813",
+                    "included": true
+                  },
+                  {
+                    "kind": "gasCosts",
+                    "asset": {
+                      "address": "0x0000000000000000000000000000000000000000",
+                      "chain_id": 1,
+                      "decimals": 18
+                    },
+                    "amount": "402344396586054",
+                    "included": false
+                  }
+                ],
+                "observed_at": 1795206270,
+                "commitment": "unsigned_provider_observation",
+                "executable": false
+              },
+              {
+                "provider": "lifi",
+                "tool": "polymer",
+                "asset_in": {
+                  "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                  "chainId": 8453,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "asset_out": {
+                  "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                  "chainId": 1,
+                  "decimals": 6,
+                  "symbol": "USDC"
+                },
+                "amount_in": "99737212",
+                "expected_output": "99464986",
+                "minimum_output": "99464986",
+                "costs": [
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                      "chain_id": 8453,
+                      "decimals": 6
+                    },
+                    "amount": "249343",
+                    "included": true
+                  },
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                      "chain_id": 8453,
+                      "decimals": 6
+                    },
+                    "amount": "9949",
+                    "included": true
+                  },
+                  {
+                    "kind": "feeCosts",
+                    "asset": {
+                      "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                      "chain_id": 8453,
+                      "decimals": 6
+                    },
+                    "amount": "12934",
+                    "included": true
+                  },
+                  {
+                    "kind": "gasCosts",
+                    "asset": {
+                      "address": "0x0000000000000000000000000000000000000000",
+                      "chain_id": 8453,
+                      "decimals": 18
+                    },
+                    "amount": "1566732121552",
+                    "included": false
+                  }
+                ],
+                "observed_at": 1795206270,
+                "commitment": "unsigned_provider_observation",
+                "executable": false
+              }
+            ],
+            "amount_in": "100000000",
+            "roundtrip_floor": "99464986",
+            "gross_delta": "-535014",
+            "source_decimals": 6,
+            "net_profit": null,
+            "executable": false,
+            "paper_eligible": false,
+            "limitation": "Unsigned sequential projection. Gas/approval/final fees and market impact unknown; no guaranteed net profit."
+          }
+        ],
+        "errors": [],
+        "source": "https://li.quest/v1/quote",
+        "fees_enabled": false,
+        "transactions_submitted": 0,
+        "claim": "Read-only unsigned size-specific quotes; no signing or transaction preparation."
+      }
+    }
+  ],
+  "fees_activated": false,
+  "transactions_submitted": 0
+}

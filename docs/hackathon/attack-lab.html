@@ -125,7 +125,7 @@ footer{color:var(--mute);border-top:1px solid var(--line);padding-top:20px;paddi
 <a class="skip" href="#play">Skip to the attack lab</a>
 <header>
   <div class="brand">✳ X3 SHIELD / CONTROL ROOM</div>
-  <nav class="jump" aria-label="Sections"><a href="#play">Attack lab</a><a href="#sandbox">Sandbox</a><a href="#receipts">Testnet trade</a><a href="#unproven">Unproven</a></nav>
+  <nav class="jump" aria-label="Sections"><a href="#play">Attack lab</a><a href="#sandbox">Sandbox</a><a href="#receipts">Testnet trade</a><a href="#enforcement">Enforcement</a><a href="#unproven">Unproven</a></nav>
   <div class="pill">OFFLINE PREVIEW · NOT AN ON-CHAIN PROOF</div>
 </header>
 <main>
@@ -243,13 +243,27 @@ footer{color:var(--mute);border-top:1px solid var(--line);padding-top:20px;paddi
   </div>
 </section>
 
-<section class="section" id="unproven" aria-labelledby="unproven-title">
+<section class="section" id="enforcement" aria-labelledby="enforcement-title">
   <div class="kicker">04</div>
+  <h2 id="enforcement-title">Demonstrated enforcement</h2>
+  <p>The archived invoice_06 payment requires an owner approval. The local path refuses that payment. A separate request with a fresh nonce for 24,999,999 base units, at the mandate’s approval threshold, records one local receipt. A forbidden recipient cannot skip the mandate. Revocation stops the next call. The court keeps that receipt, and a jury finding does not reverse it.</p>
+  <div class="box">
+    <div class="check"><span>Permitted X3 call</span><span>true</span></div>
+    <div class="check"><span>Forbidden bypass</span><span>mandate_recipient</span></div>
+    <div class="check"><span>Outside route</span><span>route</span></div>
+    <div class="check"><span>After revocation</span><span>revoked</span></div>
+    <div class="check"><span>Court receipts preserved</span><span>1</span></div>
+    <p class="muted" style="margin:12px 0 0">This exhibit is local. It does not broadcast, does not settle invoice_06, and does not hold the Solana wallet. The archived FullAccess key is unchanged. The loopback workbench runs the source in its editors through the same door. That session is process-local and does not replace this exhibit. <a href="agent-law-proof.html">Open the enforcement exhibit</a>. <a href="AGENT_LAW_PATH.md">Read the path</a>.</p>
+  </div>
+</section>
+
+<section class="section" id="unproven" aria-labelledby="unproven-title">
+  <div class="kicker">05</div>
   <h2 id="unproven-title">What is still unproven?</h2>
   <div class="box">
     <p><strong>The NEAR vault:</strong> local Sandbox proof only. No public deployment, independent audit or mainnet funding approval. The owner's unrestricted key remains an administrative trust boundary.</p>
     <p><strong>The Base EOA:</strong> a compromised unrestricted EVM key can still bypass an advisory Guard. An audited smart-account or vault is required before claiming EVM non-bypassability.</p>
-    <p><strong>This page:</strong> the decisions above come from <code>attack-lab-policy.mjs</code> running in your browser. They predict the vault's rules; they are not the vault.</p>
+    <p><strong>This page:</strong> the attack decisions come from <code>attack-lab-policy.mjs</code> running in your browser. They predict the vault's rules; they are not the vault. The enforcement section is a separate local exhibit. It is not this preview and it is not a mainnet settlement.</p>
     <p style="margin:0"><strong>Preview locally:</strong> from a clone of this repository, serve its root with <span class="mono">python3 -m http.server 8000</span> and open <span class="mono">http://localhost:8000/docs/hackathon/attack-lab.html</span>. Deep links: <span class="mono">#scenario=replay</span>, <span class="mono">#run-all</span>.</p>
   </div>
 </section>

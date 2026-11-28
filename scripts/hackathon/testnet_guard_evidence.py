@@ -19,7 +19,9 @@ import hashlib
 import json
 import re
 import sys
+import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -29,6 +31,7 @@ SCHEMA_MANIFEST = "x3.guard.testnet.manifest.v1"
 SCHEMA_TRANSACTION = "x3.guard.testnet.transaction.v1"
 SCHEMA_COLLECTION = "x3.guard.testnet.collection.v1"
 DEFAULT_RPC_URL = "https://test.rpc.fastnear.com"
+ARCHIVAL_RPC_URL = "https://archival-rpc.testnet.fastnear.com"
 EXPECTED_TESTNET_GENESIS = "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b"
 MAX_RPC_BYTES = 8 * 1024 * 1024
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
@@ -42,6 +45,24 @@ _ACCOUNT_RE = re.compile(r"[a-z0-9][a-z0-9._-]{1,63}\Z")
 
 class EvidenceError(ValueError):
     """Malformed or RPC-mismatched evidence."""
+
+
+class _TransientRPCError(EvidenceError):
+    def __init__(self, message: str, retry_after: str | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _retry_delay(retry_after: str | None, delay: int) -> float:
+    if retry_after is None:
+        return delay
+    if re.fullmatch(r"[0-9]{1,9}", retry_after):
+        return max(delay, int(retry_after))
+    try:
+        deadline = parsedate_to_datetime(retry_after)
+        return max(delay, (deadline - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return float("inf")  # Defer to the operator for an unfamiliar retry window.
 
 
 def _canonical(value: object) -> bytes:
@@ -92,35 +113,45 @@ def _rpc(rpc_url: str, method: str, params: object) -> dict:
     payload = {"jsonrpc": "2.0", "id": "x3-guard-evidence", "method": method, "params": params}
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     req = Request(url, data=body, headers={"Content-Type": "application/json", "User-Agent": "X3GuardTestnetEvidence/1.0"}, method="POST")
+    for backoff in (5, 15):
+        try:
+            return _rpc_response(req, method)
+        except _TransientRPCError as exc:
+            delay = _retry_delay(exc.retry_after, backoff)
+            if delay > 30:
+                raise
+            time.sleep(delay)
+    return _rpc_response(req, method)
+
+
+def _rpc_response(req: Request, method: str) -> dict:
+    http_status = None
+    retry_after = None
     try:
         with urlopen(req, timeout=20) as resp:  # noqa: S310
+            retry_after = resp.headers.get("Retry-After")
             raw = resp.read(MAX_RPC_BYTES + 1)
     except HTTPError as exc:
-        try:
+        with exc:
+            retry_after = exc.headers.get("Retry-After")
+            if exc.code in (429, 502, 503, 504):
+                raise _TransientRPCError(
+                    f"RPC unavailable for {method}: HTTP {exc.code}", retry_after
+                ) from exc
+            http_status = exc.code
             raw = exc.read(MAX_RPC_BYTES + 1)
-        except Exception:
-            raw = b""
-        try:
-            data = json.loads(raw)
-            err = data.get("error") if isinstance(data, dict) else None
-            detail = err.get("message", "") if isinstance(err, dict) else ""
-            cause = ""
-            if isinstance(err, dict):
-                cause_obj = err.get("cause")
-                if isinstance(cause_obj, dict):
-                    cause = cause_obj.get("name", "")
-            raise EvidenceError(f"RPC error for {method}: {cause} {detail}".strip()) from exc
-        except EvidenceError:
-            raise
-        except Exception:
-            raise EvidenceError(f"RPC unavailable for {method}: HTTP {exc.code}") from exc
-    except (URLError, OSError, TimeoutError) as exc:
+    except (URLError, OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, (TimeoutError, ConnectionResetError)):
+            raise _TransientRPCError(f"RPC unavailable for {method}: {reason}") from exc
         raise EvidenceError(f"RPC unavailable for {method}: {exc}") from exc
     if len(raw) > MAX_RPC_BYTES:
         raise EvidenceError(f"RPC response too large for {method}")
     try:
         data = json.loads(raw)
     except ValueError as exc:
+        if http_status is not None:
+            raise EvidenceError(f"RPC unavailable for {method}: HTTP {http_status}") from exc
         raise EvidenceError(f"malformed RPC JSON for {method}") from exc
     if not isinstance(data, dict):
         raise EvidenceError(f"RPC response not an object for {method}")
@@ -132,7 +163,12 @@ def _rpc(rpc_url: str, method: str, params: object) -> dict:
             cause_obj = err.get("cause")
             if isinstance(cause_obj, dict):
                 cause = cause_obj.get("name", "")
-        raise EvidenceError(f"RPC error for {method}: {cause} {detail}".strip())
+        message = f"RPC error for {method}: {cause} {detail}".strip()
+        if str(detail).lower().startswith(("rate limit", "too many requests")) or cause == "TIMEOUT_ERROR":
+            raise _TransientRPCError(message, retry_after)
+        raise EvidenceError(message)
+    if http_status is not None:
+        raise EvidenceError(f"RPC unavailable for {method}: HTTP {http_status}")
     result = data.get("result")
     if not isinstance(result, dict):
         # Some methods return a string; normalize to dict for callers.
@@ -183,10 +219,6 @@ def _require_testnet_identity(rpc_url: str) -> tuple[str, str, dict]:
             f"testnet genesis mismatch: expected {EXPECTED_TESTNET_GENESIS}, got {genesis_hash}"
         )
     return chain_id, genesis_hash, status
-
-
-def _require_testnet(rpc_url: str) -> str:
-    return _require_testnet_identity(rpc_url)[0]
 
 
 def _base58_decode(text: str) -> bytes:
@@ -344,9 +376,7 @@ def record_manifest(account_id: str, wasm: Path, rpc_url: str) -> dict:
     return record
 
 
-def record_transaction(tx_hash: str, rpc_url: str, sender_id: str | None = None) -> dict:
-    """Record one finalized (or failed) testnet transaction's sanitized facts."""
-    _validate_url(rpc_url)
+def _transaction_lookup(tx_hash: str, sender_id: str | None) -> tuple[str, str]:
     tx_hash = str(tx_hash).strip()
     if not tx_hash:
         raise EvidenceError("transaction hash must not be empty")
@@ -354,7 +384,17 @@ def record_transaction(tx_hash: str, rpc_url: str, sender_id: str | None = None)
     signer = sender_id or "x3lang-guard-20261106.testnet"
     if not _ACCOUNT_RE.fullmatch(str(signer)):
         raise EvidenceError(f"invalid signer_id: {signer!r}")
-    chain_id, genesis_hash, _status = _require_testnet_identity(rpc_url)
+    return tx_hash, signer
+
+
+def record_transaction(tx_hash: str, rpc_url: str, sender_id: str | None = None) -> dict:
+    """Record one finalized (or failed) testnet transaction's sanitized facts."""
+    tx_hash, signer = _transaction_lookup(tx_hash, sender_id)
+    chain_id, genesis_hash, _ = _require_testnet_identity(rpc_url)
+    return _read_transaction(tx_hash, rpc_url, signer, chain_id, genesis_hash)
+
+
+def _read_transaction(tx_hash: str, rpc_url: str, signer: str, chain_id: str, genesis_hash: str) -> dict:
     result = _rpc(rpc_url, "tx", [tx_hash, signer])
     final_status = result.get("final_execution_status")
     if final_status != "FINAL":
@@ -432,7 +472,7 @@ def _check_record_hash(record: dict, label: str) -> None:
         raise EvidenceError(f"record_hash mismatch in {label}: evidence has been tampered")
 
 
-def _verify_transaction_record(stored: dict, rpc_url: str) -> str:
+def _verify_transaction_record(stored: dict, rpc_url: str, chain_id: str, genesis_hash: str) -> str:
     """Re-query one transaction and compare the full fresh record.
 
     Excludes observation time, record hash, collection label, and RPC URL
@@ -447,7 +487,8 @@ def _verify_transaction_record(stored: dict, rpc_url: str) -> str:
     signer = stored.get("signer_id")
     if stored.get("args_sha256") is not None and _canonical_hash(stored.get("sanitized_args")) != stored.get("args_sha256"):
         raise EvidenceError("args_sha256 mismatch: stored hash does not match sanitized args")
-    fresh = record_transaction(tx_hash, rpc_url, sender_id=signer if isinstance(signer, str) else None)
+    lookup_hash, lookup_signer = _transaction_lookup(tx_hash, signer if isinstance(signer, str) else None)
+    fresh = _read_transaction(lookup_hash, rpc_url, lookup_signer, chain_id, genesis_hash)
     if fresh.get("args_sha256") is not None and _canonical_hash(fresh.get("sanitized_args")) != fresh.get("args_sha256"):
         raise EvidenceError("args_sha256 mismatch in fresh RPC record")
     excluded = {"observed_at_utc", "record_hash", "label", "rpc_url"}
@@ -538,13 +579,13 @@ def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     except ValueError as exc:
         raise EvidenceError("malformed evidence JSON") from exc
     _reject_sensitive(data)
-    chain_id = _require_testnet(rpc_url)
+    chain_id, genesis_hash, _ = _require_testnet_identity(rpc_url)
     schema = data.get("schema") if isinstance(data, dict) else None
     if schema == SCHEMA_MANIFEST:
         return _verify_manifest_record(data, rpc_url, wasm)
     if schema == SCHEMA_TRANSACTION:
         _check_record_hash(data, "transaction")
-        tx_hash = _verify_transaction_record(data, rpc_url)
+        tx_hash = _verify_transaction_record(data, rpc_url, chain_id, genesis_hash)
         return {"verified": True, "kind": "transaction", "chain_id": chain_id, "transaction_hash": tx_hash, "record_hash": data.get("record_hash")}
     if schema == SCHEMA_COLLECTION and isinstance(data.get("transactions"), list):
         _check_record_hash(data, "collection")
@@ -555,7 +596,7 @@ def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
                 raise EvidenceError("transaction entry not an object in collection")
             _reject_sensitive(entry)
             _check_record_hash(entry, "transaction")
-            _verify_transaction_record(entry, rpc_url)
+            _verify_transaction_record(entry, rpc_url, chain_id, genesis_hash)
         # Also verify embedded manifest if present.
         manifest = data.get("manifest")
         if not isinstance(manifest, dict):
@@ -565,14 +606,14 @@ def verify_evidence(path: Path, rpc_url: str, wasm: Path | None = None) -> dict:
     # A bare list file of transaction records (transactions.json without envelope).
     if isinstance(data, list) and data and all(isinstance(x, dict) for x in data):
         for entry in data:
-            _verify_transaction_record(entry, rpc_url)
+            _verify_transaction_record(entry, rpc_url, chain_id, genesis_hash)
         return {"verified": True, "kind": "transaction-list", "chain_id": chain_id, "count": len(data)}
     raise EvidenceError(f"unsupported evidence schema: {schema!r}")
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Record or verify NEAR testnet Guard evidence (read-only).")
-    p.add_argument("--rpc-url", default=DEFAULT_RPC_URL, help="NEAR testnet RPC URL (HTTPS required)")
+    p.add_argument("--rpc-url", help="Override the NEAR testnet RPC (verification defaults to archival RPC)")
     p.add_argument("--verify", type=Path, metavar="PATH", help="verify evidence JSON against RPC")
     p.add_argument("--manifest", action="store_true", help="record a manifest (requires --account and --wasm)")
     p.add_argument("--account", help="contract account id")
@@ -581,17 +622,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--signer", help="transaction signer account id")
     p.add_argument("--out", type=Path, help="write JSON output here (0600)")
     args = p.parse_args(argv)
+    rpc_url = args.rpc_url if args.rpc_url is not None else (ARCHIVAL_RPC_URL if args.verify else DEFAULT_RPC_URL)
     try:
         if args.verify:
-            result = verify_evidence(args.verify, args.rpc_url, wasm=args.wasm)
+            result = verify_evidence(args.verify, rpc_url, wasm=args.wasm)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if args.manifest:
             if not args.account or not args.wasm:
                 p.error("--manifest requires --account and --wasm")
-            record = record_manifest(args.account, args.wasm, args.rpc_url)
+            record = record_manifest(args.account, args.wasm, rpc_url)
         elif args.tx_hash:
-            record = record_transaction(args.tx_hash, args.rpc_url, sender_id=args.signer)
+            record = record_transaction(args.tx_hash, rpc_url, sender_id=args.signer)
         else:
             p.error("specify --verify, --manifest, or --tx")
         text = json.dumps(record, indent=2, sort_keys=True) + "\n"

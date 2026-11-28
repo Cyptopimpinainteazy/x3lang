@@ -96,3 +96,9 @@ PYTHONPATH=x3-lang python -m unittest discover -s x3-lang/tests -p 'test_agent_a
 ```
 
 No live signer, runtime registration, on-chain authorization, or replay-resistant database transaction has been established by this preflight.
+
+## Demonstrated local path
+
+`x3-lang/agent_law.py` proves one X3-routed sequence on the archived invoice_06 payment: a permitted program receives a local receipt, a forbidden program cannot skip the mandate check, revocation stops the next program, and the court exhibit keeps the receipt. The agent cannot birth itself, judge itself, or replace the birth mandate. A jury finding does not reverse a receipt. The command and the limits are in [the agent-law path](../hackathon/AGENT_LAW_PATH.md). The [exhibit](../hackathon/agent-law-proof.html) and the workbench panel show that same run beside the other proof cards. The pending-settlement card stays pending.
+
+That path does not change the status above. It is not durable admission, and it does not custody the Solana wallet.

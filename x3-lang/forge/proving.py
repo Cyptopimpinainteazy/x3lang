@@ -238,6 +238,48 @@ def _admission_probes(result: Dict[str, Any], now_s: int) -> List[Dict[str, Any]
     return probes
 
 
+def _mind_probes(result: Dict[str, Any], now_s: int) -> List[Dict[str, Any]]:
+    """The inference gate's own decision function, against this build's limits."""
+    from . import inference
+
+    params = result["normalized"]["skills"]["mesh_mind"]
+    manifest = result["manifest"]
+    record = {"compile": result, "infer_log": []}
+    allowed_model = params["models"][0]
+
+    def live(status: str) -> Dict[str, Any]:
+        return {"status": status, "runtime": {"manifest": manifest}}
+
+    link = {"connector": inference.MESH_CONNECTOR}
+
+    def run(pid: str, title: str, expect: str, guard: Optional[str], note: str, **over: Any) -> Dict[str, Any]:
+        args = dict(record=record, live=live("active"), link=link, link_usable=(True, "ok"), model=allowed_model,
+                    max_tokens=min(params["max_tokens"], 256), now=now_s, reserved=0, signature_ok=True,
+                    nonce=f"probe-{pid}-0000000000", expires_at=now_s + 60)
+        args.update(over)
+        reasons = inference.decide(**args)
+        outcome = "deny" if reasons else "allow"
+        return {"id": pid, "title": title, "expect": expect, "engine": "forge.inference.decide", "stage": "inference gate",
+                "outcome": outcome, "expect_guard": guard, "note": note,
+                "ok": outcome == expect and (guard is None or guard in reasons),
+                "checks": [{"guard": r, "ok": False, "detail": "refused"} for r in reasons] or
+                          [{"guard": "inference_gate", "ok": True, "detail": "every gate check passed"}]}
+
+    spent = {"compile": result, "infer_log": [{"nonce": "n", "at": now_s - 60, "tokens": params["daily_tokens"]}]}
+    return [
+        run("mind_within", f"Think on {allowed_model} within budget", "allow", None,
+            "One signed request, one model call, inside the daily token budget."),
+        run("mind_other_model", "Think on a model not on its allowlist", "deny", "model_not_allowed",
+            "Only the models chosen at birth.", model="forge-unlisted-model"),
+        run("mind_over_budget", "Think after the 24h token budget is spent", "deny", "budget_exhausted",
+            "Supplied state: the whole daily budget used an hour ago.", record=spent),
+        run("mind_revoked", "Think after the owner revokes the agent", "deny", "agent_revoked",
+            "Revoking an agent cuts off its model access too.", live=live("revoked")),
+        run("mind_unsigned", "Think with a forged signature", "deny", "signature",
+            "Every request is signed with the agent's own key.", signature_ok=False),
+    ]
+
+
 def prove(result: Dict[str, Any], assets: Assets, workdir: Path, *, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     probes: List[Dict[str, Any]] = []
@@ -250,5 +292,7 @@ def prove(result: Dict[str, Any], assets: Assets, workdir: Path, *, now: Optiona
                        "holds no mandate for this agent and refuses every agent payment method.",
                        "checks": [{"guard": "mandate_exists", "ok": False, "detail": "no mandate compiled"}]})
     probes.extend(_admission_probes(result, int(now.timestamp())))
+    if "mesh_mind" in result["normalized"]["skills"]:
+        probes.extend(_mind_probes(result, int(now.timestamp())))
     return {"build_hash": result["build_hash"], "ran_at": now.isoformat().replace("+00:00", "Z"),
             "passed": all(p["ok"] for p in probes), "probes": probes}

@@ -109,3 +109,15 @@ test("judge evidence panel labels valid test-key signed-quote refusal as local, 
   assert.match(html, /not a live 1Click signature or on-chain receipt/);
   assert.match(html, /NOT PROVEN BY THIS RECORD/);
 });
+
+test("browser judge applies the mandate recipient list to declared fees", async () => {
+  for (const [recipient, allowed] of [["x3-demo.near", true], ["unlisted.near", false]]) {
+    const scenario = structuredClone(DATA.scenarios.find((scenario) => scenario.id === "authorized"));
+    scenario.intent.source = scenario.intent.source.replace("    require fees", `    fee 25 bps to ${recipient}\n    require fees`);
+    const result = await judge.evaluate(DATA, scenario);
+    const fee = result.checks.find((check) => check.guard === "mandate_app_fee_recipient");
+    assert.equal(fee?.enforced_by, "adapter");
+    assert.equal(fee.ok, allowed);
+    assert.equal(result.decision, allowed ? "preflight_passed" : "denied_by_policy");
+  }
+});

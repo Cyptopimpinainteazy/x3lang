@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # X3 Shield judge one-command gate: local tests only. NEVER signs, deploys or
-# sends funds. Exits nonzero on stale scenarios, policy disagreement, failed
-# tests, or a missing prompt-injection case.
+# sends funds. Exits nonzero on stale scenarios, policy disagreement, a broken
+# invoice_06 sequence, failed tests, or a missing prompt-injection case.
 #
 # Platform lock: this gate requires Linux x86_64 and Python 3.12. The
 # hash-locked judge requirements in scripts/hackathon/requirements-judge.txt
@@ -175,6 +175,9 @@ fi
 # prompt-injection scenario (demo.py alone only iterates scenarios present).
 "$PYTHON" scripts/hackathon/demo.py
 "$PYTHON" scripts/hackathon/demo.py --json | "$PYTHON" -c 'import json, sys; data = json.load(sys.stdin); scenarios = {s["id"]: s for s in data["scenarios"]}; case = scenarios.get("prompt-injection-recipient"); sys.exit(0 if case and case.get("decision") == "denied_by_policy" and case.get("denied_guards") == ["mandate_recipient"] else 1)'
+# 2b. Same invoice_06 payment: written .x3, compiler rejection, archived Guard
+# checks, mainnet transfers, recorded outcome. Offline. Signs nothing.
+"$PYTHON" scripts/hackathon/invoice06_sequence.py
 # 3. Browser parity: Python and the console must agree guard by guard.
 node --test x3-lang/near/demo/test/*.test.mjs
 # 3b. Mainnet invoice_06, link by link, from committed evidence: the .x3 files Guard

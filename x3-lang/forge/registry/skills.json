@@ -254,5 +254,24 @@
     "enforced_by": "agent-runtime",
     "params": [],
     "mutation": {"part": "spikes", "count": 6}
+  },
+  {
+    "id": "mesh_mind",
+    "name": "Mesh Mind",
+    "description": "Think on the X3 GPU mesh: contributed GPUs run its model. Every request is signed by the agent and checked by the Forge gate (active, allowlisted model, token budget). Output is untrusted: the compiler and the mandate decide.",
+    "category": "ai",
+    "risk": 1,
+    "cost": 1,
+    "requires": [],
+    "conflicts": [],
+    "needs": [],
+    "compiles_to": {"kind": "capability", "capability": "ai.infer"},
+    "enforced_by": "forge-gate",
+    "params": [
+      {"id": "models", "label": "Models it may use", "type": "model_list", "min": 1, "max": 8, "default": ["qwen3:8b"]},
+      {"id": "max_tokens", "label": "Max tokens per request", "type": "int", "min": 64, "max": 8192, "default": 1500},
+      {"id": "daily_tokens", "label": "Token budget per rolling 24h", "type": "int", "min": 1000, "max": 5000000, "default": 100000}
+    ],
+    "mutation": {"part": "crown", "count": 5}
   }
 ]

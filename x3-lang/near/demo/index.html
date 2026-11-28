@@ -459,7 +459,7 @@ async function quote() {
     const policy = x3.policyFor(leg, request, await x3.sha256Hex(code.value));
     const m = { ...compiled, version: null, revoked: false, spends: [] };
     const o = x3.resolveAsset(tokens, leg.origin.chain, leg.origin.asset), d = x3.resolveAsset(tokens, leg.destination.chain, leg.destination.asset);
-    mandate = { parsed, compiled, checks: x3.checkMandate(m, policy, Date.now()), approvals: x3.approvalsNeeded(m, policy.amount),
+    mandate = { parsed, compiled, checks: x3.checkMandateForLeg(m, policy, Date.now(), leg), approvals: x3.approvalsNeeded(m, policy.amount),
       t: { oDec: o.decimals, oSym: o.symbol, oChain: leg.origin.chain.charAt(0).toUpperCase() + leg.origin.chain.slice(1), dSym: d.symbol, recipient: leg.recipient, amount: policy.amount,
            slip: policy.slippage_bps, fee: policy.fee_cap_bps, m: compiled.terms } };
     if (mandate.checks.some((c) => !c.ok)) {

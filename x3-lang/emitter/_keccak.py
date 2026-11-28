@@ -103,9 +103,9 @@ def keccak_256(data: bytes) -> bytes:
     rate = 136
     p = bytearray(data)
     p.append(0x01)
-    while len(p) % rate != rate - 1:
-        p.append(0x00)
-    p.append(0x80)
+    p.extend(bytes((-len(p)) % rate))
+    # If the suffix occupied the final byte in a block, it carries both bits.
+    p[-1] |= 0x80
     return _sponge(bytes(p))
 
 
