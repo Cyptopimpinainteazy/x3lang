@@ -44,7 +44,7 @@ python3 x3-lang/address_format.py stellar-g GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 | `bch-cashaddr` | Bitcoin Cash 160-bit P2PKH/P2SH CashAddr with the mainnet prefix or its prefixless form. |
 | `tron-base58`, `xrp-classic` | TRON's 21-byte address payload and XRP's classic 20-byte account ID in their respective checksummed alphabets. |
 | `stellar-g` | Uppercase Stellar Ed25519 account StrKey with its checksum. |
-| `ton-friendly`, `ton-raw` | Friendly form with its checksum and without the test-only flag, or raw workchain 0/−1 plus 32 hex bytes. Raw has no checksum. |
+| `ton-friendly`, `ton-raw` | Both forms accept workchains 0 and −1. The friendly form checks its checksum and rejects the test-only flag. The raw form uses 32 hex bytes and has no checksum. |
 | `move32` | `0x` plus exactly 64 hex digits. This checks a full-width encoding shared by several networks and has no checksum. |
 
 For a TON raw address beginning with a minus sign, put `--` before the address.
@@ -56,8 +56,9 @@ Format references include [BIP-350](https://github.com/bitcoin/bips/blob/master/
 [CashAddr](https://github.com/bitcoincashorg/bitcoincash.org/blob/master/spec/cashaddr.md),
 [TRON accounts](https://developers.tron.network/docs/account),
 [XRPL addresses](https://xrpl.org/docs/references/protocol/data-types/basic-data-types),
-[Stellar SEP-23](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0023.md)
-and [TON TEP-2](https://github.com/ton-blockchain/TEPs/blob/master/text/0002-address.md).
+[Stellar SEP-23](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0023.md),
+[TON TEP-2](https://github.com/ton-blockchain/TEPs/blob/master/text/0002-address.md)
+and [Zcash Core chain parameters](https://github.com/zcash/zcash/blob/master/src/chainparams.cpp).
 
 ## Rust workspace files
 - `Cargo.toml`, `compiler/`, `vm/`, `spec/`, `crates/x3-ast`, `crates/x3-common`, `crates/x3-lexer`, `crates/x3-tools`
