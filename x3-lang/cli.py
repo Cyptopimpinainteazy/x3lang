@@ -444,17 +444,29 @@ def parse_intent(path: str) -> Dict[str, Any]:
     return intent
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Parse an X3 intent file to JSON")
-    parser.add_argument("path", help="path to a .x3 intent")
-    args = parser.parse_args(argv)
+def parse_file(path: str) -> Dict[str, Any]:
+    """Public entry used by tests and the CLI."""
+    return parse_intent(path)
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description='X3 production intent parser -> stable JSON')
+    p.add_argument('input', help='input .x3 intent file')
+    p.add_argument('-o', '--output', help='output json file (stdout if omitted)')
+    args = p.parse_args()
     try:
-        print(json.dumps(parse_intent(args.path), indent=2))
-        return 0
+        out = parse_file(args.input)
+        dumped = json.dumps(out, indent=2)
     except X3ParseError as exc:
-        print(json.dumps(exc.to_dict(), indent=2))
-        return 1
+        dumped = json.dumps({"status": "error", "errors": [exc.to_dict()]}, indent=2)
+        print(dumped, file=sys.stderr)
+        sys.exit(1)
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(dumped)
+    else:
+        print(dumped)
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__ == '__main__':
+    main()
